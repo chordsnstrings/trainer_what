@@ -1,3 +1,5 @@
+import { clientTwinRoutes, currentClientTwin } from "./client-twin.ts";
+import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
@@ -250,6 +252,7 @@ export async function buildApp(
   securityRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity);
+  clientTwinRoutes(app, db, identity);
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
@@ -473,7 +476,7 @@ export async function buildApp(
       user: a,
       tenant,
       records: await tx.query(
-        "SELECT * FROM records ORDER BY updated_at DESC LIMIT 1000",
+        "SELECT * FROM records WHERE kind<>'twin_snapshot' ORDER BY updated_at DESC LIMIT 1000",
       ),
       sets: await tx.query(
         "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",
@@ -531,43 +534,10 @@ export async function buildApp(
     );
     return { ok: true };
   });
-  app.post("/api/v1/tenant/publish", async (req) => {
-    const a = owner(req);
-    requireRecentMfa(a);
-    if (!a.emailVerified)
-      throw fail(
-        409,
-        "EMAIL_UNVERIFIED",
-        "Verify your email before publishing",
-      );
-    if (
-      process.env.LEGAL_APPROVED !== "true" ||
-      process.env.COMMERCE_APPROVED !== "true"
-    )
-      throw fail(
-        409,
-        "PUBLISH_GATES",
-        "Legal and payment readiness must be confirmed before public launch",
-      );
-    const readiness = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT kind,count(*) FROM records WHERE (kind='brain_release' AND status='published') OR (kind='product' AND status='published') GROUP BY kind",
-      ),
-    );
-    if (readiness.length < 2)
-      throw fail(
-        409,
-        "PUBLISH_GATES",
-        "Publish an evaluated Brain and an available offer first",
-      );
-    await db.system((tx) =>
-      tx.query("UPDATE tenants SET published=true WHERE id=$1", [a.tenantId]),
-    );
-    await db.tenant(a, (tx) =>
-      event(tx, a, "storefront.published", a.tenantId),
-    );
-    return { ok: true };
-  });
+  onboardingRoutes(app, db, owner);
+  app.post("/api/v1/tenant/publish", (req) =>
+    publishStorefront(db, owner(req)),
+  );
   app.get("/api/v1/public/trainers/:slug", async (req) => {
     const slug = (req.params as any).slug;
     const [t] = await db.system((tx) =>
@@ -1327,9 +1297,27 @@ export async function buildApp(
         "Complete your coaching profile before using digital coaching",
       );
     const rules = released[0].data.rules;
+    const twin = await db.tenant({ ...a, role: "staff" }, (tx) =>
+      currentClientTwin(tx, a, a.userId),
+    );
     const evidence = [
-      ...rules,
+      {
+        id: twin.id,
+        data: {
+          ...twin.data.coaching,
+          training: {
+            ...twin.data.coaching.training,
+            performance: twin.data.coaching.training.performance
+              .slice(0, 20)
+              .map((p: any) => ({
+                ...p,
+                sourceEventIds: p.sourceEventIds.slice(-10),
+              })),
+          },
+        },
+      },
       ...material.intake.map((r) => ({ id: r.id, data: r.data })),
+      ...rules,
     ];
     const generated = await modelDecision(
       "coaching",
@@ -1345,7 +1333,7 @@ export async function buildApp(
         {
           ...generated.decision,
           brainVersionId: released[0].id,
-          clientSnapshotId: material.intake[0]?.id ?? null,
+          clientSnapshotId: twin.id,
         },
         { ownerId: a.userId, status: "pending_review" },
       );
@@ -1976,7 +1964,7 @@ export async function buildApp(
       );
       if (!b.granted)
         await tx.query(
-          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable')",
+          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
           [a.userId],
         );
       await event(tx, a, "consent.changed", undefined, b);

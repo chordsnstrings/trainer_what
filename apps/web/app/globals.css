@@ -1774,3 +1774,96 @@ blockquote {
     animation: none !important;
   }
 }
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.onboarding-steps a {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid var(--border, #dce2dc);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.onboarding-steps a[aria-current="step"] {
+  background: #eaf0e4;
+  border-color: #274b48;
+}
+.onboarding-steps small {
+  color: #65777c;
+  margin-top: 4px;
+}
+.onboarding-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+.storefront-preview {
+  max-width: 700px;
+  margin: auto;
+  padding: 24px;
+  background: #f6f7f3;
+  border-radius: 12px;
+}
+@media (max-width: 700px) {
+  .onboarding-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .onboarding-steps a {
+    padding: 10px;
+  }
+  .storefront-preview {
+    padding: 12px;
+  }
+}
+
+.marketing-page {
+  min-height: 65vh;
+}
+.marketing-page > h1 {
+  font-size: clamp(32px, 5vw, 64px);
+  line-height: 1.08;
+  max-width: 850px;
+  letter-spacing: -0.04em;
+  margin: 16px 0 24px;
+}
+.marketing-intro {
+  font-size: 19px;
+  line-height: 1.7;
+  max-width: 800px;
+  margin-bottom: 36px;
+}
+.marketing-page .card {
+  margin-bottom: 20px;
+}
+.marketing-page .card h2 {
+  font-size: 26px;
+}
+.demo-options,
+.marketing-cta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 28px 0;
+}
+.pricing-totals > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid #dce2dc;
+}
+.pricing-totals dd {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.marketing-page summary {
+  cursor: pointer;
+  font-weight: 600;
+}

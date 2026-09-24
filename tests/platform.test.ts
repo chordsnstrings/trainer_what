@@ -1323,72 +1323,472 @@ async function withModelFixture(run: () => Promise<void>) {
     MODEL_PRICE_VERSION: "synthetic-price-v1",
     MODEL_MAX_DAILY_CALLS: "100",
   };
-  const before = Object.fromEntries(Object.keys(config).map(key => [key,process.env[key]]));
+  const before = Object.fromEntries(
+    Object.keys(config).map((key) => [key, process.env[key]]),
+  );
   const fetchBefore = globalThis.fetch;
-  Object.assign(process.env,config);
-  try { await run(); }
-  finally {
-    globalThis.fetch=fetchBefore;
-    for (const [key,value] of Object.entries(before)) {
-      if (value===undefined) delete process.env[key]; else process.env[key]=value;
+  Object.assign(process.env, config);
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = fetchBefore;
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   }
 }
 
 test("model usage survives invalid output, missing usage and network uncertainty", async () => {
-  const coach=await register("model-accounting");
-  const source=await request("/brain/sources","POST",{title:"Test training source",text:"Progress exercises conservatively after reviewing the current session.",rights:true},coach.cookie);
-  assert.equal(source.statusCode,200,source.body);
-  const compile=()=>request("/brain/compile","POST",{sourceIds:[source.json().id]},coach.cookie);
-  let call=0;
-  await withModelFixture(async()=>{
-    globalThis.fetch=async()=>{
-      const reservations=await db.tenant(coach,tx=>tx.query("SELECT * FROM cost_events WHERE status='reserved'"));
-      assert.equal(reservations.length,1,"reservation must commit before provider request");
-      assert.equal(reservations[0].cost_usd,null);
+  const coach = await register("model-accounting");
+  const source = await request(
+    "/brain/sources",
+    "POST",
+    {
+      title: "Test training source",
+      text: "Progress exercises conservatively after reviewing the current session.",
+      rights: true,
+    },
+    coach.cookie,
+  );
+  assert.equal(source.statusCode, 200, source.body);
+  const compile = () =>
+    request(
+      "/brain/compile",
+      "POST",
+      { sourceIds: [source.json().id] },
+      coach.cookie,
+    );
+  let call = 0;
+  await withModelFixture(async () => {
+    globalThis.fetch = async () => {
+      const reservations = await db.tenant(coach, (tx) =>
+        tx.query("SELECT * FROM cost_events WHERE status='reserved'"),
+      );
+      assert.equal(
+        reservations.length,
+        1,
+        "reservation must commit before provider request",
+      );
+      assert.equal(reservations[0].cost_usd, null);
       call++;
-      if (call===3) throw new Error("Synthetic timeout; no provider response received");
-      return new Response(JSON.stringify({id:`fixture-${call}`,choices:[{message:{content:call===1?'invalid JSON':'{"rules":[],"conflicts":[]}'}}],...(call===1?{usage:{prompt_tokens:100,completion_tokens:50}}:{})}),{status:200});
+      if (call === 3)
+        throw new Error("Synthetic timeout; no provider response received");
+      return new Response(
+        JSON.stringify({
+          id: `fixture-${call}`,
+          choices: [
+            {
+              message: {
+                content:
+                  call === 1 ? "invalid JSON" : '{"rules":[],"conflicts":[]}',
+              },
+            },
+          ],
+          ...(call === 1
+            ? { usage: { prompt_tokens: 100, completion_tokens: 50 } }
+            : {}),
+        }),
+        { status: 200 },
+      );
     };
-    const invalid=await compile();
-    assert.equal(invalid.statusCode,503,invalid.body);
-    const missing=await compile();
-    assert.equal(missing.statusCode,200,missing.body);
-    const uncertain=await compile();
-    assert.equal(uncertain.statusCode,500,uncertain.body);
+    const invalid = await compile();
+    assert.equal(invalid.statusCode, 503, invalid.body);
+    const missing = await compile();
+    assert.equal(missing.statusCode, 200, missing.body);
+    const uncertain = await compile();
+    assert.equal(uncertain.statusCode, 500, uncertain.body);
   });
-  const rows=await db.tenant(coach,tx=>tx.query("SELECT * FROM cost_events ORDER BY created_at"));
-  assert.equal(rows.length,3);
-  assert.equal(rows[0].status,"recorded");
-  assert.equal(Number(rows[0].cost_usd),0.0002);
-  assert.equal(rows[0].input_tokens,100);
-  assert.equal(rows[0].pricing.inputUsdPerMillion,1);
-  for (const r of rows.slice(1)) {assert.equal(r.status,"unknown");assert.equal(r.cost_usd,null);assert.equal(r.input_tokens,null);}
-  assert.equal((await db.tenant(coach,tx=>tx.query("SELECT id FROM records WHERE kind='rule'"))).length,0);
-  await assert.rejects(db.tenant(coach,tx=>tx.query("UPDATE cost_events SET cost_usd=0 WHERE id=$1",[rows[0].id])),/Finalized usage/);
-  await assert.rejects(db.tenant(coach,tx=>tx.query("DELETE FROM cost_events WHERE id=$1",[rows[0].id])));
-  assert.equal((await db.tenant(b,tx=>tx.query("SELECT id FROM cost_events WHERE id=$1",[rows[0].id]))).length,0);
-  const {reconcileModelUsage}=await import("../apps/api/src/finance-operations.ts");
-  const evidence={costUsd:"0.00015000",providerRequestId:rows[1].trace_id,evidenceReference:"Synthetic provider invoice evidence"};
-  const reconciled=await db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,evidence));
-  assert.equal(reconciled.status,"reconciled");
-  assert.equal(Number(reconciled.cost_usd),0.00015);
-  assert.equal((await db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,evidence))).id,reconciled.id);
-  await assert.rejects(db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,{...evidence,costUsd:"0"})),/different reconciliation/);
-  const forbidden=await request(`/admin/tenants/${coach.tenantId}/finance/usage/${rows[2].id}/reconcile`,"POST",{...evidence,providerRequestId:"fixture-missing-request"},coach.cookie);
-  assert.equal(forbidden.statusCode,403,forbidden.body);
+  const rows = await db.tenant(coach, (tx) =>
+    tx.query("SELECT * FROM cost_events ORDER BY created_at"),
+  );
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].status, "recorded");
+  assert.equal(Number(rows[0].cost_usd), 0.0002);
+  assert.equal(rows[0].input_tokens, 100);
+  assert.equal(rows[0].pricing.inputUsdPerMillion, 1);
+  for (const r of rows.slice(1)) {
+    assert.equal(r.status, "unknown");
+    assert.equal(r.cost_usd, null);
+    assert.equal(r.input_tokens, null);
+  }
+  assert.equal(
+    (
+      await db.tenant(coach, (tx) =>
+        tx.query("SELECT id FROM records WHERE kind='rule'"),
+      )
+    ).length,
+    0,
+  );
+  await assert.rejects(
+    db.tenant(coach, (tx) =>
+      tx.query("UPDATE cost_events SET cost_usd=0 WHERE id=$1", [rows[0].id]),
+    ),
+    /Finalized usage/,
+  );
+  await assert.rejects(
+    db.tenant(coach, (tx) =>
+      tx.query("DELETE FROM cost_events WHERE id=$1", [rows[0].id]),
+    ),
+  );
+  assert.equal(
+    (
+      await db.tenant(b, (tx) =>
+        tx.query("SELECT id FROM cost_events WHERE id=$1", [rows[0].id]),
+      )
+    ).length,
+    0,
+  );
+  const { reconcileModelUsage } =
+    await import("../apps/api/src/finance-operations.ts");
+  const evidence = {
+    costUsd: "0.00015000",
+    providerRequestId: rows[1].trace_id,
+    evidenceReference: "Synthetic provider invoice evidence",
+  };
+  const reconciled = await db.tenant(coach, (tx) =>
+    reconcileModelUsage(tx, coach, rows[1].id, evidence),
+  );
+  assert.equal(reconciled.status, "reconciled");
+  assert.equal(Number(reconciled.cost_usd), 0.00015);
+  assert.equal(
+    (
+      await db.tenant(coach, (tx) =>
+        reconcileModelUsage(tx, coach, rows[1].id, evidence),
+      )
+    ).id,
+    reconciled.id,
+  );
+  await assert.rejects(
+    db.tenant(coach, (tx) =>
+      reconcileModelUsage(tx, coach, rows[1].id, { ...evidence, costUsd: "0" }),
+    ),
+    /different reconciliation/,
+  );
+  const forbidden = await request(
+    `/admin/tenants/${coach.tenantId}/finance/usage/${rows[2].id}/reconcile`,
+    "POST",
+    { ...evidence, providerRequestId: "fixture-missing-request" },
+    coach.cookie,
+  );
+  assert.equal(forbidden.statusCode, 403, forbidden.body);
 });
 
-test("concurrent model requests cannot exceed the workspace daily limit", async()=>{
-  const coach=await register("model-budget");
-  const source=await request("/brain/sources","POST",{title:"Test budget source",text:"Trainer review is required for significant changes in training load.",rights:true},coach.cookie);
-  let calls=0;
-  await withModelFixture(async()=>{
-    process.env.MODEL_MAX_DAILY_CALLS="1";
-    globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({id:"fixture-budget",usage:{prompt_tokens:10,completion_tokens:5},choices:[{message:{content:'{"rules":[],"conflicts":[]}'}}]}),{status:200});};
-    const results=await Promise.all([1,2].map(()=>request("/brain/compile","POST",{sourceIds:[source.json().id]},coach.cookie)));
-    assert.deepEqual(results.map(r=>r.statusCode).sort(),[200,429]);
-    assert.equal(calls,1);
+test("concurrent model requests cannot exceed the workspace daily limit", async () => {
+  const coach = await register("model-budget");
+  const source = await request(
+    "/brain/sources",
+    "POST",
+    {
+      title: "Test budget source",
+      text: "Trainer review is required for significant changes in training load.",
+      rights: true,
+    },
+    coach.cookie,
+  );
+  let calls = 0;
+  await withModelFixture(async () => {
+    process.env.MODEL_MAX_DAILY_CALLS = "1";
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({
+          id: "fixture-budget",
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+          choices: [{ message: { content: '{"rules":[],"conflicts":[]}' } }],
+        }),
+        { status: 200 },
+      );
+    };
+    const results = await Promise.all(
+      [1, 2].map(() =>
+        request(
+          "/brain/compile",
+          "POST",
+          { sourceIds: [source.json().id] },
+          coach.cookie,
+        ),
+      ),
+    );
+    assert.deepEqual(results.map((r) => r.statusCode).sort(), [200, 429]);
+    assert.equal(calls, 1);
   });
-  assert.equal((await db.tenant(coach,tx=>tx.query("SELECT id FROM cost_events"))).length,1);
+  assert.equal(
+    (await db.tenant(coach, (tx) => tx.query("SELECT id FROM cost_events")))
+      .length,
+    1,
+  );
+});
+
+test("all onboarding steps resume with optimistic concurrency and server-checked publishing", async () => {
+  const coach = await register("onboarding-check");
+  const first = await request("/onboarding", "GET", undefined, coach.cookie);
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().steps.length, 16);
+  assert.equal(first.json().licenceStatus, "NOT_REQUESTED");
+  const values = {
+    businessName: "Fixture Training",
+    publicName: "Fixture Coach",
+    city: "Dubai",
+    country: "AE",
+    category: "Strength",
+    audience: "Adults building training consistency",
+  };
+  const saved = await request(
+    "/onboarding/identity",
+    "PUT",
+    { version: 0, values },
+    coach.cookie,
+  );
+  assert.equal(saved.statusCode, 200, saved.body);
+  const conflict = await request(
+    "/onboarding/identity",
+    "PUT",
+    { version: 0, values: { ...values, city: "Abu Dhabi" } },
+    coach.cookie,
+  );
+  assert.equal(conflict.statusCode, 409, conflict.body);
+  const resumed = (
+    await request("/onboarding", "GET", undefined, coach.cookie)
+  ).json();
+  assert.equal(
+    resumed.steps.find((s: any) => s.key === "identity").values.city,
+    "Dubai",
+  );
+  assert.equal(
+    resumed.steps.find((s: any) => s.key === "identity").status,
+    "complete",
+  );
+  assert.equal(
+    (await request("/onboarding", "GET", undefined, subscriber.cookie))
+      .statusCode,
+    403,
+  );
+  assert.deepEqual(
+    (await request("/onboarding", "GET", undefined, b.cookie))
+      .json()
+      .steps.find((s: any) => s.key === "identity").values,
+    {},
+  );
+  assert.equal(
+    (
+      await request(
+        "/onboarding/publish",
+        "PUT",
+        { version: 0, values: { approved: true } },
+        coach.cookie,
+      )
+    ).statusCode,
+    400,
+  );
+  assert.equal(
+    (await request("/tenant/publish", "POST", {}, coach.cookie)).statusCode,
+    409,
+  );
+  const preview = await request(
+    "/onboarding/preview",
+    "PUT",
+    { version: 0, values: {} },
+    coach.cookie,
+  );
+  assert.equal(preview.statusCode, 200, preview.body);
+  assert.equal(
+    (await request("/onboarding", "GET", undefined, coach.cookie))
+      .json()
+      .steps.find((s: any) => s.key === "preview").status,
+    "complete",
+  );
+  const brand = await request(
+    "/tenant/brand",
+    "PUT",
+    {
+      name: "Changed identity",
+      bio: "An updated coaching business.",
+      category: "Strength",
+      headline: "A new headline",
+      accent: "#264a48",
+    },
+    coach.cookie,
+  );
+  assert.equal(brand.statusCode, 200, brand.body);
+  assert.equal(
+    (await request("/onboarding", "GET", undefined, coach.cookie))
+      .json()
+      .steps.find((s: any) => s.key === "preview").status,
+    "draft",
+  );
+  const voice = await request(
+    "/onboarding/voice",
+    "PUT",
+    { version: 0, values: {}, defer: true },
+    coach.cookie,
+  );
+  assert.equal(voice.statusCode, 200, voice.body);
+  assert.equal(
+    (await request("/onboarding", "GET", undefined, coach.cookie))
+      .json()
+      .steps.find((s: any) => s.key === "voice").status,
+    "deferred",
+  );
+});
+
+test("Client Twin baselines deduplicate observations and distinguish missing, stale and denied data", async () => {
+  const { clientTwin } = await import("../packages/domain/src/client-twin.ts");
+  const now = new Date("2026-09-24T12:00:00Z"),
+    day = 86400000,
+    sourceId = randomUUID();
+  const samples = [66, 60, 61, 62, 60, 300, 61, 62].map((value, i) => ({
+    type: "resting_heart_rate",
+    value,
+    unit: "bpm",
+    measuredAt: new Date(now.getTime() - i * day).toISOString(),
+  }));
+  const source = {
+    id: sourceId,
+    kind: "wearable",
+    status: "imported",
+    created_at: now.toISOString(),
+    data: {
+      source: "apple_health",
+      allowedUses: ["render", "deterministic_feature"],
+      observations: samples,
+    },
+  };
+  const oldIntake = {
+    id: randomUUID(),
+    kind: "intake",
+    status: "complete",
+    created_at: new Date(now.getTime() - 100 * day).toISOString(),
+    data: { age: 30, limitations: "" },
+  };
+  const input = {
+    records: [source, { ...source, id: randomUUID() }, oldIntake],
+    sets: [],
+    coachingConsent: true,
+    wearableConsent: null,
+    now,
+  };
+  const twin = clientTwin(input),
+    metric = twin.wearables.metrics.find(
+      (m) => m.key === "resting_heart_rate",
+    )!;
+  assert.equal(
+    metric.sampleCount,
+    8,
+    "overlapping imports must not double-count samples",
+  );
+  assert.equal(
+    metric.baseline,
+    61,
+    "outlier does not redefine the median baseline",
+  );
+  assert.equal(metric.state, "current");
+  assert.equal(metric.baselineDays, 7);
+  assert.equal(metric.partial, true);
+  assert.equal(
+    twin.coaching.profile.find((f) => f.key === "age")?.state,
+    "stale",
+  );
+  assert.equal(
+    twin.coaching.profile.find((f) => f.key === "limitations")?.state,
+    "missing",
+  );
+  assert.equal(
+    twin.wearables.metrics.find((m) => m.key === "hrv")?.state,
+    "unknown",
+  );
+  const denied = clientTwin({ ...input, wearableConsent: false });
+  assert.equal(denied.wearables.metrics[0].state, "permission_denied");
+  assert.equal(denied.wearables.metrics[0].sampleCount, 0);
+  const stale = clientTwin({
+    ...input,
+    now: new Date(now.getTime() + 3 * day),
+  });
+  assert.equal(stale.wearables.metrics[0].state, "stale");
+  assert.throws(() => allowedModelEvidence([{ id: randomUUID(), data: twin }]));
+  assert.doesNotThrow(() =>
+    allowedModelEvidence([{ id: randomUUID(), data: twin.coaching }]),
+  );
+  assert.equal(JSON.stringify(twin.coaching).includes("apple_health"), false);
+});
+
+test("Client Twin snapshots are scoped, stable, versioned and respect revoked consent", async () => {
+  const coach = await register("twin-check");
+  const invite = await request(
+    "/invitations",
+    "POST",
+    { email: "twin-client@example.test", role: "subscriber" },
+    coach.cookie,
+  );
+  const joined = await request("/invitations/accept", "POST", {
+    token: invite.json().url.split("/").pop(),
+    email: "twin-client@example.test",
+    name: "Twin Client",
+    password: "TestingTwin2026!",
+  });
+  const cookie = String(joined.headers["set-cookie"]).split(";")[0],
+    client = (await request("/bootstrap", "GET", undefined, cookie)).json()
+      .user;
+  const profile = {
+    age: 30,
+    goal: "Build strength consistently",
+    experience: "beginner",
+    daysPerWeek: 3,
+    equipment: "Dumbbells",
+    limitations: "",
+    consent: true,
+  };
+  assert.equal(
+    (await request("/intake", "POST", profile, cookie)).statusCode,
+    200,
+  );
+  const route = `/clients/${client.userId}/twin`;
+  const first = await request(route, "GET", undefined, cookie);
+  assert.equal(first.statusCode, 200, first.body);
+  const repeated = await request(route, "GET", undefined, coach.cookie);
+  assert.equal(repeated.statusCode, 200, repeated.body);
+  assert.equal(repeated.json().id, first.json().id);
+  assert.equal(
+    (await request(route, "GET", undefined, b.cookie)).statusCode,
+    404,
+  );
+  assert.equal(
+    (await request(route, "GET", undefined, subscriber.cookie)).statusCode,
+    403,
+  );
+  await assert.rejects(
+    db.tenant(coach, (tx) =>
+      tx.query(
+        "UPDATE records SET data=data||'{\"changed\":true}'::jsonb WHERE id=$1",
+        [first.json().id],
+      ),
+    ),
+    /versioned/,
+  );
+  assert.equal(
+    (await request("/intake", "POST", { ...profile, daysPerWeek: 4 }, cookie))
+      .statusCode,
+    200,
+  );
+  const revised = (await request(route, "GET", undefined, cookie)).json();
+  assert.notEqual(revised.id, first.json().id);
+  assert.equal(
+    revised.data.coaching.profile.find((f: any) => f.key === "daysPerWeek")
+      .value,
+    4,
+  );
+  assert.equal(
+    (
+      await request(
+        "/privacy/consent",
+        "POST",
+        { type: "coaching", granted: false },
+        cookie,
+      )
+    ).statusCode,
+    200,
+  );
+  const revoked = (await request(route, "GET", undefined, cookie)).json();
+  assert.equal(revoked.data.coaching.consent, false);
+  assert.deepEqual(revoked.data.coaching.allowedUses, ["render"]);
 });

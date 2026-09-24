@@ -1,4 +1,7 @@
 "use client";
+import { Onboarding } from "./onboarding";
+import { ClientTwin } from "./client-twin";
+import { MarketingPage } from "./marketing-pages";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
@@ -73,6 +76,7 @@ type State = {
 };
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
+  ["Setup", "/trainer/onboarding/account", CheckCircle],
   ["My Brain", "/trainer/brain", Brain],
   ["Subscribers", "/trainer/subscribers", Users],
   ["Programs", "/trainer/programs", Layers],
@@ -93,6 +97,7 @@ const subNav = [
   ["Bookings", "/app/bookings", Activity],
   ["Support", "/app/support", MessageCircle],
   ["Progress", "/app/progress", Activity],
+  ["Coaching context", "/app/twin", Brain],
   ["Membership", "/app/membership", Wallet],
   ["Connections", "/app/wearables", Link2],
   ["My profile", "/app/profile", Settings],
@@ -344,7 +349,13 @@ export default function Workspace() {
         onAuthenticated={async () => {
           await load();
           const s = await api("/bootstrap");
-          router.push(s.user.role === "subscriber" ? "/app" : "/trainer");
+          router.push(
+            s.user.role === "subscriber"
+              ? "/app"
+              : path === "/signup"
+                ? "/trainer/onboarding/identity"
+                : "/trainer",
+          );
         }}
       />
     );
@@ -502,7 +513,9 @@ export default function Workspace() {
           )}
           {path.startsWith("/admin") ? (
             <Admin {...props} />
-          ) : path.includes("/onboarding") || path.includes("/brand") ? (
+          ) : path.includes("/onboarding") ? (
+            <OnboardingView {...props} />
+          ) : path.includes("/brand") ? (
             <Brand {...props} />
           ) : path.includes("/bookings") ? (
             <Bookings role={state.user.role} />
@@ -510,8 +523,17 @@ export default function Workspace() {
             <Support records={records("support")} action={action} busy={busy} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
+          ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
+            <ClientTwin
+              userId={path.split("/")[3]}
+              name={
+                state.members?.find((m) => m.id === path.split("/")[3])?.name
+              }
+            />
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
+          ) : path === "/app/twin" ? (
+            <ClientTwin userId={state.user.userId} subscriber />
           ) : path.includes("/program") ? (
             <Programs {...props} />
           ) : path.includes("/workouts") ? (
@@ -783,6 +805,47 @@ function Overview({ state, records }: ViewProps) {
         )}
       </Card>
     </>
+  );
+}
+
+function OnboardingView(props: ViewProps) {
+  const step = props.path.split("/")[3] ?? "account";
+  const child =
+    step === "brand" ? (
+      <Brand {...props} />
+    ) : [
+        "interview",
+        "uploads",
+        "knowledge",
+        "scenarios",
+        "readiness",
+      ].includes(step) ? (
+      <BrainView
+        {...props}
+        path={
+          step === "readiness"
+            ? "/trainer/brain/releases"
+            : step === "scenarios"
+              ? "/trainer/brain/scenarios"
+              : "/trainer/brain"
+        }
+      />
+    ) : step === "offer" ? (
+      <Finance {...props} path="/trainer/products" />
+    ) : step === "payout" ? (
+      <PayoutView {...props} />
+    ) : null;
+  return (
+    <Onboarding
+      stepKey={step}
+      key={step}
+      revision={JSON.stringify([
+        props.state.tenant.theme,
+        props.state.records.map((r) => [r.id, r.version, r.status]),
+      ])}
+    >
+      {child}
+    </Onboarding>
   );
 }
 
@@ -1485,7 +1548,9 @@ function Members({ state, records, action, busy }: ViewProps) {
                   {members.map((m) => (
                     <tr key={m.id}>
                       <td>
-                        <strong>{m.name}</strong>
+                        <Link href={`/trainer/subscribers/${m.id}`}>
+                          <strong>{m.name}</strong>
+                        </Link>
                         <small>{m.email}</small>
                       </td>
                       <td>
@@ -1535,10 +1600,6 @@ function Members({ state, records, action, busy }: ViewProps) {
             <Field label="Email address">
               <input type="email" name="email" required />
             </Field>
-            <select name="role" aria-label="Team role">
-              <option value="staff">Coaching staff</option>
-              <option value="finance">Finance staff</option>
-            </select>
             <Button type="submit" disabled={busy}>
               Create invitation <ArrowUpRight size={16} />
             </Button>
@@ -3279,6 +3340,7 @@ function Public({
         </Link>
         <nav>
           <Link href="/how-it-works">How it works</Link>
+          <Link href="/demo">Demo</Link>
           <Link href="/pricing">The economics</Link>
           <Link href="/login">Sign in</Link>
         </nav>
@@ -3509,6 +3571,8 @@ function Public({
             <p>{error || "Loading coaching page…"}</p>
           )}
         </main>
+      ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
+        <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
         <main className="legal public-section">
           <p className="eyebrow">TRANSPARENCY</p>

@@ -1,6 +1,6 @@
 # Screen and requirements coverage
 
-Status: every capability below is **PLANNED / NOT IMPLEMENTED**. This is a complete group-level mapping of source Appendix J, plus all main sections and appendices. Each implementation issue must expand its group into field/state-level checks and attach evidence. Passing a group requires every applicable source behavior, not just the route.
+Status: this table is the source coverage baseline; implementation is now underway. See [BUILD_STATUS.md](BUILD_STATUS.md) for delivered behavior, observed checks and remaining boundaries. No group is declared complete merely because a route exists. This is a complete group-level mapping of source Appendix J, plus all main sections and appendices. Each implementation issue must expand its group into field/state-level checks and attach evidence. Passing a group requires every applicable source behavior, not just the route.
 
 ## Route and release conventions
 
@@ -131,7 +131,7 @@ Additional concurrency checks: stale form version, session expiry during mutatio
 
 ## Source-to-work coverage
 
-These 31 entries cover the source document structure. They establish ownership and traceability; implementation must retain the detailed requirements within each source section. All evidence is currently pending.
+These 31 entries cover the source document structure. They establish ownership and traceability; implementation must retain the detailed requirements within each source section. Evidence is being recorded in BUILD_STATUS.md; full source-level release acceptance remains pending.
 
 | Source | Coverage / evidence | Work IDs |
 | --- | --- | --- |

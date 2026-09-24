@@ -100,7 +100,7 @@ export function privacyOperations(
         request.owner_user_id,
       ]);
       await tx.query(
-        "DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('intake','program','workout','message','exception','decision','takeover','preferences','settings','wearable','support','checkout')",
+        "DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('intake','program','workout','message','exception','decision','takeover','preferences','settings','wearable','twin_snapshot','support','checkout')",
         [request.owner_user_id],
       );
       await tx.query("DELETE FROM workout_events WHERE user_id=$1", [

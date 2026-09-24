@@ -7,25 +7,25 @@ Checkpoint: 24 September 2026. This file reports code and observed checks, separ
 | Check | Observed result |
 | --- | --- |
 | TypeScript | Passed |
-| Automated tests | 34 passed, 0 failed; real PGlite/PostgreSQL engine and Fastify requests |
+| Automated tests | 37 passed, 0 failed; real PGlite/PostgreSQL engine and Fastify requests |
 | Next.js production build | Passed |
-| Existing local fixture database | Eight migrations defined; upgrade and seed check pending for the latest revision |
-| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348) on `a49e4db`: login, trainer/admin routes, 390px navigation, no overflow or page errors; desktop and mobile screenshots visually reviewed |
-| GitHub Actions | Clean-checkout tests/build passed on `0fcd83d`; expanded offline browser test found a reload failure, fix under verification |
-| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36026059303) on `0fcd83d`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
+| Existing local fixture database | Nine migrations applied; existing fixture upgrade and idempotent seed passed |
+| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36028332141) on `b820c9f`: production web server, offline workout reload/replay/completion, desktop/mobile navigation; expanded onboarding/Twin/public journeys are under verification |
+| GitHub Actions | Both application and PostgreSQL/container jobs passed on `b820c9f`; current core-workflow expansion is under verification |
+| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36028332141) on `b820c9f`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
 | Staging / DigitalOcean | Not deployed; account, region and budget unavailable |
 | Stripe / Lean / model / email calls | No live provider call performed |
 
-The suite covers commission boundaries, RLS and directory boundaries, authentication/origin checks, single-use invitations, consent, workout replay and safety holds, balanced and sealed journals, payout reservation/uncertain outcomes/returns/revisions, Stripe event replay and signatures, refunds, disputes, stale subscription events, MFA replay and invitation bypass, password recovery, booking capacity, support isolation, unavailable-provider behavior, consent/takeover enforcement, bounded PDF/DOCX extraction, entity rejection, local privacy erasure, staff scopes, funding rechecks and usage-charge posting.
+The suite covers commission boundaries, RLS and directory boundaries, authentication/origin checks, single-use invitations, consent, workout replay and safety holds, balanced and sealed journals, payout reservation/uncertain outcomes/returns/revisions, Stripe event replay and signatures, refunds, disputes, stale subscription events, MFA replay and invitation bypass, password recovery, booking capacity, support isolation, unavailable-provider behavior, consent/takeover enforcement, bounded PDF/DOCX extraction, entity rejection, local privacy erasure, staff scopes, funding rechecks and usage-charge posting, durable model-cost accounting, concurrent AI request caps, 16-step onboarding concurrency/preview invalidation, Client Twin source/freshness/rights and versioned isolation.
 
 ## Implemented behavior
 
 | Area | Delivered | Remaining boundary |
 | --- | --- | --- |
-| Foundation (005–009) | npm monorepo, API/web/worker, eight migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, expanded offline browser/accessibility/performance/restore evidence; verified custom-host resolution |
-| Acquisition/onboarding (010–011) | Landing/calculator, signup/login/recovery, stored brand, public coach enrollment, onboarding record/checkpoints | Dedicated full acquisition pages, attribution, every source onboarding step and cross-device acceptance |
+| Foundation (005–009) | npm monorepo, API/web/worker, nine migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, expanded offline browser/accessibility/performance/restore evidence; verified custom-host resolution |
+| Acquisition/onboarding (010–011) | Dedicated acquisition/how-it-works/scripted-demo/pricing/FAQ pages, signup/login/recovery, stored brand, public coach enrollment, 16-step registry with identity autosave/CAS resume, server-derived readiness, preview invalidation and publish gates | Attribution, brand media uploads, advanced onboarding capabilities tied to their provider issues and actual separate-device acceptance |
 | Brain (012–014) | PDF/DOCX/text sources and interview, rights metadata, bounded compilation adapter, draft review/conflicts/corrections, 20-case evaluation, digest-pinned supervised release/rollback | OCR/audio/image ingestion, parser isolation/security scanning, sophisticated retrieval/conflict evaluation, real provider traces and broader safety corpus |
-| Coaching (015–017) | Versioned intake records/consent, assigned programs, set logs, local queue/PWA implementation, messaging, takeover, structured model decisions awaiting review, approved-program assignment | Browser offline recovery evidence, complete Twin freshness/uncertainty engine, exercise-media library and advanced deterministic adaptations |
+| Coaching (015–017) | Versioned intake/consent and Client Twin snapshots, dated facts, robust personal baselines with coverage/lineage and import deduplication, assigned programs, set logs, verified offline reload/replay, messaging, takeover, structured decisions awaiting review, approved-program assignment | Broader Twin domains, program-schedule adherence/advanced deterministic adaptations, exercise-media library, real-device PWA and accessibility coverage |
 | Commerce (018–022) | Stable Checkout intent, products/prices, cancel/reactivate, signature/inbox validation, subscription projection, refund/dispute ledger, settlement evidence entry, monthly close, reviewed destination, payout reservations/holds/revisions | Provider sandbox/canary, approved commission/fee/tax policy, automatic Stripe/bank reconciliation, provider validation of refund-uncertainty recovery, Lean transport/finality verification and callbacks |
 | Privacy (023) | Consent versions/revocation, export, reviewed subscriber local erasure, retained finance/audit references, restricted model evidence | Reviewed legal content, automatic provider/backups erasure and trainer/workspace closure, retention/incident processes |
 | Integrations (026–029,033) | Numeric Apple export parser/import, rights tags, duplicate-batch guard | WHOOP/Zepp approved adapters, fine-grained overlapping-import deduplication, custom domains, voice, native HealthKit/BLE companion |
@@ -49,7 +49,7 @@ A provider placeholder or unavailable badge is not an implemented integration. T
 
 1. Configure separate nonproduction provider credentials through environment secrets. Verify provider contracts and business acceptance using account-specific sandbox evidence.
 2. Supply reviewed terms/privacy/disclosure, retention/tax/fee policy, actual bank review requirements, budget and approved region/domain.
-3. Run browser smoke and full PostgreSQL/container checks; fix findings and capture screenshots. Exercise concurrency against PostgreSQL rather than relying only on embedded serialization.
+3. Retain passing browser and PostgreSQL/container evidence for each release; expand actual-device, accessibility, load and restore checks. The embedded and network PostgreSQL suites are both required.
 4. Complete the remaining implementation rows above; verify each source acceptance criterion. Run threat/safety/accessibility/load review and demonstrated restore/rollback.
 5. Deploy staging and conduct an approved, bounded live canary only after the corresponding gates pass.
 

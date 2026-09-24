@@ -11,8 +11,13 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 const errors = [];
 const failedRequests = [];
+const visitedRoutes = new Set();
 const pages = [page];
 function observe(page) {
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && frame.url().startsWith(base))
+      visitedRoutes.add(new URL(frame.url()).pathname);
+  });
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("requestfailed", (r) =>
     failedRequests.push({ url: r.url(), error: r.failure()?.errorText }),
@@ -28,6 +33,16 @@ try {
     path: "test-results/landing-desktop.png",
     fullPage: true,
   });
+  for (const route of ["/how-it-works", "/demo", "/pricing", "/faq"]) {
+    await page.goto(base + route);
+    await page.locator(".marketing-page h1").waitFor();
+    if (route === "/demo") {
+      await page
+        .getByRole("button", { name: "New pain is reported", exact: true })
+        .click();
+      await page.getByText("Workout paused", { exact: true }).waitFor();
+    }
+  }
   await page.goto(base + "/login");
   await page.getByLabel("Email address").fill("coach@example.test");
   await page
@@ -52,6 +67,38 @@ try {
     await page.goto(base + route);
     await page.locator(".page-heading h1").waitFor();
   }
+  await page.goto(base + "/trainer/onboarding/identity");
+  await page
+    .getByRole("heading", { name: "Business identity", exact: true })
+    .waitFor();
+  const savedIdentity = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/onboarding/identity") &&
+      r.request().method() === "PUT" &&
+      r.request().postDataJSON().values.audience ===
+        "Adults building a lasting training habit",
+  );
+  for (const [label, value] of [
+    ["Business or trade name", "Morgan Coaching"],
+    ["Public coach name", "Alex Morgan"],
+    ["City", "Dubai"],
+    ["Coaching specialty", "Strength"],
+    ["Who you coach", "Adults building a lasting training habit"],
+  ])
+    await page.getByLabel(label, { exact: true }).fill(value);
+  await page.getByRole("button", { name: "Save now", exact: true }).click();
+  const savedResponse = await savedIdentity;
+  if (!savedResponse.ok()) throw new Error("Onboarding save failed");
+  await page
+    .getByText("Saved. You can continue on another device.", { exact: true })
+    .waitFor();
+  await page.reload();
+  if (
+    (await page
+      .getByLabel("Business or trade name", { exact: true })
+      .inputValue()) !== "Morgan Coaching"
+  )
+    throw new Error("Onboarding did not resume persisted identity");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + "/trainer");
   await page.locator(".page-heading h1").waitFor();
@@ -66,6 +113,18 @@ try {
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("link", { name: "My Brain", exact: true }).click();
   await page.waitForURL("**/trainer/brain");
+  await page.goto(base + "/trainer/onboarding/identity");
+  await page
+    .getByRole("heading", { name: "Business identity", exact: true })
+    .waitFor();
+  if (
+    await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
+  )
+    throw new Error("Mobile onboarding overflows viewport");
+  await page.screenshot({
+    path: "test-results/onboarding-mobile.png",
+    fullPage: true,
+  });
   const subscriberContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -128,12 +187,32 @@ try {
     await subscriber.goto(base + route);
     await subscriber.locator(".page-heading h1").waitFor();
   }
+  await subscriber.goto(base + "/app/twin");
+  await subscriber
+    .getByRole("heading", {
+      name: "Recorded training · last 28 days",
+      exact: true,
+    })
+    .waitFor();
+  if (
+    await subscriber.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    )
+  )
+    throw new Error("Mobile Client Twin overflows viewport");
+  await subscriber.screenshot({
+    path: "test-results/client-twin-mobile.png",
+    fullPage: true,
+  });
   await subscriberContext.close();
   await writeFile(
     "test-results/browser-check.json",
     JSON.stringify(
       {
-        routes: 14,
+        routes: visitedRoutes.size,
+        routePaths: [...visitedRoutes].sort(),
+        onboardingResume: true,
+        clientTwin: true,
         mobileWidth: 390,
         overflow,
         offlineWorkoutReload: true,
