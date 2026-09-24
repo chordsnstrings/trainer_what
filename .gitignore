@@ -1,0 +1,23 @@
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.p12
+*.key
+
+# JavaScript and TypeScript
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Tooling and local files
+.DS_Store
+.idea/
+.vscode/
+*.log
