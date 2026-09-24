@@ -4,7 +4,7 @@
 
 ## Execution documents
 
-This phase-level baseline is complemented by an executable planning package. Start with [project memory](docs/PROJECT_MEMORY.md) and [agent instructions](AGENTS.md), then use the [delivery roadmap](docs/DELIVERY_ROADMAP.md), [technical blueprint](docs/TECHNICAL_BLUEPRINT.md), [75-screen and source coverage matrix](docs/SCREEN_AND_REQUIREMENTS.md), and [operations/release plan](docs/OPERATIONS_AND_RELEASE.md). All application work and production evidence remain pending. The roadmap preserves the 34 issue IDs below and adds concrete outputs and acceptance checks.
+This phase-level baseline is complemented by an executable planning package. Start with [project memory](docs/PROJECT_MEMORY.md) and [agent instructions](AGENTS.md), then use the [delivery roadmap](docs/DELIVERY_ROADMAP.md), [technical blueprint](docs/TECHNICAL_BLUEPRINT.md), [75-screen and source coverage matrix](docs/SCREEN_AND_REQUIREMENTS.md), and [operations/release plan](docs/OPERATIONS_AND_RELEASE.md). Application implementation is underway; current evidence and gaps are in [build status](docs/BUILD_STATUS.md). Production evidence remains pending. The roadmap preserves the 34 issue IDs below and adds concrete outputs and acceptance checks.
 
 **Owner model preference:** reserve Astra for difficult design, implementation and focused review; use tokens efficiently and do not use Astra for browsing. Use bounded context, deterministic tools and reusable checkpoints. These instructions are retained in project memory for future build sessions.
 

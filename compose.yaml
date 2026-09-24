@@ -1,0 +1,76 @@
+name: trainer-brain
+services:
+  database:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: trainer
+      POSTGRES_USER: trainer_migrations
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set the migration administrator password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U trainer_migrations -d trainer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    build: .
+    image: trainer-brain:${RELEASE_TAG:-local}
+    command: [npm, run, db:migrate]
+    environment:
+      NODE_ENV: production
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set a separate migration connection}
+    depends_on:
+      database: {condition: service_healthy}
+    restart: "no"
+  api:
+    image: trainer-brain:${RELEASE_TAG:-local}
+    command: [npm, run, start, -w, "@trainer/api"]
+    environment: &runtime_environment
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      DATABASE_URL: ${DATABASE_URL:?Set the non-owner runtime connection}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the public HTTPS URL}
+      SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Set the account encryption key}
+      LEGAL_APPROVED: ${LEGAL_APPROVED:-false}
+      COMMERCE_APPROVED: ${COMMERCE_APPROVED:-false}
+      PAYOUTS_APPROVED: ${PAYOUTS_APPROVED:-false}
+      LEAN_CONTRACT_VERIFIED: ${LEAN_CONTRACT_VERIFIED:-false}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      LEAN_BASE_URL: ${LEAN_BASE_URL:-}
+      LEAN_ACCESS_TOKEN: ${LEAN_ACCESS_TOKEN:-}
+      LEAN_SOURCE_ACCOUNT_ID: ${LEAN_SOURCE_ACCOUNT_ID:-}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_NAME: ${MODEL_NAME:-}
+      MODEL_INPUT_USD_PER_MILLION: ${MODEL_INPUT_USD_PER_MILLION:-}
+      MODEL_OUTPUT_USD_PER_MILLION: ${MODEL_OUTPUT_USD_PER_MILLION:-}
+      EMAIL_API_URL: ${EMAIL_API_URL:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4000/api/v1/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  web:
+    image: trainer-brain:${RELEASE_TAG:-local}
+    environment: {NODE_ENV: production}
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+  worker:
+    image: trainer-brain:${RELEASE_TAG:-local}
+    command: [npm, run, start, -w, "@trainer/worker"]
+    environment: *runtime_environment
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  postgres_data:

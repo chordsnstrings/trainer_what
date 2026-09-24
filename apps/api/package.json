@@ -1,0 +1,18 @@
+{
+  "name": "@trainer/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import tsx --env-file-if-exists=../../.env src/server.ts",
+    "start": "node --import tsx --env-file-if-exists=../../.env src/server.ts"
+  },
+  "dependencies": {
+    "fastify": "5.12.5",
+    "@fastify/cookie": "11.1.2",
+    "@fastify/rate-limit": "11.2.0",
+    "@trainer/db": "*",
+    "@trainer/domain": "*",
+    "@trainer/contracts": "*",
+    "@trainer/providers": "*"
+  }
+}

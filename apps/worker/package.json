@@ -1,0 +1,13 @@
+{
+  "name": "@trainer/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import tsx --env-file-if-exists=../../.env src/index.ts",
+    "start": "node --import tsx --env-file-if-exists=../../.env src/index.ts"
+  },
+  "dependencies": {
+    "@trainer/db": "*",
+    "@trainer/providers": "*"
+  }
+}

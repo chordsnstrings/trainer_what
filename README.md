@@ -1,29 +1,81 @@
 # Trainer Brain Platform
 
-UAE-first, trainer-branded digital coaching: a Trainer Brain Compiler, Client Twin and governed Coach Runtime. English/AED launch, Arabic-ready architecture, Swedish-minimal design.
+Trainer-branded coaching for UAE/AED: teach a Brain, review its rules, publish a coaching offer, serve subscribers and track trainer earnings.
 
-**Current state: planning complete; application implementation has not started.** The repository contains the build contract and execution plan. Provider access, paid infrastructure, and production readiness remain unverified.
+**Status: runnable development implementation; production release is not complete.** See the [build status and remaining work](docs/BUILD_STATUS.md) for the exact boundary. No live payment, payout or deployment has been verified.
 
-## Read in this order
+## Run locally
 
-| Document | Purpose |
+Requires Node **24.19.0 or newer** and npm. The lockfile pins dependencies.
+
+```bash
+npm ci
+cp .env.example .env
+npm run seed:demo
+npm run dev
+```
+
+Open `http://localhost:3000`. The development database is real embedded PostgreSQL (PGlite), persisted under `.data/postgres`. Stop the API before migrations or seeding; the embedded database has a single-process lock. PostgreSQL is required for the standalone worker and production.
+
+Optional synthetic demo accounts:
+
+| Account | Email | Development password |
+| --- | --- | --- |
+| Trainer / development operator | `coach@example.test` | `TrainerDemo2026!` |
+| Subscriber | `sam.taylor@example.test` | `TrainerDemo2026!` |
+
+The seed refuses production. Its subscriptions and financial entries are explicitly synthetic. Set `DEMO_PASSWORD` when generating a different local fixture. Never seed a customer database.
+
+## What is implemented
+
+- Trainer, subscriber and operator interfaces; stored branding, invitations and public enrollment.
+- Password sessions, verification/reset flows, encrypted authenticator enrollment and MFA checks for privileged production actions.
+- PostgreSQL tenant isolation; scoped directory access and hidden unapproved coaching decisions.
+- Teaching sources and interviews; model adapter for draft-rule compilation, conflict review, rule corrections, held-out evaluation, supervised releases and rollback.
+- Intake/consent, trainer-authored programs, workout logs, offline queue/PWA code, chat, trainer takeover and safety review.
+- Session bookings with serialized capacity, cancellations and support conversations.
+- Stripe Checkout/subscription adapters and signed webhook processing; immutable balanced ledger, refunds/disputes, reviewed settlements and monthly close checks.
+- Lean payout instruction adapter, destination review/hold, funded payout preparation, uncertain-outcome holds and payment reconciliation.
+- Apple Health numeric XML import, permission revocation/export, usage records, email outbox/worker, operator finance tools.
+
+Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Compiled rules and model coaching require human review.
+
+## Verify
+
+```bash
+npm run check            # TypeScript, integration tests, production web build
+npm run db:migrate      # local migrations, or separate MIGRATION_DATABASE_URL
+npm run readiness       # configuration report; does not prove provider approval
+```
+
+Browser smoke setup on a machine with browser-download access:
+
+```bash
+npx playwright install --with-deps chromium --only-shell
+npm run seed:demo
+npm run test:browser
+```
+
+The browser runner starts API and web itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser execution was blocked by this workspace's browser download restriction.
+
+## Structure
+
+| Path | Purpose |
 | --- | --- |
-| [Project memory](docs/PROJECT_MEMORY.md) | Latest owner decisions, Astra/token preferences and current status |
-| [Implementation plan](IMPLEMENTATION_PLAN.md) | Product scope, architecture, phases, 34 issue IDs and business decisions |
-| [Delivery roadmap](docs/DELIVERY_ROADMAP.md) | Work order, concrete outputs, acceptance checks and first sprint |
-| [Technical blueprint](docs/TECHNICAL_BLUEPRINT.md) | Data, API, state, AI, finance and security contracts |
-| [Screen and requirements coverage](docs/SCREEN_AND_REQUIREMENTS.md) | All 75 source screen groups and all source sections/appendices mapped to work |
-| [Operations and release](docs/OPERATIONS_AND_RELEASE.md) | Provider dependencies, deployment, cost controls, evidence and runbooks |
-| [Agent instructions](AGENTS.md) | Efficient execution and handoff rules for Astra and other coding agents |
+| `apps/web` | Next.js / React responsive public and workspace UI |
+| `apps/api` | Fastify API, security, coaching and finance |
+| `apps/worker` | Durable email-job delivery for PostgreSQL |
+| `packages/db` | Migrations, scoped transactions and RLS |
+| `packages/domain` | Money, coaching schemas, safety and payout transitions |
+| `packages/providers` | Stripe, Lean, model and email boundaries |
+| `packages/contracts` | Validated API inputs |
+| `tests` | Real PostgreSQL-engine integration checks with isolated fixtures |
+| `infra`, `Dockerfile`, `compose.yaml` | Deployment configuration; not a deployed environment |
 
-The source product contract is `Trainer_Brain_Platform_Astra6_Master_Build_Spec_v1.1(1).docx`, including its 24 September 2026 addendum. It remains an external source document; this repository provides the actionable planning package. Later explicit owner decisions take precedence over earlier payment or implementation language.
+## Deployment and project context
 
-## Selected money flow
+Start with [deployment instructions](docs/DEPLOYMENT.md), [build status](docs/BUILD_STATUS.md) and [implementation decisions](docs/ADR-001-IMPLEMENTATION.md). Production uses a separate migration administrator and a non-owner runtime role. Web receives no provider or migration credentials.
 
-Stripe collects subscriptions and settles funds into the company's bank account. The platform calculates and reconciles trainer earnings. Lean initiates monthly bank payments to verified eligible trainer UAE IBANs. Provider acceptance of the business model and actual bank/account capabilities must be proven before live operation.
+The money flow remains **Stripe → company bank → Lean → verified trainer IBAN**. A Stripe payment does not prove company-bank settlement; Lean initiation does not prove beneficiary receipt.
 
-## First implementation increment
-
-Start issues 001–004 to settle external requirements and budgets. In parallel, build 005–009: repository foundation, staging structure, two isolated tenants, authentication, data/event contracts and the UI system. Deliver one persisted trainer-onboarding slice before expanding the screen inventory. The [roadmap](docs/DELIVERY_ROADMAP.md) defines its evidence.
-
-The plan uses release gates rather than invented delivery dates. The existing 4–6 month pilot / 9–15+ month full-scope estimates assume a multidisciplinary team; they are not an Astra runtime estimate.
+Planning baseline: [implementation plan](IMPLEMENTATION_PLAN.md), [34-work-package roadmap](docs/DELIVERY_ROADMAP.md), [technical blueprint](docs/TECHNICAL_BLUEPRINT.md), [75-screen source coverage](docs/SCREEN_AND_REQUIREMENTS.md), [release requirements](docs/OPERATIONS_AND_RELEASE.md). Current owner decisions and Astra/token preferences are in [project memory](docs/PROJECT_MEMORY.md).

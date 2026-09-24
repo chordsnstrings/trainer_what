@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-Status: planned, 24 September 2026. Issue IDs and dependencies extend the [implementation plan](../IMPLEMENTATION_PLAN.md); they are issue-ready work packages, not completed work or existing GitHub issues. Each row can split into small implementation tasks while retaining its parent ID and evidence.
+Status: implementation underway, 24 September 2026. See [build status](BUILD_STATUS.md) for observed evidence and remaining work. Issue IDs and dependencies extend the [implementation plan](../IMPLEMENTATION_PLAN.md); they are issue-ready work packages, not completed work or existing GitHub issues. Each row can split into small implementation tasks while retaining its parent ID and evidence.
 
 ## 1. Release sequence
 
@@ -34,7 +34,7 @@ This graph identifies independent work, not permission to spawn agents. Payment-
 
 ## 2. Work packages and acceptance
 
-All 34 begin **NOT STARTED**. Owner means a responsibility, not a staffed appointment. Evidence must identify the tested commit, environment, fixture and result. A provider access limitation remains a blocker rather than a passed check.
+The original baseline started all 34 as **NOT STARTED**. Current work is recorded in [build status](BUILD_STATUS.md); no entire release is marked production-verified. Owner means a responsibility, not a staffed appointment. Evidence must identify the tested commit, environment, fixture and result. A provider access limitation remains a blocker rather than a passed check.
 
 | ID | Owner | Concrete output | Acceptance evidence |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ All 34 begin **NOT STARTED**. Owner means a responsibility, not a staffed appoin
 Use these as ordered deliverables, not a promised number of days. The aim is one deployable, persistent slice.
 
 1. Record the current source revision and owner decisions. Open a decision register for provider readiness, residency, monetary policy and budget. Prepare contract/sandbox harnesses while credentials are pending; record untested cases.
-2. Initialize pnpm/TypeScript workspace with web, API and worker apps; shared contracts, domain, database and UI packages; pinned toolchain, lockfile and setup README.
+2. Initialize TypeScript workspace (npm selected in ADR 001) with web, API and worker apps; shared contracts, domain, database and UI packages; pinned toolchain, lockfile and setup README.
 3. Implement the first migration: users, tenants, memberships/roles, onboarding state, domains, consent, event/outbox and job tables. Add two synthetic tenants and adversarial isolation fixtures.
 4. Implement identity and tenant bootstrap: retry-safe account-to-tenant creation, slug reservation, session/host binding, persisted identity/brand onboarding steps and platform error references.
 5. Build the warm-white, ink/navy responsive shells and common loading/empty/error/denied states. Demonstrate signup → saved brand draft → sign out → resume.

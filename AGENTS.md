@@ -4,7 +4,7 @@
 
 Read `docs/PROJECT_MEMORY.md`, then the current task's section in `docs/DELIVERY_ROADMAP.md`. Read only the relevant technical, screen and release sections. The full source spec is the detailed product contract; the latest explicit user instruction governs conflicts. Keep `IMPLEMENTATION_PLAN.md` as the phase-level baseline.
 
-This repository currently contains planning documents. Do not claim that features, credentials, tests or deployments exist until there is evidence. When implementation begins, record the active task, commit, actual checks, blockers and next action in project memory. Keep old product decisions in Git history rather than duplicating them in every handoff.
+This repository contains planning documents and a runnable development implementation. Read `docs/BUILD_STATUS.md` for the verified boundary. Do not claim that features, credentials, tests or deployments exist until there is evidence. When implementation begins, record the active task, commit, actual checks, blockers and next action in project memory. Keep old product decisions in Git history rather than duplicating them in every handoff.
 
 ## Astra and token use — owner preference
 
@@ -26,4 +26,4 @@ This repository currently contains planning documents. Do not claim that feature
 - Use test providers only in explicitly isolated nonproduction fixtures. A production integration without access remains disabled with a clear status.
 - Keep secrets, raw bank details and sensitive customer records out of Git, prompts, logs and screenshots. Credentials belong in the deployment secret manager.
 - Make small reversible choices autonomously. Continue independent work around blocked credentials or approvals. Carry forward existing authorization instead of repeatedly asking for it.
-- The current task is planning. Future implementation/deployment must follow the active user request and established budget/release authority; this file grants no new authority to charge, pay, buy or delete.
+- The owner has authorized implementation. Continue useful work autonomously; live charging, payout execution, purchases and production placement still follow the established release authority and account capabilities.

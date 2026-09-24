@@ -1,0 +1,40 @@
+{
+  "name": "trainer-brain-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web,worker 'npm run dev -w @trainer/api' 'npm run dev -w @trainer/web' 'npm run dev -w @trainer/worker'",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "build": "npm run build -w @trainer/web",
+    "db:migrate": "node --import tsx --env-file-if-exists=.env packages/db/src/migrate.ts",
+    "seed:demo": "node --import tsx scripts/seed-demo.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "test:browser": "node scripts/run-browser-check.mjs",
+    "format": "prettier --write apps packages scripts tests",
+    "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
+    "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts"
+  },
+  "dependencies": {
+    "tsx": "4.23.15",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "concurrently": "10.0.5",
+    "prettier": "3.9.9",
+    "typescript": "7.0.2"
+  },
+  "type": "module"
+}

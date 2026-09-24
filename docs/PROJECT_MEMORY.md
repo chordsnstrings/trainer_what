@@ -7,7 +7,7 @@ Updated: 24 September 2026. This is durable project context for future build ses
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | Complete the whole implementation plan before starting application implementation |
+| Current request | Start implementation and complete the planned product; continue independently around unavailable provider access |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification; avoid repeated planning/research and unnecessary confirmation |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
@@ -21,11 +21,13 @@ Updated: 24 September 2026. This is durable project context for future build ses
 
 ## Current state
 
-- Repository contents: implementation plan and supporting planning documents; no application, production deployment or passed product tests yet.
-- Plan covers all 34 initial work items, 75 source screen groups, technical contracts, external dependencies, release evidence and operational handoff.
-- Stripe/Lean funds flow is selected. Actual provider acceptance, source-bank compatibility, beneficiary requirements, authorization and final payment confirmation remain to be proven.
-- Other open inputs: approved domain/brand assets, infrastructure budget/region, model and email providers, wearable/voice permissions, reviewed legal/tax policy, commission allocation details and pilot participants.
-- Next work: issues 001–004 plus the independent foundation work in 005–009, as described in `DELIVERY_ROADMAP.md`.
+- Runnable development monorepo implemented: Next.js web, Fastify API, PostgreSQL/PGlite migrations, worker, coaching/subscriber flows and finance operations. See `BUILD_STATUS.md` for actual scope and gaps.
+- Latest local evidence: TypeScript passed, 25 automated tests passed, production web build passed; five local database migrations applied. Browser download failed, so visual/browser checks have no passing evidence.
+- No provider secret was copied from chat into code, no live provider call or financial transfer was made, and no DigitalOcean deployment exists.
+- Stripe/Lean funds flow remains selected; actual account acceptance, recipient/source-bank capability and finality remain unverified. Lean transport is explicitly gated pending account-specific verification.
+- Repository now includes setup/deployment instructions, container/CI definitions and ADR 001 for npm/PGlite/document-record choices. Full source scope remains open; missing implementation and external blockers are distinguished in the build status.
+- Active work: issues 005–025 and 030–031 have implemented portions. Issues 001–004 remain external decision/access work. WHOOP/Zepp, domains, voice, native companion, infrastructure Governor and full launch operations are unfinished.
+- Next executable work: browser/production PostgreSQL verification, resolve remaining implementation gaps in `BUILD_STATUS.md`, then provider sandbox/staging evidence when access exists. Do not mark all 75 screens or 34 packages complete from this checkpoint.
 
 ## Handoff format
 

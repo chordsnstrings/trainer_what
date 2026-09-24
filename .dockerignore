@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/.next
+.git
+.env
+.env.*
+.data
+test-results
+playwright-report
+*.log
+*.tsbuildinfo

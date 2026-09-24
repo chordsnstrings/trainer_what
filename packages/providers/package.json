@@ -1,0 +1,11 @@
+{
+  "name": "@trainer/providers",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "stripe": "22.6.2",
+    "zod": "4.6.5",
+    "@trainer/domain": "*"
+  }
+}
