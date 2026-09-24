@@ -31,12 +31,12 @@ The seed refuses production. Its subscriptions and financial entries are explici
 - Trainer, subscriber and operator interfaces; stored branding, invitations and public enrollment.
 - Password sessions, verification/reset flows, encrypted authenticator enrollment and MFA checks for privileged production actions.
 - PostgreSQL tenant isolation; scoped directory access and hidden unapproved coaching decisions.
-- Teaching sources and interviews; model adapter for draft-rule compilation, conflict review, rule corrections, held-out evaluation, supervised releases and rollback.
+- PDF/DOCX/text teaching sources and interviews; model adapter for draft-rule compilation, conflict review, rule corrections, held-out evaluation, supervised releases and rollback.
 - Intake/consent, trainer-authored programs, workout logs, offline queue/PWA code, chat, trainer takeover and safety review.
 - Session bookings with serialized capacity, cancellations and support conversations.
-- Stripe Checkout/subscription adapters and signed webhook processing; immutable balanced ledger, refunds/disputes, reviewed settlements and monthly close checks.
+- Stripe Checkout/subscription adapters and signed webhook processing; immutable balanced ledger, refunds/disputes, reviewed settlements and reviewed usage charges and monthly close checks.
 - Lean payout instruction adapter, destination review/hold, funded payout preparation, uncertain-outcome holds and payment reconciliation.
-- Apple Health numeric XML import, permission revocation/export, usage records, email outbox/worker, operator finance tools.
+- Apple Health numeric XML import, permission revocation/export and reviewed local subscriber erasure, usage records, email outbox/worker, operator finance tools.
 
 Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Compiled rules and model coaching require human review.
 
@@ -56,7 +56,7 @@ npm run seed:demo
 npm run test:browser
 ```
 
-The browser runner starts API and web itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser execution was blocked by this workspace's browser download restriction.
+The browser runner starts API and web itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the GitHub browser run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348).
 
 ## Structure
 

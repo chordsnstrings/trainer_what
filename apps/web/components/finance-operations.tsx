@@ -114,6 +114,63 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
             </form>
           </details>
           <details>
+            <summary>Post reviewed usage charges</summary>
+            <p className="muted">
+              Convert recorded provider cost at the reviewed exchange rate. The
+              server checks the amount and posts it once against trainer
+              earnings.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                void act("/usage-statements", {
+                  ...Object.fromEntries(f),
+                  fxAedPerUsd: Number(f.get("fxAedPerUsd")),
+                  chargeMinor: Number(f.get("chargeMinor")),
+                });
+              }}
+            >
+              <div className="form-grid">
+                {[
+                  ["period", "Usage month", "month"],
+                  ["fxAedPerUsd", "Reviewed AED per USD", "number"],
+                  ["chargeMinor", "Trainer charge (minor units)", "number"],
+                  [
+                    "feeScheduleVersion",
+                    "Approved fee schedule version",
+                    "text",
+                  ],
+                  [
+                    "evidenceReference",
+                    "Provider invoice and rate evidence",
+                    "text",
+                  ],
+                ].map(([name, label, type]) => (
+                  <label className="field" key={name}>
+                    <span>{label}</span>
+                    <input
+                      name={name}
+                      type={type}
+                      step={name === "fxAedPerUsd" ? "0.00000001" : undefined}
+                      min={type === "number" ? 0 : undefined}
+                      required
+                    />
+                  </label>
+                ))}
+              </div>
+              <button className="button" disabled={busy}>
+                Post usage statement
+              </button>
+            </form>
+            {data.usageStatements?.map((s: any) => (
+              <p key={s.id}>
+                {s.period} · {money(Number(s.charge_minor))} ·{" "}
+                {s.fee_schedule_version}
+              </p>
+            ))}
+          </details>
+          <details>
             <summary>Close a month</summary>
             <form
               onSubmit={(e) => {
@@ -207,6 +264,18 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                 <p>
                   {p.status} · {p.provider_id ?? "No provider reference"}
                 </p>
+                {p.status === "ready" && (
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act("/payouts/" + p.id + "/execute", {})
+                    }
+                  >
+                    Submit {money(Number(p.amount_minor))} bank payment
+                  </button>
+                )}
                 <label className="field">
                   <span>Verified outcome</span>
                   <select name="status">

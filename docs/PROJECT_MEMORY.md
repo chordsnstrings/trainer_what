@@ -22,7 +22,7 @@ Updated: 24 September 2026. This is durable project context for future build ses
 ## Current state
 
 - Runnable development monorepo implemented: Next.js web, Fastify API, PostgreSQL/PGlite migrations, worker, coaching/subscriber flows and finance operations. See `BUILD_STATUS.md` for actual scope and gaps.
-- Latest local evidence: TypeScript passed, 25 automated tests passed, production web build passed; five local database migrations applied. Browser download failed, so visual/browser checks have no passing evidence.
+- Latest local evidence: TypeScript passed, 32 automated tests passed, production web build passed; seven migrations are defined. GitHub CI on `a49e4db` passed clean install, build/tests and Chromium desktop/mobile smoke. Expanded network PostgreSQL/container checks are being added; visual review is still pending.
 - No provider secret was copied from chat into code, no live provider call or financial transfer was made, and no DigitalOcean deployment exists.
 - Stripe/Lean funds flow remains selected; actual account acceptance, recipient/source-bank capability and finality remain unverified. Lean transport is explicitly gated pending account-specific verification.
 - Repository now includes setup/deployment instructions, container/CI definitions and ADR 001 for npm/PGlite/document-record choices. Full source scope remains open; missing implementation and external blockers are distinguished in the build status.

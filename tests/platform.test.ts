@@ -979,3 +979,336 @@ test("revoked coaching consent and trainer takeover prevent model generation", a
   );
   assert(pending.length > 0);
 });
+
+test("document imports persist source lineage once and reject disguised binary files", async () => {
+  const body = {
+    title: "Imported coaching notes",
+    fileName: "method.md",
+    contentBase64: Buffer.from(
+      "Progress load only after consistent pain-free repetitions.",
+    ).toString("base64"),
+    rights: true,
+  };
+  const first = await request("/brain/documents", "POST", body, b.cookie);
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().data.origin, "trainer_upload");
+  assert.equal(first.json().data.fileName, "method.md");
+  const retry = await request("/brain/documents", "POST", body, b.cookie);
+  assert.equal(retry.json().id, first.json().id);
+  const falsePdf = await request(
+    "/brain/documents",
+    "POST",
+    { ...body, fileName: "pretend.pdf" },
+    b.cookie,
+  );
+  assert.equal(falsePdf.statusCode, 400);
+  assert.equal(falsePdf.json().code, "FILE_SIGNATURE");
+  const subscriberUpload = await request(
+    "/brain/documents",
+    "POST",
+    body,
+    subscriber.cookie,
+  );
+  assert.equal(subscriberUpload.statusCode, 403);
+});
+
+test("PDF extraction uses actual selectable text and rejects corrupt documents", async () => {
+  const { extractDocument } = await import("../apps/api/src/ingestion.ts");
+  const stream =
+    "BT /F1 14 Tf 30 100 Td (Trainer method: progress conservatively.) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf);
+  pdf +=
+    "xref\n0 6\n0000000000 65535 f \n" +
+    offsets
+      .slice(1)
+      .map((n) => String(n).padStart(10, "0") + " 00000 n \n")
+      .join("") +
+    `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  assert.match(
+    await extractDocument("method.pdf", Buffer.from(pdf)),
+    /progress conservatively/,
+  );
+  await assert.rejects(
+    extractDocument("corrupt.pdf", Buffer.from("%PDF-1.4 broken structure")),
+  );
+});
+
+test("DOCX extraction never expands external entities", async () => {
+  const { extractDocument } = await import("../apps/api/src/ingestion.ts");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  async function docx(xml: string) {
+    const { stdout } = await promisify(execFile)("python3", [
+      "-c",
+      'import io,sys,zipfile,base64; b=io.BytesIO(); z=zipfile.ZipFile(b,"w"); z.writestr("word/document.xml",sys.argv[1]); z.close(); print(base64.b64encode(b.getvalue()).decode())',
+      xml,
+    ]);
+    return Buffer.from(stdout.trim(), "base64");
+  }
+  const xml =
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Keep the first week conservative.</w:t></w:r></w:p></w:body></w:document>';
+  assert.equal(
+    await extractDocument("method.docx", await docx(xml)),
+    "Keep the first week conservative.",
+  );
+  const unsafe =
+    '<!DOCTYPE document [<!ENTITY injected SYSTEM "file:///etc/passwd">]>' +
+    xml.replace("Keep the first week conservative.", "&injected;");
+  await assert.rejects(extractDocument("unsafe.docx", await docx(unsafe)));
+});
+
+test("privacy erasure blocks active billing and preserves retained financial history", async () => {
+  const login = await request("/auth/login", "POST", {
+    email: "booking-two@example.test",
+    password: "BookingOnly2026!",
+  });
+  assert.equal(login.statusCode, 200);
+  const cookie = String(login.headers["set-cookie"]).split(";")[0],
+    user = (await request("/bootstrap", "GET", undefined, cookie)).json().user;
+  const created = await request("/privacy/delete-request", "POST", {}, cookie);
+  assert.equal(created.statusCode, 200, created.body);
+  const profile = await db.tenant(a, (tx) =>
+    putRecord(
+      tx,
+      a,
+      "intake",
+      { goal: "Synthetic private goal" },
+      { ownerId: user.userId, status: "complete" },
+    ),
+  );
+  const proof = {
+    providerReviewComplete: true,
+    thirdPartySourceReviewComplete: true,
+    evidenceReference: "Synthetic erasure review reference",
+    retentionPolicyVersion: "fixture-v1",
+    backupPurgeBy: new Date(Date.now() + 30 * 86400000).toISOString(),
+  };
+  const endpoint =
+    "/admin/tenants/" + a.tenantId + "/privacy/" + created.json().id + "/erase";
+  assert.equal(
+    (await request(endpoint, "POST", proof, b.cookie)).statusCode,
+    403,
+  );
+  await db.system((tx) =>
+    tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [a.userId]),
+  );
+  try {
+    const blocked = await request(endpoint, "POST", proof, a.cookie);
+    assert.equal(blocked.statusCode, 409, blocked.body);
+    assert.equal(blocked.json().code, "SUBSCRIPTION_OPEN");
+    await db.tenant(a, (tx) =>
+      tx.query("UPDATE subscriptions SET status='canceled' WHERE user_id=$1", [
+        user.userId,
+      ]),
+    );
+    const before = await db.tenant(a, financeSummary);
+    const result = await request(endpoint, "POST", proof, a.cookie);
+    assert.equal(result.statusCode, 200, result.body);
+    assert.equal(result.json().status, "local_erasure_completed");
+    assert.equal(
+      (await request("/bootstrap", "GET", undefined, cookie)).statusCode,
+      401,
+    );
+    assert.equal(
+      (
+        await db.tenant(a, (tx) =>
+          tx.query("SELECT id FROM records WHERE id=$1", [profile.id]),
+        )
+      ).length,
+      0,
+    );
+    assert.deepEqual(await db.tenant(a, financeSummary), before);
+    const [erased] = await db.system((tx) =>
+      tx.query("SELECT email,name FROM users WHERE id=$1", [user.userId]),
+    );
+    assert.equal(erased.name, "Deleted member");
+    assert.match(erased.email, /@deleted.invalid$/);
+  } finally {
+    await db.system((tx) =>
+      tx.query("UPDATE users SET platform_role='none' WHERE id=$1", [a.userId]),
+    );
+  }
+});
+
+test("payout execution rechecks current funding before any bank request", async () => {
+  const { executePayout } = await import("../apps/api/src/payout-execution.ts");
+  const payoutId = randomUUID();
+  await db.tenant(b, async (tx) => {
+    await putRecord(
+      tx,
+      b,
+      "beneficiary",
+      { providerId: "fixture-destination", holdUntil: "2020-01-01T00:00:00Z" },
+      { status: "verified" },
+    );
+    await tx.query(
+      "INSERT INTO payouts(id,tenant_id,period,amount_minor,beneficiary_id) VALUES($1,$2,'2026-08',100,'fixture-destination')",
+      [payoutId, b.tenantId],
+    );
+  });
+  const keys = [
+      "LEAN_BASE_URL",
+      "LEAN_ACCESS_TOKEN",
+      "LEAN_SOURCE_ACCOUNT_ID",
+      "LEAN_CONTRACT_VERIFIED",
+      "PAYOUTS_APPROVED",
+    ],
+    old = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  Object.assign(process.env, {
+    LEAN_BASE_URL: "https://bank.example.test",
+    LEAN_ACCESS_TOKEN: "fixture-only",
+    LEAN_SOURCE_ACCOUNT_ID: "fixture-source",
+    LEAN_CONTRACT_VERIFIED: "true",
+    PAYOUTS_APPROVED: "true",
+  });
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error("No external requests permitted in this fixture");
+  };
+  try {
+    await assert.rejects(executePayout(db, b, payoutId), /funding changed/);
+    assert.equal(calls, 0);
+    const [p] = await db.tenant(b, (tx) =>
+      tx.query("SELECT status FROM payouts WHERE id=$1", [payoutId]),
+    );
+    assert.equal(p.status, "ready");
+  } finally {
+    globalThis.fetch = original;
+    for (const k of keys) {
+      if (old[k] === undefined) delete process.env[k];
+      else process.env[k] = old[k];
+    }
+  }
+});
+
+test("coaching staff cannot read finance, and finance staff cannot access coaching records", async () => {
+  const staff = { ...a, userId: subscriber.userId, role: "staff" };
+  assert.equal(
+    (await db.tenant(staff, (tx) => tx.query("SELECT id FROM journals")))
+      .length,
+    0,
+  );
+  assert.equal(
+    (
+      await db.tenant(staff, (tx) =>
+        tx.query(
+          "SELECT id FROM records WHERE kind='beneficiary' OR kind='close'",
+        ),
+      )
+    ).length,
+    0,
+  );
+  assert.equal(
+    (
+      await db.tenant(staff, (tx) =>
+        tx.query("SELECT id FROM events WHERE name='payout.prepared'"),
+      )
+    ).length,
+    0,
+  );
+  const finance = { ...a, userId: subscriber.userId, role: "finance" };
+  assert.equal(
+    (
+      await db.tenant(finance, (tx) =>
+        tx.query(
+          "SELECT id FROM records WHERE kind IN ('intake','source','decision','message')",
+        ),
+      )
+    ).length,
+    0,
+  );
+  assert(
+    (await db.tenant(finance, (tx) => tx.query("SELECT id FROM journals")))
+      .length > 0,
+  );
+  const invite = await request(
+    "/invitations",
+    "POST",
+    { email: b.email, role: "finance" },
+    a.cookie,
+  );
+  assert.equal(invite.statusCode, 200, invite.body);
+  const join = await request("/invitations/accept", "POST", {
+    name: b.name,
+    email: b.email,
+    password: "TestingOnly2026!",
+    token: invite.json().url.split("/").pop(),
+  });
+  assert.equal(join.statusCode, 200, join.body);
+  const cookie = String(join.headers["set-cookie"]).split(";")[0];
+  assert.equal(
+    (
+      await request(
+        "/brain/sources",
+        "POST",
+        {
+          title: "Unauthorized",
+          text: "This finance account cannot edit coaching rules.",
+          rights: true,
+        },
+        cookie,
+      )
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (await request("/finance/export", "GET", undefined, cookie)).statusCode,
+    200,
+  );
+});
+
+test("monthly close requires reviewed usage charges and their AED posting is idempotent", async () => {
+  const { postUsageStatement, closeMonth } =
+    await import("../apps/api/src/finance-operations.ts");
+  await db.tenant(b, (tx) =>
+    tx.query(
+      "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,cost_usd,created_at) VALUES($1,$2,$3,'fixture','fixture',0.125,'2026-07-15T10:00:00Z')",
+      [randomUUID(), b.tenantId, b.userId],
+    ),
+  );
+  await assert.rejects(
+    db.tenant(b, (tx) =>
+      closeMonth(tx, b, "2026-07", "Synthetic settlement evidence"),
+    ),
+    /usage statements/,
+  );
+  const input = {
+    period: "2026-07",
+    fxAedPerUsd: 4,
+    chargeMinor: 50,
+    feeScheduleVersion: "fixture-only",
+    evidenceReference: "Synthetic cost and exchange-rate proof",
+  };
+  await assert.rejects(
+    db.tenant(b, (tx) =>
+      postUsageStatement(tx, b, { ...input, chargeMinor: 99 }),
+    ),
+    /charge must match/,
+  );
+  const result = await db.tenant(b, (tx) => postUsageStatement(tx, b, input));
+  assert.equal(Number(result.charge_minor), 50);
+  assert.equal(
+    (await db.tenant(b, (tx) => postUsageStatement(tx, b, input))).id,
+    result.id,
+  );
+  assert.equal((await db.tenant(b, financeSummary)).earnedMinor, -50);
+  const closed = await db.tenant(b, (tx) =>
+    closeMonth(tx, b, "2026-07", "Synthetic settlement evidence"),
+  );
+  assert.equal(closed.status, "closed");
+});

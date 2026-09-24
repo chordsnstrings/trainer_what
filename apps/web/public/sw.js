@@ -8,6 +8,6 @@ self.addEventListener('fetch',event=>{
   event.respondWith(caches.open(CACHE).then(async cache=>{const saved=await cache.match(request);if(saved)return saved;const response=await fetch(request);if(response.ok)await cache.put(request,response.clone());return response;}));return;
  }
  if(request.mode==='navigate'&&(url.pathname==='/app'||url.pathname.startsWith('/app/'))){
-  event.respondWith(fetch(request).catch(async()=>{const cached=await caches.match('/app');return cached??new Response('Open a workout while online before using it offline.',{status:503,headers:{'Content-Type':'text/plain'}});}));
+  event.respondWith(fetch(request).then(async response=>{if(response.ok){const cache=await caches.open(CACHE);await cache.put(url.pathname,response.clone());}return response;}).catch(async()=>{const cached=await caches.match(url.pathname,{ignoreVary:true})??await caches.match('/app',{ignoreVary:true});return cached??new Response('Open a workout while online before using it offline.',{status:503,headers:{'Content-Type':'text/plain'}});}));
  }
 });

@@ -1,4 +1,5 @@
 "use client";
+import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
@@ -66,6 +67,7 @@ type State = {
   journals?: any[];
   payouts?: any[];
   costs?: any[];
+  usageStatements?: any[];
   consents: any[];
   environment?: string;
 };
@@ -126,7 +128,10 @@ async function api(path: string, method = "GET", body?: unknown) {
     credentials: "same-origin",
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data.message ?? "Request failed");
+  if (!r.ok)
+    throw Object.assign(new Error(data.message ?? "Request failed"), {
+      status: r.status,
+    });
   return data;
 }
 function Button({
@@ -272,6 +277,9 @@ export default function Workspace() {
           }),
         );
     } catch (e) {
+      if ((e as any).status === 401)
+        for (const k of Object.keys(localStorage))
+          if (k.startsWith("trainer:")) localStorage.removeItem(k);
       const cached = localStorage.getItem("trainer:offline");
       if (!navigator.onLine && cached) {
         try {
@@ -348,7 +356,15 @@ export default function Workspace() {
       </main>
     );
   const subscriber = state.user.role === "subscriber";
-  const items = subscriber ? subNav : nav;
+  const items = subscriber
+    ? subNav
+    : state.user.role === "finance"
+      ? nav.filter((item) =>
+          ["Overview", "Finance", "Settings"].includes(item[0]),
+        )
+      : state.user.role === "staff"
+        ? nav.filter((item) => !["Finance", "Storefront"].includes(item[0]))
+        : nav;
   const records = (kind: string) =>
     state.records.filter((x) => x.kind === kind);
   const firstName = state.user.name.split(" ")[0];
@@ -609,9 +625,13 @@ function Overview({ state, records }: ViewProps) {
                 "People in your coaching space",
               ],
               [
-                "Trainer earnings",
-                money(state.finance?.earnedMinor ?? 0),
-                "Reconciled ledger balance",
+                state.finance ? "Trainer earnings" : "Programs",
+                state.finance
+                  ? money(state.finance.earnedMinor)
+                  : programs.length,
+                state.finance
+                  ? "Reconciled ledger balance"
+                  : "Training blocks in this workspace",
               ],
               ["Confirmed rules", rules.length, "Your methodology, captured"],
               [
@@ -1025,6 +1045,60 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
                 Add to knowledge <Plus size={16} />
               </Button>
             </form>
+            <details>
+              <summary>Import a document</summary>
+              <p className="muted">
+                PDF with selectable text, DOCX, Markdown, CSV or UTF-8 text. Up
+                to 5 MB and 60,000 extracted characters. Scanned documents need
+                OCR first.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget),
+                    file = f.get("file") as File;
+                  void action(async () => {
+                    if (file.size > 5 * 1024 * 1024)
+                      throw new Error("Choose a file smaller than 5 MB");
+                    const base64 = await new Promise<string>(
+                      (resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onerror = () =>
+                          reject(new Error("Could not read this file"));
+                        reader.onload = () =>
+                          resolve(String(reader.result).split(",")[1]);
+                        reader.readAsDataURL(file);
+                      },
+                    );
+                    return api("/brain/documents", "POST", {
+                      fileName: file.name,
+                      title: f.get("title"),
+                      contentBase64: base64,
+                      rights: true,
+                    });
+                  }, "Document imported for review");
+                }}
+              >
+                <Field label="Document title">
+                  <input name="title" minLength={2} maxLength={120} required />
+                </Field>
+                <Field label="Document">
+                  <input
+                    type="file"
+                    name="file"
+                    accept=".pdf,.docx,.txt,.md,.csv"
+                    required
+                  />
+                </Field>
+                <label className="check-field">
+                  <input type="checkbox" required />I have rights to use this
+                  document and have removed unnecessary personal information.
+                </label>
+                <Button type="submit" secondary disabled={busy}>
+                  Import document
+                </Button>
+              </form>
+            </details>
           </Card>
           <Card>
             <div className="card-heading">
@@ -1461,6 +1535,10 @@ function Members({ state, records, action, busy }: ViewProps) {
             <Field label="Email address">
               <input type="email" name="email" required />
             </Field>
+            <select name="role" aria-label="Team role">
+              <option value="staff">Coaching staff</option>
+              <option value="finance">Finance staff</option>
+            </select>
             <Button type="submit" disabled={busy}>
               Create invitation <ArrowUpRight size={16} />
             </Button>
@@ -1732,6 +1810,32 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     void sync();
     return () => window.removeEventListener("online", sync);
   }, [sync, key, receiptKey]);
+  useEffect(() => {
+    if (!workout || !navigator.onLine || !("caches" in window)) return;
+    let active = true;
+    void (async () => {
+      try {
+        await navigator.serviceWorker.ready;
+        const cache = await caches.open("trainer-workout-shell-v1");
+        const assets = performance
+          .getEntriesByType("resource")
+          .map((r) => r.name)
+          .filter((url) => url.startsWith(location.origin + "/_next/static/"));
+        await Promise.allSettled(
+          [path, ...new Set(assets)].map((url) => cache.add(url)),
+        );
+        if (active)
+          setNotice(
+            "Workout saved for this device. Set logs can sync after a connection loss.",
+          );
+      } catch {
+        /* Set logging still works in an already-open workout. */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [workout?.id, path]);
   if (!workout)
     return (
       <Empty
@@ -2262,6 +2366,35 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
               <span className="muted">Marginal subscriber bands</span>
             </Card>
           </div>
+          {!!state.usageStatements?.length && (
+            <Card>
+              <h2>Reviewed monthly usage charges</h2>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Provider cost</th>
+                      <th>AED per USD</th>
+                      <th>Charged to earnings</th>
+                      <th>Fee schedule</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.usageStatements.map((s) => (
+                      <tr key={s.period}>
+                        <td>{s.period}</td>
+                        <td>${Number(s.total_cost_usd).toFixed(4)}</td>
+                        <td>{Number(s.fx_aed_per_usd)}</td>
+                        <td>{money(Number(s.charge_minor))}</td>
+                        <td>{s.fee_schedule_version}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
           <div className="tabs">
             {[
               ["ledger", "Ledger"],
@@ -2357,6 +2490,27 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     <Badge>{r.status}</Badge>
                     <h3>{money(r.data.amountMinor)}</h3>
                     <p>{r.data.reason}</p>
+                    {["submitting", "submitted", "unknown"].includes(
+                      r.status,
+                    ) && (
+                      <Button
+                        secondary
+                        disabled={busy}
+                        onClick={() =>
+                          void action(
+                            () =>
+                              api(
+                                "/refund-requests/" + r.id + "/reconcile",
+                                "POST",
+                                {},
+                              ),
+                            "Provider status reconciled",
+                          )
+                        }
+                      >
+                        Reconcile provider status
+                      </Button>
+                    )}
                     {r.status === "requested" && (
                       <div className="button-row">
                         <Button
@@ -2826,7 +2980,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
           </Button>
         </Card>
       </div>
-      {!sub && (
+      {state.user.role === "owner" && (
         <Card>
           <h2>Invite a team member</h2>
           <form
@@ -2837,7 +2991,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                 () =>
                   api("/invitations", "POST", {
                     email: new FormData(e.currentTarget).get("email"),
-                    role: "staff",
+                    role: new FormData(e.currentTarget).get("role"),
                   }),
                 "Team invitation created",
               ).then((r) => {
@@ -2860,7 +3014,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
             <input readOnly value={invite} aria-label="Team invitation URL" />
           )}
           {state.members
-            ?.filter((m) => m.role === "staff")
+            ?.filter((m) => ["staff", "finance"].includes(m.role))
             .map((m) => (
               <div className="list-row" key={m.id}>
                 <span>
@@ -3003,6 +3157,9 @@ function Admin({ state }: ViewProps) {
         <>
           {["admin", "finance"].includes(state.user.platformRole) && (
             <FinanceOperations tenants={data.tenants} />
+          )}
+          {state.user.platformRole === "admin" && (
+            <PrivacyOperations tenants={data.tenants} />
           )}
           <div className="stats-grid">
             <Card className="stat">

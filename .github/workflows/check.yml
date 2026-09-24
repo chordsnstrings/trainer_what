@@ -1,7 +1,9 @@
 name: Application checks
 on:
   push:
+    paths-ignore: ["docs/**", "*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "*.md"]
 permissions:
   contents: read
 jobs:
@@ -15,6 +17,7 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils
       - run: npm run check
       - run: npx playwright install --with-deps chromium --only-shell
       - run: npm run seed:demo
@@ -25,3 +28,44 @@ jobs:
           name: browser-evidence
           path: test-results/
           if-no-files-found: ignore
+  postgres-and-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: trainer
+          POSTGRES_USER: trainer_migrations
+          POSTGRES_PASSWORD: ci_migration_fixture_only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trainer_migrations -d trainer"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      MIGRATION_DATABASE_URL: postgres://trainer_migrations:ci_migration_fixture_only@127.0.0.1:5432/trainer
+      DATABASE_URL: postgres://trainer_service:ci_runtime_fixture_only@127.0.0.1:5432/trainer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils
+      - run: npm run db:migrate
+      - run: node scripts/prepare-ci-postgres.mjs
+      - run: npm test
+      - run: docker build --build-arg API_INTERNAL_URL=http://127.0.0.1:4000 -t trainer-brain:ci .
+      - name: Production container readiness
+        run: |
+          docker run -d --name trainer-api-ci --network host -e DATABASE_URL -e NODE_ENV=production -e API_HOST=127.0.0.1 trainer-brain:ci npm run start -w @trainer/api
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/api/v1/ready; then exit 0; fi
+            sleep 2
+          done
+          docker logs trainer-api-ci
+          exit 1
+      - name: Container logs
+        if: failure()
+        run: docker logs trainer-api-ci 2>/dev/null || true

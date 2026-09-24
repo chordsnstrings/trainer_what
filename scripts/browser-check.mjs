@@ -56,12 +56,37 @@ await page.screenshot({
 await page.getByRole("button", { name: "Open navigation" }).click();
 await page.getByRole("link", { name: "My Brain", exact: true }).click();
 await page.waitForURL("**/trainer/brain");
+const subscriberContext=await browser.newContext({viewport:{width:390,height:844}});
+const subscriber=await subscriberContext.newPage();subscriber.on('pageerror',e=>errors.push(e.message));
+await subscriber.goto(base+'/login');
+await subscriber.getByLabel('Email address').fill('sam.taylor@example.test');
+await subscriber.getByLabel('Password',{exact:true}).fill(process.env.DEMO_PASSWORD??'TrainerDemo2026!');
+await subscriber.getByRole('button',{name:'Sign in',exact:true}).click();await subscriber.waitForURL('**/app');
+await subscriber.goto(base+'/app/program');
+await subscriber.getByRole('button',{name:'Start workout'}).first().click();
+await subscriber.waitForURL('**/app/workouts/*');
+await subscriber.getByText('Workout saved for this device.',{exact:false}).waitFor();
+const workoutUrl=subscriber.url();
+await subscriberContext.setOffline(true);
+await subscriber.locator('.set-row').first().getByRole('button',{name:'Log set',exact:true}).click();
+await subscriber.getByText('1 set logs waiting to sync.',{exact:false}).waitFor();
+await subscriber.reload({waitUntil:'domcontentloaded'});
+await subscriber.locator('.set-row').first().waitFor();
+if(subscriber.url()!==workoutUrl)throw new Error('Offline reload did not preserve the workout route');
+await subscriber.getByText('1 set logs waiting to sync.',{exact:false}).waitFor();
+await subscriberContext.setOffline(false);
+await subscriber.waitForFunction(()=>!Object.keys(localStorage).filter(k=>k.startsWith('trainer:queue:')&&!k.endsWith(':receipts')).some(k=>JSON.parse(localStorage.getItem(k)??'[]').length));
+await subscriber.getByRole('button',{name:'Finish workout',exact:true}).click();
+await subscriber.getByText('Workout completed',{exact:true}).waitFor();
+await subscriber.screenshot({path:'test-results/subscriber-workout-mobile.png',fullPage:true});
+for(const route of ['/app/bookings','/app/support','/app/profile']){await subscriber.goto(base+route);await subscriber.locator('.page-heading h1').waitFor();}
+await subscriberContext.close();
 await writeFile(
   "test-results/browser-check.json",
-  JSON.stringify({ routes: 9, mobileWidth: 390, overflow, errors }, null, 2),
+  JSON.stringify({ routes: 14, mobileWidth: 390, overflow, offlineWorkoutReload:true, offlineSetReplay:true, errors }, null, 2),
 );
 await browser.close();
 if (errors.length) throw new Error(errors.join("\n"));
 console.log(
-  "Browser smoke passed: landing, login, trainer routes, admin, mobile navigation and no overflow.",
+  "Browser smoke passed: landing, login, trainer routes, admin, mobile navigation, no overflow and offline workout reload/replay.",
 );

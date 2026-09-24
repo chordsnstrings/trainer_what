@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The application builds and passes local integration checks. The supplied containers, PostgreSQL runtime role and DigitalOcean deployment have not been executed here. Chromium was unavailable for local browser verification. Do not treat this document as deployment evidence.
+The application builds and passes local integration checks. The supplied containers, PostgreSQL runtime role and DigitalOcean deployment have not been executed here. Chromium was unavailable locally; the GitHub browser smoke passed on the first implementation checkpoint. An expanded production-role PostgreSQL/container job is configured; see BUILD_STATUS for its actual result. Do not treat this document as deployment evidence.
 
 ## Local development
 
@@ -35,6 +35,10 @@ The application builds and passes local integration checks. The supplied contain
 ## Operator identity
 
 Create the intended account, verify its email and enroll its authenticator. An authorized deploy operator can set `OPERATOR_EMAIL` and `OPERATOR_ROLE` (`admin`, `finance`, `support`, `safety`, `none`), then run `npm run operator:role` using runtime database access. This command is privileged operational access. All production platform actions require recent MFA; production bank changes and publish actions do too.
+
+## Document imports
+
+Local PDF extraction requires `pdftotext` (Poppler); DOCX extraction requires Python 3. These are installed in the container and CI. Only selectable PDF text is supported; scans require a separate approved OCR path. Uploads are bounded, parsed in temporary files with a restricted child environment and removed after extraction. Set `FILE_IMPORTS_APPROVED` in production only after parser isolation and security review. Original binaries are not retained.
 
 ## Payments
 

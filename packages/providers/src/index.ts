@@ -28,7 +28,9 @@ export function integrationStatus() {
       name: "Lean",
       purpose: "Monthly payments to trainer bank accounts",
       configured:
-        !!process.env.LEAN_ACCESS_TOKEN && !!process.env.LEAN_SOURCE_ACCOUNT_ID,
+        !!process.env.LEAN_BASE_URL &&
+        !!process.env.LEAN_ACCESS_TOKEN &&
+        !!process.env.LEAN_SOURCE_ACCOUNT_ID,
       approved:
         process.env.PAYOUTS_APPROVED === "true" &&
         process.env.LEAN_CONTRACT_VERIFIED === "true",
@@ -277,13 +279,11 @@ export async function compileTrainerRules(
     MODEL_NAME: model,
   } = process.env;
   if (!base || !key || !model) throw new ProviderUnavailable("model");
-  const input = evidence
-    .slice(0, 20)
-    .map((r) => ({
-      id: r.id,
-      title: r.data.title ?? r.data.question,
-      text: (r.data.text ?? r.data.answer ?? "").slice(0, 6000),
-    }));
+  const input = evidence.slice(0, 20).map((r) => ({
+    id: r.id,
+    title: r.data.title ?? r.data.question,
+    text: (r.data.text ?? r.data.answer ?? "").slice(0, 6000),
+  }));
   if (JSON.stringify(input).length > 50000)
     throw new Error("Select a smaller source batch, up to 50,000 characters");
   const response = await fetch(base.replace(/\/$/, "") + "/chat/completions", {

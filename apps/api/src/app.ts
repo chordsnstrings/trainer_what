@@ -1,3 +1,6 @@
+import { privacyOperations } from "./privacy-operations.ts";
+import { executePayout } from "./payout-execution.ts";
+import { ingestionRoutes } from "./ingestion.ts";
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
@@ -245,7 +248,9 @@ export async function buildApp(
   }
   securityRoutes(app, db, identity);
   financeOperations(app, db, identity);
+  privacyOperations(app, db, identity);
   operationsRoutes(app, db, identity);
+  ingestionRoutes(app, db, trainer);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/ready", async () => {
@@ -490,16 +495,23 @@ export async function buildApp(
             events: await tx.query(
               "SELECT * FROM events ORDER BY created_at DESC LIMIT 100",
             ),
-            costs: await tx.query(
-              "SELECT * FROM cost_events ORDER BY created_at DESC LIMIT 100",
-            ),
-            payouts: await tx.query(
-              "SELECT * FROM payouts ORDER BY created_at DESC",
-            ),
-            journals: await tx.query(
-              "SELECT * FROM journals ORDER BY created_at DESC LIMIT 200",
-            ),
-            finance: await financeSummary(tx),
+            ...(["owner", "finance"].includes(a.role)
+              ? {
+                  costs: await tx.query(
+                    "SELECT * FROM cost_events ORDER BY created_at DESC LIMIT 100",
+                  ),
+                  payouts: await tx.query(
+                    "SELECT * FROM payouts ORDER BY created_at DESC",
+                  ),
+                  journals: await tx.query(
+                    "SELECT * FROM journals ORDER BY created_at DESC LIMIT 200",
+                  ),
+                  usageStatements: await tx.query(
+                    "SELECT period,total_cost_usd,fx_aed_per_usd,charge_minor,fee_schedule_version FROM usage_statements ORDER BY period DESC",
+                  ),
+                  finance: await financeSummary(tx),
+                }
+              : {}),
           }),
     }));
   });
@@ -581,7 +593,10 @@ export async function buildApp(
   app.post("/api/v1/invitations", async (req) => {
     const a = owner(req);
     const b = z
-      .object({ email: z.email(), role: z.enum(["staff", "subscriber"]) })
+      .object({
+        email: z.email(),
+        role: z.enum(["staff", "finance", "subscriber"]),
+      })
       .parse(req.body);
     const token = newToken();
     await db.system((tx) =>
@@ -662,7 +677,7 @@ export async function buildApp(
       );
     await db.system(async (tx) => {
       await tx.query(
-        "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='staff'",
+        "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role IN ('staff','finance')",
         [a.tenantId, uid],
       );
       await tx.query("DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2", [
@@ -1561,7 +1576,7 @@ export async function buildApp(
         "SUBSCRIBER_REQUIRED",
         "Sign in as a subscriber to purchase a membership",
       );
-    const intent = await db.tenant({ ...a, role: "staff" }, async (tx) => {
+    const intent = await db.tenant({ ...a, role: "owner" }, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":checkout:" + a.userId,
       ]);
@@ -1613,7 +1628,7 @@ export async function buildApp(
       },
       { idempotencyKey: "checkout:" + intent.id },
     );
-    await db.tenant({ ...a, role: "staff" }, (tx) =>
+    await db.tenant({ ...a, role: "owner" }, (tx) =>
       tx.query(
         "UPDATE records SET status='open',data=data||$2::jsonb WHERE id=$1",
         [intent.id, JSON.stringify({ providerId: checkout.id })],
@@ -1776,6 +1791,47 @@ export async function buildApp(
     return { ok: true };
   });
 
+  app.post("/api/v1/refund-requests/:id/reconcile", async (req) => {
+    const a = owner(req);
+    requireRecentMfa(a);
+    const stripe = requireCommerce();
+    const r = await db.tenant(a, (tx) =>
+      findRecord(tx, (req.params as any).id, "refund"),
+    );
+    if (!["submitting", "submitted", "unknown"].includes(r.status))
+      return { status: r.status };
+    const page = await stripe.refunds.list({
+      charge: r.data.chargeId,
+      limit: 100,
+    });
+    const remote = page.data.find(
+      (item) =>
+        item.id === r.data.providerRefundId ||
+        item.metadata?.refund_request_id === r.id,
+    );
+    if (!remote)
+      throw fail(
+        409,
+        "REFUND_UNRESOLVED",
+        page.has_more
+          ? "The provider history needs a full finance reconciliation"
+          : "No matching provider refund is confirmed; the existing instruction remains held",
+      );
+    await processStripeEvent(db, {
+      id: "reconcile-refund:" + remote.id + ":" + remote.status,
+      created: Math.floor(Date.now() / 1000),
+      type: "refund.updated",
+      data: { object: remote },
+    });
+    await db.tenant(a, (tx) =>
+      event(tx, a, "refund.provider_reconciled", r.id, {
+        providerRefundId: remote.id,
+        status: remote.status,
+      }),
+    );
+    return { status: remote.status };
+  });
+
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);
     requireRecentMfa(a);
@@ -1881,55 +1937,17 @@ export async function buildApp(
         "FINANCE_REQUIRED",
         "Platform finance authority is required to execute a payout",
       );
-    if (!integrationStatus().find((x) => x.id === "lean")?.approved)
-      throw new ProviderUnavailable(
-        "lean",
-        "Payout execution requires verified provider configuration",
-      );
-    const payout = await db.tenant(a, async (tx) => {
-      const [p] = await tx.query(
-        "SELECT * FROM payouts WHERE id=$1 FOR UPDATE",
-        [id.parse((req.params as any).id)],
-      );
-      if (!p || p.status !== "ready")
-        throw fail(
-          409,
-          "PAYOUT_STATE",
-          "Only a prepared, unsubmitted instruction may execute",
-        );
-      const [beneficiary] = await tx.query(
-        "SELECT id FROM records WHERE kind='beneficiary' AND status='verified' AND data->>'providerId'=$1 AND (data->>'holdUntil')::timestamptz<now()",
-        [p.beneficiary_id],
-      );
-      if (!beneficiary)
-        throw fail(
-          409,
-          "BENEFICIARY_REQUIRED",
-          "Recheck destination approval and its bank-change hold",
-        );
-      return transitionPayout(tx, a, p.id, "submitted");
-    });
-    try {
-      const result = await new LeanGateway().sendPayout({
-        id: payout.id,
-        beneficiaryId: payout.beneficiary_id,
-        amountMinor: Number(payout.amount_minor),
-      });
-      await db.tenant(a, async (tx) => {
-        await tx.query("UPDATE payouts SET provider_id=$2 WHERE id=$1", [
-          payout.id,
-          result.id ?? result.payment_id,
-        ]);
-        await transitionPayout(tx, a, payout.id, "processing");
-      });
-      return { status: "processing" };
-    } catch (e) {
-      await db.tenant(a, (tx) => transitionPayout(tx, a, payout.id, "unknown"));
-      throw e;
-    }
+    return executePayout(db, a, id.parse((req.params as any).id));
   });
+
   app.get("/api/v1/finance/export", async (req, reply) => {
-    const a = trainer(req);
+    const a = identity(req);
+    if (!["owner", "finance"].includes(a.role))
+      throw fail(
+        403,
+        "FINANCE_REQUIRED",
+        "Workspace finance access is required",
+      );
     const rows = await db.tenant(a, (tx) =>
       tx.query(
         "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,l.account",

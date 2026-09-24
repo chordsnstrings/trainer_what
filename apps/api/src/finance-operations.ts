@@ -1,3 +1,4 @@
+import { executePayout } from "./payout-execution.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -18,6 +19,87 @@ export function monthCutoff(period: string) {
   periodSchema.parse(period);
   const [year, month] = period.split("-").map(Number);
   return new Date(Date.UTC(year, month, 1) - 4 * 3600000);
+}
+export async function postUsageStatement(
+  tx: Tx,
+  a: Actor,
+  input: {
+    period: string;
+    fxAedPerUsd: number;
+    chargeMinor: number;
+    feeScheduleVersion: string;
+    evidenceReference: string;
+  },
+) {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+  const [existing] = await tx.query(
+    "SELECT * FROM usage_statements WHERE period=$1",
+    [input.period],
+  );
+  if (existing) {
+    if (
+      Number(existing.charge_minor) !== input.chargeMinor ||
+      Number(existing.fx_aed_per_usd) !== input.fxAedPerUsd
+    )
+      throw fail(
+        409,
+        "USAGE_INTENT_CONFLICT",
+        "This period already has a different reviewed usage statement",
+      );
+    return existing;
+  }
+  const cutoff = monthCutoff(input.period);
+  if (cutoff.getTime() > Date.now())
+    throw fail(409, "PERIOD_OPEN", "Wait until the usage month ends");
+  const [usage] = await tx.query(
+    "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,coalesce(sum(cost_usd),0)::text AS usd,round(coalesce(sum(cost_usd),0)*$2::numeric*100)::text AS minor FROM cost_events WHERE to_char(created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')=$1",
+    [input.period, input.fxAedPerUsd],
+  );
+  if (!usage.n || usage.unpriced)
+    throw fail(
+      409,
+      "USAGE_UNRECONCILED",
+      "Reconcile actual provider usage and missing prices first",
+    );
+  if (Number(usage.minor) !== input.chargeMinor)
+    throw fail(
+      400,
+      "USAGE_AMOUNT_MISMATCH",
+      "The charge must match recorded USD cost converted at the reviewed exchange rate, rounded once to AED minor units",
+    );
+  const entry = input.chargeMinor
+    ? await journal(
+        tx,
+        a,
+        "usage:" + input.period,
+        "Reviewed coaching usage charge",
+        [
+          { account: "trainer_payable", amount: input.chargeMinor },
+          { account: "platform_cost_recovery", amount: -input.chargeMinor },
+        ],
+        input,
+      )
+    : null;
+  const [statement] = await tx.query(
+    "INSERT INTO usage_statements(id,tenant_id,period,total_cost_usd,fx_aed_per_usd,charge_minor,cost_event_count,fee_schedule_version,evidence_reference,journal_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
+    [
+      randomUUID(),
+      a.tenantId,
+      input.period,
+      usage.usd,
+      input.fxAedPerUsd,
+      input.chargeMinor,
+      usage.n,
+      input.feeScheduleVersion,
+      input.evidenceReference,
+      entry?.id ?? null,
+    ],
+  );
+  await event(tx, a, "finance.usage_posted", statement.id, {
+    period: input.period,
+    chargeMinor: input.chargeMinor,
+  });
+  return statement;
 }
 export async function closeMonth(
   tx: Tx,
@@ -54,6 +136,16 @@ export async function closeMonth(
       409,
       "RECONCILIATION_REQUIRED",
       "Resolve unpriced usage, refunds, reconciliation exceptions and uncertain payments before closing",
+    );
+  const missingUsage = await tx.query(
+    "SELECT to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') AS period FROM cost_events c LEFT JOIN usage_statements s ON s.tenant_id=c.tenant_id AND s.period=to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') WHERE c.created_at<$1 GROUP BY to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM'),s.cost_event_count HAVING s.cost_event_count IS NULL OR count(c.id)<>s.cost_event_count",
+    [cutoff.toISOString()],
+  );
+  if (missingUsage.length)
+    throw fail(
+      409,
+      "USAGE_STATEMENT_REQUIRED",
+      "Post reviewed usage statements before closing trainer earnings",
     );
   const lines = await tx.query(
     "SELECT l.account,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.created_at<$1 GROUP BY l.account",
@@ -117,6 +209,9 @@ export function financeOperations(
       await event(tx, a, "finance.workspace_inspected", a.tenantId);
       return {
         summary: await financeSummary(tx),
+        usageStatements: await tx.query(
+          "SELECT * FROM usage_statements ORDER BY period DESC",
+        ),
         records: await tx.query(
           "SELECT * FROM records WHERE kind IN ('close','beneficiary','reconciliation','refund') ORDER BY created_at DESC",
         ),
@@ -183,6 +278,20 @@ export function financeOperations(
       );
     });
   });
+  app.post(prefix + "/usage-statements", async (req) => {
+    const a = finance(req),
+      b = z
+        .object({
+          period: periodSchema,
+          fxAedPerUsd: z.number().positive().max(100),
+          chargeMinor: z.number().int().min(0).max(1000000000),
+          feeScheduleVersion: z.string().min(3).max(100),
+          evidenceReference: z.string().min(10).max(500),
+        })
+        .strict()
+        .parse(req.body);
+    return db.tenant(a, (tx) => postUsageStatement(tx, a, b));
+  });
   app.post(prefix + "/close", async (req) => {
     const a = finance(req);
     const b = z
@@ -233,6 +342,17 @@ export function financeOperations(
       });
       return { ok: true };
     });
+  });
+  app.post(prefix + "/payouts/:id/execute", async (req) => {
+    const a = finance(req);
+    return executePayout(
+      db,
+      a,
+      z
+        .string()
+        .uuid()
+        .parse((req.params as any).id),
+    );
   });
   app.post(prefix + "/payouts/:id/reconcile", async (req) => {
     const a = finance(req);

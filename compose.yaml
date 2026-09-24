@@ -33,6 +33,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?Set the non-owner runtime connection}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the public HTTPS URL}
       SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Set the account encryption key}
+      FILE_IMPORTS_APPROVED: ${FILE_IMPORTS_APPROVED:-false}
       LEGAL_APPROVED: ${LEGAL_APPROVED:-false}
       COMMERCE_APPROVED: ${COMMERCE_APPROVED:-false}
       PAYOUTS_APPROVED: ${PAYOUTS_APPROVED:-false}
