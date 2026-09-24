@@ -57,7 +57,7 @@ npm run seed:demo
 npm run test:browser
 ```
 
-The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the production browser and PostgreSQL/container run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36028332141).
+The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the production browser and PostgreSQL/container run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270).
 
 ## Structure
 

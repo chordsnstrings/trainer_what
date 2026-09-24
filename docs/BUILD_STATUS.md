@@ -7,12 +7,12 @@ Checkpoint: 24 September 2026. This file reports code and observed checks, separ
 | Check | Observed result |
 | --- | --- |
 | TypeScript | Passed |
-| Automated tests | 37 passed, 0 failed; real PGlite/PostgreSQL engine and Fastify requests |
+| Automated tests | 37 passed, 0 failed in each CI job: embedded PGlite and network PostgreSQL 17.6 with a non-owner runtime role |
 | Next.js production build | Passed |
 | Existing local fixture database | Nine migrations applied; existing fixture upgrade and idempotent seed passed |
-| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36028332141) on `b820c9f`: production web server, offline workout reload/replay/completion, desktop/mobile navigation; expanded onboarding/Twin/public journeys are under verification |
-| GitHub Actions | Both application and PostgreSQL/container jobs passed on `b820c9f`; current core-workflow expansion is under verification |
-| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36028332141) on `b820c9f`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
+| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270) on `e6a539e`: 22 routes on the production web build; public pages/demo, onboarding save/reload, Client Twin, offline workout reload/replay/completion and mobile navigation; no overflow/page errors |
+| GitHub Actions | Both application and PostgreSQL/container jobs passed on `e6a539e`; see [verification record](VERIFICATION_2026-09-24.md) |
+| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270) on `e6a539e`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
 | Staging / DigitalOcean | Not deployed; account, region and budget unavailable |
 | Stripe / Lean / model / email calls | No live provider call performed |
 
@@ -22,7 +22,7 @@ The suite covers commission boundaries, RLS and directory boundaries, authentica
 
 | Area | Delivered | Remaining boundary |
 | --- | --- | --- |
-| Foundation (005–009) | npm monorepo, API/web/worker, nine migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, expanded offline browser/accessibility/performance/restore evidence; verified custom-host resolution |
+| Foundation (005–009) | npm monorepo, API/web/worker, nine migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, actual-device/accessibility/performance/restore evidence; verified custom-host resolution |
 | Acquisition/onboarding (010–011) | Dedicated acquisition/how-it-works/scripted-demo/pricing/FAQ pages, signup/login/recovery, stored brand, public coach enrollment, 16-step registry with identity autosave/CAS resume, server-derived readiness, preview invalidation and publish gates | Attribution, brand media uploads, advanced onboarding capabilities tied to their provider issues and actual separate-device acceptance |
 | Brain (012–014) | PDF/DOCX/text sources and interview, rights metadata, bounded compilation adapter, draft review/conflicts/corrections, 20-case evaluation, digest-pinned supervised release/rollback | OCR/audio/image ingestion, parser isolation/security scanning, sophisticated retrieval/conflict evaluation, real provider traces and broader safety corpus |
 | Coaching (015–017) | Versioned intake/consent and Client Twin snapshots, dated facts, robust personal baselines with coverage/lineage and import deduplication, assigned programs, set logs, verified offline reload/replay, messaging, takeover, structured decisions awaiting review, approved-program assignment | Broader Twin domains, program-schedule adherence/advanced deterministic adaptations, exercise-media library, real-device PWA and accessibility coverage |
