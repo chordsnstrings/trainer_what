@@ -60,3 +60,7 @@ Tag each container release. Roll web/API/worker back together to the previous co
 - `INTENT_CONFLICT`: the same idempotency key was reused with changed data; inspect the existing record.
 - Embedded database already open: stop its current process. Use PostgreSQL for concurrent API/worker instances.
 - Uncertain refund/payout: retain the original instruction and references. Do not create an unrelated second financial request to bypass its status.
+
+## Model accounting configuration
+
+Set the model endpoint/name and credential only in the API/worker secret environment. Pricing requires explicit `MODEL_INPUT_USD_PER_MILLION`, `MODEL_OUTPUT_USD_PER_MILLION` and `MODEL_PRICE_VERSION`. Missing token counts or prices remain unknown and block monthly close until platform finance records provider evidence. Rejected model output still retains provider-reported cost. The default `MODEL_MAX_DAILY_CALLS=100` is a per-workspace Dubai-day request cap (including evaluation calls and failed attempts), not a currency budget. Raising it is an operator configuration decision. An interrupted reservation becomes a finance reconciliation item; never repeat a provider request to guess its old cost.

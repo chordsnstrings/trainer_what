@@ -1312,3 +1312,83 @@ test("monthly close requires reviewed usage charges and their AED posting is ide
   );
   assert.equal(closed.status, "closed");
 });
+
+async function withModelFixture(run: () => Promise<void>) {
+  const config = {
+    MODEL_BASE_URL: "https://model.fixture.invalid/v1",
+    MODEL_API_KEY: "fixture-model-credential",
+    MODEL_NAME: "fixture-model",
+    MODEL_INPUT_USD_PER_MILLION: "1",
+    MODEL_OUTPUT_USD_PER_MILLION: "2",
+    MODEL_PRICE_VERSION: "synthetic-price-v1",
+    MODEL_MAX_DAILY_CALLS: "100",
+  };
+  const before = Object.fromEntries(Object.keys(config).map(key => [key,process.env[key]]));
+  const fetchBefore = globalThis.fetch;
+  Object.assign(process.env,config);
+  try { await run(); }
+  finally {
+    globalThis.fetch=fetchBefore;
+    for (const [key,value] of Object.entries(before)) {
+      if (value===undefined) delete process.env[key]; else process.env[key]=value;
+    }
+  }
+}
+
+test("model usage survives invalid output, missing usage and network uncertainty", async () => {
+  const coach=await register("model-accounting");
+  const source=await request("/brain/sources","POST",{title:"Test training source",text:"Progress exercises conservatively after reviewing the current session.",rights:true},coach.cookie);
+  assert.equal(source.statusCode,200,source.body);
+  const compile=()=>request("/brain/compile","POST",{sourceIds:[source.json().id]},coach.cookie);
+  let call=0;
+  await withModelFixture(async()=>{
+    globalThis.fetch=async()=>{
+      const reservations=await db.tenant(coach,tx=>tx.query("SELECT * FROM cost_events WHERE status='reserved'"));
+      assert.equal(reservations.length,1,"reservation must commit before provider request");
+      assert.equal(reservations[0].cost_usd,null);
+      call++;
+      if (call===3) throw new Error("Synthetic timeout; no provider response received");
+      return new Response(JSON.stringify({id:`fixture-${call}`,choices:[{message:{content:call===1?'invalid JSON':'{"rules":[],"conflicts":[]}'}}],...(call===1?{usage:{prompt_tokens:100,completion_tokens:50}}:{})}),{status:200});
+    };
+    const invalid=await compile();
+    assert.equal(invalid.statusCode,503,invalid.body);
+    const missing=await compile();
+    assert.equal(missing.statusCode,200,missing.body);
+    const uncertain=await compile();
+    assert.equal(uncertain.statusCode,500,uncertain.body);
+  });
+  const rows=await db.tenant(coach,tx=>tx.query("SELECT * FROM cost_events ORDER BY created_at"));
+  assert.equal(rows.length,3);
+  assert.equal(rows[0].status,"recorded");
+  assert.equal(Number(rows[0].cost_usd),0.0002);
+  assert.equal(rows[0].input_tokens,100);
+  assert.equal(rows[0].pricing.inputUsdPerMillion,1);
+  for (const r of rows.slice(1)) {assert.equal(r.status,"unknown");assert.equal(r.cost_usd,null);assert.equal(r.input_tokens,null);}
+  assert.equal((await db.tenant(coach,tx=>tx.query("SELECT id FROM records WHERE kind='rule'"))).length,0);
+  await assert.rejects(db.tenant(coach,tx=>tx.query("UPDATE cost_events SET cost_usd=0 WHERE id=$1",[rows[0].id])),/Finalized usage/);
+  await assert.rejects(db.tenant(coach,tx=>tx.query("DELETE FROM cost_events WHERE id=$1",[rows[0].id])));
+  assert.equal((await db.tenant(b,tx=>tx.query("SELECT id FROM cost_events WHERE id=$1",[rows[0].id]))).length,0);
+  const {reconcileModelUsage}=await import("../apps/api/src/finance-operations.ts");
+  const evidence={costUsd:"0.00015000",providerRequestId:rows[1].trace_id,evidenceReference:"Synthetic provider invoice evidence"};
+  const reconciled=await db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,evidence));
+  assert.equal(reconciled.status,"reconciled");
+  assert.equal(Number(reconciled.cost_usd),0.00015);
+  assert.equal((await db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,evidence))).id,reconciled.id);
+  await assert.rejects(db.tenant(coach,tx=>reconcileModelUsage(tx,coach,rows[1].id,{...evidence,costUsd:"0"})),/different reconciliation/);
+  const forbidden=await request(`/admin/tenants/${coach.tenantId}/finance/usage/${rows[2].id}/reconcile`,"POST",{...evidence,providerRequestId:"fixture-missing-request"},coach.cookie);
+  assert.equal(forbidden.statusCode,403,forbidden.body);
+});
+
+test("concurrent model requests cannot exceed the workspace daily limit", async()=>{
+  const coach=await register("model-budget");
+  const source=await request("/brain/sources","POST",{title:"Test budget source",text:"Trainer review is required for significant changes in training load.",rights:true},coach.cookie);
+  let calls=0;
+  await withModelFixture(async()=>{
+    process.env.MODEL_MAX_DAILY_CALLS="1";
+    globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({id:"fixture-budget",usage:{prompt_tokens:10,completion_tokens:5},choices:[{message:{content:'{"rules":[],"conflicts":[]}'}}]}),{status:200});};
+    const results=await Promise.all([1,2].map(()=>request("/brain/compile","POST",{sourceIds:[source.json().id]},coach.cookie)));
+    assert.deepEqual(results.map(r=>r.statusCode).sort(),[200,429]);
+    assert.equal(calls,1);
+  });
+  assert.equal((await db.tenant(coach,tx=>tx.query("SELECT id FROM cost_events"))).length,1);
+});

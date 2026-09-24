@@ -1,3 +1,4 @@
+import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
 import { ingestionRoutes } from "./ingestion.ts";
@@ -760,9 +761,9 @@ export async function buildApp(
       );
     const generated = await compileTrainerRules(
       material.map((r) => ({ id: r.id, data: r.data })),
+      modelAccounting(db, a, "brain_compilation"),
     );
     return db.tenant(a, async (tx) => {
-      await logCost(tx, a, "brain_compilation", generated.usage);
       const rules = [];
       for (const rule of generated.rules)
         rules.push(
@@ -937,12 +938,12 @@ export async function buildApp(
         "held_out_evaluation",
         c.data.prompt,
         material.rules.map((r) => ({ id: r.id, data: r.data })),
+        modelAccounting(db, a, "evaluation"),
       );
       const passed = c.data.expectEscalation
         ? generated.decision.type === "escalation"
         : generated.decision.evidenceIds.includes(c.data.expectedEvidenceId);
       outcomes.push({ scenarioId: c.id, passed });
-      await db.tenant(a, (tx) => logCost(tx, a, "evaluation", generated.usage));
     }
     const digest = createHash("sha256")
       .update(
@@ -1244,24 +1245,6 @@ export async function buildApp(
     });
   });
 
-  async function logCost(tx: Tx, a: Actor, task: string, u: any) {
-    await tx.query(
-      "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,input_tokens,output_tokens,cost_usd,price_version,trace_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-      [
-        randomUUID(),
-        a.tenantId,
-        a.userId,
-        task,
-        "configured-model",
-        u.model,
-        u.input,
-        u.output,
-        u.cost,
-        u.cost === null ? null : "environment-price-v1",
-        u.requestId,
-      ],
-    );
-  }
   app.post("/api/v1/coaching/ask", async (req) => {
     const a = identity(req);
     const b = z
@@ -1348,9 +1331,13 @@ export async function buildApp(
       ...rules,
       ...material.intake.map((r) => ({ id: r.id, data: r.data })),
     ];
-    const generated = await modelDecision("coaching", b.message, evidence);
+    const generated = await modelDecision(
+      "coaching",
+      b.message,
+      evidence,
+      modelAccounting(db, a, "coaching"),
+    );
     return db.tenant({ ...a, role: "staff" }, async (tx) => {
-      await logCost(tx, a, "coaching", generated.usage);
       const d = await putRecord(
         tx,
         a,

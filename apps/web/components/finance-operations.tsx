@@ -114,6 +114,70 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
             </form>
           </details>
           <details>
+            <summary>
+              Reconcile unknown AI usage ({data.unresolvedUsage?.length ?? 0})
+            </summary>
+            <p className="muted">
+              Check the provider request or invoice before recording its actual
+              USD cost. Confirmed zero cost also requires evidence. Requests
+              from the last five minutes must finish first.
+            </p>
+            {data.unresolvedUsage?.map((u: any) => (
+              <form
+                key={u.id}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void act(
+                    `/usage/${u.id}/reconcile`,
+                    Object.fromEntries(new FormData(e.currentTarget)),
+                  );
+                }}
+              >
+                <h3>
+                  {u.task} · {u.model}
+                </h3>
+                <p>
+                  {new Date(u.created_at).toLocaleString()} · {u.status}
+                </p>
+                <div className="form-grid">
+                  <label className="field">
+                    <span>Verified provider cost (USD)</span>
+                    <input
+                      name="costUsd"
+                      type="number"
+                      min="0"
+                      max="9999999"
+                      step="0.00000001"
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Provider request reference</span>
+                    <input
+                      name="providerRequestId"
+                      defaultValue={u.trace_id ?? ""}
+                      minLength={3}
+                      maxLength={200}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Provider invoice or response evidence</span>
+                    <input
+                      name="evidenceReference"
+                      minLength={10}
+                      maxLength={500}
+                      required
+                    />
+                  </label>
+                </div>
+                <button className="button secondary" disabled={busy}>
+                  Record reviewed cost
+                </button>
+              </form>
+            ))}
+          </details>
+          <details>
             <summary>Post reviewed usage charges</summary>
             <p className="muted">
               Convert recorded provider cost at the reviewed exchange rate. The

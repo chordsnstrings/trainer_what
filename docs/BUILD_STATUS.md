@@ -7,12 +7,12 @@ Checkpoint: 24 September 2026. This file reports code and observed checks, separ
 | Check | Observed result |
 | --- | --- |
 | TypeScript | Passed |
-| Automated tests | 32 passed, 0 failed; real PGlite/PostgreSQL engine and Fastify requests |
+| Automated tests | 34 passed, 0 failed; real PGlite/PostgreSQL engine and Fastify requests |
 | Next.js production build | Passed |
-| Existing local fixture database | Seven migrations applied to the existing local fixture; idempotent demo seed completed |
-| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348) on `a49e4db`: login, trainer/admin routes, 390px navigation, no overflow or page errors; human visual review pending |
-| GitHub Actions | First clean-checkout build/test/browser run passed; expanded PostgreSQL/container job added in this revision |
-| Docker / production PostgreSQL | Configuration supplied; not executed in this runtime |
+| Existing local fixture database | Eight migrations defined; upgrade and seed check pending for the latest revision |
+| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348) on `a49e4db`: login, trainer/admin routes, 390px navigation, no overflow or page errors; desktop and mobile screenshots visually reviewed |
+| GitHub Actions | Clean-checkout tests/build passed on `0fcd83d`; expanded offline browser test found a reload failure, fix under verification |
+| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36026059303) on `0fcd83d`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
 | Staging / DigitalOcean | Not deployed; account, region and budget unavailable |
 | Stripe / Lean / model / email calls | No live provider call performed |
 
@@ -22,7 +22,7 @@ The suite covers commission boundaries, RLS and directory boundaries, authentica
 
 | Area | Delivered | Remaining boundary |
 | --- | --- | --- |
-| Foundation (005–009) | npm monorepo, API/web/worker, seven migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Production PostgreSQL and container verification, staging, browser/accessibility/performance/restore evidence; verified custom-host resolution |
+| Foundation (005–009) | npm monorepo, API/web/worker, eight migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, expanded offline browser/accessibility/performance/restore evidence; verified custom-host resolution |
 | Acquisition/onboarding (010–011) | Landing/calculator, signup/login/recovery, stored brand, public coach enrollment, onboarding record/checkpoints | Dedicated full acquisition pages, attribution, every source onboarding step and cross-device acceptance |
 | Brain (012–014) | PDF/DOCX/text sources and interview, rights metadata, bounded compilation adapter, draft review/conflicts/corrections, 20-case evaluation, digest-pinned supervised release/rollback | OCR/audio/image ingestion, parser isolation/security scanning, sophisticated retrieval/conflict evaluation, real provider traces and broader safety corpus |
 | Coaching (015–017) | Versioned intake records/consent, assigned programs, set logs, local queue/PWA implementation, messaging, takeover, structured model decisions awaiting review, approved-program assignment | Browser offline recovery evidence, complete Twin freshness/uncertainty engine, exercise-media library and advanced deterministic adaptations |
@@ -39,7 +39,7 @@ A provider placeholder or unavailable badge is not an implemented integration. T
 - Minor-unit amounts and balanced journals are enforced. Journal rows cannot be edited or appended after their creating transaction. Corrections compensate history.
 - Commission uses marginal bands; invoice allocation currently orders active paid subscribers by first paid timestamp/user ID. This implementation policy requires financial sign-off for mixed prices, churn, discounts and tax.
 - Settlement entry is a privileged **manual evidence workflow**, not an automatic bank feed. Actual processing fees are entered in minor units and charged against trainer payables. Fee responsibility still requires approval.
-- Reviewed usage statements convert recorded USD cost at an explicitly supplied exchange rate, round once to AED minor units, and post immutable charges against trainer earnings. Close blocks missing usage statements. No exchange rate or fee schedule is silently chosen.
+- Reviewed usage statements convert recorded USD cost at an explicitly supplied exchange rate, round once to AED minor units, and post immutable charges against trainer earnings. Close blocks missing usage statements. No exchange rate or fee schedule is silently chosen. Model requests reserve a usage record before sending, retain reported cost even when output is rejected, and preserve missing usage as unknown. Finance can reconcile uncertain costs against provider evidence. Finalized usage is immutable. A configurable per-workspace daily call limit defaults to 100; it is a request cap, not a spend guarantee.
 - Close uses Dubai month-end and a seven-day review buffer. It blocks unresolved refunds/reconciliation, uncertain payouts and unpriced usage. The settlement check is conservative across all outstanding receivables.
 - Payout preparation requires a closed month, verified destination, 72-hour bank-change hold, available liability and recorded bank funding. Unknown payments remain reserved and cannot be resubmitted. Confirmed terminal failures/returns use new instruction revisions.
 - Lean POST paths/payloads are isolated behind `LEAN_CONTRACT_VERIFIED` and `PAYOUTS_APPROVED`. They are **not verified for the operator's account**. A provider response never directly marks a payout paid.

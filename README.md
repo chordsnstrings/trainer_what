@@ -52,11 +52,12 @@ Browser smoke setup on a machine with browser-download access:
 
 ```bash
 npx playwright install --with-deps chromium --only-shell
+npm run build
 npm run seed:demo
 npm run test:browser
 ```
 
-The browser runner starts API and web itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the GitHub browser run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348).
+The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the initial GitHub browser run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36022148348).
 
 ## Structure
 

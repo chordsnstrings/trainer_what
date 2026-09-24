@@ -1821,7 +1821,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           .getEntriesByType("resource")
           .map((r) => r.name)
           .filter((url) => url.startsWith(location.origin + "/_next/static/"));
-        await Promise.allSettled(
+        await Promise.all(
           [path, ...new Set(assets)].map((url) => cache.add(url)),
         );
         if (active)
@@ -1829,7 +1829,10 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             "Workout saved for this device. Set logs can sync after a connection loss.",
           );
       } catch {
-        /* Set logging still works in an already-open workout. */
+        if (active)
+          setNotice(
+            "Keep this workout open. Offline reload is not ready; reconnect to save it for this device.",
+          );
       }
     })();
     return () => {
@@ -3115,7 +3118,11 @@ function Analytics({ state, records }: ViewProps) {
                   <tr key={c.id}>
                     <td>{c.task}</td>
                     <td>{c.model}</td>
-                    <td>{c.input_tokens + c.output_tokens}</td>
+                    <td>
+                      {c.input_tokens === null || c.output_tokens === null
+                        ? "Unknown"
+                        : c.input_tokens + c.output_tokens}
+                    </td>
                     <td>
                       {c.cost_usd === null
                         ? "Unpriced"

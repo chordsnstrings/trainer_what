@@ -15,6 +15,70 @@ import { requireRecentMfa } from "./security.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const periodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+export async function reconcileModelUsage(
+  tx: Tx,
+  a: Actor,
+  id: string,
+  input: {
+    costUsd: string;
+    providerRequestId: string;
+    evidenceReference: string;
+  },
+) {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+  const [usage] = await tx.query(
+    "SELECT *,now()-created_at<interval '5 minutes' AS recent FROM cost_events WHERE id=$1 FOR UPDATE",
+    [id],
+  );
+  if (!usage) throw fail(404, "NOT_FOUND", "Usage record unavailable");
+  if (usage.status === "reconciled") {
+    if (
+      Number(usage.cost_usd) !== Number(input.costUsd) ||
+      usage.trace_id !== input.providerRequestId ||
+      usage.reconciliation.evidenceReference !== input.evidenceReference
+    )
+      throw fail(
+        409,
+        "USAGE_INTENT_CONFLICT",
+        "This usage record already has different reconciliation evidence",
+      );
+    return usage;
+  }
+  if (
+    usage.status === "recorded" ||
+    (usage.status === "reserved" && usage.recent)
+  )
+    throw fail(
+      409,
+      "USAGE_NOT_RECONCILABLE",
+      "Usage is already finalized or the request may still be running",
+    );
+  if (usage.trace_id && usage.trace_id !== input.providerRequestId)
+    throw fail(
+      409,
+      "USAGE_REFERENCE_MISMATCH",
+      "Reconcile the original provider request reference",
+    );
+  const [updated] = await tx.query(
+    "UPDATE cost_events SET cost_usd=$2,trace_id=$3,status='reconciled',reconciliation=$4 WHERE id=$1 RETURNING *",
+    [
+      id,
+      input.costUsd,
+      input.providerRequestId,
+      JSON.stringify({
+        ...input,
+        reviewedBy: a.userId,
+        reviewedAt: new Date().toISOString(),
+      }),
+    ],
+  );
+  await event(tx, a, "finance.usage_reconciled", id, {
+    costUsd: input.costUsd,
+    providerRequestId: input.providerRequestId,
+    evidenceReference: input.evidenceReference,
+  });
+  return updated;
+}
 export function monthCutoff(period: string) {
   periodSchema.parse(period);
   const [year, month] = period.split("-").map(Number);
@@ -209,6 +273,9 @@ export function financeOperations(
       await event(tx, a, "finance.workspace_inspected", a.tenantId);
       return {
         summary: await financeSummary(tx),
+        unresolvedUsage: await tx.query(
+          "SELECT * FROM cost_events WHERE status IN ('reserved','unknown') ORDER BY created_at LIMIT 200",
+        ),
         usageStatements: await tx.query(
           "SELECT * FROM usage_statements ORDER BY period DESC",
         ),
@@ -277,6 +344,22 @@ export function financeOperations(
         b,
       );
     });
+  });
+  app.post(prefix + "/usage/:id/reconcile", async (req) => {
+    const a = finance(req);
+    const id = z
+      .string()
+      .uuid()
+      .parse((req.params as any).id);
+    const input = z
+      .object({
+        costUsd: z.string().regex(/^\d{1,7}(\.\d{1,8})?$/),
+        providerRequestId: z.string().min(3).max(200),
+        evidenceReference: z.string().min(10).max(500),
+      })
+      .strict()
+      .parse(req.body);
+    return db.tenant(a, (tx) => reconcileModelUsage(tx, a, id, input));
   });
   app.post(prefix + "/usage-statements", async (req) => {
     const a = finance(req),
