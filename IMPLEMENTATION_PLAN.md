@@ -2,6 +2,12 @@
 
 **Status:** planning baseline, 24 September 2026. **Repository:** `chordsnstrings/trainer_what` was empty when this plan was written. **Source:** `Trainer_Brain_Platform_Astra6_Master_Build_Spec_v1.1(1).docx`, including its 24 September addendum. Section references below refer to that specification. This plan is meant to direct implementation; the source specification remains the detailed product contract and should be supplied to the implementation team as well. Record changes in ADRs rather than quietly deviating from either document.
 
+## Execution documents
+
+This phase-level baseline is complemented by an executable planning package. Start with [project memory](docs/PROJECT_MEMORY.md) and [agent instructions](AGENTS.md), then use the [delivery roadmap](docs/DELIVERY_ROADMAP.md), [technical blueprint](docs/TECHNICAL_BLUEPRINT.md), [75-screen and source coverage matrix](docs/SCREEN_AND_REQUIREMENTS.md), and [operations/release plan](docs/OPERATIONS_AND_RELEASE.md). All application work and production evidence remain pending. The roadmap preserves the 34 issue IDs below and adds concrete outputs and acceptance checks.
+
+**Owner model preference:** reserve Astra for difficult design, implementation and focused review; use tokens efficiently and do not use Astra for browsing. Use bounded context, deterministic tools and reusable checkpoints. These instructions are retained in project memory for future build sessions.
+
 ## 1. Executive direction
 
 Build a UAE-first, trainer-branded subscription platform whose defensible function is a **Trainer Brain Compiler** plus a **Client Twin** and governed **Coach Runtime**. A trainer teaches the system their real coaching decisions, reviews its proposed rules, passes a held-out evaluation, publishes a storefront, and serves paid subscribers through programs, a workout logger, and first-person digital coaching. The trainer can see exceptions, interventions, money, costs and the evidence behind each decision. This is a production software program with finance, safety, privacy and operations; a polished interface alone is not completion.
