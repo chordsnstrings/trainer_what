@@ -95,6 +95,34 @@ export async function processStripeEvent(db: Database, e: any) {
     const eventTime = Number(e.created ?? 0),
       lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
     const newer = !eventTime || eventTime >= lastTime;
+    // Entitlements come from a signed event's actual price mapped to our immutable offer.
+    // Caller-controlled metadata never grants a module; unknown price changes fail closed.
+    const line = object.items?.data?.[0] ?? object.lines?.data?.[0];
+    const priceId =
+      typeof line?.price === "string"
+        ? line.price
+        : (line?.price?.id ?? line?.pricing?.price_details?.price);
+    let productAccess: any = {};
+    if (
+      newer &&
+      priceId &&
+      (e.type.startsWith("customer.subscription.") || !current?.data?.priceId)
+    ) {
+      const [offer] = await tx.query(
+        "SELECT id,data FROM records WHERE kind='product' AND data->>'stripePriceId'=$1",
+        [priceId],
+      );
+      productAccess = offer
+        ? {
+            productId: offer.id,
+            tier: offer.data.tier ?? "workout",
+            modules: offer.data.modules ?? ["training"],
+            priceId,
+          }
+        : { modules: [], priceId, unmappedPrice: true };
+    } else if (!current?.data?.modules) {
+      productAccess = { modules: ["training"], tier: "workout" };
+    }
     if (e.type === "invoice.paid") {
       const amount = object.amount_paid;
       if (
@@ -116,6 +144,7 @@ export async function processStripeEvent(db: Database, e: any) {
           : (current?.status ?? "active");
       const metadata = {
         ...current?.data,
+        ...productAccess,
         firstPaidAt,
         lastStripeEventAt: Math.max(lastTime, eventTime),
       };
@@ -158,7 +187,11 @@ export async function processStripeEvent(db: Database, e: any) {
       const period =
         object.current_period_end ??
         object.items?.data?.[0]?.current_period_end;
-      const data = { ...current?.data, lastStripeEventAt: eventTime };
+      const data = {
+        ...current?.data,
+        ...productAccess,
+        lastStripeEventAt: eventTime,
+      };
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,data=excluded.data",
         [

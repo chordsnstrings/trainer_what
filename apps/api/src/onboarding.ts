@@ -9,6 +9,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { integrationStatus } from "@trainer/providers";
+import { nutritionReadiness } from "./nutrition.ts";
 import { requireRecentMfa } from "./security.ts";
 
 type Owner = Actor & { emailVerified: boolean; mfaAt?: string | null };
@@ -24,16 +25,14 @@ const identityFields = z
     audience: z.string().min(3).max(500),
   })
   .strict();
-const identityDraft = identityFields
-  .partial()
-  .extend({
-    businessName: z.string().max(100).optional(),
-    publicName: z.string().max(100).optional(),
-    city: z.string().max(100).optional(),
-    category: z.string().max(100).optional(),
-    audience: z.string().max(500).optional(),
-  });
-const registry = [
+const identityDraft = identityFields.partial().extend({
+  businessName: z.string().max(100).optional(),
+  publicName: z.string().max(100).optional(),
+  city: z.string().max(100).optional(),
+  category: z.string().max(100).optional(),
+  audience: z.string().max(500).optional(),
+});
+const baseRegistry = [
   [
     "account",
     "Account",
@@ -151,6 +150,56 @@ export async function onboardingState(tx: Tx, a: Owner, tenant: any) {
     bank = providers.find((p) => p.id === "lean")!;
   const products = of("product"),
     release = of("brain_release").find((r) => r.status === "published");
+  const nutrition = await nutritionReadiness(tx);
+  const combinedPublished = products.some(
+    (p) => p.status === "published" && p.data.tier === "workout_nutrition",
+  );
+  const nutritionSteps = [
+    [
+      "nutrition-cases",
+      "Teach nutrition",
+      "Answer realistic client cases so the system learns your recommendations and limits.",
+      combinedPublished,
+    ],
+    [
+      "nutrition-recipes",
+      "Recipes and ingredients",
+      "Add ingredient facts, portions and practical cooking options.",
+      combinedPublished,
+    ],
+    [
+      "nutrition-policy",
+      "Confirm nutrition rules",
+      "Resolve gaps and confirm the diet and automatic-action policy.",
+      combinedPublished,
+    ],
+    [
+      "nutrition-scenarios",
+      "Nutrition case checks",
+      "Check unfamiliar cases independently from your teaching examples.",
+      combinedPublished,
+    ],
+    [
+      "nutrition-preview",
+      "Nutrition week preview",
+      "Inspect a sample week with connected meals, portions and groceries.",
+      combinedPublished,
+    ],
+    [
+      "nutrition-readiness",
+      "Nutrition activation",
+      "Qualify routine automatic delivery, with coach input for exceptions.",
+      combinedPublished,
+    ],
+  ] as const;
+  const registry: ReadonlyArray<readonly [string, string, string, boolean]> =
+    nutrition.enabled
+      ? [
+          ...baseRegistry.slice(0, 9),
+          ...nutritionSteps,
+          ...baseRegistry.slice(9),
+        ]
+      : baseRegistry;
   const previewDigest = createHash("sha256")
     .update(
       JSON.stringify({
@@ -163,6 +212,12 @@ export async function onboardingState(tx: Tx, a: Owner, tenant: any) {
           data: p.data,
         })),
         release: release?.id,
+        nutrition: combinedPublished
+          ? {
+              releaseId: nutrition.release?.id,
+              digest: nutrition.material.digest,
+            }
+          : null,
         legal: process.env.LEGAL_VERSION ?? "draft-2026-09",
       }),
     )
@@ -200,8 +255,20 @@ export async function onboardingState(tx: Tx, a: Owner, tenant: any) {
     domain: !!tenant.slug,
     preview: saved.preview?.data.values?.digest === previewDigest,
     publish: tenant.published,
+    "nutrition-cases": nutrition.coverage.every((c) => c.covered),
+    "nutrition-recipes":
+      nutrition.material.recipes.length > 0 &&
+      nutrition.material.foods.length > 0,
+    "nutrition-policy": !!nutrition.material.policy,
+    "nutrition-scenarios": !!nutrition.release,
+    "nutrition-preview": !!nutrition.release,
+    "nutrition-readiness": nutrition.ready,
   };
   const blockers: Record<string, string> = {};
+  if (!nutrition.ready)
+    blockers["nutrition-readiness"] =
+      nutrition.gaps[0] ??
+      "Finish nutrition setup before activating the combined tier.";
   if (!commerce.configured || !commerce.approved)
     blockers.offer =
       "Stripe configuration and commerce approval are pending. You can save a draft offer.";

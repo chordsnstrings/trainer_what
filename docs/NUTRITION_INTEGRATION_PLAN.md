@@ -1,12 +1,12 @@
 # Nutrition integration plan
 
-Date: 25 September 2026. Status: **PRODUCT DIRECTION CONFIRMED; IMPLEMENTATION PLANNED — NOT IMPLEMENTED**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
+Date: 25 September 2026. Status: **CORE IMPLEMENTED; RELEASE VERIFICATION IN PROGRESS**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
 
 ## 1. Current baseline and the gap
 
 The latest implementation is `e6a539e`; `2f0b33b` records its verification. The development platform has accounts/MFA, 16-step trainer setup, Brain teaching and supervised releases, Client Twin snapshots, programs/offline workouts, messaging, bookings, support, privacy controls and governed finance workflows. The recorded CI result is 37 tests on each of PGlite and PostgreSQL, production web/container checks and 22 browser routes. See [verification](VERIFICATION_2026-09-24.md).
 
-Production deployment and real Stripe/Lean/model/email verification remain open. Broader engineering gaps remain in [build status](BUILD_STATUS.md). Nutrition intake, food/recipe data, nutrient targets, meal plans and food logging are absent. The original source only explicitly excludes clinical nutrition prescribing outside trainer scope; it does not define a complete nutrition product.
+Production deployment and real Stripe/Lean/model/email verification remain open. Broader engineering gaps remain in [build status](BUILD_STATUS.md). This was the pre-nutrition baseline; the new implementation adds nutrition workflows described below. The original source only explicitly excludes clinical nutrition prescribing outside trainer scope; it does not define a complete nutrition product.
 
 ## 2. Product shape
 
@@ -165,7 +165,7 @@ A trainer can offer the combined tier after nutrition readiness and the existing
 
 Separate AI text/image and food-data costs by task/provider/tenant. Reuse durable reservation, unknown-cost handling, reviewed usage statements and reconciliation; extend provider billable-unit contracts where token counts alone are insufficient. Deduplicate imports and cache permitted catalogue lookups before adding model calls. Set provider budgets once actual prices are verified.
 
-Backfill old Brain records as training; change the single-published-release invariant to one per tenant/domain. Update all release/decision queries explicitly. Add typed migrations and flags with nutrition disabled by default. Training-only regression coverage is a release requirement.
+Implementation choice: existing generic Brain kinds remain the training domain. Separate nutrition case/policy/evaluation/release kinds and a unique published-nutrition-release index isolate this domain without rewriting historical training digests. Add typed migrations and flags with nutrition disabled by default. Training-only regression coverage is a release requirement.
 
 ## 9. Screens and interfaces
 
@@ -180,7 +180,7 @@ API services: coach nutrition setup/cases/knowledge/gaps/readiness; nutrition pr
 
 ## 10. Implementation sequence and acceptance
 
-These ten proposed work packages extend the original 001–034 baseline. All start **PLANNED / NOT IMPLEMENTED**; issue numbers below are internal work IDs, not existing GitHub issues.
+These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 verification is in progress; optional 043 remains unconfigured. IDs are internal work IDs, not existing GitHub issues.
 
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |

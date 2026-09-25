@@ -6,6 +6,9 @@ const flags = [
   "COMMERCE_APPROVED",
   "PAYOUTS_APPROVED",
   "LEAN_CONTRACT_VERIFIED",
+  "NUTRITION_ENABLED",
+  "NUTRITION_SCOPE_APPROVED",
+  "BUNDLE_CHANGES_APPROVED",
 ];
 const missing = required.filter((k) => !process.env[k]);
 const findings: string[] = [];

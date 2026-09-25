@@ -103,6 +103,14 @@ export function privacyOperations(
         "DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('intake','program','workout','message','exception','decision','takeover','preferences','settings','wearable','twin_snapshot','support','checkout')",
         [request.owner_user_id],
       );
+      await tx.query(
+        "DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('nutrition_profile','nutrition_plan','nutrition_log','nutrition_checkin','nutrition_twin','nutrition_pantry','nutrition_request','nutrition_exception')",
+        [request.owner_user_id],
+      );
+      await tx.query(
+        "DELETE FROM jobs WHERE kind='nutrition_week' AND data->>'userId'=$1",
+        [request.owner_user_id],
+      );
       await tx.query("DELETE FROM workout_events WHERE user_id=$1", [
         request.owner_user_id,
       ]);

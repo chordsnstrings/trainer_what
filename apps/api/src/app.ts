@@ -1,4 +1,6 @@
 import { clientTwinRoutes, currentClientTwin } from "./client-twin.ts";
+import { nutritionRoutes, requireNutritionReady } from "./nutrition.ts";
+import { NutritionBlocked } from "../../../packages/domain/src/nutrition.ts";
 import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
@@ -195,6 +197,10 @@ export async function buildApp(
     }
   });
   app.setErrorHandler((error, req, reply) => {
+    if (error instanceof NutritionBlocked)
+      return reply
+        .code(409)
+        .send({ code: error.code, message: error.message, requestId: req.id });
     if (error instanceof ZodError)
       return reply.code(400).send({
         code: "VALIDATION",
@@ -253,6 +259,7 @@ export async function buildApp(
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity);
   clientTwinRoutes(app, db, identity);
+  nutritionRoutes(app, db, identity, !!options.testing);
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
@@ -476,7 +483,7 @@ export async function buildApp(
       user: a,
       tenant,
       records: await tx.query(
-        "SELECT * FROM records WHERE kind<>'twin_snapshot' ORDER BY updated_at DESC LIMIT 1000",
+        "SELECT * FROM records WHERE kind<>'twin_snapshot' AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
       ),
       sets: await tx.query(
         "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",
@@ -1486,7 +1493,37 @@ export async function buildApp(
     const a = owner(req),
       b = productSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
-      const r = await putRecord(tx, a, "product", b, { status: "draft" });
+      if (b.tier === "workout_nutrition") {
+        if (!b.baseProductId)
+          throw fail(
+            400,
+            "BASE_OFFER_REQUIRED",
+            "Choose the comparable workout-only offer.",
+          );
+        const base = await findRecord(tx, b.baseProductId, "product");
+        if (
+          (base.data.tier ?? "workout") !== "workout" ||
+          b.priceMinor <= base.data.priceMinor
+        )
+          throw fail(
+            400,
+            "NUTRITION_PRICE",
+            "Workout + nutrition must cost more than its workout-only offer.",
+          );
+      }
+      const r = await putRecord(
+        tx,
+        a,
+        "product",
+        {
+          ...b,
+          modules:
+            b.tier === "workout_nutrition"
+              ? ["training", "nutrition"]
+              : ["training"],
+        },
+        { status: "draft" },
+      );
       await event(tx, a, "product.created", r.id);
       return r;
     });
@@ -1497,6 +1534,8 @@ export async function buildApp(
     const product = await db.tenant(a, (tx) =>
       findRecord(tx, (req.params as any).id, "product"),
     );
+    if (product.data.tier === "workout_nutrition")
+      await db.tenant(a, requireNutritionReady);
     const remote = await stripe.products.create(
       {
         name: product.data.name,
@@ -1537,6 +1576,8 @@ export async function buildApp(
     );
     if (product.status !== "published" || !product.data.stripePriceId)
       throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not available");
+    if (product.data.tier === "workout_nutrition")
+      await db.tenant({ ...a, role: "owner" }, requireNutritionReady);
     const existing = await db.tenant(a, (tx) =>
       tx.query(
         "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing')",
@@ -1596,7 +1637,11 @@ export async function buildApp(
           intent_id: intent.id,
         },
         subscription_data: {
-          metadata: { tenant_id: a.tenantId, user_id: a.userId },
+          metadata: {
+            tenant_id: a.tenantId,
+            user_id: a.userId,
+            product_id: product.id,
+          },
         },
         success_url: `${publicUrl()}/app/membership?checkout=complete`,
         cancel_url: `${publicUrl()}/app/membership`,
@@ -1610,6 +1655,128 @@ export async function buildApp(
       ),
     );
     return { url: checkout.url };
+  });
+  app.post("/api/v1/membership/change-plan", async (req) => {
+    const a = identity(req),
+      b = z.object({ productId: id }).strict().parse(req.body);
+    if (a.role !== "subscriber")
+      throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
+    if (process.env.BUNDLE_CHANGES_APPROVED !== "true")
+      throw fail(
+        503,
+        "PLAN_CHANGES_PENDING",
+        "Plan changes await activation of the reviewed billing policy.",
+      );
+    const stripe = requireCommerce();
+    const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
+      const [subscription] = await tx.query(
+        "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
+        [a.userId],
+      );
+      if (!subscription?.provider_id)
+        throw fail(
+          409,
+          "SUBSCRIPTION_REQUIRED",
+          "No current provider subscription is available.",
+        );
+      const product = await findRecord(tx, b.productId, "product");
+      if (product.status !== "published" || !product.data.stripePriceId)
+        throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not active.");
+      if (product.data.tier === "workout_nutrition")
+        await requireNutritionReady(tx);
+      if (subscription.data.productId === product.id)
+        throw fail(409, "SAME_PLAN", "You already have this offer.");
+      const current = subscription.data.productId
+        ? await findRecord(tx, subscription.data.productId, "product")
+        : null;
+      if (
+        !current ||
+        !(
+          product.data.baseProductId === current.id ||
+          current.data.baseProductId === product.id
+        )
+      )
+        throw fail(
+          409,
+          "PLAN_PAIR",
+          "Choose the paired workout-only or workout + nutrition offer.",
+        );
+      return { subscription, product, current };
+    });
+    const remote = await stripe.subscriptions.retrieve(
+      context.subscription.provider_id,
+    );
+    if (remote.items.data.length !== 1)
+      throw fail(
+        409,
+        "BILLING_REVIEW",
+        "This subscription needs a billing review before changing plans.",
+      );
+    const customer =
+      typeof remote.customer === "string"
+        ? remote.customer
+        : remote.customer.id;
+    const products = [context.current, context.product].map((p) => ({
+      product: p.data.stripeProductId,
+      prices: [p.data.stripePriceId],
+    }));
+    const config = await stripe.billingPortal.configurations.create(
+      {
+        business_profile: {
+          headline: "Review your coaching membership change",
+        },
+        features: {
+          subscription_update: {
+            enabled: true,
+            default_allowed_updates: ["price"],
+            products,
+            proration_behavior: "always_invoice",
+            schedule_at_period_end: {
+              conditions: [{ type: "decreasing_item_amount" }],
+            },
+          },
+        },
+      },
+      {
+        idempotencyKey:
+          "membership-portal:" +
+          createHash("sha256")
+            .update(JSON.stringify({ tenant: a.tenantId, products }))
+            .digest("hex"),
+      },
+    );
+    const portal = await stripe.billingPortal.sessions.create({
+      customer,
+      configuration: config.id,
+      return_url: publicUrl() + "/app/membership",
+      flow_data: {
+        type: "subscription_update_confirm",
+        subscription_update_confirm: {
+          subscription: remote.id,
+          items: [
+            {
+              id: remote.items.data[0].id,
+              price: context.product.data.stripePriceId,
+              quantity: 1,
+            },
+          ],
+        },
+        after_completion: {
+          type: "redirect",
+          redirect: { return_url: publicUrl() + "/app/membership" },
+        },
+      },
+    });
+    await db.tenant({ ...a, role: "owner" }, (tx) =>
+      event(
+        tx,
+        a,
+        "subscription.change_confirmation_opened",
+        context.subscription.id,
+        { productId: context.product.id },
+      ),
+    );
+    return { url: portal.url };
   });
   app.post("/api/v1/membership/cancel", async (req) => {
     const a = identity(req),
@@ -1946,11 +2113,22 @@ export async function buildApp(
     const a = identity(req);
     const b = z
       .object({
-        type: z.enum(["coaching", "wearable", "voice", "marketing"]),
+        type: z.enum([
+          "coaching",
+          "wearable",
+          "voice",
+          "marketing",
+          "nutrition",
+          "nutrition_model",
+        ]),
         granted: z.boolean(),
       })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
+      if (b.type.startsWith("nutrition"))
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":nutrition:" + a.userId,
+        ]);
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
         [
@@ -1962,9 +2140,14 @@ export async function buildApp(
           b.granted,
         ],
       );
-      if (!b.granted)
+      if (!b.granted && !b.type.startsWith("nutrition"))
         await tx.query(
           "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
+          [a.userId],
+        );
+      if (!b.granted && b.type.startsWith("nutrition"))
+        await tx.query(
+          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),status=CASE WHEN kind='nutrition_plan' AND status='delivered' THEN 'permission_revoked' ELSE status END,updated_at=now() WHERE owner_user_id=$1 AND kind IN ('nutrition_profile','nutrition_plan','nutrition_log','nutrition_checkin','nutrition_twin')",
           [a.userId],
         );
       await event(tx, a, "consent.changed", undefined, b);

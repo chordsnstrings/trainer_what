@@ -1,5 +1,6 @@
 "use client";
 import { Onboarding } from "./onboarding";
+import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { MarketingPage } from "./marketing-pages";
 import { PrivacyOperations } from "./privacy-operations";
@@ -80,6 +81,7 @@ const nav = [
   ["My Brain", "/trainer/brain", Brain],
   ["Subscribers", "/trainer/subscribers", Users],
   ["Programs", "/trainer/programs", Layers],
+  ["Nutrition", "/trainer/nutrition", Activity],
   ["Messages", "/trainer/messages", MessageCircle],
   ["Bookings", "/trainer/bookings", Activity],
   ["Support", "/trainer/support", MessageCircle],
@@ -93,6 +95,7 @@ const nav = [
 const subNav = [
   ["Today", "/app", LayoutDashboard],
   ["My program", "/app/program", Layers],
+  ["Nutrition", "/app/nutrition", Activity],
   ["Coach chat", "/app/chat", MessageCircle],
   ["Bookings", "/app/bookings", Activity],
   ["Support", "/app/support", MessageCircle],
@@ -515,6 +518,23 @@ export default function Workspace() {
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (
             <OnboardingView {...props} />
+          ) : path.startsWith("/trainer/nutrition/clients/") ? (
+            <NutritionSubscriber
+              userId={path.split("/")[4]}
+              tenantId={state.user.tenantId}
+              coachView
+            />
+          ) : path.startsWith("/trainer/nutrition") ? (
+            <NutritionCoach
+              key={path}
+              initialSection={path.split("/")[3] ?? "overview"}
+              role={state.user.role}
+            />
+          ) : path.startsWith("/app/nutrition") ? (
+            <NutritionSubscriber
+              userId={state.user.userId}
+              tenantId={state.user.tenantId}
+            />
           ) : path.includes("/brand") ? (
             <Brand {...props} />
           ) : path.includes("/bookings") ? (
@@ -810,31 +830,31 @@ function Overview({ state, records }: ViewProps) {
 
 function OnboardingView(props: ViewProps) {
   const step = props.path.split("/")[3] ?? "account";
-  const child =
-    step === "brand" ? (
-      <Brand {...props} />
-    ) : [
-        "interview",
-        "uploads",
-        "knowledge",
-        "scenarios",
-        "readiness",
-      ].includes(step) ? (
-      <BrainView
-        {...props}
-        path={
-          step === "readiness"
-            ? "/trainer/brain/releases"
-            : step === "scenarios"
-              ? "/trainer/brain/scenarios"
-              : "/trainer/brain"
-        }
-      />
-    ) : step === "offer" ? (
-      <Finance {...props} path="/trainer/products" />
-    ) : step === "payout" ? (
-      <PayoutView {...props} />
-    ) : null;
+  const child = step.startsWith("nutrition-") ? (
+    <NutritionCoach
+      initialSection={step.replace("nutrition-", "")}
+      role={props.state.user.role}
+    />
+  ) : step === "brand" ? (
+    <Brand {...props} />
+  ) : ["interview", "uploads", "knowledge", "scenarios", "readiness"].includes(
+      step,
+    ) ? (
+    <BrainView
+      {...props}
+      path={
+        step === "readiness"
+          ? "/trainer/brain/releases"
+          : step === "scenarios"
+            ? "/trainer/brain/scenarios"
+            : "/trainer/brain"
+      }
+    />
+  ) : step === "offer" ? (
+    <Finance {...props} path="/trainer/products" />
+  ) : step === "payout" ? (
+    <PayoutView {...props} />
+  ) : null;
   return (
     <Onboarding
       stepKey={step}
@@ -2312,6 +2332,42 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   <span>/ month</span>
                 </div>
                 <Badge>{membership.status}</Badge>
+                <p>
+                  {membership.data?.modules?.includes("nutrition")
+                    ? "Workout + nutrition"
+                    : "Workout only"}
+                </p>
+                {records("product")
+                  .filter(
+                    (p) =>
+                      p.status === "published" &&
+                      p.id !== membership.data?.productId &&
+                      (p.data.baseProductId === membership.data?.productId ||
+                        records("product").find(
+                          (c) => c.id === membership.data?.productId,
+                        )?.data.baseProductId === p.id),
+                  )
+                  .map((p) => (
+                    <p key={p.id}>
+                      <Button
+                        secondary
+                        disabled={busy}
+                        onClick={() =>
+                          void action(
+                            () =>
+                              api("/membership/change-plan", "POST", {
+                                productId: p.id,
+                              }),
+                            "Opening price and billing confirmation",
+                          ).then((r) => {
+                            if (r?.url) window.location.assign(r.url);
+                          })
+                        }
+                      >
+                        Review change to {p.data.name}
+                      </Button>
+                    </p>
+                  ))}
                 <p className="muted">
                   {membership.cancel_at_period_end
                     ? "Access continues until"
@@ -2493,6 +2549,10 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                           name: f.get("name"),
                           description: f.get("description"),
                           priceMinor: Math.round(Number(f.get("price")) * 100),
+                          tier: f.get("tier"),
+                          ...(f.get("baseProductId")
+                            ? { baseProductId: f.get("baseProductId") }
+                            : {}),
                         }),
                       "Offer saved",
                     );
@@ -2500,6 +2560,26 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                 >
                   <Field label="Plan name">
                     <input name="name" required />
+                  </Field>
+                  <Field label="Subscription tier">
+                    <select name="tier">
+                      <option value="workout">Workout only</option>
+                      <option value="workout_nutrition">
+                        Workout + nutrition
+                      </option>
+                    </select>
+                  </Field>
+                  <Field label="Comparable workout offer (required for the combined tier)">
+                    <select name="baseProductId">
+                      <option value="">Choose for combined tier</option>
+                      {records("product")
+                        .filter((p) => (p.data.tier ?? "workout") === "workout")
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.data.name} · {money(p.data.priceMinor)}
+                          </option>
+                        ))}
+                    </select>
                   </Field>
                   <Field label="What is included">
                     <textarea name="description" rows={3} />
@@ -2523,6 +2603,11 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   <Card key={p.id}>
                     <Badge>{p.status}</Badge>
                     <h2>{p.data.name}</h2>
+                    <p className="small-label">
+                      {p.data.tier === "workout_nutrition"
+                        ? "Workout + nutrition"
+                        : "Workout only"}
+                    </p>
                     <div className="membership-price">
                       {money(p.data.priceMinor)}
                       <span>/ month</span>

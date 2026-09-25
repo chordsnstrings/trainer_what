@@ -34,9 +34,11 @@ The suite covers commission boundaries, RLS and directory boundaries, authentica
 
 A provider placeholder or unavailable badge is not an implemented integration. The 75 source screen groups are the target contract; the current route shell does not mean every group is complete.
 
-## Nutrition scope update — planning only
+## Nutrition implementation — verification in progress
 
-Nutrition is not implemented. The [integration plan](NUTRITION_INTEGRATION_PLAN.md) now records the owner's two-tier direction: workout only and higher-priced workout + nutrition. Expanded onboarding must capture coach recommendations through realistic cases, confirm the resulting rules/limits and qualify nutrition independently. The intended runtime automatically delivers in-scope daily meals, recipes, portions, cooking options and weekly groceries; only exceptions require coach input. It also covers intake/permissions, deterministic calculations, nutrition Brain/Twin, logging/check-ins and commerce. Internal work IDs 035–044 are planned. Current onboarding remains the existing 16-step implementation, and current training AI remains supervised. The existing 37-test/22-route evidence does not verify these planned nutrition features. No runtime or payment configuration changed in this planning update.
+Nutrition core implementation now covers the two tiers, case-based coach teaching, conditional onboarding, recipe/ingredient versions and cooking variants, independent policy/evaluation/preview/release checks, automatic weekly plans, validated swaps and consolidated groceries. Subscriber profiles and separate permissions, diary corrections/offline queue, check-ins, nutrition Twin, privacy operations, exception handling and first/next-week worker scheduling are implemented. All nutrition quantities are derived from stored facts with explicit unknown/estimated values. Routine plans do not require individual coach approval.
+
+Local verification has reached **51 tests**, TypeScript and a production web build. CI PostgreSQL, container and expanded browser checks are pending for this nutrition change; earlier evidence does not verify it. New migration: `010_nutrition`. Model behavior in tests is synthetic; production qualification still requires real coach material and configured-provider evaluation. The new billing-portal change flow is account-unverified and disabled unless its reviewed policy is activated. Barcode/food-catalogue/photo integrations remain optional and unconfigured. No production deployment or live provider transaction has occurred.
 
 ## Financial behavior and limits
 

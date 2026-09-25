@@ -1,5 +1,9 @@
 import { createDatabase, type Actor } from "@trainer/db";
 import { sendEmail, ProviderUnavailable } from "@trainer/providers";
+import {
+  scheduleNutrition,
+  executeNutritionJob,
+} from "../../api/src/nutrition-schedule.ts";
 if (!process.env.DATABASE_URL) {
   console.log(
     "Jobs are persisted locally. Delivery requires a PostgreSQL worker and configured providers.",
@@ -11,6 +15,7 @@ if (!process.env.DATABASE_URL) {
   async function tick() {
     const tenants = await db.system((tx) => tx.query("SELECT id FROM tenants"));
     for (const tenant of tenants) {
+      await scheduleNutrition(db, tenant.id);
       const a: Actor = {
         tenantId: tenant.id,
         userId: "00000000-0000-0000-0000-000000000000",
@@ -29,6 +34,20 @@ if (!process.env.DATABASE_URL) {
       });
       if (!job) continue;
       try {
+        if (job.kind === "nutrition_week") {
+          const result: any = await executeNutritionJob(db, tenant.id, job);
+          await db.tenant(a, (tx) =>
+            tx.query(
+              "UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1",
+              [
+                job.id,
+                result.status === "exception" ? "blocked" : "completed",
+                result.status === "exception" ? result.code : null,
+              ],
+            ),
+          );
+          continue;
+        }
         if (job.kind !== "email")
           throw new ProviderUnavailable(
             job.kind,

@@ -1,0 +1,224 @@
+.nutrition {
+  --meal-accent: #294d39;
+}
+.nutrition-card {
+  margin-bottom: 22px;
+}
+.nutrition-card h3 {
+  font-size: 1.06rem;
+  margin: 18px 0 10px;
+}
+.nutrition-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.nutrition-tabs {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nutrition-tabs button {
+  white-space: normal;
+}
+.nutrition-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 14px;
+}
+.nutrition-inline {
+  display: flex;
+  gap: 14px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.nutrition-inline .field {
+  margin: 0;
+}
+.nutrition-inline button {
+  margin-bottom: 0;
+}
+.nutrition details {
+  border-top: 1px solid var(--line, #e5e7e3);
+  padding: 14px 0;
+  overflow-wrap: anywhere;
+}
+.nutrition summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.nutrition-source {
+  white-space: pre-wrap;
+  max-height: 350px;
+  overflow: auto;
+}
+.nutrition-coverage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+.nutrition-coverage button {
+  padding: 16px;
+  border: 1px solid #d9e1d9;
+  border-radius: 10px;
+  text-align: left;
+  background: #fafcf9;
+  text-transform: capitalize;
+}
+.nutrition-coverage span {
+  color: var(--meal-accent);
+  padding-right: 12px;
+}
+.nutrition-option {
+  border: 1px solid #dce3da;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 18px 0;
+  min-width: 0;
+}
+.nutrition-option legend {
+  padding: 0 8px;
+  font-weight: 600;
+}
+.nutrition-ingredient {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.nutrition-ingredient .button {
+  margin-top: 7px;
+}
+.nutrition-week-heading,
+.nutrition-day-total {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+  align-items: center;
+}
+.nutrition-day-total {
+  background: #f0f4ee;
+  padding: 16px;
+  border-radius: 10px;
+  margin: 18px 0;
+  font-size: 0.9rem;
+}
+.nutrition-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 20px;
+}
+.nutrition-days button {
+  padding: 12px 3px;
+  border: 1px solid #dce3da;
+  border-radius: 10px;
+  background: white;
+  color: #334039;
+  font-size: 0.8rem;
+}
+.nutrition-days button span {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+.nutrition-days button.selected {
+  background: var(--meal-accent);
+  color: white;
+  border-color: var(--meal-accent);
+}
+.nutrition-meals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 16px;
+}
+.nutrition-meal {
+  padding: 22px;
+  border: 1px solid #dce3da;
+  border-radius: 12px;
+  min-width: 0;
+}
+.nutrition-meal h3 {
+  font-size: 1.3rem;
+  line-height: 1.3;
+  margin-top: 5px;
+}
+.nutrition-meal li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.nutrition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.nutrition-actions .button {
+  font-size: 0.8rem;
+}
+.nutrition-grocery {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e5e7e3;
+}
+.nutrition-grocery input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--meal-accent);
+}
+.nutrition-grocery span {
+  flex: 1;
+}
+.nutrition-grocery small {
+  display: block;
+  margin-top: 5px;
+  color: #69746a;
+}
+.nutrition-grocery b {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.nutrition-text-button {
+  color: var(--meal-accent);
+  border: 0;
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+}
+.nutrition input,
+.nutrition textarea,
+.nutrition select {
+  max-width: 100%;
+}
+.nutrition p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .nutrition-ingredient {
+    grid-template-columns: 1fr 1fr;
+  }
+  .nutrition-ingredient .button {
+    grid-column: 1/-1;
+  }
+  .nutrition-days {
+    gap: 3px;
+  }
+  .nutrition-days button {
+    font-size: 0.69rem;
+  }
+  .nutrition-option {
+    padding: 12px;
+  }
+  .nutrition-meal {
+    padding: 17px;
+  }
+  .nutrition .page-heading {
+    align-items: start;
+  }
+}

@@ -64,3 +64,13 @@ Tag each container release. Roll web/API/worker back together to the previous co
 ## Model accounting configuration
 
 Set the model endpoint/name and credential only in the API/worker secret environment. Pricing requires explicit `MODEL_INPUT_USD_PER_MILLION`, `MODEL_OUTPUT_USD_PER_MILLION` and `MODEL_PRICE_VERSION`. Missing token counts or prices remain unknown and block monthly close until platform finance records provider evidence. Rejected model output still retains provider-reported cost. The default `MODEL_MAX_DAILY_CALLS=100` is a per-workspace Dubai-day request cap (including evaluation calls and failed attempts), not a currency budget. Raising it is an operator configuration decision. An interrupted reservation becomes a finance reconciliation item; never repeat a provider request to guess its old cost.
+
+## Nutrition activation
+
+Apply `010_nutrition` with the migration role. The coach enables the combined capability, supplies ingredient/recipe facts and case answers, confirms the diet/action policy, passes at least 20 held-out cases and checks a full sample week. The current model endpoint/name and prompt version are pinned in readiness; changing them requires evaluation again. Synthetic fixtures and seeded meal values are development-only evidence. No per-coach model-weight training occurs.
+
+For production, configure the existing model adapter and reviewed usage prices, set `NUTRITION_ENABLED=true` and `NUTRITION_SCOPE_APPROVED=true` only after the corresponding scope/quality review, and qualify each coach on the actual configured provider. Keep legal, commerce and bank gates in place. Use the PostgreSQL worker for automatic first-week preparation and subsequent weeks; duplicate scheduling uses durable job identities and every delivery rechecks entitlement, profile, current release and both nutrition permissions. A blocked job is visible in operations; clients may retry after its underlying exception is resolved.
+
+`BUNDLE_CHANGES_APPROVED=true` enables a Stripe-hosted confirmation flow restricted to the paired offers. Its proposed configuration immediately invoices prorated upgrades and schedules decreasing-price changes at period end. Verify actual account eligibility, pending-payment behavior, downgrade timing, signed webhook projection and the commercial/refund policy in a nonproduction account before activation. Entitlements never change from the browser's return URL or unsigned metadata.
+
+Food data remains coach-authored with recorded sources, preparation basis, allergen review and approximate/unknown nutrients. Barcode, external food catalogue and photo interpretation are not configured. They require selected provider/account rights and private media infrastructure before implementation and activation.

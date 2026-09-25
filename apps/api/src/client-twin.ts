@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { putRecord, type Actor, type Database, type Tx } from "@trainer/db";
 import { clientTwin } from "../../../packages/domain/src/client-twin.ts";
+import { nutritionTwin } from "./nutrition.ts";
 export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":twin:" + userId,
@@ -27,11 +28,13 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
     wearableConsent:
       consents.find((c) => c.document_type === "wearable")?.granted ?? null,
   });
+  const nutrition = await nutritionTwin(tx, a, userId);
   // Derived wearable data is intentionally excluded from the model-facing coaching object.
   const digest = createHash("sha256")
     .update(
       JSON.stringify({
         ...body,
+        nutrition: { ...nutrition, calculatedAt: undefined },
         calculatedAt: undefined,
         coaching: {
           ...body.coaching,
@@ -55,6 +58,7 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
     "twin_snapshot",
     {
       ...body,
+      nutrition,
       digest,
       partialInput: records.length === 1000 || sets.length === 5000,
     },

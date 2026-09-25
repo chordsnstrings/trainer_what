@@ -169,13 +169,14 @@ export function Onboarding({
       <div className="page-heading">
         <div>
           <p className="eyebrow">
-            YOUR COACHING BUSINESS · STEP {index + 1} OF 16
+            YOUR COACHING BUSINESS · STEP {index + 1} OF {data.steps.length}
           </p>
           <h1>{step.label}</h1>
           <p>{step.description}</p>
         </div>
         <span className="badge">
-          {data.steps.filter((s: any) => s.status === "complete").length} / 16
+          {data.steps.filter((s: any) => s.status === "complete").length} /{" "}
+          {data.steps.length}
           complete
         </span>
       </div>
@@ -219,6 +220,12 @@ export function Onboarding({
               material and evaluated examples. You review extracted rules and
               each proposed response. Subscribers see when guidance is digital.
               Corrections preserve their reason and evidence.
+            </p>
+            <p>
+              Offering workout + nutrition? Teach your nutrition approach
+              through client cases. Qualified routine meal plans run
+              automatically, with an exception queue for decisions outside your
+              rules. <Link href="/trainer/nutrition">Set up nutrition</Link>
             </p>
             <p>
               Use only source material you have permission to use. Imported

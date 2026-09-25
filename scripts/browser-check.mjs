@@ -125,6 +125,40 @@ try {
     path: "test-results/onboarding-mobile.png",
     fullPage: true,
   });
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  for (const route of [
+    "/trainer/nutrition",
+    "/trainer/nutrition/cases",
+    "/trainer/nutrition/recipes",
+    "/trainer/nutrition/policy",
+    "/trainer/nutrition/scenarios",
+    "/trainer/nutrition/preview",
+    "/trainer/nutrition/readiness",
+    "/trainer/nutrition/exceptions",
+  ]) {
+    await page.goto(base + route);
+    await page
+      .getByRole("heading", { name: "Nutrition coaching", exact: true })
+      .waitFor();
+    if (route.endsWith("/cases"))
+      await page.screenshot({
+        path: "test-results/nutrition-coach-cases.png",
+        fullPage: true,
+      });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + "/trainer/onboarding/nutrition-cases");
+  await page
+    .getByRole("heading", { name: "Teach nutrition", exact: true })
+    .waitFor();
+  if (
+    await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
+  )
+    throw new Error("Nutrition onboarding overflows mobile viewport");
+  await page.screenshot({
+    path: "test-results/nutrition-onboarding-mobile.png",
+    fullPage: true,
+  });
   const subscriberContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -204,6 +238,80 @@ try {
     path: "test-results/client-twin-mobile.png",
     fullPage: true,
   });
+  await subscriber.goto(base + "/app/nutrition");
+  await subscriber
+    .getByRole("heading", { name: "Your week of meals", exact: true })
+    .waitFor();
+  await subscriber.getByText("Warm breakfast bowl", { exact: true }).waitFor();
+  await subscriber.screenshot({
+    path: "test-results/nutrition-meals-mobile.png",
+    fullPage: true,
+  });
+  if (
+    await subscriber.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    )
+  )
+    throw new Error("Nutrition meals overflow mobile viewport");
+  await subscriber
+    .getByRole("button", { name: "Weekly groceries", exact: true })
+    .click();
+  await subscriber
+    .getByRole("heading", { name: "One list for the week", exact: true })
+    .waitFor();
+  await subscriber.getByText("2800 g", { exact: true }).waitFor();
+  await subscriber.locator(".nutrition-grocery input").first().check();
+  await subscriber
+    .getByRole("button", { name: "Save shopping progress", exact: true })
+    .click();
+  await subscriber
+    .getByText("Pantry checklist saved", { exact: true })
+    .waitFor();
+  await subscriber.screenshot({
+    path: "test-results/nutrition-groceries-mobile.png",
+    fullPage: true,
+  });
+  await subscriber
+    .getByRole("button", { name: "Meal plan", exact: true })
+    .click();
+  await subscriber
+    .getByLabel(
+      "Keep a private copy of the latest plan on this device for up to 12 hours.",
+    )
+    .check();
+  await subscriber.waitForFunction(() =>
+    Object.keys(localStorage).some(
+      (k) => k.startsWith("trainer:nutrition:") && !k.endsWith(":queue"),
+    ),
+  );
+  await subscriberContext.setOffline(true);
+  await subscriber
+    .getByRole("button", { name: "Log this meal", exact: true })
+    .first()
+    .click();
+  await subscriber
+    .getByText("1 meal entry/entries waiting to sync.", { exact: false })
+    .waitFor();
+  await subscriber.reload({ waitUntil: "domcontentloaded" });
+  await subscriber
+    .getByRole("heading", { name: "Your week of meals", exact: true })
+    .waitFor();
+  await subscriber
+    .getByText("1 meal entry/entries waiting to sync.", { exact: false })
+    .waitFor();
+  await subscriberContext.setOffline(false);
+  await subscriber.waitForFunction(
+    () =>
+      !Object.keys(localStorage)
+        .filter(
+          (k) => k.startsWith("trainer:nutrition:") && k.endsWith(":queue"),
+        )
+        .some((k) => JSON.parse(localStorage.getItem(k) ?? "[]").length),
+  );
+  await subscriber
+    .getByRole("button", { name: "Meal diary", exact: true })
+    .click();
+  await subscriber.getByText(/1 meals across 1 days/).waitFor();
   await subscriberContext.close();
   await writeFile(
     "test-results/browser-check.json",
@@ -217,6 +325,10 @@ try {
         overflow,
         offlineWorkoutReload: true,
         offlineSetReplay: true,
+        nutritionOnboarding: true,
+        nutritionMealsAndGroceries: true,
+        nutritionPantryPersistence: true,
+        nutritionOfflineReloadAndReplay: true,
         errors,
       },
       null,

@@ -3,6 +3,7 @@ import { createDatabase, putRecord } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { passwordHash } from "../apps/api/src/auth.ts";
 import { recordCharge } from "../apps/api/src/finance.ts";
+import { seedNutritionDemo } from "./seed-nutrition-demo.ts";
 if (process.env.NODE_ENV === "production")
   throw new Error("Synthetic seed is forbidden in production");
 const db = await createDatabase();
@@ -22,7 +23,19 @@ const r = await app.inject({
   },
 });
 if (r.statusCode === 409) {
-  console.log("Demo workspace already exists; nothing changed.");
+  const [a] = await db.system((tx) =>
+    tx.query(
+      "SELECT m.tenant_id,m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=$1 AND m.role='owner'",
+      [email],
+    ),
+  );
+  if (a)
+    await seedNutritionDemo(db, {
+      tenantId: a.tenant_id,
+      userId: a.user_id,
+      role: "owner",
+    });
+  console.log("Demo workspace exists; added nutrition fixtures if absent.");
 } else {
   if (r.statusCode !== 201) throw new Error(r.body);
   const cookie = String(r.headers["set-cookie"]).split(";")[0];
@@ -171,6 +184,7 @@ if (r.statusCode === 409) {
       { status: "draft" },
     );
   });
+  await seedNutritionDemo(db, a);
   console.log(
     "Synthetic development workspace created for coach@example.test. Password is DEMO_PASSWORD, or the documented development-only default.",
   );
