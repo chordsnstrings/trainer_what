@@ -2,6 +2,8 @@
 
 Code verification: 25 September 2026. Active release: Superadmin settings, trainer design and meal capture. This file reports code and observed checks, separately from provider readiness and production release.
 
+**Full-app audit:** [Created, partial and missing work](APP_AUDIT_2026-09-25.md). The verified development build is not the complete product. Workout AI still requires review for every output; specialist admin screens and finance automation remain incomplete. The audit also identifies concrete invitation, notification, safety-hold, billing-servicing, legal-version and nutrition-recovery/version-selection gaps that are not covered by the passing release checks. No application code was changed by the audit.
+
 ## Evidence
 
 | Check | Observed result |

@@ -25,7 +25,7 @@ Date: 25 September 2026. Change set based on `8f1a999409796f42c6d706f96e0db506a7
 
 The rate-limit tests exercise normal limits against a real local API: one user's exhausted budget does not affect a different user at the same proxy address; rotating valid sessions does not reset that user's allowance; arbitrary cookies/forwarded headers do not evade anonymous limits; the stricter security route still blocks excess attempts.
 
-Meal tests verify decoded type/dimension/metadata handling, unknown product facts, cross-user isolation, no diary entry before confirmation, single paid analysis across concurrent retry, source-preserving corrections/Twin totals, entitlement denial, invalid-output accounting, consent withdrawal during generation, photo-only withdrawal preserving unrelated plans, and expired/cancelled intent tombstones.
+Meal tests verify decoded type/dimension/metadata handling, unknown product facts, cross-user isolation, no diary entry before confirmation, single paid analysis across concurrent retry, source-preserving corrections and Twin meal/day counts, entitlement denial, invalid-output accounting, consent withdrawal during generation, photo-only withdrawal preserving unrelated plans, and expired/cancelled intent tombstones. Consumed-day nutrient totals are not implemented; see the subsequent full-app audit.
 
 Screenshots use a production Next build, local Chromium and isolated synthetic development data. Stored fixture credentials are masked or removed before capture. A seeded public storefront exercises the renderer without qualifying or publishing a real coach. No real photo, provider API, email, payment or bank account was used. These checks do not establish actual device camera support or model/food-provider quality.
 
