@@ -1,0 +1,62 @@
+# Completion work — recovery checkpoint, 25 September 2026
+
+This is an unfinished-work checkpoint, not a release. The implementation was being edited in /workspace/scratch/50654f17bfe7/trainer_what when the execution environment disconnected. Both exec and the independent Node sidecar returned 409 environment_offline. Repository connector access still works. This branch contains this recovery note only; the application edits listed below are NOT backed up in this commit. Recover and inspect the existing workspace before replacing or resetting it.
+
+## Owner direction
+
+Complete all unfinished application work. Include the trainer's actual public website as well as the client app. Trainers must be able to upload their own photos and create any number of named galleries, control photo order/captions, and select draft, website, app or both visibility. Provide actual desktop/mobile screenshots for every changed/new view.
+
+Continue the established decisions: Stripe collects, Lean pays from the company bank; workout only and higher-priced workout plus nutrition; meal photos/barcodes; case-based coach teaching and qualified routine autonomy. Never use the cloud browser. Do not deploy or touch DigitalOcean resources; Claude owns deployment. Do not reuse credentials from conversation.
+
+## Source and observed checks
+
+- Published main remains 620eef1bad7ef289745bf2af3d3457ed98956d25, the previous audit checkpoint. All new app work is in the uncommitted shared workspace.
+- First broad run: 155 tests, 152 passed. Three failures were a paid-booking refund RLS write and older settings/takeover regressions. Owning agents subsequently fixed these and passed focused checks; the complete final suite has not been rerun.
+- Core coaching: 9 focused cases passed; onboarding: 2; relevant baseline regressions: 3.
+- Nutrition/capture: 34 related tests passed across the reported runs, including 11 new completion tests.
+- Finance: 15 focused cases passed, including paid bookings, uncertain refunds and atomic allocations.
+- Admin/bookings: 16 focused cases passed.
+- Integrations/provider/host: 21 focused checks reported before passkeys; passkeys 8 and settings activation 13 passed in the final related run.
+- Root platform/gallery/account tests: 4 passed; host helpers/proxy: 4 passed in the same run. Later gallery/reminder security review: 3 passed.
+- Ingestion: 7 new cases and 3 legacy document cases passed, including actual local English OCR.
+- A repository TypeScript run passed before the final worker/team/privacy follow-ups. Do not call it a final release check.
+- Production Next build passed. Browser work used local Chromium, not a cloud browser.
+- The first new browser journey uploaded two synthetic fixture images and verified draft gallery/media privacy. It then stopped at a brittle select locator. Eight PNGs were written under test-results/app-completion-functional; the complete desktop/mobile gallery has not been captured or delivered.
+- No live provider calls, real charges, payouts, domain purchases or deployment occurred.
+- Native PostgreSQL/container tooling is absent locally. PG17/non-owner/container validation must run in published CI; previous baseline CI is not evidence for these changes.
+
+## Implementation present before disconnection
+
+| Area | Main files and behavior |
+| --- | --- |
+| Coaching | coaching-routes.ts, coaching-support.ts, domain/coaching.ts, migration013, coaching-studio.tsx, training-workspace.tsx. Qualified structured autonomy with pinned releases, held-out action/safety checks, evidence-grounded deterministic copy, adaptive teaching, scheduled multiweek programs, progression, substitutions, notes/corrections, pain holds, takeover, chat/progress. |
+| Nutrition | nutrition-completion.ts, updated nutrition/capture/domain/provider modules, migration014. Individual targets/macros/habits, adaptive teaching, plan assignment/amend/archive, active food/recipe versions, consumed nutrient totals, corrections/favorites/copy, leftovers/purchase conversion, photo amount grounding, scheduler recovery without repeated paid intent. |
+| Finance | finance-billing.ts, finance-promotions.ts, finance-automation.ts, finance-statements.ts, finance-completion.ts, finance-bookings.ts, migration015. Servicing during sales pause, renewal intents/invoices/refunds, trials/promotions/grace, effective fees/cost allocations/statements, reconciliation and approved automation; priced booking checkout/reservations and safe refund recovery. |
+| Administration | admin-operations.ts and component/CSS, migration016. Specialist areas, scoped drilldown, cases/audit, legal/template/policy publication, costs/acquisition/experiments, job recovery. Consent-based landing experimentation and acquisition cookies are wired; root added consented signup/publish/contact conversions. |
+| Integrations | integrations-completion.ts, providers/integrations.ts, IntegrationCenter, migration017. Contract-gated wearable OAuth/PKCE/token lifecycle, voice consent/identity/paid-intent recovery, active-workout guided sessions, domain requests/quotes/TXT/evidence. Actual vendor/account contracts remain unqualified; generic plumbing is not proof of vendor access. |
+| Accounts, photos/site | account-completion.ts, notifications.ts, coach-site.ts, platform-controls.tsx, coach-site.tsx/CSS, migration018. Magic links, MFA recovery codes/session management, preference/inbox delivery, unlimited paginated galleries, metadata-stripped real photo uploads, private/public placement, website draft/publish/inquiries/multipage SSR/metadata, brand private drafts, coach manifests and192/512 PNG icons. |
+| Bookings | booking-schedule.ts, bookings.tsx/CSS, migration019. Recurrence/timezones/DST, capacity, policy snapshots, cancellation/no-show, paid sessions, iCalendar, notification templates. |
+| Privacy | privacy-lifecycle.ts/component and privacy-operations updates, migration020. Expanded export/erasure, evidence-tracked provider/backup follow-ups and immutable restore registry, settlement-gated workspace closure, two-party strong-auth owner transfer. This new slice has NOT had its focused lifecycle tests run yet. |
+| Passkeys | passkeys.ts/component, migration021, maintained @simplewebauthn/server pinned14.0.2. Registration/login/list/revoke, host/session/one-use challenge/counter/user verification and closed workspace checks. Positive real-browser virtual authenticator journey is written but unexecuted; device authentication unverified. |
+| Team | team.ts and migration022 were written before outage; team-controls.tsx write may be absent or partial. This slice is not wired or tested. |
+| Host routing | host-routing.ts, web/proxy.ts, app hooks. Signed host/method/path/timestamp provenance, custom-host session/signup/enroll/public-slug restrictions and active mapping resolution. INTERNAL_PROXY_SECRET shared by API/web in compose/env example. No actual domain setup performed. |
+| Ingestion | ingestion.ts, extract-xlsx.py, extract-docx.py, source review UI. Bounded CSV/XLSX/program JSON, local image/scanned PDF OCR, private extraction/review/redaction/discard/retry. Docker and CI apt lists include tesseract-ocr. Audio transcription/native companion remain separate unfinished/contract-dependent scope. |
+
+## Exact recovery order
+
+1. Reconnect the execution environment. Preserve the existing working tree; do NOT hard reset or replace it with the old published main. Inspect git status and check for partial/empty files from failed writes, especially tests/platform-completion.test.ts and apps/web/components/team-controls.tsx.
+2. Root's last large test patch failed while writing tests/platform-completion.test.ts. Before that it contained four passing tests (preferences, gallery/media isolation, unlimited gallery pagination/private site snapshot, magic links/recovery/session revocation). The failed patch attempted actual signed-host app tests, template/workout-reminder/manifest checks, and email uncertainty regression. Reapply only if absent.
+3. Root worker email-delivery.ts was successfully written and mounted. It marks email outcome blocked BEFORE generic provider dispatch, preserving unknown outcomes for evidence-based recovery. It uses notificationDeliveryDue(db,tenantId,job): Promise<Date|null>, now implemented by the core review agent. Final success updates notification/job together; an ambiguous call must not automatically resend. Test this helper and inspect the worker after failure. Ensure handling never changes a previously blocked email back to pending.
+4. Fix the known migration018 template truncation issue: mandatory original account/safety text may be appended and then removed by left(body,4000). After substitutions ensure the original instruction remains inside the final limit; reserve room or use the original body. Add one long-template regression. Do not weaken critical notification guarantees.
+5. Ensure infra/runtime-role.sql grants DELETE on acquisition_events to trainer_service. Migration020 grants it only if the role already exists; CI creates role AFTER migrations. The root patch adding this grant was part of the failed last patch, so may not exist. Passkey system-table CRUD grants were successfully added earlier.
+6. Patch the cost-allocation fixture around tests/finance-completion.test.ts line922: CREATE ROLE/grants and SET/RESET ROLE only when DATABASE_URL is absent (PGlite). Under real PG CI use the existing trainer_service, asserting no superuser/RLS bypass. The finance agent's final small patch could not execute after disconnection.
+7. Finish and test privacy lifecycle. Review closure cleanup and passkey removal; focused tests were not written because the environment failed. Root already mounted privacyLifecycleRoutes(app,db,identity), replaced /privacy/export with exportPersonalData, mounted WorkspaceLifecycle/PersonalPrivacyStatus, added closed-workspace authentication/enroll/invitation guards and excludes closed tenants from worker scan. PrivacyOperations mounts operator follow-up/closure UI.
+8. Finish team UI and tests. Mount registerTeamRoutes(app,db). Remove the old DELETE /api/v1/team/:userId in app.ts to avoid duplicate route/bypass. Replace legacy staff/finance invitation creation with createTeamInvitation or require fresh MFA; subscriber invitations remain supported. Call touchTeamSession(db,tokenHash(token)) in the verified session hook, throttled5min. Dedicated TeamControls view at /trainer/team should replace Settings alias. Owner transfer remains privacy lifecycle only.
+9. Team API contract: GET /team returns members(id,name,email,role,version,mfa_enabled,passkeys,last_active,last_sign_in), invitations(id,email,role,created_at,expires_at), audit,currentUserId. POST /team/invitations {email,role}; POST /team/invitations/:id/revoke {reason}; PATCH /team/:userId {revision,role,reason}; DELETE same {revision,reason}. Migration022 adds invitation management UUID/created_at, sessions.last_seen_at and membership version trigger.
+10. Resume sole browser owner app_screenshots. scripts/verify-completion-ui.mjs includes real new saved-action journeys and CDP WebAuthn registration/sign-in. First failed locator getByLabel('Show this gallery',exact:true) should target select[name=audience]; no application bug was established. Use a FRESH local fixture database because unpublished migration018 was edited during implementation.
+11. Finish local TypeScript/full PGlite tests/build/browser/mobile screenshots; then Git publication and PG17/non-owner/container CI. Investigate actual failures, not just counters. Update memory/audit/build status with the final observed result, not the baseline.
+12. Save/deliver all new actual screenshots and gallery. The new screenshots have not yet been made available to the owner. Update this checkpoint once application edits are actually committed.
+
+## Validation boundaries still requiring real evidence
+
+No external provider contract, bank finality, legal approval, device behavior, live model coach fidelity, email delivery, registrar purchase/TLS or production restore has been demonstrated by synthetic tests. DigitalOcean deployment remains explicitly stopped. Do not claim a completed deployment or real vendor connection. Do not relabel remaining engineering as mere configuration: native companion, audio transcription, exact registrar automation and any unsupported vendor adapter still need their actual contracted implementation/qualification if included in the enabled launch scope.
