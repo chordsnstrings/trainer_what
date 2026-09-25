@@ -36,7 +36,7 @@ A provider placeholder or unavailable badge is not an implemented integration. T
 
 ## Nutrition scope update — planning only
 
-Nutrition is not implemented. The [proposed integration plan](NUTRITION_INTEGRATION_PLAN.md) covers training-only, nutrition-only and combined coaching; nutrition intake/permissions; foods/recipes; coach targets/plans; subscriber logging/check-ins; nutrition Brain/Twin; safety; and commerce integration. Internal work IDs 035–044 are planned. The existing 37-test/22-route evidence applies to the current platform, not to these proposed features. No runtime or payment configuration changed in this planning update.
+Nutrition is not implemented. The [integration plan](NUTRITION_INTEGRATION_PLAN.md) now records the owner's two-tier direction: workout only and higher-priced workout + nutrition. Expanded onboarding must capture coach recommendations through realistic cases, confirm the resulting rules/limits and qualify nutrition independently. The intended runtime automatically delivers in-scope daily meals, recipes, portions, cooking options and weekly groceries; only exceptions require coach input. It also covers intake/permissions, deterministic calculations, nutrition Brain/Twin, logging/check-ins and commerce. Internal work IDs 035–044 are planned. Current onboarding remains the existing 16-step implementation, and current training AI remains supervised. The existing 37-test/22-route evidence does not verify these planned nutrition features. No runtime or payment configuration changed in this planning update.
 
 ## Financial behavior and limits
 

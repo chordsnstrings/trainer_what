@@ -44,6 +44,21 @@ R1 foundation; R2 trainer activation; R3 coaching; R4 paid pilot; R5 launch expa
 | O15 | `/trainer/onboarding/preview` | Preview: Desktop/mobile preview, checkout preview, public copy, legal disclosure preview. Exit: Trainer sees exact subscriber experience | R2/R4 | 011, 024 |
 | O16 | `/trainer/onboarding/publish` | Publish: All required product/safety/legal/payment gates; valid payout setup or clearly explained payout hold state; final URL; event tracking. Exit: Launch only when gates pass | R4 | 014, 018, 019, 023, 024 |
 
+### Nutrition onboarding addendum — planned, 25 September 2026
+
+The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) extends O02 and O05–O10/O15–O16 with a conditional teaching branch. These requirements are not delivered by the current 16-step runtime. Existing coaches retain their workout setup; displayed steps and progress come from the selected path. Workout-only setup does not require nutrition. The subscription choices are workout only and higher-priced workout + nutrition.
+
+| Area | Required addition | Acceptance / work IDs |
+| --- | --- | --- |
+| Offer and scope | Enable the combined tier; describe supported clients/diets and limits | Saved capability does not itself grant subscriber access or qualify automation; 035 |
+| Case interview | Ask realistic client cases and changed-condition follow-ups; capture recommendations, reasons, accepted/rejected choices, missing inputs and limits in text/voice when available | Adaptive questions fill coverage gaps without repeating known answers; no real client identifiers required; 035, 040 |
+| Knowledge review | Show extracted diet/target/portion/substitution/cooking rules, source evidence and contradictions | Coach confirms intended rules and automatic-action boundaries; incomplete evidence stays visible; 037, 040 |
+| Calibration | Present unfamiliar cases and a complete sample week with daily recipes, portions, estimated calories and groceries | Corrections recorded with reasons; teaching cases kept separate from held-out evaluation; 038, 040 |
+| Readiness and activation | Show supported/unsupported capabilities and actionable gaps; evaluate the configured model and qualify the release | Independent nutrition gates enforced server-side; changed inputs invalidate affected approval; no per-plan approval requirement; 035, 040, 042 |
+| Ongoing coach workspace | Delivered-plan history, optional sampled audit, exceptions with reasons and proposed resolution | Routine in-scope output is automatic; exceptions and coach takeover are visible; 040, 041 |
+
+Core subscriber additions are today's meals, recipes/cooking variants, portions and approximate calories plus full-week and grocery views; plan changes update the connected quantities. They are required combined-tier features, not optional diary screens. Complete field/state and journey acceptance is defined in work IDs 035–044.
+
 ### J.3 — Trainer command center (23)
 
 | ID | Route | Capability and required content | Release | Work IDs |

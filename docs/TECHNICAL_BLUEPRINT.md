@@ -2,6 +2,8 @@
 
 Implementation contract for issues 005–034. These are design decisions and proposed contracts, not implemented endpoints or verified provider capabilities. Source: master spec §§5–14 and Appendices A/B/D/K/M; current payment selection is Stripe + Lean.
 
+The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) adds work IDs 035–044 and governs the two-tier, case-taught nutrition extension. The implementation remains nutrition-free until those work packages have evidence.
+
 ## 1. Modules and deployables
 
 Use a TypeScript modular application: Next.js web/PWA, Fastify API, queue workers and a scheduler. Keep domain logic independent of HTTP, queues and vendor SDKs. PostgreSQL is authoritative; Valkey-compatible queues/cache and object storage support it. Add realtime and the infrastructure broker as separately privileged deployables only when their work packages require them. DigitalOcean/DOKS remains the production reference; size and region are decided against actual budget/residency evidence. Pin dependency versions when implementation begins.
@@ -103,6 +105,14 @@ Runtime: resolve entitlement/tenant → pin Brain and Twin → assemble only rig
 `CoachingDecision` includes ID/type, Brain version, client snapshot, policy/prompt/model versions, typed actions, evidence references, concise reason summary, fidelity/data confidence, safety/autonomy state and review requirement. Do not store hidden model reasoning; store decision explanations and auditable evidence. Validate evidence existence, tenant, source rights and relevance; syntactically valid JSON alone does not pass.
 
 Model routing stays provider-agnostic. Evaluate extraction, interview, program generation, chat, voice text and evaluation tasks separately; choose the least expensive provider/model that passes that task's quality and latency gate. Cache approved static context by tenant/Brain version, dedupe retried work, bound retrieved context and output, enforce per-task/tenant quotas, and invalidate cache on rights revocation. Complex/uncertain coaching routes to the approved stronger path or human review. Expensive model calls cannot replace deterministic safety checks.
+
+### Nutrition teaching and runtime addendum — planned
+
+Onboarding captures labelled client cases, coach recommendations/rejected alternatives, reasons, conditions, target/portion rules, substitutions and automatic-action limits. Compile these into a private versioned nutrition knowledge package with confirmed provenance and coverage gaps. Retrieve relevant permitted evidence at runtime; no per-coach model-weight training is implied. Keep teaching cases separate from held-out nutrition evaluations. Backfill existing Brain records as training and qualify releases independently per tenant/domain. Recipe facts, quantities and arithmetic remain deterministic, with explicit unknown and approximate states.
+
+After setup calibration and release qualification, nutrition automatically delivers in-scope plans and changes that pass the explicit authority policy, current client constraints, evidence/calculation checks, entitlement and consent. The model cannot authorize itself through a confidence score. Unsupported cases or changes outside the policy enter an exception queue; missing client facts can be requested directly. Every delivery records matched rules/cases, fact/calculation versions and policy outcome. Corrections enter a draft knowledge version with regression and held-out checks before release. Current training supervision remains unchanged until separately implemented and verified.
+
+Daily meals, recipes/cooking options, portions/calorie estimates and consolidated weekly groceries must pin the same delivered plan revision; recalculate affected outputs on changes while preserving consumed-history snapshots. Batch/leftover allocation must not duplicate ingredients, and purchase rounding must not alter food-consumption arithmetic. Dynamic onboarding progress, nutrition readiness and combined-offer activation are calculated on the server; existing workout-only setup remains independent. Nutrition access is permitted only by the combined tier, not by workspace enablement alone.
 
 ## 7. Stripe, Lean and accounting
 

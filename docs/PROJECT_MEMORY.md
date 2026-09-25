@@ -7,7 +7,7 @@ Updated: 25 September 2026. This is durable project context for future build ses
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | Continue the product work; latest turn requests a current update and nutrition integration planning |
+| Current request | Refine the nutrition integration plan and coach onboarding. Latest clarification: question the coach about realistic cases to capture recommendations; do not require review of every generated output. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification; avoid repeated planning/research and unnecessary confirmation |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
@@ -15,7 +15,8 @@ Updated: 25 September 2026. This is durable project context for future build ses
 | Payment history | The earlier Stripe Connect payout direction is superseded by Stripe collection + Lean payout |
 | Finance | One immutable ledger, marginal 25%/20%/15%/10% commission bands, transparent AI/voice charges and gross-to-net statements |
 | Product | Trainer Brain Compiler + Client Twin + governed first-person Coach Runtime; trainer identity and control are central |
-| Nutrition | Owner requested an integration plan on 25 September 2026. Training-only/nutrition-only/combined modes and a manual-first, supervised-AI-next rollout are proposed, not yet implemented or approved as final scope. |
+| Nutrition product | Two subscriber tiers: workout only and higher-priced workout + nutrition. Coach supplies diet and approximate calorie guidance; AI delivers daily meals, recipes, portions, cooking options and consolidated weekly groceries. No nutrition-only subscriber tier in current scope. Not implemented. |
+| Nutrition teaching and autonomy | Case-based onboarding captures what the coach recommends, why, alternatives, conditions and limits. Routine in-scope plans/changes should run automatically; human attention goes to exceptions, not every output. Planned mechanism: private versioned cases/rules with independent held-out evaluation and explicit action policies; no per-coach model-weight training is claimed. |
 | Market/design | UAE, AED, English first with Arabic-ready layout; restrained Swedish-minimal design |
 | Infrastructure | DigitalOcean is the source-spec preference; region, residency, configuration and spend are gated before production |
 | Credentials | Operator expects to supply API access during implementation; availability and permissions must be verified without retaining values here |
@@ -32,9 +33,11 @@ Updated: 25 September 2026. This is durable project context for future build ses
 
 ## Nutrition planning checkpoint — 25 September 2026
 
-- Checked local and remote main at `2f0b33b`; the last verified runtime code remains `e6a539e`. No new runtime test or live-provider result is claimed in this documentation-only turn.
-- `NUTRITION_INTEGRATION_PLAN.md` defines proposed work IDs 035–044, workflows, data/calculation contracts, domain-specific Brain releases, Client Twin/consent boundaries, nutrition-only onboarding and product entitlements, safety review, optional providers and acceptance journeys.
-- Recommended first slice: coach-authored foods/recipes, plans/targets or habits, subscriber manual logging and check-ins. Supervised AI and food/photo integrations follow. The existing Stripe/company-bank/Lean flow is retained; no new price or provider was selected.
+- Checked local and remote main at `0a778524`; the last verified runtime code remains `e6a539e`. This revision updates planning only. No nutrition runtime, new runtime test or live-provider result is claimed.
+- `NUTRITION_INTEGRATION_PLAN.md` defines work IDs 035–044 and now incorporates the confirmed two-tier product, connected weekly/daily delivery and case-based coach onboarding. It supersedes the earlier nutrition-only tier and blanket supervised-output proposals. The source screen/technical baselines link the new requirements explicitly.
+- Planned onboarding: choose combined capability; answer realistic and counterfactual client cases; extract and confirm rules, reasons, accepted/rejected choices and autonomy limits; resolve coverage gaps; inspect a sample week; pass separate held-out nutrition cases; qualify a versioned release. Workflow progress is dynamic, persisted and independent of workout-only readiness.
+- Planned runtime: complete in-scope intake leads to automatic validated meal/recipe/portion/cooking/grocery delivery. Missing client facts prompt the client; unsupported methodology, conflicting information, unsafe requests or changes beyond explicit policy enter an exception queue. Model confidence alone cannot authorize an action. Coach corrections become draft teaching candidates, not silent changes to released behavior.
+- Manual diet/recipe entry and calculations are an internal foundation, not completion of the requested AI product. Case teaching and automatic delivery with exception handling are part of the core combined-tier release; diaries/check-ins and later food/photo conveniences build on that. Training runtime supervision remains as implemented until separately changed. The existing Stripe/company-bank/Lean flow is retained; no exact price or provider was selected.
 - Clinical permissions, nutrient thresholds, catalogue licensing, media storage/residency and commercial changes need the corresponding review before launch. No current medical/legal/provider claims were researched or validated in this planning pass; respect the owner's no-Astra-browsing preference when arranging later research.
 
 ## Handoff format

@@ -14,9 +14,9 @@ Status: implementation underway, 24 September 2026. See [build status](BUILD_STA
 | R5 — Complete launch scope | Wearables/imports, domains, bookings, lifecycle messaging, full administration | Each enabled feature passes its source-spec acceptance; unavailable providers remain honestly flagged |
 | R6 — Premium and scale | Voice, native companion where approved, guarded infra automation, operational hardening | Rights/consent, measured cost/latency, rollback/restore and operator handoff |
 
-### Proposed nutrition extension — 25 September 2026
+### Nutrition extension — 25 September 2026
 
-The owner requested nutrition integration planning. [Nutrition integration proposal](NUTRITION_INTEGRATION_PLAN.md) adds internal work IDs **035–044** covering module entitlements, intake/consent, food/recipes, plans, logging, Brain/Twin, safety, optional providers and acceptance. All are **PLANNED / NOT IMPLEMENTED**. The original 001–034 baseline remains intact; these IDs are not created GitHub issues. Nutrition-only coaches must not be forced through workout setup. Build the manual coaching journey before supervised nutrition AI and optional catalogue/photo integrations. Clinical scope and provider rights remain reviewed inputs.
+The owner confirmed **workout only** and higher-priced **workout + nutrition** subscriptions. The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) adds internal work IDs **035–044** for entitlements, case-based coach teaching, intake/consent, recipes/calculations, connected weekly plans/daily meals/cooking/portions/groceries, nutrition Brain/Twin, exception handling and release evidence. All are **PLANNED / NOT IMPLEMENTED**; the original 001–034 baseline remains intact and these IDs are not created GitHub issues. Conditional onboarding learns what the coach recommends for realistic cases and verifies scope/coverage on held-out cases. Qualified routine outputs are delivered automatically; the coach handles exceptions rather than approving every plan. Manual food/recipe workflows are the foundation, not the complete product. The core release includes automatic nutrition delivery; optional food/photo integrations follow. Clinical scope and provider rights remain reviewed inputs.
 
 ### Dependency map
 
