@@ -1,6 +1,6 @@
 # Operations, costs and release
 
-Status: planned; credentials, infrastructure and production evidence have not been validated in this planning task. This document completes the operational work packages in the [roadmap](DELIVERY_ROADMAP.md).
+Status: operational requirements with partial implementation; production release and recovery remain unverified. Current evidence is in BUILD_STATUS.md. This document defines the operational work packages in the [roadmap](DELIVERY_ROADMAP.md).
 
 ## 1. Dependency register
 
@@ -10,7 +10,7 @@ Record owner, test/live environment, granted scopes, expiry/rotation, capability
 | --- | --- | --- |
 | Stripe | Secure test/live credentials and signing secret; accepted commercial model; Billing/settlement/refund/dispute capability | Domain rules, contract fixtures, entitlement and ledger implementation; live charging disabled |
 | Lean + company bank | Business/source-bank approval, API access, beneficiary/ownership requirements, fees/limits, authorization, status/finality and bank evidence | Beneficiary UI, payout state machine, reconciliation and duplicate/timeout fixtures; live payouts disabled |
-| DigitalOcean | Owner authorized wholly new resources; existing resources must remain untouched. App account/region/size reads succeeded on 25 September. Project/VPC/firewall and host setup remain unavailable; direct shell HTTPS and browser project access fail. No resource created or restore/deployment verification | Use DIGITALOCEAN_DEPLOYMENT.md and create-response ownership IDs; implement the required Git-triggered release workflow. Customer-data placement remains separately reviewed |
+| DigitalOcean | New GymMembership project/server authorized; existing resources outside write scope. Dedicated VPC/cloud firewall deferred. App reads verified; DO_PROVISION_TOKEN Actions secret pending. No real resources or live/restore evidence | Publish and CI-verify the reviewed setup workflow and checked-main host updater; provision blr1, 2 vCPU/4 GB within the USD 24/month compute cap. See DIGITALOCEAN_DEPLOYMENT.md. Customer-data placement remains separately reviewed |
 | DNS/platform identity | Platform domain, DNS control, legal company details, approved brand/assets | Reserved-slug and tenant-theme work with nonpublic test hosts |
 | Authentication/email | Selected provider/config, sending-domain verification, callback URLs and delivery evidence | Provider contract and isolated auth/message fixtures; real login/email tests await configuration |
 | Models/embeddings/STT | Supplied provider access, approved privacy/region/retention terms, quality results and price catalog | Prompt/schema registry, rights firewall, deterministic fixtures and evaluation harness |
@@ -33,7 +33,7 @@ Provider prices, bank coverage, app rules and legal requirements are time-sensit
 5. **Canary:** approved small cohort, conservative Brain autonomy and amount/capacity limits. Observe safety, financial differences, support load, latency and costs. Expand only after thresholds and enabled-feature evidence pass.
 6. **Rollback:** disable the affected feature/provider, restore last healthy image/config/Brain version, pause unsafe jobs and reconcile pending external effects. Database changes use expand/migrate/contract sequencing; do not erase financial state to roll back code.
 
-Infrastructure is reproducible IaC with secured, locked state. Staging and production have separate primary stores and secrets. Set minimum/maximum replicas, worker concurrency, DB connection limits, backup retention and spend alerts from measured load and approved budget. Avoid permanent GPUs and extra services until justified by evidence.
+The initial GymMembership implementation uses a create-only provisioner, durable resource-ID checkpoints and serialized host releases. Its setup and runtime verification are still pending. The owner deferred dedicated VPC and cloud firewall work for the single-server start; broader infrastructure hardening remains later operational work. Staging and production must have separate primary stores and secrets. Set minimum/maximum replicas, worker concurrency, DB connection limits, backup retention and spend alerts from measured load and approved budget. Avoid permanent GPUs and extra services until justified by evidence.
 
 ## 3. Evidence gates
 

@@ -1,0 +1,65 @@
+name: Set up GymMembership
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [infra/digitalocean/launch.json]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gymmembership-provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: github.repository == 'chordsnstrings/trainer_what' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify deployment boundaries
+        run: python3 -m unittest discover -s tests -p 'test_*deployment.py' -v
+      - name: Check setup credential
+        id: credential
+        env:
+          DO_PROVISION_TOKEN: ${{ secrets.DO_PROVISION_TOKEN }}
+        run: |
+          if [ -n "$DO_PROVISION_TOKEN" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo 'Add DO_PROVISION_TOKEN in repository Actions secrets, then run Set up GymMembership.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'No DigitalOcean resource was created.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Create only new GymMembership resources and verify HTTPS
+        if: steps.credential.outputs.configured == 'true'
+        env:
+          DO_PROVISION_TOKEN: ${{ secrets.DO_PROVISION_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 infra/digitalocean/provision.py
+      - name: Save resource ownership evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gymmembership-ownership
+          path: .deployment-result/ownership.json
+          if-no-files-found: ignore
+      - name: Deployment summary
+        if: always()
+        run: |
+          if [ -f .deployment-result/ownership.json ]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          state=json.load(open('.deployment-result/ownership.json'))
+          print('GymMembership status: ' + state.get('phase','setup incomplete'))
+          for field in ('project_url','url','verified_release'):
+              if state.get(field): print('\n' + field + ': ' + state[field])
+          print('\nResource IDs and incomplete create outcomes are retained on the deployment ownership branch.')
+          PY
+          fi

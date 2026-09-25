@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. DigitalOcean deployment has not occurred. On 25 September at 12:35 Asia/Dubai, the owner authorized a completely new project and resources, with an absolute prohibition on changing existing resources. Follow [the deployment boundary](DIGITALOCEAN_DEPLOYMENT.md). At 13:11, the connected DigitalOcean app returned an active account and current region/size listings. It lacks the project/VPC/firewall and host-configuration operations required for this deployment. Direct shell HTTPS still times out and the browser project page is unavailable. No resources are created; the separate pasted token remains untested. The required automatic deployment of tested Git updates is not configured.
+The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. The owner authorized a new DigitalOcean project named GymMembership and a new server, with existing resources outside scope. Dedicated VPC and cloud firewall work is deferred. The setup workflow and host updater in infra/digitalocean are implemented locally for Bangalore, 2 vCPU/4 GB and a USD 24/month compute cap. The host will deploy successful checked main commits automatically. No real resource, new deployment CI or live endpoint has been verified. The direct account API request with the supplied token returned a Site Unavailable HTML page, leaving token validity unverified. The prepared GitHub setup route still needs a one-time DO_PROVISION_TOKEN Actions secret entry. The owner requires direct API use and explicitly forbids cloud-browser use. Follow [the setup and deployment guide](DIGITALOCEAN_DEPLOYMENT.md).
 
 ## Local development
 
@@ -23,7 +23,7 @@ The application passed 51 tests on each of PGlite and PostgreSQL, production web
 
 ## PostgreSQL and containers
 
-1. For DigitalOcean, the owner has authorized necessary new infrastructure. Follow DIGITALOCEAN_DEPLOYMENT.md: create everything separately, verify available region/size/pricing, record owned resource IDs and never change an existing resource. Customer-data residency and live provider qualification remain separate from infrastructure authorization.
+1. For DigitalOcean, follow DIGITALOCEAN_DEPLOYMENT.md to create the new GymMembership project, SSH key and server, record owned resource IDs and assign only the new server to that project. Use default networking without modifying it; dedicated VPC and cloud firewall are deferred. Customer-data residency and live provider qualification remain separate from infrastructure authorization. The automated controller performs steps 2–7 below on its owned host.
 2. Create a migration administrator connection and a separate runtime login. Apply migrations with `MIGRATION_DATABASE_URL`; do not use that credential in API/worker.
 3. Use `infra/runtime-role.sql` as the grants template after migration. Set the runtime password through the database administrator's secret flow. The runtime cannot own tables or bypass RLS and must be permitted to `SET ROLE trainer_app`.
 4. Set `DATABASE_URL` to that runtime account. If using Compose's database, its hostname is `database`, port 5432, database `trainer`. Set `POSTGRES_PASSWORD` for initial administrator creation. Do not expose port 5432 publicly.
@@ -48,7 +48,7 @@ Do not enable Lean execution until the account-specific destination/payment cont
 
 ## Recovery and rollback
 
-Use the database provider's encrypted backups and point-in-time recovery once selected. No recovery-time claim is made. Before pilot, restore a backup into an isolated environment, run migrations/status checks, and reconcile known journal totals and provider receipts. Record measured recovery time and data loss.
+The initial GymMembership controller takes private local SQL dumps before updates and attempts to restore the previous application after a failed release health check. This does not provide off-host backups or demonstrated restore. Use encrypted backups and point-in-time recovery once selected. No recovery-time claim is made. Before pilot, restore a backup into an isolated environment, run migrations/status checks, and reconcile known journal totals and provider receipts. Record measured recovery time and data loss.
 
 Tag each container release. Roll web/API/worker back together to the previous compatible image; migrations are additive and should be rolled forward, not destructively reversed. Restore must preserve unique business intents and immutable journals. Replaying webhooks or jobs must not create new financial effects. Keep runtime and authenticator encryption keys available to the restore environment through the secret mechanism.
 

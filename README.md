@@ -75,7 +75,7 @@ The browser runner starts API and the production web build itself. Stop existing
 | `packages/providers` | Stripe, Lean, model and email boundaries |
 | `packages/contracts` | Validated API inputs |
 | `tests` | Real PostgreSQL-engine integration checks with isolated fixtures |
-| `infra`, `Dockerfile`, `compose.yaml` | Deployment configuration; not a deployed environment |
+| `infra`, `Dockerfile`, `compose.yaml` | Containers and GymMembership setup/checked-main deployment controller; live deployment unverified |
 
 ## Deployment and project context
 

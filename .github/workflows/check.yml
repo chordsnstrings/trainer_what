@@ -1,7 +1,7 @@
 name: Application checks
 on:
   push:
-    paths-ignore: ["docs/**", "*.md"]
+    branches: [main]
   pull_request:
     paths-ignore: ["docs/**", "*.md"]
 permissions:
@@ -17,6 +17,8 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Deployment boundary checks
+        run: python3 -m unittest discover -s tests -p 'test_*deployment.py' -v
       - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils
       - run: npm run check
       - run: npx playwright install --with-deps chromium --only-shell

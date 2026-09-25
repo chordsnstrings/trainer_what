@@ -1,0 +1,10 @@
+{
+  "project_name": "GymMembership",
+  "deployment_id": "8fc22b34-edcc-4e67-af69-19153c9168f0",
+  "repository": "chordsnstrings/trainer_what",
+  "region": "blr1",
+  "size": "s-2vcpu-4gb",
+  "max_compute_usd_month": 24,
+  "image": "ubuntu-24-04-x64",
+  "ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJUIvPR5ndstkfsEs8O5qZXxfDJZIKLH4N+3t1BKY0uQ GymMembership deployment"
+}

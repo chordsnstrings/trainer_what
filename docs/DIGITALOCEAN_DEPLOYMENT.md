@@ -1,41 +1,48 @@
-# DigitalOcean deployment boundary
+# DigitalOcean deployment
 
-Owner authorization: 25 September 2026, 12:35 Asia/Dubai. Create a completely new DigitalOcean project, instance and supporting resources for `chordsnstrings/trainer_what`. The owner explicitly authorized the necessary new infrastructure. This authorization persists; do not ask for it again merely because an older planning document described access, budget or provisioning approval as pending.
+The owner authorized new infrastructure on 25 September 2026 at 12:35 Asia/Dubai. At 13:24 they chose a single-server start, deferred a dedicated VPC and cloud firewall, and required the new project to be named **GymMembership**. Existing projects and resources remain outside the write scope. This authorization persists; do not repeat permission, installation or network-toggle requests.
 
-## Absolute resource boundary
+## Resource boundary
 
-- Create a new project with a unique `trainer-brain` name and deployment suffix. Never repurpose an existing project, even if its name looks related.
-- Create new compute, private network, database storage, firewall and deployment access credentials. Never reuse existing droplets, databases, VPCs, volumes, buckets, SSH keys, firewalls, load balancers or domains.
-- Do not modify, restart, resize, move, attach/detach, transfer, delete or change access to any resource that existed before this deployment. No account-wide settings changes.
-- Keep a durable manifest of IDs returned by this deployment's successful create responses. A name or tag alone is not sufficient evidence of ownership. Any later write must target a manifest-owned ID; no wildcard or account-wide write operations.
-- Assign only newly created resources to the newly created project. Scope new firewall rules to the new instance IDs, not broad tags that could match another project. Never change an existing project's membership or default-project status.
-- Read metadata only where necessary to verify account access, available services/prices or avoid collisions; never retrieve unrelated customer data or existing secrets. Do not import old project configurations, backups or database contents.
-- A timeout after a create call is an unknown outcome: reconcile the attempted creation before retrying. Do not create duplicates or use bulk cleanup. Any cleanup must be confined to IDs proven to belong to this deployment.
+- Create a new project named exactly `GymMembership`, a new SSH key and a new Droplet. If an unrelated project already has that name, stop for reconciliation; never adopt it.
+- Keep a durable manifest of IDs returned by successful create responses. Subsequent writes must use those owned IDs. Names and tags alone do not establish ownership.
+- Assign only the new Droplet to the new project. Never modify an existing project, its membership, its default status, or an existing Droplet, key, database, volume, bucket, firewall or domain.
+- Use DigitalOcean's default networking for this initial host without changing the network. A dedicated VPC and cloud firewall are expressly deferred. The database, API and worker must not publish host ports; web binds to loopback behind HTTPS.
+- Read only metadata needed to check access, availability, cost, collisions and this deployment's state. Never import unrelated customer data, secrets or backups.
+- Checkpoint an attempted create before sending it. An ambiguous outcome blocks another create until reconciled. Retain successful response IDs even if later setup fails; reruns resume those resources instead of creating duplicates.
 
-## Prepared initial deployment
+## Prepared footprint
 
-Deploy the verified application to a new, isolated environment first. It contains the Next.js web service, Fastify API, PostgreSQL 17, migration job and background worker described in `compose.yaml`, behind HTTPS. Use separate fresh database administrator/runtime credentials and an independently generated account-encryption key. The DigitalOcean management token must stay outside the repository, container image and application runtime.
+`infra/digitalocean/launch.json` selects Bangalore (`blr1`), Ubuntu 24.04 and `s-2vcpu-4gb`: 2 vCPU, 4 GB RAM and 80 GB local disk. The authenticated DigitalOcean size listing on 25 September quoted **USD 24/month for compute**. The provisioner checks availability and rejects a compute quote above USD 24 before creating resources. This is not an all-inclusive bill or a purchase record.
 
-Choose a modest CPU-only instance and an available region after retrieving the actual account's current sizes, prices and regional availability. Record the selected region, recurring estimate, resource IDs and deployment commit before reporting the deployment complete. On 25 September, the authenticated size listing returned `s-2vcpu-4gb` at USD 24/month and `s-4vcpu-8gb` at USD 48/month, with both available in Frankfurt, Bangalore, Singapore and New York 3. These are compute quotes, not purchases or an all-inclusive deployment estimate; no region/size is selected. Use new persistent database storage; keep database/API ports private and expose only the intended HTTPS entry point and restricted administration path. Confirm backups and recovery for this new environment.
+The host runs the existing Next.js web, Fastify API, PostgreSQL 17.6, migration job and worker with Docker Compose, plus Caddy for HTTPS. Fresh database administrator/runtime passwords and an account-encryption key are generated on the new host. Runtime secrets remain in `/opt/gymmembership/runtime.env` with private file permissions. The provisioner's DigitalOcean token and GitHub token are never placed in cloud-init, an image or the application's environment.
 
-Existing nutrition, legal, commerce and payout flags remain explicit runtime controls; infrastructure authorization does not prove model fidelity or payment-provider account compatibility. Do not copy chat-supplied Stripe credentials or fixture identities into the deployment. Provisioning infrastructure does not approve placing real customer health data into an unreviewed location. Required photo/barcode workflows remain implementation work under 043.
+The planned temporary URL is `https://gymmembership.<new-public-ip>.sslip.io`. It is an intended address format; an actual URL is reported only after creation. Caddy certificate issuance and external HTTPS readiness still require live verification.
 
-## Verification and handoff
+## Setup and automatic Git deployment
 
-Record only new-resource identifiers, URLs, region, instance specification, observed monthly estimate and release commit. Verify migration completion, the non-owner database role, API/database readiness, web loading, HTTPS, worker connectivity and access restrictions. Use synthetic or fresh test data for first checks. Record backup/restore evidence separately from readiness. Provide the new project's URL and application endpoint once they actually exist.
+The implementation is in `infra/digitalocean/` and `.github/workflows/gymmembership.yml`. All 36 local deployment unit tests passed, including ownership/retry and release-failure cases. It has not yet provisioned a server; CI and live verification remain pending.
 
-## Current access result
+1. Store the supplied DigitalOcean management token as the repository Actions secret `DO_PROVISION_TOKEN`. Never put its value in Git, documentation or logs. The setup workflow receives GitHub's temporary repository token separately.
+2. Run **Set up GymMembership** from `main`; changes to `infra/digitalocean/launch.json` also trigger setup. It waits for **Application checks** to pass for that exact current `main` commit before provisioning. Pull requests cannot run the setup job or receive its deployment credential.
+3. Setup creates only the new project, key and server, then verifies the server's membership in GymMembership. Ownership checkpoints live on `deployment/gymmembership-<deployment-id-prefix>` in `infra/digitalocean/ownership.json`; a workflow artifact retains another copy. These records contain IDs and status, never secrets.
+4. Cloud-init installs Docker and a `gymmembership-deploy.timer`. The server checks the public repository about every five minutes. It deploys only the exact current `main` SHA with a successful completed push run of `check.yml`, downloads that commit, and rechecks approval after building it. No GitHub access token or SSH deployment credential is needed for these public-repository updates.
+5. Releases are serialized on the host. The controller validates network exposure, keeps the database on its existing volume, runs migrations with the administrator, applies the non-owner runtime grants, and starts the application. It checks localhost readiness, public HTTPS and the `X-GymMembership-Release` header before recording success.
 
-At 13:11 Asia/Dubai on 25 September 2026, the DigitalOcean app's commands became available. Authenticated account information returned `status: active`, and region and size listings succeeded. This verifies communication through the connected app. It does not verify the separately pasted token, which was not transmitted or tested. No create call or existing-resource mutation occurred; no new resource IDs or charges have been established.
+If the setup secret is missing, the workflow reports that no resources were created. Adding the secret alone does not start setup; run the workflow afterward. If the repository becomes private, the server's credential-free update route needs an explicit replacement.
 
-The app exposes account, Droplet, SSH key, image, region, size and related operations. It does not expose project creation, project assignment, VPC creation or firewall creation, and its Droplet create parameters do not include a project, VPC or cloud-init user-data option. Do not create a Droplet into an existing default project/network as a shortcut around the owner's isolation requirement.
+## Recovery and verification
 
-Direct shell HTTPS to `api.digitalocean.com` still fails at proxy CONNECT (HTTP 000). The owner is the workspace administrator and confirms Work network access has always been enabled; the supplied screenshot shows it enabled. Their Business workspace navigation does not show the previously suggested Permissions & roles section. Do not repeat the installation, toggle or generic administrator requests. The exact reason for the shell restriction is not established.
+Failed migrations leave the current application running. If a new application release fails health checks, the controller attempts to restore the previous application and HTTPS configuration. It does not reverse database migrations. Future schema changes must remain compatible with the previous running release.
 
-The supported cloud browser was checked for the missing project operations. `https://cloud.digitalocean.com/projects` displayed “Site Unavailable — Unable to access this site” before and after one reload. No sign-in or website mutation occurred. This is a browser access failure, not evidence of token invalidity or bot detection. Continue using the working app for supported reads; full isolated provisioning needs a supported route for the missing project/network/firewall and host-configuration operations.
+The controller takes a private local SQL dump before updating an existing deployment. This is a local recovery aid, not off-host backup or demonstrated restore evidence. Provider backups, retention, external monitoring and measured recovery remain operational work.
 
-## Git deployment requirement
+On the owned host, inspect `cloud-init status --long`, `journalctl -u gymmembership-deploy.service` and `systemctl status gymmembership-deploy.timer`. Do not print runtime environment files or rendered Compose configuration, which contain credentials. Retain the new project/server IDs, selected quote, exact release SHA, migration/runtime-role evidence, HTTPS response and a subsequent Git-triggered update before declaring automatic deployment operational.
 
-At 12:47 Asia/Dubai on 25 September, the owner required Git updates to deploy automatically to DigitalOcean. The repository currently has application and PostgreSQL/container checks but no deployment workflow or configured host/credentials. This requirement is pending, not implemented.
+## Current evidence and activation boundary
 
-The intended release boundary is: a push to `main` passes both existing check jobs, then deploys that exact tested commit to the new manifest-owned environment. Restrict deployment credentials to that environment, pin host identity, serialize releases, check migrations and application readiness, and retain recovery evidence. Pull requests must not receive deployment credentials. Record an actual successful Git-triggered release before calling automatic deployment operational.
+Authenticated DigitalOcean app account/region/size reads succeeded at 13:11 Asia/Dubai. The app lacks project creation/assignment and cloud-init parameters. The owner requires direct DigitalOcean API access and explicitly prohibits cloud-browser use. The final direct request to `https://api.digitalocean.com/v2/account`, using the supplied token, returned HTTP 200 with `Content-Type: text/html` and a 195-byte Site Unavailable page instead of account JSON. Token validity is therefore unverified; no create request was made. The prepared GitHub Actions workflow uses the official API for setup, but its `DO_PROVISION_TOKEN` repository secret is not configured and the GitHub connector has no secret-setting operation. That route needs one-time operator secret entry; do not request browser sign-in or repeat network/admin setting requests.
+
+**No real cloud resources have been created.** The new setup code has no published CI, cloud-init, HTTPS, restore or automatic-update evidence yet. The supplied DigitalOcean token has not received a valid API response. Existing application CI evidence is recorded in `BUILD_STATUS.md`; it does not verify this deployment controller.
+
+Infrastructure setup does not enable registration, nutrition, imports, live commerce or payouts automatically. Existing legal/provider/feature flags remain disabled until their respective evidence exists. Real customer health-data placement and model qualification remain separate decisions. Required meal-photo and barcode work remains open under 043; running a server does not complete those integrations.
