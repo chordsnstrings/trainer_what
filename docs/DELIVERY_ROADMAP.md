@@ -2,6 +2,8 @@
 
 Status: implementation underway; nutrition core verified, 25 September 2026. See [build status](BUILD_STATUS.md) for observed evidence and remaining work. Issue IDs and dependencies extend the [implementation plan](../IMPLEMENTATION_PLAN.md); they are issue-ready work packages, not completed work or existing GitHub issues. Each row can split into small implementation tasks while retaining its parent ID and evidence.
 
+**Infrastructure authorization — 25 September 2026, 12:35 Asia/Dubai:** the owner explicitly authorized creating a new DigitalOcean project, instance and supporting resources, while prohibiting any change to existing resources. The [deployment boundary](DIGITALOCEAN_DEPLOYMENT.md) governs this work. Direct API connectivity failed before authentication. DigitalOcean installation is now confirmed, but the current session still exposes no provisioning commands; no cloud resources are created. Resume once the installed tools load. Authorization and installation must not be requested again.
+
 ## 1. Release sequence
 
 | Release | Deliverable | Completion evidence |

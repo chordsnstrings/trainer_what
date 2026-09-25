@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The application builds and passes local integration checks. The supplied containers, PostgreSQL runtime role and DigitalOcean deployment have not been executed here. Chromium was unavailable locally; the GitHub browser smoke passed on the first implementation checkpoint. An expanded production-role PostgreSQL/container job is configured; see BUILD_STATUS for its actual result. Do not treat this document as deployment evidence.
+The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. DigitalOcean deployment has not occurred. On 25 September at 12:35 Asia/Dubai, the owner explicitly authorized a completely new DigitalOcean project and resources, with an absolute prohibition on changing existing resources. Follow [the deployment boundary](DIGITALOCEAN_DEPLOYMENT.md). Direct API connectivity timed out before authentication. The user then installed DigitalOcean and metadata confirmed installation, but the current session still exposed no callable provisioning commands. Resume through those tools once loaded. No account/token validity or cloud creation is claimed.
 
 ## Local development
 
@@ -23,7 +23,7 @@ The application builds and passes local integration checks. The supplied contain
 
 ## PostgreSQL and containers
 
-1. Choose the approved region and infrastructure budget before provisioning. The operator preference remains DigitalOcean; no resources have been purchased.
+1. For DigitalOcean, the owner has authorized necessary new infrastructure. Follow DIGITALOCEAN_DEPLOYMENT.md: create everything separately, verify available region/size/pricing, record owned resource IDs and never change an existing resource. Customer-data residency and live provider qualification remain separate from infrastructure authorization.
 2. Create a migration administrator connection and a separate runtime login. Apply migrations with `MIGRATION_DATABASE_URL`; do not use that credential in API/worker.
 3. Use `infra/runtime-role.sql` as the grants template after migration. Set the runtime password through the database administrator's secret flow. The runtime cannot own tables or bypass RLS and must be permitted to `SET ROLE trainer_app`.
 4. Set `DATABASE_URL` to that runtime account. If using Compose's database, its hostname is `database`, port 5432, database `trainer`. Set `POSTGRES_PASSWORD` for initial administrator creation. Do not expose port 5432 publicly.
