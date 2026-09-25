@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. DigitalOcean deployment has not occurred. On 25 September at 12:35 Asia/Dubai, the owner explicitly authorized a completely new DigitalOcean project and resources, with an absolute prohibition on changing existing resources. Follow [the deployment boundary](DIGITALOCEAN_DEPLOYMENT.md). Direct API connectivity timed out before authentication. The user then installed DigitalOcean and metadata confirmed installation, but the current session still exposed no callable provisioning commands. Resume through those tools once loaded. No account/token validity or cloud creation is claimed.
+The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. DigitalOcean deployment has not occurred. On 25 September at 12:35 Asia/Dubai, the owner authorized a completely new project and resources, with an absolute prohibition on changing existing resources. Follow [the deployment boundary](DIGITALOCEAN_DEPLOYMENT.md). At 13:11, the connected DigitalOcean app returned an active account and current region/size listings. It lacks the project/VPC/firewall and host-configuration operations required for this deployment. Direct shell HTTPS still times out and the browser project page is unavailable. No resources are created; the separate pasted token remains untested. The required automatic deployment of tested Git updates is not configured.
 
 ## Local development
 
