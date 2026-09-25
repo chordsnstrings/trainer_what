@@ -42,6 +42,8 @@ The seed refuses production. Its subscriptions, financial entries, coach nutriti
 
 Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Coaches confirm compiled methodology and qualify releases. Training model responses remain supervised; routine qualified nutrition plans are delivered automatically, with human handling of exceptions.
 
+Meal-photo logging and food-barcode scanning are committed next-scope features of workout + nutrition. They are not implemented or configured yet; see [section 7 of the nutrition plan](docs/NUTRITION_INTEGRATION_PLAN.md#7-meal-photos-and-barcode-scanning--required-scope).
+
 ## Verify
 
 ```bash

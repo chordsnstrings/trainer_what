@@ -1,6 +1,8 @@
 # Nutrition integration plan
 
-Date: 25 September 2026. Status: **CORE IMPLEMENTED AND CI VERIFIED; LIVE QUALIFICATION PENDING**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
+Date: 25 September 2026. Status: **EXISTING CORE CI VERIFIED; REQUIRED PHOTO/BARCODE BUILD AND LIVE QUALIFICATION PENDING**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
+
+**Owner scope decision — 25 September 2026, 12:27 Asia/Dubai:** meal-photo logging and packaged-food barcode scanning are now required parts of workout + nutrition. This supersedes their earlier optional status. Both remain unimplemented; 043 is committed scope and 044 must verify the expanded journeys. This decision does not add a third subscription tier or require coaches to approve routine food entries.
 
 ## 1. Current baseline and the gap
 
@@ -141,19 +143,42 @@ These are proposed product controls, not a clinical protocol or a statement of U
 - Known allergy conflicts stop affected meal suggestions/substitutions. Incomplete ingredient/allergen metadata is uncertainty; absence of a listed allergen does not certify a food as safe.
 - Explicit clinical-management requests, disclosed high-risk circumstances and unsafe restriction/purging requests enter a suitable human/specialist review path. Do not diagnose an eating disorder from a diary or photo.
 - Avoid punitive restriction, compensatory exercise, aggressive automatic target changes or body-shaming feedback. No supplement/drug dosing or disease-treatment recommendations in the initial release.
-- Use separate nutrition-processing/coaching and optional photo-analysis permissions. Existing training consent is not silently expanded. Revoking nutrition permission must not automatically revoke unrelated training permission.
+- Use separate nutrition-processing/coaching and separately opt-in photo-analysis permissions. Offering the feature is required; using photos remains the subscriber's choice. Existing training consent is not silently expanded. Revoking nutrition permission must not automatically revoke unrelated training permission.
 - Scope coach/staff access; financial and growth staff do not receive food diaries or health details. Analytics events contain identifiers/statuses, not meal content, allergy details or photos.
 - Extend export, local erasure, derived-data invalidation, provider deletion requests and backup handling. Clearly retain the existing distinction between local deletion and verified provider/backup deletion.
 
-## 7. Food data and media integrations
+## 7. Meal photos and barcode scanning — required scope
 
-The first useful slice works with coach-authored foods/recipes and subscriber manual entries with visible provenance. No fabricated catalogue or provider result is needed.
+The owner confirmed both features on 25 September 2026. Include them in workout + nutrition alongside the existing coach-guided plans and diary. Meal photos are a committed delivery priority, not a later optional add-on. Coach-authored foods/recipes and manual logging remain available during provider outages and for users who choose not to use the camera.
 
-Choose a food-data provider only after checking nutrient/portion quality, regional and branded-food coverage, recipe support, languages, caching/redistribution rights, permitted AI use, privacy, rate limits, cost and outage handling against current primary documentation and the actual account. No provider has been selected or verified in this proposal. Follow the owner's economical-research preference; do not use Astra for browsing.
+### Meal-photo flow
 
-Then add search/import, barcode lookup and label parsing behind replaceable adapters. A barcode is a lookup key, not proof of current ingredients or portion size. Regional variants and user corrections need source/version tracking.
+1. The subscriber takes a photo or selects one from the device after giving separate photo-analysis permission. Show the image and allow replacement/removal before analysis. Do not silently upload a camera preview or unrelated image.
+2. AI proposes visible foods, likely ingredients and approximate portions. Ask the subscriber about material unknowns such as quantities, oils, sauces and preparation; allow adding/removing foods and editing amounts. Use licensed food facts where available and calculate totals in ordinary code. Preserve the source and uncertainty of model-only estimates; missing nutrients stay unknown.
+3. Show an editable draft with estimated calories and available nutrients. A photo cannot certify exact calories, hidden ingredients or allergen safety. The subscriber explicitly confirms before anything enters the diary; no automatic saved entry or routine coach approval.
+4. Save the confirmed items, quantities, provenance, draft/correction lineage and nutrient coverage as one idempotent diary event. Corrections update the descriptive daily summary and nutrition Twin without double counting. Recording what someone ate does not imply the coach recommends it; any coaching response or plan adjustment still obeys the released policy.
 
-Optional meal-photo assistance comes later, after private storage, permission, quality and cost checks. Return a draft food/portion interpretation for confirmation; never present photograph-derived calories, hidden ingredients or allergens as exact. A model outage must leave manual logging and coach-authored plans usable.
+### Barcode flow
+
+1. Scan a supported packaged-food barcode with the camera or enter its digits. Normalize and validate the code before lookup; allow correction when scanning fails.
+2. Retrieve the identified product from a permitted food-data source. Show product/brand, source, available ingredients/allergens, per-100g or serving basis and declared preparation state. The subscriber verifies the exact product and selects the amount consumed; package size is not assumed to be the amount eaten.
+3. Recalculate using the confirmed quantity and save an idempotent diary event with the food-version/source snapshot. Regional variants and user corrections remain traceable; a barcode alone does not prove current ingredients or suitability for a user's restrictions.
+4. For no match, incomplete/conflicting facts, camera denial or provider failure, show the actual state and offer manual entry. Never invent a product match or fill unknown nutrients with zero.
+
+### Shared delivery requirements
+
+- Use replaceable food-lookup and vision adapters. Select providers against UAE/regional coverage, portion/nutrient quality, languages, caching/redistribution and AI-use rights, privacy, rate limits, cost and observed account behavior. No provider has been chosen; no service or model choice is implied by locking the feature. Follow the owner's economical-research preference and do not use Astra for browsing.
+- Keep images private and scoped to tenant/subscriber. Bound and validate uploads, remove unnecessary metadata, use time-limited authorized access, document image retention and support permission revocation, cancellation and deletion. Images and derived analyses join the existing export/erasure lifecycle; subscriber photos cannot enter coach training data without separate permission.
+- Reuse usage reservation, measured provider costs, per-tenant limits and stable intent IDs. A retry cannot create duplicate diary entries or silently repeat a paid analysis with an unknown outcome. Camera capture, analysis, confirmation and logging have distinct states; unavailable analysis cannot masquerade as successful recognition.
+- Respect entitlement and consent again before processing and confirmation. Do not silently cache photos with text diaries; local photo drafts require explicit user choice and must expose their retention/sync state. Existing manual and offline text logging remain usable.
+- Preserve coach autonomy boundaries: confirmed nutrition entries may inform permitted descriptive trends and policy-bound actions. A single photo or scan never gives the model authority to change calorie targets or compensate with exercise.
+
+| Work slice | Required acceptance |
+| --- | --- |
+| 043a — meal photos | Capture/upload, permission, editable estimates, missing-ingredient/portion clarification, explicit subscriber confirmation, one diary event, corrections, private media lifecycle and recorded analysis cost |
+| 043b — food barcodes | Camera/manual code, real sourced product lookup, quantity/basis validation, user confirmation, versioned diary entry, no-match/outage/camera-denied fallbacks |
+| 043c — shared integration | Entitlement/consent races, cross-tenant isolation, cancellation, retry/deduplication, partial nutrients, export/deletion, daily totals/Twin and unchanged workout-only access |
+| 044 extension — verification | Both complete mobile journeys, uncertain/photo and missing-barcode cases, provider failure, changed consent and duplicate confirmation; separate fixture evidence from live-provider qualification |
 
 ## 8. Commerce and migration
 
@@ -173,14 +198,14 @@ Implementation choice: existing generic Brain kinds remain the training domain. 
 | --- | --- |
 | Public/onboarding | Explain the two tiers; conditional nutrition teaching, examples, practical rules, gap review, sample-week preview and independent nutrition readiness |
 | Coach | `/trainer/nutrition`, `/trainer/nutrition/foods`, `/trainer/nutrition/recipes`, `/trainer/nutrition/plans`, `/trainer/nutrition/exceptions`; nutrition cases/coverage/autonomy/release tabs and client-detail timeline |
-| Subscriber | `/app/nutrition`, `/app/nutrition/intake`, `/app/nutrition/log`, `/app/nutrition/plan`, `/app/nutrition/groceries`, `/app/nutrition/check-in`; recipe/cooking views, permissions and tracking-display settings |
+| Subscriber | `/app/nutrition`, `/app/nutrition/intake`, `/app/nutrition/log`, `/app/nutrition/plan`, `/app/nutrition/groceries`, `/app/nutrition/check-in`; recipe/cooking views, meal-photo capture/confirmation, barcode lookup/confirmation, permissions and tracking-display settings |
 | Operations | Extend safety, support, scope/credential review and FinOps views with appropriate access boundaries |
 
 API services: coach nutrition setup/cases/knowledge/gaps/readiness; nutrition profiles/consents; foods/recipes/cooking variants; weekly plan revisions/assignments and derived groceries; idempotent log events/corrections; check-ins; policy-validated decisions/delivery, exceptions/corrections and release approvals; and catalogue/media adapters. Derive tenant and subscriber scope server-side for every operation. Version and audit all externally meaningful changes.
 
 ## 10. Implementation sequence and acceptance
 
-These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 engineering verification has passed; live-model and production qualification remain open, and optional 043 remains unconfigured. IDs are internal work IDs, not existing GitHub issues.
+These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 engineering verification has passed; live-model and production qualification remain open. The owner has now made 043 required scope; it is not implemented, and the expanded 044 checks remain pending. IDs are internal work IDs, not existing GitHub issues.
 
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |
@@ -192,21 +217,21 @@ These ten work packages extend the original 001–034 baseline. The table retain
 | 040 | Case-based nutrition teaching, gap detection, compilation, sample week, evaluations, autonomy policy and exception handling | 035, 037–038, initial 042; 041 for progress-based changes | Covered cases deliver automatically without coach sign-off per output; unseen/invalid cases route correctly; held-out checks and setup preview pass; no invented facts or fixture-only production readiness; changes invalidate dependent approval; domain rollback isolated |
 | 041 | Nutrition Twin, check-ins and policy-bound adjustment loop | 036–039, 040 for automation | Trends preserve coverage/source/rights; automatic changes obey explicit triggers/ranges/cadence; exceptions reach the coach |
 | 042 | Reviewed scope/safety policy, role controls and escalation fixtures | Start alongside 036; qualified input for launch | Ingredient conflict, unsafe request, permission race and out-of-scope cases cannot bypass review |
-| 043 | Approved food lookup/barcodes, then optional photo assistance | 037, 039, 042; provider/storage access | Account contract, rights, outage/manual fallback, image confirmation and real cost evidence |
-| 044 | Complete journey, regression, privacy/finance and release evidence | 035–042; 043 only if enabled | End-to-end trace; prior training journeys pass; each enabled integration has evidence |
+| 043 | Required meal-photo logging and packaged-food barcode lookup with subscriber confirmation | 037, 039, 042; provider/storage access for activation | Complete 043a–c flows in section 7; private media, sourced facts, user corrections, one diary effect, manual fallbacks and real cost evidence |
+| 044 | Complete journey, regression, privacy/finance and release evidence | 035–043 | Existing core evidence retained; photo and barcode journeys must also pass before expanded nutrition scope is complete; prior training journeys and each provider have evidence |
 
 Delivery order:
 
 1. **Design/contracts:** 035–036 and the initial 042 policy/scope work. Define two-tier entitlements, the conditional teaching branch, data model and readiness evidence.
 2. **Working manual foundation:** 037–038. Coach enters diet/targets and recipes; a test subscriber receives a consistent week with daily meals and groceries. This is an internal milestone; the owner-requested AI experience is not complete at this point.
 3. **Core automatic nutrition:** 040 plus expanded 042 evaluations. Finish adaptive case teaching, scope/authority rules and evidence gates; automatically deliver validated weeks from the confirmed diet, client inputs, deterministic totals and a pinned nutrition release. Only exceptions require human input. This is required for the planned combined-tier launch.
-4. **Feedback and convenience:** 039 and 041 add logging/check-ins and policy-bound adaptation; 043 follows capability/rights/cost verification. Preserve manual operation when unavailable.
+4. **Feedback and required capture:** 039 and 041 add logging/check-ins and policy-bound adaptation. Implement 043 meal photos and barcode scanning as committed scope, with manual fallbacks and provider/storage capability checks before activation.
 5. **Release:** 044, existing deployment/provider gates and qualified nutrition review. A roadmap table is not evidence of a completed feature.
 
 Required journeys include workout-only setup, an existing coach adding the combined tier without repeating training setup, insufficient or conflicting case evidence, onboarding save/resume, automatic in-scope week delivery without coach clicks, correct generalization to held-out cases, unsupported-case escalation, linked daily views/recipes/cooking/groceries, in-policy versus out-of-policy adjustments, stale preview invalidation, calorie/quantity gaps, an allergy-conflicting swap, batch cooking without duplicate shopping quantities, concurrent plan edits, offline corrections across timezones, revoked consent during generation, cancelled membership, tenant isolation, retained financial records after erasure, and food/model-provider failure. Track routine delivery, exception frequency/reason, coach handling time and post-delivery correction rates; lower queue volume must never bypass mandatory constraints.
 
 ## 11. Decisions and dependencies
 
-Confirmed owner direction: two tiers, the combined tier at a higher price, coach-provided diet/calorie guidance, AI-generated practical nutrition delivery and case-based onboarding that captures what the coach would recommend. Routine outputs must not require individual coach review. Proposed engineering defaults: private versioned case/rule knowledge rather than per-coach model fine-tuning, coverage-based readiness, the example/evaluation floors above, explicit automatic-action policies with exception routing, and photo/barcode conveniences later. No exact prices or legal permissions are assumed.
+Confirmed owner direction: two tiers, the combined tier at a higher price, coach-provided diet/calorie guidance, AI-generated practical nutrition delivery and case-based onboarding that captures what the coach would recommend. Meal-photo logging and food-barcode scanning are also confirmed required features, with explicit subscriber confirmation before diary entry. Routine outputs must not require individual coach review. Proposed engineering defaults: private versioned case/rule knowledge rather than per-coach model fine-tuning, coverage-based readiness, the example/evaluation floors above, explicit automatic-action policies with exception routing. Provider selection and private-media configuration for the required capture features remain open. No exact prices or legal permissions are assumed.
 
 Inputs still needed before their affected release steps: representative coach diet material and review of generated examples; reviewed coaching/clinical boundary and safety policy; food-source licensing/coverage; private-media storage/residency; the price uplift and bundle-change/refund policy; configured model evaluation; and suitable pilot coaches for workout-only and combined journeys. Existing infrastructure and payment blockers remain as documented. These dependencies do not prevent schemas, manual workflows, deterministic calculations and synthetic acceptance fixtures from being built; synthetic fixtures do not establish real coach fidelity.

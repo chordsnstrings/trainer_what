@@ -57,7 +57,7 @@ The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) extends O02 and 
 | Readiness and activation | Show supported/unsupported capabilities and actionable gaps; evaluate the configured model and qualify the release | Independent nutrition gates enforced server-side; changed inputs invalidate affected approval; no per-plan approval requirement; 035, 040, 042 |
 | Ongoing coach workspace | Delivered-plan history, optional sampled audit, exceptions with reasons and proposed resolution | Routine in-scope output is automatic; exceptions and coach takeover are visible; 040, 041 |
 
-Core subscriber additions are today's meals, recipes/cooking variants, portions and approximate calories plus full-week and grocery views; plan changes update the connected quantities. They are required combined-tier features, not optional diary screens. Complete field/state and journey acceptance is defined in work IDs 035–044.
+Core subscriber additions are today's meals, recipes/cooking variants, portions and approximate calories plus full-week and grocery views; plan changes update the connected quantities. The owner additionally confirmed meal-photo logging and food-barcode scanning as required on 25 September 2026. Add capture/lookup → editable food and serving draft → explicit subscriber confirmation → diary, with manual fallbacks, permission/privacy states and clear approximate/unknown values. These 043 screens are planned and unimplemented; the existing 32-route evidence does not cover them. They are required combined-tier features, not optional diary screens. Complete field/state and journey acceptance is defined in work IDs 035–044.
 
 ### J.3 — Trainer command center (23)
 

@@ -42,6 +42,8 @@ No real model, food provider, Stripe, Lean or email call was made. No money move
 
 Production nutrition needs actual coach cases and food facts, a configured model with explicit usage prices, successful real-model evaluation/sample-week qualification, qualified scope review, PostgreSQL worker operation and the deployment gates in [DEPLOYMENT.md](DEPLOYMENT.md). Keep `NUTRITION_ENABLED`, `NUTRITION_SCOPE_APPROVED` and `BUNDLE_CHANGES_APPROVED` disabled until their respective evidence exists. The Stripe → company bank → Lean payout choice is unchanged.
 
-Optional food catalogue/barcode/photo integration (043), voice teaching, broader convenience/editor features and the platform gaps in [BUILD_STATUS.md](BUILD_STATUS.md) are not completed by this release. Local privacy deletion is implemented; provider/backup erasure and real-device/accessibility/load/restore evidence remain open. Counts and fixture success do not establish clinical or professional qualification.
+Food catalogue/barcode/photo integration (043), voice teaching, broader convenience/editor features and the platform gaps in [BUILD_STATUS.md](BUILD_STATUS.md) are not completed by this release. Local privacy deletion is implemented; provider/backup erasure and real-device/accessibility/load/restore evidence remain open. Counts and fixture success do not establish clinical or professional qualification.
 
-Core work 035–042 and engineering checks for 044 are delivered. Live-model, provider-account, staging and production qualification remain pending.
+Core work 035–042 and engineering checks for that scope of 044 are delivered. Live-model, provider-account, staging and production qualification remain pending.
+
+**Subsequent scope decision — 25 September 2026, 12:27 Asia/Dubai:** the owner promoted meal-photo logging and food-barcode scanning to required product scope. Neither is covered by this verification run. Implement 043 and extend 044 evidence before claiming the expanded nutrition scope complete.
