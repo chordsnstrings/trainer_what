@@ -1,12 +1,12 @@
 # Nutrition integration plan
 
-Date: 25 September 2026. Status: **CORE IMPLEMENTED; RELEASE VERIFICATION IN PROGRESS**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
+Date: 25 September 2026. Status: **CORE IMPLEMENTED AND CI VERIFIED; LIVE QUALIFICATION PENDING**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
 
 ## 1. Current baseline and the gap
 
-The latest implementation is `e6a539e`; `2f0b33b` records its verification. The development platform has accounts/MFA, 16-step trainer setup, Brain teaching and supervised releases, Client Twin snapshots, programs/offline workouts, messaging, bookings, support, privacy controls and governed finance workflows. The recorded CI result is 37 tests on each of PGlite and PostgreSQL, production web/container checks and 22 browser routes. See [verification](VERIFICATION_2026-09-24.md).
+The pre-nutrition implementation was `e6a539e`; `2f0b33b` recorded its verification. The development platform has accounts/MFA, 16-step trainer setup, Brain teaching and supervised releases, Client Twin snapshots, programs/offline workouts, messaging, bookings, support, privacy controls and governed finance workflows. That baseline CI result was 37 tests on each of PGlite and PostgreSQL, production web/container checks and 22 browser routes. See [verification](VERIFICATION_2026-09-24.md).
 
-Production deployment and real Stripe/Lean/model/email verification remain open. Broader engineering gaps remain in [build status](BUILD_STATUS.md). This was the pre-nutrition baseline; the new implementation adds nutrition workflows described below. The original source only explicitly excludes clinical nutrition prescribing outside trainer scope; it does not define a complete nutrition product.
+Production deployment and real Stripe/Lean/model/email verification remain open. Broader engineering gaps remain in [build status](BUILD_STATUS.md). The nutrition core is implemented in `552d384`, with final client fixes in `2bf35fd`. Final CI passed 51 tests on each database engine, production web/container checks and 32 browser routes, including empty-queue reconnection. See the [nutrition verification record](VERIFICATION_2026-09-25_NUTRITION.md). The sections below retain the intended acceptance contract; provider qualification and optional extensions must not be inferred complete from this core checkpoint. The original source only explicitly excludes clinical nutrition prescribing outside trainer scope; it does not define a complete nutrition product.
 
 ## 2. Product shape
 
@@ -180,7 +180,7 @@ API services: coach nutrition setup/cases/knowledge/gaps/readiness; nutrition pr
 
 ## 10. Implementation sequence and acceptance
 
-These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 verification is in progress; optional 043 remains unconfigured. IDs are internal work IDs, not existing GitHub issues.
+These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 engineering verification has passed; live-model and production qualification remain open, and optional 043 remains unconfigured. IDs are internal work IDs, not existing GitHub issues.
 
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |

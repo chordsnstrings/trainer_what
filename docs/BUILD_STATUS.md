@@ -1,28 +1,28 @@
 # Build status
 
-Code verification: 24 September 2026. Scope update: 25 September 2026. This file reports code and observed checks, separately from provider readiness and production release.
+Code verification: 25 September 2026. This file reports code and observed checks, separately from provider readiness and production release.
 
 ## Evidence
 
 | Check | Observed result |
 | --- | --- |
 | TypeScript | Passed |
-| Automated tests | 37 passed, 0 failed in each CI job: embedded PGlite and network PostgreSQL 17.6 with a non-owner runtime role |
+| Automated tests | 51 passed, 0 failed in each CI job: embedded PGlite and network PostgreSQL 17.6 with a non-owner runtime role |
 | Next.js production build | Passed |
-| Existing local fixture database | Nine migrations applied; existing fixture upgrade and idempotent seed passed |
-| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270) on `e6a539e`: 22 routes on the production web build; public pages/demo, onboarding save/reload, Client Twin, offline workout reload/replay/completion and mobile navigation; no overflow/page errors |
-| GitHub Actions | Both application and PostgreSQL/container jobs passed on `e6a539e`; see [verification record](VERIFICATION_2026-09-24.md) |
-| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270) on `e6a539e`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
+| Database migrations | All ten migrations, including `010_nutrition`, exercised by the embedded/network database suites and container readiness |
+| Browser smoke | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36094669632) on `2bf35fd`: 32 routes on the production web build; public pages/demo, onboarding save/reload, Client Twin, coach nutrition and conditional setup, subscriber meals/groceries/pantry, offline nutrition diary and workout reload/replay; no overflow/page errors |
+| GitHub Actions | Both application and PostgreSQL/container jobs passed on `2bf35fd`; see [verification record](VERIFICATION_2026-09-25_NUTRITION.md) |
+| Docker / production PostgreSQL | Passed in [GitHub CI](https://github.com/chordsnstrings/trainer_what/actions/runs/36094669632) on `2bf35fd`: PostgreSQL 17.6, non-owner runtime role, production container readiness |
 | Staging / DigitalOcean | Not deployed; account, region and budget unavailable |
 | Stripe / Lean / model / email calls | No live provider call performed |
 
-The suite covers commission boundaries, RLS and directory boundaries, authentication/origin checks, single-use invitations, consent, workout replay and safety holds, balanced and sealed journals, payout reservation/uncertain outcomes/returns/revisions, Stripe event replay and signatures, refunds, disputes, stale subscription events, MFA replay and invitation bypass, password recovery, booking capacity, support isolation, unavailable-provider behavior, consent/takeover enforcement, bounded PDF/DOCX extraction, entity rejection, local privacy erasure, staff scopes, funding rechecks and usage-charge posting, durable model-cost accounting, concurrent AI request caps, 16-step onboarding concurrency/preview invalidation, Client Twin source/freshness/rights and versioned isolation.
+The suite covers commission boundaries, RLS and directory boundaries, authentication/origin checks, single-use invitations, consent, workout replay and safety holds, balanced and sealed journals, payout reservation/uncertain outcomes/returns/revisions, Stripe event replay and signatures, refunds, disputes, stale subscription events, MFA replay and invitation bypass, password recovery, booking capacity, support isolation, unavailable-provider behavior, consent/takeover enforcement, bounded PDF/DOCX extraction, entity rejection, local privacy erasure, staff scopes, funding rechecks and usage-charge posting, durable model-cost accounting, concurrent AI request caps, 16-step onboarding concurrency/preview invalidation, Client Twin source/freshness/rights and versioned isolation. Nutrition adds deterministic ingredient/portion calculations, independent case qualification, immutable facts, two-tier entitlement projection, automatic delivery and swaps, diary replay/corrections, job deduplication, profile/consent races, tenant isolation, exception routing and retained model-cost evidence.
 
 ## Implemented behavior
 
 | Area | Delivered | Remaining boundary |
 | --- | --- | --- |
-| Foundation (005–009) | npm monorepo, API/web/worker, nine migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, actual-device/accessibility/performance/restore evidence; verified custom-host resolution |
+| Foundation (005–009) | npm monorepo, API/web/worker, ten migrations, RLS, sessions, invites, MFA, tokens, responsive shell, events/jobs, CI/container definitions | Staging, actual-device/accessibility/performance/restore evidence; verified custom-host resolution |
 | Acquisition/onboarding (010–011) | Dedicated acquisition/how-it-works/scripted-demo/pricing/FAQ pages, signup/login/recovery, stored brand, public coach enrollment, 16-step registry with identity autosave/CAS resume, server-derived readiness, preview invalidation and publish gates | Attribution, brand media uploads, advanced onboarding capabilities tied to their provider issues and actual separate-device acceptance |
 | Brain (012–014) | PDF/DOCX/text sources and interview, rights metadata, bounded compilation adapter, draft review/conflicts/corrections, 20-case evaluation, digest-pinned supervised release/rollback | OCR/audio/image ingestion, parser isolation/security scanning, sophisticated retrieval/conflict evaluation, real provider traces and broader safety corpus |
 | Coaching (015–017) | Versioned intake/consent and Client Twin snapshots, dated facts, robust personal baselines with coverage/lineage and import deduplication, assigned programs, set logs, verified offline reload/replay, messaging, takeover, structured decisions awaiting review, approved-program assignment | Broader Twin domains, program-schedule adherence/advanced deterministic adaptations, exercise-media library, real-device PWA and accessibility coverage |
@@ -34,11 +34,11 @@ The suite covers commission boundaries, RLS and directory boundaries, authentica
 
 A provider placeholder or unavailable badge is not an implemented integration. The 75 source screen groups are the target contract; the current route shell does not mean every group is complete.
 
-## Nutrition implementation — verification in progress
+## Nutrition implementation — verified core
 
 Nutrition core implementation now covers the two tiers, case-based coach teaching, conditional onboarding, recipe/ingredient versions and cooking variants, independent policy/evaluation/preview/release checks, automatic weekly plans, validated swaps and consolidated groceries. Subscriber profiles and separate permissions, diary corrections/offline queue, check-ins, nutrition Twin, privacy operations, exception handling and first/next-week worker scheduling are implemented. All nutrition quantities are derived from stored facts with explicit unknown/estimated values. Routine plans do not require individual coach approval.
 
-Local verification has reached **51 tests**, TypeScript and a production web build. CI PostgreSQL, container and expanded browser checks are pending for this nutrition change; earlier evidence does not verify it. New migration: `010_nutrition`. Model behavior in tests is synthetic; production qualification still requires real coach material and configured-provider evaluation. The new billing-portal change flow is account-unverified and disabled unless its reviewed policy is activated. Barcode/food-catalogue/photo integrations remain optional and unconfigured. No production deployment or live provider transaction has occurred.
+Core nutrition passed **51 tests on each database engine**, TypeScript, the production web/container build and **32 browser routes**. Follow-up `2bf35fd` fixes reconnection without queued diary entries, preserves offline cache expiry and labels synthetic meal plans; both final CI jobs passed, including the new empty-queue reconnection browser check. See the [nutrition verification record](VERIFICATION_2026-09-25_NUTRITION.md) for the exact commits, jobs and evidence. New migration: `010_nutrition`. Model behavior in tests is synthetic; production qualification still requires real coach material and configured-provider evaluation. The new billing-portal change flow is account-unverified and disabled unless its reviewed policy is activated. Barcode/food-catalogue/photo integrations remain optional and unconfigured. No production deployment or live provider transaction has occurred.
 
 ## Financial behavior and limits
 
@@ -59,4 +59,4 @@ Local verification has reached **51 tests**, TypeScript and a production web bui
 4. Complete the remaining implementation rows above; verify each source acceptance criterion. Run threat/safety/accessibility/load review and demonstrated restore/rollback.
 5. Deploy staging and conduct an approved, bounded live canary only after the corresponding gates pass.
 
-No production completion, legal approval, PCI scope conclusion, provider approval or audit certification is implied by the passing local suite.
+No production completion, legal approval, PCI scope conclusion, provider approval or audit certification is implied by the passing engineering checks.

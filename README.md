@@ -24,7 +24,7 @@ Optional synthetic demo accounts:
 | Trainer / development operator | `coach@example.test` | `TrainerDemo2026!` |
 | Subscriber | `sam.taylor@example.test` | `TrainerDemo2026!` |
 
-The seed refuses production. Its subscriptions and financial entries are explicitly synthetic. Set `DEMO_PASSWORD` when generating a different local fixture. Never seed a customer database.
+The seed refuses production. Its subscriptions, financial entries, coach nutrition material and meal plans are explicitly synthetic. Set `DEMO_PASSWORD` when generating a different local fixture. Never seed a customer database.
 
 ## What is implemented
 
@@ -33,12 +33,14 @@ The seed refuses production. Its subscriptions and financial entries are explici
 - PostgreSQL tenant isolation; scoped directory access and hidden unapproved coaching decisions.
 - PDF/DOCX/text teaching sources and interviews; model adapter for draft-rule compilation, conflict review, rule corrections, held-out evaluation, supervised releases and rollback.
 - Intake/consent, trainer-authored programs, workout logs, offline queue/PWA code, chat, trainer takeover and safety review.
+- Case-based nutrition onboarding, private diet/target policies, independent held-out qualification and automatic weekly meals with recipes, portions, cooking choices and consolidated groceries.
+- Workout-only and higher-priced workout + nutrition tiers, nutrition consent/profile, diary/check-ins, exception handling, weekly worker jobs and opt-in offline plan/diary support.
 - Session bookings with serialized capacity, cancellations and support conversations.
 - Stripe Checkout/subscription adapters and signed webhook processing; immutable balanced ledger, refunds/disputes, reviewed settlements and reviewed usage charges and monthly close checks.
 - Lean payout instruction adapter, destination review/hold, funded payout preparation, uncertain-outcome holds and payment reconciliation.
 - Apple Health numeric XML import, permission revocation/export and reviewed local subscriber erasure, usage records, email outbox/worker, operator finance tools.
 
-Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Compiled rules and model coaching require human review.
+Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Coaches confirm compiled methodology and qualify releases. Training model responses remain supervised; routine qualified nutrition plans are delivered automatically, with human handling of exceptions.
 
 ## Verify
 
@@ -57,7 +59,7 @@ npm run seed:demo
 npm run test:browser
 ```
 
-The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the production browser and PostgreSQL/container run passed](https://github.com/chordsnstrings/trainer_what/actions/runs/36030720270).
+The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the nutrition release passed 51 tests on each database engine, 32 browser routes and production container checks](https://github.com/chordsnstrings/trainer_what/actions/runs/36094669632). See the [verification record](docs/VERIFICATION_2026-09-25_NUTRITION.md).
 
 ## Structure
 
@@ -65,9 +67,9 @@ The browser runner starts API and the production web build itself. Stop existing
 | --- | --- |
 | `apps/web` | Next.js / React responsive public and workspace UI |
 | `apps/api` | Fastify API, security, coaching and finance |
-| `apps/worker` | Durable email-job delivery for PostgreSQL |
+| `apps/worker` | Durable email and nutrition-week jobs for PostgreSQL |
 | `packages/db` | Migrations, scoped transactions and RLS |
-| `packages/domain` | Money, coaching schemas, safety and payout transitions |
+| `packages/domain` | Money, coaching/nutrition schemas, food calculations, safety and payout transitions |
 | `packages/providers` | Stripe, Lean, model and email boundaries |
 | `packages/contracts` | Validated API inputs |
 | `tests` | Real PostgreSQL-engine integration checks with isolated fixtures |

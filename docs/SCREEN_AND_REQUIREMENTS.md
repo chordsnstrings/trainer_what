@@ -46,7 +46,7 @@ R1 foundation; R2 trainer activation; R3 coaching; R4 paid pilot; R5 launch expa
 
 ### Nutrition onboarding addendum — implemented core, 25 September 2026
 
-The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) extends O02 and O05–O10/O15–O16 with a conditional teaching branch. The development runtime adds six conditional nutrition steps to the original 16-step path; browser release evidence is tracked in BUILD_STATUS.md. Existing coaches retain their workout setup; displayed steps and progress come from the selected path. Workout-only setup does not require nutrition. The subscription choices are workout only and higher-priced workout + nutrition.
+The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) extends O02 and O05–O10/O15–O16 with a conditional teaching branch. The development runtime adds six conditional nutrition steps to the original 16-step path; 32-route browser release evidence, including the nutrition branch and subscriber meals/groceries/offline diary, is recorded in [nutrition verification](VERIFICATION_2026-09-25_NUTRITION.md). Existing coaches retain their workout setup; displayed steps and progress come from the selected path. Workout-only setup does not require nutrition. The subscription choices are workout only and higher-priced workout + nutrition.
 
 | Area | Required addition | Acceptance / work IDs |
 | --- | --- | --- |

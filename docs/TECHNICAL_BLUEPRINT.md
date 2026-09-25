@@ -2,7 +2,7 @@
 
 Implementation contract for issues 005–034. These are design decisions and proposed contracts, not implemented endpoints or verified provider capabilities. Source: master spec §§5–14 and Appendices A/B/D/K/M; current payment selection is Stripe + Lean.
 
-The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) adds work IDs 035–044 and governs the two-tier, case-taught nutrition extension. The core nutrition implementation now has local verification; current release evidence and live-service limits are recorded in BUILD_STATUS.md.
+The [nutrition integration plan](NUTRITION_INTEGRATION_PLAN.md) adds work IDs 035–044 and governs the two-tier, case-taught nutrition extension. The core nutrition implementation has PGlite/PostgreSQL, production build/container and browser verification; exact release evidence and live-service limits are recorded in [BUILD_STATUS.md](BUILD_STATUS.md) and the [nutrition verification record](VERIFICATION_2026-09-25_NUTRITION.md).
 
 ## 1. Modules and deployables
 
