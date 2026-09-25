@@ -43,7 +43,7 @@ export async function verifyBootstrapRecovery({ base, page, onRetryView }) {
       "Temporary bootstrap failure redirected the user",
     );
     ensure(
-      (await page.getByRole("alert").innerText()) ===
+      (await page.locator("main [role='alert']").innerText()) ===
         "Too many requests. Wait a moment, then retry.",
       "Temporary bootstrap error explanation is missing",
     );
