@@ -1,5 +1,7 @@
 # Trainer Brain Platform — implementation and launch plan
 
+**Nutrition scope proposal (25 September 2026):** [integration plan](docs/NUTRITION_INTEGRATION_PLAN.md), internal work IDs 035–044. This extends the baseline with nutrition-only and combined coaching; it is planning, not implemented functionality.
+
 **Status:** planning baseline, 24 September 2026. **Repository:** `chordsnstrings/trainer_what` was empty when this plan was written. **Source:** `Trainer_Brain_Platform_Astra6_Master_Build_Spec_v1.1(1).docx`, including its 24 September addendum. Section references below refer to that specification. This plan is meant to direct implementation; the source specification remains the detailed product contract and should be supplied to the implementation team as well. Record changes in ADRs rather than quietly deviating from either document.
 
 ## Execution documents

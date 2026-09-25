@@ -14,6 +14,10 @@ Status: implementation underway, 24 September 2026. See [build status](BUILD_STA
 | R5 — Complete launch scope | Wearables/imports, domains, bookings, lifecycle messaging, full administration | Each enabled feature passes its source-spec acceptance; unavailable providers remain honestly flagged |
 | R6 — Premium and scale | Voice, native companion where approved, guarded infra automation, operational hardening | Rights/consent, measured cost/latency, rollback/restore and operator handoff |
 
+### Proposed nutrition extension — 25 September 2026
+
+The owner requested nutrition integration planning. [Nutrition integration proposal](NUTRITION_INTEGRATION_PLAN.md) adds internal work IDs **035–044** covering module entitlements, intake/consent, food/recipes, plans, logging, Brain/Twin, safety, optional providers and acceptance. All are **PLANNED / NOT IMPLEMENTED**. The original 001–034 baseline remains intact; these IDs are not created GitHub issues. Nutrition-only coaches must not be forced through workout setup. Build the manual coaching journey before supervised nutrition AI and optional catalogue/photo integrations. Clinical scope and provider rights remain reviewed inputs.
+
 ### Dependency map
 
 ```mermaid

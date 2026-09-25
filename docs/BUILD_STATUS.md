@@ -1,6 +1,6 @@
 # Build status
 
-Checkpoint: 24 September 2026. This file reports code and observed checks, separately from provider readiness and production release.
+Code verification: 24 September 2026. Scope update: 25 September 2026. This file reports code and observed checks, separately from provider readiness and production release.
 
 ## Evidence
 
@@ -33,6 +33,10 @@ The suite covers commission boundaries, RLS and directory boundaries, authentica
 | Bespoke model (034) | Provider-independent supervised baseline | No bespoke model work is justified or claimed without measured baseline results |
 
 A provider placeholder or unavailable badge is not an implemented integration. The 75 source screen groups are the target contract; the current route shell does not mean every group is complete.
+
+## Nutrition scope update — planning only
+
+Nutrition is not implemented. The [proposed integration plan](NUTRITION_INTEGRATION_PLAN.md) covers training-only, nutrition-only and combined coaching; nutrition intake/permissions; foods/recipes; coach targets/plans; subscriber logging/check-ins; nutrition Brain/Twin; safety; and commerce integration. Internal work IDs 035–044 are planned. The existing 37-test/22-route evidence applies to the current platform, not to these proposed features. No runtime or payment configuration changed in this planning update.
 
 ## Financial behavior and limits
 
