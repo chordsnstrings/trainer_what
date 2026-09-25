@@ -243,6 +243,11 @@ try {
     .getByRole("heading", { name: "Your week of meals", exact: true })
     .waitFor();
   await subscriber.getByText("Warm breakfast bowl", { exact: true }).waitFor();
+  await subscriber
+    .getByText("Demonstration plan with synthetic food and coach data.", {
+      exact: false,
+    })
+    .waitFor();
   await subscriber.screenshot({
     path: "test-results/nutrition-meals-mobile.png",
     fullPage: true,
@@ -312,6 +317,26 @@ try {
     .getByRole("button", { name: "Meal diary", exact: true })
     .click();
   await subscriber.getByText(/1 meals across 1 days/).waitFor();
+  // An empty replay queue must still refresh the private reference copy.
+  await subscriberContext.setOffline(true);
+  await subscriber.reload({ waitUntil: "domcontentloaded" });
+  await subscriber
+    .getByRole("heading", { name: "Your week of meals", exact: true })
+    .waitFor();
+  const refreshedNutrition = subscriber.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/nutrition" &&
+      response.request().method() === "GET" &&
+      response.ok(),
+  );
+  await subscriberContext.setOffline(false);
+  const refreshed = await (await refreshedNutrition).json();
+  if (!refreshed.profile?.data.profile.age)
+    throw new Error("Nutrition reconnect did not restore the server profile");
+  await subscriber
+    .getByRole("button", { name: "Meal diary", exact: true })
+    .click();
+  await subscriber.getByText(/1 meals across 1 days/).waitFor();
   await subscriberContext.close();
   await writeFile(
     "test-results/browser-check.json",
@@ -329,6 +354,7 @@ try {
         nutritionMealsAndGroceries: true,
         nutritionPantryPersistence: true,
         nutritionOfflineReloadAndReplay: true,
+        nutritionReconnectWithoutQueuedEntries: true,
         errors,
       },
       null,

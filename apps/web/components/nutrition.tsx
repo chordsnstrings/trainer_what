@@ -1757,7 +1757,7 @@ export function NutritionSubscriber({
       localStorage.removeItem(queueKey);
       setQueued([]);
       setCache(false);
-    } else if (cache && !coachView) {
+    } else if (cache && !coachView && !offline && navigator.onLine) {
       const data = {
         ...r.data,
         profile: r.data.profile
@@ -1778,8 +1778,9 @@ export function NutritionSubscriber({
         JSON.stringify({ expires: Date.now() + 12 * 3600000, data }),
       );
     }
-  }, [r.data, cache, key, queueKey, coachView]);
+  }, [r.data, cache, key, queueKey, coachView, offline]);
   async function sync() {
+    r.setError("");
     let pending: any[];
     try {
       pending = JSON.parse(localStorage.getItem(queueKey) ?? "[]");
@@ -1809,8 +1810,9 @@ export function NutritionSubscriber({
     if (navigator.onLine) await r.load();
   }
   useEffect(() => {
-    if (!offline && queued.length) void sync();
-  }, [offline]);
+    if (!offline && navigator.onLine)
+      void sync().catch((e) => r.setError((e as Error).message));
+  }, [offline, queueKey]);
   async function queue(body: any) {
     const entries = JSON.parse(localStorage.getItem(queueKey) ?? "[]");
     entries.push(body);
@@ -2008,9 +2010,12 @@ export function NutritionSubscriber({
             {plan ? (
               <>
                 <Notice>
-                  {plan.status === "delivered"
-                    ? "This plan follows your coach's qualified nutrition rules."
-                    : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
+                  {plan.data.synthetic ||
+                  plan.data.origin === "synthetic_fixture"
+                    ? "Demonstration plan with synthetic food and coach data. It has not been qualified for personal use."
+                    : plan.status === "delivered"
+                      ? "This plan follows your coach's qualified nutrition rules."
+                      : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
                 </Notice>
                 <WeekView
                   key={plan.id}
