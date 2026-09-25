@@ -1,3 +1,5 @@
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { eraseMealCaptures } from "./meal-capture.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -211,17 +213,17 @@ export async function nutritionReadiness(tx: Tx) {
   if (!release || release.data.digest !== material.digest)
     gaps.push("Evaluate and activate the current nutrition knowledge.");
   const configured =
-    !!process.env.MODEL_API_KEY &&
-    !!process.env.MODEL_BASE_URL &&
-    !!process.env.MODEL_NAME;
+    !!runtimeConfig().MODEL_API_KEY &&
+    !!runtimeConfig().MODEL_BASE_URL &&
+    !!runtimeConfig().MODEL_NAME;
   if (!configured)
     gaps.push(
       "A model connection is needed for evaluation and automatic delivery.",
     );
   if (
     process.env.NODE_ENV === "production" &&
-    (process.env.NUTRITION_ENABLED !== "true" ||
-      process.env.NUTRITION_SCOPE_APPROVED !== "true" ||
+    (runtimeConfig().NUTRITION_ENABLED !== "true" ||
+      runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true" ||
       release?.data.verificationMode !== "provider")
   )
     gaps.push(
@@ -531,7 +533,7 @@ export function nutritionRoutes(
           .parse(req.body);
       if (
         process.env.NODE_ENV === "production" &&
-        process.env.FILE_IMPORTS_APPROVED !== "true"
+        runtimeConfig().FILE_IMPORTS_APPROVED !== "true"
       )
         throw fail(
           503,
@@ -961,7 +963,7 @@ export function nutritionRoutes(
         process.env.NODE_ENV === "production" &&
         (evaluation.data.verificationMode !== "provider" ||
           preview.data.verificationMode !== "provider" ||
-          process.env.NUTRITION_SCOPE_APPROVED !== "true")
+          runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true")
       )
         throw fail(
           409,
@@ -1123,6 +1125,7 @@ function subscriberRoutes(
           "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,'nutrition-v1',$5)",
           [randomUUID(), a.tenantId, a.userId, type, granted],
         );
+      if (!b.modelConsent) await eraseMealCaptures(tx, a.userId);
       const r = await putRecord(
         tx,
         a,

@@ -1,3 +1,16 @@
+import {
+  runtimeConfig,
+  withRuntimeConfig,
+} from "../../../packages/providers/src/configuration.ts";
+import {
+  loadRuntimeSettings,
+  platformSettingsRoutes,
+} from "./platform-settings.ts";
+import {
+  mealCaptureRoutes,
+  exportMealCaptures,
+  eraseMealCaptures,
+} from "./meal-capture.ts";
 import { clientTwinRoutes, currentClientTwin } from "./client-twin.ts";
 import { nutritionRoutes, requireNutritionReady } from "./nutrition.ts";
 import { NutritionBlocked } from "../../../packages/domain/src/nutrition.ts";
@@ -13,7 +26,7 @@ import { processStripeEvent } from "./stripe-events.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
-import rateLimit from "@fastify/rate-limit";
+import rateLimit, { normalizeIP } from "@fastify/rate-limit";
 import { randomUUID, createHash } from "node:crypto";
 import { z, ZodError } from "zod";
 import {
@@ -148,6 +161,13 @@ export async function buildApp(
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
     timeWindow: "1 minute",
+    // Session verification runs in onRequest. A reverse proxy's loopback address
+    // must not give every signed-in member one shared request budget.
+    hook: "preHandler",
+    keyGenerator: (request) =>
+      request.identity
+        ? `user:${request.identity.userId}`
+        : `ip:${normalizeIP(request.ip)}`,
   });
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser(
@@ -162,6 +182,14 @@ export async function buildApp(
       }
     },
   );
+  // Resolve one immutable configuration snapshot for the whole request. Values
+  // never enter process.env or another application's concurrent request.
+  app.addHook("onRequest", (req, reply, done) => {
+    loadRuntimeSettings(db).then(
+      (settings) => withRuntimeConfig(settings, done),
+      (error) => done(error as Error),
+    );
+  });
   app.addHook("onRequest", async (req, reply) => {
     reply
       .header("X-Content-Type-Options", "nosniff")
@@ -256,10 +284,12 @@ export async function buildApp(
     });
   }
   securityRoutes(app, db, identity);
+  platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity);
   clientTwinRoutes(app, db, identity);
   nutritionRoutes(app, db, identity, !!options.testing);
+  mealCaptureRoutes(app, db, identity);
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
@@ -287,7 +317,7 @@ export async function buildApp(
         throw fail(400, "RESERVED_SLUG", "Please choose another address");
       if (
         process.env.NODE_ENV === "production" &&
-        process.env.LEGAL_APPROVED !== "true"
+        runtimeConfig().LEGAL_APPROVED !== "true"
       )
         throw fail(
           503,
@@ -351,7 +381,7 @@ export async function buildApp(
         .parse(req.body);
       if (
         process.env.NODE_ENV === "production" &&
-        process.env.LEGAL_APPROVED !== "true"
+        runtimeConfig().LEGAL_APPROVED !== "true"
       )
         throw fail(
           503,
@@ -407,7 +437,7 @@ export async function buildApp(
             randomUUID(),
             tenant.id,
             uid,
-            process.env.LEGAL_VERSION ?? "draft-2026-09",
+            runtimeConfig().LEGAL_VERSION ?? "draft-2026-09",
           ],
         );
         await event(
@@ -481,6 +511,10 @@ export async function buildApp(
       environment:
         process.env.NODE_ENV === "production" ? "production" : "development",
       user: a,
+      platform: {
+        name: runtimeConfig().APP_NAME || "Trainer Brain",
+        supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
+      },
       tenant,
       records: await tx.query(
         "SELECT * FROM records WHERE kind<>'twin_snapshot' AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
@@ -529,17 +563,35 @@ export async function buildApp(
   app.put("/api/v1/tenant/brand", async (req) => {
     const a = owner(req),
       b = brandSchema.parse(req.body);
-    await db.system((tx) =>
-      tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
+    const theme = await db.system(async (tx) => {
+      const [current] = await tx.query(
+        "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
+        [a.tenantId],
+      );
+      const version = Number(current.theme?.brandVersion ?? 0);
+      if (b.expectedVersion !== undefined && b.expectedVersion !== version)
+        throw fail(
+          409,
+          "BRAND_VERSION_CONFLICT",
+          "Your design changed in another session. Reload before saving.",
+        );
+      const { expectedVersion, ...submitted } = b;
+      const next = {
+        ...current.theme,
+        ...submitted,
+        brandVersion: version + 1,
+      };
+      await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
         a.tenantId,
         b.name,
-        JSON.stringify(b),
-      ]),
-    );
+        JSON.stringify(next),
+      ]);
+      return next;
+    });
     await db.tenant(a, (tx) =>
       event(tx, a, "tenant.brand_updated", a.tenantId),
     );
-    return { ok: true };
+    return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
   app.post("/api/v1/tenant/publish", (req) =>
@@ -1661,7 +1713,7 @@ export async function buildApp(
       b = z.object({ productId: id }).strict().parse(req.body);
     if (a.role !== "subscriber")
       throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
-    if (process.env.BUNDLE_CHANGES_APPROVED !== "true")
+    if (runtimeConfig().BUNDLE_CHANGES_APPROVED !== "true")
       throw fail(
         503,
         "PLAN_CHANGES_PENDING",
@@ -2120,6 +2172,7 @@ export async function buildApp(
           "marketing",
           "nutrition",
           "nutrition_model",
+          "nutrition_photo",
         ]),
         granted: z.boolean(),
       })
@@ -2145,11 +2198,14 @@ export async function buildApp(
           "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
           [a.userId],
         );
-      if (!b.granted && b.type.startsWith("nutrition"))
-        await tx.query(
-          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),status=CASE WHEN kind='nutrition_plan' AND status='delivered' THEN 'permission_revoked' ELSE status END,updated_at=now() WHERE owner_user_id=$1 AND kind IN ('nutrition_profile','nutrition_plan','nutrition_log','nutrition_checkin','nutrition_twin')",
-          [a.userId],
-        );
+      if (!b.granted && b.type.startsWith("nutrition")) {
+        await eraseMealCaptures(tx, a.userId);
+        if (b.type !== "nutrition_photo")
+          await tx.query(
+            "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),status=CASE WHEN kind='nutrition_plan' AND status='delivered' THEN 'permission_revoked' ELSE status END,updated_at=now() WHERE owner_user_id=$1 AND kind IN ('nutrition_profile','nutrition_plan','nutrition_log','nutrition_checkin','nutrition_twin')",
+            [a.userId],
+          );
+      }
       await event(tx, a, "consent.changed", undefined, b);
       return { ok: true };
     });
@@ -2166,6 +2222,7 @@ export async function buildApp(
         "SELECT * FROM workout_events WHERE user_id=$1",
         [a.userId],
       ),
+      mealCaptures: await exportMealCaptures(tx, a.userId),
       consents: await tx.query(
         "SELECT document_type,document_version,granted,created_at FROM consent_records WHERE user_id=$1",
         [a.userId],
@@ -2195,6 +2252,11 @@ export async function buildApp(
   });
   app.post("/api/v1/wearables/import", async (req) => {
     const a = identity(req);
+    if (runtimeConfig().APPLE_IMPORTS_ENABLED === "false")
+      throw new ProviderUnavailable(
+        "apple",
+        "Health imports are disabled by the platform administrator",
+      );
     const b = z
       .object({
         source: z.enum(["apple_health", "manual_import"]),
@@ -2297,14 +2359,14 @@ export async function buildApp(
   });
 
   app.post("/api/v1/webhooks/stripe", async (req, reply) => {
-    if (!process.env.STRIPE_WEBHOOK_SECRET)
-      throw new ProviderUnavailable("stripe");
+    const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) throw new ProviderUnavailable("stripe");
     let stripeEvent: any;
     try {
       stripeEvent = stripeClient().webhooks.constructEvent(
         req.rawBody ?? "",
         String(req.headers["stripe-signature"] ?? ""),
-        process.env.STRIPE_WEBHOOK_SECRET,
+        webhookSecret,
       );
     } catch {
       throw fail(

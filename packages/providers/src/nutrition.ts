@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ProviderUnavailable } from "./index.ts";
+import { runtimeConfig } from "./configuration.ts";
 export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v1";
 export function nutritionModelIdentity() {
+  const config = runtimeConfig();
   return {
-    base: process.env.MODEL_BASE_URL ?? null,
-    model: process.env.MODEL_NAME ?? null,
+    base: config.MODEL_BASE_URL ?? null,
+    model: config.MODEL_NAME ?? null,
     promptVersion: NUTRITION_PROMPT_VERSION,
   };
 }
@@ -20,7 +22,7 @@ export async function nutritionModel<T>(
     MODEL_BASE_URL: base,
     MODEL_API_KEY: key,
     MODEL_NAME: model,
-  } = process.env;
+  } = runtimeConfig();
   if (!base || !key || !model)
     throw new ProviderUnavailable(
       "model",

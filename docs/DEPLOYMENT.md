@@ -2,7 +2,9 @@
 
 ## Current evidence
 
-The application passed 51 tests on each of PGlite and PostgreSQL, production web/container checks and 32 browser routes; see BUILD_STATUS for the exact commit and evidence. The owner authorized a new DigitalOcean project named GymMembership and a new server, with existing resources outside scope. Dedicated VPC and cloud firewall work is deferred. The setup workflow and host updater in infra/digitalocean are published at 224b893 and CI-verified for Bangalore, 2 vCPU/4 GB and a USD 24/month compute cap. The host will deploy successful checked main commits automatically. All 37 deployment checks and both application CI jobs passed; see VERIFICATION_2026-09-25_DEPLOYMENT.md. No real resource or live endpoint exists. The direct account API request with the supplied token returned a Site Unavailable HTML page, leaving token validity unverified. The prepared GitHub setup route still needs a one-time DO_PROVISION_TOKEN Actions secret entry. The owner requires direct API use and explicitly forbids cloud-browser use. Follow [the setup and deployment guide](DIGITALOCEAN_DEPLOYMENT.md).
+Deployment is stopped at the owner's request; Claude will handle the separate deployment task. Do not launch DigitalOcean setup or request deployment credentials as part of application completion. The provisioning workflow is manual-only. Existing cloud resources remain outside scope; no real resource or live endpoint was created. Historical setup/host-controller evidence is retained in `VERIFICATION_2026-09-25_DEPLOYMENT.md`. Current application verification is in `BUILD_STATUS.md`.
+
+For the handoff, use the existing container/migration instructions below and the new [Superadmin and customisation guide](SUPERADMIN_AND_CUSTOMISATION.md). The host requires its database connections, exact public URL and encryption key. Provider settings can then be supplied securely through Superadmin.
 
 ## Local development
 
@@ -14,8 +16,8 @@ The application passed 51 tests on each of PGlite and PostgreSQL, production web
 
 ## Secrets and configuration
 
-- Supply Stripe, Lean, model and email secrets through the selected deployment's secret mechanism. `.env` and database files are ignored by Git.
-- Generate `SECURITY_ENCRYPTION_KEY` as 32 cryptographically random bytes, base64 encoded. Back up this key separately from the database: it encrypts authenticator secrets. Changing it without migration breaks existing authenticators.
+- Set provider credentials through Superadmin, where values are encrypted and never read back. Initial environment configuration remains supported until the integration is saved. `.env` and database files are ignored by Git.
+- Generate `SECURITY_ENCRYPTION_KEY` as 32 cryptographically random bytes, base64 encoded. Back up this key separately from the database: it encrypts authenticator secrets and Superadmin credentials. Changing it without migration breaks existing authenticators and disables saved provider connections.
 - Set the exact `PUBLIC_APP_URL`. Browser mutations are origin-checked. Production requires HTTPS and secure cookies.
 - Use `LEGAL_APPROVED`, `COMMERCE_APPROVED`, `PAYOUTS_APPROVED` and `LEAN_CONTRACT_VERIFIED` only after the corresponding reviewed evidence exists. Flags express operator decisions and cannot prove them.
 - Model costs are recorded from provider usage and supplied prices. Missing pricing remains unknown, never free.
@@ -23,7 +25,7 @@ The application passed 51 tests on each of PGlite and PostgreSQL, production web
 
 ## PostgreSQL and containers
 
-1. For DigitalOcean, follow DIGITALOCEAN_DEPLOYMENT.md to create the new GymMembership project, SSH key and server, record owned resource IDs and assign only the new server to that project. Use default networking without modifying it; dedicated VPC and cloud firewall are deferred. Customer-data residency and live provider qualification remain separate from infrastructure authorization. The automated controller performs steps 2–7 below on its owned host.
+1. These are handoff instructions for the operator or Claude. Deployment remains stopped in this work session. Any later DigitalOcean setup must use a wholly new GymMembership project and resources, leaving all existing resources untouched. See DIGITALOCEAN_DEPLOYMENT.md for the prepared controller and its unverified live boundary.
 2. Create a migration administrator connection and a separate runtime login. Apply migrations with `MIGRATION_DATABASE_URL`; do not use that credential in API/worker.
 3. Use `infra/runtime-role.sql` as the grants template after migration. Set the runtime password through the database administrator's secret flow. The runtime cannot own tables or bypass RLS and must be permitted to `SET ROLE trainer_app`.
 4. Set `DATABASE_URL` to that runtime account. If using Compose's database, its hostname is `database`, port 5432, database `trainer`. Set `POSTGRES_PASSWORD` for initial administrator creation. Do not expose port 5432 publicly.
@@ -34,7 +36,7 @@ The application passed 51 tests on each of PGlite and PostgreSQL, production web
 
 ## Operator identity
 
-Create the intended account, verify its email and enroll its authenticator. An authorized deploy operator can set `OPERATOR_EMAIL` and `OPERATOR_ROLE` (`admin`, `finance`, `support`, `safety`, `none`), then run `npm run operator:role` using runtime database access. This command is privileged operational access. All production platform actions require recent MFA; production bank changes and publish actions do too.
+For an empty deployment, use `npm run admin:bootstrap` with the private password-file procedure in SUPERADMIN_AND_CUSTOMISATION.md, then enroll the authenticator. For an existing account, verify its email and enroll its authenticator. An authorized deploy operator can set `OPERATOR_EMAIL` and `OPERATOR_ROLE` (`admin`, `finance`, `support`, `safety`, `none`), then run `npm run operator:role` using runtime database access. This command is privileged operational access. All production platform actions require recent MFA; production bank changes and publish actions do too.
 
 ## Document imports
 
@@ -63,14 +65,14 @@ Tag each container release. Roll web/API/worker back together to the previous co
 
 ## Model accounting configuration
 
-Set the model endpoint/name and credential only in the API/worker secret environment. Pricing requires explicit `MODEL_INPUT_USD_PER_MILLION`, `MODEL_OUTPUT_USD_PER_MILLION` and `MODEL_PRICE_VERSION`. Missing token counts or prices remain unknown and block monthly close until platform finance records provider evidence. Rejected model output still retains provider-reported cost. The default `MODEL_MAX_DAILY_CALLS=100` is a per-workspace Dubai-day request cap (including evaluation calls and failed attempts), not a currency budget. Raising it is an operator configuration decision. An interrupted reservation becomes a finance reconciliation item; never repeat a provider request to guess its old cost.
+Set the model endpoint/name, credential and reviewed prices in Superadmin; the API and worker consume the saved configuration without a restart. Pricing requires explicit `MODEL_INPUT_USD_PER_MILLION`, `MODEL_OUTPUT_USD_PER_MILLION` and `MODEL_PRICE_VERSION`. Missing token counts or prices remain unknown and block monthly close until platform finance records provider evidence. Rejected model output still retains provider-reported cost. The default `MODEL_MAX_DAILY_CALLS=100` is a per-workspace Dubai-day request cap (including evaluation calls and failed attempts), not a currency budget. Raising it is an operator configuration decision. An interrupted reservation becomes a finance reconciliation item; never repeat a provider request to guess its old cost.
 
 ## Nutrition activation
 
-Apply `010_nutrition` with the migration role. The coach enables the combined capability, supplies ingredient/recipe facts and case answers, confirms the diet/action policy, passes at least 20 held-out cases and checks a full sample week. The current model endpoint/name and prompt version are pinned in readiness; changing them requires evaluation again. Synthetic fixtures and seeded meal values are development-only evidence. No per-coach model-weight training occurs.
+Apply all migrations through `012_meal_capture` with the migration role. The coach enables the combined capability, supplies ingredient/recipe facts and case answers, confirms the diet/action policy, passes at least 20 held-out cases and checks a full sample week. The current model endpoint/name and prompt version are pinned in readiness; changing them requires evaluation again. Synthetic fixtures and seeded meal values are development-only evidence. No per-coach model-weight training occurs.
 
 For production, configure the existing model adapter and reviewed usage prices, set `NUTRITION_ENABLED=true` and `NUTRITION_SCOPE_APPROVED=true` only after the corresponding scope/quality review, and qualify each coach on the actual configured provider. Keep legal, commerce and bank gates in place. Use the PostgreSQL worker for automatic first-week preparation and subsequent weeks; duplicate scheduling uses durable job identities and every delivery rechecks entitlement, profile, current release and both nutrition permissions. Blocked jobs persist their status and last error for operator inspection. Generation exceptions appear in the coach nutrition workspace; clients may retry after the underlying problem is resolved. A new qualified release creates a new scheduling identity. There is no dedicated job-recovery console in this release.
 
 `BUNDLE_CHANGES_APPROVED=true` enables a Stripe-hosted confirmation flow restricted to the paired offers. Its proposed configuration immediately invoices prorated upgrades and schedules decreasing-price changes at period end. Verify actual account eligibility, pending-payment behavior, downgrade timing, signed webhook projection and the commercial/refund policy in a nonproduction account before activation. Entitlements never change from the browser's return URL or unsigned metadata.
 
-Food data remains coach-authored with recorded sources, preparation basis, allergen review and approximate/unknown nutrients. Meal-photo logging and barcode scanning are now required product scope under 043; neither is implemented or configured. Build their adapters and flows, then verify selected provider/account rights, private media infrastructure, consent/retention behavior, costs and the expanded 044 mobile journeys before activation. Scope confirmation does not itself configure a provider.
+Coach-authored recipes retain sources, preparation basis, allergen review and approximate/unknown nutrients. Meal-photo estimates and Open Food Facts barcode lookup are now implemented with subscriber confirmation, private transient media, deduplicated requests and manual fallbacks. Configure the model image capability, meal-photo and food-lookup controls in Superadmin after provider/quality qualification. See SUPERADMIN_AND_CUSTOMISATION.md for limits, consent, retention and camera fallback behavior; BUILD_STATUS.md records actual verification. No live provider call is implied by the implementation.

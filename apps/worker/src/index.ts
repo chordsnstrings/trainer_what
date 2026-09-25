@@ -1,5 +1,8 @@
 import { createDatabase, type Actor } from "@trainer/db";
 import { sendEmail, ProviderUnavailable } from "@trainer/providers";
+import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
+import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import {
   scheduleNutrition,
   executeNutritionJob,
@@ -12,7 +15,12 @@ if (!process.env.DATABASE_URL) {
 } else {
   const db = await createDatabase();
   let running = true;
+  let lastMediaPurge = 0;
   async function tick() {
+    if (Date.now() - lastMediaPurge >= 60 * 60 * 1000) {
+      await purgeExpiredMealCaptures(db);
+      lastMediaPurge = Date.now();
+    }
     const tenants = await db.system((tx) => tx.query("SELECT id FROM tenants"));
     for (const tenant of tenants) {
       await scheduleNutrition(db, tenant.id);
@@ -83,7 +91,7 @@ if (!process.env.DATABASE_URL) {
   async function loop() {
     while (running) {
       try {
-        await tick();
+        await withRuntimeConfig(await loadRuntimeSettings(db), tick);
       } catch (e) {
         console.error("Worker iteration failed");
       }

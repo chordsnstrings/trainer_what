@@ -42,7 +42,7 @@ The seed refuses production. Its subscriptions, financial entries, coach nutriti
 
 Provider-backed features return a clear unavailable state until configured. Lean's account-specific transport contract remains unverified and is separately gated. Coaches confirm compiled methodology and qualify releases. Training model responses remain supervised; routine qualified nutrition plans are delivered automatically, with human handling of exceptions.
 
-Meal-photo logging and food-barcode scanning are committed next-scope features of workout + nutrition. They are not implemented or configured yet; see [section 7 of the nutrition plan](docs/NUTRITION_INTEGRATION_PLAN.md#7-meal-photos-and-barcode-scanning--required-scope).
+Superadmin settings now store encrypted provider configuration and apply it to the API and worker. Trainer Design Studio personalises the actual client app and storefront. Workout + nutrition includes meal-photo estimates, barcode lookup and manual logging with explicit subscriber confirmation. See [setup, capabilities and provider boundaries](docs/SUPERADMIN_AND_CUSTOMISATION.md); configured access and live provider qualification remain separate from implementation.
 
 ## Verify
 
@@ -59,9 +59,10 @@ npx playwright install --with-deps chromium --only-shell
 npm run build
 npm run seed:demo
 npm run test:browser
+npm run screenshots
 ```
 
-The browser runner starts API and the production web build itself. Stop existing servers first. CI includes these checks; a configured workflow is not a passed CI run. Local browser downloads were unavailable, but [the nutrition release passed 51 tests on each database engine, 32 browser routes and production container checks](https://github.com/chordsnstrings/trainer_what/actions/runs/36094669632). See the [verification record](docs/VERIFICATION_2026-09-25_NUTRITION.md).
+The browser runners start API and the production web build themselves. Stop existing servers first. The screenshots command creates an isolated synthetic database and a desktop/mobile gallery under `test-results/app-views`; it does not deploy or contact live providers. CI retains browser evidence. Consult [build status](docs/BUILD_STATUS.md) for the latest observed checks, and the [earlier nutrition verification](docs/VERIFICATION_2026-09-25_NUTRITION.md) for the previous baseline.
 
 ## Structure
 
@@ -80,6 +81,8 @@ The browser runner starts API and the production web build itself. Stop existing
 ## Deployment and project context
 
 Start with [deployment instructions](docs/DEPLOYMENT.md), [build status](docs/BUILD_STATUS.md) and [implementation decisions](docs/ADR-001-IMPLEMENTATION.md). Production uses a separate migration administrator and a non-owner runtime role. Web receives no provider or migration credentials.
+
+Deployment is paused at the owner's request; Claude will handle it. The GymMembership provisioning workflow is manual-only. The [Superadmin guide](docs/SUPERADMIN_AND_CUSTOMISATION.md) explains first-administrator bootstrap and the remaining host configuration.
 
 The money flow remains **Stripe → company bank → Lean → verified trainer IBAN**. A Stripe payment does not prove company-bank settlement; Lean initiation does not prove beneficiary receipt.
 

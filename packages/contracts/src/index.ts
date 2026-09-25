@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { brandDesignSchema } from "./branding.ts";
+export * from "./branding.ts";
 export const signupSchema = z
   .object({
     name: z.string().trim().min(2).max(100),
@@ -26,6 +28,8 @@ export const brandSchema = z
     accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     headline: z.string().max(160),
     timezone: z.literal("Asia/Dubai").default("Asia/Dubai"),
+    design: brandDesignSchema.optional(),
+    expectedVersion: z.number().int().min(0).optional(),
   })
   .strict();
 export const intakeSchema = z

@@ -1,3 +1,4 @@
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -218,7 +219,7 @@ export async function onboardingState(tx: Tx, a: Owner, tenant: any) {
               digest: nutrition.material.digest,
             }
           : null,
-        legal: process.env.LEGAL_VERSION ?? "draft-2026-09",
+        legal: runtimeConfig().LEGAL_VERSION ?? "draft-2026-09",
       }),
     )
     .digest("hex");
@@ -292,7 +293,7 @@ export async function onboardingState(tx: Tx, a: Owner, tenant: any) {
       label,
       reason: blockers[key] ?? `Complete ${label.toLowerCase()}.`,
     }));
-  if (process.env.LEGAL_APPROVED !== "true")
+  if (runtimeConfig().LEGAL_APPROVED !== "true")
     gates.push({
       key: "legal",
       label: "Reviewed legal documents",

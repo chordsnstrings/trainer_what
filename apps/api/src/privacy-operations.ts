@@ -111,6 +111,7 @@ export function privacyOperations(
         "DELETE FROM jobs WHERE kind='nutrition_week' AND data->>'userId'=$1",
         [request.owner_user_id],
       );
+      await tx.query("DELETE FROM meal_captures WHERE user_id=$1", [request.owner_user_id]);
       await tx.query("DELETE FROM workout_events WHERE user_id=$1", [
         request.owner_user_id,
       ]);

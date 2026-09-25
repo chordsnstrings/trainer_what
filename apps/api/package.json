@@ -7,12 +7,13 @@
     "start": "node --import tsx --env-file-if-exists=../../.env src/server.ts"
   },
   "dependencies": {
-    "fastify": "5.12.5",
     "@fastify/cookie": "11.1.2",
     "@fastify/rate-limit": "11.2.0",
+    "@trainer/contracts": "*",
     "@trainer/db": "*",
     "@trainer/domain": "*",
-    "@trainer/contracts": "*",
-    "@trainer/providers": "*"
+    "@trainer/providers": "*",
+    "fastify": "5.12.5",
+    "sharp": "0.35.4"
   }
 }

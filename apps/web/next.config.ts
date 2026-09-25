@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
-  transpilePackages: ["@trainer/domain"],
+  transpilePackages: ["@trainer/domain", "@trainer/contracts"],
   async rewrites() {
     return [
       {

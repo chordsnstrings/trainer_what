@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./nutrition.css";
+import "./platform-settings.css";
+import "./trainer-design.css";
+import "./meal-capture.css";
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },

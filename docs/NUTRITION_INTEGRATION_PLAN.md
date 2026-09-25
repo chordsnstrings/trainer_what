@@ -2,7 +2,7 @@
 
 Date: 25 September 2026. Status: **EXISTING CORE CI VERIFIED; REQUIRED PHOTO/BARCODE BUILD AND LIVE QUALIFICATION PENDING**. The owner specified two subscription tiers, coach-guided AI nutrition and case-based coach onboarding. The latest clarification rejects reviewing every output: learn the coach's decisions upfront, automate routine delivery within that scope, and route exceptions for human input. Detailed engineering defaults below are proposed implementation choices. This document adds scope to the original specification; it does not approve clinical practice, select providers, set live prices or enable live services.
 
-**Owner scope decision — 25 September 2026, 12:27 Asia/Dubai:** meal-photo logging and packaged-food barcode scanning are now required parts of workout + nutrition. This supersedes their earlier optional status. Both remain unimplemented; 043 is committed scope and 044 must verify the expanded journeys. This decision does not add a third subscription tier or require coaches to approve routine food entries.
+**Owner scope decision — 25 September 2026, 12:27 Asia/Dubai:** meal-photo logging and packaged-food barcode scanning are now required parts of workout + nutrition. This supersedes their earlier optional status. 043 is now implemented in the Superadmin/design/meal-capture slice; expanded 044 verification is underway. See BUILD_STATUS.md for observed evidence. This decision does not add a third subscription tier or require coaches to approve routine food entries.
 
 ## 1. Current baseline and the gap
 
@@ -205,7 +205,7 @@ API services: coach nutrition setup/cases/knowledge/gaps/readiness; nutrition pr
 
 ## 10. Implementation sequence and acceptance
 
-These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 engineering verification has passed; live-model and production qualification remain open. The owner has now made 043 required scope; it is not implemented, and the expanded 044 checks remain pending. IDs are internal work IDs, not existing GitHub issues.
+These ten work packages extend the original 001–034 baseline. The table retains the acceptance contract; implementation evidence and remaining provider limits are tracked in [build status](BUILD_STATUS.md). Core 035–042 is implemented and 044 engineering verification has passed; live-model and production qualification remain open. The owner made 043 required scope; its photo and barcode flows are now implemented and expanded 044 checks are underway. IDs are internal work IDs, not existing GitHub issues.
 
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |

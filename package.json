@@ -18,9 +18,11 @@
     "seed:demo": "node --import tsx scripts/seed-demo.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "test:browser": "node scripts/run-browser-check.mjs",
+    "screenshots": "node scripts/capture-app-views.mjs",
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
-    "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts"
+    "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts",
+    "admin:bootstrap": "node --import tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "tsx": "4.23.15",

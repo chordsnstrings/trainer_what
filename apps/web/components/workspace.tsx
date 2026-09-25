@@ -8,6 +8,18 @@ import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
+import { PlatformSettings } from "./platform-settings";
+import { MealCapture } from "./meal-capture";
+import {
+  TrainerDesign,
+  TrainerTheme,
+  CoachIdentity,
+  CoachCover,
+  CoachWelcome,
+  CoachStory,
+  ClientHomeSections,
+} from "./trainer-design";
+import { resolveBrandDesign } from "@trainer/contracts";
 import {
   useState,
   useEffect,
@@ -47,6 +59,8 @@ import {
   Download,
   Link2,
   Upload,
+  Palette,
+  Camera,
 } from "lucide-react";
 import { money, projectedCommission } from "@trainer/domain";
 type Row = {
@@ -74,6 +88,7 @@ type State = {
   usageStatements?: any[];
   consents: any[];
   environment?: string;
+  platform?: { name?: string; supportEmail?: string };
 };
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
@@ -88,7 +103,7 @@ const nav = [
   ["Exceptions", "/trainer/exceptions", AlertCircle],
   ["Business", "/trainer/analytics", Activity],
   ["Finance", "/trainer/finance", Wallet],
-  ["Storefront", "/trainer/brand", Globe],
+  ["Design studio", "/trainer/design", Palette],
   ["Integrations", "/trainer/integrations", Link2],
   ["Settings", "/trainer/settings", Settings],
 ] as const;
@@ -96,6 +111,7 @@ const subNav = [
   ["Today", "/app", LayoutDashboard],
   ["My program", "/app/program", Layers],
   ["Nutrition", "/app/nutrition", Activity],
+  ["Log a meal", "/app/nutrition/log", Camera],
   ["Coach chat", "/app/chat", MessageCircle],
   ["Bookings", "/app/bookings", Activity],
   ["Support", "/app/support", MessageCircle],
@@ -235,11 +251,23 @@ function Heading({
   );
 }
 
+function PlainShell({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+  theme?: unknown;
+}) {
+  return <div className={className}>{children}</div>;
+}
+
 export default function Workspace() {
   const path = usePathname(),
     router = useRouter();
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState(""),
+    [bootstrapError, setBootstrapError] = useState(""),
     [success, setSuccess] = useState(""),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
@@ -268,6 +296,7 @@ export default function Workspace() {
     try {
       const next = await api("/bootstrap");
       setState(next);
+      setBootstrapError("");
       if (next.user.role === "subscriber")
         localStorage.setItem(
           "trainer:offline",
@@ -285,15 +314,21 @@ export default function Workspace() {
           }),
         );
     } catch (e) {
-      if ((e as any).status === 401)
+      if ((e as any).status === 401) {
         for (const k of Object.keys(localStorage))
           if (k.startsWith("trainer:")) localStorage.removeItem(k);
+        setState(null);
+        setBootstrapError("");
+        if (!publicPath) router.replace("/login");
+        return;
+      }
       const cached = localStorage.getItem("trainer:offline");
       if (!navigator.onLine && cached) {
         try {
           const offline = JSON.parse(cached);
           if (offline.expires > Date.now()) {
             setState(offline.state);
+            setBootstrapError("");
             return;
           }
         } catch {
@@ -301,8 +336,11 @@ export default function Workspace() {
         }
       }
       if (!publicPath) {
-        setError((e as Error).message);
-        router.replace("/login");
+        setBootstrapError(
+          (e as any).status === 429
+            ? "Too many requests. Wait a moment, then retry."
+            : "Your workspace could not be refreshed. Please try again.",
+        );
       }
     } finally {
       setLoading(false);
@@ -310,6 +348,7 @@ export default function Workspace() {
   }, [publicPath, router]);
   useEffect(() => {
     setError("");
+    setBootstrapError("");
     setSuccess("");
     setMobile(false);
     if (!publicPath) {
@@ -362,6 +401,33 @@ export default function Workspace() {
         }}
       />
     );
+  if (!loading && !state && bootstrapError)
+    return (
+      <main className="loading-screen" style={{ padding: 24 }}>
+        <section
+          className="card"
+          style={{ width: "min(100%, 480px)", textAlign: "center" }}
+        >
+          <AlertCircle size={29} aria-hidden="true" />
+          <h1 style={{ fontSize: 27, marginTop: 20 }}>
+            Your workspace is temporarily unavailable.
+          </h1>
+          <p className="muted" role="alert">
+            {bootstrapError}
+          </p>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+          >
+            Retry <RefreshCw size={15} />
+          </button>
+        </section>
+      </main>
+    );
   if (loading || !state)
     return (
       <main className="loading-screen">
@@ -377,23 +443,40 @@ export default function Workspace() {
           ["Overview", "Finance", "Settings"].includes(item[0]),
         )
       : state.user.role === "staff"
-        ? nav.filter((item) => !["Finance", "Storefront"].includes(item[0]))
+        ? nav.filter((item) => !["Finance", "Design studio"].includes(item[0]))
         : nav;
   const records = (kind: string) =>
     state.records.filter((x) => x.kind === kind);
   const firstName = state.user.name.split(" ")[0];
+  const activeNavUrl = [...items]
+    .sort((a, b) => b[1].length - a[1].length)
+    .find(
+      ([, url]) =>
+        url === path ||
+        (url !== "/trainer" && url !== "/app" && path.startsWith(url + "/")),
+    )?.[1];
   const topTitle = path.startsWith("/admin")
     ? "Platform operations"
     : (items.find((x) => x[1] === path)?.[0] ?? "Your workspace");
-  const props = { state, records, action, busy, path };
+  const props = { state, records, action, busy, path, onSaved: load };
+  const Shell = subscriber ? TrainerTheme : PlainShell;
+  const platformName = state.platform?.name || "Trainer Brain";
   return (
-    <div className="workspace">
+    <Shell className="workspace" theme={state.tenant.theme}>
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
-          <span className="brand-mark">b.</span>
-          <span>
-            trainer<span className="wordmark-light">brain</span>
-          </span>
+          {subscriber ? (
+            <CoachIdentity
+              name={state.tenant.name}
+              theme={state.tenant.theme}
+              compact
+            />
+          ) : (
+            <>
+              <span className="brand-mark">b.</span>
+              <span>{platformName}</span>
+            </>
+          )}
         </Link>
         <button
           className="mobile-close icon-button"
@@ -415,16 +498,13 @@ export default function Workspace() {
           {items.map(([label, url, Icon]) => (
             <Link
               key={url}
-              className={
-                url === path ||
-                (url !== "/trainer" && url !== "/app" && path.startsWith(url))
-                  ? "active"
-                  : ""
-              }
+              className={url === activeNavUrl ? "active" : ""}
               href={url}
             >
               <Icon size={18} />
-              {label}
+              {subscriber && url === "/app/program"
+                ? resolveBrandDesign(state.tenant.theme).programLabel
+                : label}
               {label === "Exceptions" &&
                 records("exception").filter((x) => x.status === "open").length >
                   0 && (
@@ -438,9 +518,18 @@ export default function Workspace() {
             </Link>
           ))}
           {state.user.platformRole !== "none" && (
-            <Link href="/admin">
+            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
               <Shield size={18} />
               Platform admin
+            </Link>
+          )}
+          {state.user.platformRole === "admin" && (
+            <Link
+              href="/admin/settings"
+              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
+            >
+              <Settings size={16} />
+              Settings & API connections
             </Link>
           )}
         </nav>
@@ -508,13 +597,54 @@ export default function Workspace() {
               </button>
             </div>
           )}
+          {bootstrapError && (
+            <div className="notice error" role="alert">
+              <AlertCircle size={17} />
+              <span>
+                {bootstrapError} Your last loaded workspace is still shown.
+              </span>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void load()}
+              >
+                Retry <RefreshCw size={14} />
+              </button>
+            </div>
+          )}
           {success && (
             <div className="notice success" role="status">
               <Check size={17} />
               {success}
             </div>
           )}
-          {path.startsWith("/admin") ? (
+          {path === "/admin/security" ? (
+            state.user.platformRole === "admin" ? (
+              <>
+                <Heading
+                  eyebrow="SUPERADMIN"
+                  title="Account security."
+                  detail="Verify your identity before changing platform settings."
+                />
+                <Link href="/admin/settings" className="ps-back-link">
+                  Return to settings & connections
+                </Link>
+                <AccountSecurity />
+              </>
+            ) : (
+              <PlatformSettings
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            )
+          ) : path.startsWith("/admin/settings") ||
+            path.startsWith("/admin/integrations") ? (
+            <PlatformSettings
+              path={path}
+              platformRole={state.user.platformRole}
+              onSettingsChanged={load}
+            />
+          ) : path.startsWith("/admin") ? (
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (
             <OnboardingView {...props} />
@@ -530,12 +660,20 @@ export default function Workspace() {
               initialSection={path.split("/")[3] ?? "overview"}
               role={state.user.role}
             />
+          ) : path === "/app/nutrition/log" ? (
+            subscriber ? (
+              <MealCapture />
+            ) : (
+              <div className="notice">
+                Meal logging is available in a subscriber’s coaching space.
+              </div>
+            )
           ) : path.startsWith("/app/nutrition") ? (
             <NutritionSubscriber
               userId={state.user.userId}
               tenantId={state.user.tenantId}
             />
-          ) : path.includes("/brand") ? (
+          ) : path.includes("/brand") || path === "/trainer/design" ? (
             <Brand {...props} />
           ) : path.includes("/bookings") ? (
             <Bookings role={state.user.role} />
@@ -583,11 +721,19 @@ export default function Workspace() {
           )}
         </div>
         <footer className="workspace-footer">
-          <span>Trainer Brain · Your coaching, amplified.</span>
+          <span>
+            {subscriber ? state.tenant.name : platformName} · Your coaching,
+            amplified.
+          </span>
+          {state.platform?.supportEmail && (
+            <a href={`mailto:${state.platform.supportEmail}`}>
+              Contact support
+            </a>
+          )}
           <Link href="/privacy">Privacy & your data</Link>
         </footer>
       </main>
-    </div>
+    </Shell>
   );
 }
 type ViewProps = {
@@ -596,6 +742,7 @@ type ViewProps = {
   action: (fn: () => Promise<any>, message?: string) => Promise<any>;
   busy: boolean;
   path: string;
+  onSaved?: () => Promise<void>;
 };
 
 function Overview({ state, records }: ViewProps) {
@@ -643,6 +790,12 @@ function Overview({ state, records }: ViewProps) {
           </Link>
         }
       />
+      {sub && (
+        <>
+          <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
+          <ClientHomeSections theme={state.tenant.theme} />
+        </>
+      )}
       <div className="stats-grid">
         {(sub
           ? [
@@ -869,112 +1022,13 @@ function OnboardingView(props: ViewProps) {
   );
 }
 
-function Brand({ state, action, busy }: ViewProps) {
-  const t = state.tenant.theme ?? {};
+function Brand({ state, onSaved }: ViewProps) {
   return (
-    <>
-      <Heading
-        eyebrow="YOUR IDENTITY"
-        title="A business that feels like you."
-        detail="Keep your expertise at the center. We take care of the structure."
-      />
-      <div className="two-columns">
-        <Card>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () => api("/tenant/brand", "PUT", Object.fromEntries(f)),
-                "Brand saved",
-              );
-            }}
-          >
-            <Field label="Coach / business name">
-              <input
-                name="name"
-                defaultValue={state.tenant.name}
-                required
-                minLength={2}
-              />
-            </Field>
-            <Field label="Your headline">
-              <input
-                name="headline"
-                defaultValue={t.headline ?? ""}
-                placeholder="Strong for life. Built around you."
-                maxLength={160}
-              />
-            </Field>
-            <Field label="About your coaching">
-              <textarea
-                name="bio"
-                defaultValue={t.bio ?? ""}
-                placeholder="Who do you help, and how do you work?"
-                rows={5}
-              />
-            </Field>
-            <Field label="Coaching specialty">
-              <input
-                name="category"
-                defaultValue={t.category ?? ""}
-                placeholder="Strength & sustainable progress"
-              />
-            </Field>
-            <Field label="Brand accent">
-              <input
-                type="color"
-                name="accent"
-                defaultValue={t.accent ?? "#264a48"}
-              />
-            </Field>
-            <input name="timezone" type="hidden" value="Asia/Dubai" />
-            <Button type="submit" disabled={busy}>
-              Save identity <Check size={16} />
-            </Button>
-          </form>
-        </Card>
-        <Card className="storefront-preview">
-          <p className="eyebrow">YOUR STOREFRONT PREVIEW</p>
-          <div
-            className="coach-monogram"
-            style={{ background: t.accent ?? "#264a48" }}
-          >
-            {state.tenant.name
-              .split(" ")
-              .map((n: string) => n[0])
-              .slice(0, 2)
-              .join("")}
-          </div>
-          <span className="small-label">
-            {t.category || "YOUR COACHING SPECIALTY"}
-          </span>
-          <h2>{t.headline || "Your coaching. Their next chapter."}</h2>
-          <p>
-            {t.bio ||
-              "Your introduction will appear here. Give people a clear sense of your approach and the progress you help them make."}
-          </p>
-          <div className="preview-name">
-            {state.tenant.name}
-            <Badge>Digital coaching</Badge>
-          </div>
-          <div className="divider" />
-          <p className="muted">Address: /coach/{state.tenant.slug}</p>
-          <Button
-            secondary
-            disabled={busy}
-            onClick={() =>
-              void action(
-                () => api("/tenant/publish", "POST", {}),
-                "Storefront published",
-              )
-            }
-          >
-            Publish when ready <Globe size={16} />
-          </Button>
-        </Card>
-      </div>
-    </>
+    <TrainerDesign
+      tenant={state.tenant}
+      role={state.user.role}
+      onSaved={onSaved}
+    />
   );
 }
 
@@ -3305,6 +3359,18 @@ function Admin({ state }: ViewProps) {
         title="An accountable view of the platform."
         detail="Financial totals, open exceptions and provider readiness. Every workspace inspection is audited."
       />
+      {state.user.platformRole === "admin" && (
+        <nav className="ps-admin-links" aria-label="Superadmin tools">
+          <Link href="/admin/settings">
+            <Settings size={15} />
+            Settings & API connections
+          </Link>
+          <Link href="/admin/security">
+            <Shield size={15} />
+            Account security
+          </Link>
+        </nav>
+      )}
       {error && <div className="notice error">{error}</div>}
       {data ? (
         <>
@@ -3348,33 +3414,42 @@ function Admin({ state }: ViewProps) {
           </div>
           <Card>
             <h2>Trainer workspaces</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Trainer</th>
-                  <th>Status</th>
-                  <th>Payable</th>
-                  <th>Exceptions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.tenants.map((t: any) => (
-                  <tr key={t.id}>
-                    <td>
-                      <strong>{t.name}</strong>
-                      <small>{t.slug}</small>
-                    </td>
-                    <td>
-                      <Badge>{t.published ? "Published" : "Private"}</Badge>
-                    </td>
-                    <td>
-                      {t.finance ? money(t.finance.earnedMinor) : "Restricted"}
-                    </td>
-                    <td>{t.exceptions.length}</td>
+            <div
+              className="table-wrap"
+              role="region"
+              aria-label="Trainer workspaces"
+              tabIndex={0}
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th>Trainer</th>
+                    <th>Status</th>
+                    <th>Payable</th>
+                    <th>Exceptions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.tenants.map((t: any) => (
+                    <tr key={t.id}>
+                      <td>
+                        <strong>{t.name}</strong>
+                        <small>{t.slug}</small>
+                      </td>
+                      <td>
+                        <Badge>{t.published ? "Published" : "Private"}</Badge>
+                      </td>
+                      <td>
+                        {t.finance
+                          ? money(t.finance.earnedMinor)
+                          : "Restricted"}
+                      </td>
+                      <td>{t.exceptions.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         </>
       ) : (
@@ -3414,14 +3489,25 @@ function Public({
         .catch((e) => setError(e.message));
   }, [path]);
   const fees = projectedCommission(count, price * 100);
+  const Shell = path.startsWith("/coach/") ? TrainerTheme : PlainShell;
   return (
-    <div className="public">
+    <Shell className="public" theme={store?.trainer?.theme}>
       <header className="public-header">
         <Link href="/" className="wordmark">
-          <span className="brand-mark">b.</span>
-          <span>
-            trainer<span className="wordmark-light">brain</span>
-          </span>
+          {path.startsWith("/coach/") && store ? (
+            <CoachIdentity
+              name={store.trainer.name}
+              theme={store.trainer.theme}
+              compact
+            />
+          ) : (
+            <>
+              <span className="brand-mark">b.</span>
+              <span>
+                trainer<span className="wordmark-light">brain</span>
+              </span>
+            </>
+          )}
         </Link>
         <nav>
           <Link href="/how-it-works">How it works</Link>
@@ -3429,8 +3515,16 @@ function Public({
           <Link href="/pricing">The economics</Link>
           <Link href="/login">Sign in</Link>
         </nav>
-        <Link className="button" href="/signup">
-          Build my Brain <ArrowUpRight size={16} />
+        <Link
+          className="button"
+          href={
+            path.startsWith("/coach/")
+              ? `/join-coach/${store?.trainer?.slug ?? path.split("/").pop()}`
+              : "/signup"
+          }
+        >
+          {path.startsWith("/coach/") ? "Join coaching" : "Build my Brain"}{" "}
+          <ArrowUpRight size={16} />
         </Link>
       </header>
       {path.startsWith("/reset-password/") ||
@@ -3631,11 +3725,20 @@ function Public({
         <main className="public-section">
           {store ? (
             <>
+              <CoachIdentity
+                name={store.trainer.name}
+                theme={store.trainer.theme}
+              />
+              <CoachCover theme={store.trainer.theme} />
               <p className="eyebrow">{store.trainer.name}</p>
               <h1>
                 {store.trainer.theme?.headline ?? "Coaching built around you."}
               </h1>
               <p className="lead">{store.trainer.theme?.bio}</p>
+              <CoachStory
+                name={store.trainer.name}
+                theme={store.trainer.theme}
+              />
               {store.products.map((p: any) => (
                 <Card key={p.id}>
                   <h2>{p.data.name}</h2>
@@ -3906,6 +4009,6 @@ function Public({
           <Link href="/ai-disclosure">Digital coaching</Link>
         </div>
       </footer>
-    </div>
+    </Shell>
   );
 }

@@ -9,7 +9,7 @@ permissions:
 jobs:
   application:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,6 +24,8 @@ jobs:
       - run: npx playwright install --with-deps chromium --only-shell
       - run: npm run seed:demo
       - run: node scripts/run-browser-check.mjs
+      - name: Settings, branding and application screenshots
+        run: npm run screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:

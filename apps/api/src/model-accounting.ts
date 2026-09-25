@@ -1,3 +1,4 @@
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { randomUUID } from "node:crypto";
 import type { Actor, Database } from "@trainer/db";
 import type { ModelAccounting } from "@trainer/providers";
@@ -12,7 +13,7 @@ export function modelAccounting(
   const a = { ...actor, role: "owner" };
   return {
     async reserve(model) {
-      const limit = Number(process.env.MODEL_MAX_DAILY_CALLS ?? "100");
+      const limit = Number(runtimeConfig().MODEL_MAX_DAILY_CALLS ?? "100");
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000)
         throw new Error(
           "MODEL_MAX_DAILY_CALLS must be an integer from 1 to 10000",

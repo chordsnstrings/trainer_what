@@ -1,3 +1,4 @@
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
   createCipheriv,
   createDecipheriv,
@@ -142,7 +143,7 @@ export function securityRoutes(
   ) {
     if (
       process.env.NODE_ENV === "production" &&
-      (!process.env.EMAIL_API_KEY || !process.env.EMAIL_API_URL)
+      (!runtimeConfig().EMAIL_API_KEY || !runtimeConfig().EMAIL_API_URL)
     )
       throw new ProviderUnavailable("email");
     const token = newToken();

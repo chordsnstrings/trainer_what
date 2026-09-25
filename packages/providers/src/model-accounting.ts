@@ -1,3 +1,4 @@
+import { runtimeConfig, providerRequest } from "./configuration.ts";
 export type ModelUsage = {
   model: string;
   input: number | null;
@@ -35,11 +36,12 @@ export async function modelCompletion(
   body: Record<string, unknown>,
   accounting: ModelAccounting,
 ) {
+  const config = runtimeConfig();
   const pricing = {
-    inputUsdPerMillion: price(process.env.MODEL_INPUT_USD_PER_MILLION),
-    outputUsdPerMillion: price(process.env.MODEL_OUTPUT_USD_PER_MILLION),
+    inputUsdPerMillion: price(config.MODEL_INPUT_USD_PER_MILLION),
+    outputUsdPerMillion: price(config.MODEL_OUTPUT_USD_PER_MILLION),
   };
-  const priceVersion = process.env.MODEL_PRICE_VERSION?.trim() || null;
+  const priceVersion = config.MODEL_PRICE_VERSION?.trim() || null;
   const unknown: ModelUsage = {
     model,
     input: null,
@@ -49,20 +51,28 @@ export async function modelCompletion(
     priceVersion,
     pricing,
   };
-  await accounting.reserve(model);
+  let attempted = false;
   let response: Response, payload: any;
   try {
-    response = await fetch(base.replace(/\/$/, "") + "/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
+    response = await providerRequest(
+      base.replace(/\/$/, "") + "/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({ ...body, model }),
       },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({ ...body, model }),
-    });
+      async () => {
+        await accounting.reserve(model);
+        attempted = true;
+      },
+    );
     payload = await response.json();
-  } catch {
+  } catch (error) {
+    if (!attempted) throw error;
     await accounting.record(unknown);
     throw new Error(
       "Model response unavailable; usage requires provider reconciliation",
