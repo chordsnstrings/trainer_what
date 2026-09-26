@@ -207,6 +207,10 @@ export function CoachingStudio({ path }: { path: string }) {
           </section>
           <section className="card">
             <h2>Your teaching library</h2>
+            <p className="muted">
+              {data.cases.length} of 100 active teaching cases. Archive a case
+              when you replace its guidance.
+            </p>
             {!data.cases.length && <p>Answer your first case above.</p>}
             {data.cases.map((c: any) => (
               <details key={c.id} style={{ marginBlock: 16 }}>
@@ -753,6 +757,11 @@ export function CoachingStudio({ path }: { path: string }) {
           </section>
           <section className="card">
             <h2>{scenarios.length} held-out cases</h2>
+            <p className="muted">
+              Keep up to 100 active checks. Archive an obsolete case before
+              adding a replacement; evaluate the current set before activating
+              it.
+            </p>
             {scenarios.map((s: any) => (
               <details key={s.id} style={{ marginBlock: 12 }}>
                 <summary>
@@ -764,6 +773,28 @@ export function CoachingStudio({ path }: { path: string }) {
                     (a: any) => a.id === s.data.expectedActionId,
                   )?.data.title ?? "Human review"}
                 </p>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => {
+                    const reason = window.prompt(
+                      "Why is this held-out case being replaced?",
+                    );
+                    if (reason)
+                      void action(
+                        () =>
+                          api(
+                            `/brain/coaching-scenarios/${s.id}/archive`,
+                            "POST",
+                            { version: s.version, reason },
+                          ),
+                        "Case archived. Evaluate the current set before your next activation.",
+                      );
+                  }}
+                >
+                  Archive this held-out case
+                </button>
               </details>
             ))}
           </section>

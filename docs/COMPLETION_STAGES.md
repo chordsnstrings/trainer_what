@@ -13,7 +13,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime, training and private attachments committed | Bounded case/history hardening and final assembled checks |
+| Workout coaching | Qualified runtime, training, attachments and case/history hardening committed | Final assembled checks; source-scope review of remaining follow-up/Twin work |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs and Checkout committed | Actual Stripe/Lean qualification and acquisition conversion hook remain |
 | Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
@@ -112,3 +112,7 @@ Image and raster-rebuilt PDF uploads now connect to message-only or attachment-o
 ### Trainer website and gallery completion
 
 Actual multipage public websites, private owner previews, gallery management/client galleries and coach-specific manifests/icons are connected. Brand writes serialize with media deletion and recheck current ownership/revisions; hidden pages are excluded from public data. Twelve coach-site and five branding tests, whole-tree TypeScript and scoped diff checks passed. Existing migration018 is unchanged. Browser journeys and former-owner media erasure remain separate work; root handoff updated.
+
+### Coaching capacity and history hardening
+
+Active coaching material is bounded before creation/model calls; held-out cases and the active release load separately from recent evaluations. Revision-checked assessment archiving permits replacement without leaking archived questions into training. Seven runtime tests and a final targeted assertion passed; whole-tree TypeScript and diff checks passed. No migration; root handoff updated in the same stage commit.

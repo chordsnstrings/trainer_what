@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition connections and bounded follow-ups are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition connections and former-owner media privacy are in progress. Coaching capacity/history hardening is completed. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -35,7 +35,7 @@ These are engineering-stage results. Counts overlap across stages and must not b
 | Baseline already present | Superadmin encrypted provider/settings controls, trainer styling, meal photos/barcodes, foundational auth/RLS, finance ledger, nutrition and PWA | Historical September 25 baseline had 91 tests, build, browser and PostgreSQL/container CI; that evidence does not qualify this expanded branch |
 | Workout safety | Subscriber-wide holds; explicit trainer resume/abandon; no restart bypass; consent/profile/takeover guards; ordinary chat safety reports open the same hold | 5 initial safety tests; included in final 14 coaching/runtime passes |
 | Training and chat | Dated multiweek templates/assignments, progression, substitutions, demonstrations by HTTPS link, RIR/rest tools, immutable set corrections, progress/Twin lineage, polling/paginated messages | 7 training tests; final combined coaching/runtime run passed 14 |
-| Qualified workout AI | Structured teaching cases, approved routine actions, independent held-out checks, model/prompt/policy/material pins, shadow approval and bounded automatic delivery; Brain UI routes connected | 14 coaching/runtime tests after direct-chat and rollback integration; synthetic providers only |
+| Qualified workout AI | Structured teaching cases, approved routine actions, independent held-out checks, model/prompt/policy/material pins, shadow approval and bounded automatic delivery; active-case capacity, independent history loading and assessment archiving | 14 earlier coaching/runtime checks; 7 hardening runtime tests plus final targeted assertion; synthetic providers only |
 | Nutrition | Current-version catalog, archival, safe weekly/manual uncertainty recovery, individual calorie methods/targets/macros/habits, coach week editor, diary totals/trends/corrections/favorites/copying, photo scaling/food facts, groceries purchase conversions and dated leftovers | 33 related nutrition/capture tests; 9 final completion tests; TypeScript at stage boundary |
 | Nutrition teaching | Adaptive coverage/contradictions, independent worked recipe/portion/nutrient/rationale checks, qualification version 2, stale-release invalidation, no replay of uncertain generation | Included in the nutrition results; old releases require requalification |
 | Billing servicing | Cancellation/reactivation identities, service during paused sales, invoice/charge history, selected-charge refund requests, admin overrides, grace and reconciliation | 15 focused finance tests through final refund/job safeguards; late Checkout changes below are separate |
@@ -114,7 +114,7 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 
 1. Finish acquisition shared hooks; Checkout, notification, onboarding, attachment and website stages are completed above.
 2. Close the former-owner media erasure gap; keep separate stage commits and update this file after each.
-3. Finish consented acquisition hooks and the bounded coaching capacity/history hardening; add meaningful missing tests.
+3. Finish consented acquisition hooks; coaching capacity/history hardening is complete. Add meaningful missing integration checks.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
 6. Update current evidence documents and only then prepare review/merge. Do not merge or deploy this unfinished checkpoint automatically.
@@ -162,3 +162,7 @@ Completed private image/PDF uploads, sealed conversation binding, composer/downl
 ### 26 September — Trainer website and gallery completion
 
 Connected actual website routes/SSR, versioned drafts, private preview, trainer/client gallery navigation, coach-specific manifest and guarded brand saves. Hidden pages stay out of public data; inquiry actions preserve unsaved website edits. Twelve coach-site and five branding tests, whole-tree TypeScript and scoped diff checks passed. Commit: the stage commit containing this entry. Next: former-owner media erasure, acquisition hooks and aggregate browser/build checks.
+
+### 26 September — Coaching capacity and history hardening
+
+Enforced bounded creation of 30 active actions, 100 teaching cases and 100 active independent assessment cases. Cases and the active release load independently of recent evaluation history, so newer history cannot hide them. Owners can archive obsolete assessment cases with revision/reason checks; archived questions stay excluded from teaching. Oversized legacy corpora fail before model dispatch instead of silently truncating. Seven runtime tests passed, then the strengthened capacity/archived-question assertion passed again; TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Next: acquisition/media privacy and aggregate gates.

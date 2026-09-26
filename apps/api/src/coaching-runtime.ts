@@ -229,6 +229,34 @@ async function runtimeMaterial(tx: Tx) {
     digest: hash(contract),
   };
 }
+async function heldOutScenarios(tx: Tx) {
+  const scenarios = await tx.query(
+    "SELECT * FROM records WHERE kind='coaching_scenario' AND status='held_out' ORDER BY id LIMIT 101",
+  );
+  if (scenarios.length > 100)
+    throw fail(
+      409,
+      "Keep at most 100 active held-out cases; archive older cases before evaluation",
+    );
+  return scenarios;
+}
+async function requireCapacity(
+  tx: Tx,
+  kind: string,
+  status: string,
+  limit: number,
+  label: string,
+) {
+  const [row] = await tx.query(
+    "SELECT count(*)::int AS count FROM records WHERE kind=$1 AND status=$2",
+    [kind, status],
+  );
+  if (row.count >= limit)
+    throw fail(
+      409,
+      `Keep at most ${limit} active ${label}; archive an older item before adding another`,
+    );
+}
 /** Read-only readiness; the digest is exactly the one checked before delivery. */
 export async function coachingRuntimeReadiness(tx: Tx) {
   const material = await runtimeMaterial(tx);
@@ -398,9 +426,26 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
     const a = owner(req);
     return db.tenant(a, async (tx) => {
       const material = await runtimeMaterial(tx),
-        rows = await tx.query(
-          "SELECT * FROM records WHERE kind IN ('coaching_scenario','coaching_evaluation','coaching_runtime_release') ORDER BY created_at DESC LIMIT 200",
-        );
+        scenarios = await heldOutScenarios(tx);
+      const evaluations = await tx.query(
+        "SELECT * FROM records WHERE kind='coaching_evaluation' ORDER BY created_at DESC,id DESC LIMIT 20",
+      );
+      const releases = await tx.query(
+        "SELECT * FROM records WHERE kind='coaching_runtime_release' ORDER BY created_at DESC,id DESC LIMIT 20",
+      );
+      const [active] = await tx.query(
+        "SELECT * FROM records WHERE kind='coaching_runtime_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+      );
+      const rows = [
+        ...new Map(
+          [
+            ...scenarios,
+            ...evaluations,
+            ...releases,
+            ...(active ? [active] : []),
+          ].map((row) => [row.id, row]),
+        ).values(),
+      ];
       const counts = Object.fromEntries(
         coachingActions.map((type) => [
           type,
@@ -448,11 +493,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         questions,
         digest: material.digest,
         modelPin: coachingModelPin(),
-        active:
-          rows.find(
-            (r) =>
-              r.kind === "coaching_runtime_release" && r.status === "published",
-          ) ?? null,
+        active: active ?? null,
       };
     });
   });
@@ -480,6 +521,13 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
           "A different recommendation already exists for this case. Archive or correct it before adding a contradictory answer",
         );
       if (conflicts.length) return conflicts[0];
+      await requireCapacity(
+        tx,
+        "coaching_teaching",
+        "confirmed",
+        100,
+        "teaching cases",
+      );
       const r = await putRecord(
         tx,
         a,
@@ -533,6 +581,13 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
           409,
           "Publish your evaluated Brain before defining automatic coaching actions",
         );
+      await requireCapacity(
+        tx,
+        "coaching_action",
+        "confirmed",
+        30,
+        "coaching actions",
+      );
       if (
         b.evidenceIds.some(
           (key) =>
@@ -600,6 +655,13 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         .parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockRuntime(tx, a);
+      await requireCapacity(
+        tx,
+        "coaching_scenario",
+        "held_out",
+        100,
+        "held-out cases",
+      );
       const normalizedPrompt = normalizePrompt(b.prompt);
       const existing = await tx.query(
         "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind IN ('coaching_scenario','coaching_teaching')",
@@ -609,8 +671,15 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
           409,
           "Use an independent held-out question; renamed or numbered copies do not count as new cases",
         );
-      if (b.expectedActionId)
-        await record(tx, b.expectedActionId, "coaching_action");
+      if (
+        b.expectedActionId &&
+        (await record(tx, b.expectedActionId, "coaching_action")).status !==
+          "confirmed"
+      )
+        throw fail(
+          409,
+          "Choose an active coaching action for this held-out case",
+        );
       if (b.category !== "routine" && b.expectedActionId)
         throw fail(
           400,
@@ -637,13 +706,37 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       return r;
     });
   });
+  app.post("/api/v1/brain/coaching-scenarios/:id/archive", async (req) => {
+    const a = owner(req),
+      b = z
+        .object({
+          version: z.number().int().positive(),
+          reason: z.string().trim().min(10).max(1000),
+        })
+        .strict()
+        .parse(req.body);
+    return db.tenant(a, async (tx) => {
+      await lockRuntime(tx, a);
+      const scenario = await record(
+        tx,
+        (req.params as any).id,
+        "coaching_scenario",
+      );
+      if (scenario.version !== b.version || scenario.status !== "held_out")
+        throw fail(409, "This held-out case changed; refresh before archiving");
+      await tx.query(
+        "UPDATE records SET status='archived',version=version+1,updated_at=now() WHERE id=$1",
+        [scenario.id],
+      );
+      await event(tx, a, "brain.held_out_case_archived", scenario.id, b);
+      return { ok: true };
+    });
+  });
   app.post("/api/v1/brain/coaching-evaluate", async (req) => {
     const a = owner(req);
     const material = await db.tenant(a, async (tx) => ({
       ...(await runtimeMaterial(tx)),
-      scenarios: await tx.query(
-        "SELECT * FROM records WHERE kind='coaching_scenario' AND status='held_out' ORDER BY id LIMIT 100",
-      ),
+      scenarios: await heldOutScenarios(tx),
     }));
     if (!material.brain || !material.actions.length)
       throw fail(
@@ -744,9 +837,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
           409,
           "Your coaching material changed during evaluation; run a fresh evaluation",
         );
-      const scenarios = await tx.query(
-        "SELECT * FROM records WHERE kind='coaching_scenario' AND status='held_out' ORDER BY id LIMIT 100",
-      );
+      const scenarios = await heldOutScenarios(tx);
       if (
         hash(scenarios.map((s) => ({ id: s.id, data: s.data }))) !==
         hash(material.scenarios.map((s) => ({ id: s.id, data: s.data })))
@@ -802,9 +893,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
           409,
           "A passing evaluation of the current model, rules, teaching cases and actions is required",
         );
-      const scenarios = await tx.query(
-        "SELECT * FROM records WHERE kind='coaching_scenario' AND status='held_out' ORDER BY id LIMIT 100",
-      );
+      const scenarios = await heldOutScenarios(tx);
       if (
         evaluation.data.scenariosDigest !==
         hash(scenarios.map((s) => ({ id: s.id, data: s.data })))

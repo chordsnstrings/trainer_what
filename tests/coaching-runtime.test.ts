@@ -226,6 +226,236 @@ test("case-based teaching adapts to missing domains and excludes held-out questi
     403,
   );
 });
+test("coaching capacity is enforced before writes and held-out cases stay visible beyond release history", async () => {
+  const capped = await register("qualification-capacity");
+  const rule = await db.tenant(capped, async (tx) => {
+    const rule = await putRecord(
+      tx,
+      capped,
+      "rule",
+      {
+        title: "Inert capacity fixture",
+        directive: "Follow the approved routine",
+        allowedUses: ["model_prompt"],
+      },
+      { status: "confirmed" },
+    );
+    await putRecord(
+      tx,
+      capped,
+      "brain_release",
+      { rules: [{ id: rule.id, version: rule.version, data: rule.data }] },
+      { status: "published" },
+    );
+    return rule;
+  });
+  const action = {
+    title: "Capacity fixture action",
+    type: "message",
+    requestTerms: ["follow routine"],
+    response: "Follow your approved weekly routine",
+    rationale: "Use the trainer's confirmed guidance",
+    evidenceIds: [rule.id],
+    experience: ["beginner"],
+  };
+  const teaching = {
+    scenario: "A beginner needs encouragement after missing a planned visit",
+    category: "message",
+    recommendation: "Return to the next approved training day",
+    reason: "Avoid making up missed training all at once",
+    alternatives: "Discuss a shorter routine",
+    changeWhen: "Review when their availability changes",
+    escalateWhen: "Escalate new symptoms for personal review",
+  };
+  const scenario = {
+    prompt: "Can you help prepare my business tax return this weekend?",
+    category: "unsupported",
+    expectedActionId: null,
+    facts,
+    heldOut: true,
+  };
+  const taught = await req("/brain/teaching-cases", "POST", teaching, capped);
+  assert.equal(taught.statusCode, 200, taught.body);
+  const held = await req("/brain/coaching-scenarios", "POST", scenario, capped);
+  assert.equal(held.statusCode, 200, held.body);
+  const active = await db.tenant(capped, async (tx) => {
+    // Capacity fixtures are deliberately inert. They are never used to claim a
+    // passing model qualification or count as independent assessment evidence.
+    await tx.query(
+      "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) SELECT gen_random_uuid(),$1,'coaching_teaching',$2,'confirmed',$3::jsonb||jsonb_build_object('scenario','Capacity-only teaching fixture '||n,'normalizedPrompt','capacity fixture '||n) FROM generate_series(1,99) n",
+      [capped.tenantId, capped.userId, JSON.stringify(teaching)],
+    );
+    await tx.query(
+      "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) SELECT gen_random_uuid(),$1,'coaching_action',$2,'confirmed',$3::jsonb FROM generate_series(1,30)",
+      [capped.tenantId, capped.userId, JSON.stringify(action)],
+    );
+    await tx.query(
+      "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) SELECT gen_random_uuid(),$1,'coaching_scenario',$2,'held_out',$3::jsonb||jsonb_build_object('prompt','Capacity-only held-out fixture '||n,'normalizedPrompt','capacity held-out fixture '||n) FROM generate_series(1,99) n",
+      [capped.tenantId, capped.userId, JSON.stringify(scenario)],
+    );
+    const published = await putRecord(
+      tx,
+      capped,
+      "coaching_runtime_release",
+      { mode: "shadow", contractDigest: "inert-history-fixture" },
+      { status: "published" },
+    );
+    await tx.query(
+      "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data,created_at) SELECT gen_random_uuid(),$1,'coaching_evaluation',$2,'failed','{}',now()+n*interval '1 second' FROM generate_series(1,220) n",
+      [capped.tenantId, capped.userId],
+    );
+    await tx.query(
+      "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data,created_at) SELECT gen_random_uuid(),$1,'coaching_runtime_release',$2,'archived','{}',now()+n*interval '1 second' FROM generate_series(1,25) n",
+      [capped.tenantId, capped.userId],
+    );
+    return published;
+  });
+  const workspace = await req(
+    "/brain/coaching-workspace",
+    "GET",
+    undefined,
+    capped,
+  );
+  assert.equal(workspace.statusCode, 200, workspace.body);
+  assert.equal(
+    workspace.json().rows.filter((r: any) => r.kind === "coaching_scenario")
+      .length,
+    100,
+  );
+  assert.equal(
+    workspace.json().rows.filter((r: any) => r.kind === "coaching_evaluation")
+      .length,
+    20,
+  );
+  assert.equal(workspace.json().active.id, active.id);
+  assert.equal(
+    (await req("/brain/coaching-actions", "POST", action, capped)).statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await req(
+        "/brain/teaching-cases",
+        "POST",
+        {
+          ...teaching,
+          scenario: "An experienced runner returns after a long season away",
+        },
+        capped,
+      )
+    ).statusCode,
+    409,
+  );
+  assert.equal(
+    (await req("/brain/teaching-cases", "POST", teaching, capped)).json().id,
+    taught.json().id,
+    "A replay can return its existing case at the limit",
+  );
+  assert.equal(
+    (
+      await req(
+        "/brain/coaching-scenarios",
+        "POST",
+        {
+          ...scenario,
+          prompt:
+            "Could you review an unfamiliar legal contract for my business?",
+        },
+        capped,
+      )
+    ).statusCode,
+    409,
+  );
+  const reason = {
+    version: held.json().version,
+    reason: "Replacing an obsolete qualification scenario",
+  };
+  assert.equal(
+    (
+      await req(
+        `/brain/coaching-scenarios/${held.json().id}/archive`,
+        "POST",
+        reason,
+        foreign,
+      )
+    ).statusCode,
+    404,
+  );
+  assert.equal(
+    (
+      await req(
+        `/brain/coaching-scenarios/${held.json().id}/archive`,
+        "POST",
+        reason,
+        client,
+      )
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await req(
+        `/brain/coaching-scenarios/${held.json().id}/archive`,
+        "POST",
+        reason,
+        capped,
+      )
+    ).statusCode,
+    200,
+  );
+  assert.equal(
+    (
+      await req(
+        `/brain/coaching-scenarios/${held.json().id}/archive`,
+        "POST",
+        reason,
+        capped,
+      )
+    ).statusCode,
+    409,
+  );
+  const archivedLeak = await req(
+    "/brain/teaching-cases",
+    "POST",
+    { ...teaching, scenario: scenario.prompt },
+    capped,
+  );
+  assert.equal(archivedLeak.statusCode, 409);
+  assert.match(
+    archivedLeak.json().message,
+    /held out/,
+    "Archived held-out questions must not leak into training",
+  );
+  assert.equal(
+    (
+      await req(
+        "/brain/coaching-scenarios",
+        "POST",
+        {
+          ...scenario,
+          prompt:
+            "Could you review an unfamiliar legal contract for my business?",
+        },
+        capped,
+      )
+    ).statusCode,
+    200,
+  );
+  await db.tenant(capped, (tx) =>
+    putRecord(tx, capped, "coaching_scenario", scenario, {
+      status: "held_out",
+    }),
+  );
+  const beforeCalls = calls,
+    evaluated = await req("/brain/coaching-evaluate", "POST", {}, capped);
+  assert.equal(evaluated.statusCode, 409);
+  assert.match(evaluated.json().message, /100 active held-out/);
+  assert.equal(
+    calls,
+    beforeCalls,
+    "Oversized legacy corpora must not be silently truncated or sent to the model",
+  );
+});
 test("automatic delivery requires independent action coverage and pinned current qualification", async () => {
   const action = await req(
     "/brain/coaching-actions",
