@@ -13,11 +13,11 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete correction feedback; source coverage is connected and broad review is deferred |
+| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Correction feedback, source coverage and adherence are connected; broad review is deferred |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
 | Administration and team | Scoped views, publication, team, ingestion, acquisition and temporary support preview connected | Infrastructure status connected; deferred review |
-| Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
+| Integrations | Connected and stage-tested | Premium voice product UI is connected; external qualification remains |
 | Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
 | Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
 | Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
@@ -156,3 +156,7 @@ Actual process/API/worker/DB/queue observations, versioned thresholds, evidence-
 ### Training adherence and latest-block summary completed
 
 Added timezone-aware rolling28-day history/next28-day schedule and complete latest-assigned-block summaries across verified revisions. Completion needs exact linked workout evidence; held/canceled/abandoned/unverifiable states are separate, and bounded legacy/overflow coverage is explicit. Trainer/subscriber views show counts and expandable lineage. Two new and three existing focused checks, TypeScript and diff checks passed. No migration; active-block selection and browser/release review are deferred in the root handoff.
+
+### Correction-to-teaching and regression workflow completed
+
+Added guarded replacement decisions preserving originals, preferred/rejected correction episodes, meaningful/cosmetic differences and saved teaching drafts. Owner-confirmed teaching reuses held-out exclusion; linked independent evaluation reports readiness without releasing or leaking prompts. Client-owned outcomes, privacy erasure and consent revocation are connected in the actual app and attention-list UI. Eight new and seven existing runtime tests, TypeScript and diff checks passed. No migration/provider call; broad security/browser/quality review is deferred in the root handoff.

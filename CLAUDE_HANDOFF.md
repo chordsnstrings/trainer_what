@@ -2,14 +2,14 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Scheduled coaching follow-ups are completed. Current Twin/compiler source coverage is completed. Temporary read-only support access is connected. Infrastructure status is connected. Planned-session adherence and latest-assigned-block summaries are completed. Structured correction-to-teaching and lifecycle messages remain in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Scheduled coaching follow-ups are completed. Current Twin/compiler source coverage is completed. Temporary read-only support access is connected. Infrastructure status is connected. Planned-session adherence and latest-assigned-block summaries are completed. Structured correction-to-teaching is completed. Lifecycle messages remain in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what
 - Branch: `work/completion-2026-09-26`. Continue this branch; `main` does not contain this completion work.
 - Local checkout used here: `/workspace/scratch/50654f17bfe7/trainer_what`. A fresh GitHub checkout of the work branch is sufficient; do not depend on this temporary directory or old chat attachments.
-- Read the current work-branch tip and stage logs below for the latest completed work; older per-area handoffs may name superseded checkpoints.
+- Read the current work-branch tip and stage logs below for the latest completed work; older per-area handoffs may name superseded checkpoints. Stage commits include their own handoff updates.
 - GitHub commits were published through the connector because direct Git transport was unreliable. Their hashes differ from local commits, but each published tree was compared with the local committed tree. Prefer GitHub history in a fresh checkout.
 - Read this file before `docs/BUILD_STATUS.md`, `docs/DELIVERY_ROADMAP.md` or the September 25 audit: those documents contain historical verification and many now-superseded gap lists. Current stage evidence is in `docs/COMPLETION_STAGES.md`.
 - Node 24; npm workspaces; Next.js 16.3.6, Fastify API, PostgreSQL/PGlite, separate worker. Read `apps/web/AGENTS.md` and the installed Next documentation before web changes.
@@ -41,7 +41,7 @@ These are engineering-stage results. Counts overlap across stages and must not b
 | Nutrition teaching | Adaptive coverage/contradictions, independent worked recipe/portion/nutrient/rationale checks, qualification version 2, stale-release invalidation, no replay of uncertain generation | Included in the nutrition results; old releases require requalification |
 | Billing servicing | Cancellation/reactivation identities, service during paused sales, invoice/charge history, selected-charge refund requests, admin overrides, grace and reconciliation | 15 focused finance tests through final refund/job safeguards; late Checkout changes below are separate |
 | Coach business/finance | Effective policy history, gross-to-net statements, promotions/trials, paid bookings, recurring slots/timezones/policies/calendar, reviewed monthly finance jobs, worker lease CAS | 19 combined booking/finance checks at integration stage; later 15 finance tests |
-| Administration | Scoped operator views for accounts, safety/Brain, FinOps, support, jobs, integrations, audit, acquisition/experiments/configuration; published legal/templates, support macros and recovery | 7 admin tests; later acquisition/email edits below are unfinished |
+| Administration | Scoped operator views for accounts, safety/Brain, FinOps, support, jobs, integrations, audit, acquisition/experiments/configuration; published legal/templates, support macros and recovery | 7 admin tests; later acquisition and support stage evidence below |
 | Team and ingestion | Team invite/role/revoke/session controls; CSV/XLSX/program JSON, image/scanned-PDF OCR, rights/privacy review, redaction/retry/discard and approved compilation inputs | 14 team/import tests plus 3 legacy import tests; TypeScript |
 | Privacy | Scoped exports/erasure, provider/backup evidence tracking, ownership transfer and reviewed workspace closure; current actor/lifecycle and financial obligations guarded | 8 privacy tests in final 18 account/privacy run |
 | Accounts | Magic links, authenticator recovery codes, real WebAuthn passkeys, active sessions/revocation, settings/login/recovery routes and custom-host recovery paths | 10 account tests plus 8 privacy tests; actual signed WebAuthn assertions used |
@@ -49,9 +49,9 @@ These are engineering-stage results. Counts overlap across stages and must not b
 
 Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`, `NUTRITION_COMPLETION_HANDOFF.md`, `FINANCE_COMPLETION_HANDOFF.md`, `ADMIN_COMPLETION_HANDOFF.md`, `INGESTION_COMPLETION_HANDOFF.md`, `PRIVACY_COMPLETION_HANDOFF.md`, `INTEGRATIONS_COMPLETION_HANDOFF.md`. Many earlier hook instructions in those files have already been applied; inspect current code before duplicating routes.
 
-## Frozen unfinished work and exact next actions
+## Connected stages and remaining release gates
 
-### 1. Immediate known failures
+### 1. Combined-tree verification
 
 - Checkout/onboarding typing and the temporary acquisition syntax error are fixed; whole-tree TypeScript subsequently passed. Repeat aggregate checks after the final shared hooks.
 - Public website/media routes, previews, client galleries and brand saves are now registered and connected; final browser journeys remain unverified.
@@ -79,7 +79,7 @@ The resumed stage fixed the tenant-table permission failure with one system tran
 
 `registerSubscriptionCheckout(app, db, requireNutritionReady)` now replaces the old inline route. The member UI can reconcile the original attempt, reopen its stored provider URL and repurchase only after canceled/incomplete-expired membership. Product creation persists the premium voice checkbox; signed offer mapping keeps unknown/legacy prices false. The strict plan-change body no longer includes an unsupported promotion field.
 
-Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. The concurrent typing fixes are complete and whole-tree TypeScript subsequently passed. No live transactions occurred. First-paid acquisition remains part of the acquisition stage; actual Stripe/Lean account qualification remains open.
+Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. The concurrent typing fixes are complete and whole-tree TypeScript subsequently passed. No live transactions occurred. First-paid acquisition is completed in the acquisition stage below; actual Stripe/Lean account qualification remains open.
 
 ### 5. Onboarding readiness — completed
 
@@ -116,7 +116,7 @@ Observed: all **33 migrations** plus runtime grants twice passed in fresh PGlite
 ## Completion order for Claude
 
 1. Finish the assigned app features; notification settings and former-owner media erasure are completed.
-2. Finish the assigned app slices: structured correction-to-teaching and lifecycle messages. Planned-session/latest-block summaries and observe-only infrastructure are connected. Temporary read-only support preview is connected. Scheduled coaching follow-ups are completed.
+2. Finish the lifecycle-message slice. Correction-to-teaching, planned-session/latest-block summaries and observe-only infrastructure are connected. Temporary read-only support preview is connected. Scheduled coaching follow-ups are completed.
 3. Browser harness updates are saved; leave execution to the deferred review queue. Each implemented feature still needs essential checks and its own handoff/commit.
 4. Keep broad review and exact-tree release qualification in the deferred queue below, per the owner's latest instruction. Do not stop feature completion to perform another review sweep.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -147,6 +147,18 @@ Implementation remains the current priority. These reviews/checks are **not pass
 - Independently review support access permissions, temporary grants, sensitive-field projection, erasure/retention and audit attribution; scheduled coaching context/consent/safety checks and duplicate-worker behavior; compiler source coverage/current Twin facts and teaching/evaluation separation.
 - Review the complete source contract against the finished implementation, including richer Twin/retrieval, edit→teach regression, campaign/affiliate policy and observe-only infrastructure boundaries. Missing code must remain an implementation item; source review itself is deferred.
 - Complete accessibility/device testing, load/latency, backup restoration and rollback, operational monitoring and the real provider/model/legal qualification below. Deployment stays separately owned by Claude and stopped in this task.
+
+## Known boundaries that still require scope or implementation decisions
+
+Do not relabel these as passed review. The implemented controls are usable, but the broader capabilities below are not claimed:
+
+| Area | Implemented boundary | Remaining decision/work |
+| --- | --- | --- |
+| Support access | Temporary audited account/access/connection preview | Reproducing sensitive customer screens or acting as the customer needs additional scoped access/elevation implementation |
+| Infrastructure | Measured app/worker/DB/queue status and tracked recommendations | Fleet/cloud billing/capacity telemetry and an execution broker are not built into this observer; deployment remains stopped |
+| Client Twin / learning | Training/nutrition evidence, bounded histories, current-block summaries and evaluated coaching material | Broader Twin domains and indexed outcome-based retrieval need source-contract reconciliation and additional implementation if retained |
+| Campaigns / affiliates | Consented attribution and safe copy experiments | Real affiliate contract/earnings settlement and discretionary campaign policy are not invented; implement from approved provider/business rules |
+| Native integration | Governed wearable connections and imports | Native HealthKit/BLE companion requires separate platform work if approved; it is not supplied by the PWA |
 
 ## External qualification remains open
 
@@ -227,3 +239,9 @@ Migration033 and narrow runtime grants are included. Nine focused observer tests
 Client Twin now presents the prior28 calendar days including today and next28 days using each session timezone. Completion requires matching client/program/session/workout evidence; missed past sessions, today's schedule, upcoming, canceled, held, in-progress, abandoned and unverifiable records stay separate. The latest assigned block includes actual sessions across verified revisions, including older completions outside the rolling window, with source lineage and expandable trainer/subscriber views. No adherence percentage or health/readiness inference is invented.
 
 Two new checks (including rendered trainer and subscriber variants), two existing coverage regressions and one snapshot/isolation/revocation regression passed; whole-tree TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Limits:1,000 rolling sessions,182 block sessions,64 linked revisions and2,400 linked workouts, with explicit incomplete coverage. Multiple assigned programs are possible, so the screen says “Latest assigned block”; selecting the intended active block is a product review item. Browser/timezone and broader release checks remain deferred. Next: correction feedback and lifecycle messages.
+
+### 26 September — Correction-to-teaching and regression workflow completed
+
+The attention list now supports separately reviewed replacement decisions while preserving the original proposal. Delivery reuses current consent/context/safety and qualified-action checks, with stable request identity and conflict detection. Each correction retains preferred/rejected decisions, deterministic meaningful-versus-cosmetic classification, rationale, client-context lineage and a private teaching draft. Only the current owner can explicitly confirm a saved draft as teaching material; held-out cases remain excluded. Linked independent regression evidence exposes readiness without revealing assessment prompts or automatically activating a release. Client-owned outcome links, export, erasure of copied release examples and coaching-consent revocation are connected.
+
+Eight new assembled-app checks and seven existing runtime tests passed; whole-tree TypeScript and scoped diff checks passed. Files: coaching-feedback API/UI/tests, extracted coaching-completion/runtime helpers and root app/privacy/workspace hooks. No migration, paid provider call or automatic release. Commit: the stage commit containing this entry. Browser, real PostgreSQL concurrency, broad privacy/security and learning-quality review remain in Claude's deferred queue. Next: lifecycle messages.

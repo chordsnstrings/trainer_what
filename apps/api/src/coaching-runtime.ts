@@ -421,6 +421,161 @@ export async function approveQualifiedDecision(
   );
   return result.message;
 }
+/** One confirmation path preserves capacity, contradictions and held-out isolation. */
+export async function confirmCoachingTeaching(
+  tx: Tx,
+  a: Actor,
+  value: unknown,
+  ownerId = a.userId,
+) {
+  if (a.role !== "owner")
+    throw fail(403, "Only the trainer owner can confirm teaching");
+  const b = teachingCaseSchema.parse(value);
+  await lockTraining(tx, a, ownerId);
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    a.tenantId + ":brain",
+  ]);
+  const normalized = normalizePrompt(b.scenario);
+  const heldOut = await tx.query(
+    "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind='coaching_scenario'",
+  );
+  if (heldOut.some((r) => nearDuplicate(r.prompt, normalized)))
+    throw fail(
+      409,
+      "This question is held out for evaluation and cannot become training material",
+    );
+  const conflicts = await tx.query(
+    "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' AND data->>'normalizedPrompt'=$1",
+    [normalized],
+  );
+  if (conflicts.some((c) => c.data.recommendation !== b.recommendation))
+    throw fail(
+      409,
+      "A different recommendation already exists for this case. Archive or correct it before adding a contradictory answer",
+    );
+  if (conflicts.length) return conflicts[0];
+  await requireCapacity(
+    tx,
+    "coaching_teaching",
+    "confirmed",
+    100,
+    "teaching cases",
+  );
+  const r = await putRecord(
+    tx,
+    a,
+    "coaching_teaching",
+    {
+      ...b,
+      normalizedPrompt: normalized,
+      allowedUses: ["model_prompt", "trainer_specific_learning"],
+    },
+    { status: "confirmed", ownerId },
+  );
+  await event(tx, a, "brain.teaching_case_saved", r.id);
+  return r;
+}
+
+export {
+  normalizePrompt as normalizeCoachingPrompt,
+  nearDuplicate as similarCoachingPrompt,
+};
+
+/** Only qualified, currently eligible actions are offered to an exception reviewer. */
+export async function coachingCorrectionContext(
+  tx: Tx,
+  request: string,
+  userId: string,
+) {
+  const material = await runtimeMaterial(tx),
+    facts = await coachingFacts(tx, userId),
+    [runtime] = await tx.query(
+      "SELECT * FROM records WHERE kind='coaching_runtime_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+    );
+  const current = !!runtime && runtime.data.contractDigest === material.digest;
+  return {
+    brainId: material.brain?.id ?? null,
+    contractDigest: material.digest,
+    runtimeReleaseId: current ? runtime.id : null,
+    facts,
+    factsDigest: hash(facts),
+    actions: current ? candidates(material, request, facts) : [],
+  };
+}
+
+/** Metadata only: correction screens never receive held-out prompts or their facts. */
+export async function coachingFeedbackRegression(
+  tx: Tx,
+  teachingId: string | null,
+  scenarioIds: string[],
+  sourcePrompt: string,
+) {
+  const material = await runtimeMaterial(tx),
+    scenarios = await heldOutScenarios(tx);
+  const teaching = material.examples.find((row) => row.id === teachingId);
+  const independent = (scenario: any) =>
+    !!teaching &&
+    !nearDuplicate(
+      scenario.data.normalizedPrompt,
+      normalizePrompt(teaching.data.scenario),
+    ) &&
+    (!sourcePrompt ||
+      !nearDuplicate(
+        scenario.data.normalizedPrompt,
+        normalizePrompt(sourcePrompt),
+      ));
+  const selected = scenarios.filter((row) => scenarioIds.includes(row.id));
+  const scenariosDigest = hash(
+    scenarios.map((row) => ({ id: row.id, data: row.data })),
+  );
+  const [evaluation] = await tx.query(
+    "SELECT * FROM records WHERE kind='coaching_evaluation' AND data->>'contractDigest'=$1 AND data->>'scenariosDigest'=$2 ORDER BY created_at DESC,id DESC LIMIT 1",
+    [material.digest, scenariosDigest],
+  );
+  const linked =
+    !!scenarioIds.length &&
+    selected.length === scenarioIds.length &&
+    selected.every(independent);
+  const ready =
+    !!teaching &&
+    linked &&
+    evaluation?.status === "passed" &&
+    selected.every((scenario) =>
+      evaluation.data.outcomes?.some(
+        (outcome: any) => outcome.scenarioId === scenario.id && outcome.passed,
+      ),
+    );
+  return {
+    ready: !!ready,
+    state: !teaching
+      ? "teaching_required"
+      : !linked
+        ? "independent_check_required"
+        : !evaluation
+          ? "evaluation_required"
+          : ready
+            ? "passed"
+            : "failed",
+    teachingId: teaching?.id ?? null,
+    contractDigest: material.digest,
+    evaluation: evaluation
+      ? {
+          id: evaluation.id,
+          status: evaluation.status,
+          createdAt: evaluation.created_at,
+        }
+      : null,
+    scenarios: scenarios
+      .filter(independent)
+      .map((row) => ({
+        id: row.id,
+        category: row.data.category,
+        createdAt: row.created_at,
+        linked: scenarioIds.includes(row.id),
+      })),
+  };
+}
+
 export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
   app.get("/api/v1/brain/coaching-workspace", async (req) => {
     const a = owner(req);
@@ -502,45 +657,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       b = teachingCaseSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockRuntime(tx, a);
-      const normalized = normalizePrompt(b.scenario);
-      const heldOut = await tx.query(
-        "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind='coaching_scenario'",
-      );
-      if (heldOut.some((r) => nearDuplicate(r.prompt, normalized)))
-        throw fail(
-          409,
-          "This question is held out for evaluation and cannot become training material",
-        );
-      const conflicts = await tx.query(
-        "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' AND data->>'normalizedPrompt'=$1",
-        [normalized],
-      );
-      if (conflicts.some((c) => c.data.recommendation !== b.recommendation))
-        throw fail(
-          409,
-          "A different recommendation already exists for this case. Archive or correct it before adding a contradictory answer",
-        );
-      if (conflicts.length) return conflicts[0];
-      await requireCapacity(
-        tx,
-        "coaching_teaching",
-        "confirmed",
-        100,
-        "teaching cases",
-      );
-      const r = await putRecord(
-        tx,
-        a,
-        "coaching_teaching",
-        {
-          ...b,
-          normalizedPrompt: normalized,
-          allowedUses: ["model_prompt", "trainer_specific_learning"],
-        },
-        { status: "confirmed" },
-      );
-      await event(tx, a, "brain.teaching_case_saved", r.id);
-      return r;
+      return confirmCoachingTeaching(tx, a, b);
     });
   });
   app.post("/api/v1/brain/teaching-cases/:id/archive", async (req) => {

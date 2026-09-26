@@ -6,6 +6,10 @@ import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import {
+  registerCoachingFeedback,
+  revokeCoachingFeedbackLearning,
+} from "./coaching-feedback.ts";
+import {
   registerChatAttachments,
   validateChatAttachments,
   bindChatAttachments,
@@ -405,6 +409,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
+  registerCoachingFeedback(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
@@ -1795,11 +1800,13 @@ export async function buildApp(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
         [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
-      if (!b.granted && b.type === "coaching")
+      if (!b.granted && b.type === "coaching") {
+        await revokeCoachingFeedbackLearning(tx, a.userId);
         await tx.query(
           "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
           [a.userId],
         );
+      }
       if (!b.granted && b.type.startsWith("nutrition")) {
         await eraseMealCaptures(tx, a.userId);
         if (b.type !== "nutrition_photo")

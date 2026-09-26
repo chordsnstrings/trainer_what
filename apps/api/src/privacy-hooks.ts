@@ -1,6 +1,7 @@
 import type { Tx } from "@trainer/db";
 import type { PrivacyHooks } from "./privacy-lifecycle.ts";
 import { eraseOwnedBrandMedia } from "./coach-site.ts";
+import { eraseCoachingFeedbackDerivedData } from "./coaching-feedback.ts";
 import {
   exportCoachingFollowups,
   eraseCoachingFollowups,
@@ -151,6 +152,7 @@ export const privacyHooks: PrivacyHooks = {
     };
   },
   async eraseAdditional(tx, userId) {
+    await eraseCoachingFeedbackDerivedData(tx, userId);
     await eraseCoachingFollowups(tx, userId);
     await eraseChatAttachments(tx, userId);
     if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);

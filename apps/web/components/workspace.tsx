@@ -10,6 +10,10 @@ import {
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { CoachingStudio } from "./coaching-studio";
 import {
+  ExceptionCorrection,
+  CoachingFeedbackQueue,
+} from "./coaching-feedback";
+import {
   BillingHistory,
   TrainerFinanceTools,
   FinancePolicyConsole,
@@ -2458,6 +2462,14 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
                 Resolve with my review <Check size={16} />
               </Button>
             </form>
+            {e.data.decisionId && (
+              <ExceptionCorrection
+                exceptionId={e.id}
+                onChange={() =>
+                  action(async () => {}, "Coaching correction saved")
+                }
+              />
+            )}
           </Card>
         ))
       ) : (
@@ -2468,6 +2480,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
           />
         </Card>
       )}
+      <CoachingFeedbackQueue owner={state.user.role === "owner"} />
     </>
   );
 }

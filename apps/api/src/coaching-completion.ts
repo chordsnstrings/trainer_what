@@ -154,6 +154,85 @@ export async function openTrainingHold(
   return hold;
 }
 
+/** Shared delivery gate for approving a proposal or a separately recorded correction. */
+export async function deliverReviewedCoachingDecision(
+  tx: Tx,
+  a: Actor,
+  d: any,
+) {
+  await lockTraining(tx, a, d.owner_user_id);
+  await subscriber(tx, a, d.owner_user_id);
+  await assertTrainingOpen(tx, d.owner_user_id);
+  const [release] = await tx.query(
+    "SELECT id FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
+  );
+  const [consent] = await tx.query(
+    "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1",
+    [d.owner_user_id],
+  );
+  if (!consent?.granted || release?.id !== d.data.brainVersionId)
+    throw fail(
+      409,
+      "REVIEW_STALE",
+      "Consent or the published Brain changed; prepare a fresh decision",
+    );
+  if (
+    d.data.clientSnapshotId &&
+    (await currentClientTwin(tx, a, d.owner_user_id)).id !==
+      d.data.clientSnapshotId
+  )
+    throw fail(
+      409,
+      "REVIEW_STALE",
+      "The client's profile or training record changed; prepare a fresh decision",
+    );
+  if (d.status !== "pending_review")
+    throw fail(
+      409,
+      "DECISION_STATE",
+      "This decision has already been reviewed",
+    );
+  const reviewedMessage = d.data.actionId
+    ? await approveQualifiedDecision(tx, a, d)
+    : d.data.message;
+  if (d.data.program)
+    await putRecord(
+      tx,
+      a,
+      "program",
+      {
+        ...d.data.program,
+        sourceDecisionId: d.id,
+        brainVersionId: d.data.brainVersionId,
+        authorId: a.userId,
+        allowedUses: ["render", "model_prompt"],
+      },
+      { ownerId: d.owner_user_id, status: "assigned" },
+    );
+  await tx.query(
+    "UPDATE records SET status='approved',version=version+1,updated_at=now() WHERE id=$1",
+    [d.id],
+  );
+  const message = await putRecord(
+    tx,
+    a,
+    "message",
+    {
+      text: d.data.coachMessage ?? reviewedMessage,
+      author: d.data.correctionId ? "trainer_reviewed" : "digital_reviewed",
+      reviewedBy: a.userId,
+      decisionId: d.id,
+      subscriberId: d.owner_user_id,
+    },
+    { ownerId: d.owner_user_id, status: "sent" },
+  );
+  return {
+    decisionId: d.id,
+    messageId: message.id,
+    message: message.data.text,
+  };
+}
+
 export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
   registerCoachingRuntime(app, db);
   app.get("/api/v1/training/holds", async (req) => {
@@ -537,72 +616,14 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           );
       }
       if (b.approveDecision && e.data.decisionId) {
-        await subscriber(tx, a, e.owner_user_id);
-        await assertTrainingOpen(tx, e.owner_user_id);
         const d = await record(tx, e.data.decisionId, "decision");
-        const [release] = await tx.query(
-          "SELECT id FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
-        );
-        const [consent] = await tx.query(
-          "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1",
-          [e.owner_user_id],
-        );
-        if (!consent?.granted || release?.id !== d.data.brainVersionId)
+        if (d.owner_user_id !== e.owner_user_id)
           throw fail(
             409,
             "REVIEW_STALE",
-            "Consent or the published Brain changed; prepare a fresh decision",
+            "This decision belongs to a different client",
           );
-        if (
-          d.data.clientSnapshotId &&
-          (await currentClientTwin(tx, a, e.owner_user_id)).id !==
-            d.data.clientSnapshotId
-        )
-          throw fail(
-            409,
-            "REVIEW_STALE",
-            "The client's profile or training record changed; prepare a fresh decision",
-          );
-        if (d.status !== "pending_review")
-          throw fail(
-            409,
-            "DECISION_STATE",
-            "This decision has already been reviewed",
-          );
-        const reviewedMessage = d.data.actionId
-          ? await approveQualifiedDecision(tx, a, d)
-          : d.data.message;
-        if (d.data.program)
-          await putRecord(
-            tx,
-            a,
-            "program",
-            {
-              ...d.data.program,
-              sourceDecisionId: d.id,
-              brainVersionId: d.data.brainVersionId,
-              authorId: a.userId,
-              allowedUses: ["render", "model_prompt"],
-            },
-            { ownerId: e.owner_user_id, status: "assigned" },
-          );
-        await tx.query(
-          "UPDATE records SET status='approved',version=version+1,updated_at=now() WHERE id=$1",
-          [d.id],
-        );
-        await putRecord(
-          tx,
-          a,
-          "message",
-          {
-            text: reviewedMessage,
-            author: "digital_reviewed",
-            reviewedBy: a.userId,
-            decisionId: d.id,
-            subscriberId: e.owner_user_id,
-          },
-          { ownerId: e.owner_user_id, status: "sent" },
-        );
+        await deliverReviewedCoachingDecision(tx, a, d);
       }
       await tx.query(
         "UPDATE records SET status='resolved',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
@@ -755,6 +776,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         "decision",
         {
           ...generated.decision,
+          request: b.message,
           brainVersionId: material.release!.id,
           clientSnapshotId: material.twin!.id,
         },
