@@ -1,13 +1,15 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createDatabase, putRecord, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import {
   coachActionSchema,
   coachingFactsSchema,
   eligibleCoachAction,
+  canonicalCoaching,
 } from "../packages/domain/src/coaching-completion.ts";
+import { coachingRetrievalPolicy } from "../packages/providers/src/coaching-retrieval.ts";
 
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
@@ -494,6 +496,7 @@ test("automatic delivery requires independent action coverage and pinned current
     "After an unusually social weekend, what mindset helps me stay consistent in the gym?",
     "Please help me stay consistent without trying to compensate for a previously missed session.",
   ];
+  let firstScenarioId: string | undefined;
   for (const prompt of routineCases) {
     const r = await req(
       "/brain/coaching-scenarios",
@@ -508,6 +511,7 @@ test("automatic delivery requires independent action coverage and pinned current
       coach,
     );
     assert.equal(r.statusCode, 200, r.body);
+    firstScenarioId ??= r.json().id;
   }
   for (const [category, prompt] of [
     ["pain", "I have sharp pain after each repetition"],
@@ -562,6 +566,41 @@ test("automatic delivery requires independent action coverage and pinned current
   );
   assert.equal(activated.statusCode, 200, activated.body);
   runtimeId = activated.json().id;
+  assert.deepEqual(
+    evaluated.json().data.pin.retrieval,
+    coachingRetrievalPolicy,
+  );
+  const legacyContract = structuredClone(activated.json().data.contract);
+  delete legacyContract.pin.retrieval;
+  const legacyEvaluation = await db.tenant(coach, (tx) =>
+    putRecord(
+      tx,
+      coach,
+      "coaching_evaluation",
+      {
+        ...evaluated.json().data,
+        contractDigest: createHash("sha256")
+          .update(canonicalCoaching(legacyContract))
+          .digest("hex"),
+      },
+      { status: "passed" },
+    ),
+  );
+  const stale = await req(
+    "/brain/coaching-activate",
+    "POST",
+    {
+      evaluationId: legacyEvaluation.id,
+      mode: "automatic",
+      expectedReleaseId: runtimeId,
+    },
+    coach,
+  );
+  assert.equal(
+    stale.statusCode,
+    409,
+    "Qualification without the current retrieval policy cannot activate",
+  );
   assert.equal(
     (
       await req(
@@ -580,7 +619,7 @@ test("automatic delivery requires independent action coverage and pinned current
   const response = await req(
     "/coaching/ask",
     "POST",
-    { message: "How can I stay consistent with my routine?" },
+    { message: routineCases[0] },
     client,
   );
   assert.equal(response.statusCode, 200, response.body);
@@ -593,6 +632,19 @@ test("automatic delivery requires independent action coverage and pinned current
   assert.equal(decisions[0].status, "delivered");
   assert.equal(decisions[0].data.runtimeReleaseId, runtimeId);
   assert.equal(decisions[0].data.modelPin.model, config.MODEL_NAME);
+  assert.deepEqual(
+    decisions[0].data.retrieval,
+    evaluated
+      .json()
+      .data.outcomes.find(
+        (outcome: any) => outcome.scenarioId === firstScenarioId,
+      ).retrieval,
+    "Evaluation and delivery use the same retrieval, teaching corpus and factual query context",
+  );
+  assert.equal(
+    decisions[0].data.retrieval.version,
+    coachingRetrievalPolicy.version,
+  );
   assert.equal(
     (
       await req(

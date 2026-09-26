@@ -559,7 +559,7 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
                 until the owner confirms it.
               </p>
               <form
-                key={draft.version}
+                key={`${draft.id}:${draft.version}`}
                 onChange={() => setDraftDirty(true)}
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -573,7 +573,11 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
                           ...Object.fromEntries(
                             teachingFields.map(([key]) => [key, f.get(key)]),
                           ),
+                          outcomeContext:
+                            String(f.get("outcomeContext") ?? "").trim() ||
+                            undefined,
                         },
+                        outcomeIds: f.getAll("outcome"),
                       }),
                     "Teaching draft saved for review",
                   );
@@ -591,6 +595,38 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
                     />
                   </Field>
                 ))}
+                <Field label="Reviewed outcome context (optional)">
+                  <textarea
+                    name="outcomeContext"
+                    defaultValue={draft.data.outcomeContext ?? ""}
+                    minLength={10}
+                    maxLength={2000}
+                    rows={3}
+                    placeholder="Describe the general starting situation, what was tried and what happened. Remove names and identifying details."
+                  />
+                </Field>
+                <p className="muted">
+                  Write your own deidentified summary and select its supporting
+                  outcomes. Outcome notes and client records are kept separate
+                  from teaching. Describe observations without assuming the
+                  correction caused the result.
+                </p>
+                {detail.outcomes.map((outcome: any) => (
+                  <label className="check-field" key={outcome.id}>
+                    <input
+                      type="checkbox"
+                      name="outcome"
+                      value={outcome.id}
+                      defaultChecked={
+                        draft.data.reviewedOutcomeRefs?.some(
+                          (ref: any) => ref.id === outcome.id,
+                        ) ?? false
+                      }
+                    />
+                    {outcome.data.note || "Linked outcome evidence"} ·{" "}
+                    {new Date(outcome.created_at).toLocaleDateString()}
+                  </label>
+                ))}
                 <button
                   className="button secondary"
                   type="submit"
@@ -601,6 +637,7 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
               </form>
               {owner ? (
                 <form
+                  key={`review:${draft.id}:${draft.version}`}
                   onSubmit={(event) => {
                     event.preventDefault();
                     const f = new FormData(event.currentTarget);
@@ -613,6 +650,9 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
                             version: draft.version,
                             reviewed: true,
                             clientDetailsRemoved: f.get("anonymized") === "on",
+                            outcomeContextReviewed: draft.data.outcomeContext
+                              ? f.get("outcomeReviewed") === "on"
+                              : undefined,
                           },
                         ),
                       "Teaching confirmed. Evaluate the changed coaching material before activating a release.",
@@ -624,6 +664,14 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
                     reviewed the saved draft, removed identifying client details
                     and approve this teaching case.
                   </label>
+                  {draft.data.outcomeContext && (
+                    <label className="check-field">
+                      <input type="checkbox" name="outcomeReviewed" required />I
+                      reviewed this deidentified outcome summary against the
+                      selected evidence and approve its use as a teaching
+                      example.
+                    </label>
+                  )}
                   {draftDirty && (
                     <p className="muted">
                       Save your draft changes before confirming.
@@ -644,7 +692,33 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
               )}
             </>
           ) : (
-            <p>Teaching draft: {label(draft.status)}.</p>
+            <>
+              <p>Teaching draft: {label(draft.status)}.</p>
+              {draft.data.outcomeContext && (
+                <p>
+                  <strong>Reviewed outcome:</strong> {draft.data.outcomeContext}
+                </p>
+              )}
+              {draft.status === "confirmed" && (
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        api(
+                          `/coaching/feedback/${c.id}/teaching-draft/revise`,
+                          "POST",
+                          { version: draft.version },
+                        ),
+                      "Revision prepared. Review any outcome summary and confirm the saved teaching before running fresh checks.",
+                    )
+                  }
+                >
+                  Revise teaching or add reviewed outcomes
+                </button>
+              )}
+            </>
           )}
           {owner && regression && (
             <>
@@ -674,7 +748,7 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
               {draft.status === "confirmed" &&
                 regression.scenarios.length > 0 && (
                   <form
-                    key={draft.version}
+                    key={`${draft.id}:${draft.version}`}
                     onSubmit={(event) => {
                       event.preventDefault();
                       const f = new FormData(event.currentTarget);

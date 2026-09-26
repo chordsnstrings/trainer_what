@@ -82,6 +82,19 @@ async function consent(tx: Tx, userId: string) {
     );
   return c;
 }
+async function reviewedOutcomes(tx: Tx, correction: any, ids: string[]) {
+  const refs = await tx.query(
+    "SELECT id,version FROM records WHERE id=ANY($1::uuid[]) AND kind='coaching_feedback_outcome' AND status='recorded' AND owner_user_id=$2 AND data->>'correctionId'=$3 ORDER BY id",
+    [ids, correction.owner_user_id, correction.id],
+  );
+  if (!ids.length || refs.length !== ids.length)
+    throw fail(
+      400,
+      "OUTCOME_UNAVAILABLE",
+      "Choose observed outcomes from this correction to support your reviewed summary",
+    );
+  return refs;
+}
 async function reviewContext(tx: Tx, a: Actor, original: any) {
   await assertTrainingOpen(tx, original.owner_user_id);
   const permission = await consent(tx, original.owner_user_id);
@@ -583,7 +596,15 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
   app.post("/api/v1/coaching/feedback/:id/teaching-draft", async (req) => {
     const a = trainer(req),
       b = z
-        .object({ version, teaching: teachingCaseSchema })
+        .object({
+          version,
+          teaching: teachingCaseSchema,
+          outcomeIds: z
+            .array(uuid)
+            .max(20)
+            .refine((ids) => new Set(ids).size === ids.length)
+            .default([]),
+        })
         .strict()
         .parse(req.body);
     return db.tenant(a, async (tx) => {
@@ -600,14 +621,120 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
           "DRAFT_CHANGED",
           "This teaching draft changed; refresh before saving",
         );
+      const outcomeRefs = b.teaching.outcomeContext
+        ? await reviewedOutcomes(tx, c, b.outcomeIds)
+        : [];
+      if (!b.teaching.outcomeContext && b.outcomeIds.length)
+        throw fail(
+          400,
+          "OUTCOME_SUMMARY_REQUIRED",
+          "Write a deidentified outcome summary before choosing its supporting evidence",
+        );
+      let previousTeachingVersion: number | undefined;
+      if (draft.data.previousTeachingId) {
+        const previous = await record(
+          tx,
+          draft.data.previousTeachingId,
+          "coaching_teaching",
+        );
+        if (previous.owner_user_id !== c.owner_user_id)
+          throw fail(
+            409,
+            "TEACHING_CHANGED",
+            "This teaching case no longer belongs to the correction",
+          );
+        // Saving refreshes the predecessor pin; the resulting new draft version
+        // must still receive a separate owner review before it can replace it.
+        previousTeachingVersion = previous.version;
+      }
       const [saved] = await tx.query(
-        "UPDATE records SET data=data||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-        [draft.id, JSON.stringify({ ...b.teaching, editedBy: a.userId })],
+        "UPDATE records SET data=(data-'outcomeContext')||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+        [
+          draft.id,
+          JSON.stringify({
+            ...b.teaching,
+            reviewedOutcomeRefs: outcomeRefs,
+            previousTeachingVersion,
+            editedBy: a.userId,
+          }),
+        ],
       );
       await event(tx, a, "coaching.teaching_draft_saved", draft.id);
       return saved;
     });
   });
+  app.post(
+    "/api/v1/coaching/feedback/:id/teaching-draft/revise",
+    async (req) => {
+      const a = trainer(req),
+        b = z.object({ version }).strict().parse(req.body);
+      return db.tenant(a, async (tx) => {
+        const initial = await record(
+          tx,
+          (req.params as any).id,
+          "coaching_correction",
+        );
+        await lockClient(tx, a, initial.owner_user_id);
+        const c = await record(tx, initial.id, "coaching_correction");
+        const previous = await record(
+          tx,
+          c.data.teachingDraftId,
+          "coaching_teaching_draft",
+        );
+        if (previous.status !== "confirmed" || previous.version !== b.version)
+          throw fail(
+            409,
+            "DRAFT_CHANGED",
+            "Refresh the confirmed teaching before preparing a revision",
+          );
+        const teaching = await record(
+          tx,
+          previous.data.teachingId,
+          "coaching_teaching",
+        );
+        if (teaching.owner_user_id !== c.owner_user_id)
+          throw fail(
+            409,
+            "TEACHING_CHANGED",
+            "This teaching case no longer belongs to the correction",
+          );
+        const draft = await putRecord(
+          tx,
+          a,
+          "coaching_teaching_draft",
+          {
+            ...Object.fromEntries(
+              Object.keys(teachingCaseSchema.shape).map((key) => [
+                key,
+                teaching.data[key],
+              ]),
+            ),
+            correctionId: c.id,
+            previousDraftId: previous.id,
+            previousTeachingId: teaching.id,
+            previousTeachingVersion: teaching.version,
+            reviewedOutcomeRefs: previous.data.reviewedOutcomeRefs ?? [],
+            scenarioIds: [],
+            allowedUses: ["render"],
+          },
+          { ownerId: c.owner_user_id, status: "draft" },
+        );
+        await tx.query(
+          "UPDATE records SET data=data||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1",
+          [c.id, JSON.stringify({ teachingDraftId: draft.id })],
+        );
+        await event(tx, a, "coaching.teaching_revision_prepared", c.id, {
+          draftId: draft.id,
+          previousDraftId: previous.id,
+        });
+        return feedbackDetail(
+          tx,
+          await record(tx, c.id, "coaching_correction"),
+          a.role === "owner",
+        );
+      });
+    },
+  );
   app.post("/api/v1/coaching/feedback/:id/confirm-teaching", async (req) => {
     const a = trainer(req, true),
       b = z
@@ -615,6 +742,7 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
           version,
           reviewed: z.literal(true),
           clientDetailsRemoved: z.literal(true),
+          outcomeContextReviewed: z.literal(true).optional(),
         })
         .strict()
         .parse(req.body);
@@ -639,6 +767,46 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
           draft.data[key],
         ]),
       );
+      if (body.outcomeContext) {
+        if (!b.outcomeContextReviewed)
+          throw fail(
+            400,
+            "OUTCOME_REVIEW_REQUIRED",
+            "Explicitly review the deidentified outcome summary before using it as teaching",
+          );
+        const expected = draft.data.reviewedOutcomeRefs ?? [];
+        const refs = await reviewedOutcomes(
+          tx,
+          c,
+          expected.map((ref: any) => ref.id),
+        );
+        if (digest(refs) !== digest(expected))
+          throw fail(
+            409,
+            "OUTCOME_CHANGED",
+            "The supporting outcome changed; save and review the summary again",
+          );
+      }
+      if (draft.data.previousTeachingId) {
+        const previous = await record(
+          tx,
+          draft.data.previousTeachingId,
+          "coaching_teaching",
+        );
+        if (
+          previous.owner_user_id !== c.owner_user_id ||
+          previous.version !== draft.data.previousTeachingVersion
+        )
+          throw fail(
+            409,
+            "TEACHING_CHANGED",
+            "The earlier teaching changed; save and review the draft again before confirming",
+          );
+        await tx.query(
+          "UPDATE records SET status='archived',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+          [previous.id, JSON.stringify({ supersededByDraftId: draft.id })],
+        );
+      }
       const teaching = await confirmCoachingTeaching(
         tx,
         a,
@@ -653,6 +821,7 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
             teachingId: teaching.id,
             confirmedBy: a.userId,
             clientDetailsRemoved: true,
+            outcomeContextReviewed: !!body.outcomeContext,
           }),
         ],
       );

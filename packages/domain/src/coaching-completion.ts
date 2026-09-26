@@ -223,9 +223,10 @@ export const teachingCaseSchema = z
     alternatives: z.string().max(2000),
     changeWhen: z.string().trim().min(10).max(2000),
     escalateWhen: z.string().trim().min(10).max(2000),
+    outcomeContext: z.string().trim().min(10).max(2000).optional(),
   })
   .strict();
-export const coachingPromptVersion = "coach-action-selector-v1";
+export const coachingPromptVersion = "coach-action-selector-v2";
 export const coachingFactsSchema = z
   .object({
     profile: z

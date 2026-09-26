@@ -439,7 +439,15 @@ export async function confirmCoachingTeaching(
   const heldOut = await tx.query(
     "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind='coaching_scenario'",
   );
-  if (heldOut.some((r) => nearDuplicate(r.prompt, normalized)))
+  if (
+    heldOut.some(
+      (r) =>
+        nearDuplicate(r.prompt, normalized) ||
+        (b.outcomeContext &&
+          (nearDuplicate(r.prompt, normalizePrompt(b.outcomeContext)) ||
+            normalizePrompt(b.outcomeContext).includes(r.prompt))),
+    )
+  )
     throw fail(
       409,
       "This question is held out for evaluation and cannot become training material",
@@ -448,10 +456,22 @@ export async function confirmCoachingTeaching(
     "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' AND data->>'normalizedPrompt'=$1",
     [normalized],
   );
-  if (conflicts.some((c) => c.data.recommendation !== b.recommendation))
+  if (
+    conflicts.some(
+      (c) =>
+        canonicalCoaching(
+          Object.fromEntries(
+            Object.keys(teachingCaseSchema.shape).map((key) => [
+              key,
+              c.data[key],
+            ]),
+          ),
+        ) !== canonicalCoaching(b),
+    )
+  )
     throw fail(
       409,
-      "A different recommendation already exists for this case. Archive or correct it before adding a contradictory answer",
+      "Different teaching already exists for this case. Archive or revise it before changing its recommendation, conditions or outcome context",
     );
   if (conflicts.length) return conflicts[0];
   await requireCapacity(
@@ -565,14 +585,12 @@ export async function coachingFeedbackRegression(
           createdAt: evaluation.created_at,
         }
       : null,
-    scenarios: scenarios
-      .filter(independent)
-      .map((row) => ({
-        id: row.id,
-        category: row.data.category,
-        createdAt: row.created_at,
-        linked: scenarioIds.includes(row.id),
-      })),
+    scenarios: scenarios.filter(independent).map((row) => ({
+      id: row.id,
+      category: row.data.category,
+      createdAt: row.created_at,
+      linked: scenarioIds.includes(row.id),
+    })),
   };
 }
 
@@ -781,9 +799,20 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       );
       const normalizedPrompt = normalizePrompt(b.prompt);
       const existing = await tx.query(
-        "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind IN ('coaching_scenario','coaching_teaching')",
+        "SELECT data->>'normalizedPrompt' AS prompt,data->>'outcomeContext' AS outcome_context FROM records WHERE kind IN ('coaching_scenario','coaching_teaching')",
       );
-      if (existing.some((r) => nearDuplicate(r.prompt, normalizedPrompt)))
+      if (
+        existing.some(
+          (r) =>
+            nearDuplicate(r.prompt, normalizedPrompt) ||
+            (r.outcome_context &&
+              (nearDuplicate(
+                normalizePrompt(r.outcome_context),
+                normalizedPrompt,
+              ) ||
+                normalizePrompt(r.outcome_context).includes(normalizedPrompt))),
+        )
+      )
         throw fail(
           409,
           "Use an independent held-out question; renamed or numbered copies do not count as new cases",
@@ -903,6 +932,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       passed: boolean;
       actionId: string | null;
       gate: string;
+      retrieval?: Awaited<ReturnType<typeof selectCoachAction>>["retrieval"];
     }> = [];
     for (const scenario of material.scenarios) {
       const c = scenario.data;
@@ -927,6 +957,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       }
       const result = await selectCoachAction(
         {
+          tenantId: a.tenantId,
           request: c.prompt,
           facts: c.facts,
           actions: eligible,
@@ -944,6 +975,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         passed: accepted === c.expectedActionId,
         actionId: accepted,
         gate: "model_and_policy",
+        retrieval: result.retrieval,
       });
     }
     return db.tenant(a, async (tx) => {
@@ -1087,6 +1119,7 @@ export async function tryQualifiedCoaching(
   if (!initial) return undefined;
   const generated = await selectCoachAction(
     {
+      tenantId: a.tenantId,
       request,
       facts: initial.facts,
       actions: initial.eligible,
@@ -1155,6 +1188,7 @@ export async function tryQualifiedCoaching(
         clientSnapshotId: original.twin.id,
         runtimeReleaseId: runtime.id,
         modelPin: generated.pin,
+        retrieval: generated.retrieval,
         factsDigest: initial.factsDigest,
       },
       { ownerId: a.userId, status: automatic ? "prepared" : "pending_review" },

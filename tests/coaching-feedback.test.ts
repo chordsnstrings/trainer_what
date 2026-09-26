@@ -769,3 +769,261 @@ test("withdrawing coaching permission removes derived teaching from the active m
   assert.equal(details.json().regression.ready, false);
   assert.equal(details.json().regression.state, "teaching_required");
 });
+
+test("later outcomes require a separate deidentified revision and current owner review before they become teaching", async () => {
+  const f = await fixture(),
+    other = await fixture(),
+    { result } = await correct(f),
+    confirmed = await teach(f, result),
+    base = `/coaching/feedback/${result.correction.id}`;
+  const before = await db.tenant(f.coach, (tx) => coachingRuntimeReadiness(tx));
+  const evidence = await db.tenant(f.coach, (tx) =>
+    putRecord(
+      tx,
+      f.coach,
+      "workout",
+      {
+        title: "A later completed session",
+      },
+      { ownerId: f.client.userId, status: "completed" },
+    ),
+  );
+  const outcome = await req(f.coach, base + "/outcomes", "POST", {
+    recordIds: [evidence.id],
+    note: "PRIVATE RAW CLIENT NOTE: a later session was completed.",
+  });
+  assert.equal(outcome.statusCode, 200, outcome.body);
+  assert.deepEqual(outcome.json().data.allowedUses, ["render"]);
+  assert.equal(
+    (await db.tenant(f.coach, (tx) => coachingRuntimeReadiness(tx)))
+      .contractDigest,
+    before.contractDigest,
+  );
+  const revise = { version: confirmed.draft.version };
+  assert.equal(
+    (await req(other.coach, base + "/teaching-draft/revise", "POST", revise))
+      .statusCode,
+    404,
+  );
+  assert.equal(
+    (await req(f.client, base + "/teaching-draft/revise", "POST", revise))
+      .statusCode,
+    403,
+  );
+  const revision = await req(
+    f.coach,
+    base + "/teaching-draft/revise",
+    "POST",
+    revise,
+  );
+  assert.equal(revision.statusCode, 200, revision.body);
+  const draft = revision.json().draft;
+  assert.equal(draft.status, "draft");
+  assert.equal(
+    draft.data.outcomeContext,
+    undefined,
+    "Private notes must not be copied automatically",
+  );
+  assert.equal(
+    (await stored(f.coach, confirmed.draft.data.teachingId)).status,
+    "confirmed",
+  );
+  assert.equal(
+    (await db.tenant(f.coach, (tx) => coachingRuntimeReadiness(tx)))
+      .contractDigest,
+    before.contractDigest,
+  );
+  assert.equal(
+    (await req(f.coach, base + "/teaching-draft/revise", "POST", revise))
+      .statusCode,
+    409,
+  );
+  const deidentified = {
+    ...teaching,
+    outcomeContext:
+      "After moving a conflicting session to an available day, the next planned session was completed. The observation does not establish causation.",
+  };
+  const save = {
+    version: draft.version,
+    teaching: deidentified,
+    outcomeIds: [outcome.json().id],
+  };
+  assert.equal(
+    (
+      await req(f.coach, base + "/teaching-draft", "POST", {
+        ...save,
+        outcomeIds: [],
+      })
+    ).statusCode,
+    400,
+  );
+  const wrong = await db.tenant(f.coach, (tx) =>
+    putRecord(
+      tx,
+      f.coach,
+      "coaching_feedback_outcome",
+      {
+        correctionId: randomUUID(),
+        note: "Unrelated outcome",
+        allowedUses: ["render"],
+      },
+      { ownerId: f.client.userId, status: "recorded" },
+    ),
+  );
+  assert.equal(
+    (
+      await req(f.coach, base + "/teaching-draft", "POST", {
+        ...save,
+        outcomeIds: [wrong.id],
+      })
+    ).statusCode,
+    400,
+  );
+  const saved = await req(f.coach, base + "/teaching-draft", "POST", save);
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual(saved.json().data.reviewedOutcomeRefs, [
+    { id: outcome.json().id, version: outcome.json().version },
+  ]);
+  const review = {
+    version: saved.json().version,
+    reviewed: true,
+    clientDetailsRemoved: true,
+  };
+  assert.equal(
+    (await req(f.coach, base + "/confirm-teaching", "POST", review)).statusCode,
+    400,
+  );
+  await db.tenant(f.coach, (tx) =>
+    tx.query("UPDATE records SET version=version+1 WHERE id=$1", [
+      outcome.json().id,
+    ]),
+  );
+  assert.equal(
+    (
+      await req(f.coach, base + "/confirm-teaching", "POST", {
+        ...review,
+        outcomeContextReviewed: true,
+      })
+    ).statusCode,
+    409,
+  );
+  const resaved = await req(f.coach, base + "/teaching-draft", "POST", {
+    ...save,
+    version: saved.json().version,
+  });
+  assert.equal(resaved.statusCode, 200, resaved.body);
+  await db.tenant(f.coach, (tx) =>
+    tx.query("UPDATE records SET version=version+1 WHERE id=$1", [
+      confirmed.draft.data.teachingId,
+    ]),
+  );
+  const stalePredecessor = await req(
+    f.coach,
+    base + "/confirm-teaching",
+    "POST",
+    {
+      ...review,
+      version: resaved.json().version,
+      outcomeContextReviewed: true,
+    },
+  );
+  assert.equal(stalePredecessor.statusCode, 409, stalePredecessor.body);
+  const refreshed = await req(f.coach, base + "/teaching-draft", "POST", {
+    ...save,
+    version: resaved.json().version,
+  });
+  assert.equal(refreshed.statusCode, 200, refreshed.body);
+  const accepted = await req(f.coach, base + "/confirm-teaching", "POST", {
+    ...review,
+    version: refreshed.json().version,
+    outcomeContextReviewed: true,
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+  const learned = await stored(f.coach, accepted.json().draft.data.teachingId);
+  assert.equal(learned.data.outcomeContext, deidentified.outcomeContext);
+  assert.equal(learned.owner_user_id, f.client.userId);
+  assert.doesNotMatch(
+    JSON.stringify(learned.data),
+    /PRIVATE RAW|reviewedOutcomeRefs/,
+  );
+  assert.equal(
+    (await stored(f.coach, confirmed.draft.data.teachingId)).status,
+    "archived",
+  );
+  assert.deepEqual(
+    (await stored(f.coach, outcome.json().id)).data.allowedUses,
+    ["render"],
+  );
+  const after = await db.tenant(f.coach, (tx) => coachingRuntimeReadiness(tx));
+  assert.notEqual(after.contractDigest, before.contractDigest);
+  assert.equal(after.current, false);
+  assert.equal(
+    accepted.json().regression.ready,
+    false,
+    "An outcome revision requires current independent checks",
+  );
+});
+
+test("held-out questions cannot be copied into reviewed outcome context and removing a summary clears its private references", async () => {
+  const f = await fixture(),
+    { result } = await correct(f),
+    base = `/coaching/feedback/${result.correction.id}`;
+  const prompt =
+    "Could business tax rules change the best day for my training schedule?";
+  await db.tenant(f.coach, (tx) =>
+    putRecord(
+      tx,
+      f.coach,
+      "coaching_scenario",
+      {
+        prompt,
+        normalizedPrompt: normalizeCoachingPrompt(prompt),
+        category: "unsupported",
+      },
+      { status: "held_out" },
+    ),
+  );
+  const outcome = await db.tenant(f.coach, (tx) =>
+    putRecord(
+      tx,
+      f.coach,
+      "coaching_feedback_outcome",
+      {
+        correctionId: result.correction.id,
+        note: "Private note",
+        allowedUses: ["render"],
+      },
+      { ownerId: f.client.userId, status: "recorded" },
+    ),
+  );
+  const saved = await req(f.coach, base + "/teaching-draft", "POST", {
+    version: result.draft.version,
+    teaching: {
+      ...teaching,
+      outcomeContext: "A copied question was: " + prompt,
+    },
+    outcomeIds: [outcome.id],
+  });
+  assert.equal(saved.statusCode, 200, saved.body);
+  const refused = await req(f.coach, base + "/confirm-teaching", "POST", {
+    version: saved.json().version,
+    reviewed: true,
+    clientDetailsRemoved: true,
+    outcomeContextReviewed: true,
+  });
+  assert.equal(refused.statusCode, 409, refused.body);
+  assert.match(refused.json().message, /held out/);
+  const cleared = await req(f.coach, base + "/teaching-draft", "POST", {
+    version: saved.json().version,
+    teaching,
+  });
+  assert.equal(cleared.statusCode, 200, cleared.body);
+  assert.equal(cleared.json().data.outcomeContext, undefined);
+  assert.deepEqual(cleared.json().data.reviewedOutcomeRefs, []);
+  const accepted = await req(f.coach, base + "/confirm-teaching", "POST", {
+    version: cleared.json().version,
+    reviewed: true,
+    clientDetailsRemoved: true,
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+});
