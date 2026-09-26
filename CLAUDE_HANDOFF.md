@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is checked and awaiting checkpoint. Source-scope follow-ups now cover scheduled coaching messages, temporary read-only support access and Twin/compiler data-loss fixes. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Source-scope follow-ups now cover scheduled coaching messages, temporary read-only support access and Twin/compiler data-loss fixes. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -62,7 +62,7 @@ Decoded/re-encoded uploads remove metadata and validate crop/rights/limits. Trai
 
 Brand saves serialize workspace and brand changes, recheck the current active owner through the scoped helper, validate same-workspace media and apply revision checks atomically. UI fixes preserve unsaved website edits when handling inquiries, reload current galleries/drafts and paginate private previews beyond 24 entries.
 
-Checks: **12 coach-site and 5 branding tests passed**, including the assembled app registration/brand save, stale revision and media-deletion race. Whole-tree TypeScript and scoped diff checks passed. No additional migration beyond018. Actual browser upload → gallery → site publish → client/public visibility remains pending. A separate privacy follow-up will remove a former owner's uploaded media and references on approved personal erasure while preserving the remaining workspace.
+Checks: **12 coach-site and 5 branding tests passed**, including the assembled app registration/brand save, stale revision and media-deletion race. Whole-tree TypeScript and scoped diff checks passed. No additional migration beyond018. Actual browser upload → gallery → site publish → client/public visibility remains pending. Approved former-owner personal erasure now removes owned media/galleries and exact image references from applied/private designs under workspace→brand locks, with revision bumps to invalidate stale editors. Other users' media and the ongoing workspace remain intact. Four new media privacy and eight existing privacy lifecycle tests, TypeScript and diff checks passed; no migration or broader grant was needed.
 
 ### 3. Notifications and email delivery — completed
 
@@ -114,7 +114,7 @@ Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Checkpoint the verified former-owner media erasure fix and correct the missed notification-settings component mount.
+1. Correct the missed notification-settings component mount; former-owner media erasure is completed.
 2. Finish the bounded source-scope slices now assigned: scheduled coach-authored follow-ups, case-bound read-only support preview and Twin/compiler data-loss safeguards.
 3. Update functional browser coverage for these completed app paths; each stage needs concrete checks and its own handoff/commit.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
@@ -176,3 +176,7 @@ Added a dedicated original001–029 →030 regression with preexisting messages/
 ### 26 September — Consented acquisition completion
 
 Connected opt-in/readback/withdrawal, opaque host-scoped cookie handling, safe attribution, guarded copy experiments, signup/new enrollment/publication/first-positive-payment conversions, privacy and hourly retention. Thirty-four focused tests across four suites and TypeScript passed, including actual shared app/payment/privacy hooks and best-effort analytics failures. Existing029 is unchanged. Commit: the stage commit containing this entry. Next: media erasure checkpoint, settings mount correction, source-scope follow-ups and combined release/browser gates.
+
+### 26 September — Former-owner media privacy completion
+
+Approved personal erasure removes the former owner's photos/galleries, clears exact references from applied/private designs, updates affected gallery ordering/revisions and prevents stale editors restoring deleted media. Other people's media and the ongoing workspace remain intact; current-owner erasure still requires transfer/closure. Four new media and eight existing privacy tests, whole-tree TypeScript and scoped diff checks passed. No migration or new grant. Commit: the stage commit containing this entry. Next: settings mount correction, source-scope slices and release/browser checks.

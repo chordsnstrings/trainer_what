@@ -1,6 +1,11 @@
 import type { Tx } from "@trainer/db";
 import type { PrivacyHooks } from "./privacy-lifecycle.ts";
-import { exportChatAttachments, eraseChatAttachments, closeChatAttachments } from "./chat-attachments.ts";
+import { eraseOwnedBrandMedia } from "./coach-site.ts";
+import {
+  exportChatAttachments,
+  eraseChatAttachments,
+  closeChatAttachments,
+} from "./chat-attachments.ts";
 async function exists(tx: Tx, table: string) {
   return !!(
     await tx.query("SELECT to_regclass($1) name", ["public." + table])
@@ -142,6 +147,7 @@ export const privacyHooks: PrivacyHooks = {
   },
   async eraseAdditional(tx, userId) {
     await eraseChatAttachments(tx, userId);
+    if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);
     // Remove guided audio before workout records because the audio has an FK to
     // its workout. Provider revocation/purge remains an explicit evidence task.
     if (await exists(tx, "trainer_voices")) {

@@ -18,8 +18,8 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
 | Administration and team | Scoped views, publication, team, ingestion and consented acquisition committed | Temporary support preview and remaining source-scope review |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
-| Privacy and accounts | Connected, including attachments and acquisition | Former-owner website media cleanup checkpoint |
-| Galleries and website | Uploads, galleries, drafts, SSR, navigation and manifests connected | Former-owner media erasure and browser journeys |
+| Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
+| Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
 | Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
 | Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
 
@@ -124,3 +124,7 @@ A dedicated original001–029 →030 migration regression preserves existing con
 ### Consented acquisition completion
 
 Explicit consent and host-scoped opaque cookies now govern attribution and guarded landing/onboarding wording experiments. Actual signup/new enrollment, publication and verified first-positive-payment hooks dedupe after commit; analytics failures preserve business success. Withdrawal, export/erasure and bounded expiry cleanup include linked anonymous history. Thirty-four focused acquisition/onboarding/privacy/admin tests and TypeScript passed. Migration029 is unchanged. Browser interaction remains pending; root handoff updated.
+
+### Former-owner media privacy completion
+
+Reviewed personal erasure now removes owned media/galleries and exact applied/private design references, bumps stale-editor revisions and compacts remaining gallery order. Other users' media, other workspaces and the continuing workspace are preserved. Four new media privacy tests, eight existing lifecycle tests, TypeScript and diff checks passed. No migration/grant change; root handoff updated.

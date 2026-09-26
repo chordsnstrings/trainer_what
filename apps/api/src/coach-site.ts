@@ -155,6 +155,95 @@ export async function saveCoachBrand(
     return next;
   });
 }
+function withoutOwnedPhotoReferences(value: any, urls: Set<string>) {
+  if (!value?.design || typeof value.design !== "object") return null;
+  const design = { ...value.design };
+  let changed = false;
+  for (const key of ["logoUrl", "photoUrl", "coverUrl"]) {
+    if (urls.has(design[key])) {
+      design[key] = "";
+      changed = true;
+    }
+  }
+  return changed ? { ...value, design } : null;
+}
+
+// This is called only inside the reviewed erasure transaction. Normal owner
+// photo deletion still refuses references; erasure removes those references
+// atomically and invalidates stale design/gallery editors before dropping bytes.
+export async function eraseOwnedBrandMedia(tx: Tx, userId: string) {
+  const [scope] = await tx.query(
+    "SELECT current_user AS database_role,nullif(current_setting('app.tenant_id',true),'')::uuid AS tenant_id,current_setting('app.role',true) AS role",
+  );
+  if (
+    scope.database_role !== "trainer_app" ||
+    scope.role !== "owner" ||
+    !scope.tenant_id
+  )
+    throw fail(
+      403,
+      "PRIVACY_SCOPE_REQUIRED",
+      "A scoped privacy operator transaction is required",
+    );
+  const tenantId = scope.tenant_id;
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    tenantId + ":workspace",
+  ]);
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    tenantId + ":brand",
+  ]);
+  const owned = await tx.query(
+    "SELECT id FROM brand_media WHERE owner_user_id=$1 ORDER BY id FOR UPDATE",
+    [userId],
+  );
+  const mediaIds = owned.map((row) => row.id);
+  const urls = new Set<string>(mediaIds.map(mediaUrl));
+  const affectedGalleries = await tx.query(
+    "UPDATE coach_galleries SET version=version+1,updated_at=now() WHERE owner_user_id<>$1 AND id IN (SELECT gallery_id FROM coach_gallery_photos WHERE media_id=ANY($2::uuid[])) RETURNING id",
+    [userId, mediaIds],
+  );
+  await tx.query(
+    "DELETE FROM coach_gallery_photos WHERE media_id=ANY($1::uuid[])",
+    [mediaIds],
+  );
+  await tx.query("DELETE FROM coach_galleries WHERE owner_user_id=$1", [
+    userId,
+  ]);
+  if (affectedGalleries.length)
+    await tx.query(
+      "WITH ordered AS (SELECT gallery_id,media_id,(row_number() OVER(PARTITION BY gallery_id ORDER BY position,media_id)-1)::integer AS position FROM coach_gallery_photos WHERE gallery_id=ANY($1::uuid[])) UPDATE coach_gallery_photos p SET position=o.position FROM ordered o WHERE p.gallery_id=o.gallery_id AND p.media_id=o.media_id",
+      [affectedGalleries.map((row) => row.id)],
+    );
+  if (!mediaIds.length) return;
+  const [draft] = await tx.query(
+    "SELECT data FROM coach_design_drafts WHERE tenant_id=$1 FOR UPDATE",
+    [tenantId],
+  );
+  const nextDraft = withoutOwnedPhotoReferences(draft?.data, urls);
+  if (nextDraft)
+    await tx.query(
+      "UPDATE coach_design_drafts SET data=$2,version=version+1,updated_at=now() WHERE tenant_id=$1",
+      [tenantId, JSON.stringify(nextDraft)],
+    );
+  // tenants is deliberately inaccessible to trainer_app. The active transaction
+  // has already established one workspace and the erasure route's authority.
+  await tx.query("RESET ROLE");
+  const [tenant] = await tx.query(
+    "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
+    [tenantId],
+  );
+  const nextTheme = withoutOwnedPhotoReferences(tenant?.theme, urls);
+  if (nextTheme)
+    await tx.query("UPDATE tenants SET theme=$2 WHERE id=$1", [
+      tenantId,
+      JSON.stringify({
+        ...nextTheme,
+        brandVersion: Number(tenant.theme?.brandVersion ?? 0) + 1,
+      }),
+    ]);
+  await tx.query("SET LOCAL ROLE trainer_app");
+  await tx.query("DELETE FROM brand_media WHERE owner_user_id=$1", [userId]);
+}
 function publicHost(req: FastifyRequest, slug?: string) {
   const context = (req as any).hostContext;
   if (context?.custom && slug !== undefined && slug !== context.tenantSlug)
