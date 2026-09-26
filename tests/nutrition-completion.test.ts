@@ -3,7 +3,18 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createDatabase, putRecord, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
-import { fixtureCatalog, fixtureProfile } from "./nutrition-fixtures.ts";
+import {
+  fixtureCatalog,
+  fixtureProfile,
+  fixtureCases,
+  fixturePolicy,
+  fixtureWeek,
+} from "./nutrition-fixtures.ts";
+import { clientNutritionTarget } from "../apps/api/src/nutrition-completion.ts";
+import {
+  calculateCoachTarget,
+  validateClientTargets,
+} from "../packages/domain/src/nutrition-completion.ts";
 import { localDate } from "../packages/domain/src/nutrition.ts";
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
@@ -217,4 +228,245 @@ test("weekly recovery retries only unsent intent and persists an auditable provi
   );
   assert.equal(audit.data.providerState, "uncertain");
   assert.equal(audit.data.providerReference, "synthetic-case-0001");
+});
+
+let client: any,
+  profile: any,
+  policy: any,
+  taught: any[],
+  recipeVersions: any[];
+async function prepareClient() {
+  const invite = await ok("/invitations", "POST", {
+    email: "nutrition-personal@example.test",
+    role: "subscriber",
+  });
+  const accept = await req(
+    "/invitations/accept",
+    "POST",
+    {
+      token: invite.url.split("/").pop(),
+      name: "Synthetic client",
+      email: "nutrition-personal@example.test",
+      password: "CompletionFixture2026!",
+    },
+    {},
+  );
+  assert.equal(accept.statusCode, 200, accept.body);
+  const cookie = String(accept.headers["set-cookie"]).split(";")[0];
+  client = {
+    ...(await ok("/bootstrap", "GET", undefined, { cookie })).user,
+    cookie,
+  };
+  await db.tenant(owner, async (tx) => {
+    await tx.query(
+      "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,data) VALUES($1,$2,$3,'active',now()+interval '30 days',$4)",
+      [
+        randomUUID(),
+        owner.tenantId,
+        client.userId,
+        JSON.stringify({ modules: ["training", "nutrition"] }),
+      ],
+    );
+  });
+  profile = await ok(
+    "/nutrition/profile",
+    "POST",
+    {
+      profile: fixtureProfile,
+      processingConsent: true,
+      modelConsent: false,
+      version: 0,
+    },
+    client,
+  );
+  taught = [];
+  for (const { id, ...c } of fixtureCases())
+    taught.push(await ok("/nutrition/cases", "POST", c));
+  policy = fixturePolicy(taught.map((c) => c.id));
+  await db.tenant(owner, (tx) =>
+    putRecord(
+      tx,
+      owner,
+      "nutrition_policy",
+      { policy },
+      { status: "confirmed" },
+    ),
+  );
+  const catalog = fixtureCatalog();
+  recipeVersions = [];
+  for (let i = 0; i < catalog.foods.length; i++) {
+    const { id, ...food } = catalog.foods[i],
+      f = await ok("/nutrition/foods", "POST", { food }),
+      { id: _, ...recipe } = catalog.recipes[i];
+    recipe.variants = recipe.variants.map((v) => ({
+      ...v,
+      ingredients: [{ foodId: f.id, grams: i === 0 ? 400 : 550 }],
+    }));
+    recipeVersions.push(await ok("/nutrition/recipes", "POST", { recipe }));
+  }
+}
+test("coach-authored methods and individual targets enforce limits, profile binding and revision", async () => {
+  await prepareClient();
+  const method = {
+    name: "Synthetic fixed method",
+    kind: "fixed" as const,
+    fixedKcal: 1500,
+    kcalPerKg: null,
+    activityFactor: 1,
+    adjustmentKcal: 0,
+    reason: "Synthetic arithmetic only",
+    sourceIds: taught.map((c) => c.id),
+  };
+  assert.equal(calculateCoachTarget(method, {}, policy, fixtureProfile), 1500);
+  assert.throws(() =>
+    calculateCoachTarget(
+      { ...method, kind: "weight_activity", kcalPerKg: 20 },
+      {},
+      policy,
+      fixtureProfile,
+    ),
+  );
+  const m = await ok("/nutrition/methods", "POST", method),
+    target = {
+      kcal: 1500,
+      protein: 75,
+      carbohydrate: 180,
+      fat: 45,
+      macroTolerancePercent: 20,
+      hydrationMl: 2000,
+      habits: ["Synthetic habit"],
+      reviewOn: localDate(fixtureProfile.timezone),
+      reason: "Individual synthetic arithmetic fixture",
+      allowAutomaticAdjustment: false,
+    };
+  const body = {
+    previousId: null,
+    profileId: profile.id,
+    target,
+    methodId: m.id,
+  };
+  assert.equal(
+    (
+      await req(`/nutrition/clients/${client.userId}/target`, "POST", {
+        ...body,
+        target: { ...target, kcal: 1501 },
+      })
+    ).statusCode,
+    400,
+  );
+  const saved = await ok(
+    `/nutrition/clients/${client.userId}/target`,
+    "POST",
+    body,
+  );
+  assert.equal(saved.data.target.kcal, 1500);
+  assert.equal(
+    (await req(`/nutrition/clients/${client.userId}/target`, "POST", body))
+      .statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await req(
+        `/nutrition/clients/${client.userId}/control`,
+        "GET",
+        undefined,
+        other,
+      )
+    ).statusCode,
+    404,
+  );
+  const resolved = await db.tenant(owner, (tx) =>
+    clientNutritionTarget(tx, client.userId, profile, policy),
+  );
+  assert.equal(resolved.id, saved.id);
+  assert.equal(resolved.kcal, 1500);
+  assert.equal(
+    (await ok("/nutrition", "GET", undefined, client)).targets[0].id,
+    saved.id,
+  );
+  await assert.rejects(
+    () =>
+      db.tenant(owner, (tx) =>
+        tx.query(
+          "UPDATE records SET data=data||'{\"target\":{}}'::jsonb WHERE id=$1",
+          [saved.id],
+        ),
+      ),
+    /versioned/,
+  );
+  assert.throws(() =>
+    validateClientTargets(
+      { days: [{ totals: { protein: null, carbohydrate: 180, fat: 45 } }] },
+      target,
+    ),
+  );
+});
+test("coach assignment and amendment validate full week and preserve immutable historical snapshots", async () => {
+  const choices = fixtureWeek(
+      recipeVersions,
+      taught.map((c) => c.id),
+    ),
+    body = {
+      weekStart: localDate(fixtureProfile.timezone),
+      profileId: profile.id,
+      previousId: null,
+      previousVersion: null,
+      week: choices,
+      reason: "Assigning the complete synthetic weekly plan",
+    };
+  const plan = await ok(
+    `/nutrition/clients/${client.userId}/plan`,
+    "POST",
+    body,
+  );
+  assert.equal(plan.data.view.days.length, 7);
+  assert.equal(plan.data.target.kcal, 1500);
+  assert.equal(
+    (await req(`/nutrition/clients/${client.userId}/plan`, "POST", body))
+      .statusCode,
+    409,
+  );
+  const bad = structuredClone(choices);
+  bad.days[0].meals[0].servings = 10;
+  const rejected = await req(
+    `/nutrition/clients/${client.userId}/plan`,
+    "POST",
+    { ...body, previousId: plan.id, previousVersion: plan.version, week: bad },
+  );
+  assert.ok(rejected.statusCode >= 400, rejected.body);
+  const amended = await ok(`/nutrition/clients/${client.userId}/plan`, "POST", {
+    ...body,
+    previousId: plan.id,
+    previousVersion: plan.version,
+    reason: "Amended cooking guidance for the synthetic week",
+  });
+  assert.equal(amended.data.previousId, plan.id);
+  const saved = await ok(`/nutrition/clients/${client.userId}/control`);
+  assert.equal(
+    saved.plans.find((p: any) => p.id === plan.id).status,
+    "archived",
+  );
+  assert.deepEqual(
+    saved.plans.find((p: any) => p.id === plan.id).data.view,
+    plan.data.view,
+  );
+  await ok(`/nutrition/plans/${amended.id}/archive`, "POST", {
+    version: amended.version,
+    reason: "Archiving after documented client discussion",
+  });
+  assert.equal(
+    (
+      await req(`/nutrition/plans/${amended.id}/archive`, "POST", {
+        version: amended.version,
+        reason: "Repeated archive must conflict",
+      })
+    ).statusCode,
+    409,
+  );
+  const current = await ok(`/nutrition/clients/${client.userId}/control`);
+  assert.equal(
+    current.plans.some((p: any) => p.status === "delivered"),
+    false,
+  );
 });

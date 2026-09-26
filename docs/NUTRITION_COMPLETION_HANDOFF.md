@@ -15,3 +15,14 @@ Stage 1 files: `apps/api/src/nutrition.ts`, `nutrition-schedule.ts`, `nutrition-
 Checks: original 14 nutrition tests passed during implementation; two new focused tests cover catalog supersession/archive/isolation and unsent-versus-uncertain recovery/audit/CAS. Final stage check result will be reported to coordinator.
 
 Next: individual targets/methods/habits and coach plan intervention, then tracker/capture/groceries and stronger adaptive teaching.
+
+## Stage 2: individual nutrition and coach intervention
+
+- Coach Methods view records explicit fixed or body-weight/activity calculations tied to confirmed teaching cases; no default clinical method is invented. An individual target records the actual calculation inputs or coach override, reason, macro goals/tolerance, hydration/habits, review date and whether policy-bounded automatic adjustments are permitted.
+- Targets are immutable and bound to the client's intake version; revision conflicts, changed case evidence, policy limits, expired review dates and missing inputs stop unsafe reuse. Generation includes these targets and rechecks the target at delivery. Macro limits also apply to automatic swaps.
+- Client nutrition page now has target controls and a seven-day recipe/cooking/portion editor. Assign, amend and archive preserve historical plans and record reasons. Full weekly ingredient/allergen/scope/calorie/macro validation still applies to coach delivery; human action does not bypass it.
+- Existing combined-tier checks and weekly scheduling now use finance `currentPaidSubscription()` so signed persisted payment-grace rules are consistent.
+
+Integration: all routes remain registered by nutritionRoutes; target and meal-editor controls are embedded in NutritionSubscriber's existing coach view. New NutritionCoach sections `methods` and `clients`. New migration `024_nutrition_personalization.sql` adds immutable decision protection and active-target uniqueness; no table grants. Privacy record kinds: `nutrition_target`, `nutrition_plan_edit`, `nutrition_recovery` (already present in privacy agent's current list).
+
+Checks: full TypeScript passed; 27 focused tests passed (four nutrition completion, fourteen baseline nutrition, nine meal-capture). No external provider, deployment or screenshot used.

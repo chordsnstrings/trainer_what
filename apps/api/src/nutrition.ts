@@ -1,4 +1,9 @@
-import { nutritionCompletionRoutes } from "./nutrition-completion.ts";
+import { currentPaidSubscription } from "./finance-billing.ts";
+import { validateClientTargets } from "../../../packages/domain/src/nutrition-completion.ts";
+import {
+  nutritionCompletionRoutes,
+  clientNutritionTarget,
+} from "./nutrition-completion.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { eraseMealCaptures } from "./meal-capture.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -83,10 +88,7 @@ async function member(tx: Tx, a: Actor, userId: string) {
   if (!m) throw fail(404, "SUBSCRIBER_UNAVAILABLE", "Subscriber unavailable");
 }
 export async function nutritionEntitlement(tx: Tx, userId: string) {
-  const [s] = await tx.query(
-    "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
-    [userId],
-  );
+  const s = await currentPaidSubscription(tx, userId);
   return !!s && s.data?.modules?.includes("nutrition") === true;
 }
 async function entitled(tx: Tx, userId: string) {
@@ -1190,6 +1192,10 @@ function subscriberRoutes(
         twin: await nutritionTwin(tx, a, uid),
         today: localDate(profile?.data.profile.timezone ?? "Asia/Dubai"),
         ready: (await nutritionReadiness(tx)).ready,
+        targets: await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_target' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC",
+          [uid],
+        ),
       };
     });
   });
@@ -1378,6 +1384,7 @@ function subscriberRoutes(
       const before = new Map<string, number>(
         old.data.view.groceries.map((g: any) => [g.food.id, g.grams]),
       );
+      validateClientTargets(view, old.data.target ?? null);
       const delta = view.groceries.map((g) => ({
         foodId: g.food.id,
         grams: Math.round((g.grams - (before.get(g.food.id) ?? 0)) * 100) / 100,
@@ -1670,9 +1677,17 @@ export async function prepareNutritionWeek(
         "GENERATION_PENDING",
         "A meal plan is already being prepared.",
       );
-    let targetKcal: number;
+    let targetKcal: number,
+      individualTarget: Awaited<ReturnType<typeof clientNutritionTarget>>;
     try {
-      targetKcal = nutritionTarget(m.policy!.data.policy, profile.data.profile);
+      individualTarget = await clientNutritionTarget(
+        tx,
+        a.userId,
+        profile,
+        m.policy!.data.policy,
+        b.weekStart,
+      );
+      targetKcal = individualTarget.kcal;
     } catch (error) {
       const issue = availabilityError(error);
       await exception(tx, a, a.userId, issue.code, issue.message);
@@ -1683,7 +1698,10 @@ export async function prepareNutritionWeek(
     let adjustmentEvidence: string[] = [];
     if (
       previous?.data.releaseId === r.release!.id &&
-      previous.data.profileId === profile.id
+      previous.data.profileId === profile.id &&
+      (previous.data.targetId ?? null) === individualTarget.id &&
+      (!individualTarget.details ||
+        individualTarget.details.allowAutomaticAdjustment)
     ) {
       targetKcal = previous.data.view.targetKcal;
       const checkins = await tx.query(
@@ -1753,6 +1771,7 @@ export async function prepareNutritionWeek(
       material: m,
       targetKcal,
       adjustmentEvidence,
+      individualTarget,
     };
   });
   if (initial.done) return { plan: initial.done, reused: true };
@@ -1767,6 +1786,7 @@ export async function prepareNutritionWeek(
       | "material"
       | "targetKcal"
       | "adjustmentEvidence"
+      | "individualTarget"
     >
   >;
   try {
@@ -1775,6 +1795,7 @@ export async function prepareNutritionWeek(
         ...evidence(s.material),
         profile: s.profile.data.profile,
         targetKcal: s.targetKcal,
+        individualTarget: s.individualTarget.details,
       },
       a,
       db,
@@ -1790,6 +1811,7 @@ export async function prepareNutritionWeek(
       weekStart: b.weekStart,
       targetKcal: s.targetKcal,
     });
+    validateClientTargets(view, s.individualTarget.details);
     return await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
       await entitled(tx, a.userId);
@@ -1801,7 +1823,15 @@ export async function prepareNutritionWeek(
         ready.release!.id !== s.release.id ||
         ready.material.digest !== s.material.digest ||
         now.processing.id !== s.permissions.processing.id ||
-        now.ai.id !== s.permissions.ai.id
+        now.ai.id !== s.permissions.ai.id ||
+        (
+          await clientNutritionTarget(
+            tx,
+            a.userId,
+            profile,
+            ready.material.policy!.data.policy,
+          )
+        ).id !== s.individualTarget.id
       )
         throw fail(
           409,
@@ -1826,6 +1856,8 @@ export async function prepareNutritionWeek(
         choices: week,
         view,
         origin: "automatic",
+        targetId: s.individualTarget.id,
+        target: s.individualTarget.details,
         adjustmentEvidence: s.adjustmentEvidence,
         model: nutritionModelIdentity(),
       });
