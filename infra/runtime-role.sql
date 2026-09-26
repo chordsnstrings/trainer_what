@@ -10,3 +10,7 @@ GRANT SELECT,INSERT,UPDATE ON platform_settings TO trainer_service;
 GRANT SELECT,INSERT ON platform_settings_audit TO trainer_service;
 -- Set trainer_service's password with the database console's password workflow.
 -- The runtime must not own tables. Tenant transactions explicitly SET LOCAL ROLE.
+
+GRANT SELECT,INSERT,UPDATE ON admin_documents,admin_experiments TO trainer_service;
+GRANT SELECT,INSERT ON admin_operations_audit,acquisition_events TO trainer_service;
+GRANT DELETE ON acquisition_events TO trainer_service;

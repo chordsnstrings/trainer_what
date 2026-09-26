@@ -1,3 +1,4 @@
+import { registerAdminOperations } from "./admin-operations.ts";
 import { registerFinanceBilling, currentPaidSubscription } from "./finance-billing.ts";
 import { registerCoachingCompletion, lockTraining } from "./coaching-completion.ts";
 import {
@@ -284,6 +285,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerFinanceBilling(app, db);
+  registerAdminOperations(app, db, identity);
   securityRoutes(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);

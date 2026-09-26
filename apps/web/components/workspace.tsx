@@ -1,6 +1,7 @@
 "use client";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { BillingHistory } from "./finance-completion";
+import { AdminOperations, TrainerAnalytics } from "./admin-operations";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
@@ -620,7 +621,7 @@ export default function Workspace() {
               {success}
             </div>
           )}
-          {path === "/admin/security" ? (
+          {path === "/admin/account-security" ? (
             state.user.platformRole === "admin" ? (
               <>
                 <Heading
@@ -646,6 +647,8 @@ export default function Workspace() {
               platformRole={state.user.platformRole}
               onSettingsChanged={load}
             />
+          ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(path) ? (
+            <AdminOperations path={path} platformRole={state.user.platformRole} />
           ) : path.startsWith("/admin") ? (
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (
@@ -716,6 +719,8 @@ export default function Workspace() {
             path.includes("/profile") ||
             path.includes("/intake") ? (
             <SettingsView {...props} />
+          ) : path === "/trainer/analytics" && ["owner", "finance"].includes(state.user.role) ? (
+            <TrainerAnalytics />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
