@@ -1,3 +1,7 @@
+import {
+  processMembershipCheckoutEvent,
+  settleCheckoutSubscription,
+} from "./finance-checkout.ts";
 import { processBookingStripeEvent } from "./finance-bookings.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -22,6 +26,7 @@ const supported = new Set([
 ]);
 export async function processStripeEvent(db: Database, e: any) {
   if (await processBookingStripeEvent(db, e)) return { processed: true };
+  if (await processMembershipCheckoutEvent(db, e)) return { processed: true };
   if (!supported.has(e.type)) return { ignored: true };
   const object = e.data.object;
   const meta = object.metadata?.tenant_id
@@ -103,6 +108,15 @@ export async function processStripeEvent(db: Database, e: any) {
     const eventTime = Number(e.created ?? 0),
       lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
     const newer = !eventTime || eventTime >= lastTime;
+    const differentSubscription = !!(
+      subscriptionId &&
+      current?.provider_id &&
+      subscriptionId !== current.provider_id
+    );
+    const currentTerminal = ["canceled", "incomplete_expired"].includes(
+      current?.status,
+    );
+
     // Entitlements come from a signed event's actual price mapped to our immutable offer.
     // Caller-controlled metadata never grants a module; unknown price changes fail closed.
     const line = object.items?.data?.[0] ?? object.lines?.data?.[0];
@@ -125,11 +139,24 @@ export async function processStripeEvent(db: Database, e: any) {
             productId: offer.id,
             tier: offer.data.tier ?? "workout",
             modules: offer.data.modules ?? ["training"],
+            premiumVoice: offer.data.premiumVoice === true,
             priceId,
           }
-        : { modules: [], priceId, unmappedPrice: true };
+        : { modules: [], priceId, unmappedPrice: true, premiumVoice: false };
     } else if (!current?.data?.modules) {
-      productAccess = { modules: ["training"], tier: "workout" };
+      productAccess = {
+        modules: ["training"],
+        tier: "workout",
+        premiumVoice: false,
+      };
+    } else if (newer && !priceId && !current?.data?.priceId) {
+      // Legacy grants without a verified offer mapping never enable paid voice.
+      productAccess = {
+        premiumVoice: false,
+        modules: current.data.modules.filter(
+          (module: string) => module !== "voice",
+        ),
+      };
     }
     if (["invoice.paid", "invoice.payment_failed"].includes(e.type)) {
       const safeLink = (value: unknown) => {
@@ -206,19 +233,21 @@ export async function processStripeEvent(db: Database, e: any) {
         lastStripeEventAt: Math.max(lastTime, eventTime),
         ...(newer ? { graceUntil: null, pastDueSince: null } : {}),
       };
-      await tx.query(
-        "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,price_minor,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,provider_id=excluded.provider_id,period_end=greatest(subscriptions.period_end,excluded.period_end),price_minor=excluded.price_minor,data=excluded.data",
-        [
-          randomUUID(),
-          tenantId,
-          userId,
-          subscriptionId ?? current?.provider_id,
-          status,
-          new Date(end * 1000),
-          amount,
-          JSON.stringify(metadata),
-        ],
-      );
+      // A late invoice from an older membership still posts money, but cannot replace current access.
+      if (!differentSubscription || (newer && currentTerminal))
+        await tx.query(
+          "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,price_minor,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,provider_id=excluded.provider_id,period_end=greatest(subscriptions.period_end,excluded.period_end),price_minor=excluded.price_minor,data=excluded.data",
+          [
+            randomUUID(),
+            tenantId,
+            userId,
+            subscriptionId ?? current?.provider_id,
+            status,
+            new Date(end * 1000),
+            amount,
+            JSON.stringify(metadata),
+          ],
+        );
       const [position] = await tx.query(
         "SELECT rank FROM (SELECT user_id,row_number() OVER(ORDER BY (data->>'firstPaidAt')::timestamptz,user_id)::int AS rank FROM subscriptions WHERE status IN ('active','trialing') AND data ? 'firstPaidAt') ranked WHERE user_id=$1",
         [userId],
@@ -242,6 +271,18 @@ export async function processStripeEvent(db: Database, e: any) {
         );
       await event(tx, a, "invoice.paid", object.id, { providerEventId: e.id });
     } else if (e.type.startsWith("customer.subscription.") && newer) {
+      if (differentSubscription && !currentTerminal) {
+        if (!["canceled", "incomplete_expired"].includes(object.status))
+          throw new Error(
+            "A different active provider subscription requires reconciliation before replacing the current membership",
+          );
+        await settleCheckoutSubscription(tx, a, object);
+        await event(tx, a, "subscription.historical_terminal", object.id, {
+          providerEventId: e.id,
+          status: object.status,
+        });
+        return;
+      }
       const period =
         object.current_period_end ??
         object.items?.data?.[0]?.current_period_end;
@@ -262,7 +303,7 @@ export async function processStripeEvent(db: Database, e: any) {
             : {}),
       };
       await tx.query(
-        "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,data=excluded.data",
+        "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET provider_id=excluded.provider_id,status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,data=excluded.data",
         [
           randomUUID(),
           tenantId,
@@ -274,11 +315,16 @@ export async function processStripeEvent(db: Database, e: any) {
           JSON.stringify(data),
         ],
       );
+      await settleCheckoutSubscription(tx, a, object);
       await event(tx, a, "subscription.updated", object.id, {
         status: object.status,
         providerEventId: e.id,
       });
-    } else if (e.type === "invoice.payment_failed" && newer) {
+    } else if (
+      e.type === "invoice.payment_failed" &&
+      newer &&
+      !differentSubscription
+    ) {
       await tx.query(
         "UPDATE subscriptions SET status='past_due',data=data||$2::jsonb WHERE user_id=$1 AND status<>'canceled'",
         [

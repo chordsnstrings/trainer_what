@@ -22,7 +22,7 @@ services:
       NODE_ENV: production
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set a separate migration connection}
     depends_on:
-      database: {condition: service_healthy}
+      database: { condition: service_healthy }
     restart: "no"
   api:
     image: trainer-brain:${RELEASE_TAG:-local}
@@ -32,6 +32,7 @@ services:
       API_HOST: 0.0.0.0
       DATABASE_URL: ${DATABASE_URL:?Set the non-owner runtime connection}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the public HTTPS URL}
+      INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set a separate proxy signing secret of at least 32 UTF-8 bytes}
       SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Set the account encryption key}
       FILE_IMPORTS_APPROVED: ${FILE_IMPORTS_APPROVED:-false}
       LEGAL_APPROVED: ${LEGAL_APPROVED:-false}
@@ -57,26 +58,36 @@ services:
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
     depends_on:
-      migrate: {condition: service_completed_successfully}
+      migrate: { condition: service_completed_successfully }
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:4000/api/v1/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:4000/api/v1/ready',{headers:{host:new URL(process.env.PUBLIC_APP_URL).host}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
     restart: unless-stopped
   web:
     image: trainer-brain:${RELEASE_TAG:-local}
-    environment: {NODE_ENV: production}
+    environment:
+      NODE_ENV: production
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the same public HTTPS URL as the API}
+      INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set the same proxy signing secret as the API}
+      API_INTERNAL_URL: http://api:4000
     ports: ["127.0.0.1:3000:3000"]
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
     restart: unless-stopped
   worker:
     image: trainer-brain:${RELEASE_TAG:-local}
     command: [npm, run, start, -w, "@trainer/worker"]
     environment: *runtime_environment
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
     restart: unless-stopped
 volumes:
   postgres_data:

@@ -25,11 +25,15 @@ function observe(page) {
 }
 observe(page);
 
+async function capture(target, options) {
+  if (process.env.BROWSER_SCREENSHOTS === "true")
+    await target.screenshot(options);
+}
 const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
 await mkdir("test-results", { recursive: true });
 try {
   await page.goto(base, { waitUntil: "networkidle" });
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/landing-desktop.png",
     fullPage: true,
   });
@@ -51,7 +55,7 @@ try {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/trainer");
   await page.getByRole("heading", { name: "Good to see you, Alex." }).waitFor();
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/trainer-desktop.png",
     fullPage: true,
   });
@@ -106,7 +110,7 @@ try {
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   if (overflow) throw new Error("Mobile page overflows viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/trainer-mobile.png",
     fullPage: true,
   });
@@ -121,7 +125,7 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   )
     throw new Error("Mobile onboarding overflows viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/onboarding-mobile.png",
     fullPage: true,
   });
@@ -141,7 +145,7 @@ try {
       .getByRole("heading", { name: "Nutrition coaching", exact: true })
       .waitFor();
     if (route.endsWith("/cases"))
-      await page.screenshot({
+      await capture(page, {
         path: "test-results/nutrition-coach-cases.png",
         fullPage: true,
       });
@@ -155,7 +159,7 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   )
     throw new Error("Nutrition onboarding overflows mobile viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/nutrition-onboarding-mobile.png",
     fullPage: true,
   });
@@ -213,7 +217,7 @@ try {
     .getByRole("button", { name: "Finish workout", exact: true })
     .click();
   await subscriber.getByText("Workout completed", { exact: true }).waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/subscriber-workout-mobile.png",
     fullPage: true,
   });
@@ -234,7 +238,7 @@ try {
     )
   )
     throw new Error("Mobile Client Twin overflows viewport");
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/client-twin-mobile.png",
     fullPage: true,
   });
@@ -248,7 +252,7 @@ try {
       exact: false,
     })
     .waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/nutrition-meals-mobile.png",
     fullPage: true,
   });
@@ -272,7 +276,7 @@ try {
   await subscriber
     .getByText("Pantry checklist saved", { exact: true })
     .waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/nutrition-groceries-mobile.png",
     fullPage: true,
   });

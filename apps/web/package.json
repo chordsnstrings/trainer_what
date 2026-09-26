@@ -2,9 +2,9 @@
   "name": "@trainer/web",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0",
+    "dev": "node --env-file-if-exists=../../.env ../../node_modules/next/dist/bin/next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0"
+    "start": "node --env-file-if-exists=../../.env ../../node_modules/next/dist/bin/next start --hostname 0.0.0.0"
   },
   "dependencies": {
     "next": "16.3.6",

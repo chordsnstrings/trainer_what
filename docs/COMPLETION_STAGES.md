@@ -13,15 +13,15 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | In progress | Safety-hold lifecycle and governed automatic actions; scheduled logging |
-| Nutrition | In progress | Current facts and safe week recovery; individual targets, plan editor and diary |
-| Billing and finance | In progress | Servicing/idempotency; billing history, statements, reconciliation and paid bookings |
-| Administration and team | In progress | Real scoped operator views, content publication, team roles and bookings |
-| Integrations | In progress | Contract-gated wearables, voice, domains and verified host handling |
-| Privacy and accounts | In progress | Export/erasure/closure/transfer, secure account recovery and sessions |
-| Galleries and website | In progress | Actual image uploads, unlimited galleries, published pages and trainer app identity |
-| Notifications and worker | In progress | Preference readback/delivery, reminders and safe external-outcome recovery |
-| Release checks | Pending | TypeScript, targeted/full suites, production build and non-owner PostgreSQL CI |
+| Workout coaching | Qualified runtime and training stages committed | Unfinished attachment module/UI and final assembled checks |
+| Nutrition | Four checked stages committed | Finish the separate onboarding readiness changes; qualify actual providers |
+| Billing and finance | Servicing, statements, bookings and jobs committed | New Checkout module has five failing tests and is not registered |
+| Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
+| Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
+| Privacy and accounts | Connected and stage-tested | Attachments/acquisition privacy hooks still need completion |
+| Galleries and website | Backend tested; UI/SSR written | Register routes, wire navigation/brand ownership locks/client manifest, then browser checks |
+| Notifications and worker | Modules and worker changes written | Register routes/UI and event hooks, then verify final changes |
+| Release checks | Not passed on combined branch | Fix explicit type/preview/Checkout failures, full tests/build/browser and non-owner PostgreSQL CI |
 
 ## Evidence
 
@@ -90,3 +90,5 @@ Case teaching, confirmed routine actions, independent evaluation, shadow approva
 ### Claude handoff request
 
 The owner requested a written handoff on 26 September because of token budget and intends to use Claude to finish. Stop new feature expansion, checkpoint existing completed and unfinished work, and keep `CLAUDE_HANDOFF.md` current after each completed stage. Deployment remains stopped. Unfinished checkpoints must not be described as verified completion.
+
+Frozen implementation is preserved for continuation. The handoff names the two current TypeScript errors, five failing new Checkout tests, onboarding preview payload break, unregistered website/notification/Checkout modules and all unfinished UI/worker/privacy hooks. Infrastructure checks applied all 29 migrations and role grants in PGlite and passed 36 deployment boundary tests with one Docker-only skip. Those results do not qualify the combined application. No further feature implementation was started after the handoff request.

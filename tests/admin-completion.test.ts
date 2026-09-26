@@ -257,6 +257,11 @@ test("email recovery excludes money jobs, active leases and stale attempts", asy
     outcome: "not_sent",
     evidenceReference: "Provider confirms no delivery fixture",
   };
+  const notificationId = randomUUID();
+  await db.tenant(a, async tx => {
+    await tx.query("INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body,email_status) VALUES($1,$2,$3,'account',$1::uuid::text,'Account alert','Review your account','pending')",[notificationId,a.tenantId,a.userId]);
+    await tx.query("UPDATE jobs SET data=jsonb_build_object('notificationId',$2::text,'deliveryState','unknown') WHERE id=$1",[email,notificationId]);
+  });
   for (const id of [money, leased])
     assert.equal(
       (
@@ -275,6 +280,7 @@ test("email recovery excludes money jobs, active leases and stale attempts", asy
   );
   assert.equal(ok.statusCode, 200, ok.body);
   assert.equal(ok.json().status, "pending");
+  assert.equal(ok.json().data.deliveryState, "not_sent");
   assert.equal(
     (
       await req(
@@ -285,6 +291,10 @@ test("email recovery excludes money jobs, active leases and stale attempts", asy
     ).statusCode,
     409,
   );
+  await db.tenant(a, tx => tx.query("UPDATE jobs SET status='blocked',attempts=3 WHERE id=$1",[email]));
+  const delivered = await req(`/admin/tenants/${a.tenantId}/email-jobs/${email}/reconcile`, "POST",{...body,attempts:3,outcome:"delivered"});
+  assert.equal(delivered.statusCode,200,delivered.body);
+  assert.equal((await db.tenant(a,tx=>tx.query("SELECT email_status FROM notifications WHERE id=$1",[notificationId])))[0].email_status,"sent");
 });
 test("consented acquisition has no arbitrary traits and erasure requires explicit context", async () => {
   const visitorId = randomUUID();

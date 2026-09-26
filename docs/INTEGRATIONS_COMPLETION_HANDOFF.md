@@ -62,7 +62,7 @@ Domain registration/payment/DNS/TLS provisioning are explicit operator workflows
 
 ## Checks actually run
 
-- `node --import tsx --test tests/integrations-completion.test.ts tests/provider-configuration.test.ts`: **24/24 passed** (16 integration + 8 configuration) after hardening.
+- Focused checks: **45/45 passed** across `tests/integrations-completion.test.ts` (16), `tests/provider-configuration.test.ts` (8), `tests/platform-settings.test.ts` (15), and `tests/host-routing.test.ts` (6). Host tests were rerun after final consent-lock wiring.
 - `npm run typecheck`: passed after shared app/web/worker wiring.
 - Checks cover tenant-bound credential encryption, disabled contracts, session-bound one-time confidential OAuth and explicit partner PKCE, observation dedupe/rights, revoke cleanup, verified premium voice, no automatic retry of ambiguous audio, safe workout playback, exact-price domain approval/CAS/DNS/TLS and signed-host forgery/tenant/origin denial, custom-host callback relay, callback/refresh revocation races, unknown refresh suppression, closed-workspace revocation, and downgraded non-owner worker/admin execution.
 - Full-app host/auth tests verify signed/forged/forwarded hosts, public slug isolation, origin rejection, login/workspace/enrollment/invitation restrictions, platform-role restrictions, sign-out with a stale cookie, integration route registration, pinned Apple consent and withdrawal, and closure.
@@ -71,3 +71,5 @@ Domain registration/payment/DNS/TLS provisioning are explicit operator workflows
 ## Remaining shared integration work
 
 The product schema and verified Stripe entitlement projection must carry optional `premiumVoice` on the existing workout/workout+nutrition offers before voice can be purchased through the app. The guided API gate is implemented, but a database-only entitlement is not a complete purchase path. Root was notified; do not claim premium voice is currently purchasable until that bounded commerce change is wired and tested.
+
+Local development: API and worker load the repository-root `.env` through their launch commands. Web must receive the same `INTERNAL_PROXY_SECRET`, `PUBLIC_APP_URL`, and `API_INTERNAL_URL`; the infra owner is adding environment propagation. Keep secrets server-only. No configuration-loader change has been made in Next.

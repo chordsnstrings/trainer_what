@@ -979,3 +979,114 @@ test("finance job failures remain blocked and stale workers cannot overwrite a n
   assert.equal(stored.last_error, "FINANCE_JOB_UNSUPPORTED");
   assert.equal(stored.leased_until, null);
 });
+
+test("premium voice is an optional feature of the two existing tiers and only a verified offer enables it", async () => {
+  const { productSchema } = await import("@trainer/contracts");
+  const base = {
+    name: "Fixture voice offer",
+    description: "Coaching membership",
+    priceMinor: 12000,
+  };
+  assert.equal(productSchema.parse(base).premiumVoice, false);
+  assert.equal(
+    productSchema.parse({ ...base, premiumVoice: true, tier: "workout" })
+      .premiumVoice,
+    true,
+  );
+  assert.equal(
+    productSchema.parse({
+      ...base,
+      premiumVoice: true,
+      tier: "workout_nutrition",
+      baseProductId: randomUUID(),
+    }).premiumVoice,
+    true,
+  );
+  assert.equal(
+    productSchema.safeParse({ ...base, premiumVoice: "true" }).success,
+    false,
+  );
+  assert.equal(
+    productSchema.safeParse({ ...base, tier: "voice" }).success,
+    false,
+  );
+  await db.tenant(a, async (tx) => {
+    for (const [priceId, flag] of [
+      ["price_voice_fixture", true],
+      ["price_plain_fixture", false],
+      ["price_legacy_fixture", undefined],
+    ] as const)
+      await tx.query(
+        "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) VALUES($1,$2,'product',$3,'published',$4)",
+        [
+          randomUUID(),
+          a.tenantId,
+          a.userId,
+          JSON.stringify({
+            ...base,
+            stripePriceId: priceId,
+            tier: "workout",
+            modules: ["training"],
+            ...(flag === undefined ? {} : { premiumVoice: flag }),
+          }),
+        ],
+      );
+  });
+  const [currentVoiceState] = await db.tenant(a, (tx) =>
+    tx.query("SELECT data FROM subscriptions WHERE user_id=$1", [
+      client.userId,
+    ]),
+  );
+  let time =
+    Math.max(
+      Math.floor(Date.now() / 1000),
+      Number(currentVoiceState?.data?.lastStripeEventAt ?? 0),
+    ) + 100;
+  const project = async (priceId?: string) => {
+    await processStripeEvent(
+      db,
+      signed(
+        "customer.subscription.updated",
+        {
+          id: subId,
+          object: "subscription",
+          status: "active",
+          current_period_end: time + 86400,
+          metadata: {
+            tenant_id: a.tenantId,
+            user_id: client.userId,
+            premiumVoice: "true",
+          },
+          ...(priceId ? { items: { data: [{ price: { id: priceId } }] } } : {}),
+        },
+        time++,
+      ),
+    );
+    const [s] = await db.tenant(a, (tx) =>
+      tx.query("SELECT * FROM subscriptions WHERE user_id=$1", [client.userId]),
+    );
+    return s;
+  };
+  assert.equal((await project("price_voice_fixture")).data.premiumVoice, true);
+  assert.equal((await project("price_plain_fixture")).data.premiumVoice, false);
+  assert.equal((await project("price_voice_fixture")).data.premiumVoice, true);
+  let state = await project("price_unknown_fixture");
+  assert.equal(state.data.premiumVoice, false);
+  assert.deepEqual(state.data.modules, []);
+  assert.equal(
+    (await project("price_legacy_fixture")).data.premiumVoice,
+    false,
+  );
+  await db.tenant(a, (tx) =>
+    tx.query(
+      "UPDATE subscriptions SET data=(data-'priceId')||$2::jsonb WHERE user_id=$1",
+      [
+        client.userId,
+        JSON.stringify({ premiumVoice: true, modules: ["training", "voice"] }),
+      ],
+    ),
+  );
+  state = await project();
+  assert.equal(state.data.premiumVoice, false);
+  assert.deepEqual(state.data.modules, ["training"]);
+});

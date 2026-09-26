@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, event } from "@trainer/db";
@@ -111,19 +111,24 @@ export async function recordAcquisition(
   db: Database,
   input: {
     eventKey: string;
-    name: "landing" | "signup" | "publish" | "lead";
+    name: "landing" | "signup" | "enroll" | "publish" | "lead" | "first_paid" | "experiment_exposure";
     tenantId?: string;
     userId?: string;
     visitorId: string;
     source: string;
     campaign?: string;
     medium?: string;
+    attribution?: { first: { source: string; campaign: string; medium: string; referral: string }; last: { source: string; campaign: string; medium: string; referral: string } };
+    experimentId?: string;
+    experimentRevision?: number;
+    variant?: "a" | "b";
   },
+  transaction?: Tx,
 ) {
   const b = z
     .object({
       eventKey: z.string().min(1).max(200),
-      name: z.enum(["landing", "signup", "publish", "lead"]),
+      name: z.enum(["landing", "signup", "enroll", "publish", "lead", "first_paid", "experiment_exposure"]),
       tenantId: z.string().uuid().optional(),
       userId: z.string().uuid().optional(),
       visitorId: z.string().uuid(),
@@ -136,12 +141,18 @@ export async function recordAcquisition(
         .string()
         .regex(/^[a-zA-Z0-9._ -]{0,40}$/)
         .default(""),
+      attribution: z.object({
+        first: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
+        last: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
+      }).strict().optional(),
+      experimentId: z.string().uuid().optional(),
+      experimentRevision: z.number().int().positive().optional(),
+      variant: z.enum(["a", "b"]).optional(),
     })
     .strict()
     .parse(input);
-  return db.system((tx) =>
-    tx.query(
-      "INSERT INTO acquisition_events(id,event_key,name,tenant_id,user_id,visitor_id,source,campaign,medium) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(event_key) DO NOTHING",
+  const write = (tx: Tx) => tx.query(
+      "INSERT INTO acquisition_events(id,event_key,name,tenant_id,user_id,visitor_id,source,campaign,medium,attribution,experiment_id,experiment_revision,variant) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(event_key) DO NOTHING",
       [
         randomUUID(),
         b.eventKey,
@@ -152,9 +163,10 @@ export async function recordAcquisition(
         b.source,
         b.campaign,
         b.medium,
+        JSON.stringify(b.attribution ?? {}), b.experimentId ?? null, b.experimentRevision ?? null, b.variant ?? null,
       ],
-    ),
-  );
+    );
+  return transaction ? write(transaction) : db.system(write);
 }
 export async function businessAnalytics(db: Database, a: Actor) {
   return db.tenant(a, async (tx) => ({
@@ -265,13 +277,13 @@ export function registerAdminOperations(
     else if (view === "acquisition") {
       rows = await db.system((tx) =>
         tx.query(
-          "SELECT source,campaign,medium,count(DISTINCT visitor_id) FILTER(WHERE name='landing')::int AS visitors,count(DISTINCT tenant_id) FILTER(WHERE name='signup')::int AS signups,count(DISTINCT tenant_id) FILTER(WHERE name='publish')::int AS published,count(*) FILTER(WHERE name='lead')::int AS leads FROM acquisition_events WHERE created_at>now()-interval '90 days' GROUP BY source,campaign,medium ORDER BY signups DESC LIMIT 100",
+          "SELECT source,campaign,medium,count(DISTINCT visitor_id) FILTER(WHERE name='landing')::int AS visitors,count(DISTINCT tenant_id) FILTER(WHERE name='signup')::int AS signups,count(DISTINCT tenant_id) FILTER(WHERE name='publish')::int AS published,count(*) FILTER(WHERE name='lead')::int AS leads,count(DISTINCT user_id) FILTER(WHERE name='enroll')::int AS enrolled,count(DISTINCT tenant_id) FILTER(WHERE name='first_paid')::int AS first_paid FROM acquisition_events WHERE created_at>now()-interval '90 days' GROUP BY source,campaign,medium ORDER BY signups DESC LIMIT 100",
         ),
       );
       summary = {
         period: "90 days",
         attribution:
-          "Only explicit analytics consent. Unique visitor and workspace counts; no health targeting.",
+          "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. First paid counts workspaces with a verified positive subscription journal. No health targeting or referral commission.",
       };
     } else if (view === "security") {
       rows = await db.system((tx) =>
@@ -579,11 +591,12 @@ export function registerAdminOperations(
         { ...a, tenantId: p.tenantId, role: "owner" },
         async (tx) => {
           const [r] = await tx.query(
-            "UPDATE jobs SET status=$3,available_at=now(),leased_until=NULL,last_error=NULL WHERE id=$1 AND kind='email' AND status IN ('blocked','failed') AND attempts=$2 AND (leased_until IS NULL OR leased_until<now()) RETURNING id,status,attempts",
+            "UPDATE jobs SET status=$3,available_at=now(),leased_until=NULL,last_error=NULL,data=data||jsonb_build_object('deliveryState',$4::text) WHERE id=$1 AND kind='email' AND status IN ('blocked','failed') AND attempts=$2 AND (leased_until IS NULL OR leased_until<now()) RETURNING id,status,attempts,data",
             [
               p.id,
               b.attempts,
               b.outcome === "delivered" ? "completed" : "pending",
+              b.outcome,
             ],
           );
           if (!r)
@@ -591,6 +604,11 @@ export function registerAdminOperations(
               409,
               "JOB_NOT_RECOVERABLE",
               "Only an unleased blocked email with the observed attempt count can be reconciled.",
+            );
+          if (r.data.notificationId)
+            await tx.query(
+              "UPDATE notifications SET email_status=$2 WHERE id=$1",
+              [r.data.notificationId, b.outcome === "delivered" ? "sent" : "pending"],
             );
           await event(
             tx,
@@ -664,34 +682,5 @@ export function registerAdminOperations(
       });
       return r;
     });
-  });
-  app.get("/api/v1/public/experiments/:key", async (req) => {
-    const key = slug.parse((req.params as any).key),
-      consent = consentedAcquisition(req.cookies?.acquisition);
-    if (!consent)
-      return { variant: "control", reason: "Analytics consent is required." };
-    const experiment = await db.system(
-      async (tx) =>
-        (
-          await tx.query(
-            "SELECT id,revision,allocation,variant_a,variant_b FROM admin_experiments WHERE key=$1 AND status='running'",
-            [key],
-          )
-        )[0],
-    );
-    if (!experiment) return { variant: "control" };
-    const bucket =
-      createHash("sha256")
-        .update(experiment.id + ":" + consent.visitorId)
-        .digest()
-        .readUInt32BE(0) % 100;
-    return {
-      experimentId: experiment.id,
-      revision: experiment.revision,
-      variant:
-        bucket < experiment.allocation
-          ? experiment.variant_b
-          : experiment.variant_a,
-    };
   });
 }

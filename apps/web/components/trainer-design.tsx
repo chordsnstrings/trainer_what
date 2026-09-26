@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -32,6 +32,8 @@ import {
   type BrandDesign,
   type BrandSection,
 } from "@trainer/contracts";
+
+import { PhotoUploader, MediaLibrary } from "./coach-site";
 
 type Tenant = {
   id?: string;
@@ -420,6 +422,16 @@ export function TrainerDesign({
     [notice, setNotice] = useState("");
   const [conflict, setConflict] = useState(false);
   const editable = role === "owner";
+  const [privateVersion, setPrivateVersion] = useState(0), [privateDraft, setPrivateDraft] = useState<any>(null);
+  const [uploadTarget, setUploadTarget] = useState<"logoUrl" | "photoUrl" | "coverUrl">("photoUrl");
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  useEffect(() => { if (editable) void call("/tenant/design-draft", "GET").then(d => {setPrivateVersion(d.version); setPrivateDraft(d.data);}).catch(e => setError(e.message)); }, [editable]);
+  async function savePrivate() {
+    setBusy(true); setError("");
+    try { const data = brandSchema.parse({...draft,accent:draft.design.primary,expectedVersion:version}); const saved = await call("/tenant/design-draft","PUT",{version:privateVersion,data});setPrivateVersion(saved.version);setPrivateDraft(saved.data);setNotice("Private design draft saved."); }
+    catch(e){setError((e as Error).message);}finally{setBusy(false);}
+  }
+
   const dirty = JSON.stringify(saved) !== JSON.stringify(draft);
   const previewDraft = {
     ...draft,
@@ -556,6 +568,9 @@ export function TrainerDesign({
           </p>
         </div>
         <div className="design-save-actions">
+          <button type="button" className="button secondary" disabled={busy || !editable} onClick={() => void savePrivate()}>Save private draft</button>
+          {privateDraft && <button type="button" className="button secondary" disabled={busy || !editable} onClick={() => {setDraft(makeDraft({...tenant,name:privateDraft.name,theme:privateDraft}));setNotice("Private draft loaded for preview. Publish design when ready.");}}>Load private draft</button>}
+
           <span className={`design-save-state ${dirty ? "has-changes" : ""}`}>
             {dirty ? "Unsaved changes" : "Saved design"}
           </span>
@@ -565,7 +580,7 @@ export function TrainerDesign({
             disabled={busy || !editable || !dirty}
             onClick={() => void save()}
           >
-            {busy ? "Saving…" : "Save design"}
+            {busy ? "Saving…" : "Publish design"}
             <Check size={16} />
           </button>
         </div>
@@ -747,11 +762,15 @@ export function TrainerDesign({
                     <div>
                       <h2>A familiar face.</h2>
                       <p>
-                        Use public HTTPS image links. If an image cannot load,
+                        Upload your own photos or use public HTTPS image links. If an image cannot load,
                         your initials keep the space complete.
                       </p>
                     </div>
                   </div>
+                  <Field label="Use uploaded photo as"><select value={uploadTarget} onChange={e=>setUploadTarget(e.target.value as typeof uploadTarget)}><option value="photoUrl">Coach portrait</option><option value="logoUrl">App logo</option><option value="coverUrl">Cover photo</option></select></Field>
+                  <PhotoUploader single onUploaded={photos => { if(photos[0]) style(uploadTarget,photos[0].url); }} />
+                  <button type="button" className="button secondary" onClick={()=>setLibraryOpen(!libraryOpen)}>{libraryOpen?"Hide photo library":"Choose an uploaded photo"}</button>
+                  {libraryOpen && <MediaLibrary onSelect={photo=>{style(uploadTarget,photo.url);setLibraryOpen(false);}} />}
                   {(
                     [
                       ["logoUrl", "Logo image URL"],
@@ -761,7 +780,7 @@ export function TrainerDesign({
                   ).map(([key, label]) => (
                     <Field key={key} label={label}>
                       <input
-                        type="url"
+                        type="text"
                         maxLength={1024}
                         value={draft.design[key]}
                         placeholder="https://your-website.com/image.jpg"

@@ -10,6 +10,10 @@ jobs:
   application:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      PUBLIC_APP_URL: http://localhost:3000
+      API_INTERNAL_URL: http://127.0.0.1:4000
+      BROWSER_SCREENSHOTS: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,8 +28,6 @@ jobs:
       - run: npx playwright install --with-deps chromium --only-shell
       - run: npm run seed:demo
       - run: node scripts/run-browser-check.mjs
-      - name: Settings, branding and application screenshots
-        run: npm run screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -49,6 +51,8 @@ jobs:
     env:
       MIGRATION_DATABASE_URL: postgres://trainer_migrations:ci_migration_fixture_only@127.0.0.1:5432/trainer
       DATABASE_URL: postgres://trainer_service:ci_runtime_fixture_only@127.0.0.1:5432/trainer
+      PUBLIC_APP_URL: http://localhost:3000
+      API_INTERNAL_URL: http://127.0.0.1:4000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -59,13 +63,18 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils tesseract-ocr
       - run: npm run db:migrate
       - run: node scripts/prepare-ci-postgres.mjs
+      - name: Verify non-owner runtime grants and migration completeness
+        run: node scripts/verify-runtime-access.mjs
       - run: npm test
       - run: docker build --build-arg API_INTERNAL_URL=http://127.0.0.1:4000 -t trainer-brain:ci .
+      - name: Create isolated container fixture keys
+        run: |
+          node --input-type=module -e 'import {randomBytes} from "node:crypto"; import {appendFileSync} from "node:fs"; appendFileSync(process.env.GITHUB_ENV, `SECURITY_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}\nINTERNAL_PROXY_SECRET=${randomBytes(32).toString("hex")}\n`);'
       - name: Production container readiness
         run: |
-          docker run -d --name trainer-api-ci --network host -e DATABASE_URL -e NODE_ENV=production -e API_HOST=127.0.0.1 trainer-brain:ci npm run start -w @trainer/api
+          docker run -d --name trainer-api-ci --network host -e DATABASE_URL -e PUBLIC_APP_URL -e SECURITY_ENCRYPTION_KEY -e INTERNAL_PROXY_SECRET -e NODE_ENV=production -e API_HOST=127.0.0.1 trainer-brain:ci npm run start -w @trainer/api
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:4000/api/v1/ready; then exit 0; fi
+            if curl --fail --silent --header 'Host: localhost:3000' http://127.0.0.1:4000/api/v1/ready; then exit 0; fi
             sleep 2
           done
           docker logs trainer-api-ci

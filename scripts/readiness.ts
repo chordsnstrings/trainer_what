@@ -5,7 +5,12 @@ import {
   withRuntimeConfig,
 } from "@trainer/providers";
 import { loadRuntimeSettings } from "../apps/api/src/platform-settings.ts";
-const required = ["DATABASE_URL", "PUBLIC_APP_URL", "SECURITY_ENCRYPTION_KEY"];
+const required = [
+  "DATABASE_URL",
+  "PUBLIC_APP_URL",
+  "SECURITY_ENCRYPTION_KEY",
+  "INTERNAL_PROXY_SECRET",
+];
 const flags = [
   "LEGAL_APPROVED",
   "COMMERCE_APPROVED",
@@ -17,11 +22,36 @@ const flags = [
 ];
 const missing = required.filter((k) => !process.env[k]);
 const findings: string[] = [];
+if (process.env.PUBLIC_APP_URL) {
+  try {
+    const origin = new URL(process.env.PUBLIC_APP_URL);
+    if (
+      origin.protocol !== "https:" ||
+      origin.username ||
+      origin.password ||
+      origin.origin !== process.env.PUBLIC_APP_URL
+    )
+      findings.push(
+        "Production public URL must be one exact HTTPS origin without credentials, path, query or fragment",
+      );
+  } catch {
+    findings.push("Production public URL is invalid");
+  }
+}
 if (
-  process.env.PUBLIC_APP_URL &&
-  !process.env.PUBLIC_APP_URL.startsWith("https://")
+  process.env.INTERNAL_PROXY_SECRET &&
+  Buffer.byteLength(process.env.INTERNAL_PROXY_SECRET) < 32
 )
-  findings.push("Production public URL requires HTTPS");
+  findings.push(
+    "Internal proxy signing secret must contain at least 32 UTF-8 bytes",
+  );
+if (
+  process.env.INTERNAL_PROXY_SECRET &&
+  process.env.INTERNAL_PROXY_SECRET === process.env.SECURITY_ENCRYPTION_KEY
+)
+  findings.push(
+    "Use a separate internal proxy secret and account encryption key",
+  );
 if (
   process.env.SECURITY_ENCRYPTION_KEY &&
   Buffer.from(process.env.SECURITY_ENCRYPTION_KEY, "base64").length !== 32

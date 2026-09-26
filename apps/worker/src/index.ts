@@ -3,7 +3,9 @@ import {
   runClaimedFinanceJob,
 } from "../../api/src/finance-automation.ts";
 import { createDatabase, type Actor } from "@trainer/db";
-import { sendEmail, ProviderUnavailable } from "@trainer/providers";
+import { ProviderUnavailable } from "@trainer/providers";
+import { executeEmailDelivery } from "./email-delivery.ts";
+import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
@@ -56,6 +58,11 @@ if (!process.env.DATABASE_URL) {
       } catch {
         console.error("Finance scheduling failed");
       }
+      try {
+        await scheduleNotifications(db, tenant.id);
+      } catch {
+        console.error("Notification scheduling failed");
+      }
       const a: Actor = {
         tenantId: tenant.id,
         userId: "00000000-0000-0000-0000-000000000000",
@@ -86,11 +93,13 @@ if (!process.env.DATABASE_URL) {
           const result: any = await executeNutritionJob(db, tenant.id, job);
           await db.tenant(a, (tx) =>
             tx.query(
-              "UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1",
+              "UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
               [
                 job.id,
                 result.status === "exception" ? "blocked" : "completed",
                 result.status === "exception" ? result.code : null,
+                job.attempts,
+                job.leased_until,
               ],
             ),
           );
@@ -101,17 +110,11 @@ if (!process.env.DATABASE_URL) {
             job.kind,
             "No verified handler configured",
           );
-        await sendEmail(job.data.to, job.data.subject, job.data.text);
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE jobs SET status='completed',leased_until=NULL WHERE id=$1",
-            [job.id],
-          ),
-        );
+        await executeEmailDelivery(db, tenant.id, job);
       } catch (e) {
         await db.tenant(a, (tx) =>
           tx.query(
-            "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1",
+            "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
             [
               job.id,
               e instanceof ProviderUnavailable ||
@@ -123,6 +126,8 @@ if (!process.env.DATABASE_URL) {
               e instanceof ProviderUnavailable
                 ? e.message
                 : "Provider delivery failed",
+              job.attempts,
+              job.leased_until,
             ],
           ),
         );

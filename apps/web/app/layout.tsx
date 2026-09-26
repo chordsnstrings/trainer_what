@@ -4,6 +4,7 @@ import "./nutrition.css";
 import "./platform-settings.css";
 import "./trainer-design.css";
 import "./meal-capture.css";
+import "./coach-site.css";
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },

@@ -75,7 +75,7 @@ def ensure_runtime():
         values = dict(line.split("=", 1) for line in path.read_text().splitlines()
                       if line and not line.startswith("#") and "=" in line)
         if not all(values.get(k) for k in ("PUBLIC_APP_URL", "POSTGRES_PASSWORD", "MIGRATION_DATABASE_URL",
-                                         "DATABASE_URL", "SECURITY_ENCRYPTION_KEY")):
+                                         "DATABASE_URL", "SECURITY_ENCRYPTION_KEY", "INTERNAL_PROXY_SECRET")):
             raise DeploymentError("Runtime configuration is incomplete; recover it without changing database credentials")
     else:
         admin_password, runtime_password = secrets.token_urlsafe(36), secrets.token_urlsafe(36)
@@ -84,6 +84,7 @@ def ensure_runtime():
             "MIGRATION_DATABASE_URL": f"postgres://trainer_migrations:{admin_password}@database:5432/trainer",
             "DATABASE_URL": f"postgres://trainer_service:{runtime_password}@database:5432/trainer",
             "SECURITY_ENCRYPTION_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
+            "INTERNAL_PROXY_SECRET": secrets.token_urlsafe(48),
             "PUBLIC_APP_URL": "https://gymmembership." + ip + ".sslip.io",
             "LEGAL_APPROVED": "false", "FILE_IMPORTS_APPROVED": "false",
             "NUTRITION_ENABLED": "false", "NUTRITION_SCOPE_APPROVED": "false",
@@ -96,6 +97,8 @@ def ensure_runtime():
             stream.flush()
             os.fsync(stream.fileno())
         temporary.replace(path)
+    if len(values["INTERNAL_PROXY_SECRET"].encode("utf-8")) < 32:
+        raise DeploymentError("Internal proxy signing secret must be at least 32 UTF-8 bytes")
     endpoint = values["PUBLIC_APP_URL"]
     parsed = urlsplit(endpoint)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password

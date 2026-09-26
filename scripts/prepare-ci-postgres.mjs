@@ -1,8 +1,20 @@
 import pg from "pg";
 import { readFile } from "node:fs/promises";
+const migration = new URL(
+  process.env.MIGRATION_DATABASE_URL ?? "https://invalid",
+);
+const runtime = new URL(process.env.DATABASE_URL ?? "https://invalid");
 if (
   process.env.CI !== "true" ||
-  !process.env.MIGRATION_DATABASE_URL?.includes("127.0.0.1")
+  !["postgres:", "postgresql:"].includes(migration.protocol) ||
+  !["postgres:", "postgresql:"].includes(runtime.protocol) ||
+  migration.hostname !== "127.0.0.1" ||
+  runtime.hostname !== "127.0.0.1" ||
+  migration.pathname !== "/trainer" ||
+  runtime.pathname !== migration.pathname ||
+  migration.port !== runtime.port ||
+  migration.username !== "trainer_migrations" ||
+  runtime.username !== "trainer_service"
 )
   throw new Error("This fixture prepares a disposable local CI database only");
 const client = new pg.Client({
