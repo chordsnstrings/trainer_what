@@ -657,6 +657,7 @@ export function FinancePolicyConsole({ tenants }: { tenants: any[] }) {
         )}
       </section>
       {tenant && <FinancialStatementView tenant={tenant} />}
+      {tenant && <AdminRefundConsole key={tenant} tenant={tenant} />}
     </>
   );
 }
@@ -824,10 +825,21 @@ export function FinanceAutomationConsole({ tenants }: { tenants: any[] }) {
                       const f = new FormData(e.currentTarget);
                       void act(`/jobs/${j.id}/retry`, {
                         attempts: j.attempts,
+                        configurationRevision: c.version,
                         reason: f.get("reason"),
                       });
                     }}
                   >
+                    {j.kind === "finance_monthly" && (
+                      <p>
+                        Revision {c.version}: automatic execution{" "}
+                        {c.data.executePayouts
+                          ? `enabled up to ${money(c.data.maxPayoutMinor)}`
+                          : "disabled"}
+                        . The original month and payment instructions are
+                        retained.
+                      </p>
+                    )}
                     <label className="field">
                       <span>Resolution evidence / retry reason</span>
                       <input
@@ -838,13 +850,212 @@ export function FinanceAutomationConsole({ tenants }: { tenants: any[] }) {
                       />
                     </label>
                     <button className="button secondary" disabled={busy}>
-                      Recheck same instruction
+                      {j.kind === "finance_monthly"
+                        ? `Reauthorize revision ${c.version} and recheck`
+                        : "Recheck same instruction"}
                     </button>
                   </form>
                 )}
               </article>
             ))
           )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function AdminRefundConsole({ tenant }: { tenant: string }) {
+  const [data, setData] = useState<any>(null),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false),
+    [chargeFilter, setChargeFilter] = useState("");
+  const refresh = () =>
+    request(
+      `/admin/tenants/${tenant}/finance/refunds${chargeFilter ? `?chargeId=${encodeURIComponent(chargeFilter)}` : ""}`,
+    ).then(setData);
+  useEffect(() => {
+    setData(null);
+    setMessage("");
+    void refresh().catch((e) => setMessage(e.message));
+  }, [tenant, chargeFilter]);
+  async function act(path: string, body: unknown) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await request(`/admin/tenants/${tenant}/finance/refunds${path}`, body);
+      await refresh();
+      setMessage(
+        "Refund review saved. Submitted payments await provider confirmation.",
+      );
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const available =
+    data?.charges.filter((c: any) => c.remainingMinor > 0 && !c.requestId) ??
+    [];
+  return (
+    <section className="card">
+      <h2>Refund review and overrides</h2>
+      <p>
+        Review existing decisions or open an exception to the seven-day request
+        window. Financial actions require recent account verification and a
+        recorded reason.
+      </p>
+      {message && (
+        <p className="notice" role="status">
+          {message}
+        </p>
+      )}
+      <form
+        className="form-grid"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          setChargeFilter(String(f.get("chargeId") ?? "").trim());
+        }}
+      >
+        <label className="field">
+          <span>Find a specific Stripe charge (optional)</span>
+          <input name="chargeId" maxLength={200} placeholder="ch_…" />
+        </label>
+        <button className="button secondary" disabled={busy}>
+          Find charges
+        </button>
+      </form>
+      {!data && !message && <p>Loading refund reviews…</p>}
+      {data && (
+        <>
+          <p className="muted">
+            Showing up to 200 recent charges and requests. Use the exact charge
+            reference to find older payments.
+          </p>
+          {available.length > 0 && (
+            <details>
+              <summary>Open an admin refund exception</summary>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget),
+                    charge = available.find(
+                      (c: any) => c.chargeId === f.get("chargeId"),
+                    );
+                  if (charge)
+                    void act("", {
+                      userId: charge.userId,
+                      chargeId: charge.chargeId,
+                      reason: f.get("reason"),
+                    });
+                }}
+              >
+                <label className="field">
+                  <span>Charge to review</span>
+                  <select name="chargeId" required defaultValue="">
+                    <option value="" disabled>
+                      Select a payment
+                    </option>
+                    {available.map((c: any) => (
+                      <option value={c.chargeId} key={c.id}>
+                        {c.clientName} ·{" "}
+                        {new Date(c.chargedAt).toLocaleDateString()} ·{" "}
+                        {money(c.remainingMinor)} · {c.chargeId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Exception reason and evidence</span>
+                  <textarea
+                    name="reason"
+                    required
+                    minLength={10}
+                    maxLength={2000}
+                  />
+                </label>
+                <button className="button" disabled={busy}>
+                  Open refund review
+                </button>
+              </form>
+            </details>
+          )}
+          {!data.requests.length && <p>No refund requests match this view.</p>}
+          {data.requests.map((r: any) => (
+            <article className="card" key={r.id}>
+              <div className="list-row">
+                <div>
+                  <h3>
+                    {r.clientName} · {money(r.data.amountMinor)}
+                  </h3>
+                  <p>
+                    {r.data.chargeId} · {r.status}
+                  </p>
+                </div>
+              </div>
+              <p>{r.data.reason}</p>
+              {r.data.decisionReason && (
+                <p>Previous decision: {r.data.decisionReason}</p>
+              )}
+              {["requested", "declined"].includes(r.status) && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    void act(`/${r.id}/decision`, {
+                      revision: r.version,
+                      approve: f.get("decision") === "approve",
+                      reason: f.get("reason"),
+                    });
+                  }}
+                >
+                  <label className="field">
+                    <span>Reviewed decision</span>
+                    <select name="decision" required defaultValue="">
+                      <option value="" disabled>
+                        Select a decision
+                      </option>
+                      <option value="approve">
+                        Approve remaining refund
+                        {r.status === "declined" ? " and override decline" : ""}
+                      </option>
+                      {r.status === "requested" && (
+                        <option value="decline">Decline request</option>
+                      )}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Decision reason and evidence</span>
+                    <textarea
+                      name="reason"
+                      required
+                      minLength={10}
+                      maxLength={2000}
+                    />
+                  </label>
+                  <button className="button" disabled={busy}>
+                    Save refund decision
+                  </button>
+                </form>
+              )}
+              {["submitting", "submitted", "unknown"].includes(r.status) && (
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => void act(`/${r.id}/reconcile`, {})}
+                >
+                  Check original provider refund
+                </button>
+              )}
+              {r.status === "failed" && (
+                <p className="notice">
+                  The original provider refund failed. Reconcile its evidence
+                  before a replacement financial instruction.
+                </p>
+              )}
+            </article>
+          ))}
         </>
       )}
     </section>

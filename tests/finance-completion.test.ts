@@ -724,3 +724,258 @@ test("automatic payout approval is rechecked within the dispatch transaction", a
   );
   assert.equal(current.status, "ready");
 });
+
+test("admin refund review enforces role and fresh MFA, supports scoped late requests and CAS overrides", async () => {
+  const Fastify = (await import("fastify")).default;
+  const { registerFinanceBilling, decideRefund } =
+    await import("../apps/api/src/finance-billing.ts");
+  const { recordCharge } = await import("../apps/api/src/finance.ts");
+  const api = Fastify();
+  let actor: any = {
+    ...a,
+    platformRole: "finance",
+    name: "Finance reviewer",
+    email: "finance@example.test",
+    emailVerified: true,
+    mfaAt: new Date().toISOString(),
+  };
+  api.addHook("onRequest", async (req) => {
+    req.identity = actor;
+  });
+  registerFinanceBilling(api, db);
+  try {
+    const route = `/api/v1/admin/tenants/${a.tenantId}/finance/refunds`;
+    actor = { ...actor, platformRole: "none" };
+    assert.equal(
+      (await api.inject({ method: "GET", url: route })).statusCode,
+      403,
+    );
+    actor = {
+      ...actor,
+      platformRole: "finance",
+      mfaAt: new Date(Date.now() - 20 * 60000).toISOString(),
+    };
+    assert.equal(
+      (await api.inject({ method: "GET", url: route })).statusCode,
+      403,
+    );
+    actor = { ...actor, mfaAt: new Date().toISOString() };
+    await db.tenant(a, (tx) =>
+      recordCharge(tx, a, "stripe-invoice:in_admin_override_fixture", 9000, 1, {
+        userId: client.userId,
+        chargeId: "ch_admin_override_fixture",
+        chargedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      }),
+    );
+    let review = await api.inject({
+      method: "GET",
+      url: route + "?chargeId=ch_admin_override_fixture",
+    });
+    assert.equal(review.statusCode, 200, review.body);
+    assert.equal(review.json().charges.length, 1);
+    assert.equal(review.json().charges[0].remainingMinor, 9000);
+    const foreign = await api.inject({
+      method: "GET",
+      url: `/api/v1/admin/tenants/${other.tenantId}/finance/refunds?chargeId=ch_admin_override_fixture`,
+    });
+    assert.equal(foreign.json().charges.length, 0);
+    const created = await api.inject({
+      method: "POST",
+      url: route,
+      payload: {
+        userId: client.userId,
+        chargeId: "ch_admin_override_fixture",
+        reason: "Reviewed billing exception outside the normal request window",
+      },
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const r = created.json();
+    let decision = await api.inject({
+      method: "POST",
+      url: route + `/${r.id}/decision`,
+      payload: {
+        approve: false,
+        reason: "First review declined with recorded evidence",
+        revision: r.version + 1,
+      },
+    });
+    assert.equal(decision.statusCode, 409);
+    decision = await api.inject({
+      method: "POST",
+      url: route + `/${r.id}/decision`,
+      payload: {
+        approve: false,
+        reason: "First review declined with recorded evidence",
+        revision: r.version,
+      },
+    });
+    assert.equal(decision.statusCode, 200, decision.body);
+    let calls = 0;
+    const stripe = {
+      refunds: {
+        create: async (body: any) => {
+          calls++;
+          assert.equal(body.amount, 9000);
+          return { id: "re_admin_override_fixture" };
+        },
+      },
+    } as any;
+    await decideRefund(
+      db,
+      actor,
+      r.id,
+      {
+        approve: true,
+        reason: "Independent admin review overturns the prior decline",
+        revision: r.version + 1,
+      },
+      true,
+      stripe,
+    );
+    assert.equal(calls, 1);
+    review = await api.inject({
+      method: "GET",
+      url: route + "?chargeId=ch_admin_override_fixture",
+    });
+    assert.equal(review.json().requests[0].status, "submitted");
+    assert.equal(review.json().charges[0].requestId, r.id);
+  } finally {
+    await api.close();
+  }
+});
+
+test("monthly job reauthorization binds the displayed policy revision with fresh MFA and preserves payment identities", async () => {
+  const { configureFinanceAutomation, reauthorizeFinanceJob } =
+    await import("../apps/api/src/finance-automation.ts");
+  const [c] = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM records WHERE kind='finance_automation'"),
+  );
+  const next = await db.tenant(a, (tx) =>
+    configureFinanceAutomation(tx, a, {
+      revision: c.version,
+      enabled: true,
+      reconcileStripe: false,
+      closeMonthly: true,
+      preparePayouts: false,
+      executePayouts: false,
+      maxPayoutMinor: 0,
+      fxAedPerUsd: 3.67,
+      fxEvidence: "Synthetic reviewed FX evidence remains unchanged",
+      reason:
+        "Reauthorize blocked monthly close with current reviewed settings",
+    }),
+  );
+  const job = await db.tenant(a, async (tx) => {
+    const [j] = await tx.query(
+      "SELECT * FROM jobs WHERE kind='finance_monthly' LIMIT 1",
+    );
+    await tx.query(
+      "UPDATE jobs SET status='blocked',attempts=1,leased_until=NULL WHERE id=$1",
+      [j.id],
+    );
+    return j;
+  });
+  const operator = {
+      ...a,
+      platformRole: "finance",
+      mfaAt: new Date().toISOString(),
+    },
+    input = {
+      attempts: 1,
+      configurationRevision: next.version,
+      reason: "Resolved prior reconciliation issue and reviewed current limits",
+    };
+  const payoutsBefore = await db.tenant(a, (tx) =>
+    tx.query("SELECT id,status,revision FROM payouts ORDER BY id"),
+  );
+  await assert.rejects(
+    db.tenant(a, (tx) =>
+      reauthorizeFinanceJob(
+        tx,
+        { ...operator, mfaAt: new Date(Date.now() - 20 * 60000).toISOString() },
+        job.id,
+        input,
+      ),
+    ),
+    /Verify your authenticator/,
+  );
+  await assert.rejects(
+    db.tenant(a, (tx) =>
+      reauthorizeFinanceJob(tx, operator, job.id, {
+        ...input,
+        configurationRevision: c.version,
+      }),
+    ),
+    /configuration changed/,
+  );
+  await assert.rejects(
+    db.tenant(a, (tx) =>
+      reauthorizeFinanceJob(tx, operator, job.id, { ...input, attempts: 2 }),
+    ),
+    /job changed/i,
+  );
+  const result = await db.tenant(a, (tx) =>
+    reauthorizeFinanceJob(tx, operator, job.id, input),
+  );
+  assert.equal(result.jobId, job.id);
+  assert.equal(result.intentKey, job.intent_key);
+  assert.equal(result.configurationRevision, next.version);
+  const [after] = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]),
+  );
+  assert.equal(after.data.period, job.data.period);
+  assert.equal(after.data.configVersion, next.version);
+  assert.equal(after.status, "pending");
+  assert.deepEqual(
+    await db.tenant(a, (tx) =>
+      tx.query("SELECT id,status,revision FROM payouts ORDER BY id"),
+    ),
+    payoutsBefore,
+  );
+  await assert.rejects(
+    db.tenant(a, (tx) => reauthorizeFinanceJob(tx, operator, job.id, input)),
+    /job changed/i,
+  );
+});
+
+test("finance job failures remain blocked and stale workers cannot overwrite a newer lease", async () => {
+  const { persistFinanceJobOutcome, runClaimedFinanceJob } =
+    await import("../apps/api/src/finance-automation.ts");
+  const job = await db.tenant(a, async (tx) => {
+    const [j] = await tx.query(
+      "INSERT INTO jobs(id,tenant_id,kind,intent_key,data,attempts,leased_until) VALUES($1,$2,'finance_unknown',$3,'{}',1,now()+interval '2 minutes') RETURNING *",
+      [randomUUID(), a.tenantId, "fixture-cas:" + randomUUID()],
+    );
+    return j;
+  });
+  const [newClaim] = await db.tenant(a, (tx) =>
+    tx.query(
+      "UPDATE jobs SET attempts=2,leased_until=now()+interval '3 minutes' WHERE id=$1 RETURNING *",
+      [job.id],
+    ),
+  );
+  assert.equal(
+    (
+      await persistFinanceJobOutcome(db, a.tenantId, job, {
+        status: "blocked",
+        code: "FINANCE_RECONCILIATION_REQUIRED",
+      })
+    ).updated,
+    false,
+  );
+  let [stored] = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]),
+  );
+  assert.equal(stored.status, "pending");
+  assert.equal(stored.attempts, 2);
+  const result = await runClaimedFinanceJob(db, a.tenantId, newClaim);
+  assert.equal(result.updated, true);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.code, "FINANCE_JOB_UNSUPPORTED");
+  [stored] = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM jobs WHERE id=$1", [job.id]),
+  );
+  assert.equal(stored.status, "blocked");
+  assert.equal(stored.last_error, "FINANCE_JOB_UNSUPPORTED");
+  assert.equal(stored.leased_until, null);
+});

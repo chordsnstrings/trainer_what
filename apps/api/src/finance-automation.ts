@@ -448,30 +448,157 @@ export function registerFinanceAutomation(app: FastifyInstance, db: Database) {
       b = z
         .object({
           attempts: z.number().int().min(0),
+          configurationRevision: z.number().int().positive(),
           reason: z.string().min(10).max(500),
         })
         .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      const [r] = await tx.query(
-        "UPDATE jobs SET status='pending',available_at=now(),leased_until=NULL,last_error=NULL WHERE id=$1 AND kind LIKE 'finance_%' AND status IN ('blocked','failed') AND attempts=$2 AND (leased_until IS NULL OR leased_until<now()) RETURNING *",
-        [
-          z
-            .string()
-            .uuid()
-            .parse((req.params as any).id),
-          b.attempts,
-        ],
-      );
-      if (!r)
-        throw fail(
-          "JOB_CHANGED",
-          "The job changed or is still running; reload before retrying",
-        );
-      await event(tx, a, "finance.job_requeued", r.id, {
-        reason: b.reason,
-        originalIntent: r.intent_key,
-      });
-      return { ok: true };
-    });
+    return db.tenant(a, (tx) =>
+      reauthorizeFinanceJob(
+        tx,
+        a,
+        z
+          .string()
+          .uuid()
+          .parse((req.params as any).id),
+        b,
+      ),
+    );
   });
+}
+
+/** Explicit operator reauthorization retains the original job/payment business identity. */
+export async function reauthorizeFinanceJob(
+  tx: Tx,
+  a: Actor & { platformRole?: string; mfaAt?: string | null },
+  jobId: string,
+  input: { attempts: number; configurationRevision: number; reason: string },
+) {
+  if (!["admin", "finance"].includes(a.platformRole ?? ""))
+    throw Object.assign(new Error("Platform finance access required"), {
+      statusCode: 403,
+      code: "FINANCE_REQUIRED",
+    });
+  requireRecentMfa(a, true);
+  const body = z
+    .object({
+      attempts: z.number().int().min(0),
+      configurationRevision: z.number().int().positive(),
+      reason: z.string().trim().min(10).max(500),
+    })
+    .strict()
+    .parse(input);
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+  const [job] = await tx.query(
+    "SELECT *, (leased_until IS NULL OR leased_until<now()) AS lease_free FROM jobs WHERE id=$1 AND kind LIKE 'finance_%' FOR UPDATE",
+    [z.string().uuid().parse(jobId)],
+  );
+  if (
+    !job ||
+    !["blocked", "failed"].includes(job.status) ||
+    job.attempts !== body.attempts ||
+    !job.lease_free
+  )
+    throw fail(
+      "JOB_CHANGED",
+      "The job changed or is still running; reload before retrying",
+    );
+  const [configuration] = await tx.query(
+    "SELECT * FROM records WHERE kind='finance_automation' FOR UPDATE",
+  );
+  if (configuration && configuration.version !== body.configurationRevision)
+    throw fail(
+      "STALE_REVISION",
+      "Finance configuration changed; reload its current limits before reauthorizing this job",
+    );
+  if (!configuration?.data.enabled)
+    throw fail(
+      "AUTOMATION_DISABLED",
+      "Enable and review finance automation before reauthorizing its job",
+    );
+  if (job.kind === "finance_monthly" && !configuration.data.closeMonthly)
+    throw fail(
+      "AUTOMATION_DISABLED",
+      "Monthly close is disabled in the current reviewed configuration",
+    );
+  const data = {
+    ...job.data,
+    configVersion: configuration.version,
+    reauthorizedBy: a.userId,
+    reauthorizedAt: new Date().toISOString(),
+    reauthorizationReason: body.reason,
+  };
+  const [r] = await tx.query(
+    "UPDATE jobs SET status='pending',data=$2,available_at=now(),leased_until=NULL,last_error=NULL WHERE id=$1 AND attempts=$3 AND status IN ('blocked','failed') RETURNING id,intent_key,data",
+    [job.id, JSON.stringify(data), body.attempts],
+  );
+  if (!r)
+    throw fail(
+      "JOB_CHANGED",
+      "The job changed before reauthorization completed",
+    );
+  await event(tx, a, "finance.job_reauthorized", job.id, {
+    reason: body.reason,
+    originalIntent: job.intent_key,
+    previousConfigurationRevision: job.data.configVersion,
+    configurationRevision: configuration.version,
+  });
+  return {
+    ok: true,
+    jobId: r.id,
+    intentKey: r.intent_key,
+    configurationRevision: configuration.version,
+  };
+}
+
+function financeFailureCode(error: unknown) {
+  if (error && typeof error === "object" && "provider" in error)
+    return "PROVIDER_UNAVAILABLE";
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String(error.code)
+      : "";
+  return /^[A-Z][A-Z_]{3,79}$/.test(code)
+    ? code
+    : "FINANCE_RECONCILIATION_REQUIRED";
+}
+export async function persistFinanceJobOutcome(
+  db: Database,
+  tenantId: string,
+  job: any,
+  result: { status: string; code?: string },
+) {
+  const a: Actor = {
+    tenantId,
+    userId: "00000000-0000-0000-0000-000000000000",
+    role: "finance",
+  };
+  const status = result.status === "completed" ? "completed" : "blocked";
+  const code =
+    status === "blocked"
+      ? result.code && /^[A-Z][A-Z_]{3,79}$/.test(result.code)
+        ? result.code
+        : "FINANCE_RECONCILIATION_REQUIRED"
+      : null;
+  const rows = await db.tenant(a, (tx) =>
+    tx.query(
+      "UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1 AND kind LIKE 'finance_%' AND status='pending' AND attempts=$4 AND leased_until=$5 RETURNING id",
+      [job.id, status, code, job.attempts, job.leased_until],
+    ),
+  );
+  return { updated: rows.length === 1, status, code };
+}
+/** The generic email retry path must never receive a finance failure. */
+export async function runClaimedFinanceJob(
+  db: Database,
+  tenantId: string,
+  job: any,
+  dependencies: { stripe?: ReturnType<typeof stripeClient> } = {},
+) {
+  let result: { status: string; code?: string };
+  try {
+    result = await executeFinanceJob(db, tenantId, job, dependencies);
+  } catch (error) {
+    result = { status: "blocked", code: financeFailureCode(error) };
+  }
+  return persistFinanceJobOutcome(db, tenantId, job, result);
 }

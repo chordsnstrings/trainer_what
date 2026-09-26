@@ -208,10 +208,7 @@ export async function billingHistory(db: Database, a: Actor) {
           !!c.data.chargeId &&
           refundEligible(c.data.chargedAt ?? c.created_at) &&
           Number(c.refunded_minor) < c.data.grossMinor &&
-          !requests.some(
-            (r) =>
-              r.data.chargeId === c.data.chargeId,
-          ),
+          !requests.some((r) => r.data.chargeId === c.data.chargeId),
       })),
     };
   });
@@ -440,6 +437,58 @@ export async function reconcileRefund(
   );
   return { status: remote.status };
 }
+export async function adminRefundReview(
+  db: Database,
+  a: Actor,
+  chargeId?: string,
+) {
+  const result = await db.tenant({ ...a, role: "finance" }, async (tx) => ({
+    requests: await tx.query(
+      "SELECT id,owner_user_id,status,version,data,created_at FROM records WHERE kind='refund' AND ($1::text IS NULL OR data->>'chargeId'=$1) ORDER BY created_at DESC LIMIT 200",
+      [chargeId ?? null],
+    ),
+    charges: await tx.query(
+      "SELECT j.id,j.data,j.created_at,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.source_key LIKE 'stripe-invoice:%' AND j.data->>'chargeId' IS NOT NULL AND ($1::text IS NULL OR j.data->>'chargeId'=$1) ORDER BY j.created_at DESC LIMIT 200",
+      [chargeId ?? null],
+    ),
+  }));
+  const ids = Array.from(
+    new Set(
+      [
+        ...result.requests.map((r) => r.owner_user_id),
+        ...result.charges.map((c) => c.data.userId),
+      ].filter(Boolean),
+    ),
+  );
+  const users = ids.length
+    ? await db.system((tx) =>
+        tx.query(
+          "SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND u.id=ANY($2::uuid[])",
+          [a.tenantId, ids],
+        ),
+      )
+    : [];
+  const names = new Map(users.map((u) => [u.id, u.name]));
+  return {
+    requests: result.requests.map((r) => ({
+      ...r,
+      clientName: names.get(r.owner_user_id) ?? "Retained billing record",
+    })),
+    charges: result.charges.map((c) => ({
+      id: c.id,
+      chargeId: c.data.chargeId,
+      userId: c.data.userId,
+      clientName: names.get(c.data.userId) ?? "Retained billing record",
+      chargedAt: c.data.chargedAt ?? c.created_at,
+      amountMinor: c.data.grossMinor,
+      remainingMinor: Math.max(0, c.data.grossMinor - Number(c.refunded_minor)),
+      requestId:
+        result.requests.find((r) => r.data.chargeId === c.data.chargeId)?.id ??
+        null,
+    })),
+  };
+}
+
 function identity(req: FastifyRequest) {
   if (!req.identity) throw fail(401, "AUTH_REQUIRED", "Please sign in");
   return req.identity;
@@ -491,13 +540,20 @@ export function registerFinanceBilling(app: FastifyInstance, db: Database) {
     const a = identity(req);
     if (!["admin", "finance"].includes(a.platformRole))
       throw fail(403, "FINANCE_REQUIRED", "Platform finance access required");
-    requireRecentMfa(a);
+    requireRecentMfa(a, true);
     return {
       ...a,
       tenantId: uuid.parse((req.params as any).tenantId),
       role: "finance",
     };
   }
+  app.get("/api/v1/admin/tenants/:tenantId/finance/refunds", (req) => {
+    const a = finance(req),
+      query = z
+        .object({ chargeId: z.string().trim().min(3).max(200).optional() })
+        .parse(req.query);
+    return adminRefundReview(db, a, query.chargeId);
+  });
   app.post("/api/v1/admin/tenants/:tenantId/finance/refunds", (req) =>
     requestRefund(
       db,

@@ -62,3 +62,26 @@ Jobs are stable per tenant/day/subscriber or month. They replay only previously 
 **No fabricated Lean/bank status adapter.** There is no verified account-specific read/finality contract available in this session. Bank settlement/finality remains the existing audited evidence workflow. A provider acknowledgment never means paid. No live provider actions were run.
 
 Final local focused result through stages1–4: **12/12 passed** in `tests/finance-completion.test.ts`, including stable scheduler/replay effects and payout approval recheck before dispatch. Full shared TypeScript result is reported to root after concurrent file edits settle. Baseline finance, webhook, payout and isolation cases passed in the prior platform run; that run had one unrelated coaching RLS failure subsequently owned by the coaching agent.
+
+## Final bounded completion pass — admin refunds and job reauthorization
+
+- Admin refund review is embedded in `FinancePolicyConsole`: list/search exact charge references, identify the subscriber, open an exception to the seven-day request window, decide/override a declined request with its current revision and reason, and reconcile an original uncertain provider refund. `GET /admin/tenants/:tenantId/finance/refunds` is role scoped and requires fresh MFA, as do all admin refund mutations. The page uses actual remaining charge amounts and existing request identities.
+- Finance job retry now accepts `configurationRevision` alongside attempts/reason. `reauthorizeFinanceJob` requires platform finance/admin authority and fresh MFA even in a nonproduction environment, locks and checks both job/configuration revisions, binds the displayed current policy, and retains the original job/month/payment intent. UI displays the current execution switch and payout cap beside the reauthorization button.
+- Worker review found the generic catch could overwrite a newer lease and erase the financial failure reason. The new `runClaimedFinanceJob` handles finance execution errors internally and `persistFinanceJobOutcome` CAS-checks pending status, attempt count and lease for both success and failure. Domain error codes are retained; unknown errors become `FINANCE_RECONCILIATION_REQUIRED`; arbitrary provider bodies are never persisted.
+
+Root worker patch (shared file ownership): import `runClaimedFinanceJob`, replace the current finance branch with:
+
+```ts
+if (job.kind.startsWith("finance_")) {
+  try {
+    await runClaimedFinanceJob(db, tenant.id, job);
+  } catch {
+    console.error("Finance job result could not be persisted");
+  }
+  continue;
+}
+```
+
+The inner catch covers a database persistence outage; such failures must not fall through to the generic email retry path. A later claim still reconciles the original durable financial instruction.
+
+Verification: **15/15 focused finance tests passed**, including new admin-role/MFA/tenant/revision checks, approved late refund and decline override using an isolated provider, monthly configuration reauthorization without changed payout identities, and stale-worker lease protection. Shared TypeScript result is sent to root. No new schema changes are needed in this pass.
