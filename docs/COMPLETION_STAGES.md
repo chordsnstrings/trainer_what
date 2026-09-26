@@ -78,3 +78,7 @@ Adaptive teaching now checks conflicting cases and requires independent worked m
 ### Connected integrations and verified hosts
 
 Wearable connection/revocation, trainer voice enrollment and guided playback, reviewed domain ordering and DNS/TLS verification, signed host forwarding, scoped integration operations and worker processing are connected. Explicit provider contracts and rights gates remain enforced; no live provider was called. Forty-five focused integration/settings/configuration/host tests and TypeScript passed. The worker also uses the committed finance lease-CAS helper.
+
+### Account access and privacy completion
+
+Magic-link login, authenticator recovery codes, verified WebAuthn passkeys, session controls and account settings are connected for members, trainers and administrators. Privacy export/erasure covers all current owned data, including notification preferences and inboxes; stale membership and financial obligations remain guarded. Eighteen account/privacy tests passed, including real signed WebAuthn assertions and assembled-app route checks. Aggregate TypeScript is deferred until the concurrent attachment module finishes.

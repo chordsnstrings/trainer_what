@@ -30,6 +30,7 @@ export function AccountSecurity() {
         setNotice("Account security updated.");
       }
       await load();
+      window.dispatchEvent(new Event("account-security-updated"));
     } catch (e) {
       setNotice((e as Error).message);
     } finally {

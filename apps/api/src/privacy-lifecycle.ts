@@ -41,6 +41,7 @@ const retainedKinds = [
   "payout_intent",
   "booking_payment",
   "booking_refund",
+  "promotion",
   "finance_policy",
   "fee_policy",
   "cost_allocation",
@@ -65,6 +66,7 @@ const privateKinds = [
   "training_plan",
   "training_schedule",
   "training_session",
+  "planned_session",
   "safety_hold",
   "workout_correction",
   "progress_measurement",
@@ -143,7 +145,7 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
   );
   await add(
     "invoice",
-    "SELECT count(*)::int n FROM records WHERE kind IN ('invoice','billing_invoice') AND ($1::uuid IS NULL OR owner_user_id=$1 OR data->>'userId'=$1::text) AND status NOT IN ('paid','void','canceled','refunded') AND coalesce(data->>'writtenOff','false')<>'true'",
+    "SELECT count(*)::int n FROM records WHERE kind IN ('invoice','billing_invoice') AND ($1::uuid IS NULL OR owner_user_id=$1 OR data->>'userId'=$1::text) AND status NOT IN ('paid','void','canceled','refunded') AND (kind='invoice' OR coalesce((data->>'amountDue')::numeric,0)>coalesce((data->>'amountPaid')::numeric,0)) AND coalesce(data->>'writtenOff','false')<>'true'",
     [userId ?? null],
   );
   await add(
@@ -162,6 +164,10 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
     [userId ?? null],
   );
   if (!userId) {
+    await add(
+      "promotion",
+      "SELECT count(*)::int n FROM records WHERE kind='promotion' AND status IN ('creating','unknown')",
+    );
     await add(
       "payout",
       "SELECT count(*)::int n FROM payouts WHERE status NOT IN ('paid','failed','returned','canceled')",
@@ -224,18 +230,8 @@ export async function exportPersonalData(
     tenantId: a.tenantId,
     ...identity,
     records: await tx.query(
-      "SELECT id,kind,status,version,data,created_at,updated_at FROM records WHERE (owner_user_id=$1 AND kind=ANY($2::text[])) OR (kind=ANY($3::text[]) AND (data->>'userId'=$1::text OR data->>'subscriberId'=$1::text OR data->>'clientId'=$1::text)) ORDER BY created_at,id",
-      [
-        a.userId,
-        [
-          ...privateKinds,
-          "refund",
-          "invoice",
-          "billing_invoice",
-          "privacy_request",
-        ],
-        privateKinds,
-      ],
+      "SELECT id,kind,status,version,data,created_at,updated_at FROM records WHERE owner_user_id=$1 OR (kind=ANY($2::text[]) AND (data->>'userId'=$1::text OR data->>'subscriberId'=$1::text OR data->>'clientId'=$1::text)) ORDER BY created_at,id",
+      [a.userId, privateKinds],
     ),
     workouts: await tx.query(
       "SELECT id,workout_id,event_key,data,created_at FROM workout_events WHERE user_id=$1 ORDER BY created_at",
@@ -443,11 +439,11 @@ export async function eraseMember(
       "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 FOR UPDATE",
       [a.tenantId, r.owner_user_id],
     );
-    if (!member || member.role !== "subscriber")
+    if (!member || member.role === "owner")
       throw fail(
         409,
         "WORKSPACE_CLOSURE_REQUIRED",
-        "Trainer and staff deletion requires reviewed workspace closure or ownership transfer",
+        "The current owner must complete ownership transfer or workspace closure before account erasure",
       );
     await setTenant(tx, a);
     await assertSettled(tx, r.owner_user_id);

@@ -60,7 +60,7 @@ export function customHostPath(path: string, slug: string): string | null {
   if (path.startsWith("/join-coach/"))
     return path === "/join-coach/" + slug ? path : null;
   if (
-    /^\/(app|login|forgot-password|reset-password|verify-email|magic-link|join|terms|privacy|ai-disclosure)(\/|$)/.test(
+    /^\/(app|login|forgot-password|reset-password|verify-email|magic-link|recover-authenticator|join|terms|privacy|ai-disclosure)(\/|$)/.test(
       path,
     )
   )

@@ -16,6 +16,7 @@ import {
   registerPrivacyLifecycle,
 } from "../apps/api/src/privacy-lifecycle.ts";
 import { privacyOperations } from "../apps/api/src/privacy-operations.ts";
+import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
 import { journal } from "../apps/api/src/finance.ts";
 let db: Database, app: ReturnType<typeof Fastify>;
 const password = "FixturePrivacyOnly2026!",
@@ -123,8 +124,8 @@ before(async () => {
     if (!a) throw Object.assign(new Error("No identity"), { statusCode: 401 });
     return a;
   };
-  registerPrivacyLifecycle(app, db, identity);
-  privacyOperations(app, db, identity);
+  registerPrivacyLifecycle(app, db, identity, privacyHooks);
+  privacyOperations(app, db, identity, privacyHooks);
   await app.ready();
 });
 after(async () => {
@@ -168,12 +169,30 @@ test("export includes private derived decisions and bookings, excluding another 
     tx.query("SELECT id FROM records WHERE id=$1", [own.id]),
   );
   assert.equal(visible.length, 0);
-  const out = await exportPersonalData(db, client);
+  for (const [owner, target, title] of [
+    [a, client, "Your notification"],
+    [a, other, "Another member notification"],
+    [b, client, "Another workspace notification"],
+  ] as const)
+    await db.tenant(owner, async (tx) => {
+      await tx.query(
+        "INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body) VALUES($1,$2,$3,'account','export-fixture',$4,'Private account message')",
+        [randomUUID(), owner.tenantId, target.userId, title],
+      );
+      await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,'{\"marketing\":false}')",
+        [owner.tenantId, target.userId],
+      );
+    });
+  const out = await exportPersonalData(db, client, privacyHooks);
   assert.equal(out.records.length, 1);
   assert.equal(out.records[0].id, own.id);
+  assert.equal((out as any).notifications.length, 1);
+  assert.equal((out as any).notifications[0].title, "Your notification");
+  assert.equal((out as any).notificationPreferences.length, 1);
   assert.doesNotMatch(
     JSON.stringify(out),
-    /other client secret|other workspace secret|password_hash|token_hash/,
+    /other client secret|other workspace secret|Another member notification|Another workspace notification|password_hash|token_hash/,
   );
 });
 
@@ -218,6 +237,21 @@ test("local erasure removes all derived personal records and preserves finance a
     );
   });
   const r = await deletion(client);
+  for (const [owner, target] of [
+    [a, client],
+    [a, admin],
+    [b, client],
+  ])
+    await db.tenant(owner, async (tx) => {
+      await tx.query(
+        "INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body) VALUES($1,$2,$3,'account','erasure-fixture','Account notice','Private account message')",
+        [randomUUID(), owner.tenantId, target.userId],
+      );
+      await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,'{\"marketing\":false}')",
+        [owner.tenantId, target.userId],
+      );
+    });
   await db.tenant(a, async (tx) => {
     for (const kind of [
       "intake",
@@ -284,6 +318,39 @@ test("local erasure removes all derived personal records and preserves finance a
     ]),
   );
   assert.equal(sessions[0].tenant_id, b.tenantId);
+  await db.tenant(a, async (tx) => {
+    const notices = await tx.query("SELECT user_id FROM notifications");
+    assert.deepEqual(
+      notices.map((n) => n.user_id),
+      [admin.userId],
+    );
+    const preferences = await tx.query(
+      "SELECT user_id FROM notification_preferences",
+    );
+    assert.deepEqual(
+      preferences.map((n) => n.user_id),
+      [admin.userId],
+    );
+  });
+  await db.tenant(b, async (tx) => {
+    assert.equal(
+      (
+        await tx.query("SELECT * FROM notifications WHERE user_id=$1", [
+          client.userId,
+        ])
+      ).length,
+      1,
+    );
+    assert.equal(
+      (
+        await tx.query(
+          "SELECT * FROM notification_preferences WHERE user_id=$1",
+          [client.userId],
+        )
+      ).length,
+      1,
+    );
+  });
 });
 
 test("erasure blocks subscriptions, unknown model charges and future booked sessions", async () => {
@@ -498,4 +565,37 @@ test("workspace closure rechecks settlement and ownership, requires independent 
     );
     assert.equal((await tx.query("SELECT * FROM journals")).length, 1);
   });
+});
+
+test("former owners and staff can erase their accounts without removing the workspace or its other members", async () => {
+  const a = await tenant(),
+    staff = await person(a.tenantId, "staff"),
+    admin = await person(a.tenantId, "staff", "admin"),
+    client = await person(a.tenantId);
+  const request = await deletion(staff);
+  await db.tenant(a, (tx) =>
+    putRecord(
+      tx,
+      a,
+      "planned_session",
+      { date: "2026-12-01" },
+      { ownerId: client.userId, status: "planned" },
+    ),
+  );
+  const erased = await req(
+    admin,
+    `/admin/tenants/${a.tenantId}/privacy/${request.id}/erase`,
+    proof(),
+  );
+  assert.equal(erased.statusCode, 200, erased.body);
+  const members = await db.system((tx) =>
+    tx.query("SELECT user_id,role FROM memberships WHERE tenant_id=$1", [
+      a.tenantId,
+    ]),
+  );
+  assert.ok(!members.some((m) => m.user_id === staff.userId));
+  assert.ok(members.some((m) => m.user_id === a.userId && m.role === "owner"));
+  assert.ok(members.some((m) => m.user_id === client.userId));
+  const exported = await exportPersonalData(db, client);
+  assert.ok(exported.records.some((r) => r.kind === "planned_session"));
 });

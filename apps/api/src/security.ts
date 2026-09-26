@@ -1,3 +1,10 @@
+import {
+  accountHost,
+  accountMembership,
+  requireEmailConfiguration,
+} from "./account-completion.ts";
+import { workspaceLock } from "./privacy-lifecycle.ts";
+import type { HostContext } from "./host-routing.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
   createCipheriv,
@@ -135,26 +142,31 @@ export function securityRoutes(
   ) => Actor & { email: string; emailVerified: boolean; mfaAt?: string | null },
 ) {
   const rate = { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } };
-  const url = () => process.env.PUBLIC_APP_URL ?? "http://localhost:3000";
   async function queueLink(
     user: any,
     tenantId: string,
     purpose: "reset" | "verify",
+    host: HostContext,
   ) {
-    if (
-      process.env.NODE_ENV === "production" &&
-      (!runtimeConfig().EMAIL_API_KEY || !runtimeConfig().EMAIL_API_URL)
-    )
-      throw new ProviderUnavailable("email");
+    requireEmailConfiguration();
     const token = newToken();
     await db.system(async (tx) => {
+      await workspaceLock(tx, tenantId);
+      await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [user.id]);
+      await accountMembership(tx, user.id, host, tenantId);
       await tx.query(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL",
         [user.id, purpose],
       );
       await tx.query(
-        "INSERT INTO one_time_tokens(token_hash,purpose,user_id,tenant_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '30 minutes')",
-        [tokenHash(token), purpose, user.id, tenantId],
+        "INSERT INTO one_time_tokens(token_hash,purpose,user_id,tenant_id,payload,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '30 minutes')",
+        [
+          tokenHash(token),
+          purpose,
+          user.id,
+          tenantId,
+          JSON.stringify({ origin: host.origin }),
+        ],
       );
       await tx.query("SET LOCAL ROLE trainer_app");
       await tx.query(
@@ -169,9 +181,12 @@ export function securityRoutes(
           `${purpose}:${tokenHash(token)}`,
           JSON.stringify({
             to: user.email,
+            category: "account",
+            critical: true,
+            userId: user.id,
             subject:
               purpose === "reset" ? "Reset your password" : "Verify your email",
-            text: `${url()}/${purpose === "reset" ? "reset-password" : "verify-email"}/${token}\nThis link expires in 30 minutes.`,
+            text: `${host.origin}/${purpose === "reset" ? "reset-password" : "verify-email"}/${token}\nThis link expires in 30 minutes.`,
           }),
         ],
       );
@@ -194,20 +209,27 @@ export function securityRoutes(
   app.post("/api/v1/auth/request-verification", rate, async (req) => {
     const a = identity(req);
     if (!a.emailVerified)
-      await queueLink({ id: a.userId, email: a.email }, a.tenantId, "verify");
+      await queueLink(
+        { id: a.userId, email: a.email },
+        a.tenantId,
+        "verify",
+        accountHost(req),
+      );
     return { ok: true };
   });
   app.post("/api/v1/auth/forgot-password", rate, async (req) => {
     const b = z
       .object({ email: z.email().transform((s) => s.toLowerCase()) })
       .parse(req.body);
+    const host = accountHost(req);
+    requireEmailConfiguration();
     const [u] = await db.system((tx) =>
       tx.query(
-        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=$1 LIMIT 1",
-        [b.email],
+        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY m.tenant_id LIMIT 1",
+        [b.email, host.tenantId, host.custom],
       ),
     );
-    if (u) await queueLink(u, u.tenant_id, "reset");
+    if (u) await queueLink(u, u.tenant_id, "reset", host);
     return {
       ok: true,
       message: "If this address has an account, a reset link will be sent.",
@@ -229,13 +251,32 @@ export function securityRoutes(
           .parse(req.body);
         const hash =
           purpose === "reset" ? await passwordHash(b.password!) : null;
+        const host = accountHost(req);
         await db.system(async (tx) => {
+          const [initial] = await tx.query(
+            "SELECT user_id,tenant_id FROM one_time_tokens WHERE token_hash=$1 AND purpose=$2 AND consumed_at IS NULL AND expires_at>now()",
+            [tokenHash(b.token), purpose],
+          );
+          if (!initial)
+            throw fail(400, "LINK_EXPIRED", "This link is invalid or expired");
+          await workspaceLock(tx, initial.tenant_id);
+          await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
+            initial.user_id,
+          ]);
           const [t] = await tx.query(
             "SELECT * FROM one_time_tokens WHERE token_hash=$1 AND purpose=$2 AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
             [tokenHash(b.token), purpose],
           );
-          if (!t)
-            throw fail(400, "LINK_EXPIRED", "This link is invalid or expired");
+          if (
+            !t ||
+            (t.payload.origin ? t.payload.origin !== host.origin : host.custom)
+          )
+            throw fail(
+              400,
+              "LINK_EXPIRED",
+              "This link is invalid, expired or belongs to another address",
+            );
+          await accountMembership(tx, t.user_id, host, t.tenant_id);
           await tx.query(
             "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
             [tokenHash(b.token)],
@@ -244,10 +285,15 @@ export function securityRoutes(
             "UPDATE users SET email_verified=true,password_hash=coalesce($2,password_hash) WHERE id=$1",
             [t.user_id, hash],
           );
-          if (purpose === "reset")
+          if (purpose === "reset") {
             await tx.query("DELETE FROM sessions WHERE user_id=$1", [
               t.user_id,
             ]);
+            await tx.query(
+              "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose IN ('magic','reset') AND consumed_at IS NULL",
+              [t.user_id],
+            );
+          }
         });
         if (purpose === "reset") reply.clearCookie("session", { path: "/" });
         return { ok: true };
@@ -355,6 +401,10 @@ export function securityRoutes(
         hash,
       ]);
       await tx.query("DELETE FROM sessions WHERE user_id=$1", [a.userId]);
+      await tx.query(
+        "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose IN ('magic','reset') AND consumed_at IS NULL",
+        [a.userId],
+      );
     });
     reply.clearCookie("session", { path: "/" });
     return { ok: true };

@@ -4,6 +4,11 @@ import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import {
+  registerAccountCompletion,
+  touchAccountSession,
+} from "./account-completion.ts";
+import { registerPasskeys } from "./passkeys.ts";
+import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
@@ -60,7 +65,6 @@ import {
   registerTeamRoutes,
   createTeamInvitation,
   lockActiveInvitation,
-  touchTeamSession,
 } from "./team.ts";
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
@@ -309,19 +313,18 @@ export async function buildApp(
             req.identity = undefined;
           else throw error;
         }
-        await touchTeamSession(db, tokenHash(token)).catch(() => {});
+        if (req.identity)
+          await touchAccountSession(db, tokenHash(token)).catch(() => {});
       }
     }
   });
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof ConfigurationError)
-      return reply
-        .code(409)
-        .send({
-          code: "INTEGRATION_CONFIGURATION",
-          message: error.message,
-          requestId: req.id,
-        });
+      return reply.code(409).send({
+        code: "INTEGRATION_CONFIGURATION",
+        message: error.message,
+        requestId: req.id,
+      });
     if (error instanceof NutritionBlocked)
       return reply
         .code(409)
@@ -397,6 +400,8 @@ export async function buildApp(
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
   securityRoutes(app, db, identity);
+  registerAccountCompletion(app, db, identity);
+  registerPasskeys(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);

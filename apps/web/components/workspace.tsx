@@ -31,6 +31,8 @@ import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
+import { AccountExtras, MagicAccess } from "./account-completion";
+import { PasskeyLoginButton } from "./passkeys";
 import { PlatformSettings } from "./platform-settings";
 import { MealCapture } from "./meal-capture";
 import {
@@ -311,6 +313,9 @@ export default function Workspace() {
       "/signup",
     ].includes(path) ||
     path === "/forgot-password" ||
+    path === "/magic-link" ||
+    path.startsWith("/magic-link/") ||
+    path === "/recover-authenticator" ||
     path.startsWith("/reset-password/") ||
     path.startsWith("/verify-email/") ||
     path.startsWith("/join-coach/") ||
@@ -656,6 +661,7 @@ export default function Workspace() {
                   Return to settings & connections
                 </Link>
                 <AccountSecurity />
+                <AccountExtras />
               </>
             ) : (
               <PlatformSettings
@@ -3047,6 +3053,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         detail="Keep your information useful, your permissions clear and your data under your control."
       />
       <AccountSecurity />
+      <AccountExtras />
       <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
@@ -3522,9 +3529,13 @@ function Public({
           <ArrowUpRight size={16} />
         </Link>
       </header>
-      {path.startsWith("/reset-password/") ||
-      path.startsWith("/verify-email/") ||
-      path === "/forgot-password" ? (
+      {path === "/magic-link" ||
+      path.startsWith("/magic-link/") ||
+      path === "/recover-authenticator" ? (
+        <MagicAccess path={path} />
+      ) : path.startsWith("/reset-password/") ||
+        path.startsWith("/verify-email/") ||
+        path === "/forgot-password" ? (
         <AccountRecovery path={path} />
       ) : auth ? (
         <main className="auth-layout">
@@ -3705,6 +3716,20 @@ function Public({
                 <ArrowRight size={16} />
               </Button>
             </form>
+            {path === "/login" && (
+              <>
+                <div className="divider" />
+                <PasskeyLoginButton />
+                <p>
+                  <Link href="/magic-link">Email me a sign-in link</Link>
+                </p>
+                <p>
+                  <Link href="/recover-authenticator">
+                    Use an authenticator recovery code
+                  </Link>
+                </p>
+              </>
+            )}
             <div className="divider" />
             <p className="muted">
               {signup

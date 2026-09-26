@@ -87,7 +87,7 @@ export function PrivacyOperations({ tenants }: { tenants: any[] }) {
             >
               <PrivacyEvidenceFields />
               <button className="button" disabled={busy}>
-                Erase subscriber’s local coaching data
+                Erase member’s local coaching data
               </button>
             </form>
           )}
