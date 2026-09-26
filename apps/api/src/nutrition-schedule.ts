@@ -17,6 +17,9 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
     role: "owner",
   };
   return db.tenant(a, async (tx) => {
+    await tx.query(
+      "UPDATE jobs SET status='blocked',leased_until=NULL,last_error='Generation interrupted; inspect provider state before retry' WHERE kind='nutrition_week' AND status='running' AND data->>'origin'='manual' AND leased_until<now()",
+    );
     const profiles = await tx.query(
       "SELECT DISTINCT ON(owner_user_id) * FROM records WHERE kind='nutrition_profile' ORDER BY owner_user_id,created_at DESC,id DESC",
     );
@@ -84,7 +87,7 @@ export async function executeNutritionJob(
   );
   if (profile?.id !== job.data.profileId) return { status: "obsolete" };
   return prepareNutritionWeek(db, a, {
-    requestKey: job.id,
+    requestKey: job.data.requestKey ?? job.id,
     weekStart: job.data.weekStart,
   });
 }

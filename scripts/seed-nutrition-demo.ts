@@ -109,6 +109,8 @@ export async function seedNutritionDemo(db: Database, a: Actor) {
         "nutrition_release",
         {
           ...material.snapshot,
+          // A seeded example is not an evaluated autonomous release.
+          qualificationVersion: 0,
           digest: material.digest,
           verificationMode: "fixture",
           synthetic: true,

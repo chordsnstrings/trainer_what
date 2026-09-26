@@ -70,3 +70,7 @@ Team invitation, role, revocation and session controls now use current owner/MFA
 ### Finance final safeguards
 
 Admin refund overrides now have a dedicated review UI and current MFA/revision checks. Monthly jobs can be explicitly reauthorized against the displayed policy revision while preserving payment identities. Financial worker result helpers use attempt/lease CAS for success and failure. Fifteen focused finance tests and TypeScript passed; worker uses this helper in the integration stage.
+
+### Nutrition qualification completion
+
+Adaptive teaching now checks conflicting cases and requires independent worked meal, portion, nutrient, rationale and safety evidence before automatic activation. Old releases require requalification. Subscriber-requested generation uncertainty has a durable recovery path and cannot be retried under a new key. Thirty-three related tests and TypeScript passed; nine completion tests passed again after the final recovery refinement. Real provider quality remains a separate qualification requirement.

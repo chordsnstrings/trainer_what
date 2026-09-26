@@ -7,6 +7,10 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import {
+  nutritionPrinciples,
+  principleForCategory,
+} from "../../../packages/domain/src/nutrition-learning";
 import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
 import {
   nutritionQuestions,
@@ -92,6 +96,7 @@ function useNutrition(path: string) {
 const sections = [
   ["overview", "Overview"],
   ["cases", "Teach through cases"],
+  ["learning", "Next teaching questions"],
   ["recipes", "Ingredients & recipes"],
   ["policy", "Diet & rules"],
   ["scenarios", "Case checks"],
@@ -233,6 +238,7 @@ export function NutritionCoach({
             </div>
           </>
         )}
+        {section === "learning" && <NutritionLearningView />}
         {section === "cases" && (
           <>
             <div className="two-columns">
@@ -458,24 +464,34 @@ export function NutritionCoach({
               <p>
                 Use at least twenty different cases across the eight teaching
                 categories. Specify the answer you expect before evaluation.
-                Expected answers are withheld from the model.
+                Include at least eight worked meals across portions,
+                substitutions, cooking and budget. Ingredient quantities,
+                nutrient arithmetic, cited reasoning and independent safety
+                cases are checked; expected answers are withheld from the model.
               </p>
               <ScenarioForm
                 cases={d.cases}
                 policy={d.policy?.data.policy}
+                recipes={d.recipes}
                 submit={submit}
               />
             </Card>
             <Card title="Held-out cases">
               <p>
                 {
-                  d.records.filter((x: any) => x.kind === "nutrition_scenario")
-                    .length
+                  d.records.filter(
+                    (x: any) =>
+                      x.kind === "nutrition_scenario" &&
+                      x.status === "held_out",
+                  ).length
                 }{" "}
                 cases saved.
               </p>
               {d.records
-                .filter((x: any) => x.kind === "nutrition_scenario")
+                .filter(
+                  (x: any) =>
+                    x.kind === "nutrition_scenario" && x.status === "held_out",
+                )
                 .map((x: any) => (
                   <details key={x.id}>
                     <summary>
@@ -485,6 +501,44 @@ export function NutritionCoach({
                       Expected: {x.data.expect} ·{" "}
                       {x.data.expectedTargetKcal ?? "No target"} kcal
                     </p>
+                    <p>
+                      Principle:{" "}
+                      {(
+                        x.data.expectedPrinciple ??
+                        principleForCategory[x.data.category]
+                      ).replaceAll("_", " ")}
+                      .{" "}
+                      {x.data.expectedMeal
+                        ? `${x.data.expectedMeal.slot}, ${x.data.expectedMeal.minServings}–${x.data.expectedMeal.maxServings} servings; ${x.data.expectedMeal.recipeIds.length} acceptable recipe(s).`
+                        : "No worked meal expectation saved."}
+                    </p>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const f = new FormData(e.currentTarget);
+                        void r.action(
+                          () =>
+                            api(
+                              `/nutrition/scenarios/${x.id}/archive`,
+                              "POST",
+                              { version: x.version, reason: f.get("reason") },
+                            ),
+                          "Held-out case archived. Re-evaluate before resuming automatic nutrition.",
+                        );
+                      }}
+                    >
+                      <Field label="Reason for retiring this check">
+                        <input
+                          name="reason"
+                          minLength={10}
+                          maxLength={1000}
+                          required
+                        />
+                      </Field>
+                      <button className="button secondary">
+                        Archive this check
+                      </button>
+                    </form>
                   </details>
                 ))}
               <button
@@ -678,6 +732,29 @@ function CaseForm({
           changeWhen: f.get("changeWhen"),
           referWhen: f.get("referWhen"),
           rights: true,
+          decision: {
+            conditions: {
+              goal: String(f.get("conditionGoal")).trim() || null,
+              diet: String(f.get("conditionDiet")).trim() || null,
+              budget: f.get("conditionBudget") || null,
+              scope: f.get("conditionScope"),
+              allergy: f.get("conditionAllergy"),
+            },
+            action: f.get("decisionAction"),
+            targetKcal:
+              f.get("decisionAction") === "plan" && f.get("decisionKcal") !== ""
+                ? num(f, "decisionKcal")
+                : null,
+            minServings:
+              f.get("decisionAction") === "plan" && f.get("minPortion") !== ""
+                ? num(f, "minPortion")
+                : null,
+            maxServings:
+              f.get("decisionAction") === "plan" && f.get("maxPortion") !== ""
+                ? num(f, "maxPortion")
+                : null,
+            principle: f.get("principle"),
+          },
         });
       }}
     >
@@ -716,6 +793,112 @@ function CaseForm({
           />
         </Field>
       ))}
+      <details open>
+        <summary>When this recommendation applies</summary>
+        <div className="nutrition-form-grid">
+          <Field label="Goal (blank means any goal)">
+            <input
+              name="conditionGoal"
+              maxLength={100}
+              defaultValue={initial?.decision?.conditions.goal ?? ""}
+            />
+          </Field>
+          <Field label="Diet (blank means any diet)">
+            <input
+              name="conditionDiet"
+              maxLength={80}
+              defaultValue={initial?.decision?.conditions.diet ?? ""}
+            />
+          </Field>
+          <Field label="Budget">
+            <select
+              name="conditionBudget"
+              defaultValue={initial?.decision?.conditions.budget ?? ""}
+            >
+              <option value="">Any</option>
+              <option value="low">Low</option>
+              <option value="moderate">Moderate</option>
+              <option value="flexible">Flexible</option>
+            </select>
+          </Field>
+          <Field label="Scope">
+            <select
+              name="conditionScope"
+              defaultValue={
+                initial?.decision?.conditions.scope ?? "general_wellness"
+              }
+            >
+              <option value="general_wellness">General wellness</option>
+              <option value="specialist_needed">Specialist needed</option>
+              <option value="unknown">Needs clarification</option>
+            </select>
+          </Field>
+          <Field label="Allergy information">
+            <select
+              name="conditionAllergy"
+              defaultValue={initial?.decision?.conditions.allergy ?? "known"}
+            >
+              <option value="known">Confirmed information</option>
+              <option value="unknown">Missing or uncertain</option>
+            </select>
+          </Field>
+          <Field label="What the assistant should do">
+            <select
+              name="decisionAction"
+              defaultValue={initial?.decision?.action ?? ""}
+              required
+            >
+              <option value="">Choose an action</option>
+              <option value="plan">Provide an in-scope plan</option>
+              <option value="clarify">Ask for clarification</option>
+              <option value="refer">Refer to the coach or specialist</option>
+            </select>
+          </Field>
+          <Field label="Calorie value for this worked example (optional)">
+            <input
+              name="decisionKcal"
+              type="number"
+              min={1}
+              max={10000}
+              defaultValue={initial?.decision?.targetKcal ?? ""}
+            />
+          </Field>
+          <Field label="Minimum example servings (optional)">
+            <input
+              name="minPortion"
+              type="number"
+              min={0.25}
+              max={10}
+              step={0.25}
+              defaultValue={initial?.decision?.minServings ?? ""}
+            />
+          </Field>
+          <Field label="Maximum example servings (optional)">
+            <input
+              name="maxPortion"
+              type="number"
+              min={0.25}
+              max={10}
+              step={0.25}
+              defaultValue={initial?.decision?.maxServings ?? ""}
+            />
+          </Field>
+          <Field label="Principle behind the decision">
+            <select
+              name="principle"
+              defaultValue={
+                initial?.decision?.principle ?? principleForCategory[category]
+              }
+            >
+              {nutritionPrinciples.map((p) => (
+                <option key={p} value={p}>
+                  {p.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </details>
       <label className="check">
         <input type="checkbox" required /> This is my teaching material and
         contains no identifying client information.
@@ -1566,24 +1749,34 @@ export function ProfileForm({
 function ScenarioForm({
   cases,
   policy,
+  recipes,
   submit,
 }: {
   cases: any[];
   policy: any;
+  recipes: any[];
   submit: (p: string, b: any, m?: string) => Promise<any>;
 }) {
   const [prompt, setPrompt] = useState(""),
     [category, setCategory] = useState("diet"),
     [expect, setExpect] = useState("plan"),
     [target, setTarget] = useState(""),
-    [caseId, setCaseId] = useState(cases[0]?.id ?? "");
+    [caseId, setCaseId] = useState(cases[0]?.id ?? ""),
+    [mealSlot, setMealSlot] = useState(policy?.slots?.[0] ?? "Breakfast"),
+    [recipeIds, setRecipeIds] = useState<string[]>([]),
+    [minServings, setMinServings] = useState(1),
+    [maxServings, setMaxServings] = useState(1),
+    [principle, setPrinciple] = useState<string>("diet_match");
   return (
     <>
       <div className="nutrition-form-grid">
         <Field label="Decision area">
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setPrinciple(principleForCategory[e.target.value]);
+            }}
           >
             {nutritionCategories.map((c) => (
               <option key={c}>{c}</option>
@@ -1616,6 +1809,80 @@ function ScenarioForm({
       <Field label="A new client situation">
         <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       </Field>
+      <Field label="Expected reasoning principle">
+        <select
+          value={principle}
+          onChange={(e) => setPrinciple(e.target.value)}
+        >
+          {nutritionPrinciples.map((p) => (
+            <option key={p} value={p}>
+              {p.replaceAll("_", " ")}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {expect === "plan" && (
+        <fieldset>
+          <legend>Held-out worked meal expectation</legend>
+          <p>
+            The model sees the requested meal slot. Your acceptable recipes and
+            portion range remain hidden during evaluation.
+          </p>
+          <Field label="Meal slot">
+            <select
+              value={mealSlot}
+              onChange={(e) => {
+                setMealSlot(e.target.value);
+                setRecipeIds([]);
+              }}
+            >
+              {policy?.slots.map((slot: string) => (
+                <option key={slot}>{slot}</option>
+              ))}
+            </select>
+          </Field>
+          {recipes
+            .filter((r) => r.slots.includes(mealSlot))
+            .map((r) => (
+              <label className="check" key={r.id}>
+                <input
+                  type="checkbox"
+                  checked={recipeIds.includes(r.id)}
+                  onChange={(e) =>
+                    setRecipeIds((old) =>
+                      e.target.checked
+                        ? [...old, r.id]
+                        : old.filter((id) => id !== r.id),
+                    )
+                  }
+                />
+                {r.name}
+              </label>
+            ))}
+          <div className="nutrition-form-grid">
+            <Field label="Minimum acceptable servings">
+              <input
+                type="number"
+                min={0.25}
+                max={10}
+                step={0.25}
+                value={minServings}
+                onChange={(e) => setMinServings(Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Maximum acceptable servings">
+              <input
+                type="number"
+                min={0.25}
+                max={10}
+                step={0.25}
+                value={maxServings}
+                onChange={(e) => setMaxServings(Number(e.target.value))}
+              />
+            </Field>
+          </div>
+        </fieldset>
+      )}
       <ProfileForm
         policy={policy}
         mode="scenario"
@@ -1630,6 +1897,17 @@ function ScenarioForm({
               expectedTargetKcal: target ? Number(target) : null,
               expectedCaseId: caseId,
               heldOut: true,
+              expectedPrinciple: principle,
+              ...(expect === "plan"
+                ? {
+                    expectedMeal: {
+                      slot: mealSlot,
+                      recipeIds,
+                      minServings,
+                      maxServings,
+                    },
+                  }
+                : {}),
             },
             "Held-out case saved",
           )
@@ -2799,8 +3077,14 @@ function NutritionRecovery() {
           <Field label="Recovery action">
             <select name="action">
               <option value="retry_unsent">Retry only if never sent</option>
+              <option value="retry_responded">
+                Retry known response (another paid model call)
+              </option>
               <option value="provider_confirmed_not_processed">
                 Provider confirmed not processed
+              </option>
+              <option value="provider_confirmed_not_processed_close">
+                Provider confirmed not processed; close obsolete week
               </option>
               <option value="provider_confirmed_processed_close">
                 Provider confirmed processed; close without retry
@@ -3860,5 +4144,93 @@ function NutritionShopping({
         prescribed meal portions or count as eaten.
       </p>
     </Card>
+  );
+}
+
+function NutritionLearningView() {
+  const r = useNutrition("/nutrition/learning"),
+    [selected, setSelected] = useState<string>("");
+  const question =
+    r.data?.questions.find((q: any) => q.key === selected) ??
+    r.data?.questions[0];
+  return (
+    <>
+      <Card title="What should your assistant learn next?">
+        <p>
+          Questions follow missing decision details, contrasting examples and
+          the exceptions your clients encounter.
+        </p>
+        {r.error && <Notice>{r.error}</Notice>}
+        {r.message && <Notice>{r.message}</Notice>}
+        {r.data?.conflicts.map((c: any, i: number) => (
+          <Notice key={i}>
+            {c.message} Cases:{" "}
+            {c.caseIds
+              .map((id: string) =>
+                r.data.cases
+                  .find((x: any) => x.id === id)
+                  ?.data.scenario.slice(0, 80),
+              )
+              .join(" / ")}
+            . Correct them in Teach through cases before activating a release.
+          </Notice>
+        ))}
+        {r.data?.questions.map((q: any) => (
+          <button
+            key={q.key}
+            className="button secondary"
+            onClick={() => setSelected(q.key)}
+          >
+            {q.category}: {q.reason}
+          </button>
+        ))}
+        {question && (
+          <CaseForm
+            key={question.key}
+            initial={{ category: question.category, scenario: question.prompt }}
+            onSubmit={(b) =>
+              r.action(
+                () => api("/nutrition/cases", "POST", b),
+                "Case saved. Next questions and conflict checks updated.",
+              )
+            }
+          />
+        )}
+      </Card>
+      <Card title="Teaching and held-out coverage">
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Taught</th>
+                <th>Conditions captured</th>
+                <th>Held-out</th>
+                <th>Worked meals</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.data?.coverage.map((c: any) => (
+                <tr key={c.category}>
+                  <td>{c.category}</td>
+                  <td>{c.taught}</td>
+                  <td>{c.structured}</td>
+                  <td>{c.heldOut}</td>
+                  <td>{c.mealChecks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Conflicts flag matching conditions and inconsistent decisions. The
+          coach resolves ambiguous wording; this screen does not claim to
+          understand every possible contradiction.
+        </p>
+        <Link href="/trainer/nutrition/scenarios">
+          Check unseen client cases →
+        </Link>
+      </Card>
+    </>
   );
 }

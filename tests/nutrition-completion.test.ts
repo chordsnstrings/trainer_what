@@ -1,3 +1,8 @@
+import {
+  nutritionLearning,
+  checkNutritionSample,
+  rationaleMatches,
+} from "../packages/domain/src/nutrition-learning.ts";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -186,6 +191,16 @@ test("weekly recovery retries only unsent intent and persists an auditable provi
     (
       await req(`/nutrition/recovery/${unknown}`, "POST", {
         attempts: 1,
+        action: "retry_responded",
+        reason: "An unknown response cannot bypass reconciliation",
+      })
+    ).statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await req(`/nutrition/recovery/${unknown}`, "POST", {
+        attempts: 1,
         action: "retry_unsent",
         reason: "Attempted provider call timed out",
       })
@@ -231,6 +246,17 @@ test("weekly recovery retries only unsent intent and persists an auditable provi
   );
   assert.equal(audit.data.providerState, "uncertain");
   assert.equal(audit.data.providerReference, "synthetic-case-0001");
+  const responded = await blockedJob("responded");
+  assert.equal(
+    (
+      await ok(`/nutrition/recovery/${responded}`, "POST", {
+        attempts: 1,
+        action: "retry_responded",
+        reason: "Coach deliberately accepts another billable model attempt",
+      })
+    ).status,
+    "pending",
+  );
 });
 
 let client: any,
@@ -696,4 +722,135 @@ test("photo quantity scaling preserves unknowns and verified ingredient groundin
   const state = await ok("/nutrition/captures", "GET", undefined, client);
   assert.equal(state.photoConsent, false);
   assert.equal(state.processingConsent, true);
+});
+
+test("adaptive teaching identifies conflicting conditions, asks contrast cases and follows exception coverage", async () => {
+  const base = {
+    id: randomUUID(),
+    status: "confirmed",
+    data: {
+      category: "calories",
+      scenario: "A client with a confirmed goal",
+      recommendation: "Use this worked target",
+      reason: "Keep the decision inside the confirmed coach limits",
+      decision: {
+        conditions: {
+          goal: "Consistency",
+          diet: "balanced",
+          budget: null,
+          scope: "general_wellness",
+          allergy: "known",
+        },
+        action: "plan",
+        targetKcal: 1500,
+        minServings: null,
+        maxServings: null,
+        principle: "goal_target",
+      },
+    },
+  };
+  const conflicting = {
+    ...structuredClone(base),
+    id: randomUUID(),
+    data: {
+      ...structuredClone(base.data),
+      scenario: "A second example with the same conditions",
+      decision: { ...base.data.decision, targetKcal: 1800 },
+    },
+  };
+  const diagnosed = nutritionLearning(
+    [base, conflicting],
+    [],
+    [{ data: { code: "TARGET_LIMIT" } }, { data: { code: "TARGET_LIMIT" } }],
+  );
+  assert.equal(diagnosed.conflicts.length, 1);
+  assert.equal(diagnosed.questions[0].category, "calories");
+  assert.match(diagnosed.questions[0].prompt, /2 time/);
+  const distinct = {
+    ...conflicting,
+    data: {
+      ...conflicting.data,
+      decision: {
+        ...conflicting.data.decision,
+        conditions: {
+          ...conflicting.data.decision.conditions,
+          goal: "Different goal",
+        },
+      },
+    },
+  };
+  assert.equal(nutritionLearning([base, distinct], []).conflicts.length, 0);
+  assert.ok(
+    nutritionLearning([base], []).questions.some(
+      (q) => q.key === "calories:contrast",
+    ),
+  );
+  const report = await ok("/nutrition/learning");
+  assert.equal(report.coverage.length, 8);
+  assert.ok(report.questions.some((q: any) => q.reason.includes("conditions")));
+});
+test("held-out sample arithmetic and rationale require actual evidence and allowed recipe portions", () => {
+  const catalog = fixtureCatalog(),
+    policy = fixturePolicy([randomUUID()]),
+    recipe = catalog.recipes[0],
+    sample = {
+      slot: "Breakfast",
+      recipeId: recipe.id,
+      variantKey: "hob",
+      servings: 1,
+      ingredients: recipe.variants[0].ingredients,
+      nutrients: { kcal: 400, protein: 20, carbohydrate: 48, fat: 12 },
+    },
+    expected = {
+      recipeIds: [recipe.id],
+      slot: "Breakfast",
+      minServings: 1,
+      maxServings: 1,
+    };
+  const input = {
+    sample,
+    expected,
+    profile: fixtureProfile,
+    policy,
+    ...catalog,
+  };
+  assert.equal(checkNutritionSample(input).passed, true);
+  assert.equal(
+    checkNutritionSample({ ...input, sample: { ...sample, servings: 2 } })
+      .passed,
+    false,
+  );
+  assert.equal(
+    checkNutritionSample({
+      ...input,
+      sample: { ...sample, nutrients: { ...sample.nutrients, kcal: 399 } },
+    }).passed,
+    false,
+  );
+  const c = {
+      id: randomUUID(),
+      data: { reason: "Use the coach's confirmed practical portion limits." },
+    },
+    scenario = { category: "portions", expectedCaseId: c.id },
+    decision = {
+      caseIds: [c.id],
+      principle: "portion_arithmetic",
+      rationaleEvidence: { caseId: c.id, quote: c.data.reason },
+    };
+  assert.equal(rationaleMatches(decision, scenario, [c]), true);
+  assert.equal(
+    rationaleMatches(
+      {
+        ...decision,
+        rationaleEvidence: { caseId: c.id, quote: "!!!!!!!!!!!!!!!!!!!!!!" },
+      },
+      scenario,
+      [c],
+    ),
+    false,
+  );
+  assert.equal(
+    rationaleMatches({ ...decision, principle: "goal_target" }, scenario, [c]),
+    false,
+  );
 });

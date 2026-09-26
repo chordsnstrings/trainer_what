@@ -812,7 +812,7 @@ export function nutritionCompletionRoutes(
     const a = owner(req);
     return db.tenant(a, (tx) =>
       tx.query(
-        `SELECT j.id,j.status,j.attempts,j.last_error,j.data,j.leased_until,r.id AS request_id,r.status AS request_status,r.data->>'providerState' AS provider_state,r.data->>'providerReference' AS provider_reference FROM jobs j LEFT JOIN records r ON r.kind='nutrition_request' AND r.data->>'requestKey'=j.id::text WHERE j.kind='nutrition_week' AND j.status IN ('blocked','failed','cancelled') ORDER BY j.created_at DESC LIMIT 100`,
+        `SELECT j.id,j.status,j.attempts,j.last_error,j.data,j.leased_until,r.id AS request_id,r.status AS request_status,r.data->>'providerState' AS provider_state,r.data->>'providerReference' AS provider_reference FROM jobs j LEFT JOIN records r ON r.kind='nutrition_request' AND r.data->>'requestKey'=coalesce(j.data->>'requestKey',j.id::text) AND r.owner_user_id=(j.data->>'userId')::uuid WHERE j.kind='nutrition_week' AND j.status IN ('blocked','failed','cancelled') ORDER BY j.created_at DESC LIMIT 100`,
       ),
     );
   });
@@ -824,8 +824,10 @@ export function nutritionCompletionRoutes(
           attempts: z.number().int().min(0),
           action: z.enum([
             "retry_unsent",
+            "retry_responded",
             "provider_confirmed_not_processed",
             "provider_confirmed_processed_close",
+            "provider_confirmed_not_processed_close",
             "close",
           ]),
           reason: z.string().trim().min(10).max(2000),
@@ -850,8 +852,8 @@ export function nutritionCompletionRoutes(
       )
         throw fail(409, "JOB_CHANGED", "Reload this job before recovering it");
       const [request] = await tx.query(
-        "SELECT * FROM records WHERE kind='nutrition_request' AND data->>'requestKey'=$1",
-        [job.id],
+        "SELECT * FROM records WHERE kind='nutrition_request' AND data->>'requestKey'=$1 AND owner_user_id=$2",
+        [job.data.requestKey ?? job.id, job.data.userId],
       );
       const state =
         request?.data.providerState ?? (request ? "uncertain" : "not_sent");
@@ -861,9 +863,17 @@ export function nutritionCompletionRoutes(
           "PROVIDER_RECONCILIATION",
           "This request may have reached the provider. Obtain provider evidence before another paid attempt.",
         );
-      const closes = ["close", "provider_confirmed_processed_close"].includes(
-        b.action,
-      );
+      if (b.action === "retry_responded" && state !== "responded")
+        throw fail(
+          409,
+          "PROVIDER_RECONCILIATION",
+          "Only a known provider response can be deliberately retried. Unknown outcomes require reconciliation.",
+        );
+      const closes = [
+        "close",
+        "provider_confirmed_processed_close",
+        "provider_confirmed_not_processed_close",
+      ].includes(b.action);
       if (
         b.action.startsWith("provider_confirmed_") &&
         (!b.providerReference || b.providerReference.length < 6)
@@ -871,7 +881,7 @@ export function nutritionCompletionRoutes(
         throw fail(
           400,
           "PROVIDER_EVIDENCE",
-          "Record the provider's trace or support reference confirming the request was not processed.",
+          "Record the provider's trace or support reference establishing the selected processing outcome.",
         );
       if (request?.status === "completed" && !closes)
         throw fail(409, "PLAN_EXISTS", "This request already delivered a plan");
@@ -896,16 +906,25 @@ export function nutritionCompletionRoutes(
             [request.id],
           );
       }
-      if (b.action === "close" && request && request.status !== "completed")
+      if (closes && request && request.status !== "completed")
         await tx.query(
           "UPDATE records SET status='closed',version=version+1 WHERE id=$1",
           [request.id],
         );
-      if (b.action === "provider_confirmed_processed_close" && request)
+      if (
+        [
+          "provider_confirmed_processed_close",
+          "provider_confirmed_not_processed_close",
+        ].includes(b.action) &&
+        request
+      )
         await tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [
           request.id,
           JSON.stringify({
-            providerState: "responded",
+            providerState:
+              b.action === "provider_confirmed_processed_close"
+                ? "responded"
+                : "not_sent",
             providerReference: b.providerReference,
           }),
         ]);

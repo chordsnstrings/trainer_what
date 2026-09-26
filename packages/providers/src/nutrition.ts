@@ -2,7 +2,7 @@ import { z } from "zod";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ProviderUnavailable } from "./index.ts";
 import { runtimeConfig } from "./configuration.ts";
-export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v1";
+export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v2";
 export function nutritionModelIdentity() {
   const config = runtimeConfig();
   return {
