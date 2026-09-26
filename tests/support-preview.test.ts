@@ -541,3 +541,537 @@ test("preview mutations are rejected and every read or denial is attributed to t
   );
   assert.equal(original.data.messages.length, 1);
 });
+
+async function processingConsent(
+  type: "coaching" | "nutrition",
+  granted: boolean,
+) {
+  await db.tenant(client, (tx) =>
+    tx.query(
+      "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted,created_at) VALUES($1,$2,$3,$4,'fixture',$5,clock_timestamp())",
+      [randomUUID(), client.tenantId, client.userId, type, granted],
+    ),
+  );
+}
+async function settings() {
+  return db.tenant(
+    client,
+    async (tx) =>
+      (
+        await tx.query(
+          "SELECT data,version FROM notification_preferences WHERE user_id=$1",
+          [client.userId],
+        )
+      )[0],
+  );
+}
+async function customerSettings(data: Record<string, unknown>) {
+  await db.tenant(client, (tx) =>
+    tx.query(
+      "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1 RETURNING *",
+      [client.tenantId, client.userId, JSON.stringify(data)],
+    ),
+  );
+}
+function correctionBody(
+  g: any,
+  version: number,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    revision: g.revision,
+    version,
+    requestKey: randomUUID(),
+    action: "notification_preferences",
+    reason: "Customer requested a reminder correction in this case",
+    changes: { timezone: "Europe/London" },
+    ...extra,
+  };
+}
+async function prepare(g: any, extra: Record<string, unknown> = {}) {
+  const version = (await settings())?.version ?? 0;
+  const result = await req(
+    "/" + g.id + "/elevations",
+    "POST",
+    correctionBody(g, version, extra),
+  );
+  assert.equal(result.statusCode, 200, result.body);
+  return result.json().elevation;
+}
+const apply = (g: any, e: any, headers: Record<string, string> = {}) =>
+  req(
+    "/" + g.id + "/elevations/" + e.id + "/apply",
+    "POST",
+    { revision: e.revision },
+    headers,
+  );
+
+test("health screen scopes are explicit, bounded, consent checked per read and exclude raw history", async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await db.tenant(coach, async (tx) => {
+    await putRecord(
+      tx,
+      coach,
+      "planned_session",
+      {
+        date: today,
+        label: "Morning strength",
+        timezone: "Asia/Dubai",
+        rescheduleNote: sentinels[1],
+        program: {
+          exercises: [{ name: "Squat", healthHistory: sentinels[1] }],
+        },
+      },
+      { ownerId: client.userId, status: "planned" },
+    );
+    await putRecord(
+      tx,
+      coach,
+      "planned_session",
+      { date: today, label: sentinels[4] },
+      { ownerId: coach.userId, status: "planned" },
+    );
+    await putRecord(
+      tx,
+      coach,
+      "planned_session",
+      { date: "2020-01-01", label: "OLD-SESSION" },
+      { ownerId: client.userId, status: "planned" },
+    );
+    await putRecord(
+      tx,
+      coach,
+      "nutrition_plan",
+      {
+        weekStart: today,
+        explanation: sentinels[1],
+        view: {
+          days: [
+            {
+              date: today,
+              totals: { kcal: 99999 },
+              meals: [
+                {
+                  slot: "lunch",
+                  name: "Lentil salad",
+                  servings: 1.5,
+                  description: sentinels[1],
+                  nutrients: { kcal: 99999 },
+                  ingredients: [{ secret: sentinels[1] }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      { ownerId: client.userId, status: "delivered" },
+    );
+    await putRecord(
+      tx,
+      coach,
+      "nutrition_plan",
+      {
+        weekStart: today,
+        view: {
+          days: [
+            { date: today, meals: [{ slot: "lunch", name: sentinels[4] }] },
+          ],
+        },
+      },
+      { ownerId: coach.userId, status: "delivered" },
+    );
+  });
+  const g = await start({
+    scopes: [
+      "training_schedule",
+      "nutrition_schedule",
+      "notification_settings",
+    ],
+  });
+  let response = await req("/" + g.id),
+    data = response.json();
+  assert.equal(data.projection.trainingSchedule.state, "permission_required");
+  assert.equal(data.projection.nutritionSchedule.state, "permission_required");
+  assert.deepEqual(data.projection.trainingSchedule.sessions, []);
+  assert.deepEqual(data.projection.nutritionSchedule.meals, []);
+  assert.equal(data.projection.notificationSettings.version, 0);
+  await processingConsent("coaching", true);
+  await processingConsent("nutrition", true);
+  response = await req("/" + g.id);
+  data = response.json();
+  assert.equal(data.projection.trainingSchedule.sessions.length, 1);
+  assert.equal(
+    data.projection.trainingSchedule.sessions[0].label,
+    "Morning strength",
+  );
+  assert.equal(data.projection.trainingSchedule.sessions[0].exercise_count, 1);
+  assert.equal(data.projection.nutritionSchedule.meals.length, 1);
+  assert.equal(data.projection.nutritionSchedule.meals[0].name, "Lentil salad");
+  assert.equal(data.projection.nutritionSchedule.meals[0].servings, 1.5);
+  for (const value of [
+    ...sentinels,
+    "OLD-SESSION",
+    "99999",
+    "Squat",
+    "ingredients",
+    "marketing",
+  ])
+    assert.equal(response.body.includes(value), false, value);
+  await processingConsent("nutrition", false);
+  data = (await req("/" + g.id)).json();
+  assert.equal(data.projection.nutritionSchedule.state, "permission_required");
+  assert.deepEqual(data.projection.nutritionSchedule.meals, []);
+  assert.equal(data.projection.trainingSchedule.sessions.length, 1);
+});
+
+test("notification corrections require an explicit scope and an exact safe action and never edit on preparation", async () => {
+  let g = await start({ scopes: ["account"] });
+  assert.equal(
+    (await req("/" + g.id + "/elevations", "POST", correctionBody(g, 0)))
+      .statusCode,
+    403,
+  );
+  g = await start({ scopes: ["notification_settings"] });
+  for (const changes of [
+    { email: false },
+    { marketing: true },
+    { push: true },
+    { payment: "refund" },
+    { consents: {} },
+    { health: {} },
+    {},
+    { quietStart: 1440 },
+    { timezone: "Not/AZone" },
+  ])
+    assert.equal(
+      (
+        await req(
+          "/" + g.id + "/elevations",
+          "POST",
+          correctionBody(g, 0, { changes }),
+        )
+      ).statusCode,
+      400,
+    );
+  for (const extra of [
+    { action: "training_schedule" },
+    { reason: "short" },
+    { targetUserId: foreign.userId },
+    { minutes: 60 },
+  ])
+    assert.equal(
+      (
+        await req(
+          "/" + g.id + "/elevations",
+          "POST",
+          correctionBody(g, 0, extra),
+        )
+      ).statusCode,
+      400,
+    );
+  assert.equal(
+    (
+      await req(
+        "/" + g.id + "/elevations",
+        "POST",
+        correctionBody(g, 0, { revision: 999 }),
+      )
+    ).statusCode,
+    409,
+  );
+  const e = await prepare(g);
+  assert.ok(Date.parse(e.expiresAt) - Date.parse(e.createdAt) <= 5 * 60000);
+  assert.ok(Date.parse(e.expiresAt) <= Date.parse(g.expiresAt));
+  assert.equal(await settings(), undefined);
+  assert.equal((await req("/" + g.id)).json().elevation.id, e.id);
+  await assert.rejects(
+    db.system((tx) =>
+      tx.query(
+        "UPDATE support_preview_elevations SET changes='{}' WHERE id=$1",
+        [e.id],
+      ),
+    ),
+    /immutable/,
+  );
+  await assert.rejects(
+    db.system((tx) =>
+      tx.query(
+        "UPDATE support_preview_elevations SET expires_at=expires_at+interval '1 minute' WHERE id=$1",
+        [e.id],
+      ),
+    ),
+    /immutable/,
+  );
+  await assert.rejects(
+    db.tenant(client, (tx) =>
+      tx.query("SELECT * FROM support_preview_elevations"),
+    ),
+    /permission denied/,
+  );
+  assert.equal((await apply(g, e)).statusCode, 200);
+  assert.deepEqual(await settings(), {
+    version: 1,
+    data: { timezone: "Europe/London" },
+  });
+});
+
+test("correction intents and writes are idempotent, preserve unrelated preferences and audit the real operator once", async () => {
+  await customerSettings({
+    email: false,
+    marketing: true,
+    bookings: true,
+    workouts: true,
+    timezone: "Asia/Dubai",
+  });
+  const initial = await settings(),
+    g = await start({ scopes: ["notification_settings"] });
+  const b = correctionBody(g, initial.version, {
+    changes: { workouts: false, quietStart: 1260, quietEnd: 420 },
+  });
+  const prepared = await Promise.all([
+    req("/" + g.id + "/elevations", "POST", b),
+    req("/" + g.id + "/elevations", "POST", b),
+  ]);
+  for (const r of prepared) assert.equal(r.statusCode, 200, r.body);
+  const e = prepared[0].json().elevation;
+  assert.equal(prepared[1].json().elevation.id, e.id);
+  assert.equal(
+    (
+      await req("/" + g.id + "/elevations", "POST", {
+        ...b,
+        changes: { bookings: false },
+      })
+    ).statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await req("/" + g.id + "/elevations/" + e.id + "/apply", "POST", {
+        revision: e.revision,
+        changes: { bookings: false },
+      })
+    ).statusCode,
+    400,
+  );
+  assert.equal((await apply(g, { ...e, revision: 999 })).statusCode, 409);
+  for (const r of await Promise.all([apply(g, e), apply(g, e)]))
+    assert.equal(r.statusCode, 200, r.body);
+  const saved = await settings();
+  assert.equal(saved.version, initial.version + 1);
+  assert.deepEqual(saved.data, { ...initial.data, ...b.changes });
+  await customerSettings({ workouts: true });
+  assert.equal((await apply(g, e)).statusCode, 200);
+  assert.equal((await settings()).data.workouts, true);
+  assert.equal((await settings()).version, saved.version + 1);
+  const rows = await db.system((tx) =>
+    tx.query(
+      "SELECT actor_id,subject_id,data,action FROM admin_operations_audit WHERE data->>'elevationId'=$1",
+      [e.id],
+    ),
+  );
+  assert.equal(
+    rows.filter((r) => r.action === "support.preview.correction_prepared")
+      .length,
+    1,
+  );
+  assert.equal(
+    rows.filter((r) => r.action === "support.preview.correction_applied")
+      .length,
+    1,
+  );
+  for (const r of rows) {
+    assert.equal(r.actor_id, operator.userId);
+    assert.equal(r.subject_id, client.userId);
+    assert.equal(r.data.grantId, g.id);
+  }
+  assert.equal(
+    JSON.stringify(rows).includes("Customer requested"),
+    false,
+    "Audit references the immutable reason without copying its prose",
+  );
+});
+
+test("a customer save cancels stale correction approval instead of overwriting their settings", async () => {
+  const g = await start({ scopes: ["notification_settings"] }),
+    e = await prepare(g, { changes: { timezone: "Europe/Paris" } });
+  await customerSettings({ timezone: "America/New_York" });
+  const before = await settings(),
+    r = await apply(g, e);
+  assert.equal(r.statusCode, 409, r.body);
+  assert.equal(r.json().code, "PREFERENCES_CHANGED");
+  assert.deepEqual(await settings(), before);
+  assert.equal((await apply(g, e)).statusCode, 410);
+  assert.equal((await req("/" + g.id)).json().elevation, null);
+});
+
+test("correction execution rechecks the real session, MFA, operator, member, case and workspace", async () => {
+  const mutations: [
+    string,
+    number,
+    () => Promise<unknown>,
+    () => Promise<unknown>,
+  ][] = [
+    [
+      "MFA",
+      403,
+      () =>
+        db.system((tx) =>
+          tx.query(
+            "UPDATE sessions SET mfa_at=now()-interval '11 minutes' WHERE token_hash=$1",
+            [tokenHash(session)],
+          ),
+        ),
+      () =>
+        db.system((tx) =>
+          tx.query("UPDATE sessions SET mfa_at=now() WHERE token_hash=$1", [
+            tokenHash(session),
+          ]),
+        ),
+    ],
+    [
+      "role",
+      403,
+      () =>
+        db.system((tx) =>
+          tx.query("UPDATE users SET platform_role='none' WHERE id=$1", [
+            operator.userId,
+          ]),
+        ),
+      () =>
+        db.system((tx) =>
+          tx.query("UPDATE users SET platform_role='support' WHERE id=$1", [
+            operator.userId,
+          ]),
+        ),
+    ],
+    [
+      "session",
+      401,
+      () =>
+        db.system((tx) =>
+          tx.query(
+            "UPDATE sessions SET expires_at=now()-interval '1 second' WHERE token_hash=$1",
+            [tokenHash(session)],
+          ),
+        ),
+      () =>
+        db.system((tx) =>
+          tx.query(
+            "UPDATE sessions SET expires_at=now()+interval '1 day' WHERE token_hash=$1",
+            [tokenHash(session)],
+          ),
+        ),
+    ],
+    [
+      "membership",
+      410,
+      () =>
+        db.system((tx) =>
+          tx.query(
+            "UPDATE memberships SET version=version+1 WHERE tenant_id=$1 AND user_id=$2",
+            [client.tenantId, client.userId],
+          ),
+        ),
+      async () => {},
+    ],
+    ["case", 410, () => caseState("resolved"), () => caseState("open")],
+    [
+      "workspace",
+      410,
+      () =>
+        db.system((tx) =>
+          tx.query("UPDATE tenants SET lifecycle_state='closed' WHERE id=$1", [
+            client.tenantId,
+          ]),
+        ),
+      () =>
+        db.system((tx) =>
+          tx.query("UPDATE tenants SET lifecycle_state='active' WHERE id=$1", [
+            client.tenantId,
+          ]),
+        ),
+    ],
+  ];
+  for (const [name, code, change, restore] of mutations) {
+    const g = await start({ scopes: ["notification_settings"] }),
+      e = await prepare(g),
+      before = await settings();
+    assert.equal(
+      (await apply(g, e, { cookie: "session=" + alternateSession })).statusCode,
+      404,
+    );
+    assert.equal(
+      (
+        await apply(g, e, {
+          cookie: "session=" + secondSession,
+          "x-second": "true",
+        })
+      ).statusCode,
+      404,
+    );
+    await change();
+    try {
+      assert.equal((await apply(g, e)).statusCode, code, name);
+      assert.deepEqual(await settings(), before);
+    } finally {
+      await restore();
+    }
+  }
+});
+
+test("correction approval ends on discard, replacement, preview stop or deadline without a write", async () => {
+  const before = await settings();
+  let g = await start({ scopes: ["notification_settings"] }),
+    e = await prepare(g);
+  const replacement = await prepare(g, {
+    changes: { timezone: "Europe/Paris" },
+  });
+  assert.equal((await apply(g, e)).statusCode, 410);
+  const cancelPath = "/" + g.id + "/elevations/" + replacement.id + "/end";
+  assert.equal(
+    (await req(cancelPath, "POST", { revision: 999 })).statusCode,
+    409,
+  );
+  assert.equal(
+    (await req(cancelPath, "POST", { revision: replacement.revision }))
+      .statusCode,
+    200,
+  );
+  assert.equal(
+    (await req(cancelPath, "POST", { revision: replacement.revision }))
+      .statusCode,
+    200,
+  );
+  assert.equal((await apply(g, replacement)).statusCode, 410);
+  e = await prepare(g);
+  assert.equal(
+    (await req("/" + g.id + "/end", "POST", { revision: g.revision }))
+      .statusCode,
+    200,
+  );
+  assert.equal((await apply(g, e)).statusCode, 410);
+  g = await start({ scopes: ["notification_settings"], minutes: 1 });
+  e = await prepare(g);
+  assert.ok(Date.parse(e.expiresAt) <= Date.parse(g.expiresAt));
+  await req("/" + g.id + "/elevations/" + e.id + "/end", "POST", {
+    revision: e.revision,
+  });
+  const expiredId = randomUUID();
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO support_preview_elevations(id,grant_id,request_key,fingerprint,action,reason,expected_version,changes,created_at,expires_at) SELECT $2,grant_id,$3,fingerprint,action,reason,expected_version,changes,now()-interval '6 minutes',now()-interval '2 minutes' FROM support_preview_elevations WHERE id=$1",
+      [e.id, expiredId, randomUUID()],
+    ),
+  );
+  assert.equal((await apply(g, { ...e, id: expiredId })).statusCode, 410);
+  assert.equal((await apply(g, { ...e, id: expiredId })).statusCode, 410);
+  const [expired] = await db.system((tx) =>
+    tx.query(
+      "SELECT status,(SELECT count(*)::int FROM admin_operations_audit WHERE action='support.preview.correction_expired' AND data->>'elevationId'=$1) AS audits FROM support_preview_elevations WHERE id=$1::uuid",
+      [expiredId],
+    ),
+  );
+  assert.equal(expired.status, "expired");
+  assert.equal(expired.audits, 1);
+  assert.deepEqual(await settings(), before);
+});
