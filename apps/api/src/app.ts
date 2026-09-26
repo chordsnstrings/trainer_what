@@ -1,6 +1,19 @@
+import {
+  registerPrivacyLifecycle,
+  exportPersonalData,
+  workspaceLock,
+} from "./privacy-lifecycle.ts";
+import { privacyHooks, withdrawIntegrations } from "./privacy-hooks.ts";
+import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
-import { registerFinanceBilling, currentPaidSubscription } from "./finance-billing.ts";
-import { registerCoachingCompletion, lockTraining } from "./coaching-completion.ts";
+import {
+  registerFinanceBilling,
+  currentPaidSubscription,
+} from "./finance-billing.ts";
+import {
+  registerCoachingCompletion,
+  lockTraining,
+} from "./coaching-completion.ts";
 import {
   runtimeConfig,
   withRuntimeConfig,
@@ -206,7 +219,7 @@ export async function buildApp(
     if (token) {
       const rows = await db.system((tx) =>
         tx.query(
-          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now()",
+          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state='active'",
           [tokenHash(token)],
         ),
       );
@@ -269,12 +282,20 @@ export async function buildApp(
     mfa = false,
   ) {
     const token = newToken();
-    await db.system((tx) =>
-      tx.query(
+    await db.system(async (tx) => {
+      await workspaceLock(tx, tenantId);
+      await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
+      const [membership] = await tx.query(
+        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+        [userId, tenantId],
+      );
+      if (!membership)
+        throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
+      await tx.query(
         "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
         [tokenHash(token), userId, tenantId, mfa],
-      ),
-    );
+      );
+    });
     reply.setCookie("session", token, {
       path: "/",
       httpOnly: true,
@@ -289,7 +310,8 @@ export async function buildApp(
   securityRoutes(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
-  privacyOperations(app, db, identity);
+  privacyOperations(app, db, identity, privacyHooks);
+  registerPrivacyLifecycle(app, db, identity, privacyHooks);
   clientTwinRoutes(app, db, identity);
   nutritionRoutes(app, db, identity, !!options.testing);
   mealCaptureRoutes(app, db, identity);
@@ -306,6 +328,10 @@ export async function buildApp(
     { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } },
     async (req, reply) => {
       const b = signupSchema.parse(req.body);
+      const registrationVersion = await legalAcceptanceVersion(
+        db,
+        "registration",
+      );
       if (
         [
           "admin",
@@ -355,8 +381,8 @@ export async function buildApp(
           licenceStatus: "NOT_REQUESTED",
         });
         await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration','draft-2026-09',true)",
-          [randomUUID(), tid, uid],
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+          [randomUUID(), tid, uid, registrationVersion],
         );
         await event(tx, a, "trainer.signup_completed", uid);
       });
@@ -382,6 +408,10 @@ export async function buildApp(
         })
         .strict()
         .parse(req.body);
+      const registrationVersion = await legalAcceptanceVersion(
+        db,
+        "registration",
+      );
       if (
         process.env.NODE_ENV === "production" &&
         runtimeConfig().LEGAL_APPROVED !== "true"
@@ -394,7 +424,7 @@ export async function buildApp(
       const hash = await passwordHash(b.password);
       const result = await db.system(async (tx) => {
         const [tenant] = await tx.query(
-          "SELECT id FROM tenants WHERE slug=$1 AND published=true",
+          "SELECT id FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state='active'",
           [b.coachSlug],
         );
         if (!tenant)
@@ -403,8 +433,19 @@ export async function buildApp(
             "TRAINER_UNAVAILABLE",
             "This coaching space is not accepting public signups",
           );
+        await workspaceLock(tx, tenant.id);
+        const [stillOpen] = await tx.query(
+          "SELECT id FROM tenants WHERE id=$1 AND published=true AND lifecycle_state='active' FOR UPDATE",
+          [tenant.id],
+        );
+        if (!stillOpen)
+          throw fail(
+            409,
+            "WORKSPACE_CLOSED",
+            "This workspace is not accepting signups",
+          );
         const [existing] = await tx.query(
-          "SELECT * FROM users WHERE email=$1",
+          "SELECT * FROM users WHERE email=$1 FOR UPDATE",
           [b.email],
         );
         if (
@@ -436,12 +477,7 @@ export async function buildApp(
         );
         await tx.query(
           "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [
-            randomUUID(),
-            tenant.id,
-            uid,
-            runtimeConfig().LEGAL_VERSION ?? "draft-2026-09",
-          ],
+          [randomUUID(), tenant.id, uid, registrationVersion],
         );
         await event(
           tx,
@@ -467,7 +503,7 @@ export async function buildApp(
         throw fail(401, "INVALID_LOGIN", "Email or password is incorrect");
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT tenant_id FROM memberships WHERE user_id=$1 ORDER BY tenant_id LIMIT 1",
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' ORDER BY m.tenant_id LIMIT 1",
           [u.id],
         ),
       );
@@ -492,7 +528,7 @@ export async function buildApp(
     const b = z.object({ tenantId: id }).parse(req.body);
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT tenant_id FROM memberships WHERE user_id=$1 AND tenant_id=$2",
+        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
         [a.userId, b.tenantId],
       ),
     );
@@ -604,7 +640,7 @@ export async function buildApp(
     const slug = (req.params as any).slug;
     const [t] = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,theme FROM tenants WHERE slug=$1 AND published=true",
+        "SELECT id,slug,name,theme FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state='active'",
         [slug],
       ),
     );
@@ -632,12 +668,27 @@ export async function buildApp(
       })
       .parse(req.body);
     const token = newToken();
-    await db.system((tx) =>
-      tx.query(
+    await db.system(async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [current] = await tx.query(
+        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND t.lifecycle_state='active'",
+        [a.tenantId, a.userId],
+      );
+      if (!current)
+        throw fail(
+          403,
+          "OWNER_REQUIRED",
+          "Current workspace owner access is required",
+        );
+      await tx.query(
         "INSERT INTO one_time_tokens(token_hash,purpose,tenant_id,payload,expires_at) VALUES($1,'invite',$2,$3,now()+interval '7 days')",
-        [tokenHash(token), a.tenantId, JSON.stringify(b)],
-      ),
-    );
+        [
+          tokenHash(token),
+          a.tenantId,
+          JSON.stringify({ ...b, invitedBy: a.userId }),
+        ],
+      );
+    });
     await db.tenant(a, (tx) =>
       event(tx, a, "team.invited", undefined, { role: b.role }),
     );
@@ -658,6 +709,22 @@ export async function buildApp(
       .parse(req.body);
     const hash = await passwordHash(b.password);
     const result = await db.system(async (tx) => {
+      const [initial] = await tx.query(
+        "SELECT tenant_id FROM one_time_tokens WHERE token_hash=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now()",
+        [tokenHash(b.token)],
+      );
+      if (!initial)
+        throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
+      await workspaceLock(tx, initial.tenant_id);
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        initial.tenant_id + ":team",
+      ]);
+      const [open] = await tx.query(
+        "SELECT id FROM tenants WHERE id=$1 AND lifecycle_state='active'",
+        [initial.tenant_id],
+      );
+      if (!open)
+        throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
       const [invite] = await tx.query(
         "SELECT * FROM one_time_tokens WHERE token_hash=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
         [tokenHash(b.token)],
@@ -667,9 +734,22 @@ export async function buildApp(
         invite.payload.email.toLowerCase() !== b.email.toLowerCase()
       )
         throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
-      const [existing] = await tx.query("SELECT * FROM users WHERE email=$1", [
-        b.email.toLowerCase(),
-      ]);
+      if (["staff", "finance"].includes(invite.payload.role)) {
+        const [issuer] = await tx.query(
+          "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='owner'",
+          [invite.tenant_id, invite.payload.invitedBy ?? null],
+        );
+        if (!issuer)
+          throw fail(
+            400,
+            "INVALID_INVITE",
+            "Ask the current owner for a new invitation",
+          );
+      }
+      const [existing] = await tx.query(
+        "SELECT * FROM users WHERE email=$1 FOR UPDATE",
+        [b.email.toLowerCase()],
+      );
       if (
         existing &&
         !(await passwordMatches(b.password, existing.password_hash))
@@ -1091,6 +1171,7 @@ export async function buildApp(
   app.post("/api/v1/intake", async (req) => {
     const a = identity(req),
       b = intakeSchema.parse(req.body);
+    const coachingVersion = await legalAcceptanceVersion(db, "coaching");
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       const r = await putRecord(
@@ -1106,8 +1187,8 @@ export async function buildApp(
         { status: "complete" },
       );
       await tx.query(
-        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching','draft-2026-09',true)",
-        [randomUUID(), a.tenantId, a.userId],
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching',$4,true)",
+        [randomUUID(), a.tenantId, a.userId, coachingVersion],
       );
       await event(tx, a, "intake.completed", r.id);
       return r;
@@ -1614,22 +1695,22 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
       if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":training:" + a.userId,
+        ]);
+      if (!b.granted && (b.type === "voice" || b.type === "wearable"))
+        await withdrawIntegrations(tx, a.userId, b.type);
       if (b.type.startsWith("nutrition"))
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
         ]);
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
-        [
-          randomUUID(),
-          a.tenantId,
-          a.userId,
-          b.type,
-          "draft-2026-09",
-          b.granted,
-        ],
+        [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
       if (!b.granted && b.type === "coaching")
         await tx.query(
@@ -1650,26 +1731,7 @@ export async function buildApp(
   });
   app.get("/api/v1/privacy/export", async (req, reply) => {
     const a = identity(req);
-    const data = await db.tenant(a, async (tx) => ({
-      profile: { name: a.name, email: a.email },
-      records: await tx.query(
-        "SELECT kind,status,data,created_at FROM records WHERE owner_user_id=$1",
-        [a.userId],
-      ),
-      workouts: await tx.query(
-        "SELECT * FROM workout_events WHERE user_id=$1",
-        [a.userId],
-      ),
-      mealCaptures: await exportMealCaptures(tx, a.userId),
-      consents: await tx.query(
-        "SELECT document_type,document_version,granted,created_at FROM consent_records WHERE user_id=$1",
-        [a.userId],
-      ),
-      subscriptions: await tx.query(
-        "SELECT status,period_end,cancel_at_period_end,price_minor FROM subscriptions WHERE user_id=$1",
-        [a.userId],
-      ),
-    }));
+    const data = await exportPersonalData(db, a, privacyHooks);
     reply.header(
       "Content-Disposition",
       'attachment; filename="coaching-data.json"',

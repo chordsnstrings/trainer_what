@@ -6,6 +6,7 @@ import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { MarketingPage } from "./marketing-pages";
+import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
@@ -647,8 +648,13 @@ export default function Workspace() {
               platformRole={state.user.platformRole}
               onSettingsChanged={load}
             />
-          ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(path) ? (
-            <AdminOperations path={path} platformRole={state.user.platformRole} />
+          ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(
+              path,
+            ) ? (
+            <AdminOperations
+              path={path}
+              platformRole={state.user.platformRole}
+            />
           ) : path.startsWith("/admin") ? (
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (
@@ -719,7 +725,8 @@ export default function Workspace() {
             path.includes("/profile") ||
             path.includes("/intake") ? (
             <SettingsView {...props} />
-          ) : path === "/trainer/analytics" && ["owner", "finance"].includes(state.user.role) ? (
+          ) : path === "/trainer/analytics" &&
+            ["owner", "finance"].includes(state.user.role) ? (
             <TrainerAnalytics />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
@@ -2290,7 +2297,9 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
   const exceptions = records("exception").filter((e) => e.status === "open");
   return (
     <>
-      <TrainingHoldReview onChange={() => action(async () => {}, "Training review saved")} />
+      <TrainingHoldReview
+        onChange={() => action(async () => {}, "Training review saved")}
+      />
       <Heading
         eyebrow="YOUR JUDGMENT MATTERS"
         title="The attention list."
@@ -3002,6 +3011,10 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         detail="Keep your information useful, your permissions clear and your data under your control."
       />
       <AccountSecurity />
+      <PersonalPrivacyStatus />
+      {["owner", "staff"].includes(state.user.role) && (
+        <WorkspaceLifecycle role={state.user.role} />
+      )}
       {sub && (
         <Card>
           <h2>Help your coach understand you</h2>

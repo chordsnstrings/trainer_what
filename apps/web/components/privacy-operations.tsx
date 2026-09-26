@@ -1,10 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
+import {
+  PrivacyEvidenceFields,
+  PrivacyFollowups,
+  privacyEvidence,
+} from "./privacy-lifecycle";
 export function PrivacyOperations({ tenants }: { tenants: any[] }) {
   const [tenant, setTenant] = useState(tenants[0]?.id ?? ""),
     [rows, setRows] = useState<any[]>([]),
     [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [revision, setRevision] = useState(0);
   async function request(path = "", body?: unknown) {
     const r = await fetch(`/api/v1/admin/tenants/${tenant}/privacy${path}`, {
       method: body ? "POST" : "GET",
@@ -25,12 +31,19 @@ export function PrivacyOperations({ tenants }: { tenants: any[] }) {
     <section className="card">
       <h2>Privacy requests</h2>
       <p className="muted">
-        Resolve subscriptions and provider/source reviews before local erasure.
-        Financial and consent references follow the recorded retention policy.
+        Verify Account security before processing requests. Resolve billing and
+        booking obligations first. Local erasure creates separate provider,
+        backup and retention evidence tasks.
       </p>
       <label className="field">
         <span>Workspace</span>
-        <select value={tenant} onChange={(e) => setTenant(e.target.value)}>
+        <select
+          value={tenant}
+          onChange={(e) => {
+            setTenant(e.target.value);
+            setMessage("");
+          }}
+        >
           {tenants.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -53,21 +66,17 @@ export function PrivacyOperations({ tenants }: { tenants: any[] }) {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                const f = new FormData(e.currentTarget);
                 setBusy(true);
+                const form = new FormData(e.currentTarget);
                 try {
-                  await request("/" + r.id + "/erase", {
-                    providerReviewComplete: true,
-                    thirdPartySourceReviewComplete: true,
-                    evidenceReference: f.get("evidenceReference"),
-                    retentionPolicyVersion: f.get("retentionPolicyVersion"),
-                    backupPurgeBy: new Date(
-                      String(f.get("backupPurgeBy")) + "T23:59:59Z",
-                    ).toISOString(),
-                  });
+                  await request(
+                    "/" + r.id + "/erase",
+                    privacyEvidence(form, r.version),
+                  );
                   setRows(await request());
+                  setRevision((x) => x + 1);
                   setMessage(
-                    "Local erasure completed. Track the recorded backup and provider review evidence.",
+                    "Local erasure completed. Provider and backup tasks remain open until evidence is recorded.",
                   );
                 } catch (e) {
                   setMessage((e as Error).message);
@@ -76,23 +85,7 @@ export function PrivacyOperations({ tenants }: { tenants: any[] }) {
                 }
               }}
             >
-              <label className="field">
-                <span>Provider and data-source review evidence</span>
-                <input name="evidenceReference" minLength={10} required />
-              </label>
-              <label className="field">
-                <span>Approved retention policy version</span>
-                <input name="retentionPolicyVersion" minLength={3} required />
-              </label>
-              <label className="field">
-                <span>Scheduled backup purge deadline</span>
-                <input name="backupPurgeBy" type="date" required />
-              </label>
-              <label className="check-field">
-                <input type="checkbox" required />I verified provider handling,
-                reviewed trainer sources for this person's data, and recorded
-                the lawful retention requirements.
-              </label>
+              <PrivacyEvidenceFields />
               <button className="button" disabled={busy}>
                 Erase subscriber’s local coaching data
               </button>
@@ -100,6 +93,9 @@ export function PrivacyOperations({ tenants }: { tenants: any[] }) {
           )}
         </details>
       ))}
+      {tenant && (
+        <PrivacyFollowups key={tenant + ":" + revision} tenantId={tenant} />
+      )}
     </section>
   );
 }

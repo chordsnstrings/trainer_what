@@ -1090,6 +1090,7 @@ test("privacy erasure blocks active billing and preserves retained financial his
     ),
   );
   const proof = {
+    expectedRevision: created.json().version,
     providerReviewComplete: true,
     thirdPartySourceReviewComplete: true,
     evidenceReference: "Synthetic erasure review reference",
@@ -1106,11 +1107,21 @@ test("privacy erasure blocks active billing and preserves retained financial his
     tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [a.userId]),
   );
   try {
+    await db.system((tx) =>
+      tx.query("UPDATE sessions SET mfa_at=now() WHERE user_id=$1", [a.userId]),
+    );
     const blocked = await request(endpoint, "POST", proof, a.cookie);
     assert.equal(blocked.statusCode, 409, blocked.body);
     assert.equal(blocked.json().code, "SUBSCRIPTION_OPEN");
     await db.tenant(a, (tx) =>
       tx.query("UPDATE subscriptions SET status='canceled' WHERE user_id=$1", [
+        user.userId,
+      ]),
+    );
+    // The booking capacity fixture above reserved a future session. Resolve
+    // that obligation as well as billing before erasing this member.
+    await db.tenant(a, (tx) =>
+      tx.query("UPDATE bookings SET status='canceled' WHERE user_id=$1", [
         user.userId,
       ]),
     );
