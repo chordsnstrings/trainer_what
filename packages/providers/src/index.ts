@@ -68,6 +68,19 @@ export function integrationStatus() {
         !!config.EMAIL_API_KEY && !!config.EMAIL_API_URL && !!config.EMAIL_FROM,
     },
     {
+      id: "push",
+      name: "Device notifications",
+      purpose: "Opt-in private app update reminders",
+      configured:
+        !!config.PUSH_VAPID_PUBLIC_KEY &&
+        !!config.PUSH_VAPID_PRIVATE_KEY &&
+        !!config.PUSH_VAPID_SUBJECT,
+      approved:
+        !!config.PUSH_VAPID_PUBLIC_KEY &&
+        !!config.PUSH_VAPID_PRIVATE_KEY &&
+        !!config.PUSH_VAPID_SUBJECT,
+    },
+    {
       id: "whoop",
       name: "WHOOP",
       purpose: "Recovery and workout data",

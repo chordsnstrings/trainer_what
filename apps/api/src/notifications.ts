@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx } from "@trainer/db";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import { pushAvailable } from "../../../packages/providers/src/push.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 export const notificationPreferencesSchema = z
@@ -40,13 +41,14 @@ export type NotificationInput = {
   templateKey?: string;
   // Some lifecycle confirmations belong in the private inbox only.
   email?: boolean;
+  push?: boolean;
   source?: Record<string, unknown>;
 };
 const critical = (category: string) => ["safety", "account"].includes(category);
-function enabled(p: Preferences, category: string) {
+function enabled(p: Preferences, category: string, channel = "email") {
   return (
     critical(category) ||
-    (p.email &&
+    ((channel === "push" || p.email) &&
       (category !== "marketing" || p.marketing) &&
       (category !== "booking" || p.bookings) &&
       (category !== "workout" || p.workouts))
@@ -192,6 +194,36 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         ],
       );
     }
+    // Explicit per-device consent; inbox-only lifecycle events remain inbox-only.
+    const push = pushAvailable();
+    if (
+      push &&
+      (input.push ?? input.email !== false) &&
+      enabled(p, input.category, "push")
+    ) {
+      const devices = await tx.query(
+        "SELECT id FROM push_subscriptions WHERE user_id=$1 AND expires_at>clock_timestamp() AND vapid_key_id=$2 ORDER BY created_at LIMIT 8",
+        [input.userId, push.keyId],
+      );
+      const due = critical(input.category)
+        ? new Date()
+        : nextNotificationTime(p);
+      for (const device of devices)
+        await tx.query(
+          "INSERT INTO jobs(id,tenant_id,kind,intent_key,data,available_at) VALUES($1,$2,'push',$3,$4,$5) ON CONFLICT DO NOTHING",
+          [
+            randomUUID(),
+            a.tenantId,
+            `push:${notificationId}:${device.id}`,
+            JSON.stringify({
+              notificationId,
+              userId: input.userId,
+              subscriptionId: device.id,
+            }),
+            due.toISOString(),
+          ],
+        );
+    }
     return row;
   } finally {
     await tx.query("SELECT set_config('app.role',$1,true)", [
@@ -236,7 +268,11 @@ export async function notificationDeliveryDecision(
         "SELECT * FROM notifications WHERE id=$1 AND user_id=$2",
         [job.data.notificationId, job.data.userId],
       );
-      if (!n || ["sent", "suppressed"].includes(n.email_status))
+      const push = job.kind === "push";
+      if (
+        !n ||
+        (push ? !!n.read_at : ["sent", "suppressed"].includes(n.email_status))
+      )
         return { allowed: false };
       const [m] = await tx.query(
         "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2",
@@ -248,7 +284,8 @@ export async function notificationDeliveryDecision(
           [job.data.userId],
         ),
         p = notificationPreferencesSchema.parse(pref?.data ?? {});
-      if (!enabled(p, n.category)) return { allowed: false };
+      if (!enabled(p, n.category, push ? "push" : "email"))
+        return { allowed: false };
       const source = n.data.source;
       if (source?.type === "booking") {
         const [b] = await tx.query(

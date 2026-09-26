@@ -1,6 +1,7 @@
 "use client";
 import { TeamControls } from "./team-controls";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
+import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
 import { KnowledgeImportReview } from "./ingestion-review";
 import {
@@ -3297,6 +3298,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       )}
       <div className="two-columns">
         <NotificationPreferences />
+        <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
         <Card>
           <h2>Your data</h2>

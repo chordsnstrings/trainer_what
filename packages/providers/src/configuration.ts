@@ -301,6 +301,27 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "push",
+    name: "Device notifications",
+    category: "communications",
+    implemented: true,
+    description:
+      "Opt-in browser notifications with private details kept in the app.",
+    setupNotes:
+      "Generate one stable VAPID key pair with web-push. The private key is encrypted. Key changes require devices to reconnect. Requires HTTPS, the server encryption key and a PostgreSQL worker. Validation checks the key pair without sending a notification. Supported services: Google FCM, Mozilla and Apple Web Push; browser/device delivery remains a separate check.",
+    fields: [
+      field("PUSH_VAPID_PUBLIC_KEY", "VAPID public key", "text", {
+        required: true,
+      }),
+      field("PUSH_VAPID_PRIVATE_KEY", "VAPID private key", "secret", {
+        required: true,
+      }),
+      field("PUSH_VAPID_SUBJECT", "Contact (mailto:address)", "text", {
+        required: true,
+      }),
+    ],
+  },
+  {
     id: "whoop",
     name: "WHOOP",
     category: "health",
@@ -779,6 +800,16 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "push") {
+      const { pushConfiguration } = await import("./push.ts");
+      pushConfiguration(config);
+      return {
+        status: "validated",
+        message:
+          "VAPID key pair and contact validated. No notification was sent; HTTPS, device permission and actual delivery require a separate check.",
+        checkedAt,
+      };
+    }
     if (id === "whoop" || id === "zepp" || id === "voice" || id === "domains") {
       if (
         id === "zepp" &&

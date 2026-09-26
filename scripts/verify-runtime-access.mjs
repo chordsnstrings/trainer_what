@@ -118,6 +118,7 @@ export async function verifyRuntimeAccess(client) {
     "domain_orders",
     "notification_preferences",
     "notifications",
+    "push_subscriptions",
     "chat_attachments",
   ];
   const classifiedTables = new Set([

@@ -5,6 +5,7 @@ import {
 import { createDatabase, type Actor } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
+import { executePushDelivery } from "./push-delivery.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
 import { scheduleRetentionAlerts } from "../../api/src/retention.ts";
@@ -144,6 +145,10 @@ if (!process.env.DATABASE_URL) {
               ],
             ),
           );
+          continue;
+        }
+        if (job.kind === "push") {
+          await executePushDelivery(db, tenant.id, job);
           continue;
         }
         if (job.kind !== "email")

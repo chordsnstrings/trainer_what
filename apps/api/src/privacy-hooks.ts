@@ -132,6 +132,13 @@ export const privacyHooks: PrivacyHooks = {
         "user_id=$1",
         [userId],
       ),
+      notificationDevices: await rows(
+        tx,
+        "push_subscriptions",
+        "id,label,created_at,expires_at",
+        "user_id=$1",
+        [userId],
+      ),
       notifications: await rows(tx, "notifications", "*", "user_id=$1", [
         userId,
       ]),
@@ -174,6 +181,7 @@ export const privacyHooks: PrivacyHooks = {
       "integration_oauth_states",
       "notifications",
       "notification_preferences",
+      "push_subscriptions",
     ])
       await remove(tx, table, "user_id=$1", [userId]);
   },
@@ -186,6 +194,7 @@ export const privacyHooks: PrivacyHooks = {
       "trainer_voices",
       "notifications",
       "notification_preferences",
+      "push_subscriptions",
       "coach_gallery_photos",
       "coach_galleries",
       "coach_sites",

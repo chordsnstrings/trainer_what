@@ -4,8 +4,12 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
+    "@trainer/domain": "*",
     "stripe": "22.6.2",
-    "zod": "4.6.5",
-    "@trainer/domain": "*"
+    "web-push": "3.6.7",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
   }
 }

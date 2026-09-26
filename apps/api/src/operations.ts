@@ -1,5 +1,6 @@
 import { registerBookingRoutes } from "./booking-schedule.ts";
 import { registerNotifications, notifyUser } from "./notifications.ts";
+import { registerPushNotifications } from "./push-notifications.ts";
 import {
   preparePaidBooking,
   startBookingCheckout,
@@ -25,6 +26,7 @@ export function operationsRoutes(
     return a;
   };
   registerNotifications(app, db, identity);
+  registerPushNotifications(app, db, identity);
   registerBookingRoutes(app, db, identity, {
     preparePaidBooking,
     startBookingCheckout,
