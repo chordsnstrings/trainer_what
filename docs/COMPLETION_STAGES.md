@@ -20,7 +20,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Integrations | Connected and stage-tested | Premium voice product UI is connected; external qualification remains |
 | Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
 | Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
-| Notifications and worker | Routes, preferences/inbox, lifecycle events, trainer reminder policy and worker connected | Final browser and live email qualification remain |
+| Notifications and worker | Routes, preferences/inbox, lifecycle/source-review/retention alerts, trainer policy and worker connected | Final browser and live email qualification remain |
 | Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
 
 ## Evidence
@@ -167,8 +167,12 @@ Connected bounded, deduplicated trainer/subscriber lifecycle triggers with pinne
 
 ### Upload and compilation review notifications completed
 
-Connected actual extraction and compilation to generic, deduplicated review prompts with exact proposed rule/conflict counts and source/batch references. Delivery suppresses stale or revoked material, changed review states, expired prompts and lost trainer/workspace access. Compilation rechecks selected material and current authority after model processing before persisting results. Four new actual-app checks and two existing targeted regressions passed; diff checks passed. No migration or real provider call. Final connected TypeScript is pending the concurrent history/retention stages; root handoff updated.
+Connected actual extraction and compilation to generic, deduplicated review prompts with exact proposed rule/conflict counts and source/batch references. Delivery suppresses stale or revoked material, changed review states, expired prompts and lost trainer/workspace access. Compilation rechecks selected material and current authority after model processing before persisting results. Four new actual-app checks and two existing targeted regressions passed; diff checks passed. No migration or real provider call. Final connected TypeScript subsequently passed with the retention stage; root handoff updated.
 
 ### Searchable coaching history completed
 
-Added correction/outcome full-text search with change/category/client filters, bounded keyset pagination, deletion-safe cursors and connected attention-list controls. Current trainer/workspace checks, held-out exclusion, existing detail/teaching behavior and erasure are preserved. Seven new route tests and eight correction-workflow regressions passed; diff checks passed. Migration034 adds indexes over current records. Tenant RLS prevented GIN use in the local diagnostic; no isolation bypass was added, and the 3-second timeout/input/page bounds remain explicit. Production plans/performance/browser and final connected TypeScript are pending as recorded in the root handoff.
+Added correction/outcome full-text search with change/category/client filters, bounded keyset pagination, deletion-safe cursors and connected attention-list controls. Current trainer/workspace checks, held-out exclusion, existing detail/teaching behavior and erasure are preserved. Seven new route tests and eight correction-workflow regressions passed; diff checks passed. Migration034 adds indexes over current records. Tenant RLS prevented GIN use in the local diagnostic; no isolation bypass was added, and the 3-second timeout/input/page bounds remain explicit. Final connected TypeScript subsequently passed; production plans/performance/browser remain deferred as recorded in the root handoff.
+
+### Configurable retention alerts completed
+
+Connected an owner-only Business policy/cohort/evidence panel and bounded worker alerts. Actual linked positive invoices plus confirmed instructions or signed subscription receipts determine scheduled/ended/recovered states; incomplete or unresolved evidence suppresses alerts. Policies are off by default, revision-safe and bounded; source/policy/ownership/preferences/expiry are rechecked before email, with poll deduplication and a 24-hour cooldown. Shared bootstrap excludes retention configuration. Eight tests (including actual assembled routes/bootstrap and notification delivery), final whole-tree TypeScript and diff checks passed. No migration/provider call. Counts are recorded current-member evidence, not historical churn rates; bounds and PostgreSQL/browser/provider review remain explicit in the root handoff.

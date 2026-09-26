@@ -1,6 +1,7 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
+import { registerRetention } from "./retention.ts";
 import {
   lockBrainReviewActor,
   notifyCompilationReview,
@@ -416,6 +417,7 @@ export async function buildApp(
   registerCoachingFollowups(app, db);
   registerCoachingFeedback(app, db);
   registerLifecycleMessages(app, db);
+  registerRetention(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
@@ -740,7 +742,7 @@ export async function buildApp(
       },
       tenant,
       records: await tx.query(
-        "SELECT * FROM records WHERE kind<>'twin_snapshot' AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
+        "SELECT * FROM records WHERE kind NOT IN ('twin_snapshot','retention_policy') AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
       ),
       sets: await tx.query(
         "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",

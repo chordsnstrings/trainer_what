@@ -302,6 +302,7 @@ export async function notificationDeliveryDecision(
         allowed: true,
         due: critical(n.category) ? now : nextNotificationTime(p, now),
         lifecycleSource: source?.type === "lifecycle" ? source : undefined,
+        retentionSource: source?.type === "retention" ? source : undefined,
       };
     },
   );
@@ -317,6 +318,23 @@ export async function notificationDeliveryDecision(
         tenantId,
         job.data.userId,
         decision.lifecycleSource,
+        now,
+      ))
+    )
+      return { allowed: false };
+  }
+  if (
+    decision.allowed &&
+    "retentionSource" in decision &&
+    decision.retentionSource
+  ) {
+    const { retentionNotificationCurrent } = await import("./retention.ts");
+    if (
+      !(await retentionNotificationCurrent(
+        db,
+        tenantId,
+        job.data.userId,
+        decision.retentionSource,
         now,
       ))
     )

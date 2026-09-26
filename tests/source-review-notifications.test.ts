@@ -59,7 +59,7 @@ async function trainer(): Promise<Fixture> {
   });
   return a;
 }
-function request(a: Fixture, url: string, body: unknown) {
+function request(a: Fixture, url: string, body: Record<string, unknown>) {
   return app.inject({
     method: "POST",
     url: "/api/v1" + url,

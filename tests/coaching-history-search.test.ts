@@ -102,7 +102,7 @@ function req(
   a: Actor | null,
   suffix = "",
   method: "GET" | "POST" = "GET",
-  payload?: unknown,
+  payload?: Record<string, unknown>,
   target = app,
 ) {
   return target.inject({

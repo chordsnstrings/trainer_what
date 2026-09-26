@@ -21,6 +21,7 @@ import {
   FinanceAutomationConsole,
 } from "./finance-completion";
 import { AdminOperations, TrainerAnalytics } from "./admin-operations";
+import { RetentionPanel } from "./retention";
 import {
   TrainingPrograms,
   CoachingMessages,
@@ -849,7 +850,10 @@ export default function Workspace() {
             <SettingsView {...props} />
           ) : path === "/trainer/analytics" &&
             ["owner", "finance"].includes(state.user.role) ? (
-            <TrainerAnalytics />
+            <>
+              <TrainerAnalytics />
+              {state.user.role === "owner" && <RetentionPanel />}
+            </>
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (

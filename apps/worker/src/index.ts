@@ -7,6 +7,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
+import { scheduleRetentionAlerts } from "../../api/src/retention.ts";
 import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
 import { createInfrastructureObserver } from "../../api/src/infrastructure-observer.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
@@ -92,6 +93,11 @@ if (!process.env.DATABASE_URL) {
         await scheduleLifecycleMessages(db, tenant.id);
       } catch {
         console.error("Lifecycle message scheduling failed");
+      }
+      try {
+        await scheduleRetentionAlerts(db, tenant.id);
+      } catch {
+        console.error("Retention alert scheduling failed");
       }
       try {
         await processCoachingFollowups(db, tenant.id);
