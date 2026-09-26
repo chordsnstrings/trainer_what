@@ -82,3 +82,11 @@ Wearable connection/revocation, trainer voice enrollment and guided playback, re
 ### Account access and privacy completion
 
 Magic-link login, authenticator recovery codes, verified WebAuthn passkeys, session controls and account settings are connected for members, trainers and administrators. Privacy export/erasure covers all current owned data, including notification preferences and inboxes; stale membership and financial obligations remain guarded. Eighteen account/privacy tests passed, including real signed WebAuthn assertions and assembled-app route checks. Aggregate TypeScript is deferred until the concurrent attachment module finishes.
+
+### Qualified workout coaching completion
+
+Case teaching, confirmed routine actions, independent evaluation, shadow approval and qualified automatic delivery are connected to the Brain screens. Contract pins cover current model, rules, examples, actions and templates. Changes, safety holds, takeover and revoked consent stop automatic effects. Plain chat safety reports now create the same training hold; rollback serializes with qualification. Fourteen coaching/runtime tests passed after these shared hooks. Attachment work is a separate unfinished stage.
+
+### Claude handoff request
+
+The owner requested a written handoff on 26 September because of token budget and intends to use Claude to finish. Stop new feature expansion, checkpoint existing completed and unfinished work, and keep `CLAUDE_HANDOFF.md` current after each completed stage. Deployment remains stopped. Unfinished checkpoints must not be described as verified completion.

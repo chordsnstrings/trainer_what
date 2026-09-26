@@ -33,6 +33,7 @@ import {
 import {
   registerCoachingCompletion,
   lockTraining,
+  openTrainingHold,
 } from "./coaching-completion.ts";
 import {
   runtimeConfig,
@@ -1264,6 +1265,9 @@ export async function buildApp(
   app.post("/api/v1/brain/releases/:id/rollback", async (req) => {
     const a = owner(req);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brain",
+      ]);
       const target = await findRecord(
         tx,
         (req.params as any).id,
@@ -1319,11 +1323,14 @@ export async function buildApp(
     const target = a.role === "subscriber" ? a.userId : b.subscriberId;
     if (!target) throw fail(400, "SUBSCRIBER_REQUIRED", "Select a subscriber");
     return db.tenant(a, async (tx) => {
+      await lockTraining(tx, a, target);
       const [m] = await tx.query(
         "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
+      if (a.role === "subscriber" && safetySignal(b.text))
+        await openTrainingHold(tx, a, target, b.text);
       return putRecord(
         tx,
         a,
@@ -1331,6 +1338,7 @@ export async function buildApp(
         {
           text: b.text,
           author: a.role === "subscriber" ? "subscriber" : "trainer",
+          authorUserId: a.userId,
           subscriberId: target,
         },
         { ownerId: target, status: "sent" },

@@ -942,6 +942,16 @@ test("returned payouts require a new revision and retain their original evidence
 });
 
 test("revoked coaching consent and trainer takeover prevent model generation", async () => {
+  // The earlier workout test deliberately opens a subscriber-wide safety hold.
+  // Resolve that separate fixture state before testing consent and takeover.
+  const holds = await request("/training/holds", "GET", undefined, a.cookie);
+  assert.equal(holds.statusCode, 200, holds.body);
+  for (const hold of holds.json().filter((h: any) => h.owner_user_id === subscriber.userId && h.status === "active")) {
+    const reviewed = await request(`/training/holds/${hold.id}/resolve`, "POST", {
+      version: hold.version, action: "abandon", note: "Fixture trainer reviewed and ended the interrupted workout", reviewed: true,
+    }, a.cookie);
+    assert.equal(reviewed.statusCode, 200, reviewed.body);
+  }
   await db.tenant(a, (tx) =>
     tx.query(
       "UPDATE subscriptions SET status='active',period_end=now()+interval '30 days' WHERE user_id=$1",

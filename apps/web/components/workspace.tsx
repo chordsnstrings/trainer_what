@@ -7,6 +7,7 @@ import {
   IntegrationOperations,
 } from "./integration-center";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
+import { CoachingStudio } from "./coaching-studio";
 import {
   BillingHistory,
   TrainerFinanceTools,
@@ -727,6 +728,10 @@ export default function Workspace() {
             <Bookings role={state.user.role} />
           ) : path.includes("/support") ? (
             <Support records={records("support")} action={action} busy={busy} />
+          ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
+              path,
+            ) ? (
+            <CoachingStudio key={path} path={path} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
@@ -1120,6 +1125,22 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
         title="Your coaching mind, made clear."
         detail="Teach the decisions behind your method. Confirm the rules. Keep control of every release."
       />
+      <nav className="button-row" aria-label="Qualified coaching">
+        {[
+          ["teaching", "Teach through cases"],
+          ["actions", "Routine actions"],
+          ["checks", "Independent checks"],
+          ["autonomy", "Activation"],
+        ].map(([key, label]) => (
+          <Link
+            key={key}
+            className="button secondary"
+            href={`/trainer/brain/${key}`}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
       <div className="tabs">
         {[
           ["interview", "Interview"],
