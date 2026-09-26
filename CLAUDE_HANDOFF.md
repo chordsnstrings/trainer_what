@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness and notifications are completed. Private chat attachments, trainer website/gallery wiring and consented acquisition are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery wiring and consented acquisition are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -52,7 +52,7 @@ Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`,
 
 ### 1. Immediate known failures
 
-- Checkout and onboarding test typing errors are fixed. The last root whole-worktree TypeScript run stopped at an unfinished acquisition module closing brace while that stage was being written; rerun after the stage is stable.
+- Checkout/onboarding typing and the temporary acquisition syntax error are fixed; whole-tree TypeScript subsequently passed. Repeat aggregate checks after the final shared hooks.
 - Public coach SSR now calls `/api/v1/public/sites/:slug`, but `registerCoachSite(app, db)` is not yet called in `app.ts`. Until wired, the new website path cannot work.
 - Final full tests, production build, functional browser smoke, and PostgreSQL/container CI have **not** run on the combined work.
 
@@ -76,7 +76,7 @@ Notification routes are registered through operationsRoutes. Saved preferences/q
 
 The worker rechecks preferences and source state before delivery, marks the outbound outcome unknown before sending, and never automatically sends that unknown result again. Attempt/lease CAS prevents stale workers from sending or overwriting newer results. Admin evidence-based reconciliation updates both the job and inbox delivery status. Privacy export/erasure already includes notifications/preferences.
 
-Checks: final **8 notification tests passed**, including assembled app safety/inbox/booking routes and stale lease/no-repeat delivery; **2 signed paid-booking regressions passed**, including replay deduplication. Earlier connected runs passed 22 notification/admin/coaching checks and 30 notification/nutrition/booking checks. These overlap and are not a summed suite count. Final whole-tree typecheck is blocked by the in-progress acquisition module's missing closing brace; final build/browser/provider delivery qualification remains pending.
+Checks: final **8 notification tests passed**, including assembled app safety/inbox/booking routes and stale lease/no-repeat delivery; **2 signed paid-booking regressions passed**, including replay deduplication. Earlier connected runs passed 22 notification/admin/coaching checks and 30 notification/nutrition/booking checks. These overlap and are not a summed suite count. Whole-tree TypeScript subsequently passed; final build/browser/provider delivery qualification remains pending.
 
 ### 4. Subscription Checkout and premium voice — completed
 
@@ -84,7 +84,7 @@ The resumed stage fixed the tenant-table permission failure with one system tran
 
 `registerSubscriptionCheckout(app, db, requireNutritionReady)` now replaces the old inline route. The member UI can reconcile the original attempt, reopen its stored provider URL and repurchase only after canceled/incomplete-expired membership. Product creation persists the premium voice checkbox; signed offer mapping keeps unknown/legacy prices false. The strict plan-change body no longer includes an unsupported promotion field.
 
-Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. Whole-tree typecheck awaits the concurrent onboarding test fixes. No live transactions occurred. First-paid acquisition remains part of the acquisition stage; actual Stripe/Lean account qualification remains open.
+Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. The concurrent typing fixes are complete and whole-tree TypeScript subsequently passed. No live transactions occurred. First-paid acquisition remains part of the acquisition stage; actual Stripe/Lean account qualification remains open.
 
 ### 5. Onboarding readiness — completed
 
@@ -94,13 +94,13 @@ The UI renders concrete readiness links, legal/teaching details and private-vers
 
 Files: apps/api/src/onboarding.ts, apps/web/components/onboarding.tsx, tests/onboarding-completion.test.ts and the preview fixture in tests/platform.test.ts.
 
-### 6. Private chat attachments
+### 6. Private chat attachments — completed
 
-Only three new files exist: `chat-attachments.ts`, migration `028_chat_attachments.sql`, `scripts/sanitize-chat-pdf.py`. They implement draft private upload/download/delete, JPEG normalization, bounded PDF conversion, binding/storage/rights limits, privacy helpers and expiry. **No attachment tests or UI exist.** Previous spawn-environment typing was fixed; aggregate typecheck currently reports only the Checkout test errors.
+Image/PDF uploads, the message composer and shared-file controls are connected. Uploads require rights confirmation, are private until sent, and bind once to the authenticated sender and correct client conversation. Images are decoded/re-encoded without metadata. PDFs are rebuilt from bounded rasterized pages into a new PDF without original actions, links or embedded files. Attachment-only messages work; digital coaching explicitly does not read these files.
 
-Next: register `registerChatAttachments(app, db)`; accept up to five IDs in `/messages`, require text or attachments, call `validateChatAttachments(tx, actor, subjectId, ids)` and `bindChatAttachments(tx, actor, subjectId, messageId, ids)` in the same transaction. Messages already store `authorUserId`. Build upload/display/removal UI. Wire export/erasure helpers into `privacy-hooks.ts` and `expireChatAttachments(db, tenantId)` into maintenance. Validate every PDF page's dimensions (current check covers first page), active-content removal, malformed media, tenant/client/author binding, cross-user drafts, expiry and erasure.
+Personal export/erasure, reviewed workspace closure and hourly orphan expiry include attachment data and message references. Current membership, active workspace, expiry and independent tenant/subject/author checks are enforced. Migration028 is preserved exactly; forward migration030 applies the binding policy, sealed expiry and narrow privacy-helper fixes to existing installations without deleting data.
 
-Deferred coaching hardening: enforce creation caps of 30 actions/100 teaching cases/100 held-out cases before query-budget overflow; load held-out cases separately from latest evaluation history so repeated evaluations do not hide cases. Hosted exercise video upload is not implemented; demonstrations currently use HTTPS links.
+Checks: **7 attachment and 8 privacy tests passed together after the forward migration**, including assembled application upload/message routes, real image/PDF sanitization, erasure/expiry and cross-tenant access. TypeScript passed at the agent stage boundary. Final browser interaction and aggregate release gates remain pending.
 
 ### 7. Consented acquisition and experiments
 
@@ -118,9 +118,9 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Finish the remaining website, attachment and acquisition stages; Checkout, notification and onboarding completion are recorded above.
-2. Connect website/media and attachment routes/UI/worker hooks; keep separate stage commits and update this file after each.
-3. Finish attachments and consented acquisition from the preserved files; add meaningful missing tests.
+1. Finish the remaining website and acquisition stages; Checkout, notification, onboarding and attachment completion are recorded above.
+2. Connect website/media routes and atomic brand saves, then close the former-owner media erasure gap; keep separate stage commits and update this file after each.
+3. Finish consented acquisition hooks and the bounded coaching capacity/history hardening; add meaningful missing tests.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
 6. Update current evidence documents and only then prepare review/merge. Do not merge or deploy this unfinished checkpoint automatically.
@@ -160,3 +160,7 @@ Completed saved preference/inbox UI, API registration, safety/nutrition/chat/fre
 ### 26 September — Onboarding completion
 
 Completed digest-bound preview approval, current coaching/model/nutrition/voice/legal readiness and practical workflow details. Six dedicated and two existing onboarding checks passed; final model-disconnection assertion passed. No new migration. Commit: the stage commit containing this entry. Next: website/attachment/acquisition integration and aggregate validation.
+
+### 26 September — Private chat attachment completion
+
+Completed private image/PDF uploads, sealed conversation binding, composer/download/removal controls, personal/workspace privacy and hourly orphan cleanup. Original migration028 is unchanged; forward030 upgrades existing data safely. Seven attachment and eight privacy tests passed after this migration. Commit: the stage commit containing this entry. Next: website registration/brand transaction, consented acquisition and combined release checks. Local Chromium installation failed on invalid CDN archives; browser verification remains an explicit CI gate.

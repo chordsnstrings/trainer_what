@@ -4,6 +4,7 @@ import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
+import { registerChatAttachments, validateChatAttachments, bindChatAttachments } from "./chat-attachments.ts";
 import {
   registerAccountCompletion,
   touchAccountSession,
@@ -394,6 +395,7 @@ export async function buildApp(
     });
   }
   registerCoachingCompletion(app, db);
+  registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
   registerFinanceBilling(app, db);
@@ -1317,13 +1319,16 @@ export async function buildApp(
     if (a.role !== "subscriber") trainer(req);
     const b = z
       .object({
-        text: z.string().min(1).max(4000),
+        text: z.string().trim().max(4000).default(""),
         subscriberId: id.optional(),
+        attachmentIds: z.array(id).max(5).default([]),
       })
+      .refine((b) => b.text.length > 0 || b.attachmentIds.length > 0, "Write a message or attach a file")
       .parse(req.body);
     const target = a.role === "subscriber" ? a.userId : b.subscriberId;
     if (!target) throw fail(400, "SUBSCRIBER_REQUIRED", "Select a subscriber");
     return db.tenant(a, async (tx) => {
+      await validateChatAttachments(tx, a, target, b.attachmentIds);
       await lockTraining(tx, a, target);
       const [m] = await tx.query(
         "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
@@ -1344,6 +1349,7 @@ export async function buildApp(
         },
         { ownerId: target, status: "sent" },
       );
+      await bindChatAttachments(tx, a, target, message.id, b.attachmentIds);
       const notice = {
         category: "coaching" as const,
         dedupeKey: `message:${message.id}`,
@@ -1363,7 +1369,7 @@ export async function buildApp(
           userId: target,
           href: "/app/chat",
         });
-      return message;
+      return b.attachmentIds.length ? (await tx.query("SELECT * FROM records WHERE id=$1", [message.id]))[0] : message;
     });
   });
   app.post("/api/v1/products", async (req) => {

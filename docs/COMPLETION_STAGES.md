@@ -13,15 +13,15 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime and training stages committed | Unfinished attachment module/UI and final assembled checks |
+| Workout coaching | Qualified runtime, training and private attachments committed | Bounded case/history hardening and final assembled checks |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs and Checkout committed | Actual Stripe/Lean qualification and acquisition conversion hook remain |
 | Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
-| Privacy and accounts | Connected and stage-tested | Attachments/acquisition privacy hooks still need completion |
+| Privacy and accounts | Connected, including attachment privacy | Acquisition hooks and former-owner website media cleanup remain |
 | Galleries and website | Backend tested; UI/SSR written | Register routes, wire navigation/brand ownership locks/client manifest, then browser checks |
 | Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
-| Release checks | Not passed on combined branch | Fix explicit type/preview/Checkout failures, full tests/build/browser and non-owner PostgreSQL CI |
+| Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
 
 ## Evidence
 
@@ -104,3 +104,7 @@ Preferences/inbox are connected to actual screens; safety, nutrition review, cha
 ### Onboarding completion
 
 The client submits the observed preview digest; stale approvals fail. Launch readiness uses current coaching/model, legal versions, independent nutrition evidence and actual voice consent, and explains private/published site state without a circular publish prerequisite. Six dedicated tests and two existing regressions passed, plus a final model-disconnection assertion. The Claude handoff now removes the fixed preview/type blockers.
+
+### Private chat attachment completion
+
+Image and raster-rebuilt PDF uploads now connect to message-only or attachment-only conversation delivery and scoped UI controls. Author/client/tenant binding is immutable; expired drafts cannot bind, and privacy/closure/worker cleanup includes bytes and message references. Forward migration030 upgrades the preserved028 schema without a reset. Seven attachment and eight privacy tests passed together after030; stage TypeScript passed. Browser qualification remains pending after the local Chromium CDN returned invalid archives. Root handoff updated in the same stage commit.

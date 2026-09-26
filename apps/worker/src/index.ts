@@ -9,6 +9,7 @@ import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
+import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import {
   scheduleNutrition,
@@ -40,7 +41,8 @@ if (!process.env.DATABASE_URL) {
           integrationTask = undefined;
         });
     }
-    if (Date.now() - lastMediaPurge >= 60 * 60 * 1000) {
+    const purgeMedia = Date.now() - lastMediaPurge >= 60 * 60 * 1000;
+    if (purgeMedia) {
       await purgeExpiredMealCaptures(db);
       lastMediaPurge = Date.now();
     }
@@ -48,6 +50,10 @@ if (!process.env.DATABASE_URL) {
       tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"),
     );
     for (const tenant of tenants) {
+      if (purgeMedia) {
+        try { await expireChatAttachments(db, tenant.id); }
+        catch { console.error("Chat attachment expiry failed"); }
+      }
       try {
         await scheduleNutrition(db, tenant.id);
       } catch {
