@@ -100,6 +100,61 @@ async function ownerTransaction<T>(
     return fn(tx, row.tenant);
   });
 }
+export async function saveCoachBrand(
+  db: Database,
+  a: Actor,
+  submitted: z.infer<typeof brandSchema>,
+) {
+  return db.system(async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      a.tenantId + ":workspace",
+    ]);
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      a.tenantId + ":brand",
+    ]);
+    // Lock the tenant row as well: onboarding may change the identity independently
+    // of design editing. The current theme and audit event belong to one commit.
+    await tx.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [
+      a.tenantId,
+    ]);
+    await tx.query("SET LOCAL ROLE trainer_app");
+    await tx.query(
+      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
+      [a.tenantId, a.userId, a.role],
+    );
+    const [row] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
+    if (!row?.tenant)
+      throw fail(
+        403,
+        "OWNER_REQUIRED",
+        "Current owner access to an active workspace is required",
+      );
+    const current = row.tenant,
+      version = Number(current.theme?.brandVersion ?? 0);
+    if (
+      submitted.expectedVersion !== undefined &&
+      submitted.expectedVersion !== version
+    )
+      throw fail(
+        409,
+        "BRAND_VERSION_CONFLICT",
+        "Your design changed in another session. Reload before saving.",
+      );
+    await assertBrandMedia(tx, a, submitted.design);
+    const { expectedVersion, ...data } = submitted;
+    const next = { ...current.theme, ...data, brandVersion: version + 1 };
+    await event(tx, a, "tenant.brand_updated", a.tenantId, {
+      version: version + 1,
+    });
+    await tx.query("RESET ROLE");
+    await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
+      a.tenantId,
+      submitted.name,
+      JSON.stringify(next),
+    ]);
+    return next;
+  });
+}
 function publicHost(req: FastifyRequest, slug?: string) {
   const context = (req as any).hostContext;
   if (context?.custom && slug !== undefined && slug !== context.tenantSlug)
@@ -163,9 +218,11 @@ export async function publicCoachSite(db: Database, slug: string) {
       "SELECT published,published_at FROM coach_sites WHERE tenant_id=$1",
       [tenant.id],
     );
+    const visibleSite = siteSchema.parse(site?.published ?? {});
+    visibleSite.pages = visibleSite.pages.filter((page) => page.visible);
     return {
       tenant,
-      site: siteSchema.parse(site?.published ?? {}),
+      site: visibleSite,
       publishedAt: site?.published_at ?? null,
       galleries: await listGalleries(
         tx,
@@ -408,6 +465,19 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           )
         )[0],
     );
+  });
+  app.get("/api/v1/tenant/galleries/:id", async (req) => {
+    const a = owner(req);
+    return ownerTransaction(db, a, async (tx) => {
+      const g = await gallery(tx, (req.params as any).id);
+      g.photos = (
+        await tx.query(
+          "SELECT p.*,m.width,m.height FROM coach_gallery_photos p JOIN brand_media m ON m.id=p.media_id AND m.tenant_id=p.tenant_id WHERE p.gallery_id=$1 ORDER BY p.position,p.media_id",
+          [g.id],
+        )
+      ).map((p) => ({ ...p, url: mediaUrl(p.media_id) }));
+      return g;
+    });
   });
   app.patch("/api/v1/tenant/galleries/:id", async (req) => {
     const a = owner(req),

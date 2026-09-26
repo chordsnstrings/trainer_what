@@ -27,13 +27,13 @@ Updated: 26 September 2026. This is durable project context for future build ses
 ## Current state
 
 - Active branch: `work/completion-2026-09-26`; GitHub `main` is unchanged. Read `../CLAUDE_HANDOFF.md` and `COMPLETION_STAGES.md` for exact scope. Update both after every completed stage; root coordinates shared files, commits and publication.
-- The preserved completion checkpoint has now been followed by finished Checkout, notifications, onboarding readiness and private chat attachment stages. Earlier stages cover training/qualified coaching, personalized nutrition, finance/bookings, administration, team/import/OCR, privacy/accounts and governed integrations.
-- Current bounded work: finish trainer website/gallery API registration and atomic brand saves; connect consented acquisition; verify coaching case/history caps; close former-owner website media erasure. UI/media navigation and acquisition modules are written and have focused checks, but shared hooks are still in progress.
+- The preserved completion checkpoint has now been followed by finished Checkout, notifications, onboarding readiness, private chat attachments and trainer website/gallery stages. Earlier stages cover training/qualified coaching, personalized nutrition, finance/bookings, administration, team/import/OCR, privacy/accounts and governed integrations.
+- Current bounded work: connect consented acquisition; checkpoint coaching case/history caps; close former-owner website media erasure. Website/gallery registration, atomic brand saves, previews and manifests passed 17 focused checks and TypeScript; acquisition hooks remain in progress.
 - Attachment stage: seven attachment and eight privacy tests passed together. Migration028 remains unchanged; forward030 applies the upgrade safely. Image/PDF sanitization, conversation binding, privacy and orphan expiry are connected. Whole-tree TypeScript passed after the temporary acquisition syntax error was fixed.
 - Final combined suite, production build, browser and PostgreSQL/container CI have not run. Local Chromium installation failed because CDN archives were invalid/truncated. Functional browser verification remains a release gate; screenshots are waived.
 - Stage commits are published through the GitHub connector because direct Git transport was unreliable. Remote/local commit hashes differ, with identical trees verified. Use GitHub history from a fresh checkout. No merge or deployment is authorized by this continuation.
 - No live payment/provider/cloud action occurred. Actual provider rights, account capabilities, model/coach quality, device behavior and operational qualification remain external gates. Existing DigitalOcean resources remain untouched.
-- Next: checkpoint attachments, finish website and acquisition hooks in separate checked commits, then run the aggregate gates and reconcile remaining source requirements.
+- Next: checkpoint website, finish acquisition and media privacy follow-ups in separate checked commits, then run the aggregate gates and reconcile remaining source requirements.
 
 ## Historical deployment handoff
 

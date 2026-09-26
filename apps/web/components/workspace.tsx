@@ -35,6 +35,12 @@ import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
 import { AccountExtras, MagicAccess } from "./account-completion";
 import { PasskeyLoginButton } from "./passkeys";
+import {
+  GalleryStudio,
+  WebsiteStudio,
+  CoachWebsite,
+  ClientCoachManifest,
+} from "./coach-site";
 import { PlatformSettings } from "./platform-settings";
 import { MealCapture } from "./meal-capture";
 import {
@@ -132,6 +138,8 @@ const nav = [
   ["Business", "/trainer/analytics", Activity],
   ["Finance", "/trainer/finance", Wallet],
   ["Design studio", "/trainer/design", Palette],
+  ["Photos & galleries", "/trainer/galleries", Camera],
+  ["Website", "/trainer/website", Link2],
   ["Integrations", "/trainer/integrations", Link2],
   ["Team", "/trainer/team", Users],
   ["Settings", "/trainer/settings", Settings],
@@ -149,6 +157,7 @@ const subNav = [
   ["Coaching context", "/app/twin", Brain],
   ["Membership", "/app/membership", Wallet],
   ["Connections", "/app/wearables", Link2],
+  ["Coach galleries", "/app/galleries", Camera],
   ["My profile", "/app/profile", Settings],
 ] as const;
 const questions = [
@@ -477,7 +486,14 @@ export default function Workspace() {
         )
       : state.user.role === "staff"
         ? nav.filter(
-            (item) => !["Finance", "Design studio", "Team"].includes(item[0]),
+            (item) =>
+              ![
+                "Finance",
+                "Design studio",
+                "Photos & galleries",
+                "Website",
+                "Team",
+              ].includes(item[0]),
           )
         : nav;
   const records = (kind: string) =>
@@ -498,6 +514,7 @@ export default function Workspace() {
   const platformName = state.platform?.name || "Trainer Brain";
   return (
     <Shell className="workspace" theme={state.tenant.theme}>
+      {subscriber && <ClientCoachManifest tenant={state.tenant} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
           {subscriber ? (
@@ -728,6 +745,33 @@ export default function Workspace() {
               userId={state.user.userId}
               tenantId={state.user.tenantId}
             />
+          ) : path === "/trainer/galleries" ||
+            path === "/trainer/website" ||
+            path.startsWith("/trainer/website/preview") ? (
+            state.user.role === "owner" ? (
+              path === "/trainer/galleries" ? (
+                <GalleryStudio />
+              ) : path === "/trainer/website" ? (
+                <WebsiteStudio tenant={state.tenant} />
+              ) : (
+                <CoachWebsite
+                  preview
+                  path={path.slice("/trainer/website/preview".length)}
+                />
+              )
+            ) : (
+              <div className="notice">
+                Only the trainer owner can manage their galleries and website.
+              </div>
+            )
+          ) : path === "/app/galleries" ? (
+            subscriber ? (
+              <GalleryStudio client />
+            ) : (
+              <div className="notice">
+                Open your trainer galleries to manage client photos.
+              </div>
+            )
           ) : path.includes("/brand") || path === "/trainer/design" ? (
             <Brand {...props} />
           ) : path.includes("/bookings") ? (

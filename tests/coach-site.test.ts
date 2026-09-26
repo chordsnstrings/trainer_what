@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import sharp from "sharp";
 import { z } from "zod";
 import { createDatabase, type Database } from "@trainer/db";
+import { buildApp } from "../apps/api/src/app.ts";
+import { tokenHash } from "../apps/api/src/auth.ts";
 import {
   registerCoachSite,
   publicCoachSite,
@@ -38,7 +40,7 @@ async function person(tenantId: string, role: string) {
 }
 async function tenant(published = true) {
   const tenantId = randomUUID(),
-    slug = "coach-" + tenantId;
+    slug = "coach-" + tenantId.replaceAll("-", "");
   await db.system((tx) =>
     tx.query(
       "INSERT INTO tenants(id,slug,name,published)VALUES($1,$2,'Synthetic Coach',$3)",
@@ -235,6 +237,8 @@ test("private media and gallery edits stay tenant scoped; subscribers and financ
   for (const actor of [b, sub, finance, null])
     assert.equal((await req(actor, "/media/" + m.id)).statusCode, 404);
   assert.equal((await req(a, "/media/" + m.id)).statusCode, 200);
+  assert.equal((await req(b, "/tenant/galleries/" + g.id)).statusCode, 404);
+  assert.equal((await req(sub, "/tenant/galleries/" + g.id)).statusCode, 403);
   assert.equal(
     (
       await req(sub, "/tenant/media", "POST", {
@@ -376,6 +380,12 @@ test("gallery reorder is atomic, revision checked and blocks deletion of referen
     [0, 1],
   );
   const current = list.galleries[0];
+  assert.deepEqual(
+    (await ok(a, "/tenant/galleries/" + g.id)).photos.map(
+      (p: any) => p.media_id,
+    ),
+    [two.id, one.id],
+  );
   assert.equal(
     (
       await req(a, "/tenant/galleries/" + g.id + "/photos", "PUT", {
@@ -456,6 +466,12 @@ test("draft preview is owner only and published website pages stay separate unti
             body: "Private teaching method",
             visible: true,
           },
+          {
+            slug: "hidden-notes",
+            title: "Hidden page",
+            body: "Private unpublished notes",
+            visible: false,
+          },
         ],
       },
     });
@@ -480,6 +496,11 @@ test("draft preview is owner only and published website pages stay separate unti
   });
   pub = await ok(null, "/public/sites/" + a.slug);
   assert.equal(pub.site.headline, "Private draft headline");
+  assert.equal(pub.site.pages.length, 1);
+  assert.doesNotMatch(
+    JSON.stringify(pub),
+    /Private unpublished notes|hidden-notes/,
+  );
   const edit = await ok(a, "/tenant/site", "PUT", {
     version: published.version,
     site: {
@@ -657,4 +678,88 @@ test("public galleries remain readable by the non-owner runtime database role on
   const result = await publicCoachSite(serviceDb, a.slug);
   assert.equal(result.galleries.length, 1);
   assert.equal(result.galleries[0].photos.length, 1);
+});
+
+test("assembled app wires website routes and atomically validates owned brand photos, revisions and concurrent deletion", async () => {
+  const a = await tenant(),
+    b = await tenant(),
+    own = await upload(a),
+    foreign = await upload(b),
+    token = randomUUID();
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+      [tokenHash(token), a.userId, a.tenantId],
+    ),
+  );
+  const assembled = await buildApp({ db, testing: true });
+  const call = (
+    path: string,
+    method: any = "GET",
+    payload?: Record<string, unknown>,
+  ) =>
+    assembled.inject({
+      url: "/api/v1" + path,
+      method,
+      payload,
+      headers: { cookie: "session=" + token, origin: "http://localhost:3000" },
+    });
+  try {
+    assert.equal((await call("/tenant/site")).statusCode, 200);
+    assert.equal(
+      (await call("/tenant/galleries", "POST", { title: "Integrated gallery" }))
+        .statusCode,
+      200,
+    );
+    assert.equal((await call("/public/sites/" + a.slug)).statusCode, 200);
+    const denied = await call("/tenant/brand", "PUT", {
+      ...brand(foreign.url),
+      expectedVersion: 0,
+    });
+    assert.equal(denied.statusCode, 400, denied.body);
+    assert.equal(denied.json().code, "MEDIA_UNAVAILABLE");
+    const edits = await Promise.all([
+      call("/tenant/brand", "PUT", { ...brand(own.url), expectedVersion: 0 }),
+      call("/tenant/brand", "PUT", { ...brand(own.url), expectedVersion: 0 }),
+    ]);
+    assert.deepEqual(edits.map((r) => r.statusCode).sort(), [200, 409]);
+    assert.equal(
+      (await call("/tenant/media/" + own.id, "DELETE")).statusCode,
+      409,
+    );
+    const second = await upload(a, blue),
+      race = await Promise.all([
+        call("/tenant/brand", "PUT", {
+          ...brand(second.url),
+          expectedVersion: 1,
+        }),
+        call("/tenant/media/" + second.id, "DELETE"),
+      ]);
+    assert.ok(
+      (race[0].statusCode === 200 && race[1].statusCode === 409) ||
+        (race[0].statusCode === 400 && race[1].statusCode === 200),
+      race.map((r) => r.body).join("\n"),
+    );
+    const [saved] = await db.system((tx) =>
+      tx.query("SELECT theme FROM tenants WHERE id=$1", [a.tenantId]),
+    );
+    const selected = saved.theme.design.logoUrl.split("/").pop();
+    assert.equal(
+      (
+        await db.tenant(a, (tx) =>
+          tx.query("SELECT id FROM brand_media WHERE id=$1", [selected]),
+        )
+      ).length,
+      1,
+    );
+    await db.system((tx) =>
+      tx.query(
+        "UPDATE memberships SET role='staff' WHERE tenant_id=$1 AND user_id=$2",
+        [a.tenantId, a.userId],
+      ),
+    );
+    assert.equal((await call("/tenant/brand", "PUT", brand())).statusCode, 403);
+  } finally {
+    await assembled.close();
+  }
 });

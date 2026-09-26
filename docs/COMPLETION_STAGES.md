@@ -19,7 +19,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
 | Privacy and accounts | Connected, including attachment privacy | Acquisition hooks and former-owner website media cleanup remain |
-| Galleries and website | Backend tested; UI/SSR written | Register routes, wire navigation/brand ownership locks/client manifest, then browser checks |
+| Galleries and website | Uploads, galleries, drafts, SSR, navigation and manifests connected | Former-owner media erasure and browser journeys |
 | Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
 | Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
 
@@ -108,3 +108,7 @@ The client submits the observed preview digest; stale approvals fail. Launch rea
 ### Private chat attachment completion
 
 Image and raster-rebuilt PDF uploads now connect to message-only or attachment-only conversation delivery and scoped UI controls. Author/client/tenant binding is immutable; expired drafts cannot bind, and privacy/closure/worker cleanup includes bytes and message references. Forward migration030 upgrades the preserved028 schema without a reset. Seven attachment and eight privacy tests passed together after030; stage TypeScript passed. Browser qualification remains pending after the local Chromium CDN returned invalid archives. Root handoff updated in the same stage commit.
+
+### Trainer website and gallery completion
+
+Actual multipage public websites, private owner previews, gallery management/client galleries and coach-specific manifests/icons are connected. Brand writes serialize with media deletion and recheck current ownership/revisions; hidden pages are excluded from public data. Twelve coach-site and five branding tests, whole-tree TypeScript and scoped diff checks passed. Existing migration018 is unchanged. Browser journeys and former-owner media erasure remain separate work; root handoff updated.

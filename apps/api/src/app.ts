@@ -4,12 +4,17 @@ import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
-import { registerChatAttachments, validateChatAttachments, bindChatAttachments } from "./chat-attachments.ts";
+import {
+  registerChatAttachments,
+  validateChatAttachments,
+  bindChatAttachments,
+} from "./chat-attachments.ts";
 import {
   registerAccountCompletion,
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
+import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -406,6 +411,7 @@ export async function buildApp(
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
+  registerCoachSite(app, db);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
@@ -736,34 +742,7 @@ export async function buildApp(
   app.put("/api/v1/tenant/brand", async (req) => {
     const a = owner(req),
       b = brandSchema.parse(req.body);
-    const theme = await db.system(async (tx) => {
-      const [current] = await tx.query(
-        "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
-        [a.tenantId],
-      );
-      const version = Number(current.theme?.brandVersion ?? 0);
-      if (b.expectedVersion !== undefined && b.expectedVersion !== version)
-        throw fail(
-          409,
-          "BRAND_VERSION_CONFLICT",
-          "Your design changed in another session. Reload before saving.",
-        );
-      const { expectedVersion, ...submitted } = b;
-      const next = {
-        ...current.theme,
-        ...submitted,
-        brandVersion: version + 1,
-      };
-      await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
-        a.tenantId,
-        b.name,
-        JSON.stringify(next),
-      ]);
-      return next;
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "tenant.brand_updated", a.tenantId),
-    );
+    const theme = await saveCoachBrand(db, a, b);
     return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
@@ -1323,7 +1302,10 @@ export async function buildApp(
         subscriberId: id.optional(),
         attachmentIds: z.array(id).max(5).default([]),
       })
-      .refine((b) => b.text.length > 0 || b.attachmentIds.length > 0, "Write a message or attach a file")
+      .refine(
+        (b) => b.text.length > 0 || b.attachmentIds.length > 0,
+        "Write a message or attach a file",
+      )
       .parse(req.body);
     const target = a.role === "subscriber" ? a.userId : b.subscriberId;
     if (!target) throw fail(400, "SUBSCRIBER_REQUIRED", "Select a subscriber");
@@ -1369,7 +1351,9 @@ export async function buildApp(
           userId: target,
           href: "/app/chat",
         });
-      return b.attachmentIds.length ? (await tx.query("SELECT * FROM records WHERE id=$1", [message.id]))[0] : message;
+      return b.attachmentIds.length
+        ? (await tx.query("SELECT * FROM records WHERE id=$1", [message.id]))[0]
+        : message;
     });
   });
   app.post("/api/v1/products", async (req) => {

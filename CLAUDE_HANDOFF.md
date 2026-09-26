@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery wiring and consented acquisition are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition connections and bounded follow-ups are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -53,22 +53,16 @@ Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`,
 ### 1. Immediate known failures
 
 - Checkout/onboarding typing and the temporary acquisition syntax error are fixed; whole-tree TypeScript subsequently passed. Repeat aggregate checks after the final shared hooks.
-- Public coach SSR now calls `/api/v1/public/sites/:slug`, but `registerCoachSite(app, db)` is not yet called in `app.ts`. Until wired, the new website path cannot work.
+- Public website/media routes, previews, client galleries and brand saves are now registered and connected; final browser journeys remain unverified.
 - Final full tests, production build, functional browser smoke, and PostgreSQL/container CI have **not** run on the combined work.
 
-### 2. Photos, galleries, design and actual trainer website
+### 2. Photos, galleries, design and actual trainer website — completed
 
-Files: migration `018_brand_site.sql`, API `coach-site.ts`, web `coach-site.tsx`, `coach-site.css`, `trainer-design.tsx`, catch-all `page.tsx`, layout CSS import, contracts `branding.ts`, `tests/coach-site.test.ts`.
+Decoded/re-encoded uploads remove metadata and validate crop/rights/limits. Trainers can manage unlimited paginated galleries with public-site, client-app and private audiences, ordering, captions and alt text. Versioned website/design drafts publish separately from workspace launch; the actual multipage public site supports membership links, inquiries and social links. Hidden pages are excluded from public responses. The owner preview, website/gallery navigation, client galleries, coach-specific manifest and PNG icons are connected.
 
-Implemented: decoded/re-encoded JPEG uploads with crop/rights/limits and metadata removal; media library; unlimited paginated galleries with site/app/private audiences, ordering, captions and alt text; versioned private design/website drafts and publication; multipage public site, contact inquiries, memberships, social links; branded manifest and actual PNG icons; server-rendered public metadata. **11 focused API/media tests passed**, including non-owner runtime, 29 galleries, privacy/isolation/CAS and real image processing. UI/SSR integration is unfinished and untested.
+Brand saves serialize workspace and brand changes, recheck the current active owner through the scoped helper, validate same-workspace media and apply revision checks atomically. UI fixes preserve unsaved website edits when handling inquiries, reload current galleries/drafts and paginate private previews beyond 24 entries.
 
-Next:
-
-1. Import/call `registerCoachSite(app, db)`.
-2. Harden existing `/tenant/brand`: acquire workspace then brand advisory locks; use `trainer_brand_tenant()` to recheck active current owner; call `assertBrandMedia(tx, actor, design)` before saving. Do not query unrestricted tenant rows through `trainer_app`.
-3. Mount `WebsiteStudio`, `GalleryStudio`, client galleries and `CoachWebsite` owner preview in `workspace.tsx`; add navigation for `/trainer/website`, `/trainer/galleries`, `/app/galleries`, `/trainer/website/preview/...`.
-4. Set the coach-specific manifest for the actual logged-in client app; public SSR metadata already supplies it.
-5. Review runtime grants now present in `infra/runtime-role.sql`, preview/launch ordering and onboarding digest changes; then verify upload → gallery → site publish → public/client visibility in a local browser.
+Checks: **12 coach-site and 5 branding tests passed**, including the assembled app registration/brand save, stale revision and media-deletion race. Whole-tree TypeScript and scoped diff checks passed. No additional migration beyond018. Actual browser upload → gallery → site publish → client/public visibility remains pending. A separate privacy follow-up will remove a former owner's uploaded media and references on approved personal erasure while preserving the remaining workspace.
 
 ### 3. Notifications and email delivery — completed
 
@@ -118,8 +112,8 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Finish the remaining website and acquisition stages; Checkout, notification, onboarding and attachment completion are recorded above.
-2. Connect website/media routes and atomic brand saves, then close the former-owner media erasure gap; keep separate stage commits and update this file after each.
+1. Finish acquisition shared hooks; Checkout, notification, onboarding, attachment and website stages are completed above.
+2. Close the former-owner media erasure gap; keep separate stage commits and update this file after each.
 3. Finish consented acquisition hooks and the bounded coaching capacity/history hardening; add meaningful missing tests.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -164,3 +158,7 @@ Completed digest-bound preview approval, current coaching/model/nutrition/voice/
 ### 26 September — Private chat attachment completion
 
 Completed private image/PDF uploads, sealed conversation binding, composer/download/removal controls, personal/workspace privacy and hourly orphan cleanup. Original migration028 is unchanged; forward030 upgrades existing data safely. Seven attachment and eight privacy tests passed after this migration. Commit: the stage commit containing this entry. Next: website registration/brand transaction, consented acquisition and combined release checks. Local Chromium installation failed on invalid CDN archives; browser verification remains an explicit CI gate.
+
+### 26 September — Trainer website and gallery completion
+
+Connected actual website routes/SSR, versioned drafts, private preview, trainer/client gallery navigation, coach-specific manifest and guarded brand saves. Hidden pages stay out of public data; inquiry actions preserve unsaved website edits. Twelve coach-site and five branding tests, whole-tree TypeScript and scoped diff checks passed. Commit: the stage commit containing this entry. Next: former-owner media erasure, acquisition hooks and aggregate browser/build checks.
