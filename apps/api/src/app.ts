@@ -1,3 +1,7 @@
+import { registerFinanceAutomation } from "./finance-automation.ts";
+import { registerFinanceCompletion } from "./finance-completion.ts";
+import { checkoutOfferTerms } from "./finance-promotions.ts";
+import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import {
   registerPrivacyLifecycle,
@@ -308,6 +312,9 @@ export async function buildApp(
   registerCoachingCompletion(app, db);
   registerTrainingPrograms(app, db);
   registerFinanceBilling(app, db);
+  registerFinanceCompletion(app, db);
+  registerFinanceAutomation(app, db);
+  registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
   securityRoutes(app, db, identity);
   platformSettingsRoutes(app, db, identity);
@@ -1307,7 +1314,7 @@ export async function buildApp(
   app.post("/api/v1/payments/checkout", async (req) => {
     const a = identity(req),
       stripe = requireCommerce();
-    const b = z.object({ productId: id }).parse(req.body);
+    const b = z.object({ productId: id, promotionCode: z.string().trim().max(40).optional() }).parse(req.body);
     const product = await db.tenant(a, (tx) =>
       findRecord(tx, b.productId, "product"),
     );
@@ -1338,7 +1345,7 @@ export async function buildApp(
         [a.userId],
       );
       if (existing) {
-        if (existing.data.productId !== product.id)
+        if (existing.data.productId !== product.id || (existing.data.offerTerms?.promotionCode ?? "") !== (b.promotionCode ?? "").toUpperCase())
           throw fail(
             409,
             "CHECKOUT_OPEN",
@@ -1346,12 +1353,14 @@ export async function buildApp(
           );
         return existing;
       }
+      const offerTerms = await checkoutOfferTerms(tx, a, product, b.promotionCode);
       return putRecord(
         tx,
         a,
         "checkout",
         {
           productId: product.id,
+          offerTerms,
           priceId: product.data.stripePriceId,
           email: a.email,
           expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
@@ -1373,7 +1382,9 @@ export async function buildApp(
           user_id: a.userId,
           intent_id: intent.id,
         },
+        discounts: intent.data.offerTerms?.couponId ? [{ coupon: intent.data.offerTerms.couponId }] : undefined,
         subscription_data: {
+          trial_period_days: intent.data.offerTerms?.trialDays || undefined,
           metadata: {
             tenant_id: a.tenantId,
             user_id: a.userId,

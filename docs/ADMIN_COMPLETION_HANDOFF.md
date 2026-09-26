@@ -20,3 +20,32 @@ Verification: `npm run typecheck` passed for the shared repository at this stage
 ## Remaining stages owned here
 
 Booking calendar recurrence/timezones/policies/calendar export, paid-session hook integration with finance agent, then team invitations/role changes/revocation with MFA and concurrency checks. No screenshots, deployment or live provider calls.
+
+## Stage 2 — booking calendar and public legal reader
+
+Files: `apps/api/src/booking-schedule.ts`, `apps/web/components/bookings.tsx`, `apps/web/components/published-legal.tsx`, `packages/db/migrations/019_bookings_completion.sql`, `tests/bookings-completion.test.ts`.
+
+- Replace the booking route block inside `operationsRoutes` (GET bookings through attendance endpoint) with `registerBookingRoutes(app,db,identity,hooks)`. Retain support/wearable/onboarding routes in operations.ts. Old booking paths and free reservation response shape remain compatible.
+- Hooks are optional safe-disabled interfaces: `{preparePaidBooking, startBookingCheckout, refundCanceledBooking, notify:notifyUser}`. Finance exports the first three from finance-bookings.ts. Priced reservations fail unavailable without paid preparation/checkout hooks. Payment preparation runs inside the serialized tenant transaction; provider checkout and refund run after commit. Booking response retains status `payment_pending` and separately exposes `checkoutStatus`. Do not confirm on browser redirect.
+- Notification hook uses root's `notifyUser(tx,a,{userId,category:'booking',dedupeKey,title,body,href})` for free reservations, reschedule and cancellation. No direct new email jobs bypass preferences.
+- Calendar/time controls: timezone and policy defaults; 1–26 weekly occurrences (up to four-week interval), local clock preservation across daylight changes, rejected nonexistent/ambiguous local times; coach/owner permissions, overlap checks, capacity and same-client overlap protection. Policies are snapshotted on each new slot. Slot edits/cancellation are revision checked, individual occurrences only. Attendance after end only. Paid holds consume capacity for 35 minutes; late payment compensation belongs to finance webhook handling.
+- Authenticated `GET /api/v1/bookings/calendar.ics` exports the subscriber's own reservations or trainer's workspace sessions. Private cache headers, escaped/folded iCalendar data. This is a calendar file download, not a live external calendar integration.
+- `PublishedLegal({documentKey:'terms'|'privacy'|'ai-disclosure'})` uses `GET /api/v1/public/documents/:key`. The response has `{document:{id,kind,key,version,title,content,effective_at,published_at},versions:[{version,effective_at}]}`. Reader supports historical effective version selection and explicit no-approved-document error. Mount on the three public legal paths.
+- Migration019 has no new tables or runtime grants. It adds booking slot timezone, series, revision, policy and price; reservation revision, payment status, hold expiry and cancellation reason.
+
+Verification: targeted booking suite passed 7/7; shared `npm run typecheck` passed. Coverage includes DST invalid/ambiguous clock time, recurrence, concurrent capacity, tenant/subscriber isolation, policy snapshots and cutoffs, CAS/coach ownership, paid pending hook semantics and calendar injection escaping.
+
+## Stage 3 — team administration
+
+Files: `apps/api/src/team.ts`, `apps/web/components/team-controls.tsx`, `packages/db/migrations/022_team_completion.sql`, `tests/team-completion.test.ts`.
+
+Root integration:
+
+- Call `registerTeamRoutes(app,db,identity)` and render `TeamControls({role})` at `/trainer/team`. Replace the broken settings invitation form with a link to the dedicated team view.
+- Remove old `DELETE /api/v1/team/:userId` from app.ts, now replaced by MFA/revision/reason-checked deletion. Delegate legacy `POST /api/v1/invitations` for staff/finance to `createTeamInvitation(db,a,body,publicUrl())`; subscriber invitations retain their current workflow. New team invitation form sends valid `staff`/`finance` role values.
+- Replace invitation-acceptance initial token SQL with `await lockActiveInvitation(tx, tokenHash(b.token))`. This helper first reads tenant identity, locks `tenantId+':workspace'` then `tenantId+':team'`, then loads the active token FOR UPDATE. It verifies workspace active and the recorded staff/finance invitation issuer is still owner. Do not acquire token lock before workspace/team locks. Existing invitations without an issuer cannot newly grant staff/finance access; create a fresh owner-approved invitation.
+- After valid authenticated session lookup, `touchTeamSession(db, tokenHash)` updates last_seen_at only after five minutes. Treat an optional tracking failure as nonfatal to the user request.
+- Owner and fresh MFA are checked for every team view/mutation, then current database ownership is rechecked under locks. Ownership transfer is reserved to the privacy workflow. Role changes/revocation invalidate this workspace's active sessions only. Optimistic membership revisions prevent stale edits. Invite replacement revokes older outstanding staff/finance links for that address. Mutations and audit event commit atomically.
+- Membership version trigger increments when privacy transfer changes roles. Existing system table grants cover added columns; no new table grants. Session last_seen_at uses IF NOT EXISTS to coexist with migration021. Passkey listing exposes only active credential counts from auth_passkeys, when installed.
+
+Verification: team targeted suite passed 6/6 before the display-only passkey count addition. Cases cover owner/MFA/current-owner checks, invite replacement/revocation/isolation, stale issuer, role CAS/session revocation isolation, owner protection, and throttled last-active reporting. Shared typecheck reported only a concurrent finance-bookings.ts undefined-stripe narrowing issue, relayed to its owner; team files themselves had no errors.

@@ -1,3 +1,4 @@
+import { scheduleFinance, executeFinanceJob } from "../../api/src/finance-automation.ts";
 import { createDatabase, type Actor } from "@trainer/db";
 import { sendEmail, ProviderUnavailable } from "@trainer/providers";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
@@ -21,9 +22,10 @@ if (!process.env.DATABASE_URL) {
       await purgeExpiredMealCaptures(db);
       lastMediaPurge = Date.now();
     }
-    const tenants = await db.system((tx) => tx.query("SELECT id FROM tenants"));
+    const tenants = await db.system((tx) => tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"));
     for (const tenant of tenants) {
-      await scheduleNutrition(db, tenant.id);
+      try { await scheduleNutrition(db, tenant.id); } catch { console.error("Nutrition scheduling failed"); }
+      try { await scheduleFinance(db, tenant.id); } catch { console.error("Finance scheduling failed"); }
       const a: Actor = {
         tenantId: tenant.id,
         userId: "00000000-0000-0000-0000-000000000000",
@@ -34,14 +36,19 @@ if (!process.env.DATABASE_URL) {
           "SELECT * FROM jobs WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now()) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1",
         );
         if (!j) return null;
-        await tx.query(
-          "UPDATE jobs SET leased_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=$1",
+        const [claimed] = await tx.query(
+          "UPDATE jobs SET leased_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=$1 RETURNING *",
           [j.id],
         );
-        return j;
+        return claimed;
       });
       if (!job) continue;
       try {
+        if (job.kind.startsWith("finance_")) {
+          const result = await executeFinanceJob(db, tenant.id, job);
+          await db.tenant(a, tx => tx.query("UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1 AND attempts=$4 AND leased_until=$5", [job.id,result.status,result.code??null,job.attempts,job.leased_until]));
+          continue;
+        }
         if (job.kind === "nutrition_week") {
           const result: any = await executeNutritionJob(db, tenant.id, job);
           await db.tenant(a, (tx) =>
@@ -74,7 +81,7 @@ if (!process.env.DATABASE_URL) {
             "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1",
             [
               job.id,
-              e instanceof ProviderUnavailable
+              e instanceof ProviderUnavailable || job.kind.startsWith("finance_")
                 ? "blocked"
                 : job.attempts >= 4
                   ? "failed"

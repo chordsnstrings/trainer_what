@@ -1,3 +1,4 @@
+import { processBookingStripeEvent } from "./finance-bookings.ts";
 import { randomUUID } from "node:crypto";
 import {
   type Database,
@@ -20,6 +21,7 @@ const supported = new Set([
   "charge.dispute.closed",
 ]);
 export async function processStripeEvent(db: Database, e: any) {
+  if (await processBookingStripeEvent(db, e)) return { processed: true };
   if (!supported.has(e.type)) return { ignored: true };
   const object = e.data.object;
   const meta = object.metadata?.tenant_id

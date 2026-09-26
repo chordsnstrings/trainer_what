@@ -1,8 +1,9 @@
 "use client";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
-import { BillingHistory } from "./finance-completion";
+import { BillingHistory, TrainerFinanceTools, FinancePolicyConsole, FinanceAutomationConsole } from "./finance-completion";
 import { AdminOperations, TrainerAnalytics } from "./admin-operations";
 import { TrainingPrograms, CoachingMessages, TrainingProgress, WorkoutTools } from "./training-workspace";
+import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
@@ -2376,6 +2377,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
 }
 
 function Finance({ state, records, action, busy, path }: ViewProps) {
+  const [promotionCode, setPromotionCode] = useState("");
   const sub = state.user.role === "subscriber",
     membership = state.subscriptions[0];
   const [offer, setOffer] = useState(path.includes("products"));
@@ -2398,8 +2400,10 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
           ) : undefined
         }
       />
+      {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
+          {!membership && <Field label="Discount code (optional)"><input value={promotionCode} maxLength={40} onChange={e => setPromotionCode(e.target.value)} /></Field>}
           <Card>
             <h2>
               {membership
@@ -2438,6 +2442,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                             () =>
                               api("/membership/change-plan", "POST", {
                                 productId: p.id,
+                              promotionCode,
                               }),
                             "Opening price and billing confirmation",
                           ).then((r) => {
@@ -2495,6 +2500,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                           () =>
                             api("/payments/checkout", "POST", {
                               productId: p.id,
+                              promotionCode,
                             }),
                           "Opening checkout",
                         ).then((r) => {
@@ -3342,7 +3348,7 @@ function Analytics({ state, records }: ViewProps) {
   );
 }
 
-function Admin({ state }: ViewProps) {
+function Admin({ state, path }: ViewProps) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -3352,6 +3358,7 @@ function Admin({ state }: ViewProps) {
   }, []);
   return (
     <>
+      {path === "/admin/finance/controls" && data && ["admin", "finance"].includes(state.user.platformRole) && <><FinancePolicyConsole tenants={data.tenants} /><FinanceAutomationConsole tenants={data.tenants} /></>}
       <Heading
         eyebrow="PLATFORM OPERATIONS"
         title="An accountable view of the platform."
@@ -3363,7 +3370,7 @@ function Admin({ state }: ViewProps) {
             <Settings size={15} />
             Settings & API connections
           </Link>
-          <Link href="/admin/security">
+          <Link href="/admin/account-security">
             <Shield size={15} />
             Account security
           </Link>
@@ -3760,39 +3767,7 @@ function Public({
       ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
         <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
-        <main className="legal public-section">
-          <p className="eyebrow">TRANSPARENCY</p>
-          <h1>
-            {path === "/privacy"
-              ? "Your data belongs in a clear conversation."
-              : path === "/terms"
-                ? "Terms of service"
-                : "Digital coaching, clearly identified."}
-          </h1>
-          <Card>
-            <Badge tone="amber">Draft · production review required</Badge>
-            <p>
-              This development build does not publish approved legal terms or
-              accept live customers until the operator’s reviewed documents and
-              consent configuration are in place.
-            </p>
-            <p>
-              Digital coaching uses trainer-approved methods and is identified
-              separately from personally written trainer messages. It does not
-              replace medical assessment or emergency services. Fitness data is
-              used within its recorded permissions. Trainer material stays
-              scoped to that trainer, and provider restrictions remain
-              enforceable.
-            </p>
-            <p>
-              Account controls include export, consent management, a
-              deletion-request workflow, and separate renewal cancellation and
-              refund requests. Final rights, responsibilities, retention periods
-              and contact details must be stated in the reviewed documents
-              before launch.
-            </p>
-          </Card>
-        </main>
+        <PublishedLegal documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"} />
       ) : (
         <>
           <section className="hero">

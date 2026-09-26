@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type Actor, type Tx, event } from "@trainer/db";
-import { commission, assertPayoutTransition } from "@trainer/domain";
+import { assertPayoutTransition } from "@trainer/domain";
+import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
 export async function journal(
   tx: Tx,
   actor: Actor,
@@ -36,7 +37,14 @@ export async function recordCharge(
   rank: number,
   data: any = {},
 ) {
-  const fee = commission(amount, rank);
+  if (!Number.isSafeInteger(rank) || rank < 1)
+    throw new Error("Invalid subscriber commission rank");
+  const policy = await effectiveFinancePolicy(
+    tx,
+    data.chargedAt ? new Date(data.chargedAt) : new Date(),
+  );
+  const band = rank <= 100 ? 0 : rank <= 300 ? 1 : rank <= 1000 ? 2 : 3;
+  const fee = feeInMinor(amount, policy.data.commissionBps[band]);
   return journal(
     tx,
     actor,
@@ -52,7 +60,8 @@ export async function recordCharge(
       grossMinor: amount,
       commissionMinor: fee,
       rank,
-      policy: "marginal-stable-rank-v1",
+      policy: policy.id,
+      commissionBps: policy.data.commissionBps[band],
     },
   );
 }
