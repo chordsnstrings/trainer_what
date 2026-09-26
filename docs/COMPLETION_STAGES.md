@@ -168,3 +168,7 @@ Connected bounded, deduplicated trainer/subscriber lifecycle triggers with pinne
 ### Upload and compilation review notifications completed
 
 Connected actual extraction and compilation to generic, deduplicated review prompts with exact proposed rule/conflict counts and source/batch references. Delivery suppresses stale or revoked material, changed review states, expired prompts and lost trainer/workspace access. Compilation rechecks selected material and current authority after model processing before persisting results. Four new actual-app checks and two existing targeted regressions passed; diff checks passed. No migration or real provider call. Final connected TypeScript is pending the concurrent history/retention stages; root handoff updated.
+
+### Searchable coaching history completed
+
+Added correction/outcome full-text search with change/category/client filters, bounded keyset pagination, deletion-safe cursors and connected attention-list controls. Current trainer/workspace checks, held-out exclusion, existing detail/teaching behavior and erasure are preserved. Seven new route tests and eight correction-workflow regressions passed; diff checks passed. Migration034 adds indexes over current records. Tenant RLS prevented GIN use in the local diagnostic; no isolation bypass was added, and the 3-second timeout/input/page bounds remain explicit. Production plans/performance/browser and final connected TypeScript are pending as recorded in the root handoff.

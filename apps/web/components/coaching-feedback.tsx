@@ -1,13 +1,26 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
-async function api(path: string, method = "GET", body?: unknown) {
+async function api(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  signal?: AbortSignal,
+) {
   const response = await fetch("/api/v1" + path, {
     method,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+    cache: "no-store",
   });
   const data = await response.json();
   if (!response.ok)
@@ -206,6 +219,12 @@ const teachingFields = [
     2000,
   ],
 ] as const;
+const emptyHistoryFilters = {
+  q: "",
+  learningValue: "",
+  category: "",
+  subscriberId: "",
+};
 export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
   const [rows, setRows] = useState<any[]>([]),
     [next, setNext] = useState<string | null>(null),
@@ -213,23 +232,87 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
     [draftDirty, setDraftDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
-  const load = useCallback(async (before?: string) => {
-    const data = await api(
-      "/coaching/feedback" + (before ? `?before=${before}` : ""),
-    );
-    setRows((old) => (before ? [...old, ...data.items] : data.items));
-    setNext(data.next);
-  }, []);
+    [notice, setNotice] = useState(""),
+    [filters, setFilters] = useState(emptyHistoryFilters),
+    [searchFields, setSearchFields] = useState(emptyHistoryFilters),
+    [clientName, setClientName] = useState(""),
+    [historyLoading, setHistoryLoading] = useState(false),
+    [historyError, setHistoryError] = useState("");
+  const historyRequest = useRef(0),
+    historyAbort = useRef<AbortController | null>(null);
+  const load = useCallback(
+    async (before?: string) => {
+      const request = ++historyRequest.current;
+      historyAbort.current?.abort();
+      const controller = new AbortController();
+      historyAbort.current = controller;
+      setHistoryLoading(true);
+      setHistoryError("");
+      if (!before) {
+        setRows([]);
+        setNext(null);
+      }
+      const query = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) query.set(key, value);
+      });
+      if (before) query.set("before", before);
+      try {
+        const data = await api(
+          "/coaching/feedback?" + query.toString(),
+          "GET",
+          undefined,
+          controller.signal,
+        );
+        if (request !== historyRequest.current) return;
+        setRows((old) =>
+          before
+            ? [
+                ...old,
+                ...data.items.filter(
+                  (item: any) => !old.some((row) => row.id === item.id),
+                ),
+              ]
+            : data.items,
+        );
+        setNext(data.next);
+      } catch (e) {
+        if (request === historyRequest.current && !controller.signal.aborted)
+          setHistoryError((e as Error).message);
+      } finally {
+        if (request === historyRequest.current) setHistoryLoading(false);
+      }
+    },
+    [filters],
+  );
   useEffect(() => {
     const reload = () => {
-      void load().catch((e) => setError(e.message));
+      void load();
     };
     reload();
     window.addEventListener("coaching-feedback-updated", reload);
-    return () =>
+    return () => {
       window.removeEventListener("coaching-feedback-updated", reload);
+      ++historyRequest.current;
+      historyAbort.current?.abort();
+    };
   }, [load]);
+  function search(value: typeof emptyHistoryFilters) {
+    // Invalidate synchronously: a previous page cannot arrive between the
+    // user's reset/search action and the effect for the new filters.
+    ++historyRequest.current;
+    historyAbort.current?.abort();
+    setRows([]);
+    setNext(null);
+    setHistoryError("");
+    setDetail(undefined);
+    setError("");
+    setNotice("");
+    setDraftDirty(false);
+    const selected = { ...value, q: value.q.trim() };
+    setSearchFields(selected);
+    setFilters(selected);
+  }
   async function run(fn: () => Promise<unknown>, success: string) {
     setBusy(true);
     setError("");
@@ -238,6 +321,7 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
       await fn();
       if (detail)
         setDetail(await api(`/coaching/feedback/${detail.correction.id}`));
+      await load();
       setDraftDirty(false);
       setNotice(success);
     } catch (e) {
@@ -257,6 +341,108 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
         explicitly, then link independent checks before considering any coaching
         release.
       </p>
+      <form
+        aria-label="Search coaching history"
+        onSubmit={(event) => {
+          event.preventDefault();
+          search(searchFields);
+        }}
+      >
+        <Field label="Search corrections and outcome notes">
+          <input
+            type="search"
+            name="q"
+            maxLength={200}
+            value={searchFields.q}
+            placeholder="Request, preferred response, original response or reason"
+            onChange={(event) =>
+              setSearchFields({ ...searchFields, q: event.target.value })
+            }
+          />
+        </Field>
+        <div className="form-grid">
+          <Field label="Change type">
+            <select
+              name="learningValue"
+              value={searchFields.learningValue}
+              onChange={(event) =>
+                setSearchFields({
+                  ...searchFields,
+                  learningValue: event.target.value,
+                })
+              }
+            >
+              <option value="">All corrections</option>
+              <option value="meaningful">Meaningful changes</option>
+              <option value="cosmetic">Cosmetic changes</option>
+              <option value="decision">Decision changes</option>
+              <option value="meaning">Meaning changes</option>
+            </select>
+          </Field>
+          <Field label="Coaching category">
+            <select
+              name="category"
+              value={searchFields.category}
+              onChange={(event) =>
+                setSearchFields({
+                  ...searchFields,
+                  category: event.target.value,
+                })
+              }
+            >
+              <option value="">All categories</option>
+              {[
+                "message",
+                "program_build",
+                "progression",
+                "substitution",
+                "schedule",
+              ].map((category) => (
+                <option key={category} value={category}>
+                  {label(category)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {filters.subscriberId && (
+          <p>Client: {clientName || "Selected client"}</p>
+        )}
+        <div className="button-row">
+          <button className="button secondary" type="submit" disabled={busy}>
+            Search history
+          </button>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setClientName("");
+              search(emptyHistoryFilters);
+            }}
+          >
+            Reset history search
+          </button>
+        </div>
+      </form>
+      <p className="muted">
+        Matches whole words, newest corrections first. Searching history does
+        not approve a case for learning.
+      </p>
+      {historyError && (
+        <div className="notice" role="alert">
+          <p>{historyError}</p>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={historyLoading}
+            onClick={() => void load()}
+          >
+            Retry history
+          </button>
+        </div>
+      )}
+      {historyLoading && <p role="status">Loading coaching history…</p>}
       {error && (
         <p className="notice" role="alert">
           {error}
@@ -267,40 +453,78 @@ export function CoachingFeedbackQueue({ owner }: { owner: boolean }) {
           {notice}
         </p>
       )}
-      {!rows.length && <p>Your reviewed corrections will appear here.</p>}
-      <div className="button-row">
+      {!rows.length && !historyLoading && !historyError && (
+        <p role="status">
+          {Object.values(filters).some(Boolean)
+            ? "No corrections match these filters. Try different words or reset the search."
+            : "Your reviewed corrections will appear here."}
+        </p>
+      )}
+      <div aria-label="Coaching history results" aria-busy={historyLoading}>
         {rows.map((row) => (
-          <button
-            className="button secondary"
-            type="button"
-            key={row.id}
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              setNotice("");
-              try {
-                setDetail(await api(`/coaching/feedback/${row.id}`));
-                setDraftDirty(false);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {label(row.data.category)} ·{" "}
-            {new Date(row.created_at).toLocaleDateString()}
-          </button>
+          <article key={row.id}>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={busy}
+              aria-expanded={detail?.correction.id === row.id}
+              data-testid={`coaching-history-open-${row.id}`}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                setNotice("");
+                try {
+                  setDetail(await api(`/coaching/feedback/${row.id}`));
+                  setDraftDirty(false);
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {row.clientName || "Client"} · {label(row.data.category)} ·{" "}
+              {new Date(row.created_at).toLocaleDateString()}
+            </button>
+            <p>
+              {String(row.data.request || row.data.preferred.message).slice(
+                0,
+                240,
+              )}
+            </p>
+            <p className="muted">
+              {label(row.data.learningValue)} change · {row.outcomeCount}{" "}
+              outcome note(s)
+            </p>
+            {row.matchedOutcome && (
+              <p>
+                <strong>Matching outcome:</strong> {row.matchedOutcome}
+              </p>
+            )}
+            {!filters.subscriberId && row.owner_user_id && (
+              <button
+                className="button secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setClientName(row.clientName || "Selected client");
+                  search({ ...filters, subscriberId: row.owner_user_id });
+                }}
+              >
+                Only this client's history
+              </button>
+            )}
+          </article>
         ))}
       </div>
       {next && (
         <button
           className="button secondary"
-          disabled={busy}
-          onClick={() => void run(() => load(next), "More corrections loaded")}
+          type="button"
+          disabled={busy || historyLoading}
+          onClick={() => void load(next)}
         >
-          Load more
+          Load more corrections
         </button>
       )}
       {detail && (

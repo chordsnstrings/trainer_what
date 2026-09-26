@@ -10,9 +10,11 @@ import {
 } from "@trainer/db";
 import {
   canonicalCoaching,
+  coachingActions,
   teachingCaseSchema,
 } from "../../../packages/domain/src/coaching-completion.ts";
 import { currentClientTwin } from "./client-twin.ts";
+import { workspaceLock } from "./privacy-lifecycle.ts";
 import {
   assertTrainingOpen,
   deliverReviewedCoachingDecision,
@@ -116,6 +118,39 @@ const normalizedCopy = (value: string) =>
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+
+const historyQuery = z
+  .object({
+    q: z.string().trim().max(200).default(""),
+    learningValue: z
+      .enum(["meaningful", "cosmetic", "decision", "meaning"])
+      .optional(),
+    category: z.enum(coachingActions).optional(),
+    subscriberId: uuid.optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(30),
+    before: z.string().min(1).max(600).optional(),
+  })
+  .strict();
+const historyCursor = z
+  .object({
+    at: z.iso.datetime({ offset: true }),
+    id: uuid,
+    scope: z.string().length(64),
+  })
+  .strict();
+// Keep these expressions identical to migration034's partial GIN indexes. They
+// index only correction copy and linked notes, never client snapshots or tests.
+const correctionSearch = `to_tsvector('simple',
+  coalesce(c.data->>'request','') || ' ' ||
+  coalesce(c.data->'preferred'->>'message','') || ' ' ||
+  coalesce(c.data->'rejected'->>'message','') || ' ' ||
+  coalesce(c.data->>'explanation',''))`;
+const outcomeSearch = `to_tsvector('simple',coalesce(o.data->>'note',''))`;
+const preciseHistoryTime = `to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+async function historyAccess(tx: Tx, a: Actor) {
+  await workspaceLock(tx, a.tenantId);
+  await lockTraining(tx, a);
+}
 export function correctionLearningValue(
   original: any,
   preferred: { actionId: string | null; type: string; message: string },
@@ -425,29 +460,125 @@ export function registerCoachingFeedback(app: FastifyInstance, db: Database) {
   });
   app.get("/api/v1/coaching/feedback", async (req) => {
     const a = trainer(req),
-      b = z.object({ before: uuid.optional() }).parse(req.query);
+      b = historyQuery.parse(req.query),
+      scope = digest({
+        tenantId: a.tenantId,
+        userId: a.userId,
+        q: b.q,
+        learningValue: b.learningValue ?? null,
+        category: b.category ?? null,
+        subscriberId: b.subscriberId ?? null,
+      });
     return db.tenant(a, async (tx) => {
+      await historyAccess(tx, a);
+      // A bounded query must also finish promptly on a large workspace. Search
+      // remains a trainer read; it neither creates teaching nor calls a model.
+      await tx.query("SET LOCAL statement_timeout='3s'");
+      let cursor: z.infer<typeof historyCursor> | undefined;
+      if (b.before) {
+        if (uuid.safeParse(b.before).success) {
+          // Accept old clients' UUID cursors, but issue deletion-safe cursors.
+          const [old] = await tx.query(
+            `SELECT c.id,${preciseHistoryTime} AS at FROM records c
+             WHERE c.id=$1 AND c.kind='coaching_correction'`,
+            [b.before],
+          );
+          if (!old)
+            throw fail(
+              400,
+              "INVALID_CURSOR",
+              "Refresh the correction history before continuing",
+            );
+          cursor = { at: old.at, id: old.id, scope };
+        } else {
+          try {
+            cursor = historyCursor.parse(
+              JSON.parse(Buffer.from(b.before, "base64url").toString("utf8")),
+            );
+            if (cursor.scope !== scope) throw new Error("Changed filters");
+          } catch {
+            throw fail(
+              400,
+              "INVALID_CURSOR",
+              "Refresh the correction history after changing filters",
+            );
+          }
+        }
+      }
       const rows = await tx.query(
-        `SELECT * FROM records WHERE kind='coaching_correction'
-        AND ($1::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM records WHERE id=$1 AND kind='coaching_correction'))
-        ORDER BY created_at DESC,id DESC LIMIT 31`,
-        [b.before ?? null],
+        `WITH ${
+          b.q
+            ? `matches AS (
+          SELECT c.id::text AS correction_id,c.owner_user_id FROM records c
+          WHERE c.tenant_id=$1 AND c.kind='coaching_correction'
+          AND ${correctionSearch} @@ plainto_tsquery('simple',$7)
+          UNION
+          SELECT o.data->>'correctionId',o.owner_user_id FROM records o
+          WHERE o.tenant_id=$1 AND o.kind='coaching_feedback_outcome'
+          AND ${outcomeSearch} @@ plainto_tsquery('simple',$7)
+        ),`
+            : ""
+        } page AS (
+          SELECT c.*,${preciseHistoryTime} AS cursor_at
+          FROM records c
+          WHERE c.tenant_id=$1 AND c.kind='coaching_correction'
+          AND ($2::uuid IS NULL OR c.owner_user_id=$2)
+          AND ($3::text IS NULL OR c.data->>'category'=$3)
+          AND ($4::text IS NULL OR c.data->>'learningValue'=$4
+            OR ($4='meaningful' AND c.data->>'learningValue' IN ('decision','meaning')))
+          AND ($5::timestamptz IS NULL OR (c.created_at,c.id)<($5,$6::uuid))
+          ${
+            b.q
+              ? `AND (c.id::text,c.owner_user_id) IN (SELECT correction_id,owner_user_id FROM matches)`
+              : ""
+          }
+          ORDER BY c.created_at DESC,c.id DESC LIMIT $8
+        )
+        SELECT page.*,u.name AS "clientName",
+          (SELECT count(*)::integer FROM records o
+            WHERE o.tenant_id=page.tenant_id AND o.kind='coaching_feedback_outcome'
+            AND o.owner_user_id=page.owner_user_id AND o.data->>'correctionId'=page.id::text) AS "outcomeCount",
+          (SELECT left(o.data->>'note',240) FROM records o
+            WHERE o.tenant_id=page.tenant_id AND o.kind='coaching_feedback_outcome'
+            AND o.owner_user_id=page.owner_user_id AND o.data->>'correctionId'=page.id::text
+            AND $7::text<>'' AND ${outcomeSearch} @@ plainto_tsquery('simple',$7)
+            ORDER BY o.created_at DESC,o.id DESC LIMIT 1) AS "matchedOutcome"
+        FROM page LEFT JOIN users u ON u.id=page.owner_user_id
+        ORDER BY page.created_at DESC,page.id DESC`,
+        [
+          a.tenantId,
+          b.subscriberId ?? null,
+          b.category ?? null,
+          b.learningValue ?? null,
+          cursor?.at ?? null,
+          cursor?.id ?? null,
+          b.q,
+          b.limit + 1,
+        ],
       );
+      const items = rows.slice(0, b.limit),
+        last = items.at(-1);
       return {
-        items: rows.slice(0, 30),
-        next: rows.length > 30 ? rows[29].id : null,
+        items: items.map(({ cursor_at, ...item }) => item),
+        next:
+          rows.length > b.limit && last
+            ? Buffer.from(
+                JSON.stringify({ at: last.cursor_at, id: last.id, scope }),
+              ).toString("base64url")
+            : null,
       };
     });
   });
   app.get("/api/v1/coaching/feedback/:id", async (req) => {
     const a = trainer(req);
-    return db.tenant(a, async (tx) =>
-      feedbackDetail(
+    return db.tenant(a, async (tx) => {
+      await historyAccess(tx, a);
+      return feedbackDetail(
         tx,
         await record(tx, (req.params as any).id, "coaching_correction"),
         a.role === "owner",
-      ),
-    );
+      );
+    });
   });
   app.post("/api/v1/coaching/feedback/:id/teaching-draft", async (req) => {
     const a = trainer(req),
