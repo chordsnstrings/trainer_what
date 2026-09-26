@@ -11,6 +11,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, putRecord, event } from "@trainer/db";
 import { programSchema } from "@trainer/domain";
 import { z } from "zod";
+import {
+  lockBrainReviewActor,
+  notifyImportReview,
+} from "./source-review-notifications.ts";
 const execute = promisify(execFile);
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -540,6 +544,7 @@ export function ingestionRoutes(
           bytes.fill(0);
         }
         return await db.tenant(a, async (tx) => {
+          await lockBrainReviewActor(tx, a);
           const [r] = await tx.query(
             "UPDATE records SET status='needs_review',data=data||$3::jsonb,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='processing' RETURNING *",
             [
@@ -564,6 +569,7 @@ export function ingestionRoutes(
             characters: result.text.length,
             extraction: result.extraction,
           });
+          await notifyImportReview(tx, a, r);
           return r;
         });
       } catch (error: any) {

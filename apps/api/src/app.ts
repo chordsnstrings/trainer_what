@@ -1,6 +1,10 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
+import {
+  lockBrainReviewActor,
+  notifyCompilationReview,
+} from "./source-review-notifications.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
@@ -1012,24 +1016,47 @@ export async function buildApp(
   app.post("/api/v1/brain/compile", async (req) => {
     const a = owner(req),
       b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
-    const material = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview')",
+    const material = await db.tenant(a, async (tx) => {
+      await lockBrainReviewActor(tx, a);
+      return tx.query(
+        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview') ORDER BY id",
         [b.sourceIds],
-      ),
-    );
+      );
+    });
     if (material.length !== new Set(b.sourceIds).size)
       throw fail(
         400,
         "SOURCE_UNAVAILABLE",
         "All sources must belong to this workspace and be trainer teaching material",
       );
+    const prepared = compilationMaterial(material);
     const generated = await compileTrainerRules(
-      compilationMaterial(material),
+      prepared,
       modelAccounting(db, a, "brain_compilation"),
     );
     return db.tenant(a, async (tx) => {
-      const rules = [];
+      await lockBrainReviewActor(tx, a);
+      const current = await tx.query(
+        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview') ORDER BY id FOR UPDATE",
+        [b.sourceIds],
+      );
+      let unchanged = false;
+      try {
+        unchanged =
+          JSON.stringify(compilationMaterial(current)) ===
+          JSON.stringify(prepared);
+      } catch {
+        // Material removed or withdrawn while the provider was working is stale.
+      }
+      if (!unchanged)
+        throw fail(
+          409,
+          "SOURCE_CHANGED",
+          "Your selected material changed during compilation. Review the current sources before trying again.",
+        );
+      const rules = [],
+        conflicts = [],
+        batchId = randomUUID();
       for (const rule of generated.rules)
         rules.push(
           await putRecord(
@@ -1050,11 +1077,22 @@ export async function buildApp(
           ),
         );
       for (const conflict of generated.conflicts)
-        await putRecord(tx, a, "conflict", conflict, { status: "open" });
-      await event(tx, a, "brain.compiled", undefined, {
+        conflicts.push(
+          await putRecord(tx, a, "conflict", conflict, { status: "open" }),
+        );
+      await event(tx, a, "brain.compiled", batchId, {
         rules: rules.length,
         conflicts: generated.conflicts.length,
         coverage: generated.coverage,
+        ruleIds: rules.map((r) => r.id),
+        conflictIds: conflicts.map((c) => c.id),
+      });
+      const reference = (r: any) => ({ id: r.id, version: r.version });
+      await notifyCompilationReview(tx, a, {
+        id: batchId,
+        sources: current.map(reference),
+        rules: rules.map(reference),
+        conflicts: conflicts.map(reference),
       });
       return {
         rules,

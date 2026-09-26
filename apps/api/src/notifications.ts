@@ -284,6 +284,20 @@ export async function notificationDeliveryDecision(
         }).format(now);
         if (source.date < today) return { allowed: false };
       }
+      if (source?.type === "brain_review") {
+        const { brainReviewNotificationCurrent } =
+          await import("./source-review-notifications.ts");
+        if (
+          !(await brainReviewNotificationCurrent(
+            tx,
+            tenantId,
+            n.user_id,
+            source,
+            now,
+          ))
+        )
+          return { allowed: false };
+      }
       return {
         allowed: true,
         due: critical(n.category) ? now : nextNotificationTime(p, now),
