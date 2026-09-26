@@ -6,6 +6,7 @@ import { createDatabase, type Actor } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
+import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
@@ -83,6 +84,11 @@ if (!process.env.DATABASE_URL) {
         await scheduleNotifications(db, tenant.id);
       } catch {
         console.error("Notification scheduling failed");
+      }
+      try {
+        await processCoachingFollowups(db, tenant.id);
+      } catch {
+        console.error("Scheduled coaching follow-up delivery failed");
       }
       const a: Actor = {
         tenantId: tenant.id,

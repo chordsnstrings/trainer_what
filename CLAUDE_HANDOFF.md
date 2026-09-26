@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Source-scope follow-ups now cover scheduled coaching messages, temporary read-only support access and Twin/compiler data-loss fixes. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Scheduled coaching follow-ups are completed. Current implementation covers temporary read-only support access, infrastructure status, Twin/compiler source coverage, structured correction-to-teaching and remaining lifecycle messages. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -116,7 +116,7 @@ Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite
 ## Completion order for Claude
 
 1. Finish the assigned app features; notification settings and former-owner media erasure are completed.
-2. Finish the bounded source-scope slices now assigned: scheduled coach-authored follow-ups, case-bound read-only support preview and Twin/compiler data-loss safeguards.
+2. Finish the assigned app slices: case-bound read-only support preview, observe-only infrastructure, Twin/compiler source coverage, structured correction-to-teaching and lifecycle messages. Scheduled coaching follow-ups are completed.
 3. Browser harness updates are saved; leave execution to the deferred review queue. Each implemented feature still needs essential checks and its own handoff/commit.
 4. Keep broad review and exact-tree release qualification in the deferred queue below, per the owner's latest instruction. Do not stop feature completion to perform another review sweep.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -199,3 +199,7 @@ Source review found that the notification preference component was imported but 
 ### 26 September — Browser continuation harness prepared; execution deferred
 
 Saved current semantic selectors and separate completion journeys for consent, upload/gallery/publication visibility, chat PDF download/removal, notification read status and preferences, while preserving offline workout/nutrition checks. A narrowly guarded local synthetic fixture prepares launch state before starting test servers; website publication itself remains a UI action. Four script syntax checks and diff checks passed. **No browser journey was executed.** Commit: the stage commit containing this entry. Per the owner, execution and comprehensive review are deferred in the queue above; current effort stays on app implementation.
+
+### 26 September — Scheduled coach follow-ups completed
+
+Conversation screens now support private coach-authored drafts, explicit reviewed scheduling in the device timezone, upcoming/history, revision-safe reschedule/cancel and review-required recovery. The worker rechecks active workspace, sender/recipient roles, paid relationship, consent, profile/program context, safety holds and takeover, then atomically creates one human message and one notification. Changed or unsafe context returns to review; retry cannot duplicate delivery. Privacy covers sender/client pending and delivered content. Migration032 adds scoped policies, due indexes and unique delivery/intent constraints. Seven real-app follow-up tests and eight existing privacy tests passed; no external calls. Whole-tree TypeScript at this boundary was blocked by the separately unfinished infrastructure UI. Commit: the stage commit containing this entry. Browser timezone behavior and real PostgreSQL concurrency are deferred review items.

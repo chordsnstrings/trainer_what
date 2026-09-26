@@ -4,6 +4,7 @@ import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
+import { registerCoachingFollowups } from "./coaching-followups.ts";
 import {
   registerChatAttachments,
   validateChatAttachments,
@@ -401,6 +402,7 @@ export async function buildApp(
     });
   }
   registerCoachingCompletion(app, db);
+  registerCoachingFollowups(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);

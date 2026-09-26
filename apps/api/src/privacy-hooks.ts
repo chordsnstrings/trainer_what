@@ -2,6 +2,10 @@ import type { Tx } from "@trainer/db";
 import type { PrivacyHooks } from "./privacy-lifecycle.ts";
 import { eraseOwnedBrandMedia } from "./coach-site.ts";
 import {
+  exportCoachingFollowups,
+  eraseCoachingFollowups,
+} from "./coaching-followups.ts";
+import {
   exportChatAttachments,
   eraseChatAttachments,
   closeChatAttachments,
@@ -97,6 +101,7 @@ export const privacyHooks: PrivacyHooks = {
   },
   async exportAdditional(tx, userId) {
     return {
+      coachingFollowups: await exportCoachingFollowups(tx, userId),
       chatAttachments: await exportChatAttachments(tx, userId),
       connections: await rows(
         tx,
@@ -146,6 +151,7 @@ export const privacyHooks: PrivacyHooks = {
     };
   },
   async eraseAdditional(tx, userId) {
+    await eraseCoachingFollowups(tx, userId);
     await eraseChatAttachments(tx, userId);
     if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);
     // Remove guided audio before workout records because the audio has an FK to
@@ -170,6 +176,7 @@ export const privacyHooks: PrivacyHooks = {
       await remove(tx, table, "user_id=$1", [userId]);
   },
   async closeAdditional(tx) {
+    await eraseCoachingFollowups(tx);
     await closeChatAttachments(tx);
     for (const table of [
       "guided_audio",

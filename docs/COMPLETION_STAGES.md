@@ -13,7 +13,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime, training, attachments and case/history hardening committed | Final assembled checks; source-scope review of remaining follow-up/Twin work |
+| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete source coverage/correction feedback; defer broad review |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
 | Administration and team | Scoped views, publication, team, ingestion and consented acquisition committed | Temporary support preview and remaining source-scope review |
@@ -136,3 +136,7 @@ Replaced the mistakenly retained legacy Settings form with NotificationPreferenc
 ### Browser continuation harness prepared
 
 Updated browser selectors and added consent, gallery/website, private attachment and notification-preference journeys. A local-only synthetic launched-workspace fixture separates website-publication testing from launch qualification; offline checks remain. Four syntax checks and scoped diff checks passed. Browser execution is unrun and explicitly deferred per owner steering; this is test-harness implementation, not feature verification.
+
+### Scheduled coach follow-ups completed
+
+Added private scheduling/rescheduling/canceling and history to actual conversation screens. Worker delivery is context-checked and transactional with one message/notification; changed access/consent/safety/coaching context returns to review. Sender/client erasure includes scheduled and delivered content. Migration032 adds private record policies and unique intents/delivery indexes. Seven real-app follow-up and eight existing privacy tests passed; diff checks passed and no external calls occurred. Browser/timezone and real PostgreSQL review are deferred in the root handoff.
