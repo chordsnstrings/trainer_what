@@ -152,3 +152,7 @@ Added case/session-bound read-only account/access/connection previews with fresh
 ### Observe-only infrastructure operations completed
 
 Actual process/API/worker/DB/queue observations, versioned thresholds, evidence-linked recommendations and audited acknowledgement/recovery are connected to admin/API/worker. Stale/partial evidence cannot prove recovery; execution is always denied. Migration033 and narrow grants are included. Nine observer tests, connected TypeScript and all33 migration/runtime grants checks passed (58 tables/nine helpers). Cloud telemetry remains explicitly unavailable; production/browser/fleet/retention/load review is deferred in the handoff.
+
+### Training adherence and latest-block summary completed
+
+Added timezone-aware rolling28-day history/next28-day schedule and complete latest-assigned-block summaries across verified revisions. Completion needs exact linked workout evidence; held/canceled/abandoned/unverifiable states are separate, and bounded legacy/overflow coverage is explicit. Trainer/subscriber views show counts and expandable lineage. Two new and three existing focused checks, TypeScript and diff checks passed. No migration; active-block selection and browser/release review are deferred in the root handoff.

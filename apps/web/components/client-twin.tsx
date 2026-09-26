@@ -1,6 +1,141 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import type { trainingAdherence } from "../../../packages/domain/src/client-twin.ts";
+type Adherence = ReturnType<typeof trainingAdherence>;
+const sessionLabels: Record<string, string> = {
+  scheduled: "Scheduled today",
+  completed: "Completed",
+  missed: "Missed · no completion recorded",
+  upcoming: "Upcoming",
+  canceled: "Canceled",
+  in_progress: "In progress",
+  held: "On hold",
+  abandoned: "Abandoned",
+  unverified: "Evidence needs review",
+};
+function SessionEvidence({
+  sessions,
+  subscriber,
+}: {
+  sessions: Adherence["sessions"];
+  subscriber: boolean;
+}) {
+  return (
+    <details>
+      <summary>Session evidence ({sessions.length})</summary>
+      {sessions.map((session) => (
+        <div className="list-row" key={session.id}>
+          <div>
+            <strong>
+              {session.date ?? "Date unavailable"} · {session.label}
+            </strong>
+            <p>
+              {sessionLabels[session.state]} ·{" "}
+              {session.timezone ?? "Timezone unavailable"}
+              {session.week ? ` · Week ${session.week}` : ""}
+            </p>
+            {session.issue && <p>{session.issue}</p>}
+            {session.completion &&
+              (subscriber ? (
+                <Link href={`/app/workouts/${session.completion.workoutId}`}>
+                  View completed workout
+                </Link>
+              ) : (
+                <p>Completed workout: {session.completion.workoutId}</p>
+              ))}
+            <small>Source records: {session.sourceRecordIds.join(", ")}</small>
+          </div>
+        </div>
+      ))}
+    </details>
+  );
+}
+export function TrainingScheduleSummary({
+  adherence,
+  subscriber = false,
+}: {
+  adherence: Adherence;
+  subscriber?: boolean;
+}) {
+  const block = adherence.currentBlock;
+  return (
+    <section className="card">
+      <h2>Planned training and progress</h2>
+      <p className="muted">{adherence.coverage}</p>
+      {adherence.window.timezones.map((window) => (
+        <p key={window.timezone}>
+          {window.from} to {window.through} · {window.timezone}
+        </p>
+      ))}
+      <div className="stats-grid">
+        {(["completed", "missed", "scheduled", "upcoming"] as const).map(
+          (state) => (
+            <div key={state}>
+              <small>{sessionLabels[state]}</small>
+              <h3>{adherence.counts[state]}</h3>
+            </div>
+          ),
+        )}
+      </div>
+      <p>
+        {adherence.counts.canceled} canceled · {adherence.counts.in_progress} in
+        progress · {adherence.counts.held} on hold ·{" "}
+        {adherence.counts.abandoned} abandoned · {adherence.counts.unverified}{" "}
+        awaiting evidence
+      </p>
+      {!adherence.plannedSessions && (
+        <p>No planned sessions are recorded in this window.</p>
+      )}
+      {adherence.partial && (
+        <p className="notice">
+          Schedule coverage is partial or completion evidence needs review.
+        </p>
+      )}
+      {adherence.sessions.length > 0 && (
+        <SessionEvidence
+          sessions={adherence.sessions}
+          subscriber={subscriber}
+        />
+      )}
+      <h3>Latest assigned block</h3>
+      {block ? (
+        <>
+          <strong>{block.title}</strong>
+          <p>
+            {block.weeks ?? "Unspecified"} weeks ·{" "}
+            {block.from ?? "Start unavailable"} to{" "}
+            {block.through ?? "End unavailable"}
+          </p>
+          <p>
+            {block.plannedSessions} recorded planned sessions
+            {block.expectedSessions !== null
+              ? ` of ${block.expectedSessions} expected`
+              : ""}{" "}
+            · {block.counts.completed} completed · {block.counts.missed} missed
+            · {block.counts.scheduled} scheduled today · {block.counts.upcoming}{" "}
+            upcoming · {block.counts.canceled} canceled
+          </p>
+          <p>
+            {block.counts.in_progress} in progress · {block.counts.held} on hold
+            · {block.counts.abandoned} abandoned · {block.counts.unverified}{" "}
+            awaiting evidence
+          </p>
+          <p className="muted">{block.coverage}</p>
+          {!block.complete && (
+            <p className="notice">
+              Block coverage is incomplete. Missing or conflicting records are
+              not treated as completed sessions.
+            </p>
+          )}
+          <SessionEvidence sessions={block.sessions} subscriber={subscriber} />
+        </>
+      ) : (
+        <p>No assigned block is recorded.</p>
+      )}
+    </section>
+  );
+}
 export function ClientTwin({
   userId,
   name,
@@ -109,6 +244,12 @@ export function ClientTwin({
               </p>
             )}
           </section>
+          {data.coaching.adherence && (
+            <TrainingScheduleSummary
+              adherence={data.coaching.adherence}
+              subscriber={subscriber}
+            />
+          )}
           <section className="card">
             <h2>Recorded training · last 28 days</h2>
             <div className="stats-grid">
