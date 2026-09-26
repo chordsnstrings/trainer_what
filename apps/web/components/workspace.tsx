@@ -3274,42 +3274,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         </Card>
       )}
       <div className="two-columns">
-        <Card>
-          <h2>Notifications</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/settings", "POST", {
-                    emailNotifications: f.get("email") === "on",
-                    workoutReminders: f.get("workouts") === "on",
-                    marketing: f.get("marketing") === "on",
-                  }),
-                "Preferences saved",
-              );
-            }}
-          >
-            {[
-              ["email", "Coaching and account email"],
-              ["workouts", "Workout reminders"],
-              ["marketing", "Optional product news"],
-            ].map(([key, label]) => (
-              <label className="check-field" key={key}>
-                <input
-                  type="checkbox"
-                  name={key}
-                  defaultChecked={key !== "marketing"}
-                />
-                {label}
-              </label>
-            ))}
-            <Button type="submit" secondary disabled={busy}>
-              Save preferences
-            </Button>
-          </form>
-        </Card>
+        <NotificationPreferences />
         <Card>
           <h2>Your data</h2>
           <p className="muted">

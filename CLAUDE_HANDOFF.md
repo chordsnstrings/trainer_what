@@ -24,6 +24,7 @@ Active continuation: Checkout, onboarding readiness, notifications and private c
 6. The coach teaches decisions through cases and boundaries. Qualified routine output should be automatic; the coach does not approve every meal/workout response. Current architecture uses private versioned examples/rules and bounded evaluated actions, not separately trained model weights per coach.
 7. Nutrition includes individual coach-guided approximate targets, daily meal plans, recipes, portions, cooking choices and weekly groceries. Meal photos and barcodes are required; the subscriber confirms estimated entries.
 8. Trainers can personalize the client app and actual website, upload their own photos and create unlimited galleries.
+10. On 26 September the owner directed: **focus on completing the app; comprehensive review comes later.** Keep outstanding reviews in this file. Continue essential checks for each change, but defer broad audits, browser/release qualification and further review sweeps to the queue below.
 9. Credentials belong in deployment secrets or encrypted Superadmin settings. Do not copy old chat credentials into code, docs, logs or tests. No live payment, payout, provider, registrar or cloud actions were used for these completion stages.
 
 ## Completed and committed application work
@@ -114,10 +115,10 @@ Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Correct the missed notification-settings component mount; former-owner media erasure is completed.
+1. Finish the assigned app features; notification settings and former-owner media erasure are completed.
 2. Finish the bounded source-scope slices now assigned: scheduled coach-authored follow-ups, case-bound read-only support preview and Twin/compiler data-loss safeguards.
 3. Update functional browser coverage for these completed app paths; each stage needs concrete checks and its own handoff/commit.
-4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
+4. Keep broad review and exact-tree release qualification in the deferred queue below, per the owner's latest instruction. Do not stop feature completion to perform another review sweep.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
 6. Update current evidence documents and only then prepare review/merge. Do not merge or deploy this unfinished checkpoint automatically.
 
@@ -136,6 +137,16 @@ npm run test:browser
 ```
 
 Run targeted checks while finishing each stage; run the broad gates once the shared tree is stable. The work branch has not had new GitHub Actions qualification. Review CI conditions before triggering it; do not launch the separate provisioning workflow.
+
+## Deferred review queue for Claude — owner requested
+
+Implementation remains the current priority. These reviews/checks are **not passed** and must not be described as completed:
+
+- Run the combined test suite, production build, fresh/upgrade migrations, real non-owner PostgreSQL permission gate and Docker readiness on the final committed tree. Current stage tests are partial evidence, not the final release result.
+- Run the maintained browser harness: photo upload/gallery/site publication and client/public visibility; chat file send/download/delete; preference persistence/inbox; analytics opt-in/withdrawal; trainer/client/admin journeys and offline replay. The site browser fixture seeds an already launched synthetic workspace; actual launch prerequisites are separately covered by onboarding tests. Local Chromium was unavailable because downloads returned invalid archives.
+- Independently review support access permissions, temporary grants, sensitive-field projection, erasure/retention and audit attribution; scheduled coaching context/consent/safety checks and duplicate-worker behavior; compiler source coverage/current Twin facts and teaching/evaluation separation.
+- Review the complete source contract against the finished implementation, including richer Twin/retrieval, edit→teach regression, campaign/affiliate policy and observe-only infrastructure boundaries. Missing code must remain an implementation item; source review itself is deferred.
+- Complete accessibility/device testing, load/latency, backup restoration and rollback, operational monitoring and the real provider/model/legal qualification below. Deployment stays separately owned by Claude and stopped in this task.
 
 ## External qualification remains open
 
@@ -180,3 +191,7 @@ Connected opt-in/readback/withdrawal, opaque host-scoped cookie handling, safe a
 ### 26 September — Former-owner media privacy completion
 
 Approved personal erasure removes the former owner's photos/galleries, clears exact references from applied/private designs, updates affected gallery ordering/revisions and prevents stale editors restoring deleted media. Other people's media and the ongoing workspace remain intact; current-owner erasure still requires transfer/closure. Four new media and eight existing privacy tests, whole-tree TypeScript and scoped diff checks passed. No migration or new grant. Commit: the stage commit containing this entry. Next: settings mount correction, source-scope slices and release/browser checks.
+
+### 26 September — Notification settings connection correction
+
+Source review found that the notification preference component was imported but the legacy Settings form still rendered. Settings now mounts the persisted reminder/timezone/quiet-hours controls. The compatibility `/settings` endpoint also applies explicit email/workout/marketing choices to the real preference row while preserving newer quiet-hour/booking fields and advancing its revision. Nine notification checks passed, including opt-out delivery suppression and stale-revision rejection; the component mount passed TypeScript. No migration. Commit: the stage commit containing this entry. The browser persistence journey is in Claude's deferred review queue.

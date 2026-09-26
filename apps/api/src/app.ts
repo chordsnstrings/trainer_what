@@ -1909,9 +1909,15 @@ export async function buildApp(
         marketing: z.boolean(),
       })
       .parse(req.body);
-    return db.tenant(a, (tx) =>
-      putRecord(tx, a, "preferences", b, { status: "active" }),
-    );
+    return db.tenant(a, async (tx) => {
+      // Older clients still use this endpoint. Keep their explicit opt-outs
+      // effective without resetting newer quiet-hour or booking preferences.
+      await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+        [a.tenantId, a.userId, JSON.stringify({ email: b.emailNotifications, workouts: b.workoutReminders, marketing: b.marketing })],
+      );
+      return putRecord(tx, a, "preferences", b, { status: "active" });
+    });
   });
   app.get("/api/v1/admin/overview", async (req) => {
     const a = identity(req);

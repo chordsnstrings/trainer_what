@@ -117,6 +117,26 @@ test("preferences survive reload and stale writes or another member cannot chang
     true,
   );
 });
+test("legacy settings keep explicit opt-outs effective and preserve newer quiet hours", async () => {
+  const legacy = await register("notify-legacy");
+  const initial = (await request("/notifications/preferences", "GET", undefined, legacy.cookie)).json();
+  const saved = (await request("/notifications/preferences", "PUT", {
+    ...initial, data: { ...initial.data, bookings: false, timezone: "Europe/Paris", quietStart: 1300, quietEnd: 500 },
+  }, legacy.cookie)).json();
+  const response = await request("/settings", "POST", {
+    emailNotifications: false, workoutReminders: false, marketing: false,
+  }, legacy.cookie);
+  assert.equal(response.statusCode, 200, response.body);
+  const current = (await request("/notifications/preferences", "GET", undefined, legacy.cookie)).json();
+  assert.equal(current.version, saved.version + 1);
+  assert.deepEqual(current.data, { ...saved.data, email: false, workouts: false, marketing: false });
+  const notification = await db.tenant(legacy, (tx) => notifyUser(tx, legacy, {
+    userId: legacy.userId, category: "workout", dedupeKey: "legacy-opt-out", title: "Session reminder", body: "Review your app.",
+  }));
+  const [persisted] = await db.tenant(legacy, (tx) => tx.query("SELECT email_status FROM notifications WHERE id=$1", [notification!.id]));
+  assert.equal(persisted.email_status, "suppressed");
+  assert.equal((await request("/notifications/preferences", "PUT", saved, legacy.cookie)).statusCode, 409);
+});
 test("quiet windows cross midnight and daylight transitions without suppressing forever", () => {
   const p = notificationPreferencesSchema.parse({
     timezone: "Asia/Dubai",

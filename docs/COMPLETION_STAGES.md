@@ -1,6 +1,6 @@
 # Completion stages — 26 September 2026
 
-The owner requested all unfinished application work, verified and committed in stages. Screenshots are no longer requested. Parallel agents are authorized for separate areas. Deployment remains stopped and owned by Claude; no cloud browser, live transactions, infrastructure purchases or provider qualification are part of these implementation checks.
+The owner requested all unfinished application work, verified and committed in stages. Screenshots are no longer requested. Parallel agents are authorized for separate areas. Latest owner steering: prioritize finishing app features; broad review and release qualification are deferred to the queue in CLAUDE_HANDOFF.md. Deployment remains stopped and owned by Claude; no cloud browser, live transactions, infrastructure purchases or provider qualification are part of these implementation checks.
 
 ## Recovery boundary
 
@@ -128,3 +128,7 @@ Explicit consent and host-scoped opaque cookies now govern attribution and guard
 ### Former-owner media privacy completion
 
 Reviewed personal erasure now removes owned media/galleries and exact applied/private design references, bumps stale-editor revisions and compacts remaining gallery order. Other users' media, other workspaces and the continuing workspace are preserved. Four new media privacy tests, eight existing lifecycle tests, TypeScript and diff checks passed. No migration/grant change; root handoff updated.
+
+### Notification settings connection correction
+
+Replaced the mistakenly retained legacy Settings form with NotificationPreferences. Kept old-client opt-outs effective in the actual preference row without resetting newer quiet-hour/booking choices; revisions advance for conflict detection. Nine notification tests passed and the component mount passed TypeScript. Browser persistence review is deferred per the latest owner instruction; the root handoff has the review queue.
