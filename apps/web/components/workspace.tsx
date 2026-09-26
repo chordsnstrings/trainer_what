@@ -1,5 +1,6 @@
 "use client";
 import { TeamControls } from "./team-controls";
+import { NotificationPreferences, NotificationInbox } from "./notifications";
 import { KnowledgeImportReview } from "./ingestion-review";
 import {
   IntegrationCenter,
@@ -124,6 +125,7 @@ const nav = [
   ["Programs", "/trainer/programs", Layers],
   ["Nutrition", "/trainer/nutrition", Activity],
   ["Messages", "/trainer/messages", MessageCircle],
+  ["Notifications", "/trainer/notifications", MessageCircle],
   ["Bookings", "/trainer/bookings", Activity],
   ["Support", "/trainer/support", MessageCircle],
   ["Exceptions", "/trainer/exceptions", AlertCircle],
@@ -140,6 +142,7 @@ const subNav = [
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
   ["Coach chat", "/app/chat", MessageCircle],
+  ["Notifications", "/app/notifications", MessageCircle],
   ["Bookings", "/app/bookings", Activity],
   ["Support", "/app/support", MessageCircle],
   ["Progress", "/app/progress", Activity],
@@ -650,7 +653,10 @@ export default function Workspace() {
               {success}
             </div>
           )}
-          {path === "/admin/account-security" ? (
+          {path === "/trainer/notifications" ||
+          path === "/app/notifications" ? (
+            <NotificationInbox />
+          ) : path === "/admin/account-security" ? (
             state.user.platformRole === "admin" ? (
               <>
                 <Heading

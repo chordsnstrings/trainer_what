@@ -1,5 +1,10 @@
 import { registerBookingRoutes } from "./booking-schedule.ts";
-import { preparePaidBooking, startBookingCheckout, refundCanceledBooking } from "./finance-bookings.ts";
+import { registerNotifications, notifyUser } from "./notifications.ts";
+import {
+  preparePaidBooking,
+  startBookingCheckout,
+  refundCanceledBooking,
+} from "./finance-bookings.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -19,7 +24,13 @@ export function operationsRoutes(
       throw fail(403, "TRAINER_REQUIRED", "Trainer access is required");
     return a;
   };
-  registerBookingRoutes(app, db, identity, { preparePaidBooking, startBookingCheckout, refundCanceledBooking });
+  registerNotifications(app, db, identity);
+  registerBookingRoutes(app, db, identity, {
+    preparePaidBooking,
+    startBookingCheckout,
+    refundCanceledBooking,
+    notify: notifyUser,
+  });
   app.post("/api/v1/support", async (req) => {
     const a = identity(req);
     const b = z

@@ -497,6 +497,17 @@ test("paid bookings use one-time checkout, signed exact-price confirmation and a
     tx.query("SELECT * FROM bookings WHERE id=$1", [booking.id]),
   );
   assert.equal(rows[0].status, "confirmed");
+  const notices = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM notifications WHERE dedupe_key=$1", [
+      `booking-payment:${payment!.id}`,
+    ]),
+  );
+  assert.equal(
+    notices.length,
+    1,
+    "Replayed paid booking confirmation creates one notification",
+  );
+  assert.equal(notices[0].user_id, client.userId);
   await db.tenant(a, (tx) =>
     tx.query("UPDATE bookings SET status='canceled' WHERE id=$1", [booking.id]),
   );

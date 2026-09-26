@@ -1,4 +1,5 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
+import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
@@ -1329,9 +1330,9 @@ export async function buildApp(
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      if (a.role === "subscriber" && safetySignal(b.text))
-        await openTrainingHold(tx, a, target, b.text);
-      return putRecord(
+      const safety = a.role === "subscriber" && safetySignal(b.text);
+      if (safety) await openTrainingHold(tx, a, target, b.text);
+      const message = await putRecord(
         tx,
         a,
         "message",
@@ -1343,6 +1344,26 @@ export async function buildApp(
         },
         { ownerId: target, status: "sent" },
       );
+      const notice = {
+        category: "coaching" as const,
+        dedupeKey: `message:${message.id}`,
+        title: "You have a new coaching message",
+        body: "Open your coaching conversation to read the new message.",
+        templateKey: "coaching-message",
+      };
+      if (a.role === "subscriber") {
+        if (!safety)
+          await notifyCoachingTeam(tx, a, {
+            ...notice,
+            href: "/trainer/messages",
+          });
+      } else
+        await notifyUser(tx, a, {
+          ...notice,
+          userId: target,
+          href: "/app/chat",
+        });
+      return message;
     });
   });
   app.post("/api/v1/products", async (req) => {

@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: subscription Checkout admission and wiring are completed; onboarding readiness, private chat attachments and notification delivery are being finished. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: subscription Checkout admission and wiring are completed; onboarding readiness, private chat attachments are being finished; notification delivery and screens are completed. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -71,19 +71,13 @@ Next:
 4. Set the coach-specific manifest for the actual logged-in client app; public SSR metadata already supplies it.
 5. Review runtime grants now present in `infra/runtime-role.sql`, preview/launch ordering and onboarding digest changes; then verify upload → gallery → site publish → public/client visibility in a local browser.
 
-### 3. Notifications and email delivery
+### 3. Notifications and email delivery — completed
 
-Files: migration `023_notifications.sql`, API `notifications.ts`, worker `email-delivery.ts` and edited `index.ts`, UI `notifications.tsx`, `tests/notifications.test.ts`; email reconciliation edits in `admin-operations.ts` and its tests.
+Notification routes are registered through operationsRoutes. Saved preferences/quiet hours reload in Settings; trainer/client navigation opens the scoped inbox. Safety holds/resolutions, nutrition exceptions, ordinary chat, booking confirmations/changes/cancellations, signed paid-booking confirmation/refund and scheduled booking/workout reminders enqueue deduplicated notifications. Email contains generic review prompts, with sensitive report/message details kept in the app. Critical safety/account alerts bypass reminder opt-outs and quiet hours.
 
-Implemented: persisted preferences/inbox, quiet hours/timezones, published templates, critical alert preservation, dedupe, booking/workout reminders, current preference/source-state checks, email dispatch marked unknown before outbound send, manual-evidence recovery and worker attempt/lease CAS. Five notification tests passed **before** the last helper/admin changes. Worker scheduler/email replacement is written. New `coaching` category and `notifyCoachingTeam` helper are unverified. Privacy hooks already cover preferences/inboxes; account/privacy tests checked their isolation/erasure.
+The worker rechecks preferences and source state before delivery, marks the outbound outcome unknown before sending, and never automatically sends that unknown result again. Attempt/lease CAS prevents stale workers from sending or overwriting newer results. Admin evidence-based reconciliation updates both the job and inbox delivery status. Privacy export/erasure already includes notifications/preferences.
 
-Next:
-
-1. Register `registerNotifications(app, db, identity)`.
-2. Replace the old Settings notification form with `NotificationPreferences`; add `NotificationInbox` and trainer/client navigation.
-3. Connect `notifyUser` to booking hooks and `notifyCoachingTeam` to `openTrainingHold`; add appropriate nutrition-review/message notifications. Keep sensitive details inside the app. Existing safety holds currently record events/exceptions without these delivery hooks.
-4. Verify worker nutrition CAS does not overwrite module-managed unknown/blocked states. Check stale email leases, failure after dispatch, manual delivered/not-sent outcomes and no duplicate sends.
-5. Run notification/admin checks and a real assembled-app local workflow. Live email provider qualification remains separate.
+Checks: final **8 notification tests passed**, including assembled app safety/inbox/booking routes and stale lease/no-repeat delivery; **2 signed paid-booking regressions passed**, including replay deduplication. Earlier connected runs passed 22 notification/admin/coaching checks and 30 notification/nutrition/booking checks. These overlap and are not a summed suite count. Final whole-tree typecheck is blocked by the in-progress acquisition module's missing closing brace; final build/browser/provider delivery qualification remains pending.
 
 ### 4. Subscription Checkout and premium voice — completed
 
@@ -124,7 +118,7 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 ## Completion order for Claude
 
 1. Complete onboarding preview/readiness and its test typing, then run the relevant focused checks. Checkout completion is recorded above.
-2. Connect website/media and notification routes/UI/worker hooks; keep separate stage commits and update this file after each.
+2. Connect website/media and attachment routes/UI/worker hooks; keep separate stage commits and update this file after each.
 3. Finish onboarding, attachments and consented acquisition from the frozen files; add meaningful missing tests.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -157,3 +151,7 @@ After each stage append: date; area; exact behavior completed; files/migrations;
 ### 26 September — Checkout completion
 
 Completed atomic admission, unresolved-intent reconciliation/closure protection, real API registration, member reconciliation controls and premium voice product controls. Eight Checkout tests and sixteen finance tests passed. Changes: finance-checkout.ts, app.ts, privacy-lifecycle.ts, workspace.tsx and Checkout tests; no new migration. Commit: the stage commit containing this log entry (use Git history). Next: onboarding test fixes and notification/site/attachment wiring. Live payment qualification remains open.
+
+### 26 September — Notification completion
+
+Completed saved preference/inbox UI, API registration, safety/nutrition/chat/free and paid booking event hooks, reminder processing and conservative email recovery. Eight final notification tests and two paid-booking regressions passed; connected related suites also passed as recorded above. No new migration beyond existing023. Commit: the stage commit containing this entry. Next: connect attachments and trainer website, finish onboarding/acquisition and run aggregate gates.

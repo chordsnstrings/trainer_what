@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { journal } from "./finance.ts";
 import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
+import { notifyUser } from "./notifications.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 /** Called only while reservation holds its slot row lock. No external calls. */
@@ -487,6 +488,18 @@ export async function processBookingStripeEvent(
         b.id,
         { paymentId: r.id },
       );
+      await notifyUser(tx, a, {
+        userId: b.user_id,
+        category: "booking",
+        dedupeKey: `booking-payment:${r.id}`,
+        title: canConfirm
+          ? "Your paid coaching session is confirmed"
+          : "Your session payment needs a refund",
+        body: canConfirm
+          ? "Your payment is confirmed and your coaching session is reserved. Open your bookings for its current details."
+          : "The original session could not be reserved after payment. A refund review has been opened; check your booking for the latest status.",
+        href: "/app/bookings",
+      });
     } else {
       if (
         object.currency !== "aed" ||
@@ -553,6 +566,14 @@ export async function processBookingStripeEvent(
         [b.id],
       );
       await event(tx, a, "booking.refunded", b.id, { refundId: object.id });
+      await notifyUser(tx, a, {
+        userId: b.user_id,
+        category: "booking",
+        dedupeKey: `booking-refund:${r.id}`,
+        title: "Your session refund is confirmed",
+        body: "The payment provider confirmed the refund for your canceled coaching session. Open your booking for the details.",
+        href: "/app/bookings",
+      });
     }
   });
   if (compensation)

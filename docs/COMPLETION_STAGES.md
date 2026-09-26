@@ -20,7 +20,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
 | Privacy and accounts | Connected and stage-tested | Attachments/acquisition privacy hooks still need completion |
 | Galleries and website | Backend tested; UI/SSR written | Register routes, wire navigation/brand ownership locks/client manifest, then browser checks |
-| Notifications and worker | Modules and worker changes written | Register routes/UI and event hooks, then verify final changes |
+| Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
 | Release checks | Not passed on combined branch | Fix explicit type/preview/Checkout failures, full tests/build/browser and non-owner PostgreSQL CI |
 
 ## Evidence
@@ -96,3 +96,7 @@ Frozen implementation is preserved for continuation. The handoff names the two c
 ### Resumed Checkout completion
 
 The owner resumed implementation after the handoff checkpoint. Atomic current-workspace/subscriber Checkout admission now preserves database isolation; unresolved outcomes block duplicate purchase and closure until provider evidence resolves them. Routes, member reconciliation and premium voice controls are connected. Eight Checkout tests and sixteen finance tests passed, including an assembled-app smoke. Root handoff updated with the resolved failures and remaining work.
+
+### Notification completion
+
+Preferences/inbox are connected to actual screens; safety, nutrition review, chat, booking/payment/refund and reminder events queue private, deduplicated alerts. Unknown email outcomes require evidence-based recovery; stale worker leases cannot resend or overwrite. Eight final notification tests and two signed paid-booking cases passed, following connected 22- and 30-test runs. The root handoff records exact boundaries and the unrelated in-progress acquisition typecheck blocker.

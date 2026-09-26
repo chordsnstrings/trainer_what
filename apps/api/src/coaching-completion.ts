@@ -14,6 +14,7 @@ import { modelDecision } from "@trainer/providers";
 import { currentClientTwin } from "./client-twin.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import {
   registerCoachingRuntime,
   tryQualifiedCoaching,
@@ -134,6 +135,22 @@ export async function openTrainingHold(
     holdId: hold.id,
     subscriberId: userId,
   });
+  await notifyCoachingTeam(tx, a, {
+    category: "safety",
+    dedupeKey: `training-hold:${hold.id}`,
+    title: "A client needs a safety review",
+    body: "Training has been paused after a safety report. Open your exceptions to review the report and explicitly resume or end the session.",
+    href: "/trainer/exceptions",
+    templateKey: "training-safety-alert",
+  });
+  await notifyUser(tx, a, {
+    userId,
+    category: "safety",
+    dedupeKey: `training-hold:${hold.id}`,
+    title: "Your training is paused",
+    body: "Stop this training session. Your trainer needs to review the safety report before training can resume. Contact local emergency services if you need urgent help.",
+    href: "/app/chat",
+  });
   return hold;
 }
 
@@ -225,6 +242,17 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         { ownerId: h.owner_user_id, status: "sent" },
       );
       await event(tx, a, "safety.hold_resolved", h.id, resolution);
+      await notifyUser(tx, a, {
+        userId: h.owner_user_id,
+        category: "safety",
+        dedupeKey: `training-hold-resolution:${h.id}`,
+        title: "Your trainer reviewed the training hold",
+        body:
+          b.action === "resume"
+            ? "Your trainer has resumed your session. Read their instructions in your coaching conversation before continuing."
+            : "Your trainer has ended the paused session. Read their instructions in your coaching conversation before your next workout.",
+        href: "/app/chat",
+      });
       return { ok: true, action: b.action };
     });
   });

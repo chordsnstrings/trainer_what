@@ -5,6 +5,7 @@ import {
   principleForCategory,
 } from "../../../packages/domain/src/nutrition-learning.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
+import { notifyCoachingTeam } from "./notifications.ts";
 import {
   captureTotals,
   capturedFoodSchema,
@@ -401,6 +402,14 @@ async function exception(
     { ownerId: userId, status: "open" },
   );
   await event(tx, a, "nutrition.exception_opened", e.id, { code });
+  await notifyCoachingTeam(tx, a, {
+    category: "coaching",
+    dedupeKey: `nutrition-review:${e.id}`,
+    title: "A nutrition plan needs your review",
+    body: "A client’s nutrition request could not be safely completed within the current plan. Open nutrition exceptions to review the details; their existing valid plan is preserved.",
+    href: "/trainer/nutrition/exceptions",
+    templateKey: "nutrition-review",
+  });
   return e;
 }
 function availabilityError(error: unknown) {
