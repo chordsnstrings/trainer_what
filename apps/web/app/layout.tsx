@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AcquisitionConsent } from "../components/acquisition";
 import "./globals.css";
 import "./nutrition.css";
 import "./platform-settings.css";
@@ -15,7 +16,10 @@ export const metadata: Metadata = {
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <AcquisitionConsent />
+      </body>
     </html>
   );
 }

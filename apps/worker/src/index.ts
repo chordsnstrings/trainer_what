@@ -11,6 +11,7 @@ import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
+import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import {
   scheduleNutrition,
   executeNutritionJob,
@@ -24,6 +25,7 @@ if (!process.env.DATABASE_URL) {
   const db = await createDatabase();
   let running = true;
   let lastMediaPurge = 0;
+  let lastAcquisitionPurge = 0;
   let lastIntegrationTick = 0;
   let integrationTask: Promise<void> | undefined;
   async function tick() {
@@ -46,13 +48,26 @@ if (!process.env.DATABASE_URL) {
       await purgeExpiredMealCaptures(db);
       lastMediaPurge = Date.now();
     }
+    if (Date.now() - lastAcquisitionPurge >= 60 * 60 * 1000) {
+      try {
+        const result = await purgeExpiredAcquisition(db);
+        // Drain a backlog one bounded batch per loop, then return to hourly checks.
+        if (result.removed < 100) lastAcquisitionPurge = Date.now();
+      } catch {
+        lastAcquisitionPurge = Date.now();
+        console.error("Expired acquisition history could not be removed");
+      }
+    }
     const tenants = await db.system((tx) =>
       tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"),
     );
     for (const tenant of tenants) {
       if (purgeMedia) {
-        try { await expireChatAttachments(db, tenant.id); }
-        catch { console.error("Chat attachment expiry failed"); }
+        try {
+          await expireChatAttachments(db, tenant.id);
+        } catch {
+          console.error("Chat attachment expiry failed");
+        }
       }
       try {
         await scheduleNutrition(db, tenant.id);

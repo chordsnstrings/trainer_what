@@ -5,6 +5,7 @@ import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import { passwordMatches } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import { exportMealCaptures } from "./meal-capture.ts";
+import { exportAcquisitionData, eraseAcquisitionData } from "./acquisition.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -227,7 +228,11 @@ export async function exportPersonalData(
         "MEMBERSHIP_REQUIRED",
         "Workspace membership is required",
       );
-    return { profile: u, membership: m };
+    return {
+      profile: u,
+      membership: m,
+      acquisition: await exportAcquisitionData(tx, a.tenantId, a.userId),
+    };
   });
   return db.tenant({ ...a, role: "owner" }, async (tx) => ({
     formatVersion: "personal-export-v2",
@@ -401,16 +406,8 @@ export async function createPrivacyFollowups(
   }
 }
 async function purgeAcquisition(tx: Tx, a: Actor, userId?: string) {
-  const [found] = await tx.query(
-    "SELECT to_regclass('public.acquisition_events') name",
-  );
-  if (found.name) {
-    await tx.query("SELECT set_config('app.privacy_erasure','true',true)");
-    await tx.query(
-      "DELETE FROM acquisition_events WHERE tenant_id=$1 AND ($2::uuid IS NULL OR user_id=$2)",
-      [a.tenantId, userId ?? null],
-    );
-  }
+  // Both callers reset the restricted tenant role before global analytics erasure.
+  await eraseAcquisitionData(tx, a.tenantId, userId);
 }
 
 export async function eraseMember(

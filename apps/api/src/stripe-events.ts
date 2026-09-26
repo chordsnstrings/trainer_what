@@ -12,6 +12,7 @@ import {
   putRecord,
 } from "@trainer/db";
 import { recordCharge, journal } from "./finance.ts";
+import { recordFirstPaidAcquisition } from "./acquisition.ts";
 const supported = new Set([
   "invoice.paid",
   "invoice.payment_failed",
@@ -412,6 +413,13 @@ export async function processStripeEvent(db: Database, e: any) {
       });
     }
   });
+  if (e.type === "invoice.paid" && object.amount_paid > 0) {
+    try {
+      await recordFirstPaidAcquisition(db, tenantId, userId);
+    } catch {
+      console.warn("Payment acquisition conversion could not be recorded");
+    }
+  }
   return { processed: true };
 }
 async function applyRefund(

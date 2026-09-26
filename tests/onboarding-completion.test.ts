@@ -12,6 +12,8 @@ import { coachingRuntimeReadiness } from "../apps/api/src/coaching-runtime.ts";
 import { nutritionMaterial } from "../apps/api/src/nutrition.ts";
 import { withRuntimeConfig } from "../packages/providers/src/configuration.ts";
 import { fixtureCases, fixturePolicy } from "./nutrition-fixtures.ts";
+import { recordSignupAcquisition } from "../apps/api/src/acquisition.ts";
+import { newToken, tokenHash } from "../apps/api/src/auth.ts";
 
 let db: Database, app: ReturnType<typeof Fastify>;
 const actors = new Map<string, any>();
@@ -598,8 +600,54 @@ test("saved website and gallery changes invalidate review while launch does not 
   s = await state(a);
   assert.equal(step(s, "preview").status, "draft");
   await review(a, s);
+  const analyticsToken = newToken(),
+    visitorId = randomUUID();
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO acquisition_consents(visitor_id,token_hash,origin,policy_version,first_touch,last_touch) VALUES($1,$2,'http://localhost:3000','fixture-optional-analytics:v1',$3,$3)",
+      [
+        visitorId,
+        tokenHash(analyticsToken),
+        JSON.stringify({
+          source: "google",
+          medium: "organic",
+          campaign: "launch_fixture",
+          referral: "",
+        }),
+      ],
+    ),
+  );
+  assert.equal(
+    await recordSignupAcquisition(
+      db,
+      {
+        cookies: { acquisition: analyticsToken },
+        hostContext: {
+          host: "localhost:3000",
+          origin: "http://localhost:3000",
+          tenantId: null,
+          tenantSlug: null,
+          custom: false,
+          verifiedProxy: false,
+        },
+      },
+      a,
+    ),
+    true,
+  );
   const launched = await req(a, "/launch", "POST", {});
   assert.equal(launched.statusCode, 200, launched.body);
+  assert.equal(
+    (
+      await db.system((tx) =>
+        tx.query(
+          "SELECT id FROM acquisition_events WHERE visitor_id=$1 AND name='publish'",
+          [visitorId],
+        ),
+      )
+    ).length,
+    1,
+  );
   s = await state(a);
   assert.equal(step(s, "publish").status, "complete");
   assert.equal(s.preview.website.launchRequired, false);

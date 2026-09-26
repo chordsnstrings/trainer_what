@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition connections and former-owner media privacy are in progress. Coaching capacity/history hardening is completed. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is checked and awaiting checkpoint. Source-scope follow-ups now cover scheduled coaching messages, temporary read-only support access and Twin/compiler data-loss fixes. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -96,11 +96,13 @@ Personal export/erasure, reviewed workspace closure and hourly orphan expiry inc
 
 Checks: **7 attachment and 8 privacy tests passed together after the forward migration**, including assembled application upload/message routes, real image/PDF sanitization, erasure/expiry and cross-tenant access. A separate original001–029 →030 upgrade test passed its five behavioral subtests (six reported checks including the parent), preserving existing bytes/timestamps/messages and checking expiry, binding, null-role rejection and cross-tenant cleanup. TypeScript passed at the stage boundary. Final browser interaction and aggregate release gates remain pending.
 
-### 7. Consented acquisition and experiments
+### 7. Consented acquisition and experiments — completed
 
-Migration `029_acquisition_consent.sql` and edits in `admin-operations.ts` are draft and **untested**. Schema includes revocable opaque-cookie consent records, safe first/last attribution and exposure fields; event writer and funnel counts were extended. The insecure public experiment endpoint that trusted unsigned JSON consent was removed, so `GET /api/v1/public/experiments/:key` currently returns 404.
+Explicit optional consent/readback/withdrawal is mounted once in layout. An opaque HttpOnly host-only cookie is created only after opt-in; stored hashes, exact origin/verified-host binding and current identity checks prevent reassignment. Safe first/last source fields omit referrer/IP/health traits. Withdrawal removes linked anonymous and identified event history; export/erasure and bounded hourly expiry cleanup are connected.
 
-No `acquisition.ts`, consent UI/API/cookies, conversion helpers or replacement exposure endpoint exists. Build explicit opt-in/readback/withdrawal before analytics cookies, mount controls in layout, record signup/enrollment and successful storefront publication, record first positive paid invoice only after verified financial evidence, dedupe, and add permission-gated copy experiments. Integrate privacy export/erasure; never use health data for acquisition targeting. Affiliate payout contracts have not been invented.
+Actual registration, new enrollment/invitation acceptance, successful storefront publication and first positive verified subscription payment record deduplicated conversions after core transactions commit. Delayed historical receipts cannot attribute a payment made before consent. Analytics failure does not undo signup, publication or payment success. Public landing/onboarding wording experiments require current consent, a permitted surface and an observed assignment/revision; only one runs per surface. Admin exposure/conversion reports are connected. Referral codes are attribution only; no affiliate payout contract is claimed.
+
+Migration029 remains unchanged. **34 tests passed** across acquisition, onboarding completion, privacy lifecycle and administration, including actual registration/enrollment, publication, Stripe dispatch and erasure hooks. Whole-tree TypeScript passed. Browser consent interaction remains pending.
 
 ### 8. Runtime configuration and release checks
 
@@ -112,9 +114,9 @@ Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Finish acquisition shared hooks; Checkout, notification, onboarding, attachment and website stages are completed above.
-2. Close the former-owner media erasure gap; keep separate stage commits and update this file after each.
-3. Finish consented acquisition hooks; coaching capacity/history hardening is complete. Add meaningful missing integration checks.
+1. Checkpoint the verified former-owner media erasure fix and correct the missed notification-settings component mount.
+2. Finish the bounded source-scope slices now assigned: scheduled coach-authored follow-ups, case-bound read-only support preview and Twin/compiler data-loss safeguards.
+3. Update functional browser coverage for these completed app paths; each stage needs concrete checks and its own handoff/commit.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
 6. Update current evidence documents and only then prepare review/merge. Do not merge or deploy this unfinished checkpoint automatically.
@@ -170,3 +172,7 @@ Enforced bounded creation of 30 active actions, 100 teaching cases and 100 activ
 ### 26 September — Migration upgrade and runtime permission verification
 
 Added a dedicated original001–029 →030 regression with preexisting messages/media, confirming preserved bytes/timestamps, one-time binding, expiry, null-role rejection and isolated privacy cleanup. All five behavioral subtests passed (six reported checks with the parent). Fresh all30 runtime verification passed with grants applied twice across 54 tables and nine privileged helpers. Strict test TypeScript, script syntax and diff checks passed. Commit: the stage commit containing this entry. Real PostgreSQL/container/browser gates remain pending; no deployment.
+
+### 26 September — Consented acquisition completion
+
+Connected opt-in/readback/withdrawal, opaque host-scoped cookie handling, safe attribution, guarded copy experiments, signup/new enrollment/publication/first-positive-payment conversions, privacy and hourly retention. Thirty-four focused tests across four suites and TypeScript passed, including actual shared app/payment/privacy hooks and best-effort analytics failures. Existing029 is unchanged. Commit: the stage commit containing this entry. Next: media erasure checkpoint, settings mount correction, source-scope follow-ups and combined release/browser gates.

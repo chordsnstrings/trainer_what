@@ -33,6 +33,7 @@ import {
 import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
+import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import {
   registerFinanceBilling,
   currentPaidSubscription,
@@ -408,6 +409,7 @@ export async function buildApp(
   registerFinanceAutomation(app, db);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerAcquisition(app, db);
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
@@ -499,6 +501,15 @@ export async function buildApp(
         await event(tx, a, "trainer.signup_completed", uid);
       });
       await session(reply, uid, tid);
+      try {
+        await recordSignupAcquisition(db, req, {
+          tenantId: tid,
+          userId: uid,
+          role: "owner",
+        });
+      } catch {
+        req.log.warn("Signup acquisition conversion could not be recorded");
+      }
       return reply.code(201).send({ ok: true });
     },
   );
@@ -594,8 +605,8 @@ export async function buildApp(
             "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4)",
             [uid, b.email, b.name, hash],
           );
-        await tx.query(
-          "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING",
+        const [membership] = await tx.query(
+          "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING RETURNING user_id",
           [tenant.id, uid],
         );
         await tx.query("SET LOCAL ROLE trainer_app");
@@ -613,9 +624,23 @@ export async function buildApp(
           "subscriber.enrolled",
           uid,
         );
-        return { uid, tid: tenant.id, mfa };
+        return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
       await session(reply, result.uid, result.tid, result.mfa);
+      if (result.joined) {
+        try {
+          await recordSignupAcquisition(
+            db,
+            req,
+            { tenantId: result.tid, userId: result.uid, role: "subscriber" },
+            "enroll",
+          );
+        } catch {
+          req.log.warn(
+            "Enrollment acquisition conversion could not be recorded",
+          );
+        }
+      }
       return reply.code(201).send({ ok: true });
     },
   );
@@ -873,17 +898,34 @@ export async function buildApp(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
           [uid, b.email.toLowerCase(), b.name, hash, false],
         );
-      await tx.query(
-        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+      const [membership] = await tx.query(
+        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
         [invite.tenant_id, uid, invite.payload.role],
       );
       await tx.query(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
         [tokenHash(b.token)],
       );
-      return { uid, tid: invite.tenant_id, mfa };
+      return {
+        uid,
+        tid: invite.tenant_id,
+        mfa,
+        joined: !!membership && invite.payload.role === "subscriber",
+      };
     });
     await session(reply, result.uid, result.tid, result.mfa);
+    if (result.joined) {
+      try {
+        await recordSignupAcquisition(
+          db,
+          req,
+          { tenantId: result.tid, userId: result.uid, role: "subscriber" },
+          "enroll",
+        );
+      } catch {
+        req.log.warn("Enrollment acquisition conversion could not be recorded");
+      }
+    }
     return { ok: true };
   });
   app.post("/api/v1/brain/sources", async (req) => {

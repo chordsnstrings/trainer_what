@@ -27,13 +27,13 @@ Updated: 26 September 2026. This is durable project context for future build ses
 ## Current state
 
 - Active branch: `work/completion-2026-09-26`; GitHub `main` is unchanged. Read `../CLAUDE_HANDOFF.md` and `COMPLETION_STAGES.md` for exact scope. Update both after every completed stage; root coordinates shared files, commits and publication.
-- The preserved completion checkpoint has now been followed by finished Checkout, notifications, onboarding readiness, private chat attachments and trainer website/gallery stages. Earlier stages cover training/qualified coaching, personalized nutrition, finance/bookings, administration, team/import/OCR, privacy/accounts and governed integrations.
-- Current bounded work: connect consented acquisition; close former-owner website media erasure. Coaching capacity/history hardening passed seven runtime checks and TypeScript. Website/gallery registration, atomic brand saves, previews and manifests passed 17 focused checks and TypeScript; acquisition hooks remain in progress.
+- The preserved completion checkpoint has now been followed by finished Checkout, notifications, onboarding readiness, private chat attachments, trainer website/gallery and consented acquisition stages. Earlier stages cover training/qualified coaching, personalized nutrition, finance/bookings, administration, team/import/OCR, privacy/accounts and governed integrations.
+- Current bounded work: checkpoint former-owner media erasure; fix the missed notification-settings mount; complete scheduled coach follow-ups, case-bound read-only support access and Twin/compiler data-loss safeguards. Acquisition shared hooks passed 34 related tests and TypeScript. Browser coverage is being updated; no cloud browser.
 - Attachment stage: seven attachment and eight privacy tests passed together. Migration028 remains unchanged; forward030 applies the upgrade safely. Image/PDF sanitization, conversation binding, privacy and orphan expiry are connected. Whole-tree TypeScript passed after the temporary acquisition syntax error was fixed.
 - All30 migrations and twice-applied runtime grants passed in fresh PGlite (54 tables/nine helpers); a separate028→030 upgrade with existing data passed five behavioral subtests. Final combined suite, production build, browser and PostgreSQL/container CI have not run. Local Chromium installation failed because CDN archives were invalid/truncated. Functional browser verification remains a release gate; screenshots are waived.
 - Stage commits are published through the GitHub connector because direct Git transport was unreliable. Remote/local commit hashes differ, with identical trees verified. Use GitHub history from a fresh checkout. No merge or deployment is authorized by this continuation.
 - No live payment/provider/cloud action occurred. Actual provider rights, account capabilities, model/coach quality, device behavior and operational qualification remain external gates. Existing DigitalOcean resources remain untouched.
-- Next: checkpoint website, finish acquisition and media privacy follow-ups in separate checked commits, then run the aggregate gates and reconcile remaining source requirements.
+- Next: finish these bounded follow-ups in separate checked commits, then run aggregate gates and reconcile remaining source requirements.
 
 ## Historical deployment handoff
 

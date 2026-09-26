@@ -152,7 +152,7 @@ export async function recordAcquisition(
     .strict()
     .parse(input);
   const write = (tx: Tx) => tx.query(
-      "INSERT INTO acquisition_events(id,event_key,name,tenant_id,user_id,visitor_id,source,campaign,medium,attribution,experiment_id,experiment_revision,variant) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(event_key) DO NOTHING",
+      "INSERT INTO acquisition_events(id,event_key,name,tenant_id,user_id,visitor_id,source,campaign,medium,attribution,experiment_id,experiment_revision,variant) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(event_key) DO NOTHING RETURNING id",
       [
         randomUUID(),
         b.eventKey,
@@ -271,7 +271,7 @@ export function registerAdminOperations(
     else if (view === "experiments")
       rows = await db.system((tx) =>
         tx.query(
-          "SELECT * FROM admin_experiments ORDER BY created_at DESC LIMIT 100",
+          "SELECT x.*, (SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS exposures_a,(SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS exposures_b,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS conversions_a,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS conversions_b FROM admin_experiments x ORDER BY created_at DESC LIMIT 100",
         ),
       );
     else if (view === "acquisition") {
@@ -672,6 +672,13 @@ export function registerAdminOperations(
       .strict()
       .parse(req.body);
     return db.system(async (tx) => {
+      if (b.status === "running") {
+        const [candidate] = await tx.query("SELECT surface FROM admin_experiments WHERE id=$1 AND revision=$2", [experimentId, b.revision]);
+        if (!candidate) throw conflict();
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["acquisition-experiment:" + candidate.surface]);
+        const [active] = await tx.query("SELECT id FROM admin_experiments WHERE surface=$1 AND status='running' AND id<>$2", [candidate.surface, experimentId]);
+        if (active) throw fail(409, "EXPERIMENT_SURFACE_BUSY", "Stop the current wording experiment on this surface first.");
+      }
       const [r] = await tx.query(
         "UPDATE admin_experiments SET status=$3,result=$4,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND ((status='draft' AND $3='running') OR (status='running' AND $3 IN ('stopped','completed'))) RETURNING *",
         [experimentId, b.revision, b.status, b.result],

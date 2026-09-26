@@ -15,10 +15,10 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
 | Workout coaching | Qualified runtime, training, attachments and case/history hardening committed | Final assembled checks; source-scope review of remaining follow-up/Twin work |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
-| Billing and finance | Servicing, statements, bookings, jobs and Checkout committed | Actual Stripe/Lean qualification and acquisition conversion hook remain |
-| Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
+| Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
+| Administration and team | Scoped views, publication, team, ingestion and consented acquisition committed | Temporary support preview and remaining source-scope review |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
-| Privacy and accounts | Connected, including attachment privacy | Acquisition hooks and former-owner website media cleanup remain |
+| Privacy and accounts | Connected, including attachments and acquisition | Former-owner website media cleanup checkpoint |
 | Galleries and website | Uploads, galleries, drafts, SSR, navigation and manifests connected | Former-owner media erasure and browser journeys |
 | Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
 | Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
@@ -120,3 +120,7 @@ Active coaching material is bounded before creation/model calls; held-out cases 
 ### Migration upgrade and runtime permission verification
 
 A dedicated original001–029 →030 migration regression preserves existing conversation/media state and verifies binding, expiry and scoped helpers. Five behavioral subtests passed (six reported checks including their parent). Fresh all30 migrations and twice-applied grants passed runtime verification of 54 tables and nine privileged helpers, including no PUBLIC helper execution and no unclassified definer helpers. Test TypeScript, script syntax and diff checks passed. Real PostgreSQL/container/browser remain CI gates; no deployment.
+
+### Consented acquisition completion
+
+Explicit consent and host-scoped opaque cookies now govern attribution and guarded landing/onboarding wording experiments. Actual signup/new enrollment, publication and verified first-positive-payment hooks dedupe after commit; analytics failures preserve business success. Withdrawal, export/erasure and bounded expiry cleanup include linked anonymous history. Thirty-four focused acquisition/onboarding/privacy/admin tests and TypeScript passed. Migration029 is unchanged. Browser interaction remains pending; root handoff updated.

@@ -16,6 +16,7 @@ import { nutritionLearning } from "../../../packages/domain/src/nutrition-learni
 import { canonicalCoaching } from "../../../packages/domain/src/coaching-completion.ts";
 import { coachingModelPin } from "../../../packages/providers/src/coaching.ts";
 import { coachingRuntimeReadiness } from "./coaching-runtime.ts";
+import { recordPublishAcquisition } from "./acquisition.ts";
 
 const digest = (value: unknown) =>
   createHash("sha256")
@@ -776,7 +777,7 @@ export function onboardingRoutes(
 }
 export async function publishStorefront(db: Database, a: Owner) {
   requireRecentMfa(a);
-  return db.system(async (tx) => {
+  const result = await db.system(async (tx) => {
     const [tenant] = await tx.query(
       "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
       [a.tenantId],
@@ -799,4 +800,10 @@ export async function publishStorefront(db: Database, a: Owner) {
     ]);
     return { ok: true, path: state.storefrontPath };
   });
+  try {
+    await recordPublishAcquisition(db, a.tenantId);
+  } catch {
+    console.warn("Storefront acquisition conversion could not be recorded");
+  }
+  return result;
 }
