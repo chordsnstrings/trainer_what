@@ -104,7 +104,7 @@ export function ClientTwin({
             )}
             {data.coaching.safetyHolds.length > 0 && (
               <p className="notice">
-                {data.coaching.safetyHolds.length} workout safety holds need
+                {data.coaching.safetyHolds.length} active safety holds need
                 trainer review.
               </p>
             )}

@@ -26,6 +26,7 @@ import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
+import { SourceCompilation } from "./source-compilation";
 import { MarketingPage } from "./marketing-pages";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
@@ -1323,20 +1324,23 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
               <h2>Sources</h2>
               <Badge>{sources.length}</Badge>
             </div>
-            <Button
-              disabled={busy || !sources.length}
-              onClick={() =>
-                void action(
+            <SourceCompilation
+              sources={sources}
+              busy={busy}
+              previous={
+                rules.find((rule) => rule.data.compilationCoverage)?.data
+                  .compilationCoverage
+              }
+              onCompile={(sourceIds) =>
+                action(
                   () =>
                     api("/brain/compile", "POST", {
-                      sourceIds: sources.slice(0, 20).map((s) => s.id),
+                      sourceIds,
                     }),
                   "Draft rules compiled for your review",
                 )
               }
-            >
-              Compile draft rules
-            </Button>
+            />
             {records("conflict")
               .filter((c) => c.status === "open")
               .map((c) => (
@@ -1364,23 +1368,7 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                   </form>
                 </div>
               ))}
-            {sources.length ? (
-              sources.map((s) => (
-                <div key={s.id} className="source-row">
-                  <span className="file-icon">
-                    <FileText size={19} />
-                  </span>
-                  <div>
-                    <strong>{s.data.title}</strong>
-                    <p>
-                      {s.data.text.length.toLocaleString()} characters ·{" "}
-                      {new Date(s.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <Badge>Ready</Badge>
-                </div>
-              ))
-            ) : (
+            {!sources.length && (
               <Empty
                 title="Your knowledge starts here"
                 detail="Add a piece of your coaching experience. Every source remains traceable."

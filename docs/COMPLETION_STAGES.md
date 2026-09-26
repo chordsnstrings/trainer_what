@@ -13,7 +13,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Area | State | Next acceptance |
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete source coverage/correction feedback; defer broad review |
+| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete correction feedback; source coverage is connected and broad review is deferred |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
 | Administration and team | Scoped views, publication, team, ingestion and consented acquisition committed | Temporary support preview and remaining source-scope review |
@@ -140,3 +140,7 @@ Updated browser selectors and added consent, gallery/website, private attachment
 ### Scheduled coach follow-ups completed
 
 Added private scheduling/rescheduling/canceling and history to actual conversation screens. Worker delivery is context-checked and transactional with one message/notification; changed access/consent/safety/coaching context returns to review. Sender/client erasure includes scheduled and delivered content. Migration032 adds private record policies and unique intents/delivery indexes. Seven real-app follow-up and eight existing privacy tests passed; diff checks passed and no external calls occurred. Browser/timezone and real PostgreSQL review are deferred in the root handoff.
+
+### Current Twin facts and complete compilation input
+
+Current profiles/active holds now survive bounded history queries and retain lineage; current corrections and history overflow are explicit. Compiler input is sent in full within visible limits, with explicit source selection and persisted/returned coverage. Five new checks, three selected existing Twin/model-accounting checks, TypeScript and diff checks passed. Includes a real authenticated /brain/compile regression. No migration; quality/source review is deferred and the root handoff is updated.

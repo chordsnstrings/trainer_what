@@ -9,26 +9,86 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":twin:" + userId,
   ]);
-  const records = await tx.query(
-    "SELECT * FROM records WHERE owner_user_id=$1 AND kind IN ('intake','workout','wearable','workout_correction') ORDER BY created_at DESC LIMIT 1000",
+  // Current facts must survive any amount of newer history. Active holds use the
+  // same predicate as the runtime safety gate and are never a recent-history sample.
+  const intake = await tx.query(
+    "SELECT * FROM records WHERE owner_user_id=$1 AND kind='intake' ORDER BY created_at DESC,id DESC LIMIT 1",
     [userId],
   );
-  const sets = await tx.query(
-    "SELECT * FROM workout_events WHERE user_id=$1 AND created_at>=now()-interval '28 days' ORDER BY created_at LIMIT 5000",
+  const holds = await tx.query(
+    "SELECT * FROM records WHERE owner_user_id=$1 AND ((kind='training_hold' AND status='active') OR (kind='workout' AND status='safety_hold')) ORDER BY created_at,id",
     [userId],
   );
+  const workoutRows = await tx.query(
+    "SELECT * FROM records WHERE owner_user_id=$1 AND kind='workout' AND created_at>=now()-interval '28 days' ORDER BY created_at DESC,id DESC LIMIT 1001",
+    [userId],
+  );
+  const wearableRows = await tx.query(
+    "SELECT * FROM records WHERE owner_user_id=$1 AND kind='wearable' ORDER BY created_at DESC,id DESC LIMIT 1001",
+    [userId],
+  );
+  const setRows = await tx.query(
+    "SELECT * FROM workout_events WHERE user_id=$1 AND created_at>=now()-interval '28 days' ORDER BY created_at DESC,id DESC LIMIT 5001",
+    [userId],
+  );
+  const workouts = workoutRows.slice(0, 1000),
+    wearables = wearableRows.slice(0, 1000),
+    sets = setRows.slice(0, 5000).reverse();
+  const corrections = sets.length
+    ? await tx.query(
+        "SELECT DISTINCT ON (data->>'eventId') * FROM records WHERE owner_user_id=$1 AND kind='workout_correction' AND data->>'eventId'=ANY($2::text[]) ORDER BY data->>'eventId',coalesce((data->>'revision')::int,0) DESC,created_at DESC,id DESC",
+        [userId, sets.map((set) => set.id)],
+      )
+    : [];
   const consents = await tx.query(
     "SELECT DISTINCT ON(document_type) document_type,granted FROM consent_records WHERE user_id=$1 AND document_type IN ('coaching','wearable') ORDER BY document_type,created_at DESC,id DESC",
     [userId],
   );
-  const body = clientTwin({
-    records: records as any,
-    sets: effectiveWorkoutSets(sets, records.filter((r) => r.kind === "workout_correction")),
+  const calculated = clientTwin({
+    records: [...intake, ...workouts, ...wearables] as any,
+    sets: effectiveWorkoutSets(sets, corrections),
     coachingConsent:
       consents.find((c) => c.document_type === "coaching")?.granted ?? null,
     wearableConsent:
       consents.find((c) => c.document_type === "wearable")?.granted ?? null,
   });
+  const body = {
+    ...calculated,
+    calculationVersion: "client-twin-v2",
+    coaching: {
+      ...calculated.coaching,
+      safetyHolds: holds.map((hold) => hold.id),
+      safetyHoldSources: holds.map((hold) => ({
+        kind: hold.kind,
+        status: hold.status,
+        observedAt: new Date(hold.updated_at ?? hold.created_at).toISOString(),
+        sourceRecordIds: [hold.id],
+      })),
+    },
+    inputCoverage: {
+      profileSourceRecordIds: intake.map((r) => r.id),
+      activeHolds: { included: holds.length, complete: true },
+      workouts: {
+        included: workouts.length,
+        limit: 1000,
+        partial: workoutRows.length > 1000,
+      },
+      wearables: {
+        included: wearables.length,
+        limit: 1000,
+        partial: wearableRows.length > 1000,
+      },
+      sets: {
+        included: sets.length,
+        limit: 5000,
+        partial: setRows.length > 5000,
+      },
+      corrections: {
+        included: corrections.length,
+        selection: "Latest revision for each included set",
+      },
+    },
+  };
   const nutrition = await nutritionTwin(tx, a, userId);
   // Derived wearable data is intentionally excluded from the model-facing coaching object.
   const digest = createHash("sha256")
@@ -61,7 +121,10 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
       ...body,
       nutrition,
       digest,
-      partialInput: records.length === 1000 || sets.length === 5000,
+      partialInput:
+        workoutRows.length > 1000 ||
+        wearableRows.length > 1000 ||
+        setRows.length > 5000,
     },
     { ownerId: userId, status: "current" },
   );

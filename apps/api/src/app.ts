@@ -1031,6 +1031,7 @@ export async function buildApp(
                 "trainer_specific_learning",
               ],
               origin: "compiler",
+              compilationCoverage: generated.coverage,
             },
             { status: "draft" },
           ),
@@ -1040,8 +1041,9 @@ export async function buildApp(
       await event(tx, a, "brain.compiled", undefined, {
         rules: rules.length,
         conflicts: generated.conflicts.length,
+        coverage: generated.coverage,
       });
-      return { rules, conflicts: generated.conflicts.length };
+      return { rules, conflicts: generated.conflicts.length, coverage: generated.coverage };
     });
   });
   app.patch("/api/v1/brain/rules/:id", async (req) => {
