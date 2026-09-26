@@ -16,7 +16,7 @@ ENV API_INTERNAL_URL=$API_INTERNAL_URL
 RUN npm run typecheck && npm run build
 
 FROM node:24.19.0-bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends python3 poppler-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 poppler-utils tesseract-ocr && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build --chown=node:node /app /app

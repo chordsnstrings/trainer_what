@@ -1,8 +1,20 @@
 "use client";
+import { TeamControls } from "./team-controls";
+import { KnowledgeImportReview } from "./ingestion-review";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
-import { BillingHistory, TrainerFinanceTools, FinancePolicyConsole, FinanceAutomationConsole } from "./finance-completion";
+import {
+  BillingHistory,
+  TrainerFinanceTools,
+  FinancePolicyConsole,
+  FinanceAutomationConsole,
+} from "./finance-completion";
 import { AdminOperations, TrainerAnalytics } from "./admin-operations";
-import { TrainingPrograms, CoachingMessages, TrainingProgress, WorkoutTools } from "./training-workspace";
+import {
+  TrainingPrograms,
+  CoachingMessages,
+  TrainingProgress,
+  WorkoutTools,
+} from "./training-workspace";
 import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
@@ -111,6 +123,7 @@ const nav = [
   ["Finance", "/trainer/finance", Wallet],
   ["Design studio", "/trainer/design", Palette],
   ["Integrations", "/trainer/integrations", Link2],
+  ["Team", "/trainer/team", Users],
   ["Settings", "/trainer/settings", Settings],
 ] as const;
 const subNav = [
@@ -449,7 +462,9 @@ export default function Workspace() {
           ["Overview", "Finance", "Settings"].includes(item[0]),
         )
       : state.user.role === "staff"
-        ? nav.filter((item) => !["Finance", "Design studio"].includes(item[0]))
+        ? nav.filter(
+            (item) => !["Finance", "Design studio", "Team"].includes(item[0]),
+          )
         : nav;
   const records = (kind: string) =>
     state.records.filter((x) => x.kind === kind);
@@ -723,6 +738,8 @@ export default function Workspace() {
             path.includes("/voice") ||
             path.includes("/domains") ? (
             <Integrations {...props} />
+          ) : path === "/trainer/team" ? (
+            <TeamControls role={state.user.role} />
           ) : path.includes("/settings") ||
             path.includes("/profile") ||
             path.includes("/intake") ? (
@@ -1050,7 +1067,7 @@ function Brand({ state, onSaved }: ViewProps) {
   );
 }
 
-function BrainView({ state, records, action, busy, path }: ViewProps) {
+function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   const [tab, setTab] = useState(
     path.includes("constitution")
       ? "rules"
@@ -1062,7 +1079,9 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
             ? "releases"
             : "interview",
   );
-  const sources = records("source"),
+  const sources = records("source").filter(
+      (source) => source.status === "ready",
+    ),
     rules = records("rule"),
     answers = records("interview");
   const question =
@@ -1200,60 +1219,7 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
                 Add to knowledge <Plus size={16} />
               </Button>
             </form>
-            <details>
-              <summary>Import a document</summary>
-              <p className="muted">
-                PDF with selectable text, DOCX, Markdown, CSV or UTF-8 text. Up
-                to 5 MB and 60,000 extracted characters. Scanned documents need
-                OCR first.
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget),
-                    file = f.get("file") as File;
-                  void action(async () => {
-                    if (file.size > 5 * 1024 * 1024)
-                      throw new Error("Choose a file smaller than 5 MB");
-                    const base64 = await new Promise<string>(
-                      (resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onerror = () =>
-                          reject(new Error("Could not read this file"));
-                        reader.onload = () =>
-                          resolve(String(reader.result).split(",")[1]);
-                        reader.readAsDataURL(file);
-                      },
-                    );
-                    return api("/brain/documents", "POST", {
-                      fileName: file.name,
-                      title: f.get("title"),
-                      contentBase64: base64,
-                      rights: true,
-                    });
-                  }, "Document imported for review");
-                }}
-              >
-                <Field label="Document title">
-                  <input name="title" minLength={2} maxLength={120} required />
-                </Field>
-                <Field label="Document">
-                  <input
-                    type="file"
-                    name="file"
-                    accept=".pdf,.docx,.txt,.md,.csv"
-                    required
-                  />
-                </Field>
-                <label className="check-field">
-                  <input type="checkbox" required />I have rights to use this
-                  document and have removed unnecessary personal information.
-                </label>
-                <Button type="submit" secondary disabled={busy}>
-                  Import document
-                </Button>
-              </form>
-            </details>
+            <KnowledgeImportReview onApproved={onSaved} />
           </Card>
           <Card>
             <div className="card-heading">
@@ -2003,7 +1969,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   return (
     <>
       <TrainingHoldNotice records={state.records} />
-      <WorkoutTools workout={workout} userId={state.user.userId} onChange={async () => { await action(async () => ({}), "Session updated"); }} />
+      <WorkoutTools
+        workout={workout}
+        userId={state.user.userId}
+        onChange={async () => {
+          await action(async () => ({}), "Session updated");
+        }}
+      />
       <Heading
         eyebrow="ONE SET AT A TIME"
         title={workout.data.program.title}
@@ -2099,8 +2071,26 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   />
                   <small>reps</small>
                 </label>
-                <label><input aria-label={`${ex.name} set ${set + 1} repetitions in reserve`} name="rir" type="number" min={0} max={10} defaultValue={ex.rir ?? 2} required /><small>RIR</small></label>
-                <label><input aria-label={`${ex.name} set ${set + 1} notes`} name="notes" maxLength={1000} placeholder="Set notes" /></label>
+                <label>
+                  <input
+                    aria-label={`${ex.name} set ${set + 1} repetitions in reserve`}
+                    name="rir"
+                    type="number"
+                    min={0}
+                    max={10}
+                    defaultValue={ex.rir ?? 2}
+                    required
+                  />
+                  <small>RIR</small>
+                </label>
+                <label>
+                  <input
+                    aria-label={`${ex.name} set ${set + 1} notes`}
+                    name="notes"
+                    maxLength={1000}
+                    placeholder="Set notes"
+                  />
+                </label>
                 <Button
                   type="submit"
                   secondary
@@ -2403,7 +2393,15 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
       {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
-          {!membership && <Field label="Discount code (optional)"><input value={promotionCode} maxLength={40} onChange={e => setPromotionCode(e.target.value)} /></Field>}
+          {!membership && (
+            <Field label="Discount code (optional)">
+              <input
+                value={promotionCode}
+                maxLength={40}
+                onChange={(e) => setPromotionCode(e.target.value)}
+              />
+            </Field>
+          )}
           <Card>
             <h2>
               {membership
@@ -2442,7 +2440,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                             () =>
                               api("/membership/change-plan", "POST", {
                                 productId: p.id,
-                              promotionCode,
+                                promotionCode,
                               }),
                             "Opening price and billing confirmation",
                           ).then((r) => {
@@ -3016,7 +3014,6 @@ function Integrations({ state, action, busy, path }: ViewProps) {
 function SettingsView({ state, records, action, busy, path }: ViewProps) {
   const intake = records("intake")[0]?.data ?? {},
     sub = state.user.role === "subscriber";
-  const [invite, setInvite] = useState("");
   return (
     <>
       <Heading
@@ -3189,57 +3186,14 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       </div>
       {state.user.role === "owner" && (
         <Card>
-          <h2>Invite a team member</h2>
-          <form
-            className="button-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(
-                () =>
-                  api("/invitations", "POST", {
-                    email: new FormData(e.currentTarget).get("email"),
-                    role: new FormData(e.currentTarget).get("role"),
-                  }),
-                "Team invitation created",
-              ).then((r) => {
-                if (r) setInvite(r.url);
-              });
-            }}
-          >
-            <input
-              type="email"
-              name="email"
-              required
-              aria-label="Staff email"
-              placeholder="colleague@example.com"
-            />
-            <Button type="submit" disabled={busy}>
-              Create invitation
-            </Button>
-          </form>
-          {invite && (
-            <input readOnly value={invite} aria-label="Team invitation URL" />
-          )}
-          {state.members
-            ?.filter((m) => ["staff", "finance"].includes(m.role))
-            .map((m) => (
-              <div className="list-row" key={m.id}>
-                <span>
-                  {m.name} · {m.email}
-                </span>
-                <Button
-                  secondary
-                  onClick={() =>
-                    void action(
-                      () => api(`/team/${m.id}`, "DELETE"),
-                      "Access revoked",
-                    )
-                  }
-                >
-                  Revoke
-                </Button>
-              </div>
-            ))}
+          <h2>Team access</h2>
+          <p className="muted">
+            Manage coaching and finance roles, invitations, MFA status and
+            workspace access in your team settings.
+          </p>
+          <Link href="/trainer/team" className="button secondary">
+            Manage your team
+          </Link>
         </Card>
       )}
     </>
@@ -3358,7 +3312,14 @@ function Admin({ state, path }: ViewProps) {
   }, []);
   return (
     <>
-      {path === "/admin/finance/controls" && data && ["admin", "finance"].includes(state.user.platformRole) && <><FinancePolicyConsole tenants={data.tenants} /><FinanceAutomationConsole tenants={data.tenants} /></>}
+      {path === "/admin/finance/controls" &&
+        data &&
+        ["admin", "finance"].includes(state.user.platformRole) && (
+          <>
+            <FinancePolicyConsole tenants={data.tenants} />
+            <FinanceAutomationConsole tenants={data.tenants} />
+          </>
+        )}
       <Heading
         eyebrow="PLATFORM OPERATIONS"
         title="An accountable view of the platform."
@@ -3767,7 +3728,9 @@ function Public({
       ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
         <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
-        <PublishedLegal documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"} />
+        <PublishedLegal
+          documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
+        />
       ) : (
         <>
           <section className="hero">

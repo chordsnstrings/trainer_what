@@ -39,7 +39,18 @@ import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
-import { ingestionRoutes } from "./ingestion.ts";
+import {
+  ingestionRoutes,
+  compilationMaterial,
+  privacyMatches,
+  buildSourceEvidence,
+} from "./ingestion.ts";
+import {
+  registerTeamRoutes,
+  createTeamInvitation,
+  lockActiveInvitation,
+  touchTeamSession,
+} from "./team.ts";
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
@@ -229,7 +240,7 @@ export async function buildApp(
         ),
       );
       const s = rows[0];
-      if (s)
+      if (s) {
         req.identity = {
           tenantId: s.tenant_id,
           userId: s.user_id,
@@ -240,6 +251,8 @@ export async function buildApp(
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
         };
+        await touchTeamSession(db, tokenHash(token)).catch(() => {});
+      }
     }
   });
   app.setErrorHandler((error, req, reply) => {
@@ -326,6 +339,7 @@ export async function buildApp(
   mealCaptureRoutes(app, db, identity);
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
+  registerTeamRoutes(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/ready", async () => {
@@ -676,6 +690,8 @@ export async function buildApp(
         role: z.enum(["staff", "finance", "subscriber"]),
       })
       .parse(req.body);
+    if (b.role !== "subscriber")
+      return createTeamInvitation(db, a, b, publicUrl());
     const token = newToken();
     await db.system(async (tx) => {
       await workspaceLock(tx, a.tenantId);
@@ -718,43 +734,12 @@ export async function buildApp(
       .parse(req.body);
     const hash = await passwordHash(b.password);
     const result = await db.system(async (tx) => {
-      const [initial] = await tx.query(
-        "SELECT tenant_id FROM one_time_tokens WHERE token_hash=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now()",
-        [tokenHash(b.token)],
-      );
-      if (!initial)
-        throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
-      await workspaceLock(tx, initial.tenant_id);
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        initial.tenant_id + ":team",
-      ]);
-      const [open] = await tx.query(
-        "SELECT id FROM tenants WHERE id=$1 AND lifecycle_state='active'",
-        [initial.tenant_id],
-      );
-      if (!open)
-        throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
-      const [invite] = await tx.query(
-        "SELECT * FROM one_time_tokens WHERE token_hash=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
-        [tokenHash(b.token)],
-      );
+      const invite = await lockActiveInvitation(tx, tokenHash(b.token));
       if (
         !invite ||
         invite.payload.email.toLowerCase() !== b.email.toLowerCase()
       )
         throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
-      if (["staff", "finance"].includes(invite.payload.role)) {
-        const [issuer] = await tx.query(
-          "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='owner'",
-          [invite.tenant_id, invite.payload.invitedBy ?? null],
-        );
-        if (!issuer)
-          throw fail(
-            400,
-            "INVALID_INVITE",
-            "Ask the current owner for a new invitation",
-          );
-      }
       const [existing] = await tx.query(
         "SELECT * FROM users WHERE email=$1 FOR UPDATE",
         [b.email.toLowerCase()],
@@ -788,29 +773,6 @@ export async function buildApp(
     await session(reply, result.uid, result.tid, result.mfa);
     return { ok: true };
   });
-  app.delete("/api/v1/team/:userId", async (req) => {
-    const a = owner(req),
-      uid = id.parse((req.params as any).userId);
-    if (uid === a.userId)
-      throw fail(
-        400,
-        "SELF_REVOKE",
-        "The owner cannot revoke their own membership",
-      );
-    await db.system(async (tx) => {
-      await tx.query(
-        "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role IN ('staff','finance')",
-        [a.tenantId, uid],
-      );
-      await tx.query("DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2", [
-        a.tenantId,
-        uid,
-      ]);
-    });
-    await db.tenant(a, (tx) => event(tx, a, "team.revoked", uid));
-    return { ok: true };
-  });
-
   app.post("/api/v1/brain/sources", async (req) => {
     const a = trainer(req);
     const b = z
@@ -820,11 +782,21 @@ export async function buildApp(
         rights: z.literal(true),
       })
       .parse(req.body);
+    const text = b.text.replace(/\r\n/g, "\n").trim();
+    if (privacyMatches(text).length)
+      throw fail(
+        400,
+        "PERSONAL_DATA_REMAINS",
+        "Remove identifying details before adding teaching material, or import a document for redaction and private review.",
+      );
+    const evidence = buildSourceEvidence(text);
     return db.tenant(a, async (tx) => {
-      const hash = createHash("sha256").update(b.text).digest("hex");
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":source:" + evidence.hash,
+      ]);
       const [exists] = await tx.query(
         "SELECT * FROM records WHERE kind='source' AND data->>'hash'=$1",
-        [hash],
+        [evidence.hash],
       );
       if (exists) return exists;
       const r = await putRecord(
@@ -833,11 +805,13 @@ export async function buildApp(
         "source",
         {
           title: b.title,
-          text: b.text,
-          hash,
+          text,
+          ...evidence,
           origin: "trainer_upload",
           allowedUses: ["render", "model_prompt", "trainer_specific_learning"],
           rightsAttestedAt: new Date().toISOString(),
+          privacyReviewedAt: new Date().toISOString(),
+          reviewedBy: a.userId,
         },
         { status: "ready" },
       );
@@ -881,7 +855,7 @@ export async function buildApp(
         "All sources must belong to this workspace and be trainer teaching material",
       );
     const generated = await compileTrainerRules(
-      material.map((r) => ({ id: r.id, data: r.data })),
+      compilationMaterial(material),
       modelAccounting(db, a, "brain_compilation"),
     );
     return db.tenant(a, async (tx) => {
@@ -1314,7 +1288,12 @@ export async function buildApp(
   app.post("/api/v1/payments/checkout", async (req) => {
     const a = identity(req),
       stripe = requireCommerce();
-    const b = z.object({ productId: id, promotionCode: z.string().trim().max(40).optional() }).parse(req.body);
+    const b = z
+      .object({
+        productId: id,
+        promotionCode: z.string().trim().max(40).optional(),
+      })
+      .parse(req.body);
     const product = await db.tenant(a, (tx) =>
       findRecord(tx, b.productId, "product"),
     );
@@ -1345,7 +1324,11 @@ export async function buildApp(
         [a.userId],
       );
       if (existing) {
-        if (existing.data.productId !== product.id || (existing.data.offerTerms?.promotionCode ?? "") !== (b.promotionCode ?? "").toUpperCase())
+        if (
+          existing.data.productId !== product.id ||
+          (existing.data.offerTerms?.promotionCode ?? "") !==
+            (b.promotionCode ?? "").toUpperCase()
+        )
           throw fail(
             409,
             "CHECKOUT_OPEN",
@@ -1353,7 +1336,12 @@ export async function buildApp(
           );
         return existing;
       }
-      const offerTerms = await checkoutOfferTerms(tx, a, product, b.promotionCode);
+      const offerTerms = await checkoutOfferTerms(
+        tx,
+        a,
+        product,
+        b.promotionCode,
+      );
       return putRecord(
         tx,
         a,
@@ -1382,7 +1370,9 @@ export async function buildApp(
           user_id: a.userId,
           intent_id: intent.id,
         },
-        discounts: intent.data.offerTerms?.couponId ? [{ coupon: intent.data.offerTerms.couponId }] : undefined,
+        discounts: intent.data.offerTerms?.couponId
+          ? [{ coupon: intent.data.offerTerms.couponId }]
+          : undefined,
         subscription_data: {
           trial_period_days: intent.data.offerTerms?.trialDays || undefined,
           metadata: {
