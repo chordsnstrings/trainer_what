@@ -1609,7 +1609,7 @@ test("all onboarding steps resume with optimistic concurrency and server-checked
   const preview = await request(
     "/onboarding/preview",
     "PUT",
-    { version: 0, values: {} },
+    { version: 0, values: { digest: resumed.previewDigest } },
     coach.cookie,
   );
   assert.equal(preview.statusCode, 200, preview.body);

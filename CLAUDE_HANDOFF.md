@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: subscription Checkout admission and wiring are completed; onboarding readiness, private chat attachments are being finished; notification delivery and screens are completed. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness and notifications are completed. Private chat attachments, trainer website/gallery wiring and consented acquisition are in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -52,8 +52,7 @@ Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`,
 
 ### 1. Immediate known failures
 
-- Checkout test typing errors are fixed. The latest whole-worktree TypeScript run is blocked by six implicit-any callbacks in the in-progress onboarding tests; the onboarding stage owns those fixes.
-- Onboarding API now requires `values.digest` for preview completion. `apps/web/components/onboarding.tsx` and the existing `tests/platform.test.ts` preview fixture still submit `{}`. This is a known broken transition; send the observed GET `previewDigest` and test stale digests.
+- Checkout and onboarding test typing errors are fixed. The last root whole-worktree TypeScript run stopped at an unfinished acquisition module closing brace while that stage was being written; rerun after the stage is stable.
 - Public coach SSR now calls `/api/v1/public/sites/:slug`, but `registerCoachSite(app, db)` is not yet called in `app.ts`. Until wired, the new website path cannot work.
 - Final full tests, production build, functional browser smoke, and PostgreSQL/container CI have **not** run on the combined work.
 
@@ -87,11 +86,13 @@ The resumed stage fixed the tenant-table permission failure with one system tran
 
 Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. Whole-tree typecheck awaits the concurrent onboarding test fixes. No live transactions occurred. First-paid acquisition remains part of the acquisition stage; actual Stripe/Lean account qualification remains open.
 
-### 5. Onboarding readiness
+### 5. Onboarding readiness — completed
 
-Only `apps/api/src/onboarding.ts` was changed in this unfinished pass. Written: effective legal versions, richer teaching/design/site/gallery/voice/nutrition preview digests, current base Brain evaluation checks, independent nutrition evaluation/preview gates, combined-tier requirements and actual verified voice readiness.
+The API and UI now agree on preview confirmation: the client submits the exact observed digest and stale approvals fail. Readiness uses current base/qualified coaching material and model connection, effective legal publications/approval, independently checked nutrition evaluation/sample week, and actual verified voice with current consent or explicit optional deferral. Preview material includes teaching/actions/model, nutrition methods/policy, private/published website/design, galleries/photos and voice evidence. A published combined-tier product retains nutrition gates even when setup is disabled.
 
-No onboarding checks ran after this edit. Fix preview payload compatibility first. Render returned readiness links/details in `apps/web/components/onboarding.tsx`, remove outdated supervised/voice wording, and integrate exported `coachingRuntimeReadiness(tx)` from `coaching-runtime.ts` instead of duplicating its contract hash. Add tests for changed teaching/policies/media/legal versions invalidating previews and no website-publish/launch circular dependency.
+The UI renders concrete readiness links, legal/teaching details and private-versus-published website state. Launch precedes separate website publication without a circular prerequisite. Checks: **6 dedicated onboarding tests and 2 existing platform/nutrition onboarding regressions passed**; an additional final assertion confirms model disconnection invalidates readiness. Diff checks passed. No migration was added. Aggregate compilation/build/browser validation remains a final gate after concurrent modules settle.
+
+Files: apps/api/src/onboarding.ts, apps/web/components/onboarding.tsx, tests/onboarding-completion.test.ts and the preview fixture in tests/platform.test.ts.
 
 ### 6. Private chat attachments
 
@@ -117,9 +118,9 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Complete onboarding preview/readiness and its test typing, then run the relevant focused checks. Checkout completion is recorded above.
+1. Finish the remaining website, attachment and acquisition stages; Checkout, notification and onboarding completion are recorded above.
 2. Connect website/media and attachment routes/UI/worker hooks; keep separate stage commits and update this file after each.
-3. Finish onboarding, attachments and consented acquisition from the frozen files; add meaningful missing tests.
+3. Finish attachments and consented acquisition from the preserved files; add meaningful missing tests.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
 6. Update current evidence documents and only then prepare review/merge. Do not merge or deploy this unfinished checkpoint automatically.
@@ -155,3 +156,7 @@ Completed atomic admission, unresolved-intent reconciliation/closure protection,
 ### 26 September — Notification completion
 
 Completed saved preference/inbox UI, API registration, safety/nutrition/chat/free and paid booking event hooks, reminder processing and conservative email recovery. Eight final notification tests and two paid-booking regressions passed; connected related suites also passed as recorded above. No new migration beyond existing023. Commit: the stage commit containing this entry. Next: connect attachments and trainer website, finish onboarding/acquisition and run aggregate gates.
+
+### 26 September — Onboarding completion
+
+Completed digest-bound preview approval, current coaching/model/nutrition/voice/legal readiness and practical workflow details. Six dedicated and two existing onboarding checks passed; final model-disconnection assertion passed. No new migration. Commit: the stage commit containing this entry. Next: website/attachment/acquisition integration and aggregate validation.

@@ -14,7 +14,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | --- | --- | --- |
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
 | Workout coaching | Qualified runtime and training stages committed | Unfinished attachment module/UI and final assembled checks |
-| Nutrition | Four checked stages committed | Finish the separate onboarding readiness changes; qualify actual providers |
+| Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs and Checkout committed | Actual Stripe/Lean qualification and acquisition conversion hook remain |
 | Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
@@ -100,3 +100,7 @@ The owner resumed implementation after the handoff checkpoint. Atomic current-wo
 ### Notification completion
 
 Preferences/inbox are connected to actual screens; safety, nutrition review, chat, booking/payment/refund and reminder events queue private, deduplicated alerts. Unknown email outcomes require evidence-based recovery; stale worker leases cannot resend or overwrite. Eight final notification tests and two signed paid-booking cases passed, following connected 22- and 30-test runs. The root handoff records exact boundaries and the unrelated in-progress acquisition typecheck blocker.
+
+### Onboarding completion
+
+The client submits the observed preview digest; stale approvals fail. Launch readiness uses current coaching/model, legal versions, independent nutrition evidence and actual voice consent, and explains private/published site state without a circular publish prerequisite. Six dedicated tests and two existing regressions passed, plus a final model-disconnection assertion. The Claude handoff now removes the fixed preview/type blockers.
