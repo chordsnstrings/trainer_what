@@ -7,6 +7,7 @@ import { safetySignal } from "@trainer/domain";
 import { modelDecision } from "@trainer/providers";
 import { currentClientTwin } from "./client-twin.ts";
 import { modelAccounting } from "./model-accounting.ts";
+import { currentPaidSubscription } from "./finance-billing.ts";
 
 const id = z.string().uuid();
 const fail = (statusCode: number, code: string, message: string) =>
@@ -34,6 +35,8 @@ async function subscriber(tx: Tx, a: Actor, userId: string) {
 }
 export async function lockTraining(tx: Tx, a: Actor, userId = a.userId) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":training:" + userId]);
+  const [membership] = await tx.query("SELECT training_actor_is_current($1,$2,$3) AS current", [a.tenantId, a.userId, a.role]);
+  if (!membership?.current) throw fail(403, "WORKSPACE_CHANGED", "Your workspace membership changed; sign in again before continuing");
 }
 export async function assertTrainingOpen(tx: Tx, userId: string) {
   const [held] = await tx.query("SELECT id FROM records WHERE owner_user_id=$1 AND ((kind='training_hold' AND status='active') OR (kind='workout' AND status='safety_hold')) LIMIT 1", [userId]);
@@ -41,7 +44,7 @@ export async function assertTrainingOpen(tx: Tx, userId: string) {
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const [s] = await tx.query("SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())", [a.userId]);
+  const s = await currentPaidSubscription(tx, a.userId);
   if (!s) throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
 export async function openTrainingHold(tx: Tx, a: Actor, userId: string, reason: string, workoutId?: string) {
@@ -77,6 +80,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       const resolution = { action: b.action, note: b.note, reviewedBy: a.userId, reviewedAt: new Date().toISOString() };
       await tx.query("UPDATE records SET status=$2,version=version+1,data=data||$3::jsonb,updated_at=now() WHERE id=$1", [h.id, b.action === "resume" ? "resumed" : "abandoned", JSON.stringify({ resolution })]);
       await tx.query("UPDATE records SET status=$2,version=version+1,data=data||$3::jsonb,updated_at=now() WHERE kind='workout' AND owner_user_id=$1 AND status='safety_hold'", [h.owner_user_id, b.action === "resume" ? "active" : "abandoned", JSON.stringify({ safetyResolution: resolution })]);
+      if (b.action === "abandon") await tx.query("UPDATE records SET status='abandoned',version=version+1,updated_at=now() WHERE kind='planned_session' AND owner_user_id=$1 AND status='started' AND data->>'workoutId'=ANY($2::text[])", [h.owner_user_id, current.data.workoutIds ?? []]);
       await tx.query("UPDATE records SET status='resolved',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE kind='exception' AND owner_user_id=$1 AND status='open' AND (data->>'holdId'=$3 OR (data->>'category'='safety' AND data->>'workoutId'=ANY($4::text[])))", [h.owner_user_id, JSON.stringify({ resolution: b.note, resolvedBy: a.userId, holdAction: b.action }), h.id, current.data.workoutIds ?? []]);
       await putRecord(tx, a, "message", { text: b.action === "resume" ? `Your trainer reviewed the training hold and resumed your session. ${b.note}` : `Your trainer reviewed the hold and ended the paused session. ${b.note}`, author: "trainer", subscriberId: h.owner_user_id, holdId: h.id }, { ownerId: h.owner_user_id, status: "sent" });
       await event(tx, a, "safety.hold_resolved", h.id, resolution);
@@ -93,7 +97,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       if (p.owner_user_id !== a.userId || !["assigned", "template"].includes(p.status)) throw fail(403, "PROGRAM_UNAVAILABLE", "Choose a program assigned to you");
       const [existing] = await tx.query("SELECT * FROM records WHERE kind='workout' AND owner_user_id=$1 AND status='active' ORDER BY created_at DESC LIMIT 1", [a.userId]);
       if (existing) {
-        if (existing.data.programId === p.id) return existing;
+        if (existing.data.programId === p.id && (!b.plannedSessionId || existing.data.plannedSessionId === b.plannedSessionId)) return existing;
         throw fail(409, "WORKOUT_ACTIVE", "Finish or abandon your current workout before starting another");
       }
       let planned: any;
@@ -108,7 +112,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
     });
   });
   app.post("/api/v1/workouts/:id/sets", async (req) => {
-    const a = identity(req), b = setSchema.parse(req.body);
+    const a = identity(req), b = setSchema.extend({ notes: z.string().max(1000).optional() }).parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       const [prior] = await tx.query("SELECT id,workout_id,data=$3::jsonb AS matches FROM workout_events WHERE user_id=$1 AND event_key=$2", [a.userId, b.eventKey, JSON.stringify(b)]);

@@ -1,3 +1,4 @@
+import { registerTrainingPrograms } from "./training-programs.ts";
 import {
   registerPrivacyLifecycle,
   exportPersonalData,
@@ -305,6 +306,7 @@ export async function buildApp(
     });
   }
   registerCoachingCompletion(app, db);
+  registerTrainingPrograms(app, db);
   registerFinanceBilling(app, db);
   registerAdminOperations(app, db, identity);
   securityRoutes(app, db, identity);
@@ -1191,37 +1193,6 @@ export async function buildApp(
         [randomUUID(), a.tenantId, a.userId, coachingVersion],
       );
       await event(tx, a, "intake.completed", r.id);
-      return r;
-    });
-  });
-  app.post("/api/v1/programs", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({ program: programSchema, subscriberId: id.optional() })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      if (b.subscriberId) {
-        const [m] = await tx.query(
-          "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
-          [a.tenantId, b.subscriberId],
-        );
-        if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      }
-      const r = await putRecord(
-        tx,
-        a,
-        "program",
-        {
-          ...b.program,
-          authorId: a.userId,
-          allowedUses: ["render", "model_prompt"],
-        },
-        {
-          ownerId: b.subscriberId ?? a.userId,
-          status: b.subscriberId ? "assigned" : "template",
-        },
-      );
-      await event(tx, a, "program.created", r.id);
       return r;
     });
   });

@@ -115,6 +115,7 @@ export function clientTwin(input: {
       Math.max(...rows!.map((r) => new Date(r.created_at).getTime())),
     ).toISOString(),
     sourceEventIds: rows!.map((r) => r.id),
+    sourceCorrectionIds: rows!.filter((r) => r.correctionId).map((r) => r.correctionId),
   }));
   const training = {
     windowStart: new Date(cutoff).toISOString(),

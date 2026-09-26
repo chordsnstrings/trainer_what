@@ -4,12 +4,13 @@ import { z } from "zod";
 import { putRecord, type Actor, type Database, type Tx } from "@trainer/db";
 import { clientTwin } from "../../../packages/domain/src/client-twin.ts";
 import { nutritionTwin } from "./nutrition.ts";
+import { effectiveWorkoutSets } from "../../../packages/domain/src/coaching-completion.ts";
 export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":twin:" + userId,
   ]);
   const records = await tx.query(
-    "SELECT * FROM records WHERE owner_user_id=$1 AND kind IN ('intake','workout','wearable') ORDER BY created_at DESC LIMIT 1000",
+    "SELECT * FROM records WHERE owner_user_id=$1 AND kind IN ('intake','workout','wearable','workout_correction') ORDER BY created_at DESC LIMIT 1000",
     [userId],
   );
   const sets = await tx.query(
@@ -22,7 +23,7 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
   );
   const body = clientTwin({
     records: records as any,
-    sets,
+    sets: effectiveWorkoutSets(sets, records.filter((r) => r.kind === "workout_correction")),
     coachingConsent:
       consents.find((c) => c.document_type === "coaching")?.granted ?? null,
     wearableConsent:

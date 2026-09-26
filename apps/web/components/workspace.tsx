@@ -2,6 +2,7 @@
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { BillingHistory } from "./finance-completion";
 import { AdminOperations, TrainerAnalytics } from "./admin-operations";
+import { TrainingPrograms, CoachingMessages, TrainingProgress, WorkoutTools } from "./training-workspace";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
@@ -704,11 +705,11 @@ export default function Workspace() {
           ) : path === "/app/twin" ? (
             <ClientTwin userId={state.user.userId} subscriber />
           ) : path.includes("/program") ? (
-            <Programs {...props} />
+            <TrainingPrograms state={state} />
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <Messages {...props} />
+            <CoachingMessages state={state} />
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
           ) : path.includes("/finance") ||
@@ -728,6 +729,8 @@ export default function Workspace() {
           ) : path === "/trainer/analytics" &&
             ["owner", "finance"].includes(state.user.role) ? (
             <TrainerAnalytics />
+          ) : path === "/app/progress" ? (
+            <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
@@ -1999,6 +2002,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   return (
     <>
       <TrainingHoldNotice records={state.records} />
+      <WorkoutTools workout={workout} userId={state.user.userId} onChange={async () => { await action(async () => ({}), "Session updated"); }} />
       <Heading
         eyebrow="ONE SET AT A TIME"
         title={workout.data.program.title}
@@ -2049,6 +2053,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   const f = new FormData(e.currentTarget),
                     body = {
                       eventKey: crypto.randomUUID(),
+                      rir: Number(f.get("rir")),
+                      notes: String(f.get("notes") || ""),
                       exercise: ex.name,
                       set: set + 1,
                       reps: Number(f.get("reps")),
@@ -2092,6 +2098,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   />
                   <small>reps</small>
                 </label>
+                <label><input aria-label={`${ex.name} set ${set + 1} repetitions in reserve`} name="rir" type="number" min={0} max={10} defaultValue={ex.rir ?? 2} required /><small>RIR</small></label>
+                <label><input aria-label={`${ex.name} set ${set + 1} notes`} name="notes" maxLength={1000} placeholder="Set notes" /></label>
                 <Button
                   type="submit"
                   secondary
