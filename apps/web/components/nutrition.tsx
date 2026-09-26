@@ -97,6 +97,8 @@ const sections = [
   ["preview", "Sample week"],
   ["readiness", "Activation"],
   ["exceptions", "Exceptions"],
+  ["recovery", "Week recovery"],
+  ["versions", "Catalog versions"],
 ];
 export function NutritionCoach({
   initialSection = "overview",
@@ -582,6 +584,8 @@ export function NutritionCoach({
             </p>
           </Card>
         )}
+        {section === "recovery" && <NutritionRecovery />}
+        {section === "versions" && <NutritionVersions />}
         {section === "exceptions" && (
           <Card title="Decisions needing your attention">
             {!d.records.some(
@@ -798,7 +802,9 @@ function SourceForm({
 }
 function FoodForm({
   submit,
+  initial,
 }: {
+  initial?: any;
   submit: (p: string, b: any, m?: string) => Promise<any>;
 }) {
   return (
@@ -831,10 +837,10 @@ function FoodForm({
       }}
     >
       <Field label="Ingredient name">
-        <input name="name" required />
+        <input name="name" defaultValue={initial?.name} required />
       </Field>
       <Field label="Weight basis">
-        <select name="preparation">
+        <select name="preparation" defaultValue={initial?.preparation}>
           <option value="raw">Raw edible weight</option>
           <option value="cooked">Cooked edible weight</option>
           <option value="ready_to_eat">Ready to eat</option>
@@ -848,7 +854,13 @@ function FoodForm({
           ["fat", "Fat g / 100 g"],
         ].map(([n, l]) => (
           <Field key={n} label={l}>
-            <input type="number" name={n} min={0} step={0.01} />
+            <input
+              type="number"
+              name={n}
+              defaultValue={initial?.nutrientsPer100g?.[n] ?? ""}
+              min={0}
+              step={0.01}
+            />
           </Field>
         ))}
       </div>
@@ -857,21 +869,37 @@ function FoodForm({
         automatic delivery.
       </p>
       <Field label="Allergens, separated by commas">
-        <input name="allergens" placeholder="milk, wheat, peanuts…" />
+        <input
+          name="allergens"
+          defaultValue={initial?.allergens?.join(", ")}
+          placeholder="milk, wheat, peanuts…"
+        />
       </Field>
       <Field label="Ingredient names and families, separated by commas">
-        <input name="tags" placeholder="rice, grain…" />
+        <input
+          name="tags"
+          defaultValue={initial?.ingredientTags?.join(", ")}
+          placeholder="rice, grain…"
+        />
       </Field>
       <Field label="Label, reference or source of these facts">
-        <input name="source" required />
+        <input name="source" defaultValue={initial?.source} required />
       </Field>
       <label className="check">
-        <input type="checkbox" name="estimated" defaultChecked /> Values are
-        approximate
+        <input
+          type="checkbox"
+          name="estimated"
+          defaultChecked={initial?.estimated ?? true}
+        />{" "}
+        Values are approximate
       </label>
       <label className="check">
-        <input type="checkbox" name="reviewed" /> I have reviewed ingredient and
-        allergen information
+        <input
+          type="checkbox"
+          name="reviewed"
+          defaultChecked={initial?.allergenReviewComplete ?? false}
+        />{" "}
+        I have reviewed ingredient and allergen information
       </label>
       <button className="button">Save ingredient</button>
     </form>
@@ -2518,5 +2546,165 @@ function DiaryForm({
         {initial ? "Save correction" : "Record meal"}
       </button>
     </form>
+  );
+}
+
+function NutritionRecovery() {
+  const r = useNutrition("/nutrition/recovery");
+  return (
+    <Card title="Recover a blocked meal week">
+      <p>
+        Unsent jobs can retry. Requests that may have reached the model need a
+        provider trace confirming they were not processed. Close obsolete weeks
+        so the scheduler can prepare a current week.
+      </p>
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.message && <Notice>{r.message}</Notice>}
+      {r.data?.length === 0 && <p>No blocked weeks.</p>}
+      {r.data?.map((j: any) => (
+        <form
+          key={j.id}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void r.action(
+              () =>
+                api("/nutrition/recovery/" + j.id, "POST", {
+                  attempts: j.attempts,
+                  action: f.get("action"),
+                  reason: f.get("reason"),
+                  providerReference: f.get("providerReference"),
+                }),
+              "Recovery recorded",
+            );
+          }}
+        >
+          <h3>Week starting {j.data.weekStart}</h3>
+          <p>
+            {j.last_error} · Provider state:{" "}
+            {j.provider_state ?? (j.request_id ? "uncertain" : "not sent")}
+          </p>
+          <Field label="Recovery action">
+            <select name="action">
+              <option value="retry_unsent">Retry only if never sent</option>
+              <option value="provider_confirmed_not_processed">
+                Provider confirmed not processed
+              </option>
+              <option value="provider_confirmed_processed_close">
+                Provider confirmed processed; close without retry
+              </option>
+              <option value="close">
+                Close without retry (uncertainty remains held)
+              </option>
+            </select>
+          </Field>
+          <Field label="Reason">
+            <textarea name="reason" minLength={10} maxLength={2000} required />
+          </Field>
+          <Field label="Provider trace or support reference">
+            <input name="providerReference" maxLength={500} />
+          </Field>
+          <button className="button secondary" disabled={r.busy}>
+            Record recovery
+          </button>
+        </form>
+      ))}
+    </Card>
+  );
+}
+function NutritionVersions() {
+  const r = useNutrition("/nutrition/catalog-history");
+  return (
+    <Card title="Food and recipe versions">
+      <p>
+        New plans use only the latest available facts. Replacing an ingredient
+        also withholds recipes that still use its older facts. Previous
+        delivered plans retain their original snapshots.
+      </p>
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.message && <Notice>{r.message}</Notice>}
+      {r.data &&
+        [
+          ...r.data.foods.map((x: any) => ({ ...x, kind: "food" })),
+          ...r.data.recipes.map((x: any) => ({ ...x, kind: "recipe" })),
+        ].map((x: any) => {
+          const active = r.data.active[
+              x.kind === "food" ? "foods" : "recipes"
+            ].some((a: any) => a.id === x.id),
+            archived = r.data.archives.some(
+              (a: any) => a.data.entityId === x.id,
+            );
+          return (
+            <details key={x.id}>
+              <summary>
+                {x.name} · {active ? "Current" : "Unavailable for new plans"}
+              </summary>
+              <p>{x.source}</p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void r.action(
+                    () =>
+                      api(
+                        `/nutrition/catalog/${x.kind}/${x.id}/archive`,
+                        "POST",
+                        { archived: !archived, reason: f.get("reason") },
+                      ),
+                    "Availability updated; requalify changed teaching before automatic delivery.",
+                  );
+                }}
+              >
+                <Field label="Reason">
+                  <input
+                    name="reason"
+                    required
+                    minLength={10}
+                    maxLength={1000}
+                  />
+                </Field>
+                <button className="button secondary" disabled={r.busy}>
+                  {archived
+                    ? "Remove archive restriction"
+                    : "Archive this version"}
+                </button>
+              </form>
+              <details>
+                <summary>Create a replacement version</summary>
+                {x.kind === "food" ? (
+                  <FoodForm
+                    initial={x}
+                    submit={(path, body) =>
+                      r.action(
+                        () =>
+                          api("/nutrition" + path, "POST", {
+                            ...body,
+                            supersedesId: x.id,
+                          }),
+                        "Replacement saved",
+                      )
+                    }
+                  />
+                ) : (
+                  <RecipeForm
+                    initial={x}
+                    foods={r.data.active.foods}
+                    submit={(path, body) =>
+                      r.action(
+                        () =>
+                          api("/nutrition" + path, "POST", {
+                            ...body,
+                            supersedesId: x.id,
+                          }),
+                        "Replacement saved",
+                      )
+                    }
+                  />
+                )}
+              </details>
+            </details>
+          );
+        })}
+    </Card>
   );
 }

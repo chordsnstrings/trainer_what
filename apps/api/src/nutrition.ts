@@ -1,3 +1,4 @@
+import { nutritionCompletionRoutes } from "./nutrition-completion.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { eraseMealCaptures } from "./meal-capture.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -109,10 +110,17 @@ async function permission(tx: Tx, userId: string, model = false) {
 }
 export async function nutritionCatalog(
   tx: Tx,
+  includeHistory = false,
 ): Promise<{ foods: Food[]; recipes: Recipe[] }> {
   const [f, r, o, i] = await Promise.all([
-    tx.query("SELECT * FROM nutrition_foods ORDER BY id"),
-    tx.query("SELECT * FROM nutrition_recipes ORDER BY id"),
+    tx.query(
+      `SELECT f.* FROM nutrition_foods f WHERE $1 OR (NOT EXISTS(SELECT 1 FROM nutrition_foods n WHERE n.supersedes_id=f.id) AND NOT EXISTS(SELECT 1 FROM records a WHERE a.kind='nutrition_catalog_archive' AND a.status='active' AND a.data->>'entityId'=f.id::text)) ORDER BY f.id`,
+      [includeHistory],
+    ),
+    tx.query(
+      `SELECT r.* FROM nutrition_recipes r WHERE $1 OR (NOT EXISTS(SELECT 1 FROM nutrition_recipes n WHERE n.supersedes_id=r.id) AND NOT EXISTS(SELECT 1 FROM records a WHERE a.kind='nutrition_catalog_archive' AND a.status='active' AND a.data->>'entityId'=r.id::text)) ORDER BY r.id`,
+      [includeHistory],
+    ),
     tx.query(
       "SELECT * FROM nutrition_recipe_options ORDER BY recipe_id,option_key",
     ),
@@ -131,29 +139,40 @@ export async function nutritionCatalog(
     estimated: x.estimated,
     source: x.source,
   })) as Food[];
-  const recipes = r.map((x) => ({
-    id: x.id,
-    name: x.name,
-    description: x.description,
-    dietTags: x.diet_tags,
-    slots: x.slots,
-    budget: x.budget,
-    yieldServings: Number(x.yield_servings),
-    source: x.source,
-    variants: o
-      .filter((v) => v.recipe_id === x.id)
-      .map((v) => ({
-        key: v.option_key,
-        name: v.name,
-        equipment: v.equipment,
-        minutes: v.minutes,
-        steps: v.steps,
-        storageNote: v.storage_note,
-        ingredients: i
-          .filter((a) => a.recipe_id === x.id && a.option_key === v.option_key)
-          .map((a) => ({ foodId: a.food_id, grams: Number(a.grams) })),
-      })),
-  })) as Recipe[];
+  const activeFoodIds = new Set(foods.map((f) => f.id));
+  const recipes = r
+    .filter(
+      (x) =>
+        includeHistory ||
+        i
+          .filter((a) => a.recipe_id === x.id)
+          .every((a) => activeFoodIds.has(a.food_id)),
+    )
+    .map((x) => ({
+      id: x.id,
+      name: x.name,
+      description: x.description,
+      dietTags: x.diet_tags,
+      slots: x.slots,
+      budget: x.budget,
+      yieldServings: Number(x.yield_servings),
+      source: x.source,
+      variants: o
+        .filter((v) => v.recipe_id === x.id)
+        .map((v) => ({
+          key: v.option_key,
+          name: v.name,
+          equipment: v.equipment,
+          minutes: v.minutes,
+          steps: v.steps,
+          storageNote: v.storage_note,
+          ingredients: i
+            .filter(
+              (a) => a.recipe_id === x.id && a.option_key === v.option_key,
+            )
+            .map((a) => ({ foodId: a.food_id, grams: Number(a.grams) })),
+        })),
+    })) as Recipe[];
   return { foods, recipes };
 }
 export async function nutritionMaterial(tx: Tx) {
@@ -251,13 +270,51 @@ export async function requireNutritionReady(tx: Tx) {
 }
 const weekInstruction =
   "Return {days:[{offset:0..6,meals:[{slot,recipeId,variantKey,servings,batchKey:null or shared preparation key}]}],caseIds:[confirmed coach case IDs],explanation}. Exactly seven days, every required slot each day. Choose only supplied recipe IDs/options, quarter-serving quantities inside policy limits, and ingredients compatible with the client. Respect daily calorie tolerance, diet, exclusions, budget, equipment, time and repeat limits. Shared batches must use the same recipe and option. Do not invent recipes or facts. Use the supplied targetKcal; no additional target calculation. If impossible, return no invented plan; the validator will route an exception.";
-async function generate(input: any, a: Actor, db: Database) {
+async function generate(
+  input: any,
+  a: Actor,
+  db: Database,
+  requestId?: string,
+) {
+  const accounting = modelAccounting(db, a, "nutrition_week");
+  const tracked = {
+    reserve: async (model: string) => {
+      await accounting.reserve(model);
+      if (requestId)
+        await db.tenant(internal(a), (tx) =>
+          tx
+            .query(
+              "UPDATE records SET data=data||'{\"providerState\":\"uncertain\"}'::jsonb WHERE id=$1 AND status='running'",
+              [requestId],
+            )
+            .then(() => undefined),
+        );
+    },
+    record: async (usage: Parameters<typeof accounting.record>[0]) => {
+      await accounting.record(usage);
+      if (
+        requestId &&
+        (usage.requestId || usage.input !== null || usage.output !== null)
+      )
+        await db.tenant(internal(a), (tx) =>
+          tx
+            .query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [
+              requestId,
+              JSON.stringify({
+                providerState: "responded",
+                providerReference: usage.requestId,
+              }),
+            ])
+            .then(() => undefined),
+        );
+    },
+  };
   return nutritionModel(
     "nutrition_week",
     weekInstruction,
     input,
     nutritionWeekSchema,
-    modelAccounting(db, a, "nutrition_week"),
+    tracked,
   );
 }
 function evidence(material: Awaited<ReturnType<typeof nutritionMaterial>>) {
@@ -384,6 +441,7 @@ export function nutritionRoutes(
     return a;
   };
   const prefix = "/api/v1/nutrition";
+  nutritionCompletionRoutes(app, db, identity, testing);
   app.get(prefix + "/coach", async (req) => {
     const a = coach(req);
     return db.tenant(a, async (tx) => {
@@ -579,6 +637,16 @@ export function nutritionRoutes(
         .strict()
         .parse(req.body);
     return db.tenant(a, async (tx) => {
+      await lock(tx, a);
+      if (b.supersedesId) {
+        const catalog = await nutritionCatalog(tx);
+        if (!catalog.foods.some((f) => f.id === b.supersedesId))
+          throw fail(
+            409,
+            "FOOD_VERSION",
+            "Replace a current active food version. Reload the library.",
+          );
+      }
       const fid = randomUUID();
       await tx.query(
         "INSERT INTO nutrition_foods(id,tenant_id,supersedes_id,name,preparation,nutrients,allergens,ingredient_tags,allergen_review_complete,estimated,source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
@@ -607,6 +675,35 @@ export function nutritionRoutes(
         .strict()
         .parse(req.body);
     return db.tenant(a, async (tx) => {
+      await lock(tx, a);
+      const catalog = await nutritionCatalog(tx);
+      if (
+        b.supersedesId &&
+        !catalog.recipes.some((r) => r.id === b.supersedesId)
+      ) {
+        const [prior] = await tx.query(
+          "SELECT id FROM nutrition_recipes r WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM nutrition_recipes n WHERE n.supersedes_id=r.id)",
+          [b.supersedesId],
+        );
+        if (!prior)
+          throw fail(
+            409,
+            "RECIPE_VERSION",
+            "Replace the latest recipe version.",
+          );
+      }
+      if (
+        b.recipe.variants.some((v) =>
+          v.ingredients.some(
+            (i) => !catalog.foods.some((f) => f.id === i.foodId),
+          ),
+        )
+      )
+        throw fail(
+          409,
+          "FOOD_VERSION",
+          "Recipes must use current active ingredient facts.",
+        );
       const rid = randomUUID(),
         r = b.recipe;
       await tx.query(
@@ -1535,15 +1632,26 @@ export async function prepareNutritionWeek(
         );
       if (prior.status === "completed")
         return { done: await find(tx, prior.data.planId, "nutrition_plan") };
-      return {
-        blocked: {
-          code: prior.data.code ?? "GENERATION_PENDING",
-          message:
-            prior.data.message ??
-            "This request is still running. Refresh to check its result.",
-        },
-      };
+      if (prior.status !== "retryable")
+        return {
+          blocked: {
+            code: prior.data.code ?? "GENERATION_PENDING",
+            message:
+              prior.data.message ??
+              "This request is still running. Refresh to check its result.",
+          },
+        };
     }
+    const [uncertain] = await tx.query(
+      "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status IN ('running','failed','closed') AND coalesce(data->>'providerState','uncertain')='uncertain' AND id<>coalesce($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid) LIMIT 1",
+      [a.userId, prior?.id ?? null],
+    );
+    if (uncertain)
+      throw fail(
+        409,
+        "PROVIDER_RECONCILIATION",
+        "A previous meal request may have reached the provider. Your coach must reconcile it before another paid request.",
+      );
     const r = await requireNutritionReady(tx),
       m = r.material;
     const [existing] = await tx.query(
@@ -1619,13 +1727,24 @@ export async function prepareNutritionWeek(
         }
       }
     }
-    const request = await putRecord(
-      tx,
-      a,
-      "nutrition_request",
-      { ...b, profileId: profile.id, releaseId: r.release!.id },
-      { ownerId: a.userId, status: "running" },
-    );
+    const requestData = {
+      ...b,
+      profileId: profile.id,
+      releaseId: r.release!.id,
+      providerState: "not_sent",
+      attempt: (prior?.data.attempt ?? 0) + 1,
+    };
+    const request = prior
+      ? (
+          await tx.query(
+            "UPDATE records SET status='running',data=$2,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [prior.id, JSON.stringify(requestData)],
+          )
+        )[0]
+      : await putRecord(tx, a, "nutrition_request", requestData, {
+          ownerId: a.userId,
+          status: "running",
+        });
     return {
       request,
       profile,
@@ -1659,6 +1778,7 @@ export async function prepareNutritionWeek(
       },
       a,
       db,
+      s.request.id,
     );
     const view = validateNutritionWeek({
       week,

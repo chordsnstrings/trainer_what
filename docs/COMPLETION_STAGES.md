@@ -12,7 +12,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 
 | Area | State | Next acceptance |
 | --- | --- | --- |
-| Recovery and ownership | In progress | Restore saved baseline; durable stage checkpoint |
+| Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
 | Workout coaching | In progress | Safety-hold lifecycle and governed automatic actions; scheduled logging |
 | Nutrition | In progress | Current facts and safe week recovery; individual targets, plan editor and diary |
 | Billing and finance | In progress | Servicing/idempotency; billing history, statements, reconciliation and paid bookings |
@@ -26,3 +26,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 ## Evidence
 
 This file is updated with actual stage evidence as work completes. No unfinished row is a claim of delivery.
+
+### Nutrition stage 1
+
+Current food/recipe versions and safe weekly recovery are implemented. Sixteen focused tests passed (14 existing, two new), covering supersession, isolation, unsent versus uncertain dispatch, audit and stale recovery. This is fixture qualification; real model qualification remains open. See NUTRITION_COMPLETION_HANDOFF.md.

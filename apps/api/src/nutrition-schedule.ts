@@ -36,6 +36,11 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
       );
       if (permissions.length !== 2 || permissions.some((p) => !p.granted))
         continue;
+      const [uncertain] = await tx.query(
+        "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status IN ('running','failed','closed') AND coalesce(data->>'providerState','uncertain')='uncertain' LIMIT 1",
+        [profile.owner_user_id],
+      );
+      if (uncertain) continue;
       const today = localDate(profile.data.profile.timezone);
       const [release] = await tx.query(
         "SELECT id FROM records WHERE kind='nutrition_release' AND status='published'",
