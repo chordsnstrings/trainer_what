@@ -34,6 +34,7 @@ import {
 import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
+import { registerSupportPreview } from "./support-preview.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import {
   registerFinanceBilling,
@@ -411,6 +412,7 @@ export async function buildApp(
   registerFinanceAutomation(app, db);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerSupportPreview(app, db, identity);
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);

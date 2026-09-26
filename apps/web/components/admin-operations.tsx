@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { SupportPreview, SupportPreviewLaunch } from "./support-preview";
 
 const titles: Record<string, string> = {
   trainers: "Trainer workspaces",
@@ -113,6 +114,17 @@ export function TrainerAnalytics() {
   );
 }
 export function AdminOperations({
+  path,
+  platformRole,
+}: {
+  path: string;
+  platformRole: string;
+}) {
+  const preview = path.match(/^\/admin\/support\/preview\/([0-9a-f-]{36})$/i);
+  if (preview) return <SupportPreview grantId={preview[1]} />;
+  return <AdminOperationsWorkbench path={path} platformRole={platformRole} />;
+}
+function AdminOperationsWorkbench({
   path,
   platformRole,
 }: {
@@ -403,6 +415,12 @@ export function AdminOperations({
                     macros={data.macros}
                     busy={busy}
                     act={act}
+                  />
+                  <SupportPreviewLaunch
+                    tenantId={r.tenant_id}
+                    caseId={r.id}
+                    caseRevision={r.version}
+                    open={r.status === "open"}
                   />
                 </details>
               ))}

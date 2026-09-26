@@ -2,7 +2,7 @@
 
 Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
 
-Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Scheduled coaching follow-ups are completed. Current Twin/compiler source coverage is completed. Temporary read-only support access, infrastructure status, structured correction-to-teaching and lifecycle messages are being connected. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
+Active continuation: Checkout, onboarding readiness, notifications and private chat attachments are completed. Trainer website/gallery integration is completed; consented acquisition and coaching capacity/history hardening are completed. Former-owner media privacy is completed. Scheduled coaching follow-ups are completed. Current Twin/compiler source coverage is completed. Temporary read-only support access is connected. Infrastructure status, structured correction-to-teaching and lifecycle messages remain in progress. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -116,7 +116,7 @@ Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite
 ## Completion order for Claude
 
 1. Finish the assigned app features; notification settings and former-owner media erasure are completed.
-2. Finish the assigned app slices: case-bound read-only support preview, observe-only infrastructure, structured correction-to-teaching and lifecycle messages. Scheduled coaching follow-ups are completed.
+2. Finish the assigned app slices: observe-only infrastructure, structured correction-to-teaching and lifecycle messages. Temporary read-only support preview is connected. Scheduled coaching follow-ups are completed.
 3. Browser harness updates are saved; leave execution to the deferred review queue. Each implemented feature still needs essential checks and its own handoff/commit.
 4. Keep broad review and exact-tree release qualification in the deferred queue below, per the owner's latest instruction. Do not stop feature completion to perform another review sweep.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -209,3 +209,9 @@ Conversation screens now support private coach-authored drafts, explicit reviewe
 Current intake and active safety holds are fetched separately from bounded histories, so older current facts cannot be evicted by busy workout history. Set corrections retain their latest applicable revision; bounded histories expose actual overflow and retain tenant/rights filtering. Compilation sends all selected reviewed text within explicit 20-source, 60,000-character-per-source and 120,000-total bounds; invalid selections fail before paid dispatch. The UI explicitly selects sources instead of silently taking the first20, and displays supplied-input counts/notice. Exact source hashes/versions/character coverage persist in draft rules and audit and return from the real endpoint; this does not claim every instruction becomes a rule.
 
 Five new checks (including assembled compilation) and three selected existing Twin/model-accounting checks passed. TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Richer outcome-based retrieval and model extraction quality remain deferred source/quality review items; no model-weight training is claimed.
+
+### 26 September — Temporary support preview completed
+
+Support operators can start a case-bound, session-bound preview with fresh MFA and an explicit reason, for at most15 minutes. It retains the real operator identity and only projects account identity, access state and connection status; no health/payment secrets or target cookies are exposed. Every read rechecks current roles/session/case/target/workspace; visible expiry/banner/Stop controls and operator-attributed audit accompany the preview. Target mutations are denied. The actual app registration and support workbench links are connected. Migration031 and narrow runtime grants are included.
+
+Seven focused support checks, strict component/module TypeScript and diff checks passed. The connected whole-tree TypeScript run also passed after explicitly typing the source-coverage test fixture. Commit: the stage commit containing this entry. Browser/real PostgreSQL and privacy-retention/access-history review are deferred. Reproducing sensitive screens or elevating target mutations is additional implementation, not claimed by this safe preview.

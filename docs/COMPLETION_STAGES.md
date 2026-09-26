@@ -16,7 +16,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete correction feedback; source coverage is connected and broad review is deferred |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
-| Administration and team | Scoped views, publication, team, ingestion and consented acquisition committed | Temporary support preview and remaining source-scope review |
+| Administration and team | Scoped views, publication, team, ingestion, acquisition and temporary support preview connected | Infrastructure status completion; deferred review |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
 | Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
 | Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
@@ -144,3 +144,7 @@ Added private scheduling/rescheduling/canceling and history to actual conversati
 ### Current Twin facts and complete compilation input
 
 Current profiles/active holds now survive bounded history queries and retain lineage; current corrections and history overflow are explicit. Compiler input is sent in full within visible limits, with explicit source selection and persisted/returned coverage. Five new checks, three selected existing Twin/model-accounting checks, TypeScript and diff checks passed. Includes a real authenticated /brain/compile regression. No migration; quality/source review is deferred and the root handoff is updated.
+
+### Temporary support preview completed
+
+Added case/session-bound read-only account/access/connection previews with fresh MFA, reason,15-minute expiry, visible Stop/banner, repeated authority checks and real-operator audit. App registration and support links are connected; migration031 has narrow system grants. Seven focused tests, strict TypeScript and diff checks passed. Sensitive view reproduction/write elevation are not implemented; browser/PostgreSQL/retention review is deferred explicitly in the handoff.

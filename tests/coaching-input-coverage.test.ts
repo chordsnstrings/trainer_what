@@ -432,7 +432,7 @@ test("assembled compilation returns and persists exact coverage while sending co
     "Stop progression when movement causes pain and request trainer review.",
     "Schedule a recovery day after three consecutive training days.",
   ];
-  const sources = [];
+  const sources: Array<{ id: string; text: string }> = [];
   for (const tail of tails) {
     const text =
       "Reviewed source context. ".repeat(2600).slice(0, 60000 - tail.length) +
