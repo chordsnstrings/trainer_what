@@ -1,3 +1,13 @@
+import { legalAcceptanceVersion } from "./legal.ts";
+import {
+  captureTotals,
+  capturedFoodSchema,
+} from "../../../packages/providers/src/food.ts";
+import {
+  consumedNutrition,
+  groceryPurchases,
+  mealNutrientsSchema,
+} from "../../../packages/domain/src/nutrition-completion.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
 import { validateClientTargets } from "../../../packages/domain/src/nutrition-completion.ts";
 import {
@@ -407,6 +417,17 @@ export async function nutritionTwin(tx: Tx, a: Actor, userId: string) {
     ...nutritionSummary(logs as any, checkins as any, profile, allowed),
     profileCapturedAt: allowed ? (profile?.created_at ?? null) : null,
     partialInput: logs.length === 3000,
+    consumed: allowed
+      ? consumedNutrition(
+          logs as any,
+          (await tx.query(
+            "SELECT * FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' ORDER BY created_at DESC LIMIT 12",
+            [userId],
+          )) as any,
+          checkins as any,
+          localDate(profile?.data.profile.timezone ?? "Asia/Dubai"),
+        )
+      : null,
   };
 }
 
@@ -1210,8 +1231,13 @@ function subscriberRoutes(
         })
         .strict()
         .parse(req.body);
+    const [nutritionVersion, modelVersion] = await Promise.all([
+      legalAcceptanceVersion(db, "nutrition"),
+      legalAcceptanceVersion(db, "nutrition_model"),
+    ]);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       const old = await latest(tx, "nutrition_profile", a.userId);
       if ((old?.version ?? 0) !== b.version)
@@ -1225,8 +1251,15 @@ function subscriberRoutes(
         ["nutrition_model", b.modelConsent],
       ] as const)
         await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,'nutrition-v1',$5)",
-          [randomUUID(), a.tenantId, a.userId, type, granted],
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
+          [
+            randomUUID(),
+            a.tenantId,
+            a.userId,
+            type,
+            type === "nutrition" ? nutritionVersion : modelVersion,
+            granted,
+          ],
         );
       if (!b.modelConsent) await eraseMealCaptures(tx, a.userId);
       const r = await putRecord(
@@ -1308,6 +1341,7 @@ function subscriberRoutes(
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       await permission(tx, a.userId);
       const old = await find(tx, (req.params as any).id, "nutrition_plan");
@@ -1423,11 +1457,15 @@ function subscriberRoutes(
           slot: z.string().max(50).optional(),
           correctsId: id.optional(),
           deleted: z.boolean().default(false),
+          nutrients: mealNutrientsSchema.optional(),
+          items: z.array(capturedFoodSchema).min(1).max(12).optional(),
+          portionLabel: z.string().max(200).optional(),
         })
         .strict()
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       await permission(tx, a.userId);
       const fingerprint = hash(b),
@@ -1485,12 +1523,34 @@ function subscriberRoutes(
             "Choose a meal from the indicated plan and date.",
           );
       }
+      const nutrients = b.items
+        ? captureTotals(b.items)
+        : (b.nutrients ??
+          (snapshot?.nutrients
+            ? { ...snapshot.nutrients, kcal: b.kcal }
+            : { kcal: b.kcal, protein: null, carbohydrate: null, fat: null }));
+      if (
+        (b.items && nutrients.kcal !== b.kcal) ||
+        (b.nutrients && b.nutrients.kcal !== b.kcal)
+      )
+        throw fail(
+          400,
+          "MEAL_TOTAL",
+          "Calories must match the confirmed food/portion totals",
+        );
+      if (nutrients.kcal !== null && nutrients.kcal > 10000)
+        throw fail(
+          400,
+          "MEAL_TOTAL",
+          "The recorded meal exceeds the supported calorie range",
+        );
       const r = await putRecord(
         tx,
         a,
         "nutrition_log",
         {
           ...b,
+          nutrients,
           fingerprint,
           mealSnapshot: snapshot,
           source: snapshot ? "plan_with_user_confirmation" : "user_estimate",
@@ -1517,6 +1577,7 @@ function subscriberRoutes(
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       await permission(tx, a.userId);
       const [old] = await tx.query(
@@ -1586,10 +1647,35 @@ function subscriberRoutes(
           .replace(/^[=+@-]/, "'")
           .replaceAll('"', '""') +
         '"';
+      const specs = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_purchase_spec' AND status='active' ORDER BY created_at DESC",
+        ),
+        inventory = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_leftover' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 300",
+          [a.userId],
+        ),
+        profile = await latest(tx, "nutrition_profile", a.userId);
+      const items = groceryPurchases(
+        plan.data.view.groceries,
+        specs as any,
+        inventory as any,
+        localDate(profile?.data.profile.timezone ?? "Asia/Dubai"),
+        plan.data.view.days,
+      );
       return [
-        "Ingredient,Preparation,Grams",
-        ...plan.data.view.groceries.map((g: any) =>
-          [quote(g.food.name), quote(g.food.preparation), g.grams].join(","),
+        "Ingredient,Preparation,Recipe grams,Available grams,Remaining recipe grams,Purchase grams,Whole packs,Purchased grams,Conversion source",
+        ...items.map((g: any) =>
+          [
+            quote(g.food.name),
+            quote(g.food.preparation),
+            g.grams,
+            g.availableGrams,
+            g.remainingGrams,
+            g.purchaseGrams ?? "",
+            g.packs ?? "",
+            g.purchasedGrams ?? "",
+            quote(g.conversionSource ?? ""),
+          ].join(","),
         ),
       ].join("\n");
     });
@@ -1610,6 +1696,7 @@ export async function prepareNutritionWeek(
 ) {
   const initial = await db.tenant(internal(a), async (tx) => {
     await lock(tx, a, a.userId);
+    await member(tx, a, a.userId);
     await entitled(tx, a.userId);
     const permissions = await permission(tx, a.userId, true),
       profile = await latest(tx, "nutrition_profile", a.userId);
@@ -1772,6 +1859,7 @@ export async function prepareNutritionWeek(
       targetKcal,
       adjustmentEvidence,
       individualTarget,
+      nutritionContext: await nutritionTwin(tx, a, a.userId),
     };
   });
   if (initial.done) return { plan: initial.done, reused: true };
@@ -1787,6 +1875,7 @@ export async function prepareNutritionWeek(
       | "targetKcal"
       | "adjustmentEvidence"
       | "individualTarget"
+      | "nutritionContext"
     >
   >;
   try {
@@ -1796,6 +1885,7 @@ export async function prepareNutritionWeek(
         profile: s.profile.data.profile,
         targetKcal: s.targetKcal,
         individualTarget: s.individualTarget.details,
+        recordedIntakeContext: s.nutritionContext,
       },
       a,
       db,
@@ -1814,6 +1904,7 @@ export async function prepareNutritionWeek(
     validateClientTargets(view, s.individualTarget.details);
     return await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       const now = await permission(tx, a.userId, true),
         profile = await latest(tx, "nutrition_profile", a.userId),

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -18,6 +18,9 @@ import {
   nutritionTargetSchema,
   calculateCoachTarget,
   validateClientTargets,
+  consumedNutrition,
+  purchaseSpecSchema,
+  groceryPurchases,
 } from "../../../packages/domain/src/nutrition-completion.ts";
 import {
   localDate,
@@ -111,6 +114,325 @@ export function nutritionCompletionRoutes(
       throw fail(403, "OWNER_REQUIRED", "Coach owner access required");
     return a;
   };
+  const client = (req: FastifyRequest) => {
+    const a = identity(req);
+    if (a.role !== "subscriber")
+      throw fail(403, "SUBSCRIBER_REQUIRED", "Use your own client account");
+    return a;
+  };
+  const internal = (a: Actor) => ({ ...a, role: "owner" });
+  async function clientWrite(tx: Tx, a: Actor) {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      a.tenantId + ":nutrition:" + a.userId,
+    ]);
+    const p = await clientContext(tx, a, a.userId);
+    if (!(await nutritionEntitlement(tx, a.userId)))
+      throw fail(
+        402,
+        "NUTRITION_MEMBERSHIP",
+        "Workout + nutrition membership is required",
+      );
+    return p;
+  }
+  app.get("/api/v1/nutrition/tracker", async (req) => {
+    const a = identity(req);
+    if (!["owner", "staff", "subscriber"].includes(a.role))
+      throw fail(403, "NUTRITION_ACCESS", "Nutrition access denied");
+    const uid =
+      a.role === "subscriber" ? a.userId : id.parse((req.query as any).userId);
+    return db.tenant(internal(a), async (tx) => {
+      const p = await clientContext(tx, a, uid),
+        logs = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_log' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 3000",
+          [uid],
+        ),
+        plans = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' ORDER BY created_at DESC LIMIT 12",
+          [uid],
+        ),
+        checkins = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_checkin' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 100",
+          [uid],
+        );
+      return {
+        ...consumedNutrition(
+          logs as any,
+          plans as any,
+          checkins as any,
+          localDate(p.data.profile.timezone),
+        ),
+        partialInput: logs.length === 3000,
+      };
+    });
+  });
+  app.get("/api/v1/nutrition/favorites", async (req) => {
+    const a = client(req);
+    return db.tenant(internal(a), async (tx) => {
+      await clientContext(tx, a, a.userId);
+      return tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_favorite' AND status='saved' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 100",
+        [a.userId],
+      );
+    });
+  });
+  app.post("/api/v1/nutrition/favorites", async (req) => {
+    const a = client(req),
+      b = z.object({ logId: id }).strict().parse(req.body);
+    return db.tenant(internal(a), async (tx) => {
+      await clientWrite(tx, a);
+      const [log] = await tx.query(
+        "SELECT * FROM records WHERE id=$1 AND kind='nutrition_log' AND owner_user_id=$2 AND coalesce(data->>'deleted','false')='false' AND NOT EXISTS(SELECT 1 FROM records c WHERE c.kind='nutrition_log' AND c.data->>'correctsId'=$1::text)",
+        [b.logId, a.userId],
+      );
+      if (!log) throw fail(404, "NOT_FOUND", "Choose a current recorded meal");
+      const [prior] = await tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_favorite' AND owner_user_id=$1 AND status='saved' AND data->>'sourceLogId'=$2",
+        [a.userId, log.id],
+      );
+      if (prior) return prior;
+      return putRecord(
+        tx,
+        a,
+        "nutrition_favorite",
+        { sourceLogId: log.id, snapshot: log.data, allowedUses: ["render"] },
+        { ownerId: a.userId, status: "saved" },
+      );
+    });
+  });
+  app.delete("/api/v1/nutrition/favorites/:id", async (req) => {
+    const a = client(req),
+      fid = id.parse((req.params as any).id);
+    return db.tenant(internal(a), async (tx) => {
+      await clientContext(tx, a, a.userId);
+      const rows = await tx.query(
+        "UPDATE records SET status='removed' WHERE id=$1 AND kind='nutrition_favorite' AND owner_user_id=$2 RETURNING id",
+        [fid, a.userId],
+      );
+      if (!rows.length) throw fail(404, "NOT_FOUND", "Saved meal unavailable");
+      return { removed: true };
+    });
+  });
+  async function copyMeal(
+    req: FastifyRequest,
+    kind: "nutrition_log" | "nutrition_favorite",
+  ) {
+    const a = client(req),
+      sourceId = id.parse((req.params as any).id),
+      b = z
+        .object({ eventKey: id, date: z.iso.date() })
+        .strict()
+        .parse(req.body);
+    return db.tenant(internal(a), async (tx) => {
+      const profile = await clientWrite(tx, a),
+        fingerprint = createHash("sha256")
+          .update(JSON.stringify({ sourceId, kind, ...b }))
+          .digest("hex");
+      const [prior] = await tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_log' AND owner_user_id=$1 AND data->>'eventKey'=$2",
+        [a.userId, b.eventKey],
+      );
+      if (prior) {
+        if (prior.data.fingerprint !== fingerprint)
+          throw fail(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "This saved meal differs from its retry",
+          );
+        return prior;
+      }
+      if (b.date > localDate(profile.data.profile.timezone))
+        throw fail(400, "LOG_DATE", "A recorded meal cannot be in the future");
+      const [source] = await tx.query(
+        "SELECT * FROM records WHERE id=$1 AND kind=$2 AND owner_user_id=$3",
+        [sourceId, kind, a.userId],
+      );
+      if (
+        !source ||
+        source.data.deleted ||
+        (kind === "nutrition_favorite" && source.status !== "saved")
+      )
+        throw fail(404, "NOT_FOUND", "Meal source unavailable");
+      if (kind === "nutrition_log") {
+        const [replacement] = await tx.query(
+          "SELECT id FROM records WHERE kind='nutrition_log' AND data->>'correctsId'=$1",
+          [source.id],
+        );
+        if (replacement)
+          throw fail(409, "LOG_CHANGED", "Copy the latest corrected meal");
+      }
+      const data =
+        kind === "nutrition_log" ? source.data : source.data.snapshot;
+      const r = await putRecord(
+        tx,
+        a,
+        "nutrition_log",
+        {
+          eventKey: b.eventKey,
+          date: b.date,
+          timezone: profile.data.profile.timezone,
+          name: data.name,
+          notes: data.notes ?? "",
+          kcal: data.kcal,
+          nutrients: data.nutrients ?? data.mealSnapshot?.nutrients ?? null,
+          items: data.items ?? null,
+          portionLabel: data.portionLabel ?? null,
+          deleted: false,
+          fingerprint,
+          source: "copied_with_user_confirmation",
+          copiedFrom: source.id,
+          allowedUses: ["render", "model_prompt"],
+        },
+        { ownerId: a.userId, status: "recorded" },
+      );
+      await event(tx, a, "nutrition.meal_copied", r.id);
+      return r;
+    });
+  }
+  app.post("/api/v1/nutrition/logs/:id/copy", (req) =>
+    copyMeal(req, "nutrition_log"),
+  );
+  app.post("/api/v1/nutrition/favorites/:id/log", (req) =>
+    copyMeal(req, "nutrition_favorite"),
+  );
+  app.get("/api/v1/nutrition/purchase-specs", async (req) => {
+    const a = owner(req);
+    return db.tenant(a, async (tx) => ({
+      foods: (await nutritionCatalog(tx)).foods,
+      specs: await tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_purchase_spec' AND status='active' ORDER BY created_at DESC",
+      ),
+    }));
+  });
+  app.post("/api/v1/nutrition/purchase-specs", async (req) => {
+    const a = owner(req),
+      b = purchaseSpecSchema.parse(req.body);
+    return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":nutrition:setup",
+      ]);
+      if (!(await nutritionCatalog(tx)).foods.some((f) => f.id === b.foodId))
+        throw fail(404, "FOOD_VERSION", "Choose a current ingredient");
+      await tx.query(
+        "UPDATE records SET status='archived' WHERE kind='nutrition_purchase_spec' AND status='active' AND data->>'foodId'=$1",
+        [b.foodId],
+      );
+      const r = await putRecord(tx, a, "nutrition_purchase_spec", b, {
+        status: "active",
+      });
+      await event(tx, a, "nutrition.purchase_conversion_saved", r.id);
+      return r;
+    });
+  });
+  app.get("/api/v1/nutrition/shopping/:id", async (req) => {
+    const a = identity(req);
+    if (!["subscriber", "owner", "staff"].includes(a.role))
+      throw fail(403, "NUTRITION_ACCESS", "Nutrition access denied");
+    const planId = id.parse((req.params as any).id);
+    return db.tenant(internal(a), async (tx) => {
+      const [plan] = await tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_plan' AND id=$1",
+        [planId],
+      );
+      if (!plan || (a.role === "subscriber" && plan.owner_user_id !== a.userId))
+        throw fail(404, "NOT_FOUND", "Grocery list unavailable");
+      const profile = await clientContext(tx, a, plan.owner_user_id),
+        specs = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_purchase_spec' AND status='active' ORDER BY created_at DESC",
+        ),
+        inventory = await tx.query(
+          "SELECT * FROM records WHERE kind='nutrition_leftover' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 300",
+          [plan.owner_user_id],
+        );
+      return {
+        items: groceryPurchases(
+          plan.data.view.groceries,
+          specs as any,
+          inventory as any,
+          localDate(profile.data.profile.timezone),
+          plan.data.view.days,
+        ),
+        inventory,
+        today: localDate(profile.data.profile.timezone),
+      };
+    });
+  });
+  app.post("/api/v1/nutrition/leftovers", async (req) => {
+    const a = client(req),
+      b = z
+        .object({
+          eventKey: id,
+          foodId: id,
+          grams: z.number().positive().max(100000),
+          useBy: z.iso.date(),
+          notes: z.string().max(1000),
+          confirmedStorage: z.literal(true),
+        })
+        .strict()
+        .parse(req.body);
+    return db.tenant(internal(a), async (tx) => {
+      const profile = await clientWrite(tx, a),
+        today = localDate(profile.data.profile.timezone);
+      if (b.useBy < today || b.useBy > dateOffset(today, 90))
+        throw fail(
+          400,
+          "INVENTORY_DATE",
+          "Use a current date within ninety days, following actual product storage instructions",
+        );
+      const [prior] = await tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_leftover' AND owner_user_id=$1 AND data->>'eventKey'=$2",
+        [a.userId, b.eventKey],
+      );
+      if (prior) {
+        if (
+          prior.data.fingerprint !==
+          createHash("sha256").update(JSON.stringify(b)).digest("hex")
+        )
+          throw fail(409, "IDEMPOTENCY_CONFLICT", "Inventory retry differs");
+        return prior;
+      }
+      const food = (await nutritionCatalog(tx)).foods.find(
+        (f) => f.id === b.foodId,
+      );
+      if (!food)
+        throw fail(
+          404,
+          "FOOD_VERSION",
+          "Choose a current ingredient in the same prepared state",
+        );
+      return putRecord(
+        tx,
+        a,
+        "nutrition_leftover",
+        {
+          ...b,
+          fingerprint: createHash("sha256")
+            .update(JSON.stringify(b))
+            .digest("hex"),
+          food,
+          allowedUses: ["render", "model_prompt"],
+        },
+        { ownerId: a.userId, status: "available" },
+      );
+    });
+  });
+  app.post("/api/v1/nutrition/leftovers/:id/remove", async (req) => {
+    const a = client(req),
+      lid = id.parse((req.params as any).id);
+    return db.tenant(internal(a), async (tx) => {
+      await clientContext(tx, a, a.userId);
+      const rows = await tx.query(
+        "UPDATE records SET status='used' WHERE id=$1 AND kind='nutrition_leftover' AND owner_user_id=$2 AND status='available' RETURNING id",
+        [lid, a.userId],
+      );
+      if (!rows.length)
+        throw fail(
+          409,
+          "INVENTORY_CHANGED",
+          "This available portion changed; refresh the list",
+        );
+      return { removed: true };
+    });
+  });
   app.get("/api/v1/nutrition/methods", async (req) => {
     const a = owner(req);
     return db.tenant(a, (tx) =>

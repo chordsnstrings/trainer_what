@@ -14,8 +14,11 @@ import { clientNutritionTarget } from "../apps/api/src/nutrition-completion.ts";
 import {
   calculateCoachTarget,
   validateClientTargets,
+  scaleCapturedPortion,
+  groceryPurchases,
+  consumedNutrition,
 } from "../packages/domain/src/nutrition-completion.ts";
-import { localDate } from "../packages/domain/src/nutrition.ts";
+import { localDate, dateOffset } from "../packages/domain/src/nutrition.ts";
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
   owner: any,
@@ -469,4 +472,228 @@ test("coach assignment and amendment validate full week and preserve immutable h
     current.plans.some((p: any) => p.status === "delivered"),
     false,
   );
+});
+
+test("diary totals respect corrections and unknown macros; favorites and copy retain portion evidence once", async () => {
+  const today = localDate(fixtureProfile.timezone),
+    base = {
+      eventKey: randomUUID(),
+      date: today,
+      timezone: fixtureProfile.timezone,
+      name: "Recorded synthetic meal",
+      notes: "Arithmetic fixture",
+      kcal: 300,
+      nutrients: { kcal: 300, protein: 10, carbohydrate: 40, fat: 5 },
+    };
+  const log = await ok("/nutrition/logs", "POST", base, client);
+  await ok(
+    "/nutrition/logs",
+    "POST",
+    {
+      ...base,
+      eventKey: randomUUID(),
+      name: "Partly known meal",
+      kcal: null,
+      nutrients: { kcal: null, protein: null, carbohydrate: null, fat: null },
+    },
+    client,
+  );
+  let tracker = await ok("/nutrition/tracker", "GET", undefined, client),
+    day = tracker.days.at(-1);
+  assert.equal(day.totals.kcal, null);
+  assert.equal(day.knownTotals.kcal, 300);
+  assert.equal(day.unknown.kcal, 1);
+  assert.equal(tracker.days[0].totals.kcal, null);
+  const correction = await ok(
+    "/nutrition/logs",
+    "POST",
+    {
+      ...base,
+      eventKey: randomUUID(),
+      correctsId: log.id,
+      kcal: 350,
+      nutrients: { ...base.nutrients, kcal: 350 },
+    },
+    client,
+  );
+  tracker = await ok("/nutrition/tracker", "GET", undefined, client);
+  assert.equal(tracker.days.at(-1).meals, 2);
+  assert.equal(tracker.days.at(-1).knownTotals.kcal, 350);
+  const favorite = await ok(
+    "/nutrition/favorites",
+    "POST",
+    { logId: correction.id },
+    client,
+  );
+  assert.equal(
+    (await ok("/nutrition/favorites", "POST", { logId: correction.id }, client))
+      .id,
+    favorite.id,
+  );
+  const copy = { eventKey: randomUUID(), date: today },
+    recorded = await ok(
+      `/nutrition/favorites/${favorite.id}/log`,
+      "POST",
+      copy,
+      client,
+    );
+  assert.equal(
+    (await ok(`/nutrition/favorites/${favorite.id}/log`, "POST", copy, client))
+      .id,
+    recorded.id,
+  );
+  assert.equal(recorded.data.nutrients.protein, 10);
+  assert.equal(
+    (
+      await req(
+        `/nutrition/logs/${log.id}/copy`,
+        "POST",
+        { eventKey: randomUUID(), date: today },
+        client,
+      )
+    ).statusCode,
+    409,
+  );
+  await ok(`/nutrition/favorites/${favorite.id}`, "DELETE", undefined, client);
+  assert.equal(
+    (await ok("/nutrition/favorites", "GET", undefined, client)).length,
+    0,
+  );
+  tracker = await ok("/nutrition/tracker", "GET", undefined, client);
+  assert.equal(tracker.days.at(-1).knownTotals.kcal, 700);
+});
+test("purchase conversions round packs after deducting correctly prepared inventory", async () => {
+  const plan = await ok(`/nutrition/clients/${client.userId}/plan`, "POST", {
+    weekStart: localDate(fixtureProfile.timezone),
+    profileId: profile.id,
+    previousId: null,
+    previousVersion: null,
+    week: fixtureWeek(
+      recipeVersions,
+      taught.map((c) => c.id),
+    ),
+    reason: "Shopping arithmetic fixture for current plan",
+  });
+  const foodId = recipeVersions[0].variants[0].ingredients[0].foodId;
+  await ok("/nutrition/purchase-specs", "POST", {
+    foodId,
+    purchaseGramsPerEdibleGram: 0.5,
+    packGrams: 600,
+    label: "Synthetic 600g pack",
+    source: "Synthetic conversion fixture only",
+  });
+  const inventory = {
+      eventKey: randomUUID(),
+      foodId,
+      grams: 500,
+      useBy: dateOffset(localDate(fixtureProfile.timezone), 1),
+      notes: "Synthetic stored portion",
+      confirmedStorage: true,
+    },
+    saved = await ok("/nutrition/leftovers", "POST", inventory, client);
+  assert.equal(
+    (await ok("/nutrition/leftovers", "POST", inventory, client)).id,
+    saved.id,
+  );
+  let shopping = await ok(
+      `/nutrition/shopping/${plan.id}`,
+      "GET",
+      undefined,
+      client,
+    ),
+    item = shopping.items.find((x: any) => x.food.id === foodId);
+  assert.equal(item.grams, 2800);
+  assert.equal(item.availableGrams, 500);
+  assert.equal(item.purchaseGrams, 1150);
+  assert.equal(item.packs, 2);
+  assert.equal(item.purchasedGrams, 1200);
+  await ok(`/nutrition/leftovers/${saved.id}/remove`, "POST", {}, client);
+  shopping = await ok(
+    `/nutrition/shopping/${plan.id}`,
+    "GET",
+    undefined,
+    client,
+  );
+  assert.equal(shopping.items.find((x: any) => x.food.id === foodId).packs, 3);
+  const expired = groceryPurchases(
+    [{ food: { id: foodId }, grams: 10 }],
+    [],
+    [{ status: "available", data: { foodId, grams: 20, useBy: "2000-01-01" } }],
+    localDate(fixtureProfile.timezone),
+  );
+  assert.equal(expired[0].availableGrams, 0);
+  assert.equal(expired[0].purchaseGrams, null);
+});
+test("photo quantity scaling preserves unknowns and verified ingredient grounding keeps provenance", async () => {
+  const item = {
+    name: "Synthetic bowl",
+    portion: "150g",
+    amount: 150,
+    unit: "g" as const,
+    kcal: 195,
+    protein: null,
+    carbohydrate: 40,
+    fat: 2,
+    preparation: "cooked" as const,
+    uncertainty: "Uncertain photo estimate",
+  };
+  const scaled = scaleCapturedPortion(item, 300);
+  assert.equal(scaled.kcal, 390);
+  assert.equal(scaled.protein, null);
+  assert.equal(scaleCapturedPortion(item, 150, "ml").kcal, null);
+  const captureId = randomUUID();
+  await db.tenant(owner, async (tx) => {
+    for (const type of ["nutrition_model", "nutrition_photo"])
+      await tx.query(
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,'synthetic-test',true)",
+        [randomUUID(), owner.tenantId, client.userId, type],
+      );
+    await tx.query(
+      "INSERT INTO meal_captures(id,tenant_id,user_id,request_key,fingerprint,kind,status,data) VALUES($1,$2,$3,$4,'synthetic','photo','draft',$5)",
+      [
+        captureId,
+        owner.tenantId,
+        client.userId,
+        randomUUID(),
+        JSON.stringify({
+          estimate: { items: [item], questions: [], notes: "Synthetic draft" },
+        }),
+      ],
+    );
+  });
+  const foodId = recipeVersions[0].variants[0].ingredients[0].foodId,
+    grounded = await ok(
+      `/nutrition/captures/${captureId}/ground`,
+      "POST",
+      { index: 0, foodId, grams: 350 },
+      client,
+    );
+  assert.equal(grounded.data.estimate.items[0].kcal, 350);
+  assert.equal(grounded.data.originalEstimate.items[0].kcal, 195);
+  assert.equal(grounded.data.groundedFacts[0].food.id, foodId);
+  const log = await ok(
+    `/nutrition/captures/${captureId}/confirm`,
+    "POST",
+    {
+      eventKey: randomUUID(),
+      date: localDate(fixtureProfile.timezone),
+      timezone: fixtureProfile.timezone,
+      name: "Confirmed grounded synthetic meal",
+      notes: "",
+      items: grounded.data.estimate.items,
+      confirmed: true,
+    },
+    client,
+  );
+  assert.equal(log.data.provenance.groundedFacts[0].food.id, foodId);
+  assert.equal(log.data.kcal, 350);
+  await ok(
+    "/privacy/consent",
+    "POST",
+    { type: "nutrition_photo", granted: false },
+    client,
+  );
+  const state = await ok("/nutrition/captures", "GET", undefined, client);
+  assert.equal(state.photoConsent, false);
+  assert.equal(state.processingConsent, true);
 });

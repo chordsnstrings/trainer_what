@@ -1,3 +1,5 @@
+import { legalAcceptanceVersion } from "./legal.ts";
+import { nutritionCatalog } from "./nutrition.ts";
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { z } from "zod";
@@ -42,6 +44,16 @@ async function consent(tx: Tx, userId: string, type: string) {
   return r ?? { id: null, granted: false };
 }
 async function permission(tx: Tx, a: Actor, photo = false) {
+  const [membership] = await tx.query(
+    "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
+    [a.tenantId, a.userId],
+  );
+  if (!membership)
+    throw fail(
+      403,
+      "MEMBERSHIP_REMOVED",
+      "This nutrition membership is no longer available",
+    );
   if (!(await nutritionEntitlement(tx, a.userId)))
     throw fail(
       402,
@@ -229,6 +241,10 @@ export function mealCaptureRoutes(
     data: Record<string, unknown>,
     jpeg?: Buffer,
   ) {
+    const photoVersion =
+      kind === "photo"
+        ? await legalAcceptanceVersion(db, "nutrition_photo")
+        : null;
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a);
       await expire(tx, a.userId);
@@ -262,8 +278,8 @@ export function mealCaptureRoutes(
             "Enable nutrition AI permission in Food preferences before analysing a photo.",
           );
         await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'nutrition_photo','nutrition-photo-v1',true)",
-          [randomUUID(), a.tenantId, a.userId],
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'nutrition_photo',$4,true)",
+          [randomUUID(), a.tenantId, a.userId, photoVersion],
         );
       }
       const p = await permission(tx, a, kind === "photo");
@@ -463,6 +479,96 @@ export function mealCaptureRoutes(
       }
     },
   );
+  app.get(prefix + "/food-options", async (req) => {
+    const a = client(req);
+    return db.tenant(internal(a), async (tx) => {
+      await permission(tx, a);
+      return (await nutritionCatalog(tx)).foods;
+    });
+  });
+  app.post(prefix + "/:id/ground", async (req) => {
+    const a = client(req),
+      captureId = id.parse((req.params as any).id),
+      b = z
+        .object({
+          index: z.number().int().min(0).max(11),
+          foodId: id,
+          grams: z.number().positive().max(10000),
+        })
+        .strict()
+        .parse(req.body);
+    return db.tenant(internal(a), async (tx) => {
+      await lock(tx, a);
+      await permission(tx, a, true);
+      const row = await current(tx, a, captureId);
+      if (
+        row.kind !== "photo" ||
+        row.status !== "draft" ||
+        !row.data.estimate?.items[b.index]
+      )
+        throw fail(
+          409,
+          "CAPTURE_NOT_READY",
+          "Choose a food in an active photo draft",
+        );
+      const food = (await nutritionCatalog(tx)).foods.find(
+        (f) => f.id === b.foodId,
+      );
+      if (!food)
+        throw fail(
+          404,
+          "FOOD_VERSION",
+          "The selected ingredient facts are no longer current",
+        );
+      const item = {
+        ...row.data.estimate.items[b.index],
+        name: food.name,
+        preparation: food.preparation,
+        amount: b.grams,
+        unit: "g",
+        portion: `${b.grams} g`,
+        ...Object.fromEntries(
+          Object.entries(food.nutrientsPer100g).map(([k, v]) => [
+            k,
+            v === null ? null : Math.round(v * b.grams) / 100,
+          ]),
+        ),
+        uncertainty:
+          "Matched by the client to coach ingredient facts; verify preparation and portion.",
+      };
+      const estimate = {
+          ...row.data.estimate,
+          items: row.data.estimate.items.map((x: any, i: number) =>
+            i === b.index ? item : x,
+          ),
+        },
+        groundedFacts = {
+          ...row.data.groundedFacts,
+          [b.index]: {
+            food,
+            grams: b.grams,
+            confirmedBy: a.userId,
+            at: new Date().toISOString(),
+          },
+        };
+      const [updated] = await tx.query(
+        "UPDATE meal_captures SET data=data||$2::jsonb,updated_at=now() WHERE id=$1 RETURNING *",
+        [
+          row.id,
+          JSON.stringify({
+            estimate,
+            groundedFacts,
+            originalEstimate: row.data.originalEstimate ?? row.data.estimate,
+          }),
+        ],
+      );
+      await event(tx, a, "nutrition.photo_grounded", row.id, {
+        foodId: food.id,
+        index: b.index,
+      });
+      return visible(updated);
+    });
+  });
   app.get(prefix + "/:id", async (req) => {
     const a = client(req);
     return db.tenant(internal(a), async (tx) =>
@@ -574,6 +680,8 @@ export function mealCaptureRoutes(
             kind: row.kind,
             capturedAt: row.created_at,
             confirmedAt: new Date().toISOString(),
+            groundedFacts: row.data.groundedFacts ?? null,
+            originalEstimate: row.data.originalEstimate ?? null,
             original:
               row.kind === "photo"
                 ? {

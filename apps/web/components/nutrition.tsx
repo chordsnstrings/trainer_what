@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
 import {
   nutritionQuestions,
   nutritionCategories,
@@ -101,6 +102,7 @@ const sections = [
   ["versions", "Catalog versions"],
   ["methods", "Calorie methods"],
   ["clients", "Client plans"],
+  ["purchases", "Grocery conversions"],
 ];
 export function NutritionCoach({
   initialSection = "overview",
@@ -586,6 +588,7 @@ export function NutritionCoach({
             </p>
           </Card>
         )}
+        {section === "purchases" && <NutritionPurchaseSpecs />}
         {section === "methods" && <NutritionMethods cases={d.cases} />}
         {section === "clients" && (
           <Card title="Individual nutrition plans">
@@ -2216,7 +2219,9 @@ export function NutritionSubscriber({
                       x.kind === "nutrition_pantry" &&
                       x.data.planId === plan.id,
                   )}
-                  disabled={coachView || offline || !d.processingConsent}
+                  disabled={
+                    coachView || offline || !d.processingConsent || !d.entitled
+                  }
                   onSave={(foodIds) =>
                     r.action(
                       () =>
@@ -2317,6 +2322,14 @@ export function NutritionSubscriber({
         )}
         {tab === "diary" && (
           <>
+            <NutritionConsumed
+              userId={userId}
+              coachView={coachView}
+              refreshKey={d.records[0]?.id}
+            />
+            {!coachView && (
+              <NutritionSavedMeals today={d.today} onChange={r.load} />
+            )}
             <Card title="What you recorded">
               <p>
                 {d.twin.loggedMeals ?? 0} meals across {d.twin.loggedDays ?? 0}{" "}
@@ -2341,6 +2354,30 @@ export function NutritionSubscriber({
                       kcal
                     </summary>
                     <p>{x.data.notes}</p>
+                    {!coachView && (
+                      <>
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() =>
+                            void r.action(
+                              () =>
+                                api("/nutrition/favorites", "POST", {
+                                  logId: x.id,
+                                }),
+                              "Meal saved to favorites; refresh the favorites list to see it",
+                            )
+                          }
+                        >
+                          Save to favorites
+                        </button>
+                        <NutritionCopyMeal
+                          sourceId={x.id}
+                          today={d.today}
+                          onChange={r.load}
+                        />
+                      </>
+                    )}
                     {!coachView && (
                       <DiaryForm
                         initial={x.data}
@@ -2463,6 +2500,7 @@ function GroceryList({
   );
   return (
     <>
+      <NutritionShopping plan={plan} readOnly={disabled} />
       <div className="nutrition-groceries">
         {plan.data.view.groceries.map((g: any) => (
           <label className="nutrition-grocery" key={g.food.id}>
@@ -2516,6 +2554,16 @@ function DiaryForm({
   today: string;
   onSave: (b: any) => Promise<any>;
 }) {
+  const [items, setItems] = useState<any[]>(initial?.items ?? []),
+    [manualKcal, setManualKcal] = useState(String(initial?.kcal ?? ""));
+  const sum = (key: string) =>
+    items.length && items.every((i) => i[key] !== null)
+      ? Math.round(items.reduce((n, i) => n + i[key], 0) * 100) / 100
+      : null;
+  const edit = (index: number, patch: any) =>
+    setItems((old) =>
+      old.map((i, n) => (n === index ? { ...i, ...patch } : i)),
+    );
   return (
     <form
       onSubmit={(e) => {
@@ -2527,7 +2575,25 @@ function DiaryForm({
           timezone,
           name: f.get("name"),
           notes: f.get("notes"),
-          kcal: f.get("kcal") === "" ? null : num(f, "kcal"),
+          kcal: items.length
+            ? sum("kcal")
+            : f.get("kcal") === ""
+              ? null
+              : num(f, "kcal"),
+          ...(items.length
+            ? { items }
+            : {
+                nutrients: {
+                  kcal: f.get("kcal") === "" ? null : num(f, "kcal"),
+                  protein: f.get("protein") === "" ? null : num(f, "protein"),
+                  carbohydrate:
+                    f.get("carbohydrate") === ""
+                      ? null
+                      : num(f, "carbohydrate"),
+                  fat: f.get("fat") === "" ? null : num(f, "fat"),
+                },
+              }),
+          portionLabel: f.get("portionLabel"),
           deleted: f.get("deleted") === "on",
         });
       }}
@@ -2551,10 +2617,134 @@ function DiaryForm({
             type="number"
             min={0}
             step={0.1}
-            defaultValue={initial?.kcal ?? ""}
+            value={items.length ? (sum("kcal") ?? "") : manualKcal}
+            onChange={(e) => setManualKcal(e.target.value)}
+            readOnly={items.length > 0}
           />
         </Field>
       </div>
+      <Field label="Portion description">
+        <input
+          name="portionLabel"
+          maxLength={200}
+          defaultValue={initial?.portionLabel ?? ""}
+        />
+      </Field>
+      {!items.length && (
+        <div className="nutrition-form-grid">
+          {[
+            ["protein", "Protein"],
+            ["carbohydrate", "Carbohydrate"],
+            ["fat", "Fat"],
+          ].map(([key, label]) => (
+            <Field key={key} label={label + " grams (optional)"}>
+              <input
+                name={key}
+                type="number"
+                min={0}
+                max={10000}
+                step={0.1}
+                defaultValue={
+                  initial?.nutrients?.[key] ??
+                  initial?.mealSnapshot?.nutrients?.[key] ??
+                  ""
+                }
+              />
+            </Field>
+          ))}
+        </div>
+      )}
+      {items.map((item, index) => (
+        <details key={index}>
+          <summary>
+            {item.name} · {item.amount ?? "Unknown"} {item.unit ?? ""}
+          </summary>
+          <div className="nutrition-form-grid">
+            <Field label="Food name">
+              <input
+                value={item.name}
+                onChange={(e) => edit(index, { name: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Portion">
+              <input
+                value={item.portion}
+                onChange={(e) => edit(index, { portion: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Amount">
+              <input
+                type="number"
+                min={0.01}
+                max={10000}
+                step={0.01}
+                value={item.amount ?? ""}
+                onChange={(e) =>
+                  edit(
+                    index,
+                    scaleCapturedPortion(
+                      item,
+                      e.target.value ? Number(e.target.value) : null,
+                    ),
+                  )
+                }
+              />
+            </Field>
+            <Field label="Unit">
+              <select
+                value={item.unit ?? ""}
+                onChange={(e) =>
+                  edit(
+                    index,
+                    scaleCapturedPortion(
+                      item,
+                      item.amount,
+                      e.target.value || null,
+                    ),
+                  )
+                }
+              >
+                <option value="">Unknown</option>
+                <option value="g">Grams</option>
+                <option value="ml">Millilitres</option>
+                <option value="portion">Portion</option>
+              </select>
+            </Field>
+            {["kcal", "protein", "carbohydrate", "fat"].map((key) => (
+              <Field key={key} label={key}>
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  step={0.01}
+                  value={item[key] ?? ""}
+                  onChange={(e) =>
+                    edit(index, {
+                      [key]: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </Field>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => setItems((old) => old.filter((_, i) => i !== index))}
+          >
+            Remove food from this entry
+          </button>
+        </details>
+      ))}
+      {items.length > 0 && (
+        <p>
+          Corrected meal total: {sum("kcal") ?? "Unknown"} kcal. Quantities
+          rescale nutrients only within the same unit; changing units requires
+          checked values.
+        </p>
+      )}
       <Field label="Notes">
         <textarea name="notes" defaultValue={initial?.notes} />
       </Field>
@@ -3295,5 +3485,380 @@ function NutritionWeekEditor({
         restrictions, calorie limits and any individual macro goals.
       </p>
     </form>
+  );
+}
+
+function NutritionConsumed({
+  userId,
+  coachView,
+  refreshKey,
+}: {
+  userId: string;
+  coachView: boolean;
+  refreshKey: string;
+}) {
+  const r = useNutrition(
+    "/nutrition/tracker" + (coachView ? "?userId=" + userId : ""),
+  );
+  useEffect(() => {
+    void r.load().catch((e) => r.setError(e.message));
+  }, [refreshKey]);
+  return (
+    <Card title="Recorded nutrition and trends">
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.data && (
+        <>
+          <p>{r.data.coverage}</p>
+          <p>
+            {r.data.loggedMeals} recorded meals across {r.data.loggedDays} days.{" "}
+            {r.data.partialInput
+              ? "This report reached its input limit; older entries may be omitted."
+              : ""}
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Recorded kcal</th>
+                  <th>Planned kcal</th>
+                  <th>Protein g</th>
+                  <th>Carbohydrate g</th>
+                  <th>Fat g</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.data.days
+                  .slice(-7)
+                  .reverse()
+                  .map((d: any) => (
+                    <tr key={d.date}>
+                      <td>{d.date}</td>
+                      <td>
+                        {d.meals
+                          ? (d.totals.kcal ??
+                            `${d.knownTotals.kcal} known + unknown`)
+                          : "No entry"}
+                      </td>
+                      <td>{d.planned?.kcal ?? "—"}</td>
+                      {["protein", "carbohydrate", "fat"].map((k) => (
+                        <td key={k}>
+                          {d.meals
+                            ? (d.totals[k] ??
+                              `${d.knownTotals[k]} known + unknown`)
+                            : "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <details>
+            <summary>All 28 days and weight entries</summary>
+            {r.data.days.map((d: any) => (
+              <p key={d.date}>
+                {d.date}: {d.meals} meals ·{" "}
+                {d.totals.kcal ?? "Incomplete or unknown"} kcal
+              </p>
+            ))}
+            <p>
+              Recorded weight change:{" "}
+              {r.data.weightChangeKg ?? "Not enough recorded measurements"}
+              {r.data.weightChangeKg !== null ? " kg" : ""}
+            </p>
+            {r.data.weights.map((w: any) => (
+              <p key={w.sourceId}>
+                {w.date}: {w.kg} kg
+              </p>
+            ))}
+          </details>
+        </>
+      )}
+    </Card>
+  );
+}
+function NutritionCopyMeal({
+  sourceId,
+  today,
+  favorite = false,
+  onChange,
+}: {
+  sourceId: string;
+  today: string;
+  favorite?: boolean;
+  onChange: () => Promise<any>;
+}) {
+  const [date, setDate] = useState(today),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState("");
+  return (
+    <form
+      className="nutrition-inline"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        setMessage("");
+        void api(
+          `/nutrition/${favorite ? "favorites" : "logs"}/${sourceId}/${favorite ? "log" : "copy"}`,
+          "POST",
+          { date, eventKey: crypto.randomUUID() },
+        )
+          .then(async () => {
+            setMessage("Meal recorded for " + date);
+            await onChange();
+          })
+          .catch((e) => setMessage(e.message))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <Field label="Date eaten">
+        <input
+          type="date"
+          value={date}
+          max={today}
+          onChange={(e) => setDate(e.target.value)}
+          required
+        />
+      </Field>
+      <button className="button secondary" disabled={busy}>
+        Confirm and record again
+      </button>
+      {message && <Notice>{message}</Notice>}
+    </form>
+  );
+}
+function NutritionSavedMeals({
+  today,
+  onChange,
+}: {
+  today: string;
+  onChange: () => Promise<any>;
+}) {
+  const r = useNutrition("/nutrition/favorites");
+  return (
+    <Card title="Saved meals">
+      <button
+        className="button secondary"
+        onClick={() => void r.action(r.load, "Saved meals refreshed")}
+      >
+        Refresh saved meals
+      </button>
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.data?.length === 0 && (
+        <p>Save a recorded meal below to use it again.</p>
+      )}
+      {r.data?.map((f: any) => (
+        <details key={f.id}>
+          <summary>
+            {f.data.snapshot.name} · {f.data.snapshot.kcal ?? "Unknown"} kcal
+          </summary>
+          <NutritionCopyMeal
+            sourceId={f.id}
+            favorite
+            today={today}
+            onChange={onChange}
+          />
+          <button
+            className="button secondary"
+            onClick={() =>
+              void r.action(
+                () => api("/nutrition/favorites/" + f.id, "DELETE"),
+                "Saved meal removed",
+              )
+            }
+          >
+            Remove favorite
+          </button>
+        </details>
+      ))}
+    </Card>
+  );
+}
+function NutritionPurchaseSpecs() {
+  const r = useNutrition("/nutrition/purchase-specs");
+  return (
+    <Card title="Turn ingredients into a shopping list">
+      <p>
+        Specify the grams you buy for each gram required in a recipe, accounting
+        for preparation or edible yield. The system rounds up to whole packs
+        only when you provide a pack size.
+      </p>
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.message && <Notice>{r.message}</Notice>}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          void r.action(
+            () =>
+              api("/nutrition/purchase-specs", "POST", {
+                foodId: f.get("food"),
+                purchaseGramsPerEdibleGram: num(f, "ratio"),
+                packGrams: f.get("pack") === "" ? null : num(f, "pack"),
+                label: f.get("label"),
+                source: f.get("source"),
+              }),
+            "Purchase conversion saved",
+          );
+        }}
+      >
+        <Field label="Ingredient">
+          <select name="food" required>
+            {r.data?.foods.map((f: any) => (
+              <option key={f.id} value={f.id}>
+                {f.name} · {f.preparation}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Purchased grams per recipe gram">
+          <input
+            name="ratio"
+            type="number"
+            min={0.01}
+            max={30}
+            step={0.01}
+            defaultValue={1}
+            required
+          />
+        </Field>
+        <Field label="Pack weight in purchased grams (optional)">
+          <input
+            name="pack"
+            type="number"
+            min={0.01}
+            max={100000}
+            step={0.01}
+          />
+        </Field>
+        <Field label="Shopping label">
+          <input
+            name="label"
+            maxLength={120}
+            placeholder="500 g uncooked pack"
+            required
+          />
+        </Field>
+        <Field label="Label or tested preparation source">
+          <textarea name="source" minLength={5} maxLength={1000} required />
+        </Field>
+        <button className="button">Save conversion</button>
+      </form>
+      {r.data?.specs.map((x: any) => (
+        <p key={x.id}>
+          {r.data.foods.find((f: any) => f.id === x.data.foodId)?.name ??
+            "Historical ingredient"}
+          : × {x.data.purchaseGramsPerEdibleGram}, {x.data.packGrams ?? "loose"}{" "}
+          g · {x.data.source}
+        </p>
+      ))}
+    </Card>
+  );
+}
+function NutritionShopping({
+  plan,
+  readOnly,
+}: {
+  plan: any;
+  readOnly: boolean;
+}) {
+  const r = useNutrition("/nutrition/shopping/" + plan.id);
+  return (
+    <Card title="Purchase quantities and available portions">
+      {r.error && <Notice>{r.error}</Notice>}
+      {r.message && <Notice>{r.message}</Notice>}
+      {r.data?.items.map((g: any) => (
+        <details key={g.food.id}>
+          <summary>
+            {g.food.name}: {g.remainingGrams} g still needed in the recipe's{" "}
+            {g.food.preparation.replaceAll("_", " ")} state
+          </summary>
+          <p>
+            {g.availableGrams} g available.{" "}
+            {g.purchaseGrams === null
+              ? "No purchase conversion has been provided by your coach."
+              : `${g.purchaseGrams} g purchased weight${g.packs === null ? "" : ` → ${g.packs} packs (${g.purchasedGrams} g)`}. ${g.purchaseLabel}`}
+          </p>
+          {g.conversionSource && <p>Conversion source: {g.conversionSource}</p>}
+          {!readOnly && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                void r.action(
+                  () =>
+                    api("/nutrition/leftovers", "POST", {
+                      eventKey: crypto.randomUUID(),
+                      foodId: g.food.id,
+                      grams: num(f, "grams"),
+                      useBy: f.get("useBy"),
+                      notes: f.get("notes"),
+                      confirmedStorage: true,
+                    }),
+                  "Available portion recorded",
+                );
+              }}
+            >
+              <Field label="Grams already available in this preparation state">
+                <input
+                  name="grams"
+                  type="number"
+                  min={0.01}
+                  max={100000}
+                  step={0.01}
+                  required
+                />
+              </Field>
+              <Field label="Use by, following actual storage instructions">
+                <input name="useBy" type="date" min={r.data.today} required />
+              </Field>
+              <Field label="Portion or batch note">
+                <input name="notes" maxLength={1000} />
+              </Field>
+              <label className="check">
+                <input type="checkbox" required />I checked preparation and
+                storage instructions for this food.
+              </label>
+              <button className="button secondary">
+                Add available portion
+              </button>
+            </form>
+          )}
+        </details>
+      ))}
+      {r.data?.inventory
+        .filter((i: any) => i.status === "available")
+        .map((i: any) => (
+          <p key={i.id}>
+            {i.data.food.name}: {i.data.grams} g · use by {i.data.useBy}{" "}
+            {i.data.useBy < r.data.today
+              ? "(excluded from available quantities)"
+              : ""}
+            {!readOnly && (
+              <button
+                className="button secondary"
+                onClick={() =>
+                  void r.action(
+                    () =>
+                      api(
+                        "/nutrition/leftovers/" + i.id + "/remove",
+                        "POST",
+                        {},
+                      ),
+                    "Portion removed from available quantities",
+                  )
+                }
+              >
+                Mark used or discard
+              </button>
+            )}
+          </p>
+        ))}
+      <p>
+        Available portions reduce shopping quantities only. They do not change
+        prescribed meal portions or count as eaten.
+      </p>
+    </Card>
   );
 }
