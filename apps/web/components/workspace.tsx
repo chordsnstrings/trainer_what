@@ -1,6 +1,11 @@
 "use client";
 import { TeamControls } from "./team-controls";
 import { KnowledgeImportReview } from "./ingestion-review";
+import {
+  IntegrationCenter,
+  GuidedSession,
+  IntegrationOperations,
+} from "./integration-center";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import {
   BillingHistory,
@@ -658,6 +663,15 @@ export default function Workspace() {
                 platformRole={state.user.platformRole}
               />
             )
+          ) : path === "/admin/integration-operations" ? (
+            state.user.platformRole === "admin" ? (
+              <IntegrationOperations />
+            ) : (
+              <PlatformSettings
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            )
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -720,6 +734,8 @@ export default function Workspace() {
             <Members {...props} />
           ) : path === "/app/twin" ? (
             <ClientTwin userId={state.user.userId} subscriber />
+          ) : path.startsWith("/app/guided/") ? (
+            <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.includes("/program") ? (
             <TrainingPrograms state={state} />
           ) : path.includes("/workouts") ? (
@@ -737,7 +753,11 @@ export default function Workspace() {
             path.includes("/wearables") ||
             path.includes("/voice") ||
             path.includes("/domains") ? (
-            <Integrations {...props} />
+            <IntegrationCenter
+              path={path}
+              role={state.user.role}
+              integrations={state.integrations}
+            />
           ) : path === "/trainer/team" ? (
             <TeamControls role={state.user.role} />
           ) : path.includes("/settings") ||
@@ -1982,6 +2002,11 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         detail="Log what you actually do. You can adjust the weight and reps for every set."
         action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
       />
+      {workout.status === "active" && (
+        <Link className="text-link" href={`/app/guided/${workout.id}`}>
+          Open guided session with exercise cues and rest timers
+        </Link>
+      )}
       {queued > 0 && (
         <div className="notice">
           {queued} set logs waiting to sync.{" "}
@@ -3334,6 +3359,10 @@ function Admin({ state, path }: ViewProps) {
           <Link href="/admin/account-security">
             <Shield size={15} />
             Account security
+          </Link>
+          <Link href="/admin/integration-operations">
+            <Link2 size={15} />
+            Voice & domain operations
           </Link>
         </nav>
       )}

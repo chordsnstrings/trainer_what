@@ -570,7 +570,7 @@ test("application controls are persisted without probe gating and cannot be disc
   );
 });
 
-test("unsupported adapters remain inactive even if a test dependency reports success", async () => {
+test("unapproved integrations remain inactive even if a test dependency reports success", async () => {
   await save("whoop", {
     enabled: true,
     values: {
@@ -582,4 +582,57 @@ test("unsupported adapters remain inactive even if a test dependency reports suc
   const tested = await check("whoop");
   assert.equal(tested.active, false);
   assert.equal((await loadRuntimeSettings(db)).WHOOP_CLIENT_SECRET, "");
+});
+
+test("approved WHOOP configuration activates only after testing and loses approval immediately on change", async () => {
+  await save("whoop", {
+    enabled: true,
+    values: {
+      WHOOP_CONTRACT_VERIFIED: "true",
+      WHOOP_SCOPES: "offline read:sleep",
+    },
+  });
+  assert.equal((await current("whoop")).active, false);
+  assert.equal((await check("whoop")).active, true);
+  assert.equal(
+    (await loadRuntimeSettings(db)).WHOOP_CLIENT_SECRET,
+    "whoop_fixture",
+  );
+  await save("whoop", { values: { WHOOP_CONTRACT_VERIFIED: "false" } });
+  assert.equal((await check("whoop")).active, false);
+  assert.equal((await loadRuntimeSettings(db)).WHOOP_CLIENT_SECRET, "");
+});
+
+test("a successful probe cannot approve an unknown Zepp contract or an uncapped voice account", async () => {
+  await save("zepp", {
+    enabled: true,
+    values: {
+      ZEPP_CLIENT_ID: "fixture",
+      ZEPP_REDIRECT_URI: "https://app.example.test/zepp",
+      ZEPP_API_BASE_URL: "https://partner.example.test",
+      ZEPP_AUTHORIZE_URL: "https://partner.example.test/auth",
+      ZEPP_TOKEN_URL: "https://partner.example.test/token",
+      ZEPP_SCOPES: "health",
+      ZEPP_ADAPTER_CONTRACT: "undocumented-native-api",
+      ZEPP_CONTRACT_VERIFIED: "true",
+    },
+    secrets: { ZEPP_CLIENT_SECRET: "zepp_fixture" },
+  });
+  assert.equal((await check("zepp")).active, false);
+  assert.equal((await loadRuntimeSettings(db)).ZEPP_CLIENT_SECRET, "");
+  await save("voice", {
+    enabled: true,
+    values: {
+      VOICE_PROVIDER: "elevenlabs",
+      VOICE_BASE_URL: "https://api.elevenlabs.io/v1",
+      VOICE_MODEL: "eleven_multilingual_v2",
+      VOICE_PRICE_VERSION: "fixture-only",
+      VOICE_USD_PER_1000_CHARACTERS: "0.30",
+      VOICE_DAILY_USD_LIMIT: "0",
+      VOICE_CONTRACT_VERIFIED: "true",
+    },
+    secrets: { VOICE_API_KEY: "voice_fixture" },
+  });
+  assert.equal((await check("voice")).active, false);
+  assert.equal((await loadRuntimeSettings(db)).VOICE_API_KEY, "");
 });

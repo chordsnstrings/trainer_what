@@ -4,11 +4,21 @@ import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import {
+  registerIntegrationCompletion,
+  disableUserIntegrations,
+} from "./integrations-completion.ts";
+import {
+  resolveRequestHost,
+  enforceHostTenant,
+  allowedRequestOrigin,
+  type HostContext,
+} from "./host-routing.ts";
+import {
   registerPrivacyLifecycle,
   exportPersonalData,
   workspaceLock,
 } from "./privacy-lifecycle.ts";
-import { privacyHooks, withdrawIntegrations } from "./privacy-hooks.ts";
+import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import {
@@ -22,6 +32,7 @@ import {
 import {
   runtimeConfig,
   withRuntimeConfig,
+  ConfigurationError,
 } from "../../../packages/providers/src/configuration.ts";
 import {
   loadRuntimeSettings,
@@ -113,6 +124,7 @@ declare module "fastify" {
   interface FastifyRequest {
     identity?: Identity;
     rawBody?: string;
+    hostContext?: HostContext;
   }
 }
 const id = z.string().uuid();
@@ -177,6 +189,14 @@ export async function buildApp(
     logger: options.testing
       ? false
       : {
+          serializers: {
+            req: (request: any) => ({
+              method: request.method,
+              url: String(request.url).split("?")[0],
+              hostname: request.hostname,
+              remoteAddress: request.ip,
+            }),
+          },
           redact: [
             "req.headers.authorization",
             "req.headers.cookie",
@@ -224,11 +244,37 @@ export async function buildApp(
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin")
       .header("Cache-Control", "no-store");
+    const requestPath = req.url.split("?")[0];
+    // Readiness is intentionally reachable by the local container probe; it
+    // exposes no workspace data and cannot select a tenant.
+    if (["/health", "/api/v1/health", "/api/v1/ready"].includes(requestPath))
+      return;
+    req.hostContext = await resolveRequestHost(db, req);
+    if (req.hostContext.custom) {
+      const publicSlug = requestPath.match(
+        /^\/api\/v1\/public\/(?:trainers|sites|coach)\/([^/]+)/,
+      )?.[1];
+      if (
+        publicSlug &&
+        decodeURIComponent(publicSlug) !== req.hostContext.tenantSlug
+      )
+        throw fail(
+          403,
+          "HOST_TENANT_MISMATCH",
+          "This page belongs to a different coaching website.",
+        );
+      if (requestPath.startsWith("/api/v1/webhooks/"))
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Provider callbacks use the platform address.",
+        );
+    }
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       !req.url.startsWith("/api/v1/webhooks/")
     ) {
-      if (req.headers.origin !== publicUrl())
+      if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
         throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
     }
     const token = req.cookies.session;
@@ -251,11 +297,31 @@ export async function buildApp(
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
         };
+        try {
+          enforceHostTenant(req.hostContext, req.identity);
+        } catch (error) {
+          // A stale cookie from a reassigned domain must not prevent sign-out,
+          // a new login, or viewing that domain's public website.
+          if (
+            requestPath.startsWith("/api/v1/auth/") ||
+            requestPath.startsWith("/api/v1/public/")
+          )
+            req.identity = undefined;
+          else throw error;
+        }
         await touchTeamSession(db, tokenHash(token)).catch(() => {});
       }
     }
   });
   app.setErrorHandler((error, req, reply) => {
+    if (error instanceof ConfigurationError)
+      return reply
+        .code(409)
+        .send({
+          code: "INTEGRATION_CONFIGURATION",
+          message: error.message,
+          requestId: req.id,
+        });
     if (error instanceof NutritionBlocked)
       return reply
         .code(409)
@@ -324,6 +390,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerTrainingPrograms(app, db);
+  registerIntegrationCompletion(app, db);
   registerFinanceBilling(app, db);
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
@@ -342,6 +409,7 @@ export async function buildApp(
   registerTeamRoutes(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
+  app.get("/api/v1/public/host", async (req) => req.hostContext);
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
     return { status: "ready" };
@@ -350,6 +418,12 @@ export async function buildApp(
     "/api/v1/auth/register",
     { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } },
     async (req, reply) => {
+      if (req.hostContext?.custom)
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Trainer registration uses the platform address.",
+        );
       const b = signupSchema.parse(req.body);
       const registrationVersion = await legalAcceptanceVersion(
         db,
@@ -431,6 +505,12 @@ export async function buildApp(
         })
         .strict()
         .parse(req.body);
+      if (req.hostContext?.custom && b.coachSlug !== req.hostContext.tenantSlug)
+        throw fail(
+          403,
+          "HOST_TENANT_MISMATCH",
+          "Join the coach connected to this website.",
+        );
       const registrationVersion = await legalAcceptanceVersion(
         db,
         "registration",
@@ -471,6 +551,16 @@ export async function buildApp(
           "SELECT * FROM users WHERE email=$1 FOR UPDATE",
           [b.email],
         );
+        if (
+          req.hostContext?.custom &&
+          existing &&
+          existing.platform_role !== "none"
+        )
+          throw fail(
+            403,
+            "PLATFORM_HOST_REQUIRED",
+            "Platform accounts sign in at the platform address.",
+          );
         if (
           existing &&
           !(await passwordMatches(b.password, existing.password_hash))
@@ -524,10 +614,16 @@ export async function buildApp(
       );
       if (!u || !(await passwordMatches(b.password, u.password_hash)))
         throw fail(401, "INVALID_LOGIN", "Email or password is incorrect");
+      if (req.hostContext?.custom && u.platform_role !== "none")
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Platform accounts sign in at the platform address.",
+        );
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' ORDER BY m.tenant_id LIMIT 1",
-          [u.id],
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY m.tenant_id LIMIT 1",
+          [u.id, req.hostContext?.tenantId ?? null],
         ),
       );
       if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
@@ -549,6 +645,12 @@ export async function buildApp(
   app.post("/api/v1/auth/workspace", async (req, reply) => {
     const a = identity(req);
     const b = z.object({ tenantId: id }).parse(req.body);
+    if (req.hostContext?.custom && b.tenantId !== req.hostContext.tenantId)
+      throw fail(
+        403,
+        "HOST_TENANT_MISMATCH",
+        "Switch workspaces from the platform address.",
+      );
     const [m] = await db.system((tx) =>
       tx.query(
         "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
@@ -717,7 +819,10 @@ export async function buildApp(
     await db.tenant(a, (tx) =>
       event(tx, a, "team.invited", undefined, { role: b.role }),
     );
-    return { url: `${publicUrl()}/join/${token}`, expiresInDays: 7 };
+    return {
+      url: `${req.hostContext?.origin ?? publicUrl()}/join/${token}`,
+      expiresInDays: 7,
+    };
   });
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
@@ -740,10 +845,30 @@ export async function buildApp(
         invite.payload.email.toLowerCase() !== b.email.toLowerCase()
       )
         throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
+      if (
+        req.hostContext?.custom &&
+        (invite.tenant_id !== req.hostContext.tenantId ||
+          invite.payload.role !== "subscriber")
+      )
+        throw fail(
+          403,
+          "HOST_TENANT_MISMATCH",
+          "This invitation must be accepted at its own coaching or platform address.",
+        );
       const [existing] = await tx.query(
         "SELECT * FROM users WHERE email=$1 FOR UPDATE",
         [b.email.toLowerCase()],
       );
+      if (
+        req.hostContext?.custom &&
+        existing &&
+        existing.platform_role !== "none"
+      )
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Platform accounts sign in at the platform address.",
+        );
       if (
         existing &&
         !(await passwordMatches(b.password, existing.password_hash))
@@ -1669,13 +1794,27 @@ export async function buildApp(
       .parse(req.body);
     const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
+      if (b.type === "voice" || b.type === "wearable") {
+        await workspaceLock(tx, a.tenantId);
+        if (b.type === "voice")
+          await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+            a.tenantId + ":training:" + a.userId,
+          ]);
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId +
+            ":" +
+            (b.type === "voice" ? "voice" : "integrations") +
+            ":" +
+            a.userId,
+        ]);
+      }
       if (b.type === "coaching") await lockTraining(tx, a);
       if (b.type === "coaching")
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":training:" + a.userId,
         ]);
       if (!b.granted && (b.type === "voice" || b.type === "wearable"))
-        await withdrawIntegrations(tx, a.userId, b.type);
+        await disableUserIntegrations(tx, a.userId, b.type);
       if (b.type.startsWith("nutrition"))
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
@@ -1746,7 +1885,34 @@ export async function buildApp(
         consent: z.literal(true),
       })
       .parse(req.body);
+    const importConsentVersion =
+      (await legalAcceptanceVersion(db, "wearable")) +
+      "|integration-consent:v1";
     return db.tenant(a, async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [current] = await tx.query(
+        "SELECT integration_actor_is_current($1,$2) AS active",
+        [a.tenantId, a.userId],
+      );
+      if (!current?.active)
+        throw fail(
+          403,
+          "WORKSPACE_CLOSED",
+          "This workspace is no longer active.",
+        );
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":integrations:" + a.userId,
+      ]);
+      await tx.query(
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,true)",
+        [
+          randomUUID(),
+          a.tenantId,
+          a.userId,
+          "wearable:" + b.source,
+          importConsentVersion,
+        ],
+      );
       const hash = createHash("sha256")
         .update(JSON.stringify(b.observations))
         .digest("hex");

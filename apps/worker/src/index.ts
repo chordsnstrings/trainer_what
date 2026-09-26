@@ -1,9 +1,13 @@
-import { scheduleFinance, executeFinanceJob } from "../../api/src/finance-automation.ts";
+import {
+  scheduleFinance,
+  runClaimedFinanceJob,
+} from "../../api/src/finance-automation.ts";
 import { createDatabase, type Actor } from "@trainer/db";
 import { sendEmail, ProviderUnavailable } from "@trainer/providers";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
+import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import {
   scheduleNutrition,
   executeNutritionJob,
@@ -17,15 +21,41 @@ if (!process.env.DATABASE_URL) {
   const db = await createDatabase();
   let running = true;
   let lastMediaPurge = 0;
+  let lastIntegrationTick = 0;
+  let integrationTask: Promise<void> | undefined;
   async function tick() {
+    if (!integrationTask && Date.now() - lastIntegrationTick >= 60000) {
+      lastIntegrationTick = Date.now();
+      // Keep slow wearable reads independent of financial and email delivery.
+      // AsyncLocalStorage retains this cycle's reviewed provider configuration.
+      integrationTask = processIntegrationJobs(db)
+        .catch(() =>
+          console.error(
+            "Integration synchronization or revocation needs review",
+          ),
+        )
+        .finally(() => {
+          integrationTask = undefined;
+        });
+    }
     if (Date.now() - lastMediaPurge >= 60 * 60 * 1000) {
       await purgeExpiredMealCaptures(db);
       lastMediaPurge = Date.now();
     }
-    const tenants = await db.system((tx) => tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"));
+    const tenants = await db.system((tx) =>
+      tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"),
+    );
     for (const tenant of tenants) {
-      try { await scheduleNutrition(db, tenant.id); } catch { console.error("Nutrition scheduling failed"); }
-      try { await scheduleFinance(db, tenant.id); } catch { console.error("Finance scheduling failed"); }
+      try {
+        await scheduleNutrition(db, tenant.id);
+      } catch {
+        console.error("Nutrition scheduling failed");
+      }
+      try {
+        await scheduleFinance(db, tenant.id);
+      } catch {
+        console.error("Finance scheduling failed");
+      }
       const a: Actor = {
         tenantId: tenant.id,
         userId: "00000000-0000-0000-0000-000000000000",
@@ -45,8 +75,11 @@ if (!process.env.DATABASE_URL) {
       if (!job) continue;
       try {
         if (job.kind.startsWith("finance_")) {
-          const result = await executeFinanceJob(db, tenant.id, job);
-          await db.tenant(a, tx => tx.query("UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1 AND attempts=$4 AND leased_until=$5", [job.id,result.status,result.code??null,job.attempts,job.leased_until]));
+          try {
+            await runClaimedFinanceJob(db, tenant.id, job);
+          } catch {
+            console.error("Finance job result could not be persisted");
+          }
           continue;
         }
         if (job.kind === "nutrition_week") {
@@ -81,7 +114,8 @@ if (!process.env.DATABASE_URL) {
             "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1",
             [
               job.id,
-              e instanceof ProviderUnavailable || job.kind.startsWith("finance_")
+              e instanceof ProviderUnavailable ||
+              job.kind.startsWith("finance_")
                 ? "blocked"
                 : job.attempts >= 4
                   ? "failed"
@@ -108,6 +142,11 @@ if (!process.env.DATABASE_URL) {
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.on(signal, async () => {
       running = false;
+      if (integrationTask)
+        await Promise.race([
+          integrationTask,
+          new Promise<void>((resolve) => setTimeout(resolve, 30000)),
+        ]);
       await db.close();
       process.exit(0);
     });

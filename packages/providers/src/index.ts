@@ -1,5 +1,5 @@
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
-import { runtimeConfig, providerRequest } from "./configuration.ts";
+import { runtimeConfig, providerRequest, integrationCapability } from "./configuration.ts";
 export * from "./configuration.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
@@ -66,8 +66,7 @@ export function integrationStatus() {
       id: "whoop",
       name: "WHOOP",
       purpose: "Recovery and workout data",
-      configured: false,
-      approved: false,
+      ...integrationCapability("whoop", config)!,
     },
     {
       id: "apple",
@@ -80,22 +79,19 @@ export function integrationStatus() {
       id: "zepp",
       name: "Amazfit / Zepp",
       purpose: "Fitness data through an approved partner connection",
-      configured: false,
-      approved: false,
+      ...integrationCapability("zepp", config)!,
     },
     {
       id: "voice",
       name: "Trainer voice",
       purpose: "Consented premium guided sessions",
-      configured: false,
-      approved: false,
+      ...integrationCapability("voice", config)!,
     },
     {
       id: "domains",
       name: "Custom domains",
-      purpose: "Register and connect your own address",
-      configured: false,
-      approved: false,
+      purpose: "Connect an owned address or approve a registrar quote",
+      ...integrationCapability("domains", config)!,
     },
   ];
 }

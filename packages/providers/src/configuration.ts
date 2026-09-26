@@ -15,6 +15,96 @@ export function withRuntimeConfig<T>(
   return runtime.run({ ...runtime.getStore(), ...overrides }, callback);
 }
 
+/** Account approval never follows from saving a key or a successful probe. */
+export function integrationCapability(
+  id: string,
+  config: RuntimeConfig = runtimeConfig(),
+): { configured: boolean; approved: boolean } | undefined {
+  const has = (...keys: string[]) => keys.every((key) => !!config[key]?.trim());
+  if (id === "whoop") {
+    const configured = has(
+      "WHOOP_CLIENT_ID",
+      "WHOOP_CLIENT_SECRET",
+      "WHOOP_REDIRECT_URI",
+    );
+    const scopes = (
+      config.WHOOP_SCOPES || "offline read:recovery read:sleep read:workout"
+    )
+      .split(/\s+/)
+      .filter(Boolean);
+    return {
+      configured,
+      approved:
+        configured &&
+        config.WHOOP_CONTRACT_VERIFIED === "true" &&
+        scopes.includes("offline") &&
+        scopes.some((scope) => scope.startsWith("read:")) &&
+        scopes.every((scope) =>
+          [
+            "offline",
+            "read:recovery",
+            "read:sleep",
+            "read:workout",
+            "read:cycles",
+          ].includes(scope),
+        ),
+    };
+  }
+  if (id === "zepp") {
+    const configured = has(
+      "ZEPP_CLIENT_ID",
+      "ZEPP_CLIENT_SECRET",
+      "ZEPP_REDIRECT_URI",
+      "ZEPP_API_BASE_URL",
+      "ZEPP_AUTHORIZE_URL",
+      "ZEPP_TOKEN_URL",
+      "ZEPP_SCOPES",
+      "ZEPP_ADAPTER_CONTRACT",
+    );
+    return {
+      configured,
+      approved:
+        configured &&
+        config.ZEPP_CONTRACT_VERIFIED === "true" &&
+        config.ZEPP_ADAPTER_CONTRACT === "canonical-observations-v1",
+    };
+  }
+  if (id === "voice") {
+    const configured = has(
+      "VOICE_PROVIDER",
+      "VOICE_BASE_URL",
+      "VOICE_API_KEY",
+      "VOICE_MODEL",
+      "VOICE_PRICE_VERSION",
+      "VOICE_USD_PER_1000_CHARACTERS",
+      "VOICE_DAILY_USD_LIMIT",
+    );
+    return {
+      configured,
+      approved:
+        configured &&
+        config.VOICE_CONTRACT_VERIFIED === "true" &&
+        config.VOICE_PROVIDER === "elevenlabs" &&
+        Number.isFinite(Number(config.VOICE_USD_PER_1000_CHARACTERS)) &&
+        Number(config.VOICE_USD_PER_1000_CHARACTERS) >= 0 &&
+        Number.isFinite(Number(config.VOICE_DAILY_USD_LIMIT)) &&
+        Number(config.VOICE_DAILY_USD_LIMIT) > 0,
+    };
+  }
+  if (id === "domains") {
+    const configured =
+      has("DOMAIN_CNAME_TARGET") &&
+      /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/i.test(
+        config.DOMAIN_CNAME_TARGET!,
+      );
+    return {
+      configured,
+      approved: configured && config.DOMAIN_OPERATIONS_ENABLED === "true",
+    };
+  }
+  return undefined;
+}
+
 export type IntegrationField = {
   key: string;
   label: string;
@@ -214,10 +304,10 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     id: "whoop",
     name: "WHOOP",
     category: "health",
-    implemented: false,
+    implemented: true,
     description: "OAuth recovery, sleep and workout synchronization.",
     setupNotes:
-      "Credentials can be saved for setup. The OAuth callback and data-sync adapter are not implemented, so this connection cannot be activated.",
+      "OAuth, encrypted authorization, refresh, synchronization and revocation are implemented. Activate only after confirming account approval, approved scopes and data-use rights; a settings check does not qualify the provider.",
     fields: [
       field("WHOOP_CLIENT_ID", "OAuth client ID", "text", { required: true }),
       field("WHOOP_CLIENT_SECRET", "OAuth client secret", "secret", {
@@ -226,7 +316,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       field("WHOOP_REDIRECT_URI", "Registered callback URL", "url", {
         required: true,
       }),
-      field("WHOOP_SCOPES", "Approved OAuth scopes", "text"),
+      field("WHOOP_SCOPES", "Approved OAuth scopes", "text", {
+        defaultValue: "offline read:recovery read:sleep read:workout",
+      }),
+      field(
+        "WHOOP_CONTRACT_VERIFIED",
+        "Account contract and data-use rights approved",
+        "boolean",
+        { defaultValue: "false" },
+      ),
     ],
   },
   {
@@ -251,43 +349,105 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     id: "zepp",
     name: "Amazfit / Zepp",
     category: "health",
-    implemented: false,
+    implemented: true,
     description: "Fitness observations through an approved partner connection.",
     setupNotes:
-      "Partner access and a working synchronization adapter are required. Saving credentials does not create a connection.",
+      "Requires an approved partner gateway implementing canonical-observations-v1. This is a configurable partner adapter, not a claim of direct public Zepp API access. Keep disabled until the account contract and endpoints are verified.",
     fields: [
-      field("ZEPP_CLIENT_ID", "Partner client ID", "text"),
-      field("ZEPP_CLIENT_SECRET", "Partner client secret", "secret"),
-      field("ZEPP_REDIRECT_URI", "Registered callback URL", "url"),
+      field("ZEPP_CLIENT_ID", "Partner client ID", "text", { required: true }),
+      field("ZEPP_CLIENT_SECRET", "Partner client secret", "secret", {
+        required: true,
+      }),
+      field("ZEPP_REDIRECT_URI", "Registered callback URL", "url", {
+        required: true,
+      }),
+      field("ZEPP_API_BASE_URL", "Approved partner adapter base URL", "url", {
+        required: true,
+      }),
+      field("ZEPP_AUTHORIZE_URL", "Partner OAuth authorization URL", "url", {
+        required: true,
+      }),
+      field("ZEPP_TOKEN_URL", "Partner OAuth token URL", "url", {
+        required: true,
+      }),
+      field("ZEPP_SCOPES", "Approved partner OAuth scopes", "text", {
+        required: true,
+      }),
+      field("ZEPP_ADAPTER_CONTRACT", "Reviewed adapter contract", "text", {
+        required: true,
+        help: "Must be canonical-observations-v1 after the partner implements and approves that contract.",
+      }),
+      field(
+        "ZEPP_CONTRACT_VERIFIED",
+        "Partner contract and data-use rights approved",
+        "boolean",
+        { defaultValue: "false" },
+      ),
     ],
   },
   {
     id: "voice",
     name: "Trainer voice",
     category: "intelligence",
-    implemented: false,
+    implemented: true,
     description: "Consented trainer-voice guidance for premium sessions.",
     setupNotes:
-      "Voice generation and consent-aware session delivery are not implemented. Credentials are stored for setup only.",
+      "ElevenLabs TTS uses an existing provider voice after trainer consent and administrator identity/rights verification. Professional clones must be created and identity-verified in the trainer’s own provider account, then shared with the configured account. This app never creates a clone automatically. Premium memberships and a daily cost cap are enforced; provider-billed usage requires reconciliation.",
     fields: [
-      field("VOICE_PROVIDER", "Provider name", "text"),
-      field("VOICE_BASE_URL", "API base URL", "url"),
-      field("VOICE_API_KEY", "API key", "secret"),
+      field("VOICE_PROVIDER", "Provider name", "text", {
+        required: true,
+        defaultValue: "elevenlabs",
+      }),
+      field("VOICE_BASE_URL", "API base URL", "url", {
+        required: true,
+        defaultValue: "https://api.elevenlabs.io/v1",
+      }),
+      field("VOICE_API_KEY", "API key", "secret", { required: true }),
+      field("VOICE_MODEL", "Approved speech model ID", "text", {
+        required: true,
+      }),
+      field("VOICE_PRICE_VERSION", "Reviewed price version", "text", {
+        required: true,
+      }),
+      field(
+        "VOICE_USD_PER_1000_CHARACTERS",
+        "Estimated USD / 1,000 characters",
+        "number",
+        { required: true },
+      ),
+      field("VOICE_DAILY_USD_LIMIT", "Workspace daily USD limit", "number", {
+        required: true,
+      }),
+      field(
+        "VOICE_CONTRACT_VERIFIED",
+        "Account contract and voice rights approved",
+        "boolean",
+        { defaultValue: "false" },
+      ),
     ],
   },
   {
     id: "domains",
     name: "Custom domains",
     category: "branding",
-    implemented: false,
+    implemented: true,
     description: "Trainer domains and verified ownership.",
     setupNotes:
-      "Domain provisioning, DNS verification and certificate automation are not implemented. This page does not register or purchase domains.",
+      "Trainer requests, exact-price quote approval, manual registrar/payment reconciliation, TXT ownership, CNAME and live TLS verification, expiry and renewal evidence are implemented. Registrar purchase and DNS/TLS provisioning remain operator actions; no API credential alone activates them.",
     fields: [
       field("DOMAIN_PROVIDER", "Provider name", "text"),
       field("DOMAIN_API_URL", "API base URL", "url"),
       field("DOMAIN_API_KEY", "API key", "secret"),
       field("DOMAIN_ACCOUNT_ID", "Provider account ID", "secret"),
+      field("DOMAIN_CNAME_TARGET", "Approved ingress CNAME target", "text", {
+        required: true,
+      }),
+      field(
+        "DOMAIN_OPERATIONS_ENABLED",
+        "Enable reviewed manual domain operations",
+        "boolean",
+        { defaultValue: "false" },
+      ),
     ],
   },
 ];
@@ -590,6 +750,19 @@ export async function testIntegration(
           "Credentials may be saved, but this integration has no working adapter yet.",
         checkedAt,
       };
+    const contractFlags: Record<string, string> = {
+      whoop: "WHOOP_CONTRACT_VERIFIED",
+      zepp: "ZEPP_CONTRACT_VERIFIED",
+      voice: "VOICE_CONTRACT_VERIFIED",
+      domains: "DOMAIN_OPERATIONS_ENABLED",
+    };
+    if (contractFlags[id] && config[contractFlags[id]] !== "true")
+      return {
+        status: "unavailable",
+        message:
+          "The adapter is implemented but its account contract or operating approval is not recorded. No provider request was sent.",
+        checkedAt,
+      };
     const fields = Object.fromEntries(
       definition.fields.map((entry) => [
         entry.key,
@@ -606,6 +779,29 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "whoop" || id === "zepp" || id === "voice" || id === "domains") {
+      if (
+        id === "zepp" &&
+        fields.ZEPP_ADAPTER_CONTRACT !== "canonical-observations-v1"
+      )
+        throw new ConfigurationError(
+          "The reviewed Zepp partner adapter contract must be canonical-observations-v1.",
+        );
+      if (
+        id === "voice" &&
+        (fields.VOICE_PROVIDER !== "elevenlabs" ||
+          Number(fields.VOICE_DAILY_USD_LIMIT) <= 0)
+      )
+        throw new ConfigurationError(
+          "Choose the implemented elevenlabs provider and set a positive daily cost limit.",
+        );
+      return {
+        status: "validated",
+        message:
+          "Configuration and recorded approval validated without an external request. User authorization, device behavior, provider account capabilities and end-to-end delivery remain separate qualification checks.",
+        checkedAt,
+      };
+    }
     if (id === "stripe") {
       const response = await providerRequest(
         "https://api.stripe.com/v1/account",
