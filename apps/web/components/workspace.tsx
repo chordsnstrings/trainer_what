@@ -2420,8 +2420,17 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
 
 function Finance({ state, records, action, busy, path }: ViewProps) {
   const [promotionCode, setPromotionCode] = useState("");
+  const [checkout, setCheckout] = useState<{
+    status: string;
+    url?: string;
+  } | null>(null);
   const sub = state.user.role === "subscriber",
-    membership = state.subscriptions[0];
+    subscription = state.subscriptions[0],
+    membership =
+      subscription &&
+      !["canceled", "incomplete_expired"].includes(subscription.status)
+        ? subscription
+        : null;
   const [offer, setOffer] = useState(path.includes("products"));
   return (
     <>
@@ -2472,6 +2481,9 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     ? "Workout + nutrition"
                     : "Workout only"}
                 </p>
+                {membership.data?.premiumVoice === true && (
+                  <p>Premium guided voice included</p>
+                )}
                 {records("product")
                   .filter(
                     (p) =>
@@ -2492,7 +2504,6 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                             () =>
                               api("/membership/change-plan", "POST", {
                                 productId: p.id,
-                                promotionCode,
                               }),
                             "Opening price and billing confirmation",
                           ).then((r) => {
@@ -2542,9 +2553,13 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     <div>
                       <h3>{p.data.name}</h3>
                       <p>{p.data.description}</p>
+                      {p.data.premiumVoice === true && (
+                        <p>Premium guided voice included</p>
+                      )}
                       <strong>{money(p.data.priceMinor)} / month</strong>
                     </div>
                     <Button
+                      disabled={busy}
                       onClick={() =>
                         void action(
                           () =>
@@ -2562,6 +2577,50 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     </Button>
                   </div>
                 ))
+            )}
+          </Card>
+          <Card>
+            <h2>Checkout status</h2>
+            <p className="muted">
+              If checkout was interrupted or your payment is still being
+              confirmed, check the original purchase before trying again.
+            </p>
+            <Button
+              secondary
+              disabled={busy}
+              onClick={() => {
+                setCheckout({ status: "checking" });
+                void action(
+                  () => api("/payments/checkout/reconcile", "POST", {}),
+                  "Checkout status checked",
+                ).then((result) =>
+                  setCheckout(result ?? { status: "unresolved" }),
+                );
+              }}
+            >
+              {checkout?.status === "checking"
+                ? "Checking checkout…"
+                : "Check checkout status"}
+            </Button>
+            {checkout && (
+              <p role="status">
+                {checkout.status === "checking"
+                  ? "Checking your original purchase."
+                  : checkout.status === "open"
+                    ? "Your original checkout is still open. Continue that purchase using the link below."
+                    : checkout.status === "complete"
+                      ? "Checkout is complete. Your membership status has been refreshed above."
+                      : checkout.status === "expired"
+                        ? "The payment provider confirmed that checkout expired. You can choose a plan above."
+                        : checkout.status === "resolved"
+                          ? "There is no pending checkout to reconcile."
+                          : "The payment outcome is not confirmed. Your original purchase remains held while it is checked."}
+              </p>
+            )}
+            {checkout?.status === "open" && checkout.url && (
+              <a className="button secondary" href={checkout.url}>
+                Continue original checkout
+              </a>
             )}
           </Card>
           <BillingHistory />
@@ -2654,6 +2713,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                           description: f.get("description"),
                           priceMinor: Math.round(Number(f.get("price")) * 100),
                           tier: f.get("tier"),
+                          premiumVoice: f.get("premiumVoice") === "on",
                           ...(f.get("baseProductId")
                             ? { baseProductId: f.get("baseProductId") }
                             : {}),
@@ -2673,6 +2733,10 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                       </option>
                     </select>
                   </Field>
+                  <label>
+                    <input type="checkbox" name="premiumVoice" />
+                    Include premium guided voice in this offer
+                  </label>
                   <Field label="Comparable workout offer (required for the combined tier)">
                     <select name="baseProductId">
                       <option value="">Choose for combined tier</option>
@@ -2712,6 +2776,9 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                         ? "Workout + nutrition"
                         : "Workout only"}
                     </p>
+                    {p.data.premiumVoice === true && (
+                      <p>Premium guided voice included</p>
+                    )}
                     <div className="membership-price">
                       {money(p.data.priceMinor)}
                       <span>/ month</span>

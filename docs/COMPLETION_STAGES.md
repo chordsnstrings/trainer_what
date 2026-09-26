@@ -15,7 +15,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
 | Workout coaching | Qualified runtime and training stages committed | Unfinished attachment module/UI and final assembled checks |
 | Nutrition | Four checked stages committed | Finish the separate onboarding readiness changes; qualify actual providers |
-| Billing and finance | Servicing, statements, bookings and jobs committed | New Checkout module has five failing tests and is not registered |
+| Billing and finance | Servicing, statements, bookings, jobs and Checkout committed | Actual Stripe/Lean qualification and acquisition conversion hook remain |
 | Administration and team | Scoped views, publication, team and ingestion committed | Acquisition consent/experiments implementation remains unfinished |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
 | Privacy and accounts | Connected and stage-tested | Attachments/acquisition privacy hooks still need completion |
@@ -92,3 +92,7 @@ Case teaching, confirmed routine actions, independent evaluation, shadow approva
 The owner requested a written handoff on 26 September because of token budget and intends to use Claude to finish. Stop new feature expansion, checkpoint existing completed and unfinished work, and keep `CLAUDE_HANDOFF.md` current after each completed stage. Deployment remains stopped. Unfinished checkpoints must not be described as verified completion.
 
 Frozen implementation is preserved for continuation. The handoff names the two current TypeScript errors, five failing new Checkout tests, onboarding preview payload break, unregistered website/notification/Checkout modules and all unfinished UI/worker/privacy hooks. Infrastructure checks applied all 29 migrations and role grants in PGlite and passed 36 deployment boundary tests with one Docker-only skip. Those results do not qualify the combined application. No further feature implementation was started after the handoff request.
+
+### Resumed Checkout completion
+
+The owner resumed implementation after the handoff checkpoint. Atomic current-workspace/subscriber Checkout admission now preserves database isolation; unresolved outcomes block duplicate purchase and closure until provider evidence resolves them. Routes, member reconciliation and premium voice controls are connected. Eight Checkout tests and sixteen finance tests passed, including an assembled-app smoke. Root handoff updated with the resolved failures and remaining work.

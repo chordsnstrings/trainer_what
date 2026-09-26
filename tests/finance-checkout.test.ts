@@ -13,6 +13,7 @@ import {
   reconcileMembershipCheckout,
 } from "../apps/api/src/finance-checkout.ts";
 import { processStripeEvent } from "../apps/api/src/stripe-events.ts";
+import { settlementBlockers } from "../apps/api/src/privacy-lifecycle.ts";
 let db: Database, product: any;
 const owner: Actor = {
   tenantId: randomUUID(),
@@ -396,6 +397,7 @@ test("only provider-confirmed expiry allows a fresh checkout intent", async () =
   assert.equal(calls, 2);
   assert.notEqual(next.intentId, first.intentId);
   const old = (await intents(a)).find((r) => r.id === first.intentId);
+  assert.ok(old);
   assert.equal(old.status, "expired");
   assert.ok(old.data.expiryEvidence);
 });
@@ -433,4 +435,168 @@ test("delinquent and incomplete subscriptions retain servicing instead of creati
     assert.equal((await intents(a)).length, 0);
   }
   assert.equal(calls, 0);
+});
+
+test("purchase admission checks current membership and workspace before reserving any provider intent", async () => {
+  let calls = 0;
+  const stripe = {
+    checkout: {
+      sessions: {
+        create: async (body: any) => {
+          calls++;
+          return remoteCheckout(body);
+        },
+      },
+    },
+  } as any;
+  for (const role of ["staff", "removed"]) {
+    const a = await subscriber();
+    await db.system((tx) =>
+      role === "removed"
+        ? tx.query(
+            "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2",
+            [a.tenantId, a.userId],
+          )
+        : tx.query(
+            "UPDATE memberships SET role=$3 WHERE tenant_id=$1 AND user_id=$2",
+            [a.tenantId, a.userId, role],
+          ),
+    );
+    await assert.rejects(
+      createMembershipCheckout(db, a, input(), options, stripe),
+      /Current subscriber access required/,
+    );
+    assert.equal((await intents(a)).length, 0);
+  }
+  const a = await subscriber();
+  await db.system((tx) =>
+    tx.query("UPDATE tenants SET lifecycle_state='closed' WHERE id=$1", [
+      a.tenantId,
+    ]),
+  );
+  try {
+    await assert.rejects(
+      createMembershipCheckout(db, a, input(), options, stripe),
+      /no longer accepts purchases/,
+    );
+    assert.equal((await intents(a)).length, 0);
+  } finally {
+    await db.system((tx) =>
+      tx.query("UPDATE tenants SET lifecycle_state='active' WHERE id=$1", [
+        a.tenantId,
+      ]),
+    );
+  }
+  const foreign = { ...a, userId: owner.userId, tenantId: randomUUID() };
+  await assert.rejects(
+    createMembershipCheckout(db, foreign, input(), options, stripe),
+    /no longer accepts purchases/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("privacy settlement retains uncertain checkout until expiry or the original subscription is terminal", async () => {
+  const a = await subscriber();
+  const intent = await db.tenant(owner, (tx) =>
+    putRecord(
+      tx,
+      owner,
+      "checkout",
+      { expiresAt: new Date(0).toISOString() },
+      { ownerId: a.userId, status: "unknown" },
+    ),
+  );
+  const blocked = async () =>
+    (await db.tenant(owner, (tx) => settlementBlockers(tx, a.userId))).some(
+      (b) => b.kind === "checkout",
+    );
+  for (const status of ["creating", "unknown", "open", "completed"]) {
+    await db.tenant(owner, (tx) =>
+      tx.query("UPDATE records SET status=$2 WHERE id=$1", [intent.id, status]),
+    );
+    assert.equal(await blocked(), true, status);
+  }
+  const sid = "sub_" + randomUUID();
+  await db.tenant(owner, async (tx) => {
+    await tx.query(
+      "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status) VALUES($1,$2,$3,$4,'canceled')",
+      [randomUUID(), a.tenantId, a.userId, sid],
+    );
+    await tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [
+      intent.id,
+      JSON.stringify({ subscriptionId: "sub_other" }),
+    ]);
+  });
+  assert.equal(await blocked(), true);
+  await db.tenant(owner, (tx) =>
+    tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [
+      intent.id,
+      JSON.stringify({ subscriptionId: sid }),
+    ]),
+  );
+  assert.equal(await blocked(), false);
+  for (const status of ["expired", "closed"]) {
+    await db.tenant(owner, (tx) =>
+      tx.query("UPDATE records SET status=$2 WHERE id=$1", [intent.id, status]),
+    );
+    assert.equal(await blocked(), false, status);
+  }
+});
+
+test("app exposes checkout reconciliation and persists premium voice on the existing offer tiers", async () => {
+  const { buildApp } = await import("../apps/api/src/app.ts");
+  const { tokenHash } = await import("../apps/api/src/auth.ts");
+  const a = await subscriber(),
+    memberToken = randomUUID(),
+    ownerToken = randomUUID();
+  await db.system(async (tx) => {
+    for (const [actor, token] of [
+      [a, memberToken],
+      [owner, ownerToken],
+    ] as const)
+      await tx.query(
+        "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+        [tokenHash(token), actor.userId, actor.tenantId],
+      );
+  });
+  const app = await buildApp({ db, testing: true });
+  const post = (url: string, token?: string, payload: any = {}) =>
+    app.inject({
+      method: "POST",
+      url: "/api/v1" + url,
+      headers: {
+        origin: options.origin,
+        ...(token ? { cookie: "session=" + token } : {}),
+      },
+      payload,
+    });
+  try {
+    const unauthenticated = await post(
+      "/payments/checkout",
+      undefined,
+      input(),
+    );
+    assert.equal(unauthenticated.statusCode, 401, unauthenticated.body);
+    const reconciled = await post("/payments/checkout/reconcile", memberToken);
+    assert.equal(reconciled.statusCode, 200, reconciled.body);
+    assert.equal(reconciled.json().status, "resolved");
+    const ownerReconcile = await post(
+      "/payments/checkout/reconcile",
+      ownerToken,
+    );
+    assert.equal(ownerReconcile.statusCode, 403, ownerReconcile.body);
+    const created = await post("/products", ownerToken, {
+      name: "Guided workout",
+      description: "Fixture voice offer",
+      priceMinor: 18000,
+      tier: "workout",
+      premiumVoice: true,
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().data.premiumVoice, true);
+    assert.deepEqual(created.json().data.modules, ["training"]);
+    assert.equal(created.json().status, "draft");
+  } finally {
+    await app.close();
+  }
 });

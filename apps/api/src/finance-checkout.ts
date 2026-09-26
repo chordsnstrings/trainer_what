@@ -352,8 +352,13 @@ async function reconcileIntent(
 export async function reconcileMembershipCheckout(
   db: Database,
   a: Actor,
-  stripe = stripeClient(),
+  stripe?: ReturnType<typeof stripeClient>,
 ) {
+  if (a.role !== "subscriber")
+    throw Object.assign(new Error("Subscriber access required"), {
+      statusCode: 403,
+      code: "SUBSCRIBER_REQUIRED",
+    });
   const [r] = await db.tenant({ ...a, role: "owner" }, (tx) =>
     tx.query(
       "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1",
@@ -361,7 +366,7 @@ export async function reconcileMembershipCheckout(
     ),
   );
   if (!r) return { status: "resolved" };
-  const remote = await reconcileIntent(db, a, r, stripe);
+  const remote = await reconcileIntent(db, a, r, stripe ?? stripeClient());
   return {
     status: remote.status,
     url: remote.status === "open" ? remote.url : undefined,
@@ -383,88 +388,101 @@ export async function createMembershipCheckout(
     promotionCode = input.promotionCode?.trim().toUpperCase() ?? "";
   // A bounded loop can clear previously verified expired history without changing uncertain intents.
   for (let attempt = 0; attempt < 10; attempt++) {
-    const context: any = await db.tenant(
-      { ...a, role: "owner" },
-      async (tx) => {
-        await checkoutLock(tx, a);
-        const [t] = await tx.query(
-          "SELECT lifecycle_state FROM tenants WHERE id=$1",
-          [a.tenantId],
+    const context: any = await db.system(async (tx) => {
+      await checkoutLock(tx, a);
+      const [t] = await tx.query(
+        "SELECT lifecycle_state FROM tenants WHERE id=$1 FOR UPDATE",
+        [a.tenantId],
+      );
+      if (t?.lifecycle_state !== "active")
+        throw fail(
+          "WORKSPACE_CLOSED",
+          "This workspace no longer accepts purchases",
         );
-        if (t?.lifecycle_state !== "active")
-          throw fail(
-            "WORKSPACE_CLOSED",
-            "This workspace no longer accepts purchases",
-          );
-        const [s] = await tx.query(
-          "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
-          [a.userId],
-        );
-        if (s && !terminalSubscription(s.status))
-          throw fail(
-            "ALREADY_SUBSCRIBED",
-            "Manage or reconcile the existing subscription before buying another membership",
-          );
-        const old = await unresolvedCheckout(tx, a);
-        if (old) {
-          const same =
-            old.data.productId === input.productId &&
-            (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
-          if (
-            old.status === "open" &&
-            old.data.checkoutUrl &&
-            Date.parse(old.data.expiresAt) > Date.now()
-          ) {
-            if (!same)
-              throw fail(
-                "CHECKOUT_OPEN",
-                "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
-              );
-            return { existing: true, ready: true, intent: old };
-          }
-          if (
-            old.status === "creating" &&
-            Date.now() - new Date(old.created_at).getTime() < 120000
-          )
-            throw fail(
-              "CHECKOUT_PENDING",
-              "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
-            );
-          return { existing: true, ready: false, intent: old, same };
-        }
-        const [product] = await tx.query(
-          "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
-          [input.productId],
-        );
-        if (!product?.data.stripePriceId)
-          throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
-        if (product.data.tier === "workout_nutrition")
-          await options.nutritionReady(tx);
-        const offerTerms = await checkoutOfferTerms(
-          tx,
-          a,
-          product,
-          input.promotionCode,
-        );
-        const intent = await putRecord(
-          tx,
-          a,
-          "checkout",
-          {
-            productId: product.id,
-            offerTerms,
-            priceId: product.data.stripePriceId,
-            email: a.email,
-            expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
-          },
-          { ownerId: a.userId, status: "creating" },
-        );
-        await event(tx, a, "checkout.reserved", intent.id, {
-          productId: product.id,
+      const [member] = await tx.query(
+        "SELECT m.role,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.user_id=$2 FOR UPDATE OF m",
+        [a.tenantId, a.userId],
+      );
+      if (member?.role !== "subscriber")
+        throw Object.assign(new Error("Current subscriber access required"), {
+          statusCode: 403,
+          code: "SUBSCRIBER_REQUIRED",
         });
-        return { existing: false, intent };
-      },
-    );
+      // Keep lifecycle/membership admission and intent reservation in one transaction,
+      // then use the same restricted tenant role as all other financial record access.
+      await tx.query("SET LOCAL ROLE trainer_app");
+      await tx.query(
+        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
+        [a.tenantId, a.userId],
+      );
+      const [s] = await tx.query(
+        "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
+        [a.userId],
+      );
+      if (s && !terminalSubscription(s.status))
+        throw fail(
+          "ALREADY_SUBSCRIBED",
+          "Manage or reconcile the existing subscription before buying another membership",
+        );
+      const old = await unresolvedCheckout(tx, a);
+      if (old) {
+        const same =
+          old.data.productId === input.productId &&
+          (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
+        if (
+          old.status === "open" &&
+          old.data.checkoutUrl &&
+          Date.parse(old.data.expiresAt) > Date.now()
+        ) {
+          if (!same)
+            throw fail(
+              "CHECKOUT_OPEN",
+              "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
+            );
+          return { existing: true, ready: true, intent: old };
+        }
+        if (
+          old.status === "creating" &&
+          Date.now() - new Date(old.created_at).getTime() < 120000
+        )
+          throw fail(
+            "CHECKOUT_PENDING",
+            "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
+          );
+        return { existing: true, ready: false, intent: old, same };
+      }
+      const [product] = await tx.query(
+        "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
+        [input.productId],
+      );
+      if (!product?.data.stripePriceId)
+        throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
+      if (product.data.tier === "workout_nutrition")
+        await options.nutritionReady(tx);
+      const offerTerms = await checkoutOfferTerms(
+        tx,
+        a,
+        product,
+        input.promotionCode,
+      );
+      const intent = await putRecord(
+        tx,
+        a,
+        "checkout",
+        {
+          productId: product.id,
+          offerTerms,
+          priceId: product.data.stripePriceId,
+          email: member.email,
+          expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+        },
+        { ownerId: a.userId, status: "creating" },
+      );
+      await event(tx, a, "checkout.reserved", intent.id, {
+        productId: product.id,
+      });
+      return { existing: false, intent };
+    });
     if (context.existing) {
       if (context.ready)
         return {

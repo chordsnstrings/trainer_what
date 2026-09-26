@@ -1,6 +1,8 @@
 # Claude continuation handoff
 
-Updated 26 September 2026, Asia/Dubai. The owner is switching to Claude because of token budget and requested this file. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
+Updated 26 September 2026, Asia/Dubai. The owner requested this durable continuation file, then authorized continued implementation with an update after every completed stage. **The complete application is not finished.** Completed stages and unfinished implementation are preserved together on a work branch; the final combined tree is not release-verified.
+
+Active continuation: subscription Checkout admission and wiring are completed; onboarding readiness, private chat attachments and notification delivery are being finished. The frozen-checkpoint findings below remain open until their stage entry is explicitly updated with passing checks.
 
 ## Start here
 
@@ -50,11 +52,9 @@ Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`,
 
 ### 1. Immediate known failures
 
-- Last combined `npm run typecheck` **failed**: `tests/finance-checkout.test.ts` lines 399–400 use possibly undefined `old` (TS18048). No other TypeScript diagnostics appeared in that run. This is an unfinished test; fix the assertion/narrowing and rerun.
+- Checkout test typing errors are fixed. The latest whole-worktree TypeScript run is blocked by six implicit-any callbacks in the in-progress onboarding tests; the onboarding stage owns those fixes.
 - Onboarding API now requires `values.digest` for preview completion. `apps/web/components/onboarding.tsx` and the existing `tests/platform.test.ts` preview fixture still submit `{}`. This is a known broken transition; send the observed GET `previewDigest` and test stale digests.
 - Public coach SSR now calls `/api/v1/public/sites/:slug`, but `registerCoachSite(app, db)` is not yet called in `app.ts`. Until wired, the new website path cannot work.
-- `registerSubscriptionCheckout` is not wired. The old `/payments/checkout` handler remains active despite the new module and Stripe event hooks. Complete the replacement before relying on the new payment safeguards.
-- **All five new Checkout tests fail** with `permission denied for table tenants`: `finance-checkout.ts` reads `tenants.lifecycle_state` inside a `trainer_app` transaction. Fix admission atomically before registering it; see section 4.
 - Final full tests, production build, functional browser smoke, and PostgreSQL/container CI have **not** run on the combined work.
 
 ### 2. Photos, galleries, design and actual trainer website
@@ -85,15 +85,13 @@ Next:
 4. Verify worker nutrition CAS does not overwrite module-managed unknown/blocked states. Check stale email leases, failure after dispatch, manual delivered/not-sent outcomes and no duplicate sends.
 5. Run notification/admin checks and a real assembled-app local workflow. Live email provider qualification remains separate.
 
-### 4. Subscription Checkout and premium voice
+### 4. Subscription Checkout and premium voice — completed
 
-Files: new `finance-checkout.ts`, `tests/finance-checkout.test.ts`, modified `stripe-events.ts`, product contract and finance tests.
+The resumed stage fixed the tenant-table permission failure with one system transaction: workspace → tenant → checkout locks, current active subscriber admission, then the scoped tenant role. No broad grants were added. Unresolved provider outcomes survive elapsed local expiry; signed lifecycle or authenticated provider reads reconcile the original intent before a new purchase. Closure/erasure blocks unresolved Checkout while allowing an exactly matched terminal subscription.
 
-A real defect was found in the old handler: elapsed local Checkout expiry could permit another attempt before Stripe's outcome was known; completed Checkout with a delayed subscription webhook, or past_due/unpaid/incomplete subscriptions, could also permit a parallel subscription. The new module is intended to preserve unresolved intents and reconcile provider evidence before another purchase. **Sixteen existing finance tests passed, including the new premium voice projection fixture; all five new Checkout tests failed** with the same `tenants` permission error. The module is not functional yet and must not be advertised as finished.
+`registerSubscriptionCheckout(app, db, requireNutritionReady)` now replaces the old inline route. The member UI can reconcile the original attempt, reopen its stored provider URL and repurchase only after canceled/incomplete-expired membership. Product creation persists the premium voice checkbox; signed offer mapping keeps unknown/legacy prices false. The strict plan-change body no longer includes an unsupported promotion field.
 
-First fix reservation admission in one system transaction: acquire workspace → tenant → checkout locks, verify active workspace and current subscriber membership, then set the local tenant role/context for the remaining scoped work. `privacy-lifecycle.ts` has this transaction pattern. Do not add broad tenant-table grants or put the lifecycle precheck in a separate transaction.
-
-After the five tests pass, replace the old `/api/v1/payments/checkout` route with `registerSubscriptionCheckout(app, db, requireNutritionReady)`; remove the now-unused `checkoutOfferTerms` import. Wire the reconciliation UI at `/payments/checkout/reconcile`. Do not register duplicate paths. Validate signed checkout events, terminal subscriptions, delayed webhooks, elapsed unknown/open sessions, changed promotions and current membership. Product contract/projection now carries `premiumVoice` default false; add owner product checkbox and `premiumVoice: f.get("premiumVoice") === "on"` to the form body, keeping unknown/legacy prices false and preserving the two-tier structure. First-paid acquisition hook is still absent. The Stripe dispatcher already imports the unfinished Checkout lifecycle handlers.
+Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. Whole-tree typecheck awaits the concurrent onboarding test fixes. No live transactions occurred. First-paid acquisition remains part of the acquisition stage; actual Stripe/Lean account qualification remains open.
 
 ### 5. Onboarding readiness
 
@@ -125,8 +123,8 @@ Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite
 
 ## Completion order for Claude
 
-1. Fix the explicit type/preview breaks, review unfinished Checkout module and run relevant focused tests.
-2. Connect website/media, notification and Checkout routes/UI/worker hooks; keep separate stage commits and update this file after each.
+1. Complete onboarding preview/readiness and its test typing, then run the relevant focused checks. Checkout completion is recorded above.
+2. Connect website/media and notification routes/UI/worker hooks; keep separate stage commits and update this file after each.
 3. Finish onboarding, attachments and consented acquisition from the frozen files; add meaningful missing tests.
 4. Reconcile runtime grants/config and privacy hooks against all migrations; run the full suite and build, then local browser journeys and PostgreSQL/non-owner/container CI on the exact committed tree.
 5. Review source requirements against the resulting app for remaining gaps: advanced Twin domains/retrieval, scheduled follow-ups, campaigns/affiliate rules, support impersonation, infrastructure Governor and native HealthKit/BLE may still have unmet scope. These have not been completed or silently removed by this handoff. Bespoke per-coach weights, per-trainer App Store apps, social marketplace and gym ERP were outside initial scope.
@@ -155,3 +153,7 @@ Application controls and provider fixtures do not establish real coach/model fid
 ## Ongoing completion log format
 
 After each stage append: date; area; exact behavior completed; files/migrations; checks actually run with results; commit; remaining limitations; next action. Update the corresponding unfinished section above. Preserve historical evidence and distinguish source implementation, assembled application checks and real external qualification.
+
+### 26 September — Checkout completion
+
+Completed atomic admission, unresolved-intent reconciliation/closure protection, real API registration, member reconciliation controls and premium voice product controls. Eight Checkout tests and sixteen finance tests passed. Changes: finance-checkout.ts, app.ts, privacy-lifecycle.ts, workspace.tsx and Checkout tests; no new migration. Commit: the stage commit containing this log entry (use Git history). Next: onboarding test fixes and notification/site/attachment wiring. Live payment qualification remains open.

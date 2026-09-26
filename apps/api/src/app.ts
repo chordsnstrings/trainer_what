@@ -1,6 +1,6 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
-import { checkoutOfferTerms } from "./finance-promotions.ts";
+import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import {
@@ -1423,115 +1423,7 @@ export async function buildApp(
     );
     return { ok: true };
   });
-  app.post("/api/v1/payments/checkout", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const b = z
-      .object({
-        productId: id,
-        promotionCode: z.string().trim().max(40).optional(),
-      })
-      .parse(req.body);
-    const product = await db.tenant(a, (tx) =>
-      findRecord(tx, b.productId, "product"),
-    );
-    if (product.status !== "published" || !product.data.stripePriceId)
-      throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not available");
-    if (product.data.tier === "workout_nutrition")
-      await db.tenant({ ...a, role: "owner" }, requireNutritionReady);
-    const existing = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing')",
-        [a.userId],
-      ),
-    );
-    if (existing.length)
-      throw fail(409, "ALREADY_SUBSCRIBED", "Manage your existing membership");
-    if (a.role !== "subscriber")
-      throw fail(
-        403,
-        "SUBSCRIBER_REQUIRED",
-        "Sign in as a subscriber to purchase a membership",
-      );
-    const intent = await db.tenant({ ...a, role: "owner" }, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        a.tenantId + ":checkout:" + a.userId,
-      ]);
-      const [existing] = await tx.query(
-        "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->>'expiresAt')::timestamptz>now() ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      if (existing) {
-        if (
-          existing.data.productId !== product.id ||
-          (existing.data.offerTerms?.promotionCode ?? "") !==
-            (b.promotionCode ?? "").toUpperCase()
-        )
-          throw fail(
-            409,
-            "CHECKOUT_OPEN",
-            "Finish or wait for your current checkout to expire before choosing another offer",
-          );
-        return existing;
-      }
-      const offerTerms = await checkoutOfferTerms(
-        tx,
-        a,
-        product,
-        b.promotionCode,
-      );
-      return putRecord(
-        tx,
-        a,
-        "checkout",
-        {
-          productId: product.id,
-          offerTerms,
-          priceId: product.data.stripePriceId,
-          email: a.email,
-          expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
-        },
-        { status: "creating" },
-      );
-    });
-    const checkout = await stripe.checkout.sessions.create(
-      {
-        mode: "subscription",
-        customer_email: intent.data.email,
-        client_reference_id: intent.id,
-        line_items: [{ price: intent.data.priceId, quantity: 1 }],
-        expires_at: Math.floor(
-          new Date(intent.data.expiresAt).getTime() / 1000,
-        ),
-        metadata: {
-          tenant_id: a.tenantId,
-          user_id: a.userId,
-          intent_id: intent.id,
-        },
-        discounts: intent.data.offerTerms?.couponId
-          ? [{ coupon: intent.data.offerTerms.couponId }]
-          : undefined,
-        subscription_data: {
-          trial_period_days: intent.data.offerTerms?.trialDays || undefined,
-          metadata: {
-            tenant_id: a.tenantId,
-            user_id: a.userId,
-            product_id: product.id,
-          },
-        },
-        success_url: `${publicUrl()}/app/membership?checkout=complete`,
-        cancel_url: `${publicUrl()}/app/membership`,
-      },
-      { idempotencyKey: "checkout:" + intent.id },
-    );
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
-      tx.query(
-        "UPDATE records SET status='open',data=data||$2::jsonb WHERE id=$1",
-        [intent.id, JSON.stringify({ providerId: checkout.id })],
-      ),
-    );
-    return { url: checkout.url };
-  });
+  registerSubscriptionCheckout(app, db, requireNutritionReady);
   app.post("/api/v1/membership/change-plan", async (req) => {
     const a = identity(req),
       b = z.object({ productId: id }).strict().parse(req.body);

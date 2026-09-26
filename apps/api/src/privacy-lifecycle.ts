@@ -154,6 +154,11 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
     [userId ?? null],
   );
   await add(
+    "checkout",
+    "SELECT count(*)::int n FROM records r WHERE r.kind='checkout' AND ($1::uuid IS NULL OR r.owner_user_id=$1) AND r.status NOT IN ('expired','closed') AND NOT (r.status='completed' AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id=r.tenant_id AND s.user_id=r.owner_user_id AND s.provider_id=r.data->>'subscriptionId' AND s.status IN ('canceled','incomplete_expired')))",
+    [userId ?? null],
+  );
+  await add(
     "usage",
     "SELECT count(*)::int n FROM cost_events WHERE ($1::uuid IS NULL OR user_id=$1) AND (cost_usd IS NULL OR status IN ('reserved','unknown'))",
     [userId ?? null],
