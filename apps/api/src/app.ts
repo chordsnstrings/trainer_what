@@ -1,5 +1,6 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
+import { registerLifecycleMessages } from "./lifecycle-messages.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
@@ -410,6 +411,7 @@ export async function buildApp(
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
   registerCoachingFeedback(app, db);
+  registerLifecycleMessages(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);

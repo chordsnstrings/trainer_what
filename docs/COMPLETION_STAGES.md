@@ -20,7 +20,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Integrations | Connected and stage-tested | Premium voice product UI is connected; external qualification remains |
 | Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
 | Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
-| Notifications and worker | Routes, preferences/inbox, events and worker connected | Final browser and live email qualification remain |
+| Notifications and worker | Routes, preferences/inbox, lifecycle events, trainer reminder policy and worker connected | Final browser and live email qualification remain |
 | Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
 
 ## Evidence
@@ -119,7 +119,7 @@ Active coaching material is bounded before creation/model calls; held-out cases 
 
 ### Migration upgrade and runtime permission verification
 
-A dedicated original001–029 →030 migration regression preserves existing conversation/media state and verifies binding, expiry and scoped helpers. Five behavioral subtests passed (six reported checks including their parent). Fresh all30 migrations and twice-applied grants passed runtime verification of 54 tables and nine privileged helpers, including no PUBLIC helper execution and no unclassified definer helpers. Test TypeScript, script syntax and diff checks passed. Real PostgreSQL/container/browser remain CI gates; no deployment.
+A dedicated original001–029 →030 migration regression preserves existing conversation/media state and verifies binding, expiry and scoped helpers. Five behavioral subtests passed (six reported checks including their parent). Fresh all 30 migrations and twice-applied grants passed runtime verification of 54 tables and nine privileged helpers, including no PUBLIC helper execution and no unclassified definer helpers. Test TypeScript, script syntax and diff checks passed. Real PostgreSQL/container/browser remain CI gates; no deployment.
 
 ### Consented acquisition completion
 
@@ -147,16 +147,20 @@ Current profiles/active holds now survive bounded history queries and retain lin
 
 ### Temporary support preview completed
 
-Added case/session-bound read-only account/access/connection previews with fresh MFA, reason,15-minute expiry, visible Stop/banner, repeated authority checks and real-operator audit. App registration and support links are connected; migration031 has narrow system grants. Seven focused tests, strict TypeScript and diff checks passed. Sensitive view reproduction/write elevation are not implemented; browser/PostgreSQL/retention review is deferred explicitly in the handoff.
+Added case/session-bound read-only account/access/connection previews with fresh MFA, reason, 15-minute expiry, visible Stop/banner, repeated authority checks and real-operator audit. App registration and support links are connected; migration031 has narrow system grants. Seven focused tests, strict TypeScript and diff checks passed. Sensitive view reproduction/write elevation are not implemented; browser/PostgreSQL/retention review is deferred explicitly in the handoff.
 
 ### Observe-only infrastructure operations completed
 
-Actual process/API/worker/DB/queue observations, versioned thresholds, evidence-linked recommendations and audited acknowledgement/recovery are connected to admin/API/worker. Stale/partial evidence cannot prove recovery; execution is always denied. Migration033 and narrow grants are included. Nine observer tests, connected TypeScript and all33 migration/runtime grants checks passed (58 tables/nine helpers). Cloud telemetry remains explicitly unavailable; production/browser/fleet/retention/load review is deferred in the handoff.
+Actual process/API/worker/DB/queue observations, versioned thresholds, evidence-linked recommendations and audited acknowledgement/recovery are connected to admin/API/worker. Stale/partial evidence cannot prove recovery; execution is always denied. Migration033 and narrow grants are included. Nine observer tests, connected TypeScript and all 33 migration/runtime grants checks passed (58 tables/nine helpers). Cloud telemetry remains explicitly unavailable; production/browser/fleet/retention/load review is deferred in the handoff.
 
 ### Training adherence and latest-block summary completed
 
-Added timezone-aware rolling28-day history/next28-day schedule and complete latest-assigned-block summaries across verified revisions. Completion needs exact linked workout evidence; held/canceled/abandoned/unverifiable states are separate, and bounded legacy/overflow coverage is explicit. Trainer/subscriber views show counts and expandable lineage. Two new and three existing focused checks, TypeScript and diff checks passed. No migration; active-block selection and browser/release review are deferred in the root handoff.
+Added timezone-aware rolling 28-day history/next 28-day schedule and complete latest-assigned-block summaries across verified revisions. Completion needs exact linked workout evidence; held/canceled/abandoned/unverifiable states are separate, and bounded legacy/overflow coverage is explicit. Trainer/subscriber views show counts and expandable lineage. Two new and three existing focused checks, TypeScript and diff checks passed. No migration; active-block selection and browser/release review are deferred in the root handoff.
 
 ### Correction-to-teaching and regression workflow completed
 
 Added guarded replacement decisions preserving originals, preferred/rejected correction episodes, meaningful/cosmetic differences and saved teaching drafts. Owner-confirmed teaching reuses held-out exclusion; linked independent evaluation reports readiness without releasing or leaking prompts. Client-owned outcomes, privacy erasure and consent revocation are connected in the actual app and attention-list UI. Eight new and seven existing runtime tests, TypeScript and diff checks passed. No migration/provider call; broad security/browser/quality review is deferred in the root handoff.
+
+### Lifecycle messages and trainer reminder policy completed
+
+Connected bounded, deduplicated trainer/subscriber lifecycle triggers with pinned source/template identity and current-state delivery checks. Coverage includes onboarding/interview/payout setup/readiness, paid milestones/review queue, intake/program/workout/block/wearable and verified billing/refund/payout states. Owner-controlled missed reminders are off by default and honor exact policy revisions, recorded schedule, current paid consent, safety and client workout/quiet-hour preferences. API, Settings UI and worker are connected; existing notification/job privacy applies, with no migration or live provider call. Eight lifecycle plus nine existing notification checks and final whole-tree TypeScript passed; basic policy component rendering and diff checks passed. Backfill/candidate/expiry bounds and unsupported churn/upload-count/push features remain explicit in the root handoff. All assigned continuation slices are committed; broader scope and release/provider qualification remain for Claude.

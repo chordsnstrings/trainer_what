@@ -38,6 +38,8 @@ export type NotificationInput = {
   body: string;
   href?: string;
   templateKey?: string;
+  // Some lifecycle confirmations belong in the private inbox only.
+  email?: boolean;
   source?: Record<string, unknown>;
 };
 const critical = (category: string) => ["safety", "account"].includes(category);
@@ -141,7 +143,7 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
           : expanded.slice(0, 4000);
       }
     }
-    const canEmail = enabled(p, input.category),
+    const canEmail = input.email !== false && enabled(p, input.category),
       notificationId = randomUUID();
     const [row] = await tx.query(
       "INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body,href,email_status,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING id",
@@ -227,14 +229,15 @@ export async function notificationDeliveryDecision(
   now = new Date(),
 ): Promise<{ allowed: boolean; due?: Date }> {
   if (!job.data.notificationId) return { allowed: true };
-  return db.tenant(
+  const decision = await db.tenant(
     { tenantId, userId: job.data.userId, role: "owner" },
     async (tx) => {
       const [n] = await tx.query(
         "SELECT * FROM notifications WHERE id=$1 AND user_id=$2",
         [job.data.notificationId, job.data.userId],
       );
-      if (!n || n.email_status === "sent") return { allowed: false };
+      if (!n || ["sent", "suppressed"].includes(n.email_status))
+        return { allowed: false };
       const [m] = await tx.query(
         "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2",
         [tenantId, job.data.userId],
@@ -284,9 +287,31 @@ export async function notificationDeliveryDecision(
       return {
         allowed: true,
         due: critical(n.category) ? now : nextNotificationTime(p, now),
+        lifecycleSource: source?.type === "lifecycle" ? source : undefined,
       };
     },
   );
+  if (
+    decision.allowed &&
+    "lifecycleSource" in decision &&
+    decision.lifecycleSource
+  ) {
+    const { lifecycleMessageCurrent } = await import("./lifecycle-messages.ts");
+    if (
+      !(await lifecycleMessageCurrent(
+        db,
+        tenantId,
+        job.data.userId,
+        decision.lifecycleSource,
+        now,
+      ))
+    )
+      return { allowed: false };
+  }
+  return {
+    allowed: decision.allowed,
+    ...("due" in decision ? { due: decision.due } : {}),
+  };
 }
 export async function scheduleNotifications(db: Database, tenantId: string) {
   const a = {

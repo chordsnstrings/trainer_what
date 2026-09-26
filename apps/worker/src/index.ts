@@ -6,6 +6,7 @@ import { createDatabase, type Actor } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
+import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
 import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
 import { createInfrastructureObserver } from "../../api/src/infrastructure-observer.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
@@ -86,6 +87,11 @@ if (!process.env.DATABASE_URL) {
         await scheduleNotifications(db, tenant.id);
       } catch {
         console.error("Notification scheduling failed");
+      }
+      try {
+        await scheduleLifecycleMessages(db, tenant.id);
+      } catch {
+        console.error("Lifecycle message scheduling failed");
       }
       try {
         await processCoachingFollowups(db, tenant.id);
