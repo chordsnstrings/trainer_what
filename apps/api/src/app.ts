@@ -35,6 +35,7 @@ import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { registerSupportPreview } from "./support-preview.ts";
+import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import {
   registerFinanceBilling,
@@ -413,6 +414,9 @@ export async function buildApp(
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
   registerSupportPreview(app, db, identity);
+  registerInfrastructureObserver(app, db, identity, {
+    startCollector: !options.testing,
+  });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
@@ -1045,7 +1049,11 @@ export async function buildApp(
         conflicts: generated.conflicts.length,
         coverage: generated.coverage,
       });
-      return { rules, conflicts: generated.conflicts.length, coverage: generated.coverage };
+      return {
+        rules,
+        conflicts: generated.conflicts.length,
+        coverage: generated.coverage,
+      };
     });
   });
   app.patch("/api/v1/brain/rules/:id", async (req) => {
@@ -1920,7 +1928,15 @@ export async function buildApp(
       // effective without resetting newer quiet-hour or booking preferences.
       await tx.query(
         "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
-        [a.tenantId, a.userId, JSON.stringify({ email: b.emailNotifications, workouts: b.workoutReminders, marketing: b.marketing })],
+        [
+          a.tenantId,
+          a.userId,
+          JSON.stringify({
+            email: b.emailNotifications,
+            workouts: b.workoutReminders,
+            marketing: b.marketing,
+          }),
+        ],
       );
       return putRecord(tx, a, "preferences", b, { status: "active" });
     });

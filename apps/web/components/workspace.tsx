@@ -27,6 +27,7 @@ import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
+import { InfrastructureObserver } from "./infrastructure-observer";
 import { MarketingPage } from "./marketing-pages";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
@@ -703,6 +704,8 @@ export default function Workspace() {
                 platformRole={state.user.platformRole}
               />
             )
+          ) : path === "/admin/infrastructure/observer" ? (
+            <InfrastructureObserver />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -713,10 +716,23 @@ export default function Workspace() {
           ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(
               path,
             ) ? (
-            <AdminOperations
-              path={path}
-              platformRole={state.user.platformRole}
-            />
+            <>
+              {path === "/admin/infrastructure" &&
+                state.user.platformRole === "admin" && (
+                  <p>
+                    <Link
+                      className="button secondary"
+                      href="/admin/infrastructure/observer"
+                    >
+                      Infrastructure status and recommendations
+                    </Link>
+                  </p>
+                )}
+              <AdminOperations
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            </>
           ) : path.startsWith("/admin") ? (
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (

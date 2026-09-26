@@ -7,6 +7,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
+import { createInfrastructureObserver } from "../../api/src/infrastructure-observer.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
@@ -24,6 +25,7 @@ if (!process.env.DATABASE_URL) {
   setInterval(() => {}, 60000);
 } else {
   const db = await createDatabase();
+  const infrastructure = createInfrastructureObserver(db, "worker");
   let running = true;
   let lastMediaPurge = 0;
   let lastAcquisitionPurge = 0;
@@ -163,11 +165,20 @@ if (!process.env.DATABASE_URL) {
   }
   async function loop() {
     while (running) {
+      const started = performance.now();
+      let successful = false;
       try {
         await withRuntimeConfig(await loadRuntimeSettings(db), tick);
+        successful = true;
       } catch (e) {
         console.error("Worker iteration failed");
       }
+      infrastructure.recordCycle(performance.now() - started, successful);
+      await infrastructure
+        .collectIfDue()
+        .catch(() =>
+          console.error("Infrastructure observations could not be persisted"),
+        );
       await new Promise((r) => setTimeout(r, 5000));
     }
   }
@@ -179,6 +190,7 @@ if (!process.env.DATABASE_URL) {
           integrationTask,
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
+      await infrastructure.settled().catch(() => {});
       await db.close();
       process.exit(0);
     });

@@ -16,7 +16,7 @@ Each implemented stage records concrete behavior, changed paths, actual checks a
 | Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Complete correction feedback; source coverage is connected and broad review is deferred |
 | Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
 | Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
-| Administration and team | Scoped views, publication, team, ingestion, acquisition and temporary support preview connected | Infrastructure status completion; deferred review |
+| Administration and team | Scoped views, publication, team, ingestion, acquisition and temporary support preview connected | Infrastructure status connected; deferred review |
 | Integrations | Connected and stage-tested | Product voice UI and external qualification remain |
 | Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
 | Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
@@ -148,3 +148,7 @@ Current profiles/active holds now survive bounded history queries and retain lin
 ### Temporary support preview completed
 
 Added case/session-bound read-only account/access/connection previews with fresh MFA, reason,15-minute expiry, visible Stop/banner, repeated authority checks and real-operator audit. App registration and support links are connected; migration031 has narrow system grants. Seven focused tests, strict TypeScript and diff checks passed. Sensitive view reproduction/write elevation are not implemented; browser/PostgreSQL/retention review is deferred explicitly in the handoff.
+
+### Observe-only infrastructure operations completed
+
+Actual process/API/worker/DB/queue observations, versioned thresholds, evidence-linked recommendations and audited acknowledgement/recovery are connected to admin/API/worker. Stale/partial evidence cannot prove recovery; execution is always denied. Migration033 and narrow grants are included. Nine observer tests, connected TypeScript and all33 migration/runtime grants checks passed (58 tables/nine helpers). Cloud telemetry remains explicitly unavailable; production/browser/fleet/retention/load review is deferred in the handoff.

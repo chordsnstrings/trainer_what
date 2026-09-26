@@ -19,6 +19,8 @@ GRANT SELECT,INSERT ON platform_settings_audit TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON admin_documents,admin_experiments TO trainer_service;
 GRANT SELECT,INSERT ON admin_operations_audit,acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON support_preview_grants TO trainer_service;
+GRANT SELECT,INSERT ON infrastructure_observations,infrastructure_policies TO trainer_service;
+GRANT SELECT,INSERT,UPDATE ON infrastructure_recommendations TO trainer_service;
 GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 
