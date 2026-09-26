@@ -1,3 +1,4 @@
+import { registerFinanceBilling, currentPaidSubscription } from "./finance-billing.ts";
 import { registerCoachingCompletion, lockTraining } from "./coaching-completion.ts";
 import {
   runtimeConfig,
@@ -133,10 +134,7 @@ async function putException(
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const [s] = await tx.query(
-    "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())",
-    [a.userId],
-  );
+  const s = await currentPaidSubscription(tx, a.userId);
   if (!s)
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
@@ -285,6 +283,7 @@ export async function buildApp(
     });
   }
   registerCoachingCompletion(app, db);
+  registerFinanceBilling(app, db);
   securityRoutes(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
@@ -1351,7 +1350,7 @@ export async function buildApp(
         "PLAN_CHANGES_PENDING",
         "Plan changes await activation of the reviewed billing policy.",
       );
-    const stripe = requireCommerce();
+    const stripe = stripeClient();
     const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
@@ -1462,202 +1461,6 @@ export async function buildApp(
     );
     return { url: portal.url };
   });
-  app.post("/api/v1/membership/cancel", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const [s] = await db.tenant(a, (tx) =>
-      tx.query("SELECT * FROM subscriptions WHERE user_id=$1", [a.userId]),
-    );
-    if (!s?.provider_id)
-      throw fail(404, "NO_SUBSCRIPTION", "No provider subscription found");
-    await stripe.subscriptions.update(
-      s.provider_id,
-      { cancel_at_period_end: true },
-      { idempotencyKey: `cancel:${s.id}:${s.period_end}` },
-    );
-    await db.tenant(a, async (tx) => {
-      await tx.query(
-        "UPDATE subscriptions SET cancel_at_period_end=true WHERE id=$1",
-        [s.id],
-      );
-      await event(tx, a, "subscription.cancel_scheduled", s.id);
-    });
-    return { ok: true, accessUntil: s.period_end };
-  });
-  app.post("/api/v1/membership/reactivate", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const [s] = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 AND period_end>now()",
-        [a.userId],
-      ),
-    );
-    if (!s?.provider_id)
-      throw fail(404, "NO_SUBSCRIPTION", "No renewable membership");
-    await stripe.subscriptions.update(
-      s.provider_id,
-      { cancel_at_period_end: false },
-      { idempotencyKey: `reactivate:${s.id}:${s.period_end}` },
-    );
-    await db.tenant(a, (tx) =>
-      tx.query(
-        "UPDATE subscriptions SET cancel_at_period_end=false WHERE id=$1",
-        [s.id],
-      ),
-    );
-    return { ok: true };
-  });
-  app.post("/api/v1/refund-requests", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({
-        chargeId: z.string().min(3).max(200),
-        reason: z.string().min(5).max(2000),
-      })
-      .parse(req.body);
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
-      const [charge] = await tx.query(
-        "SELECT * FROM journals WHERE data->>'userId'=$1 AND data->>'chargeId'=$2",
-        [a.userId, b.chargeId],
-      );
-      if (
-        !charge ||
-        !refundEligible(charge.data.chargedAt ?? charge.created_at)
-      )
-        throw fail(
-          400,
-          "REFUND_WINDOW",
-          "This charge is outside the seven-day request window",
-        );
-      const [existing] = await tx.query(
-        "SELECT id FROM records WHERE kind='refund' AND data->>'chargeId'=$1",
-        [b.chargeId],
-      );
-      if (existing)
-        throw fail(409, "ALREADY_REQUESTED", "A refund request already exists");
-      return putRecord(
-        tx,
-        a,
-        "refund",
-        {
-          ...b,
-          journalId: charge.id,
-          amountMinor: charge.data.grossMinor,
-          requestedAt: new Date().toISOString(),
-        },
-        { ownerId: a.userId, status: "requested" },
-      );
-    });
-  });
-  app.post("/api/v1/refund-requests/:id/decision", async (req) => {
-    const a = owner(req);
-    const b = z
-      .object({ approve: z.boolean(), reason: z.string().min(3).max(2000) })
-      .parse(req.body);
-    requireRecentMfa(a);
-    const stripe = b.approve ? requireCommerce() : null;
-    const r = await db.tenant(a, async (tx) => {
-      const [r] = await tx.query(
-        "SELECT * FROM records WHERE id=$1 AND kind='refund' FOR UPDATE",
-        [id.parse((req.params as any).id)],
-      );
-      if (!r) throw fail(404, "NOT_FOUND", "Refund request unavailable");
-      if (r.status !== "requested")
-        throw fail(
-          409,
-          "REFUND_STATE",
-          "This request is already being reviewed or submitted; reconcile its existing instruction",
-        );
-      await tx.query(
-        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1",
-        [
-          r.id,
-          b.approve ? "submitting" : "declined",
-          JSON.stringify({
-            decisionReason: b.reason,
-            reviewedBy: a.userId,
-            submittedAt: new Date().toISOString(),
-          }),
-        ],
-      );
-      await event(
-        tx,
-        a,
-        b.approve ? "refund.approved" : "refund.declined",
-        r.id,
-      );
-      return r;
-    });
-    if (stripe) {
-      try {
-        const refund = await stripe.refunds.create(
-          {
-            charge: r.data.chargeId,
-            metadata: { refund_request_id: r.id, tenant_id: a.tenantId },
-          },
-          { idempotencyKey: `refund:${r.id}` },
-        );
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE records SET status='submitted',data=data||$2::jsonb WHERE id=$1 AND status IN ('submitting','unknown')",
-            [r.id, JSON.stringify({ providerRefundId: refund.id })],
-          ),
-        );
-      } catch (error) {
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE records SET status='unknown' WHERE id=$1 AND status='submitting'",
-            [r.id],
-          ),
-        );
-        throw error;
-      }
-    }
-    return { ok: true };
-  });
-
-  app.post("/api/v1/refund-requests/:id/reconcile", async (req) => {
-    const a = owner(req);
-    requireRecentMfa(a);
-    const stripe = requireCommerce();
-    const r = await db.tenant(a, (tx) =>
-      findRecord(tx, (req.params as any).id, "refund"),
-    );
-    if (!["submitting", "submitted", "unknown"].includes(r.status))
-      return { status: r.status };
-    const page = await stripe.refunds.list({
-      charge: r.data.chargeId,
-      limit: 100,
-    });
-    const remote = page.data.find(
-      (item) =>
-        item.id === r.data.providerRefundId ||
-        item.metadata?.refund_request_id === r.id,
-    );
-    if (!remote)
-      throw fail(
-        409,
-        "REFUND_UNRESOLVED",
-        page.has_more
-          ? "The provider history needs a full finance reconciliation"
-          : "No matching provider refund is confirmed; the existing instruction remains held",
-      );
-    await processStripeEvent(db, {
-      id: "reconcile-refund:" + remote.id + ":" + remote.status,
-      created: Math.floor(Date.now() / 1000),
-      type: "refund.updated",
-      data: { object: remote },
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "refund.provider_reconciled", r.id, {
-        providerRefundId: remote.id,
-        status: remote.status,
-      }),
-    );
-    return { status: remote.status };
-  });
-
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);
     requireRecentMfa(a);

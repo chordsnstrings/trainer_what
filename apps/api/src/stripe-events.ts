@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { type Database, type Tx, type Actor, event } from "@trainer/db";
+import {
+  type Database,
+  type Tx,
+  type Actor,
+  event,
+  putRecord,
+} from "@trainer/db";
 import { recordCharge, journal } from "./finance.ts";
 const supported = new Set([
   "invoice.paid",
@@ -123,6 +129,55 @@ export async function processStripeEvent(db: Database, e: any) {
     } else if (!current?.data?.modules) {
       productAccess = { modules: ["training"], tier: "workout" };
     }
+    if (["invoice.paid", "invoice.payment_failed"].includes(e.type)) {
+      const safeLink = (value: unknown) => {
+        try {
+          const url = new URL(String(value));
+          return url.protocol === "https:" &&
+            (url.hostname === "invoice.stripe.com" ||
+              url.hostname.endsWith(".stripe.com"))
+            ? url.toString()
+            : null;
+        } catch {
+          return null;
+        }
+      };
+      const [invoice] = await tx.query(
+        "SELECT * FROM records WHERE kind='billing_invoice' AND data->>'invoiceId'=$1",
+        [object.id],
+      );
+      const snapshot = {
+        invoiceId: object.id,
+        subscriptionId,
+        chargeId,
+        amountPaid: object.amount_paid ?? 0,
+        amountDue: object.amount_due ?? 0,
+        currency: object.currency,
+        number: object.number ?? null,
+        hostedUrl: safeLink(object.hosted_invoice_url),
+        pdfUrl: safeLink(object.invoice_pdf),
+        issuedAt: new Date((object.created ?? eventTime) * 1000).toISOString(),
+        providerEventId: e.id,
+        eventTime,
+      };
+      if (!invoice)
+        await putRecord(tx, a, "billing_invoice", snapshot, {
+          ownerId: userId,
+          status: e.type === "invoice.paid" ? "paid" : "open",
+        });
+      else if (
+        eventTime >= Number(invoice.data.eventTime ?? 0) &&
+        invoice.status !== "paid"
+      )
+        await tx.query(
+          "UPDATE records SET status=$2,data=$3,version=version+1,updated_at=now() WHERE id=$1",
+          [
+            invoice.id,
+            e.type === "invoice.paid" ? "paid" : "open",
+            JSON.stringify(snapshot),
+          ],
+        );
+    }
     if (e.type === "invoice.paid") {
       const amount = object.amount_paid;
       if (
@@ -147,6 +202,7 @@ export async function processStripeEvent(db: Database, e: any) {
         ...productAccess,
         firstPaidAt,
         lastStripeEventAt: Math.max(lastTime, eventTime),
+        ...(newer ? { graceUntil: null, pastDueSince: null } : {}),
       };
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,price_minor,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,provider_id=excluded.provider_id,period_end=greatest(subscriptions.period_end,excluded.period_end),price_minor=excluded.price_minor,data=excluded.data",
@@ -191,6 +247,17 @@ export async function processStripeEvent(db: Database, e: any) {
         ...current?.data,
         ...productAccess,
         lastStripeEventAt: eventTime,
+        ...([
+          "active",
+          "trialing",
+          "canceled",
+          "unpaid",
+          "incomplete_expired",
+        ].includes(object.status)
+          ? { graceUntil: null, pastDueSince: null }
+          : object.status === "past_due"
+            ? await graceSnapshot(tx, current, eventTime)
+            : {}),
       };
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,data=excluded.data",
@@ -212,7 +279,13 @@ export async function processStripeEvent(db: Database, e: any) {
     } else if (e.type === "invoice.payment_failed" && newer) {
       await tx.query(
         "UPDATE subscriptions SET status='past_due',data=data||$2::jsonb WHERE user_id=$1 AND status<>'canceled'",
-        [userId, JSON.stringify({ lastStripeEventAt: eventTime })],
+        [
+          userId,
+          JSON.stringify({
+            lastStripeEventAt: eventTime,
+            ...(await graceSnapshot(tx, current, eventTime)),
+          }),
+        ],
       );
       await event(tx, a, "payment.failed", object.id, {
         providerEventId: e.id,
@@ -301,7 +374,7 @@ async function applyRefund(
   eventId: string,
 ) {
   await tx.query(
-    "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE kind='refund' AND (data->>'providerRefundId'=$1 OR data->>'chargeId'=$4)",
+    "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE kind='refund' AND data->>'chargeId'=$4 AND (data->>'providerRefundId'=$1 OR id::text=$5) AND (status<>'succeeded' OR $2='succeeded')",
     [
       refund.id,
       refund.status === "succeeded"
@@ -314,6 +387,7 @@ async function applyRefund(
         providerStatus: refund.status,
       }),
       chargeId,
+      refund.metadata?.refund_request_id ?? "",
     ],
   );
   if (refund.status !== "succeeded") return;
@@ -363,4 +437,26 @@ async function applyRefund(
   await event(tx, a, "refund.succeeded", refund.id, {
     providerEventId: eventId,
   });
+}
+
+/** Grace is pinned at the first failed payment, never extended by webhook retries. */
+async function graceSnapshot(tx: Tx, current: any, eventTime: number) {
+  if (current?.data?.pastDueSince)
+    return {
+      pastDueSince: current.data.pastDueSince,
+      graceUntil: current.data.graceUntil ?? null,
+    };
+  const at = new Date((eventTime || Math.floor(Date.now() / 1000)) * 1000);
+  const [policy] = await tx.query(
+    "SELECT data FROM records WHERE kind='finance_policy' AND status='published' AND (data->>'effectiveAt')::timestamptz<=$1 ORDER BY (data->>'effectiveAt')::timestamptz DESC LIMIT 1",
+    [at.toISOString()],
+  );
+  const days = Number(policy?.data?.graceDays ?? 3);
+  return {
+    pastDueSince: at.toISOString(),
+    graceUntil: new Date(
+      at.getTime() +
+        Math.max(0, Math.min(14, Number.isFinite(days) ? days : 0)) * 86400000,
+    ).toISOString(),
+  };
 }

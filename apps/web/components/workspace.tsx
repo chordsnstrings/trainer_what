@@ -1,5 +1,6 @@
 "use client";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
+import { BillingHistory } from "./finance-completion";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
@@ -2485,40 +2486,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                 ))
             )}
           </Card>
-          <Card>
-            <h2>Request a refund</h2>
-            <p className="muted">
-              Requests are separate from cancellation and can be submitted
-              within seven days of the charge. Your trainer reviews each
-              request.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                void action(
-                  () => api("/refund-requests", "POST", Object.fromEntries(f)),
-                  "Refund request sent",
-                );
-              }}
-            >
-              <Field label="Charge reference from your receipt">
-                <input name="chargeId" required />
-              </Field>
-              <Field label="Reason">
-                <textarea name="reason" required minLength={5} />
-              </Field>
-              <Button type="submit" secondary disabled={busy}>
-                Submit request
-              </Button>
-            </form>
-            {records("refund").map((r) => (
-              <div className="list-row" key={r.id}>
-                <span>{r.data.reason}</span>
-                <Badge>{r.status}</Badge>
-              </div>
-            ))}
-          </Card>
+          <BillingHistory />
         </>
       ) : (
         <>
