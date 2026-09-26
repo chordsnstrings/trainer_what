@@ -150,10 +150,14 @@ export async function verifyRuntimeAccess(client) {
     "training_actor_is_current(uuid,uuid,text)",
     "integration_actor_is_current(uuid,uuid)",
     "published_notification_template(text)",
+    "export_personal_chat_media(uuid)",
+    "erase_personal_chat_media(uuid)",
+    "expire_unattached_chat_media()",
+    "erase_workspace_chat_media()",
   ];
   for (const name of functions) {
     const [r] = await query(
-      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant",
+      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant,prosecdef,pg_get_userbyid(proowner) AS owner,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid=$1::regprocedure",
       [name],
     );
     assert.equal(
@@ -162,7 +166,32 @@ export async function verifyRuntimeAccess(client) {
       `${name}: unexpected direct service access`,
     );
     assert.equal(r.tenant, true, `${name}: tenant helper grant missing`);
+    assert.equal(
+      r.prosecdef,
+      true,
+      `${name}: expected a scoped definer helper`,
+    );
+    assert.equal(
+      r.public_execute,
+      false,
+      `${name}: PUBLIC must not execute privileged helpers`,
+    );
+    assert.notEqual(
+      r.owner,
+      "trainer_service",
+      `${name}: runtime must not own privileged helpers`,
+    );
   }
+  const definerFunctions = await query(
+    "SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef",
+  );
+  assert.deepEqual(
+    definerFunctions
+      .filter(({ signature }) => !functions.includes(signature))
+      .map(({ signature }) => signature),
+    [],
+    "Classify new privileged helpers in the runtime permission gate",
+  );
   await client.query("BEGIN");
   try {
     await client.query("SET LOCAL ROLE trainer_app");

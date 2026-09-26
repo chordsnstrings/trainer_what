@@ -116,3 +116,7 @@ Actual multipage public websites, private owner previews, gallery management/cli
 ### Coaching capacity and history hardening
 
 Active coaching material is bounded before creation/model calls; held-out cases and the active release load separately from recent evaluations. Revision-checked assessment archiving permits replacement without leaking archived questions into training. Seven runtime tests and a final targeted assertion passed; whole-tree TypeScript and diff checks passed. No migration; root handoff updated in the same stage commit.
+
+### Migration upgrade and runtime permission verification
+
+A dedicated original001–029 →030 migration regression preserves existing conversation/media state and verifies binding, expiry and scoped helpers. Five behavioral subtests passed (six reported checks including their parent). Fresh all30 migrations and twice-applied grants passed runtime verification of 54 tables and nine privileged helpers, including no PUBLIC helper execution and no unclassified definer helpers. Test TypeScript, script syntax and diff checks passed. Real PostgreSQL/container/browser remain CI gates; no deployment.

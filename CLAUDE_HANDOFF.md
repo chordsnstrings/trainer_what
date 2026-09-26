@@ -94,7 +94,7 @@ Image/PDF uploads, the message composer and shared-file controls are connected. 
 
 Personal export/erasure, reviewed workspace closure and hourly orphan expiry include attachment data and message references. Current membership, active workspace, expiry and independent tenant/subject/author checks are enforced. Migration028 is preserved exactly; forward migration030 applies the binding policy, sealed expiry and narrow privacy-helper fixes to existing installations without deleting data.
 
-Checks: **7 attachment and 8 privacy tests passed together after the forward migration**, including assembled application upload/message routes, real image/PDF sanitization, erasure/expiry and cross-tenant access. TypeScript passed at the agent stage boundary. Final browser interaction and aggregate release gates remain pending.
+Checks: **7 attachment and 8 privacy tests passed together after the forward migration**, including assembled application upload/message routes, real image/PDF sanitization, erasure/expiry and cross-tenant access. A separate original001–029 →030 upgrade test passed its five behavioral subtests (six reported checks including the parent), preserving existing bytes/timestamps/messages and checking expiry, binding, null-role rejection and cross-tenant cleanup. TypeScript passed at the stage boundary. Final browser interaction and aggregate release gates remain pending.
 
 ### 7. Consented acquisition and experiments
 
@@ -108,7 +108,7 @@ Frozen infra changes cover `.env.example`, `.github/workflows/check.yml`, `apps/
 
 Written: shared raw UTF-8 `INTERNAL_PROXY_SECRET` (at least 32 bytes) for API/web, exact `PUBLIC_APP_URL`, web `API_INTERNAL_URL`, root env loading for Next dev/start, browser-test signing key, narrow account/media/acquisition grants, idempotent runtime role setup, PostgreSQL permission gate, screenshot CI gate removal with functional smoke retained.
 
-Observed: all **29 migrations** plus runtime grants twice passed in fresh PGlite; runtime verification covered 27 system tables, 27 scoped tables and 5 privileged helpers. **36 Python deployment boundary tests passed; 1 Docker-only check skipped** because Docker is unavailable. Changed infra JS/TS/YAML was formatted. Actual PostgreSQL 17.6, Docker/container CI, web build and browser smoke remain unrun. No environment was deployed.
+Observed: all **30 migrations** plus runtime grants twice passed in fresh PGlite; runtime verification covered 27 system tables, 27 scoped tables and 9 privileged helpers. The gate also rejects unclassified privileged helpers, PUBLIC execution and runtime-owned helpers. The historical028→030 upgrade is tested separately with existing data. **36 Python deployment boundary tests passed; 1 Docker-only check skipped** because Docker is unavailable. Changed infra JS/TS/YAML was formatted. Actual PostgreSQL 17.6, Docker/container CI, web build and browser smoke remain unrun. Local Playwright installation exhausted its built-in retries because the CDN returned invalid/truncated Chromium archives; no local browser executable is available. Use the existing CI browser gate without claiming local verification. No environment was deployed.
 
 ## Completion order for Claude
 
@@ -166,3 +166,7 @@ Connected actual website routes/SSR, versioned drafts, private preview, trainer/
 ### 26 September — Coaching capacity and history hardening
 
 Enforced bounded creation of 30 active actions, 100 teaching cases and 100 active independent assessment cases. Cases and the active release load independently of recent evaluation history, so newer history cannot hide them. Owners can archive obsolete assessment cases with revision/reason checks; archived questions stay excluded from teaching. Oversized legacy corpora fail before model dispatch instead of silently truncating. Seven runtime tests passed, then the strengthened capacity/archived-question assertion passed again; TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Next: acquisition/media privacy and aggregate gates.
+
+### 26 September — Migration upgrade and runtime permission verification
+
+Added a dedicated original001–029 →030 regression with preexisting messages/media, confirming preserved bytes/timestamps, one-time binding, expiry, null-role rejection and isolated privacy cleanup. All five behavioral subtests passed (six reported checks with the parent). Fresh all30 runtime verification passed with grants applied twice across 54 tables and nine privileged helpers. Strict test TypeScript, script syntax and diff checks passed. Commit: the stage commit containing this entry. Real PostgreSQL/container/browser gates remain pending; no deployment.
