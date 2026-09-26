@@ -40,6 +40,32 @@ async function ready(url) {
   throw new Error("Timed out starting " + url);
 }
 try {
+  await new Promise((resolve, reject) => {
+    const fixture = spawn(
+      process.execPath,
+      ["--import", "tsx", "scripts/seed-browser-completion.ts"],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          PUBLIC_APP_URL: process.env.PUBLIC_APP_URL ?? "http://localhost:3000",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    fixture.stdout.pipe(log, { end: false });
+    fixture.stderr.pipe(log, { end: false });
+    fixture.once("error", reject);
+    fixture.once("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(
+            new Error(
+              "Browser completion fixture failed; inspect browser-servers.log",
+            ),
+          ),
+    );
+  });
   start(["--import", "tsx", "src/server.ts"], root + "apps/api");
   start(
     [

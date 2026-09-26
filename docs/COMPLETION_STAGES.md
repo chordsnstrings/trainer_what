@@ -132,3 +132,7 @@ Reviewed personal erasure now removes owned media/galleries and exact applied/pr
 ### Notification settings connection correction
 
 Replaced the mistakenly retained legacy Settings form with NotificationPreferences. Kept old-client opt-outs effective in the actual preference row without resetting newer quiet-hour/booking choices; revisions advance for conflict detection. Nine notification tests passed and the component mount passed TypeScript. Browser persistence review is deferred per the latest owner instruction; the root handoff has the review queue.
+
+### Browser continuation harness prepared
+
+Updated browser selectors and added consent, gallery/website, private attachment and notification-preference journeys. A local-only synthetic launched-workspace fixture separates website-publication testing from launch qualification; offline checks remain. Four syntax checks and scoped diff checks passed. Browser execution is unrun and explicitly deferred per owner steering; this is test-harness implementation, not feature verification.

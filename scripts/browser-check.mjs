@@ -1,5 +1,9 @@
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
+import {
+  checkAcquisitionConsent,
+  checkCompletionFlows,
+} from "./browser-completion-check.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const browser = await chromium.launch({
@@ -32,6 +36,7 @@ async function capture(target, options) {
 const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
 await mkdir("test-results", { recursive: true });
 try {
+  const acquisitionConsent = await checkAcquisitionConsent({ page, base });
   await page.goto(base, { waitUntil: "networkidle" });
   await capture(page, {
     path: "test-results/landing-desktop.png",
@@ -69,7 +74,7 @@ try {
     "/admin",
   ]) {
     await page.goto(base + route);
-    await page.locator(".page-heading h1").waitFor();
+    await page.getByRole("heading", { level: 1 }).first().waitFor();
   }
   await page.goto(base + "/trainer/onboarding/identity");
   await page
@@ -105,7 +110,7 @@ try {
     throw new Error("Onboarding did not resume persisted identity");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + "/trainer");
-  await page.locator(".page-heading h1").waitFor();
+  await page.getByRole("heading", { level: 1 }).first().waitFor();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
@@ -133,6 +138,11 @@ try {
   for (const route of [
     "/trainer/nutrition",
     "/trainer/nutrition/cases",
+    "/trainer/nutrition/learning",
+    "/trainer/nutrition/methods",
+    "/trainer/nutrition/clients",
+    "/trainer/nutrition/purchases",
+    "/trainer/nutrition/recovery",
     "/trainer/nutrition/recipes",
     "/trainer/nutrition/policy",
     "/trainer/nutrition/scenarios",
@@ -180,7 +190,7 @@ try {
   await subscriber.waitForURL("**/app");
   await subscriber.goto(base + "/app/program");
   await subscriber
-    .getByRole("button", { name: "Start workout" })
+    .getByRole("button", { name: /^Start (workout|this session)$/ })
     .first()
     .click();
   await subscriber.waitForURL("**/app/workouts/*");
@@ -223,7 +233,7 @@ try {
   });
   for (const route of ["/app/bookings", "/app/support", "/app/profile"]) {
     await subscriber.goto(base + route);
-    await subscriber.locator(".page-heading h1").waitFor();
+    await subscriber.getByRole("heading", { level: 1 }).first().waitFor();
   }
   await subscriber.goto(base + "/app/twin");
   await subscriber
@@ -268,8 +278,8 @@ try {
   await subscriber
     .getByRole("heading", { name: "One list for the week", exact: true })
     .waitFor();
-  await subscriber.getByText("2800 g", { exact: true }).waitFor();
-  await subscriber.locator(".nutrition-grocery input").first().check();
+  await subscriber.getByText("2800 g", { exact: true }).first().waitFor();
+  await subscriber.getByRole("checkbox", { name: /^Oat mixture/ }).check();
   await subscriber
     .getByRole("button", { name: "Save shopping progress", exact: true })
     .click();
@@ -280,6 +290,16 @@ try {
     path: "test-results/nutrition-groceries-mobile.png",
     fullPage: true,
   });
+  await subscriber.reload();
+  await subscriber
+    .getByRole("button", { name: "Weekly groceries", exact: true })
+    .click();
+  const persistedPantry = subscriber.getByRole("checkbox", {
+    name: /^Oat mixture/,
+  });
+  await persistedPantry.waitFor();
+  if (!(await persistedPantry.isChecked()))
+    throw new Error("Saved grocery checklist was not restored");
   await subscriber
     .getByRole("button", { name: "Meal plan", exact: true })
     .click();
@@ -341,6 +361,14 @@ try {
     .getByRole("button", { name: "Meal diary", exact: true })
     .click();
   await subscriber.getByText(/1 meals across 1 days/).waitFor();
+  const completionFlows = await checkCompletionFlows({
+    coach: page,
+    subscriber,
+    browser,
+    base,
+    observe,
+    pages,
+  });
   await subscriberContext.close();
   await writeFile(
     "test-results/browser-check.json",
@@ -348,6 +376,8 @@ try {
       {
         routes: visitedRoutes.size,
         routePaths: [...visitedRoutes].sort(),
+        acquisitionConsent,
+        completionFlows,
         onboardingResume: true,
         clientTwin: true,
         mobileWidth: 390,
@@ -367,15 +397,16 @@ try {
   );
   if (errors.length) throw new Error(errors.join("\n"));
   console.log(
-    "Browser smoke passed: landing, login, trainer routes, admin, mobile navigation, no overflow and offline workout reload/replay.",
+    "Browser smoke passed: consent lifecycle, saved onboarding, galleries and website publication, private chat downloads, notification preferences, mobile layout and offline workout/meal replay.",
   );
 } catch (error) {
   const details = [];
   for (const [index, p] of pages.entries()) {
     if (p.isClosed()) continue;
-    await p
-      .screenshot({ path: `test-results/failure-${index}.png`, fullPage: true })
-      .catch(() => {});
+    await capture(p, {
+      path: `test-results/failure-${index}.png`,
+      fullPage: true,
+    }).catch(() => {});
     details.push({
       url: p.url(),
       text: await p
