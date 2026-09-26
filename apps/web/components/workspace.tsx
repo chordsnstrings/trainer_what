@@ -1,4 +1,5 @@
 "use client";
+import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
@@ -1704,6 +1705,7 @@ function Programs({ state, records, action, busy }: ViewProps) {
   const router = useRouter();
   return (
     <>
+      {sub && <TrainingHoldNotice records={state.records} />}
       <Heading
         eyebrow="STRUCTURE WITH INTENTION"
         title={
@@ -1983,6 +1985,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     );
   return (
     <>
+      <TrainingHoldNotice records={state.records} />
       <Heading
         eyebrow="ONE SET AT A TIME"
         title={workout.data.program.title}
@@ -2281,6 +2284,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
   const exceptions = records("exception").filter((e) => e.status === "open");
   return (
     <>
+      <TrainingHoldReview onChange={() => action(async () => {}, "Training review saved")} />
       <Heading
         eyebrow="YOUR JUDGMENT MATTERS"
         title="The attention list."

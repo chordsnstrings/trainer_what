@@ -1,3 +1,4 @@
+import { registerCoachingCompletion, lockTraining } from "./coaching-completion.ts";
 import {
   runtimeConfig,
   withRuntimeConfig,
@@ -283,6 +284,7 @@ export async function buildApp(
       maxAge: 604800,
     });
   }
+  registerCoachingCompletion(app, db);
   securityRoutes(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
@@ -1089,6 +1091,7 @@ export async function buildApp(
     const a = identity(req),
       b = intakeSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
+      await lockTraining(tx, a);
       const r = await putRecord(
         tx,
         a,
@@ -1140,281 +1143,6 @@ export async function buildApp(
       return r;
     });
   });
-  app.post("/api/v1/workouts/start", async (req) => {
-    const a = identity(req);
-    const b = z.object({ programId: id }).parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await activeMembership(tx, a);
-      const program = await findRecord(tx, b.programId, "program");
-      const r = await putRecord(
-        tx,
-        a,
-        "workout",
-        {
-          programId: program.id,
-          programVersion: program.version,
-          program: program.data,
-          startedAt: new Date().toISOString(),
-        },
-        { status: "active" },
-      );
-      await event(tx, a, "workout.started", r.id);
-      return r;
-    });
-  });
-  app.post("/api/v1/workouts/:id/sets", async (req) => {
-    const a = identity(req);
-    const b = setSchema.parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        a.tenantId + ":set:" + a.userId + ":" + b.eventKey,
-      ]);
-      const [prior] = await tx.query(
-        "SELECT id,workout_id,data=$3::jsonb AS matches FROM workout_events WHERE user_id=$1 AND event_key=$2",
-        [a.userId, b.eventKey, JSON.stringify(b)],
-      );
-      if (prior) {
-        if (prior.workout_id !== (req.params as any).id || !prior.matches)
-          throw fail(
-            409,
-            "INTENT_CONFLICT",
-            "This event key was already used with different set details",
-          );
-        return { id: prior.id, duplicate: true };
-      }
-      await activeMembership(tx, a);
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId || w.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "This workout is not open for logging",
-        );
-      await tx.query("SELECT id FROM records WHERE id=$1 FOR UPDATE", [w.id]);
-      const current = await findRecord(tx, w.id, "workout");
-      if (current.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "This workout has been paused or completed",
-        );
-      const exercise = current.data.program.exercises.find(
-        (ex: any) => ex.name === b.exercise,
-      );
-      if (!exercise || b.set > exercise.sets)
-        throw fail(
-          400,
-          "SET_NOT_IN_PROGRAM",
-          "This set is outside the assigned workout",
-        );
-      const [r] = await tx.query(
-        "INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,user_id,event_key) DO NOTHING RETURNING *",
-        [
-          randomUUID(),
-          a.tenantId,
-          a.userId,
-          w.id,
-          b.eventKey,
-          JSON.stringify(b),
-        ],
-      );
-      return r ?? { duplicate: true };
-    });
-  });
-  app.post("/api/v1/workouts/:id/finish", async (req) => {
-    const a = identity(req);
-    return db.tenant(a, async (tx) => {
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId)
-        throw fail(403, "OWNER_REQUIRED", "Workout ownership required");
-      if (w.status === "completed") return w;
-      if (w.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "Resolve the safety hold before continuing",
-        );
-      await tx.query(
-        "UPDATE records SET status='completed',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [w.id, JSON.stringify({ completedAt: new Date().toISOString() })],
-      );
-      await event(tx, a, "workout.completed", w.id);
-      return { ok: true };
-    });
-  });
-  app.post("/api/v1/workouts/:id/pain", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({ description: z.string().min(3).max(2000) })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId)
-        throw fail(403, "OWNER_REQUIRED", "Workout ownership required");
-      await tx.query(
-        "UPDATE records SET status='safety_hold',updated_at=now() WHERE id=$1",
-        [w.id],
-      );
-      const r = await putException(
-        tx,
-        a,
-        {
-          category: "safety",
-          description: b.description,
-          workoutId: w.id,
-          subscriberId: a.userId,
-        },
-        { status: "open" },
-      );
-      await event(tx, a, "safety.escalated", r.id);
-      return {
-        message:
-          "Pause this workout. Your trainer has been notified for review. Seek urgent local medical help if your symptoms are severe or urgent.",
-      };
-    });
-  });
-
-  app.post("/api/v1/coaching/ask", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({ message: z.string().min(1).max(4000) })
-      .parse(req.body);
-    const material = await db.tenant({ ...a, role: "staff" }, async (tx) => {
-      await activeMembership(tx, a);
-      await putRecord(
-        tx,
-        a,
-        "message",
-        { text: b.message, author: "subscriber", subscriberId: a.userId },
-        { status: "sent" },
-      );
-      const takeover = await tx.query(
-        "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
-        [a.userId],
-      );
-      const intake = await tx.query(
-        "SELECT * FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      const [consent] = await tx.query(
-        "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      return {
-        takeover: takeover.length > 0,
-        intake,
-        consent: !!consent?.granted,
-      };
-    });
-    if (safetySignal(b.message) || material.takeover) {
-      return db.tenant(a, async (tx) => {
-        await putException(
-          tx,
-          a,
-          {
-            category: safetySignal(b.message) ? "safety" : "human_review",
-            description: b.message,
-            subscriberId: a.userId,
-          },
-          { status: "open" },
-        );
-        const r = await putRecord(
-          tx,
-          a,
-          "message",
-          {
-            text: "I have sent this to your trainer for review. Pause exercise if you have new pain or concerning symptoms; seek urgent local help when needed.",
-            author: "system",
-            subscriberId: a.userId,
-          },
-          { status: "sent" },
-        );
-        return r;
-      });
-    }
-    if (!material.consent)
-      throw fail(
-        409,
-        "COACHING_CONSENT_REQUIRED",
-        "Digital coaching permission is not active. You can send a personal message to your trainer.",
-      );
-    const released = await db.tenant({ ...a, role: "staff" }, (tx) =>
-      tx.query(
-        "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
-      ),
-    );
-    if (!released[0])
-      throw fail(
-        409,
-        "BRAIN_NOT_READY",
-        "Your trainer is preparing the digital coaching release. Send them a message for personal review.",
-      );
-    if (!material.intake.length)
-      throw fail(
-        409,
-        "INTAKE_REQUIRED",
-        "Complete your coaching profile before using digital coaching",
-      );
-    const rules = released[0].data.rules;
-    const twin = await db.tenant({ ...a, role: "staff" }, (tx) =>
-      currentClientTwin(tx, a, a.userId),
-    );
-    const evidence = [
-      {
-        id: twin.id,
-        data: {
-          ...twin.data.coaching,
-          training: {
-            ...twin.data.coaching.training,
-            performance: twin.data.coaching.training.performance
-              .slice(0, 20)
-              .map((p: any) => ({
-                ...p,
-                sourceEventIds: p.sourceEventIds.slice(-10),
-              })),
-          },
-        },
-      },
-      ...material.intake.map((r) => ({ id: r.id, data: r.data })),
-      ...rules,
-    ];
-    const generated = await modelDecision(
-      "coaching",
-      b.message,
-      evidence,
-      modelAccounting(db, a, "coaching"),
-    );
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
-      const d = await putRecord(
-        tx,
-        a,
-        "decision",
-        {
-          ...generated.decision,
-          brainVersionId: released[0].id,
-          clientSnapshotId: twin.id,
-        },
-        { ownerId: a.userId, status: "pending_review" },
-      );
-      await putException(
-        tx,
-        a,
-        {
-          category: "decision_review",
-          decisionId: d.id,
-          subscriberId: a.userId,
-          description: generated.decision.reason,
-        },
-        { ownerId: a.userId, status: "open" },
-      );
-      await event(tx, a, "coaching.review_required", d.id);
-      return {
-        pendingReview: true,
-        message:
-          "Your digital coach has prepared a response for your trainer to review.",
-      };
-    });
-  });
   app.post("/api/v1/messages", async (req) => {
     const a = identity(req);
     if (a.role !== "subscriber") trainer(req);
@@ -1445,102 +1173,6 @@ export async function buildApp(
       );
     });
   });
-  app.post("/api/v1/takeover", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({ subscriberId: id, active: z.boolean() })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await tx.query(
-        "UPDATE records SET status='ended' WHERE kind='takeover' AND owner_user_id=$1",
-        [b.subscriberId],
-      );
-      if (b.active)
-        await putRecord(
-          tx,
-          a,
-          "takeover",
-          { trainerId: a.userId },
-          { ownerId: b.subscriberId, status: "active" },
-        );
-      await event(tx, a, "coaching.takeover_changed", b.subscriberId, {
-        active: b.active,
-      });
-      return { ok: true };
-    });
-  });
-  app.post("/api/v1/exceptions/:id/resolve", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({
-        note: z.string().min(3).max(4000),
-        approveDecision: z.boolean().default(false),
-      })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      const e = await findRecord(tx, (req.params as any).id, "exception");
-      if (e.status === "resolved") return e;
-      if (b.approveDecision && e.data.decisionId) {
-        const d = await findRecord(tx, e.data.decisionId, "decision");
-        const [release] = await tx.query(
-          "SELECT id FROM records WHERE kind='brain_release' AND status='published'",
-        );
-        const [consent] = await tx.query(
-          "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC LIMIT 1",
-          [e.data.subscriberId],
-        );
-        if (!consent?.granted || release?.id !== d.data.brainVersionId)
-          throw fail(
-            409,
-            "REVIEW_STALE",
-            "Consent or the published Brain changed; prepare a fresh decision",
-          );
-        if (d.status !== "pending_review")
-          throw fail(
-            409,
-            "DECISION_STATE",
-            "This decision has already been reviewed",
-          );
-        if (d.data.program)
-          await putRecord(
-            tx,
-            a,
-            "program",
-            {
-              ...d.data.program,
-              sourceDecisionId: d.id,
-              brainVersionId: d.data.brainVersionId,
-              authorId: a.userId,
-              allowedUses: ["render", "model_prompt"],
-            },
-            { ownerId: e.data.subscriberId, status: "assigned" },
-          );
-        await tx.query("UPDATE records SET status='approved' WHERE id=$1", [
-          d.id,
-        ]);
-        await putRecord(
-          tx,
-          a,
-          "message",
-          {
-            text: d.data.message,
-            author: "digital_reviewed",
-            reviewedBy: a.userId,
-            decisionId: d.id,
-            subscriberId: e.data.subscriberId,
-          },
-          { ownerId: e.data.subscriberId, status: "sent" },
-        );
-      }
-      await tx.query(
-        "UPDATE records SET status='resolved',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [e.id, JSON.stringify({ resolution: b.note, resolvedBy: a.userId })],
-      );
-      await event(tx, a, "exception.resolved", e.id);
-      return { ok: true };
-    });
-  });
-
   app.post("/api/v1/products", async (req) => {
     const a = owner(req),
       b = productSchema.parse(req.body);
@@ -2178,6 +1810,7 @@ export async function buildApp(
       })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
+      if (b.type === "coaching") await lockTraining(tx, a);
       if (b.type.startsWith("nutrition"))
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
@@ -2193,7 +1826,7 @@ export async function buildApp(
           b.granted,
         ],
       );
-      if (!b.granted && !b.type.startsWith("nutrition"))
+      if (!b.granted && b.type === "coaching")
         await tx.query(
           "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
           [a.userId],
