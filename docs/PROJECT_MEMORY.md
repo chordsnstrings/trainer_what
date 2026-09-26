@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 25 September 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 26 September 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | After the settings/design/capture slice, the owner requested a complete-app review of what has been created and what is not done. The read-only implementation audit is recorded in APP_AUDIT_2026-09-25.md. The broader app-completion objective persists; this status review does not implement fixes. Deployment remains stopped and assigned to Claude. Provide actual screenshots of every future new/changed view, including mobile. No cloud browser. |
+| Current request | Complete all unfinished application work one checked, committed stage at a time. On 26 September the owner explicitly authorized agent fan-out and removed the screenshot requirement. Include trainer photo uploads, unlimited galleries and the actual trainer website. Deployment remains stopped and assigned to Claude. No cloud browser. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification. On 25 September at 13:44 Asia/Dubai, the owner explicitly requested multiple agents for speed; split nonoverlapping implementation/review work and keep cloud writes with the coordinating agent. Avoid repeated planning/research and unnecessary confirmation. |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
@@ -25,6 +25,8 @@ Updated: 25 September 2026. This is durable project context for future build ses
 | Access preference | NEVER USE CLOUD BROWSER. Use local Playwright for app screenshots. Any later authorized DigitalOcean work must use direct API access; the owner stopped this deployment attempt and assigned it to Claude. Do not repeat sign-in, network-toggle, admin-status or deployment-secret requests. |
 
 ## Current state
+
+- Active recovery on 26 September: local workspace restored an old snapshot and the prior uncommitted completion work was missing. Published baseline `620eef1` has been restored. The recovery branch contains documentation only, not the lost implementation. Rebuild in bounded slices and persist each verified stage to GitHub; track concrete evidence in COMPLETION_STAGES.md. No new completion feature is delivered at this checkpoint.
 
 - Full-app status audit completed against application code `e5a1df5` and release documentation `cd22570`; see APP_AUDIT_2026-09-25.md. It separates implemented behavior, missing engineering and external qualification. No new application code, tests, provider calls or deployment were performed during the audit. Existing CI/screenshot evidence was reused.
 - Material audit findings: workout AI always requires trainer approval; coach-fidelity evaluation/adaptive teaching are limited; nutrition uses fixed goal-based calorie targets and lacks a client-plan editor/consumed-day totals; most specialist admin views are missing; finance reconciliation/payout finality are manual. Concrete gaps include the invalid team-invite form, unused/reset notification preferences, unfinished workout safety holds/notifications, commerce-pause servicing and repeated-cancel risk, legal-version wiring, superseded nutrition facts and blocked-week recovery. Passing screenshots/tests did not cover these behaviors. They remain unfixed.
