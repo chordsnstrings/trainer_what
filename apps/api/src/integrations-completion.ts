@@ -1618,7 +1618,13 @@ function registerDomainRoutes(
       method: "HEAD",
       signal: AbortSignal.timeout(10000),
     });
-    return db.tenant(a, async (tx) => {
+    // Mapping writes are service-only; the order update stays tenant-scoped.
+    return db.system(async (tx) => {
+      await tx.query("SET LOCAL ROLE trainer_app");
+      await tx.query(
+        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
+        [a.tenantId, a.userId, a.role],
+      );
       const [r] = await tx.query(
         "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
         [
@@ -1634,11 +1640,12 @@ function registerDomainRoutes(
         ],
       );
       if (!r) throw conflict();
+      await event(tx, a, "domain.activated", row.id);
+      await tx.query("RESET ROLE");
       await tx.query(
         "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES($1,$2,now(),true) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true",
-        [row.hostname, row.tenant_id],
+        [r.hostname, r.tenant_id],
       );
-      await event(tx, a, "domain.activated", row.id);
       return r;
     });
   });

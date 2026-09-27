@@ -1,6 +1,6 @@
 import pg from "pg";
-import { readFile, readdir } from "node:fs/promises";
 import { createDatabase } from "./index.ts";
+import { applyMigrations } from "./migrations.ts";
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) {
   if (process.env.NODE_ENV === "production")
@@ -12,35 +12,13 @@ if (!url) {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
-    const r = await client.query(
-      "SELECT to_regclass('public.schema_migrations') AS name",
-    );
-    const applied = r.rows[0].name
-      ? new Set(
-          (
-            await client.query("SELECT version FROM schema_migrations")
-          ).rows.map((r) => r.version),
-        )
-      : new Set();
-    for (const file of (
-      await readdir(new URL("../migrations/", import.meta.url))
-    )
-      .filter((f) => f.endsWith(".sql"))
-      .sort()) {
-      if (applied.has(file.replace(".sql", ""))) continue;
-      await client.query("BEGIN");
-      await client.query(
-        await readFile(
-          new URL("../migrations/" + file, import.meta.url),
-          "utf8",
-        ),
+    // All pending files commit together or not at all.
+    const result = await applyMigrations(client);
+    if (result.recorded.length)
+      console.log(
+        `Recorded checksums for ${result.recorded.length} previously applied migrations`,
       );
-      await client.query("COMMIT");
-    }
-    console.log("Migrations applied");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
+    console.log(`Migrations applied: ${result.applied.length}`);
   } finally {
     await client.end();
   }
