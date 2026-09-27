@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { ClientContext } from "./client-context";
 import type { trainingAdherence } from "../../../packages/domain/src/client-twin.ts";
 type Adherence = ReturnType<typeof trainingAdherence>;
 const sessionLabels: Record<string, string> = {
@@ -201,6 +202,7 @@ export function ClientTwin({
       )}
       {data && (
         <>
+          <ClientContext key={userId} userId={userId} editable={subscriber} />
           <section className="card">
             <h2>Coaching profile</h2>
             <p className="muted">

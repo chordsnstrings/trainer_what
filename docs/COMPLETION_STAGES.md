@@ -188,3 +188,7 @@ Added bounded deterministic relevance selection with tenant/approval/rights filt
 ### Scoped support screens and single-use corrections completed
 
 Added explicit consent-gated training/nutrition schedule views and notification settings to read-only session/case-bound previews. Exact safe preference edits require a separate immutable five-minute intent, review/apply, fresh MFA/current authority and preference CAS; no arbitrary impersonation or financial/consent/safety editing. Replay returns the receipt; customer edits, expiry, stop and context loss prevent mutation. Migration037/system grants and runtime verifier included. All13 support tests passed; connected TypeScript/diff passed. Fresh PGlite applied36 migrations through037 with twice-applied grants and passed32 system/28 scoped table and nine-helper checks. Real PostgreSQL and browser review remain for Claude.
+
+### 27 September — Client context and resumed completion
+
+The owner now authorizes all remaining application work, combined auditing and merge to main after checks; external services/deployment remain deferred. Client context is connected to API and shared trainer/subscriber Twin UI. Four privacy/access/CAS/date tests pass; migration038 preserves scoped records. Source notes cannot enter automatic decisions. Remaining modules: affiliates and infrastructure broker.

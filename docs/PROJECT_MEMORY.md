@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 26 September 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 27 September 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | Focus on completing the app; defer broad reviews/release qualification and list them in the Claude handoff. Preserve completed and unfinished work for Claude because of token budget. Maintain `CLAUDE_HANDOFF.md` and the completion register after every completed stage. Continue on the work branch one checked, committed stage at a time. Agent fan-out is authorized; screenshots waived. Include trainer uploads, unlimited galleries and actual website. Deployment remains stopped. No cloud browser. |
+| Current request | 27 September: finish all remaining application work autonomously, audit and run combined release checks, fix failures, then merge to main. Be cautious with tokens. Real services and deployment are deferred until after completion. Continue stage commits and handoff updates; screenshots remain waived. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification. On 25 September at 13:44 Asia/Dubai, the owner explicitly requested multiple agents for speed; split nonoverlapping implementation/review work and keep cloud writes with the coordinating agent. Avoid repeated planning/research and unnecessary confirmation. |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
@@ -26,14 +26,16 @@ Updated: 26 September 2026. This is durable project context for future build ses
 
 ## Current state
 
-- Active branch: `work/completion-2026-09-26`; GitHub `main` is unchanged. Read `../CLAUDE_HANDOFF.md` and `COMPLETION_STAGES.md` for exact scope. Update both after every completed stage; root coordinates shared files, commits and publication.
+- 27 September active task: finish voluntary client context, affiliate administration and infrastructure approvals; audit the combined tree and merge only after passing checks. The earlier broad-review deferral is superseded by this request. No external transactions or cloud provisioning.
+
+- Active branch: `work/completion-2026-09-27`; GitHub `main` is unchanged. Read `../CLAUDE_HANDOFF.md` and `COMPLETION_STAGES.md` for exact scope. Update both after every completed stage; root coordinates shared files, commits and publication.
 - The preserved completion checkpoint has now been followed by finished Checkout, notifications, onboarding readiness, private chat attachments, trainer website/gallery and consented acquisition stages. Earlier stages cover training/qualified coaching, personalized nutrition, finance/bookings, administration, team/import/OCR, privacy/accounts and governed integrations.
 - All assigned continuation slices are finished: scheduled follow-ups; current Twin/compiler coverage; support preview; infrastructure observer; training adherence/latest-block summaries; correction-to-teaching/regression; and lifecycle notifications with an owner-controlled missed-workout policy. Final whole-tree TypeScript passed. Lifecycle had eight new plus nine notification checks; correction workflow had eight new plus seven runtime checks; adherence had five focused checks. Full stage behavior/limits are in the root handoff and completion register.
 - Lifecycle reminders are off until the owner enables a 1–7-day missed-session policy; verified schedule/payment/consent/safety and client preferences/quiet hours govern creation. Polling/backfill are bounded. Upload and compilation-review notifications are now connected with exact counts and source-state guards. Owner-configurable retention alerts are connected to verified billing evidence; browser push now has explicit device opt-in and generic private notifications; predictive churn/rate claims are not claimed.
 - Browser harness updates are saved with four passing syntax checks; browser execution, comprehensive review and final release qualification remain deferred to Claude per owner steering. Screenshots are waived and cloud browser use is prohibited.
 - Attachment stage: seven attachment and eight privacy tests passed together. Migration028 remains unchanged; forward030 applies the upgrade safely. Image/PDF sanitization, conversation binding, privacy and orphan expiry are connected. Whole-tree TypeScript passed after the temporary acquisition syntax error was fixed.
 - All33 migrations and twice-applied runtime grants passed in fresh PGlite (58 tables/nine helpers); a separate028→030 upgrade with existing data passed five behavioral subtests. Final combined suite, production build, browser and PostgreSQL/container CI have not run. Local Chromium installation failed because CDN archives were invalid/truncated. Functional browser verification remains a release gate; screenshots are waived.
-- Stage commits are published through the GitHub connector because direct Git transport was unreliable. Remote/local commit hashes differ, with identical trees verified. Use GitHub history from a fresh checkout. No merge or deployment is authorized by this continuation.
+- Stage commits are published through the GitHub connector because direct Git transport was unreliable. Remote/local commit hashes differ, with identical trees verified. Use GitHub history from a fresh checkout. The owner now authorizes merging after successful checks; deployment and real-service actions remain deferred.
 - No live payment/provider/cloud action occurred. Actual provider rights, account capabilities, model/coach quality, device behavior and operational qualification remain external gates. Existing DigitalOcean resources remain untouched.
 - Latest continuation is completed: upload/compilation-review notifications (four new plus two existing focused checks), searchable correction/outcome history (seven new plus eight workflow checks; migration034), and configurable retention alerts (eight checks including the assembled bootstrap/owner API and delivery hook). Final connected TypeScript and diff checks passed. Each stage updates the handoff/register and is committed/published independently.
 - History search indexes existing records without copying private data. Tenant RLS prevented GIN use in the local diagnostic; no isolation bypass was added. A 3-second timeout and input/page bounds apply; production query-plan optimization remains an explicit review item. Retention uses actual recorded current-member billing evidence, bounded scans and a disabled-until-enabled owner policy; no predicted churn or historical churn rate is claimed.
@@ -51,3 +53,5 @@ Updated: 26 September 2026. This is durable project context for future build ses
 ## Handoff format
 
 At the end of an implementation slice, replace the current-state bullets with a short factual checkpoint: active/completed issue IDs; code commit; migration/deployment state; checks actually run and evidence paths; unresolved blocker with owner; next executable action. Preserve the owner decisions until explicitly changed. Do not mark a requirement complete because its plan or UI exists.
+
+- 27 September client context stage: connected voluntary client-owned notes and dated changes, trainer consent gating, privacy/export/erasure and four passing focused tests. Remote Git transport now works; continuation starts from the published branch with matching tree. Next: affiliate administration and infrastructure broker.

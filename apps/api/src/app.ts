@@ -1,4 +1,5 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
+import { clientContextRoutes } from "./client-context.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
 import { registerRetention } from "./retention.ts";
@@ -440,6 +441,7 @@ export async function buildApp(
   privacyOperations(app, db, identity, privacyHooks);
   registerPrivacyLifecycle(app, db, identity, privacyHooks);
   clientTwinRoutes(app, db, identity);
+  clientContextRoutes(app, db, identity);
   nutritionRoutes(app, db, identity, !!options.testing);
   mealCaptureRoutes(app, db, identity);
   operationsRoutes(app, db, identity);
