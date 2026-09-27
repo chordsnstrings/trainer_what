@@ -301,7 +301,10 @@ export async function createFollowerInvitation(
           url,
           expiresAt,
         });
-        email = { status: "queued", message: "The invitation email is queued." };
+        email = {
+          status: "queued",
+          message: "The invitation email is queued.",
+        };
       }
     }
     await event(tx, a, "follower.invited", row.id, {
@@ -359,11 +362,7 @@ export async function completeInvitationAcceptance(
     if (invite.payload.role === "subscriber") {
       // Unsent copies of this link are withdrawn (jobs are staff-scoped).
       await tx.query("SELECT set_config('app.role','owner',true)");
-      await suppressInvitationEmails(
-        tx,
-        invite.id,
-        "Accepted before delivery",
-      );
+      await suppressInvitationEmails(tx, invite.id, "Accepted before delivery");
       await tx.query("SELECT set_config('app.role',$1,true)", [a.role]);
       await event(tx, a, "follower.joined", userId, {
         source: "invitation",
@@ -473,8 +472,8 @@ export function registerJoiningRoutes(
             requested: r.payload.emailRequested === true,
             status:
               deliveryStatus(job) ??
-              (r.payload.emailNote ??
-                (r.payload.emailRequested ? "not_sent" : "not_requested")),
+              r.payload.emailNote ??
+              (r.payload.emailRequested ? "not_sent" : "not_requested"),
             detail:
               job?.status === "failed" || job?.status === "blocked"
                 ? (job.last_error ?? null)
@@ -490,7 +489,7 @@ export function registerJoiningRoutes(
     async (req) => {
       const a = owner(req),
         id = uuid.parse((req.params as any).id);
-      z.object({ reason: z.string().trim().max(500).optional() })
+      z.object({})
         .strict()
         .parse(req.body ?? {});
       return db.system(async (tx) => {
@@ -525,7 +524,9 @@ export function registerJoiningRoutes(
     async (req) => {
       const a = owner(req),
         id = uuid.parse((req.params as any).id);
-      z.object({}).strict().parse(req.body ?? {});
+      z.object({})
+        .strict()
+        .parse(req.body ?? {});
       if (!invitationEmailConfigured())
         throw fail(
           409,
@@ -598,7 +599,10 @@ export function registerJoiningRoutes(
           id,
           url,
           expiresAt,
-          email: { status: "queued", message: "A fresh invitation email is queued." },
+          email: {
+            status: "queued",
+            message: "A fresh invitation email is queued.",
+          },
         };
       });
     },
@@ -646,7 +650,9 @@ export function registerJoiningRoutes(
         status: invitationStatus(row),
         replaced: row.payload.outcome === "replaced",
         expiresAt: row.expires_at,
-        invitedEmail: matches ? row.payload.email : maskEmail(row.payload.email),
+        invitedEmail: matches
+          ? row.payload.email
+          : maskEmail(row.payload.email),
         legalOpen: legalOpen(),
         viewer: viewer
           ? {
@@ -747,7 +753,9 @@ export function registerJoiningRoutes(
             role: "subscriber",
           })
           .catch(() => {
-            req.log.warn("Enrollment acquisition conversion could not be recorded");
+            req.log.warn(
+              "Enrollment acquisition conversion could not be recorded",
+            );
           });
       return { ok: true, joined: result.joined, tenantId: result.tenantId };
     },

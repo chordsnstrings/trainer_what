@@ -953,24 +953,24 @@ export async function buildApp(
     "/api/v1/invitations",
     { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } },
     async (req) => {
-    const a = owner(req);
-    const b = z
-      .object({
-        email: z.email(),
-        role: z.enum(["staff", "finance", "subscriber"]),
-      })
-      .parse(req.body);
-    if (b.role !== "subscriber")
-      return createTeamInvitation(db, a, b, publicUrl());
-    // Follower invitations: optional email delivery, status and cancellation
-    // live in joining.ts; the copy-link result is always returned.
-    return createFollowerInvitation(
-      db,
-      a,
-      req.body,
-      req.hostContext?.origin ?? publicUrl(),
-    );
-  },
+      const a = owner(req);
+      const b = z
+        .object({
+          email: z.email(),
+          role: z.enum(["staff", "finance", "subscriber"]),
+        })
+        .parse(req.body);
+      if (b.role !== "subscriber")
+        return createTeamInvitation(db, a, b, publicUrl());
+      // Follower invitations: optional email delivery, status and cancellation
+      // live in joining.ts; the copy-link result is always returned.
+      return createFollowerInvitation(
+        db,
+        a,
+        req.body,
+        req.hostContext?.origin ?? publicUrl(),
+      );
+    },
   );
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
@@ -1041,7 +1041,11 @@ export async function buildApp(
       const mfa = existing ? await consumeMfa(tx, existing.id, b.code) : false;
       const uid = existing?.id ?? randomUUID();
       if (!existing && !b.name)
-        throw fail(400, "NAME_REQUIRED", "Enter your name to create your account");
+        throw fail(
+          400,
+          "NAME_REQUIRED",
+          "Enter your name to create your account",
+        );
       if (!existing)
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",

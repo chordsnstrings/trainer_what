@@ -20,7 +20,12 @@ let db: Database, app: Awaited<ReturnType<typeof buildApp>>;
 let coach: any, other: any, operator: any, a: any, b: any, c: any;
 let programA: any;
 const password = "Complimentary2026!";
-async function request(url: string, method: any = "GET", body?: any, who?: any) {
+async function request(
+  url: string,
+  method: any = "GET",
+  body?: any,
+  who?: any,
+) {
   return app.inject({
     url: "/api/v1" + url,
     method,
@@ -72,7 +77,7 @@ const freshMfa = (who: any) =>
   );
 const grant = (body: any, who = coach) =>
   request("/complimentary-access", "POST", body, who);
-const ownerTx = <T>(fn: (tx: any) => Promise<T>, who = coach) =>
+const ownerTx = (fn: (tx: any) => Promise<any>, who = coach): Promise<any> =>
   db.tenant({ ...who, role: "owner" }, fn);
 before(async () => {
   db = await createDatabase({ memory: true });
@@ -137,18 +142,25 @@ test("only the owner with a fresh authenticator grants access, and no payment re
   const days = (Date.parse(g.endsAt) - Date.parse(g.startsAt)) / 86400000;
   assert.ok(Math.abs(days - 30) < 0.01);
   const [notice] = await ownerTx((tx) =>
-    tx.query("SELECT title,href FROM notifications WHERE user_id=$1 AND dedupe_key=$2", [
-      a.userId,
-      `complimentary-granted:${g.id}`,
-    ]),
+    tx.query(
+      "SELECT title,href FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
+      [a.userId, `complimentary-granted:${g.id}`],
+    ),
   );
   assert.equal(notice.href, "/app/membership");
   const [audit] = await ownerTx((tx) =>
-    tx.query("SELECT actor_id,data FROM events WHERE name='complimentary.granted' AND subject_id=$1", [g.id]),
+    tx.query(
+      "SELECT actor_id,data FROM events WHERE name='complimentary.granted' AND subject_id=$1",
+      [g.id],
+    ),
   );
   assert.equal(audit.actor_id, coach.userId);
   assert.equal(audit.data.tier, "workout");
-  assert.equal(JSON.stringify(audit.data).includes("Founding"), false, "Free text stays on the grant");
+  assert.equal(
+    JSON.stringify(audit.data).includes("Founding"),
+    false,
+    "Free text stays on the grant",
+  );
   const counts = await ownerTx((tx) =>
     tx.query(
       "SELECT (SELECT count(*)::int FROM subscriptions) AS subscriptions,(SELECT count(*)::int FROM journals) AS journals,(SELECT count(*)::int FROM records WHERE kind IN ('checkout','subscription_transition')) AS checkouts",
@@ -163,13 +175,32 @@ test("only the owner with a fresh authenticator grants access, and no payment re
 
 test("complimentary access opens workouts, guided sessions, bookings and reminders through one entitlement", async () => {
   // b has no access yet.
-  const blocked = await request("/workouts/start", "POST", { programId: programA.id }, b);
+  const blocked = await request(
+    "/workouts/start",
+    "POST",
+    { programId: programA.id },
+    b,
+  );
   assert.equal(blocked.statusCode, 402);
-  const started = await request("/workouts/start", "POST", { programId: programA.id }, a);
+  const started = await request(
+    "/workouts/start",
+    "POST",
+    { programId: programA.id },
+    a,
+  );
   assert.equal(started.statusCode, 200, started.body);
-  const guided = await request(`/guided/${started.json().id}`, "GET", undefined, a);
+  const guided = await request(
+    `/guided/${started.json().id}`,
+    "GET",
+    undefined,
+    a,
+  );
   assert.equal(guided.statusCode, 200, guided.body);
-  assert.equal(guided.json().premium, false, "Premium voice stays a paid capability");
+  assert.equal(
+    guided.json().premium,
+    false,
+    "Premium voice stays a paid capability",
+  );
   const start = Date.now() + 5 * 86400000;
   const slot = await request(
     "/bookings/slots",
@@ -184,9 +215,19 @@ test("complimentary access opens workouts, guided sessions, bookings and reminde
     coach,
   );
   assert.equal(slot.statusCode, 200, slot.body);
-  const reserveA = await request(`/bookings/slots/${slot.json().id}/reserve`, "POST", {}, a);
+  const reserveA = await request(
+    `/bookings/slots/${slot.json().id}/reserve`,
+    "POST",
+    {},
+    a,
+  );
   assert.equal(reserveA.statusCode, 200, reserveA.body);
-  const reserveB = await request(`/bookings/slots/${slot.json().id}/reserve`, "POST", {}, b);
+  const reserveB = await request(
+    `/bookings/slots/${slot.json().id}/reserve`,
+    "POST",
+    {},
+    b,
+  );
   assert.equal(reserveB.statusCode, 402);
   // Workout reminders use the same entitlement.
   const today = new Intl.DateTimeFormat("en-CA", {
@@ -207,10 +248,15 @@ test("complimentary access opens workouts, guided sessions, bookings and reminde
   });
   await scheduleNotifications(db, coach.tenantId);
   const reminders = await ownerTx((tx) =>
-    tx.query("SELECT user_id FROM notifications WHERE dedupe_key LIKE 'workout-reminder:%'"),
+    tx.query(
+      "SELECT user_id FROM notifications WHERE dedupe_key LIKE 'workout-reminder:%'",
+    ),
   );
   // The assigned program may already plan a session for today as well.
-  assert.deepEqual([...new Set(reminders.map((r: any) => r.user_id))], [a.userId]);
+  assert.deepEqual(
+    [...new Set(reminders.map((r: any) => r.user_id))],
+    [a.userId],
+  );
   const access = await ownerTx((tx) => memberAccess(tx, a.userId));
   assert.deepEqual(access.sources, ["complimentary"]);
   assert.deepEqual(access.modules, ["training"]);
@@ -219,8 +265,15 @@ test("complimentary access opens workouts, guided sessions, bookings and reminde
   assert.equal(own.statusCode, 200, own.body);
   assert.equal(own.json().complimentary.tier, "workout");
   assert.equal(own.json().active, true);
-  assert.equal(JSON.stringify(own.json()).includes("Founding"), false, "The member does not see the trainer's note");
-  assert.equal((await request("/membership/access", "GET", undefined, coach)).statusCode, 403);
+  assert.equal(
+    JSON.stringify(own.json()).includes("Founding"),
+    false,
+    "The member does not see the trainer's note",
+  );
+  assert.equal(
+    (await request("/membership/access", "GET", undefined, coach)).statusCode,
+    403,
+  );
   const boot = await request("/bootstrap", "GET", undefined, coach);
   assert.deepEqual(
     boot.json().complimentary.map((g: any) => g.user_id),
@@ -241,7 +294,13 @@ test("the nutrition tier needs nutrition setup and, in production, the approval 
   assert.equal(early.statusCode, 409);
   assert.equal(early.json().code, "NUTRITION_NOT_ENABLED");
   await ownerTx((tx) =>
-    putRecord(tx, coach, "nutrition_setup", { enabled: true }, { status: "active" }),
+    putRecord(
+      tx,
+      coach,
+      "nutrition_setup",
+      { enabled: true },
+      { status: "active" },
+    ),
   );
   const ok = await grant(body);
   assert.equal(ok.statusCode, 200, ok.body);
@@ -267,7 +326,9 @@ test("the nutrition tier needs nutrition setup and, in production, the approval 
 
 test("one open grant per follower: replace, revoke with version, and expiry", async () => {
   await freshMfa(coach);
-  const [current] = (await request("/complimentary-access", "GET", undefined, coach))
+  const [current] = (
+    await request("/complimentary-access", "GET", undefined, coach)
+  )
     .json()
     .grants.filter((g: any) => g.userId === a.userId && g.status === "active");
   const duplicate = await grant({
@@ -286,7 +347,9 @@ test("one open grant per follower: replace, revoke with version, and expiry", as
     replaceId: current.id,
   });
   assert.equal(replaced.statusCode, 200, replaced.body);
-  const list = (await request("/complimentary-access", "GET", undefined, coach)).json();
+  const list = (
+    await request("/complimentary-access", "GET", undefined, coach)
+  ).json();
   const old = list.grants.find((g: any) => g.id === current.id);
   assert.equal(old.closeReason, "superseded");
   assert.equal(old.status, "revoked");
@@ -313,10 +376,10 @@ test("one open grant per follower: replace, revoke with version, and expiry", as
   );
   assert.equal(setLog.statusCode, 402, "Access ends with the grant");
   const [ended] = await ownerTx((tx) =>
-    tx.query("SELECT id FROM notifications WHERE user_id=$1 AND dedupe_key=$2", [
-      a.userId,
-      `complimentary-ended:${replaced.json().id}`,
-    ]),
+    tx.query(
+      "SELECT id FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
+      [a.userId, `complimentary-ended:${replaced.json().id}`],
+    ),
   );
   assert.ok(ended);
   // A lapsed period is not access, and a new grant closes it as expired.
@@ -327,7 +390,9 @@ test("one open grant per follower: replace, revoke with version, and expiry", as
     ),
   );
   assert.equal(await ownerTx((tx) => hasMemberAccess(tx, a.userId)), false);
-  const lapsed = (await request("/complimentary-access", "GET", undefined, coach))
+  const lapsed = (
+    await request("/complimentary-access", "GET", undefined, coach)
+  )
     .json()
     .grants.find((g: any) => g.userId === a.userId && !g.closedAt);
   assert.equal(lapsed.status, "expired");
@@ -338,7 +403,9 @@ test("one open grant per follower: replace, revoke with version, and expiry", as
     reason: "Second short trial",
   });
   assert.equal(renewed.statusCode, 200, renewed.body);
-  const closed = (await request("/complimentary-access", "GET", undefined, coach))
+  const closed = (
+    await request("/complimentary-access", "GET", undefined, coach)
+  )
     .json()
     .grants.find((g: any) => g.id === lapsed.id);
   assert.equal(closed.closeReason, "expired");
@@ -349,19 +416,39 @@ test("limits are platform settings: period, open-ended and active count", async 
   const saved = { ...process.env };
   try {
     process.env.COMPLIMENTARY_ACCESS_MAX_DAYS = "10";
-    const tooLong = await grant({ userId: c.userId, tier: "workout", days: 11, reason: "Long pilot" });
+    const tooLong = await grant({
+      userId: c.userId,
+      tier: "workout",
+      days: 11,
+      reason: "Long pilot",
+    });
     assert.equal(tooLong.statusCode, 400);
     assert.equal(tooLong.json().code, "COMPLIMENTARY_PERIOD_LIMIT");
     process.env.COMPLIMENTARY_ACCESS_OPEN_ENDED = "false";
-    const open = await grant({ userId: c.userId, tier: "workout", days: null, reason: "Open pilot" });
+    const open = await grant({
+      userId: c.userId,
+      tier: "workout",
+      days: null,
+      reason: "Open pilot",
+    });
     assert.equal(open.statusCode, 400);
     assert.equal(open.json().code, "COMPLIMENTARY_PERIOD_REQUIRED");
     process.env.COMPLIMENTARY_ACCESS_MAX_ACTIVE = "2";
-    const full = await grant({ userId: c.userId, tier: "workout", days: 5, reason: "Third member" });
+    const full = await grant({
+      userId: c.userId,
+      tier: "workout",
+      days: 5,
+      reason: "Third member",
+    });
     assert.equal(full.statusCode, 409, full.body);
     assert.equal(full.json().code, "COMPLIMENTARY_LIMIT");
     process.env.COMPLIMENTARY_ACCESS_MAX_ACTIVE = "0";
-    const off = await grant({ userId: c.userId, tier: "workout", days: 5, reason: "Switched off" });
+    const off = await grant({
+      userId: c.userId,
+      tier: "workout",
+      days: 5,
+      reason: "Switched off",
+    });
     assert.equal(off.json().code, "COMPLIMENTARY_DISABLED");
   } finally {
     for (const key of [
@@ -398,12 +485,17 @@ test("row-level security and the guard keep grants private, owner-written and im
   );
   await assert.rejects(
     ownerTx((tx) =>
-      tx.query("UPDATE complimentary_access SET tier='workout_nutrition' WHERE user_id=$1", [a.userId]),
+      tx.query(
+        "UPDATE complimentary_access SET tier='workout_nutrition' WHERE user_id=$1",
+        [a.userId],
+      ),
     ),
     /immutable/,
   );
   await assert.rejects(
-    ownerTx((tx) => tx.query("DELETE FROM complimentary_access WHERE user_id=$1", [a.userId])),
+    ownerTx((tx) =>
+      tx.query("DELETE FROM complimentary_access WHERE user_id=$1", [a.userId]),
+    ),
   );
   const foreign = await db.tenant({ ...other, role: "owner" }, (tx) =>
     tx.query("SELECT id FROM complimentary_access"),
@@ -413,8 +505,12 @@ test("row-level security and the guard keep grants private, owner-written and im
 
 test("platform operators see grants; only an administrator with a fresh authenticator revokes", async () => {
   await db.system(async (tx) => {
-    await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [other.userId]);
-    await tx.query("UPDATE users SET platform_role='support' WHERE id=$1", [operator.userId]);
+    await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [
+      other.userId,
+    ]);
+    await tx.query("UPDATE users SET platform_role='support' WHERE id=$1", [
+      operator.userId,
+    ]);
   });
   const staleAdmin = await request(
     `/admin/complimentary-access?tenantId=${coach.tenantId}`,
@@ -480,7 +576,10 @@ test("AI usage by a complimentary member stays attributed to the trainer's works
   assert.equal(await ownerTx((tx) => hasMemberAccess(tx, a.userId)), true);
   await modelAccounting(db, a, "coaching").reserve("fixture-model");
   const [usage] = await ownerTx((tx) =>
-    tx.query("SELECT tenant_id,user_id,task FROM cost_events WHERE user_id=$1", [a.userId]),
+    tx.query(
+      "SELECT tenant_id,user_id,task FROM cost_events WHERE user_id=$1",
+      [a.userId],
+    ),
   );
   assert.deepEqual(usage, {
     tenant_id: coach.tenantId,
@@ -490,28 +589,45 @@ test("AI usage by a complimentary member stays attributed to the trainer's works
 });
 
 test("export includes grants; erasure and workspace closure end them and remove free text", async () => {
-  const exported = await ownerTx((tx) => exportComplimentaryAccess(tx, a.userId));
+  const exported = await ownerTx((tx) =>
+    exportComplimentaryAccess(tx, a.userId),
+  );
   assert.ok(exported.some((r: any) => r.reason === "Second short trial"));
   await ownerTx((tx) => eraseComplimentaryAccess(tx, a.userId));
   const erased = await ownerTx((tx) =>
-    tx.query("SELECT reason,close_note,closed_at,close_reason FROM complimentary_access WHERE user_id=$1", [a.userId]),
+    tx.query(
+      "SELECT reason,close_note,closed_at,close_reason FROM complimentary_access WHERE user_id=$1",
+      [a.userId],
+    ),
   );
-  assert.ok(erased.every((r: any) => r.reason === "[removed at erasure]" && r.closed_at));
+  assert.ok(
+    erased.every(
+      (r: any) => r.reason === "[removed at erasure]" && r.closed_at,
+    ),
+  );
   assert.ok(erased.some((r: any) => r.close_reason === "member_removed"));
   assert.ok(
-    erased.every((r: any) => r.close_note === null || r.close_note === "[removed at erasure]"),
+    erased.every(
+      (r: any) =>
+        r.close_note === null || r.close_note === "[removed at erasure]",
+    ),
   );
   // Outside an erasure the reason is still immutable.
   await assert.rejects(
     ownerTx((tx) =>
-      tx.query("UPDATE complimentary_access SET reason='[removed at erasure]' WHERE user_id=$1", [b.userId]),
+      tx.query(
+        "UPDATE complimentary_access SET reason='[removed at erasure]' WHERE user_id=$1",
+        [b.userId],
+      ),
     ),
   );
   await ownerTx((tx) => closeWorkspaceComplimentaryAccess(tx));
   const all = await ownerTx((tx) =>
     tx.query("SELECT reason,closed_at FROM complimentary_access"),
   );
-  assert.ok(all.every((r: any) => r.closed_at && r.reason === "[removed at erasure]"));
+  assert.ok(
+    all.every((r: any) => r.closed_at && r.reason === "[removed at erasure]"),
+  );
   const [flag] = await ownerTx((tx) =>
     tx.query("SELECT current_setting('app.privacy_erasure',true) AS v"),
   );

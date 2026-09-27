@@ -305,7 +305,8 @@ export function registerComplimentaryAccess(
     const limits = joiningLimits();
     return db.tenant({ ...a, role: a.role }, async (tx) => {
       const grants = await tx.query(
-        listSql + " ORDER BY c.closed_at IS NOT NULL,c.created_at DESC LIMIT 200",
+        listSql +
+          " ORDER BY c.closed_at IS NOT NULL,c.created_at DESC LIMIT 200",
       );
       const followers = await tx.query(
         "SELECT u.id,u.name,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name,u.id LIMIT 1000",
@@ -454,13 +455,12 @@ export function registerComplimentaryAccess(
     { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } },
     async (req) => {
       const a = operator(req, true),
-        p = z
-          .object({ tenantId: uuid, id: uuid })
-          .parse(req.params as any);
+        p = z.object({ tenantId: uuid, id: uuid }).parse(req.params as any);
       const [tenant] = await db.system((tx) =>
         tx.query("SELECT id FROM tenants WHERE id=$1", [p.tenantId]),
       );
-      if (!tenant) throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+      if (!tenant)
+        throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
       const result = await closeComplimentaryAccess(
         db,
         { ...a, tenantId: p.tenantId, role: "owner" },

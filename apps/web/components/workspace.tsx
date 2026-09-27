@@ -1,6 +1,12 @@
 "use client";
 import { Field } from "./field";
 import { TeamControls } from "./team-controls";
+import { CoachSwitcher, FollowerInvitations, InvitationJoin } from "./joining";
+import {
+  AdminComplimentaryAccess,
+  ComplimentaryAccessManager,
+  MemberAccessCard,
+} from "./complimentary-access";
 import { Affiliates } from "./affiliates";
 import { InfrastructureActions } from "./infrastructure-actions";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
@@ -136,6 +142,7 @@ type State = {
   sets: any[];
   members?: any[];
   subscriptions: any[];
+  complimentary?: any[];
   integrations: any[];
   events?: any[];
   finance?: any;
@@ -351,7 +358,11 @@ function WorkspaceSwitcher({
   if (choices.length < 2) return null;
   return (
     <label className="workspace-switcher">
-      <span>Switch workspace</span>
+      <span>
+        {choices.find((c) => c.current)?.role === "subscriber"
+          ? "Switch coach"
+          : "Switch workspace"}
+      </span>
       <select
         value={current}
         disabled={busy}
@@ -739,6 +750,13 @@ export default function Workspace() {
             <strong>{topTitle}</strong>
           </div>
           <div className="topbar-right">
+            {subscriber && (
+              <CoachSwitcher
+                current={state.user.tenantId}
+                userId={state.user.userId}
+                variant="compact"
+              />
+            )}
             <span className="connection-dot" />
             <span>
               {state.tenant.published ? "Published" : "Private workspace"}
@@ -861,6 +879,11 @@ export default function Workspace() {
                 path={path}
                 platformRole={state.user.platformRole}
               />
+              {path === "/admin/subscribers" && (
+                <AdminComplimentaryAccess
+                  platformRole={state.user.platformRole}
+                />
+              )}
             </>
           ) : path.startsWith("/admin") ? (
             adminRoute(path) === "overview" ? (
@@ -988,7 +1011,15 @@ export default function Workspace() {
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
-            <Overview {...props} />
+            <>
+              {subscriber && (
+                <CoachSwitcher
+                  current={state.user.tenantId}
+                  userId={state.user.userId}
+                />
+              )}
+              <Overview {...props} />
+            </>
           )}
         </div>
         <footer className="workspace-footer">
@@ -1807,9 +1838,8 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   );
 }
 
-function Members({ state, records, action, busy }: ViewProps) {
-  const [invite, setInvite] = useState(""),
-    [query, setQuery] = useState("");
+function Members({ state, records }: ViewProps) {
+  const [query, setQuery] = useState("");
   const members = (state.members ?? []).filter(
     (m) =>
       m.role === "subscriber" &&
@@ -1861,7 +1891,12 @@ function Members({ state, records, action, busy }: ViewProps) {
                       <td>
                         <Badge>
                           {state.subscriptions.find((s) => s.user_id === m.id)
-                            ?.status ?? "Invited"}
+                            ?.status ??
+                            (state.complimentary?.some(
+                              (g) => g.user_id === m.id,
+                            )
+                              ? "Complimentary"
+                              : "No plan")}
                         </Badge>
                       </td>
                     </tr>
@@ -1872,49 +1907,13 @@ function Members({ state, records, action, busy }: ViewProps) {
           ) : (
             <Empty
               title="Make room for your first subscriber"
-              detail="Invite someone into your coaching space. Paid access starts through your configured membership offer."
+              detail="Invite someone into your coaching space. Access starts with a paid membership offer or complimentary access you grant."
             />
           )}
         </Card>
-        <Card>
-          <h2>Invite a subscriber</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/invitations", "POST", {
-                    email: f.get("email"),
-                    role: "subscriber",
-                  }),
-                "Invitation created",
-              ).then((r) => {
-                if (r) setInvite(r.url);
-              });
-            }}
-          >
-            <Field label="Email address">
-              <input type="email" name="email" required />
-            </Field>
-            <Button type="submit" disabled={busy}>
-              Create invitation <ArrowUpRight size={16} />
-            </Button>
-          </form>
-          {invite && (
-            <div className="invite-result">
-              <p>Share this single-use invitation:</p>
-              <input value={invite} readOnly aria-label="Invitation link" />
-              <Button
-                secondary
-                onClick={() => void navigator.clipboard.writeText(invite)}
-              >
-                Copy link
-              </Button>
-            </div>
-          )}
-        </Card>
+        <FollowerInvitations role={state.user.role} />
       </div>
+      <ComplimentaryAccessManager role={state.user.role} />
     </>
   );
 }
@@ -2746,6 +2745,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
       {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
+          <MemberAccessCard />
           {!membership && (
             <Field label="Discount code (optional)">
               <input
@@ -3958,7 +3958,14 @@ function Public({
                 {error}
               </div>
             )}
+            {join && (
+              <InvitationJoin
+                token={path.split("/").pop() ?? ""}
+                onAuthenticated={onAuthenticated}
+              />
+            )}
             <form
+              hidden={join}
               onSubmit={async (e) => {
                 e.preventDefault();
                 setBusy(true);

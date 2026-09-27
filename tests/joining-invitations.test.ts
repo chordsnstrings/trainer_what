@@ -4,10 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createDatabase, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { executeEmailDelivery } from "../apps/worker/src/email-delivery.ts";
-import {
-  invitationStatus,
-  joiningLimits,
-} from "../apps/api/src/joining.ts";
+import { invitationStatus, joiningLimits } from "../apps/api/src/joining.ts";
 
 // Synthetic email settings only: nothing is sent. Delivery below uses an
 // in-memory sender passed to the worker function.
@@ -18,7 +15,12 @@ process.env.EMAIL_FROM = "coach@example.test";
 let db: Database, app: Awaited<ReturnType<typeof buildApp>>;
 let coach: any, second: any;
 const password = "JoiningFixture2026!";
-async function request(url: string, method: any = "GET", body?: any, who?: any) {
+async function request(
+  url: string,
+  method: any = "GET",
+  body?: any,
+  who?: any,
+) {
   return app.inject({
     url: "/api/v1" + url,
     method,
@@ -50,7 +52,11 @@ async function invite(who: any, email: string, sendEmail?: boolean) {
   const r = await request(
     "/invitations",
     "POST",
-    { email, role: "subscriber", ...(sendEmail === undefined ? {} : { sendEmail }) },
+    {
+      email,
+      role: "subscriber",
+      ...(sendEmail === undefined ? {} : { sendEmail }),
+    },
     who,
   );
   return r;
@@ -139,16 +145,24 @@ test("email delivery is queued, de-duplicated by address and sent once by the wo
   const old = views.find((i: any) => i.id === first.json().id);
   assert.equal(old.status, "cancelled");
   assert.equal(old.replaced, true);
-  const replaced = await accept(tokenOf(first.json().url), "emailed@example.test");
+  const replaced = await accept(
+    tokenOf(first.json().url),
+    "emailed@example.test",
+  );
   assert.equal(replaced.statusCode, 400);
   assert.equal(replaced.json().code, "INVALID_INVITE");
 
   // The worker sends the current link once and records delivery.
   const sent: string[] = [];
   const [current] = await jobsFor(coach, again.json().id);
-  await executeEmailDelivery(db, coach.tenantId, await claim(coach, current.id), async (_to, _s, text) => {
-    sent.push(text);
-  });
+  await executeEmailDelivery(
+    db,
+    coach.tenantId,
+    await claim(coach, current.id),
+    async (_to, _s, text) => {
+      sent.push(text);
+    },
+  );
   assert.equal(sent.length, 1);
   assert.ok(sent[0].includes(again.json().url));
   const [delivered] = await jobsFor(coach, again.json().id);
@@ -164,7 +178,12 @@ test("email delivery is queued, de-duplicated by address and sent once by the wo
 test("resend is cooled down, rotates the link and never sends a superseded link", async () => {
   const created = await invite(coach, "resend@example.test", true);
   const id = created.json().id;
-  const early = await request(`/invitations/followers/${id}/resend`, "POST", {}, coach);
+  const early = await request(
+    `/invitations/followers/${id}/resend`,
+    "POST",
+    {},
+    coach,
+  );
   assert.equal(early.statusCode, 429, early.body);
   assert.equal(early.json().code, "INVITE_RESEND_COOLDOWN");
   await db.system((tx) =>
@@ -173,7 +192,12 @@ test("resend is cooled down, rotates the link and never sends a superseded link"
       [id],
     ),
   );
-  const resent = await request(`/invitations/followers/${id}/resend`, "POST", {}, coach);
+  const resent = await request(
+    `/invitations/followers/${id}/resend`,
+    "POST",
+    {},
+    coach,
+  );
   assert.equal(resent.statusCode, 200, resent.body);
   assert.notEqual(resent.json().url, created.json().url);
   const jobs = await jobsFor(coach, id);
@@ -185,7 +209,11 @@ test("resend is cooled down, rotates the link and never sends a superseded link"
     ],
   );
   // Even a stale first job that was still pending is refused at delivery.
-  const staleJob = { ...jobs[0], status: "pending", data: { ...jobs[0].data, text: "stale" } };
+  const staleJob: any = {
+    ...jobs[0],
+    status: "pending",
+    data: { ...jobs[0].data, text: "stale" },
+  };
   await db.tenant({ ...coach, role: "owner" }, (tx) =>
     tx.query("UPDATE jobs SET status='pending',data=$2 WHERE id=$1", [
       staleJob.id,
@@ -193,13 +221,24 @@ test("resend is cooled down, rotates the link and never sends a superseded link"
     ]),
   );
   const sent: string[] = [];
-  await executeEmailDelivery(db, coach.tenantId, await claim(coach, staleJob.id), async (_t, _s, text) => {
-    sent.push(text);
-  });
+  await executeEmailDelivery(
+    db,
+    coach.tenantId,
+    await claim(coach, staleJob.id),
+    async (_t, _s, text) => {
+      sent.push(text);
+    },
+  );
   assert.equal(sent.length, 0, "A superseded link is never emailed");
-  const oldLink = await accept(tokenOf(created.json().url), "resend@example.test");
+  const oldLink = await accept(
+    tokenOf(created.json().url),
+    "resend@example.test",
+  );
   assert.equal(oldLink.statusCode, 400);
-  const newLink = await accept(tokenOf(resent.json().url), "resend@example.test");
+  const newLink = await accept(
+    tokenOf(resent.json().url),
+    "resend@example.test",
+  );
   assert.equal(newLink.statusCode, 200, newLink.body);
 });
 
@@ -243,17 +282,26 @@ test("without email configuration the invitation is created with an explicit ema
 test("cancelled and expired invitations cannot be accepted and their emails are withdrawn", async () => {
   const cancelled = await invite(coach, "cancel-me@example.test", true);
   const id = cancelled.json().id;
-  const done = await request(`/invitations/followers/${id}/cancel`, "POST", {}, coach);
+  const done = await request(
+    `/invitations/followers/${id}/cancel`,
+    "POST",
+    {},
+    coach,
+  );
   assert.equal(done.statusCode, 200, done.body);
   assert.equal(done.json().status, "cancelled");
   const [job] = await jobsFor(coach, id);
   assert.equal(job.status, "completed");
   assert.equal(job.last_error, "Invitation cancelled before delivery");
   assert.equal(
-    (await request(`/invitations/followers/${id}/cancel`, "POST", {}, coach)).statusCode,
+    (await request(`/invitations/followers/${id}/cancel`, "POST", {}, coach))
+      .statusCode,
     409,
   );
-  const refused = await accept(tokenOf(cancelled.json().url), "cancel-me@example.test");
+  const refused = await accept(
+    tokenOf(cancelled.json().url),
+    "cancel-me@example.test",
+  );
   assert.equal(refused.statusCode, 400);
   const preview = await request("/invitations/preview", "POST", {
     token: tokenOf(cancelled.json().url),
@@ -274,26 +322,44 @@ test("cancelled and expired invitations cannot be accepted and their emails are 
   );
   assert.equal(view.status, "expired");
   assert.equal(
-    (await accept(tokenOf(expiring.json().url), "expired@example.test")).statusCode,
+    (await accept(tokenOf(expiring.json().url), "expired@example.test"))
+      .statusCode,
     400,
   );
   const [expiredJob] = await jobsFor(coach, expiring.json().id);
   const sent: string[] = [];
-  await executeEmailDelivery(db, coach.tenantId, await claim(coach, expiredJob.id), async (_t, _s, text) => {
-    sent.push(text);
-  });
+  await executeEmailDelivery(
+    db,
+    coach.tenantId,
+    await claim(coach, expiredJob.id),
+    async (_t, _s, text) => {
+      sent.push(text);
+    },
+  );
   assert.equal(sent.length, 0);
-  assert.equal(invitationStatus({ consumed_at: null, expires_at: new Date(Date.now() + 1000) }), "pending");
+  assert.equal(
+    invitationStatus({
+      consumed_at: null,
+      expires_at: new Date(Date.now() + 1000),
+    }),
+    "pending",
+  );
 });
 
 test("only the current owner manages follower invitations, and existing members are refused", async () => {
   const joined = await invite(coach, "member-one@example.test");
-  const accepted = await accept(tokenOf(joined.json().url), "member-one@example.test");
+  const accepted = await accept(
+    tokenOf(joined.json().url),
+    "member-one@example.test",
+  );
   assert.equal(accepted.statusCode, 200, accepted.body);
   const follower = await whoami(cookieOf(accepted));
   assert.equal(follower.role, "subscriber");
   for (const path of ["/invitations/followers"])
-    assert.equal((await request(path, "GET", undefined, follower)).statusCode, 403);
+    assert.equal(
+      (await request(path, "GET", undefined, follower)).statusCode,
+      403,
+    );
   const again = await invite(coach, "member-one@example.test");
   assert.equal(again.statusCode, 409);
   assert.equal(again.json().code, "ALREADY_MEMBER");
@@ -336,9 +402,13 @@ test("the owner and coaching staff are alerted when a follower joins, finance is
     }
   });
   const invited = await invite(coach, "alerted@example.test");
-  const joined = await accept(tokenOf(invited.json().url), "alerted@example.test", {
-    name: "Alerted Follower",
-  });
+  const joined = await accept(
+    tokenOf(invited.json().url),
+    "alerted@example.test",
+    {
+      name: "Alerted Follower",
+    },
+  );
   assert.equal(joined.statusCode, 200, joined.body);
   const follower = await whoami(cookieOf(joined));
   const alerts = await db.tenant({ ...coach, role: "owner" }, (tx) =>
@@ -363,9 +433,10 @@ test("the owner and coaching staff are alerted when a follower joins, finance is
   );
   assert.equal(queued[0].n, 2);
   const [joinedEvent] = await db.tenant({ ...coach, role: "owner" }, (tx) =>
-    tx.query("SELECT data FROM events WHERE name='follower.joined' AND subject_id=$1", [
-      follower.userId,
-    ]),
+    tx.query(
+      "SELECT data FROM events WHERE name='follower.joined' AND subject_id=$1",
+      [follower.userId],
+    ),
   );
   assert.equal(joinedEvent.data.source, "invitation");
 
@@ -383,20 +454,26 @@ test("the owner and coaching staff are alerted when a follower joins, finance is
   assert.equal(enrolled.statusCode, 201, enrolled.body);
   const web = await whoami(cookieOf(enrolled));
   const webAlerts = await db.tenant({ ...coach, role: "owner" }, (tx) =>
-    tx.query("SELECT user_id,body FROM notifications WHERE dedupe_key LIKE $1", [
-      `follower-joined:${web.userId}:website:%`,
-    ]),
+    tx.query(
+      "SELECT user_id,body FROM notifications WHERE dedupe_key LIKE $1",
+      [`follower-joined:${web.userId}:website:%`],
+    ),
   );
   assert.equal(webAlerts.length, 2);
   assert.ok(webAlerts[0].body.includes("coaching website"));
   await db.system((tx) =>
-    tx.query("UPDATE tenants SET published=false WHERE id=$1", [coach.tenantId]),
+    tx.query("UPDATE tenants SET published=false WHERE id=$1", [
+      coach.tenantId,
+    ]),
   );
 });
 
 test("a signed-in follower joins a second coach with one click and can switch back", async () => {
   const first = await invite(coach, "two-coaches@example.test");
-  const joined = await accept(tokenOf(first.json().url), "two-coaches@example.test");
+  const joined = await accept(
+    tokenOf(first.json().url),
+    "two-coaches@example.test",
+  );
   assert.equal(joined.statusCode, 200, joined.body);
   const follower = await whoami(cookieOf(joined));
   assert.equal(follower.tenantId, coach.tenantId);
@@ -406,7 +483,12 @@ test("a signed-in follower joins a second coach with one click and can switch ba
   const anonymous = await request("/invitations/preview", "POST", { token });
   assert.equal(anonymous.json().viewer.signedIn, false);
   assert.equal(anonymous.json().coach.name, "Coach join-second");
-  const preview = await request("/invitations/preview", "POST", { token }, follower);
+  const preview = await request(
+    "/invitations/preview",
+    "POST",
+    { token },
+    follower,
+  );
   assert.equal(preview.statusCode, 200, preview.body);
   assert.equal(preview.json().viewer.emailMatches, true);
   assert.equal(preview.json().viewer.alreadyMember, false);
@@ -414,7 +496,12 @@ test("a signed-in follower joins a second coach with one click and can switch ba
 
   // Another signed-in account cannot use this invitation.
   const stranger = await whoami(
-    cookieOf(await accept(tokenOf((await invite(coach, "stranger@example.test")).json().url), "stranger@example.test")),
+    cookieOf(
+      await accept(
+        tokenOf((await invite(coach, "stranger@example.test")).json().url),
+        "stranger@example.test",
+      ),
+    ),
   );
   const mismatch = await request(
     "/invitations/accept-signed-in",
@@ -435,13 +522,19 @@ test("a signed-in follower joins a second coach with one click and can switch ba
   assert.equal(signedIn.json().joined, true);
   const moved = await whoami(cookieOf(signedIn));
   assert.equal(moved.tenantId, second.tenantId);
-  assert.equal(moved.userId, follower.userId, "The same account, not a new one");
+  assert.equal(
+    moved.userId,
+    follower.userId,
+    "The same account, not a new one",
+  );
   assert.equal(
     (await request("/bootstrap", "GET", undefined, follower)).statusCode,
     401,
     "The previous browser session is replaced",
   );
-  const spaces = (await request("/auth/workspaces", "GET", undefined, moved)).json();
+  const spaces = (
+    await request("/auth/workspaces", "GET", undefined, moved)
+  ).json();
   assert.deepEqual(
     spaces.workspaces.map((w: any) => [w.name, w.role, w.current]).sort(),
     [
@@ -449,7 +542,12 @@ test("a signed-in follower joins a second coach with one click and can switch ba
       ["Coach join-second", "subscriber", true],
     ],
   );
-  const back = await request("/auth/workspace", "POST", { tenantId: coach.tenantId }, moved);
+  const back = await request(
+    "/auth/workspace",
+    "POST",
+    { tenantId: coach.tenantId },
+    moved,
+  );
   assert.equal(back.statusCode, 200, back.body);
   const returned = await whoami(cookieOf(back));
   assert.equal(returned.tenantId, coach.tenantId);
@@ -465,7 +563,10 @@ test("a signed-in follower joins a second coach with one click and can switch ba
       `follower-joined:${follower.userId}:%`,
     ]),
   );
-  assert.deepEqual(alerts.map((a: any) => a.user_id), [second.userId]);
+  assert.deepEqual(
+    alerts.map((a: any) => a.user_id),
+    [second.userId],
+  );
 
   // Team invitations keep the password path.
   await db.system((tx) =>
