@@ -74,6 +74,8 @@ export class MockServer {
   readonly log: LoggedRequest[] = [];
   private routes: Route[] = [];
   private server?: Server;
+  /** Optional low-level handler (streaming bodies, HEAD); return true when it answered. */
+  raw?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
   url = "";
   constructor(
     name: string,
@@ -124,6 +126,7 @@ export class MockServer {
     );
   }
   private async handle(req: IncomingMessage, res: ServerResponse) {
+    if (this.raw && (await this.raw(req, res))) return;
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const rawBody = Buffer.concat(chunks).toString("utf8");

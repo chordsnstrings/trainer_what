@@ -90,6 +90,75 @@ export const EQUIVALENT_FEATURES: Record<string, Array<[Audience, string]>> = {
   "followers:Passkeys (fingerprint or face sign-in)": [["public-join", "Passkey sign-in"]],
 };
 
+/**
+ * Features the local sandbox cannot exercise, or can exercise only in part,
+ * with the reason. A feature listed here that also has passing steps is
+ * reported as exercised with this limit; one without steps is reported as
+ * "not local" instead of silently missing. Keep every entry specific.
+ */
+export const LOCAL_LIMITS: Record<string, { reason: string; partial?: boolean }> = {
+  "public-join:HTTPS certificates for coach domains on the live server": {
+    partial: true,
+    reason:
+      "The API side (TLS ask endpoint, activation allowance, refusal of unmapped names) runs against a local edge that asks the API before presenting a certificate, as Caddy's on-demand TLS does. The live Caddy configuration and real ACME issuance are host work, covered by the infrastructure unit tests, not by this harness.",
+  },
+  "Super admin:Database backups": {
+    partial: true,
+    reason:
+      "The real host controller code (hostops.py) takes the encrypted backup, uploads it to an S3 double and restores it into a scratch database; only its host primitives are simulated (docker compose exec becomes local pg_dump/psql/pg_restore, containers are reported healthy). The scheduled daily timer and DigitalOcean server backups are not exercised.",
+  },
+  "Super admin:Scaling, deploy or cloud actions from the admin": {
+    partial: true,
+    reason:
+      "Allowlisted host actions (pause and resume deploys) are signed by the API and executed by the real controller code with simulated host primitives. Restart, rollback and re-apply need Docker and releases on a real host. Resizing, snapshots, DNS and billing are out of scope by design (no cloud token on the server) and are checked as refused.",
+  },
+  "Super admin:Platform's own web address": {
+    partial: true,
+    reason:
+      "The address check (format, DNS through the sandbox resolver, coach-domain clash, passkeys) runs. Moving the address is host work (runtime.env and a re-apply) and is not performed.",
+  },
+  "public-join:Apple or Google sign-in": {
+    partial: true,
+    reason:
+      "Google and Apple are OpenID Connect issuer doubles reached through a sandbox-only issuer override; the real providers' consent screens, Apple's private-relay email and key rotation are not exercised.",
+  },
+  "followers:Automatic Apple HealthKit sync": {
+    partial: true,
+    reason:
+      "The native companion app does not exist; the harness plays its role against the published device API (pairing code, device token, sample batches, unpair).",
+  },
+  "public-join:Analytics expiry, export and erasure": {
+    partial: true,
+    reason:
+      "The 180-day window is reached by moving one consent's expiry into the past; the expired record stops counting at once, but the worker's hourly purge is not awaited within the run.",
+  },
+  "followers:Install as a phone app": {
+    partial: true,
+    reason: "The manifest and icons are fetched over HTTP; the operating system's install prompt cannot run headless.",
+  },
+};
+
+export type FeatureRow = {
+  audience: Audience;
+  feature: string;
+  inventoryStatus: string;
+  providerDependent: boolean;
+  dependency: string;
+  result: "pass" | "fail" | "equivalent" | "not-local" | "not-exercised";
+  steps: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  via?: string;
+  limit?: string;
+};
+
+/** Provider- or approval-dependent per the inventory (a dependency is named, or the status says so). */
+export function isProviderDependent(entry: { status?: string; dependency?: string }) {
+  const status = String(entry.status ?? "");
+  return /needs_provider|needs_approval/.test(status) || !!String(entry.dependency ?? "").trim();
+}
+
 export class Reporter {
   readonly results: StepResult[] = [];
   constructor(private log: (message: string) => void = console.log) {}
@@ -156,6 +225,9 @@ export class Reporter {
           unknownFeatureNames: string[];
           coverage: Record<string, { covered: number; total: number; withEquivalents: number }>;
           notExercised: Record<string, string[]>;
+          table: FeatureRow[];
+          /** Provider-dependent features with neither a scenario nor a stated local limit (should be empty). */
+          providerDependentUnaccounted: string[];
         }
       | undefined;
     if (featuresPath && existsSync(featuresPath)) {
@@ -183,7 +255,47 @@ export class Reporter {
         };
         notExercised[audience] = [...names].filter((name) => !exercised(name));
       }
-      inventory = { unknownFeatureNames: [...unknown], coverage, notExercised };
+      const table: FeatureRow[] = [];
+      for (const [audience, key] of Object.entries(AUDIENCES) as Array<[Audience, string]>)
+        for (const entry of data[key]?.features ?? []) {
+          const steps = this.results.filter((r) => r.audience === audience && r.feature === entry.feature);
+          const passed = steps.filter((r) => r.status === "pass").length;
+          const failed = steps.filter((r) => r.status === "fail").length;
+          const skipped = steps.filter((r) => r.status === "skip").length;
+          const via = passedOrFailed.find((r) =>
+            (EQUIVALENT_FEATURES[`${r.audience}:${r.feature}`] ?? []).some(([a, f]) => a === audience && f === entry.feature),
+          );
+          const limit = LOCAL_LIMITS[`${audience}:${entry.feature}`];
+          const result: FeatureRow["result"] = failed
+            ? "fail"
+            : passed
+              ? "pass"
+              : via
+                ? via.status === "fail"
+                  ? "fail"
+                  : "equivalent"
+                : limit
+                  ? "not-local"
+                  : "not-exercised";
+          table.push({
+            audience,
+            feature: entry.feature,
+            inventoryStatus: String(entry.status ?? ""),
+            providerDependent: isProviderDependent(entry),
+            dependency: String(entry.dependency ?? ""),
+            result,
+            steps: steps.length,
+            passed,
+            failed,
+            skipped,
+            ...(via && !passed && !failed ? { via: `${via.audience}: ${via.feature}` } : {}),
+            ...(limit ? { limit: limit.reason } : {}),
+          });
+        }
+      const unaccounted = table
+        .filter((row) => row.providerDependent && ["not-exercised"].includes(row.result))
+        .map((row) => `${row.audience}: ${row.feature}`);
+      inventory = { unknownFeatureNames: [...unknown], coverage, notExercised, table, providerDependentUnaccounted: unaccounted };
     }
     return {
       summary: { steps: this.results.length, passed: count("pass"), failed: count("fail"), skipped: count("skip") },

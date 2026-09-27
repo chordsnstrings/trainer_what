@@ -5,6 +5,48 @@
  * gives each person their own client address via the harness edge.
  */
 import { createHmac } from "node:crypto";
+import { request as httpsRequest } from "node:https";
+
+/**
+ * fetch() for a simulated coach domain: the name exists only in the harness
+ * DNS double, so the connection goes to the local edge address while TLS SNI,
+ * certificate verification and the Host header use the coach's name.
+ */
+function fetchVia(address: string, url: URL, init: { method: string; headers: Record<string, string>; body?: string | Buffer }) {
+  return new Promise<globalThis.Response>((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      {
+        method: init.method,
+        headers: init.headers,
+        servername: url.hostname,
+        lookup: (_host, options, callback) => {
+          if (typeof options === "object" && (options as any)?.all) (callback as any)(null, [{ address, family: 4 }]);
+          else (callback as any)(null, address, 4);
+        },
+        timeout: 120000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const headers = new Headers();
+          for (const [key, value] of Object.entries(res.headers))
+            if (Array.isArray(value)) for (const v of value) headers.append(key, v);
+            else if (value !== undefined) headers.set(key, String(value));
+          const status = res.statusCode ?? 502;
+          const nullBody = [101, 204, 205, 304].includes(status);
+          resolve(new Response(nullBody ? null : Buffer.concat(chunks), { status, headers }));
+        });
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("request timed out")));
+    if (init.body !== undefined) req.write(init.body);
+    req.end();
+  });
+}
 
 export class HttpError extends Error {
   constructor(
@@ -66,6 +108,10 @@ export class Client {
   mfaCounter = { last: -1 };
   userId?: string;
   tenantId?: string;
+  /** Set for a simulated coach domain: connect to this loopback edge address instead of resolving the name. */
+  connectTo?: string;
+  /** Automatic fresh-authenticator step-ups performed because the server asked (MFA_STEP_UP). */
+  static automaticStepUps: Array<{ who: string; path: string }> = [];
   constructor(
     public base: string,
     public label: string,
@@ -101,13 +147,15 @@ export class Client {
     }
     let response: globalThis.Response;
     for (let attempt = 0; ; attempt++) {
-      response = await fetch(new URL(path, this.base), {
-        method,
-        headers,
-        body: payload as any,
-        redirect: "manual",
-        signal: AbortSignal.timeout(120000),
-      });
+      response = this.connectTo
+        ? await fetchVia(this.connectTo, new URL(path, this.base), { method, headers, body: payload })
+        : await fetch(new URL(path, this.base), {
+            method,
+            headers,
+            body: payload as any,
+            redirect: "manual",
+            signal: AbortSignal.timeout(120000),
+          });
       // The production request budgets stay in force; a well-behaved client
       // waits for the advertised window instead of failing the scenario.
       if (response.status !== 429 || attempt >= 6 || options.noRetry) break;
@@ -138,9 +186,19 @@ export class Client {
       } catch {}
     return { status: response.status, body: parsed, text, headers: response.headers };
   }
-  /** Request that must succeed (2xx); returns the parsed body. */
+  /**
+   * Request that must succeed (2xx); returns the parsed body. When the server
+   * asks for a fresh authenticator code (403 MFA_STEP_UP) and this person has
+   * an authenticator, the client proves one and retries once, as the web app
+   * prompts for a code. Each automatic step-up is counted in the report.
+   */
   async ok<T = any>(method: string, path: string, body?: unknown, headers?: Record<string, string>) {
-    const r = await this.request<T>(method, path, body, { headers });
+    let r = await this.request<T>(method, path, body, { headers });
+    if (r.status === 403 && (r.body as any)?.code === "MFA_STEP_UP" && this.mfaSecret) {
+      Client.automaticStepUps.push({ who: this.label, path: path.split("?")[0] });
+      await this.stepUp(true);
+      r = await this.request<T>(method, path, body, { headers });
+    }
     if (r.status >= 300) throw new HttpError(r.status, r.body, method, path);
     return r.body;
   }

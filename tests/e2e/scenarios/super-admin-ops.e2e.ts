@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import type { E2EContext, TrainerSeed } from "../harness/context.ts";
+import { domainLifecycle } from "./domains.e2e.ts";
 
 const A = "Super admin" as const;
 const T = "Trainers" as const;
@@ -189,6 +190,7 @@ async function domains(ctx: E2EContext, trainer: TrainerSeed) {
   const { admin, reporter: r, mocks } = ctx;
   const hostname = "layla-strength-coaching.example";
   let order: any;
+  let owned: any;
   await r.step(T, "Custom domain", `${trainer.slug}: requests ${hostname}`, async () => {
     order = await trainer.client.post("/api/v1/domains", { hostname, alreadyOwned: false });
     assert.equal(order.status, "requested");
@@ -219,13 +221,14 @@ async function domains(ctx: E2EContext, trainer: TrainerSeed) {
       headers: { authorization: `Bearer ${mocks.secrets.registrar}`, "content-type": "application/json" },
       body: JSON.stringify({ domain: hostname }),
     }).then((x) => x.json());
-    const owned = await admin.post(`/api/v1/admin/integrations/domains/${order.id}/ownership`, {
+    owned = await admin.post(`/api/v1/admin/integrations/domains/${order.id}/ownership`, {
       revision: Number(approved.version),
       registrarReference: registration.id,
       paymentEvidence: "Mock registrar invoice paid from the platform account",
       expiresAt: registration.expiresAt,
     });
     assert.equal(owned.status, "owned");
-    return "DNS TXT/CNAME and live TLS activation are not simulated (see feature doc)";
+    return "registrar evidence recorded; DNS and activation continue in the domain lifecycle";
   });
+  if (owned?.status === "owned") await domainLifecycle(ctx, trainer, owned);
 }

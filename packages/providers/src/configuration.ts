@@ -4,8 +4,10 @@ import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
 import {
   isLoopbackHostname,
+  isSandboxLoopbackAddress,
   sandboxAllowsEndpoint,
   sandboxOverride,
+  sandboxResolver,
 } from "./sandbox.ts";
 
 export type RuntimeConfig = Record<string, string | undefined>;
@@ -815,6 +817,17 @@ export async function validatePublicEndpoint(
           : { address: "127.0.0.1", family: 4 },
       ],
     };
+  // Sandbox only: a name the loopback DNS double answers with loopback
+  // addresses (a simulated coach domain served by the local TLS edge).
+  const sandboxDns = isIP(hostname) ? null : sandboxResolver();
+  if (sandboxDns) {
+    const answers = await sandboxDns.resolve4(hostname).catch(() => []);
+    if (answers.length && answers.every(isSandboxLoopbackAddress))
+      return {
+        url,
+        addresses: answers.map((address) => ({ address, family: 4 })),
+      };
+  }
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const addresses = isIP(hostname)

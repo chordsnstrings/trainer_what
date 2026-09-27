@@ -6,7 +6,10 @@
  * throwaway database because the harness cannot wait 72 real hours; every
  * use is recorded in the report.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import pg from "pg";
 import type { MockSuite } from "../mocks/index.ts";
 import { linkIn } from "../mocks/email.ts";
@@ -45,6 +48,12 @@ export type E2EContext = {
   clockShifts: Array<{ at: string; what: string; rows: number }>;
   artifacts: string;
   newClient: (label: string, email?: string, password?: string) => Client;
+  /** Local TLS edge state for simulated coach domains (null when port 443 could not be bound). */
+  edge: { domainAddress: string | null; domainError: string | null; asks: Array<{ at: string; name: string; status: number | string }> };
+  /** A person visiting https://<hostname>/ through the coach-domain edge. */
+  domainClient: (hostname: string, label: string, email?: string, password?: string) => Client;
+  /** The API's own loopback port, for the edge-only internal routes (TLS ask). */
+  apiPort?: number;
   verifyEmail: (client: Client) => Promise<void>;
   waitUntil: <T>(what: string, probe: () => Promise<T | undefined | null | false>, timeoutMs?: number) => Promise<T>;
   advanceClock: (what: string, sql: string, params?: unknown[]) => Promise<number>;
@@ -57,6 +66,13 @@ export type E2EContext = {
   hostCommand: (script: string, args?: string[], env?: Record<string, string>) => Promise<{ status: number | null; stdout: string; stderr: string }>;
   /** One value of the API process environment, only to hand to a host command (never logged). */
   hostSetting: (name: string) => string | undefined;
+  /**
+   * One cycle of the real host controller (infra/digitalocean/hostops.py) with
+   * simulated host primitives (tests/e2e/harness/host_controller.py): pending
+   * signed actions, backups with an off-server copy to the S3 double, and the
+   * signed host report. Returns the controller's JSON summary.
+   */
+  hostControllerCycle: () => Promise<any>;
   close: () => Promise<void>;
 };
 
@@ -70,8 +86,11 @@ export function createContext(input: {
   artifacts: string;
   hostEnv?: Record<string, string | undefined>;
   root?: string;
+  edge?: E2EContext["edge"];
+  apiPort?: number;
 }): E2EContext {
   const pool = new pg.Pool({ connectionString: input.migrationUrl, max: 2 });
+  const hostRoot = mkdtempSync(join(tmpdir(), "trainer-e2e-host-"));
   const ctx: E2EContext = {
     publicUrl: input.publicUrl,
     mocks: input.mocks,
@@ -84,6 +103,15 @@ export function createContext(input: {
     clockShifts: [],
     artifacts: input.artifacts,
     newClient: (label, email = "", password = "") => new Client(input.publicUrl, label, email, password),
+    edge: input.edge ?? { domainAddress: null, domainError: "the runner started no coach-domain edge", asks: [] },
+    apiPort: input.apiPort,
+    domainClient(hostname, label, email = "", password = "") {
+      const address = ctx.edge.domainAddress;
+      if (!address) throw new Error("coach-domain edge unavailable: " + ctx.edge.domainError);
+      const client = new Client(`https://${hostname}`, label, email, password);
+      client.connectTo = address;
+      return client;
+    },
     async verifyEmail(client) {
       const before = input.mocks.email.inbox(client.email).length;
       await client.post("/api/v1/auth/request-verification", {});
@@ -160,7 +188,52 @@ export function createContext(input: {
       });
     },
     hostSetting: (name) => input.hostEnv?.[name],
-    close: () => pool.end(),
+    hostControllerCycle() {
+      if (!input.hostEnv || !input.root) throw new Error("The controller needs the runner's service environment");
+      const pgBin = spawnSync("pg_config", ["--bindir"], { encoding: "utf8" }).stdout?.trim() || "/usr/lib/postgresql/16/bin";
+      const env: Record<string, string> = {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        PYTHONDONTWRITEBYTECODE: "1",
+        E2E_HOST_ROOT: hostRoot,
+        E2E_MIGRATION_URL: input.migrationUrl,
+        E2E_PG_BIN: pgBin,
+        E2E_REPO: input.root,
+        E2E_PUBLIC_URL: input.publicUrl,
+        INTERNAL_PROXY_SECRET: input.hostEnv.INTERNAL_PROXY_SECRET ?? "",
+        SECURITY_ENCRYPTION_KEY: input.hostEnv.SECURITY_ENCRYPTION_KEY ?? "",
+        // The off-server copy goes to the S3 double, trusted through the run's CA only.
+        SSL_CERT_FILE: input.mocks.tls.caFile,
+        ...input.mocks.s3.settings(),
+      };
+      return new Promise((resolve, reject) => {
+        const child = spawn("python3", [join(input.root!, "tests/e2e/harness/host_controller.py")], {
+          cwd: input.root,
+          env: env as NodeJS.ProcessEnv,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (d) => (stdout += d));
+        child.stderr.on("data", (d) => (stderr += d));
+        const timer = setTimeout(() => child.kill("SIGTERM"), 300000);
+        child.on("error", reject);
+        child.on("close", (status) => {
+          clearTimeout(timer);
+          const line = stdout.trim().split("\n").pop() ?? "";
+          if (status !== 0) return reject(new Error(`host controller exited ${status}: ${stderr.slice(-800)}`));
+          try {
+            resolve(JSON.parse(line));
+          } catch {
+            reject(new Error("host controller printed no summary: " + stderr.slice(-400)));
+          }
+        });
+      });
+    },
+    close: async () => {
+      rmSync(hostRoot, { recursive: true, force: true });
+      await pool.end();
+    },
   };
   return ctx;
 }

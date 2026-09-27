@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import { HOST_HEADERS } from "./host-routing.ts";
 import { requireRecentMfa } from "./security.ts";
 
@@ -1036,7 +1037,8 @@ type Check = {
 export async function checkPlatformAddress(
   db: Database,
   value: string,
-  resolver: Resolver = { resolve4, resolve6 },
+  // The local mock-provider sandbox answers from its loopback DNS double.
+  resolver: Resolver = sandboxResolver() ?? { resolve4, resolve6 },
 ) {
   const checks: Check[] = [];
   let parsed: URL | null = null;

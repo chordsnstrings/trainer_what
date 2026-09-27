@@ -16,8 +16,9 @@ export function ProviderSandboxBanner({
       <FlaskConical size={18} aria-hidden="true" />
       <p>
         <strong>Mock providers.</strong> This local sandbox sends payments,
-        payouts, email, AI, device push, wearables, voice and food lookups to
-        test doubles. No real money, message or provider account is involved.
+        payouts, email, AI, device push, wearables, voice, food lookups,
+        Apple/Google sign-in and coach-domain DNS to test doubles. No real
+        money, message or provider account is involved.
       </p>
     </div>
   );

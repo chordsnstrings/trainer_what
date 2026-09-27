@@ -35,8 +35,13 @@ provider, never uses a cloud resource and must never run on a server.
 7. Runs the suites (`tests/e2e/scenarios/*.e2e.ts`, outside the `tests/*.test.ts` glob) and writes
    `tests/e2e/report.json` (gitignored). Service logs, the model capture file and a copy of the
    report go to `tests/e2e/artifacts/<run>/` (gitignored). Everything is torn down.
+8. `node scripts/e2e/coverage-table.mjs <report.json> [<second report.json> ...] --out=FILE` turns
+   one or more reports (run with `--features=<inventory>`) into the per-feature results table, with
+   one column per run and a flakiness section listing every step whose status differs between runs.
+   It exits 1 when a step failed or a provider-dependent feature has neither a scenario nor a stated
+   local limit (`LOCAL_LIMITS` in `tests/e2e/harness/report.ts`).
 
-Options: `--suites=super-admin,trainer,follower,public-join,extended`, `--keep` (leave the stack up),
+Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,extended`, `--keep` (leave the stack up),
 `--pg-port=N`, `--rebuild`/`--skip-build`, `--features=<inventory.json>` (checks feature names and
 adds per-audience coverage), `--report=<file>`, and the model options below.
 
@@ -67,6 +72,13 @@ Inside the sandbox only:
   mock; `WHOOP_API_BASE_URL` replaces the fixed WHOOP host; `FOOD_LOOKUP_BASE_URL` replaces Open
   Food Facts. These are environment-only; the settings store cannot hold them.
 - Push subscription endpoints on loopback are accepted.
+- `GOOGLE_OIDC_ISSUER` and `APPLE_OIDC_ISSUER` (HTTPS loopback) replace the Google and Apple
+  OpenID Connect issuers for "Sign in with Google/Apple"; the discovery document, keys, token
+  endpoint and accepted `iss` all come from the double.
+- `DOMAIN_DNS_SERVER=127.0.0.1:<port>` sends the custom-domain ownership (TXT) and target (CNAME)
+  lookups and the platform-address check to a loopback DNS double, and lets the activation's HTTPS
+  check connect to a name that double resolves to a loopback address (only loopback answers from
+  that resolver are accepted; everything else keeps the public-address rules).
 
 The sandbox announces itself: `/api/v1/ready` returns `providerSandbox: "mock"` with a notice,
 `/api/v1/bootstrap` and `/api/v1/admin/settings` carry `providerSandbox`, every workspace screen
@@ -86,6 +98,37 @@ warning at startup and `npm run readiness` reports a finding.
 | `voice.ts` | ElevenLabs text-to-speech returning a short silent MP3 |
 | `registrar.ts` | domain availability/price, registration and DNS record calls (the app records registrar work as operator evidence; it does not call a registrar API itself) |
 | `food.ts` | Open Food Facts v2 product lookups, including not-found |
+| `oidc.ts` | Google (RS256, query response) and Apple (ES256, form_post response, ES256 client-secret JWT) OpenID Connect issuers: discovery, keys, an authorization endpoint that signs in the person the scenario chose, and a token endpoint that checks client credentials, the redirect address, PKCE and single use of codes |
+| `dns.ts` | UDP DNS double (A, TXT, CNAME, CNAME chasing for A, NXDOMAIN); the registrar double publishes the records an operator saves there |
+| `s3.ts` | S3-compatible object storage for off-server backup copies; checks Signature Version 4 and the payload hash, answers HEAD with the stored size |
+
+## Coach domains, host controller and browser
+
+- **Coach-domain edge.** Besides `https://localhost:<port>`, the runner's TLS edge listens on
+  `127.77.0.1:443` (the address the DNS double gives coach domains). Like Caddy's on-demand TLS it
+  calls the API's internal `GET /api/v1/internal/tls/ask` (with the derived token) before it
+  presents a certificate for any other name, and refuses the handshake otherwise; the certificate
+  for the planned coach names is issued by the run's throwaway CA. Harness clients for a coach
+  domain connect to that address with the coach's name as TLS server name and Host. If the address
+  cannot be bound, the domain steps are recorded as skipped with the reason.
+- **Web process.** `next start --hostname localhost`: Next normalises 127.0.0.1 to localhost in
+  `request.nextUrl` but not in its own base URL, so with 127.0.0.1 a coach-domain rewrite in
+  `proxy.ts` is proxied as an external URL (500). Production listens on 0.0.0.0, which Next does
+  not rewrite.
+- **Host controller.** `ctx.hostControllerCycle()` runs `tests/e2e/harness/host_controller.py`:
+  one cycle of the real controller code (`infra/digitalocean/hostops.py`: signed request
+  verification, allowlisted actions, encrypted backups with an off-server copy, restore check into
+  a scratch database, signed host report) with only the host primitives simulated (`docker compose
+  exec database ...` becomes the local PostgreSQL client tools against the throwaway cluster as the
+  migration administrator, containers are reported healthy, deploy state lives in a temporary
+  directory that is removed at the end). Python trusts only the run's CA for the S3 double.
+- **Browser suite.** `tests/e2e/scenarios/browser.e2e.ts` drives the locally installed headless
+  Chromium (Playwright, `PLAYWRIGHT_BROWSERS_PATH`; never a cloud browser) with sessions from real
+  sign-ins. The throwaway leaf certificate is trusted by SPKI pin
+  (`--ignore-certificate-errors-spki-list`), so the service worker registers. It checks the
+  Superadmin settings page, the Brain workspace and the Today screen, offline set logging with an
+  offline reload, and an offline food-diary entry that syncs after reconnecting, each with a 390 px
+  horizontal-overflow check. Without a local Chromium the steps are recorded as skipped.
 
 ## Model answers: queue, rules, capture and replay
 
@@ -159,8 +202,16 @@ Platform setup, trainer seed and follower seed run first. Then the follower suit
 trainer suite (trainers review what members produced: exceptions from digital coaching, consented
 nutrition captures), then public-join, then the Super admin suite (month close and payout on
 `sara-mobility`, whose members paid full price; `omar-conditioning` members are in a free trial, so
-its payout preparation is expected to be refused with 409), then the extended suite
-(`tests/e2e/scenarios/extended.e2e.ts` and `extended-accounts.e2e.ts`).
+its payout preparation is expected to be refused with 409; the custom domain of `layla-strength` is
+verified, activated and visited), then the completion suite (`member-completion.e2e.ts`: invitation
+emails and list, join alerts, complimentary access, training access right after joining, name and
+email changes, operator recovery, leaving and removal, Google and Apple sign-in, crawler files,
+directory, leads, conversion milestones, analytics expiry, HealthKit sync;
+`operator-completion.e2e.ts`: executive metrics, suspension and reinstatement, account lock and
+unlock, operator alerts, backups and restore check, host actions, platform address check), then the
+browser suite, then the extended suite (`tests/e2e/scenarios/extended.e2e.ts` and
+`extended-accounts.e2e.ts`). The completion suite creates its own new followers for anything that
+ends a membership or changes an account, so the seeded members keep their state.
 
 The extended suite changes state on purpose, so it runs last: it erases one unpaid member, closes the
 `yasmin-pilates` workspace after an ownership transfer, grants and revokes an operator role, resets

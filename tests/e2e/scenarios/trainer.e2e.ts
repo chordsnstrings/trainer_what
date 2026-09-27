@@ -61,6 +61,13 @@ export async function setupTrainers(ctx: E2EContext) {
 async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSeed, index: number) {
   const t = seed.client;
   await must(ctx, "Trainer signup (create a coaching workspace)", `${plan.slug}: register and reserve the workspace address`, async () => {
+    // One trainer arrives through a tracked campaign and consents to analytics,
+    // so sign-up, launch and first payment become attributed conversion milestones.
+    if (index === 2)
+      await t.post("/api/v1/public/acquisition/consent", {
+        granted: true,
+        touch: { source: "partner", medium: "referral", campaign: "e2e_trainer_funnel" },
+      });
     const r = await t.request("POST", "/api/v1/auth/register", {
       name: plan.name,
       email: plan.email,
@@ -98,7 +105,8 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
       },
     });
     await t.put("/api/v1/onboarding/brain-intro", { version: 0, values: { understood: true } });
-    await t.put("/api/v1/onboarding/wearables", { version: 0, values: { policy: "permitted_imports" } });
+    // Imports plus the companion app's automatic Apple Health sync.
+    await t.put("/api/v1/onboarding/wearables", { version: 0, values: { policy: "permitted_imports_and_sync" } });
     if (!plan.voice) await t.put("/api/v1/onboarding/voice", { version: 0, values: {}, defer: true });
   });
   await must(ctx, "Design Studio and brand (app theme, headline, bio, colours, logo)", `${plan.slug}: brand saved`, async () => {

@@ -11,8 +11,11 @@ import { setupTrainers, trainerScenarios } from "../scenarios/trainer.e2e.ts";
 import { setupFollowers, followerScenarios } from "../scenarios/follower.e2e.ts";
 import { publicJoinScenarios } from "../scenarios/public-join.e2e.ts";
 import { extendedScenarios } from "../scenarios/extended.e2e.ts";
+import { operatorCompletionScenarios } from "../scenarios/operator-completion.e2e.ts";
+import { memberCompletionScenarios } from "../scenarios/member-completion.e2e.ts";
+import { browserScenarios } from "../scenarios/browser.e2e.ts";
 
-export const SUITES = ["super-admin", "trainer", "follower", "public-join", "extended"] as const;
+export const SUITES = ["super-admin", "trainer", "follower", "public-join", "completion", "browser", "extended"] as const;
 
 export async function runHarness(input: {
   publicUrl: string;
@@ -26,6 +29,8 @@ export async function runHarness(input: {
   /** The API process environment, for host-only operator scripts. */
   hostEnv?: Record<string, string | undefined>;
   root?: string;
+  edge?: { domainAddress: string | null; domainError: string | null; asks: Array<{ at: string; name: string; status: number | string }> };
+  apiPort?: number;
 }) {
   const reporter = new Reporter(input.log);
   const ctx = createContext({ ...input, reporter });
@@ -58,6 +63,13 @@ export async function runHarness(input: {
     if (suites.has("trainer")) await phase("trainer scenarios", () => trainerScenarios(ctx));
     if (suites.has("public-join")) await phase("public-join scenarios", () => publicJoinScenarios(ctx));
     if (suites.has("super-admin")) await phase("super admin scenarios", () => superAdminScenarios(ctx));
+    // Features completed after the first inventory (governance, accounts, joining, discovery, HealthKit, host operations).
+    if (suites.has("completion")) {
+      await phase("completion: members, trainers and public", () => memberCompletionScenarios(ctx));
+      await phase("completion: operators", () => operatorCompletionScenarios(ctx));
+    }
+    // Browser-only behaviour with the local headless Chromium (offline sync, screens).
+    if (suites.has("browser")) await phase("browser (local headless Chromium)", () => browserScenarios(ctx));
     // Runs last: it erases a member, closes a workspace and reconnects a provider.
     if (suites.has("extended")) await phase("extended coverage", () => extendedScenarios(ctx));
   } finally {
@@ -71,6 +83,9 @@ export async function runHarness(input: {
   };
   report.clockShifts = ctx.clockShifts;
   (report as any).rateLimitWaits = Client.rateLimitWaits;
+  (report as any).automaticStepUps = Client.automaticStepUps;
+  (report as any).edge = { coachDomains: ctx.edge.domainAddress ? "available" : ctx.edge.domainError, asks: ctx.edge.asks };
+  (report as any).dnsQueries = input.mocks.dns.queries;
   report.providers = {
     stripeWebhooks: input.mocks.stripe.deliveries.map((d) => ({ type: d.type, status: d.status })),
     stripeWebhookFailures: input.mocks.stripe.deliveries.filter((d) => d.status !== 200),

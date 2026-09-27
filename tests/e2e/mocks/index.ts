@@ -14,6 +14,14 @@ import { WhoopMock, ZeppMock } from "./wearables.ts";
 import { VoiceMock } from "./voice.ts";
 import { RegistrarMock } from "./registrar.ts";
 import { FoodMock } from "./food.ts";
+import { DnsMock } from "./dns.ts";
+import { OidcMock } from "./oidc.ts";
+import { S3Mock } from "./s3.ts";
+
+/** Loopback address of the harness edge for simulated coach domains (port 443). */
+export const COACH_DOMAIN_EDGE_ADDRESS = "127.77.0.1";
+/** Coach domains the throwaway CA issues a certificate for (the edge still asks the API first). */
+export const COACH_DOMAIN_NAMES = ["layla-strength-coaching.example", "unmapped-coach.example"];
 
 const token = (prefix: string, bytes = 18) => prefix + randomBytes(bytes).toString("hex");
 
@@ -42,7 +50,7 @@ export async function startMocks(
     publicAppUrl?: string;
   } = {},
 ) {
-  const tls = options.tls ?? createMockTls();
+  const tls = options.tls ?? createMockTls(undefined, COACH_DOMAIN_NAMES);
   const material = { key: tls.key, cert: tls.cert };
   const secrets = {
     stripeSecret: token("sk_test_mock_"),
@@ -73,8 +81,26 @@ export async function startMocks(
   const voice = new VoiceMock(material, secrets.voice);
   const registrar = new RegistrarMock(material, secrets.registrar);
   const food = new FoodMock(material);
-  const all = [stripe, email, lean, model, push, whoop, zepp, voice, registrar, food];
+  const google = new OidcMock(material, "google");
+  const apple = new OidcMock(material, "apple");
+  const s3 = new S3Mock(material);
+  const all = [stripe, email, lean, model, push, whoop, zepp, voice, registrar, food, google, apple, s3];
   await Promise.all(all.map((m) => m.start()));
+  const dns = new DnsMock();
+  await dns.start();
+  // The platform's approved CNAME target resolves to the local edge.
+  dns.set("edge.sandbox-platform.example", "A", [COACH_DOMAIN_EDGE_ADDRESS]);
+  registrar.onRecords = (domain, records) => {
+    const byName = new Map<string, Map<string, string[]>>();
+    for (const record of records) {
+      const owner = record.name === "@" || !record.name ? domain : record.name.endsWith(domain) ? record.name : `${record.name}.${domain}`;
+      const types = byName.get(owner) ?? new Map<string, string[]>();
+      types.set(record.type, [...(types.get(record.type) ?? []), record.value]);
+      byName.set(owner, types);
+    }
+    for (const [owner, types] of byName)
+      for (const [type, values] of types) dns.set(owner, type as "A" | "TXT" | "CNAME", values);
+  };
   const vapid = vapidKeyPair();
   const app = options.publicAppUrl ?? "http://localhost:3000";
   stripe.webhookUrl = app + "/api/v1/webhooks/stripe";
@@ -139,7 +165,7 @@ export async function startMocks(
       },
       secrets: { WHOOP_CLIENT_SECRET: secrets.whoopSecret },
     },
-    apple: { values: { APPLE_IMPORTS_ENABLED: "true" }, secrets: {} },
+    apple: { values: { APPLE_IMPORTS_ENABLED: "true", HEALTHKIT_SYNC_ENABLED: "true" }, secrets: {} },
     zepp: {
       values: {
         ZEPP_CLIENT_ID: secrets.zeppId,
@@ -174,6 +200,8 @@ export async function startMocks(
       },
       secrets: { DOMAIN_API_KEY: secrets.registrar, DOMAIN_ACCOUNT_ID: "acct-mock-registrar" },
     },
+    google_signin: google.settings(),
+    apple_signin: apple.settings(),
   };
   /** Sandbox-only environment for API and worker processes. */
   const environment = {
@@ -181,6 +209,9 @@ export async function startMocks(
     STRIPE_API_BASE_URL: stripe.url,
     WHOOP_API_BASE_URL: whoop.url,
     FOOD_LOOKUP_BASE_URL: food.url,
+    GOOGLE_OIDC_ISSUER: google.issuer,
+    APPLE_OIDC_ISSUER: apple.issuer,
+    DOMAIN_DNS_SERVER: dns.server,
     NODE_EXTRA_CA_CERTS: tls.caFile,
   };
   return {
@@ -198,12 +229,19 @@ export async function startMocks(
     voice,
     registrar,
     food,
+    google,
+    apple,
+    s3,
+    dns,
     async stop() {
-      await Promise.all(all.map((m) => m.stop()));
+      await Promise.all([...all.map((m) => m.stop()), dns.stop()]);
       if (!options.tls) tls.cleanup();
     },
     requestLog() {
-      return Object.fromEntries(all.map((m) => [m.server.name, m.server.log.length]));
+      return {
+        ...Object.fromEntries(all.map((m) => [m.server.name, m.server.log.length])),
+        dns: dns.queries.length,
+      };
     },
   };
 }

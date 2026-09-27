@@ -299,3 +299,113 @@ test("the software passkey satisfies the server's WebAuthn verification", async 
   assert.equal((await check(origin)).verified, true);
   await assert.rejects(check("https://attacker.example"), "an assertion for another origin is refused");
 });
+
+test("the DNS double answers TXT, CNAME and chased A records through a Node resolver", async () => {
+  const { DnsMock } = await import("./e2e/mocks/dns.ts");
+  const { Resolver } = await import("node:dns/promises");
+  const dns = new DnsMock();
+  await dns.start();
+  try {
+    dns.set("edge.sandbox-platform.example", "A", ["127.77.0.1"]);
+    dns.set("coach.example", "CNAME", ["edge.sandbox-platform.example"]);
+    dns.set("_trainer-verify.coach.example", "TXT", ["trainer-verification=fixture"]);
+    const resolver = new Resolver({ timeout: 1000, tries: 1 });
+    resolver.setServers([dns.server]);
+    assert.deepEqual(await resolver.resolveTxt("_trainer-verify.coach.example"), [["trainer-verification=fixture"]]);
+    assert.deepEqual(await resolver.resolveCname("coach.example"), ["edge.sandbox-platform.example"]);
+    assert.deepEqual(await resolver.resolve4("coach.example"), ["127.77.0.1"]);
+    await assert.rejects(resolver.resolve4("unknown.example"), { code: "ENOTFOUND" });
+  } finally {
+    await dns.stop();
+  }
+});
+
+test("the OIDC doubles publish discovery and keys and enforce client credentials, PKCE and single-use codes", async () => {
+  const { OidcMock } = await import("./e2e/mocks/oidc.ts");
+  const { oidcDiscovery, exchangeAuthorizationCode, verifyIdToken, oidcAuthorizationUrl, pkceChallenge, checkOidcConnection, clearOidcCaches } = await import(
+    "../packages/providers/src/oidc.ts"
+  );
+  const google = new OidcMock({ key: tls.key, cert: tls.cert }, "google");
+  const apple = new OidcMock({ key: tls.key, cert: tls.cert }, "apple");
+  await google.start();
+  await apple.start();
+  process.env.GOOGLE_OIDC_ISSUER = google.issuer;
+  process.env.APPLE_OIDC_ISSUER = apple.issuer;
+  clearOidcCaches();
+  try {
+    for (const [mock, provider] of [[google, "google"], [apple, "apple"]] as const) {
+      const config = { ...mock.settings().values, ...mock.settings().secrets, PUBLIC_APP_URL: "https://localhost:8443" };
+      const checked = await withRuntimeConfig(config, () => checkOidcConnection(provider, config));
+      assert.equal(checked.status, "verified", `${provider}: ${checked.message}`);
+      const discovery = await oidcDiscovery(provider);
+      assert.equal(discovery.issuer, mock.issuer);
+      const client =
+        provider === "google"
+          ? { provider, clientId: mock.clientId, clientSecret: mock.clientSecret }
+          : { provider, clientId: mock.clientId, apple: { teamId: mock.apple!.teamId, keyId: mock.apple!.keyId, privateKey: mock.apple!.privateKeyText } };
+      const verifier = "v".repeat(43);
+      const redirectUri = `https://localhost:8443/api/v1/auth/oidc/${provider}/callback`;
+      const url = await oidcAuthorizationUrl(client as any, { redirectUri, state: "s1", nonce: "n1", codeChallenge: pkceChallenge(verifier) });
+      mock.nextIdentity = { sub: "sub-" + provider, email: "fixture@sandbox.example", emailVerified: true, name: "Fixture Person" };
+      const auth = await fetch(url, { redirect: "manual" });
+      const code =
+        provider === "google"
+          ? new URL(auth.headers.get("location")!).searchParams.get("code")!
+          : /name="code" value="([^"]+)"/.exec(await auth.text())![1];
+      await assert.rejects(exchangeAuthorizationCode(client as any, { code, redirectUri, codeVerifier: "w".repeat(43) }), /did not accept/);
+      mock.nextIdentity = { sub: "sub-" + provider, email: "fixture@sandbox.example", emailVerified: true };
+      const again = await fetch(url, { redirect: "manual" });
+      const code2 =
+        provider === "google"
+          ? new URL(again.headers.get("location")!).searchParams.get("code")!
+          : /name="code" value="([^"]+)"/.exec(await again.text())![1];
+      const { idToken } = await exchangeAuthorizationCode(client as any, { code: code2, redirectUri, codeVerifier: verifier });
+      const claims = await verifyIdToken(provider, idToken, { clientId: mock.clientId, nonce: "n1" });
+      assert.equal(claims.subject, "sub-" + provider);
+      assert.equal(claims.emailVerified, true);
+      await assert.rejects(exchangeAuthorizationCode(client as any, { code: code2, redirectUri, codeVerifier: verifier }), /did not accept/, "codes are single use");
+    }
+  } finally {
+    delete process.env.GOOGLE_OIDC_ISSUER;
+    delete process.env.APPLE_OIDC_ISSUER;
+    clearOidcCaches();
+    await google.stop();
+    await apple.stop();
+  }
+});
+
+test("the S3 double verifies Signature Version 4 and the payload hash", async () => {
+  const { S3Mock } = await import("./e2e/mocks/s3.ts");
+  const { createHash, createHmac } = await import("node:crypto");
+  const s3 = new S3Mock({ key: tls.key, cert: tls.cert });
+  await s3.start();
+  try {
+    const put = async (body: Buffer, secret: string, declared?: string) => {
+      const url = `${s3.url}/${s3.bucket}/e2e/object.bin`;
+      const payloadHash = declared ?? createHash("sha256").update(body).digest("hex");
+      const amzDate = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+      const host = new URL(url).host;
+      const canonical = ["PUT", new URL(url).pathname, "", `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`, "host;x-amz-content-sha256;x-amz-date", payloadHash].join("\n");
+      const scope = `${amzDate.slice(0, 8)}/${s3.region}/s3/aws4_request`;
+      const toSign = ["AWS4-HMAC-SHA256", amzDate, scope, createHash("sha256").update(canonical).digest("hex")].join("\n");
+      let key: Buffer = createHmac("sha256", "AWS4" + secret).update(amzDate.slice(0, 8)).digest();
+      for (const part of [s3.region, "s3", "aws4_request"]) key = createHmac("sha256", key).update(part).digest();
+      const signature = createHmac("sha256", key).update(toSign).digest("hex");
+      return fetch(url, {
+        method: "PUT",
+        body: new Uint8Array(body),
+        headers: {
+          authorization: `AWS4-HMAC-SHA256 Credential=${s3.accessKey}/${scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=${signature}`,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+      });
+    };
+    assert.equal((await put(Buffer.from("fixture"), s3.secretKey)).status, 200);
+    assert.equal(s3.objects.get("e2e/object.bin")?.bytes, 7);
+    assert.equal((await put(Buffer.from("fixture"), "wrong-secret-key")).status, 403);
+    assert.equal((await put(Buffer.from("fixture"), s3.secretKey, "0".repeat(64))).status, 400);
+  } finally {
+    await s3.stop();
+  }
+});

@@ -16,10 +16,12 @@ export type MockTls = {
   ca: string;
   key: string;
   cert: string;
+  /** Leaf for simulated coach domains (the edge serves it only after the TLS ask allows the name). */
+  domains?: { names: string[]; key: string; cert: string };
   cleanup: () => void;
 };
 
-export function createMockTls(parent = tmpdir()): MockTls {
+export function createMockTls(parent = tmpdir(), domainNames: string[] = []): MockTls {
   const dir = mkdtempSync(join(parent, "trainer-e2e-tls-"));
   const run = (args: string[]) =>
     execFileSync("openssl", args, { cwd: dir, stdio: "pipe" });
@@ -79,6 +81,25 @@ export function createMockTls(parent = tmpdir()): MockTls {
     "-extfile",
     "leaf.ext",
   ]);
+  let domains: MockTls["domains"];
+  if (domainNames.length) {
+    run(["req", ...ec, "-nodes", "-keyout", "domains.key", "-out", "domains.csr", "-subj", "/CN=" + domainNames[0]]);
+    writeFileSync(
+      join(dir, "domains.ext"),
+      [
+        "basicConstraints=CA:FALSE",
+        "keyUsage=critical,digitalSignature,keyEncipherment",
+        "extendedKeyUsage=serverAuth",
+        "subjectAltName=" + domainNames.map((name) => "DNS:" + name).join(","),
+      ].join("\n") + "\n",
+    );
+    run(["x509", "-req", "-in", "domains.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "domains.pem", "-days", "2", "-extfile", "domains.ext"]);
+    domains = {
+      names: domainNames,
+      key: readFileSync(join(dir, "domains.key"), "utf8"),
+      cert: readFileSync(join(dir, "domains.pem"), "utf8"),
+    };
+  }
   // The CA private key is not needed after signing; remove it immediately.
   rmSync(join(dir, "ca.key"), { force: true });
   return {
@@ -87,6 +108,7 @@ export function createMockTls(parent = tmpdir()): MockTls {
     ca: readFileSync(join(dir, "ca.pem"), "utf8"),
     key: readFileSync(join(dir, "leaf.key"), "utf8"),
     cert: readFileSync(join(dir, "leaf.pem"), "utf8"),
+    domains,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }

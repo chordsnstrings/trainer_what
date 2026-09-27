@@ -5,6 +5,7 @@ import {
   withRuntimeConfig,
   providerSandbox,
   PROVIDER_SANDBOX_OVERRIDES,
+  PROVIDER_SANDBOX_DNS_VARIABLE,
   PROVIDER_SANDBOX_VARIABLE,
 } from "@trainer/providers";
 import { loadRuntimeSettings } from "../apps/api/src/platform-settings.ts";
@@ -69,7 +70,8 @@ if (providerSandbox() === "mock")
   );
 else if (
   process.env[PROVIDER_SANDBOX_VARIABLE] !== undefined ||
-  PROVIDER_SANDBOX_OVERRIDES.some((key) => process.env[key]?.trim())
+  PROVIDER_SANDBOX_OVERRIDES.some((key) => process.env[key]?.trim()) ||
+  process.env[PROVIDER_SANDBOX_DNS_VARIABLE]?.trim()
 )
   findings.push(
     "Remove TRAINER_PROVIDER_SANDBOX and sandbox endpoint overrides: they are refused outside a loopback-only harness",

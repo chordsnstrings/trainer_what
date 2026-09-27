@@ -178,7 +178,7 @@ async function documentsAndSettings(ctx: E2EContext, layla: TrainerSeed) {
   });
   for (const [kind, key, title, content, feature] of [
     ["support_macro", "invoice-copy", "Invoice copy", "Hello, you can download every invoice from Billing in the app.", "Support reply macros"],
-    ["notification", "workout-reminder", "Workout reminder", "Hi {{name}}, your session with {{coach}} is on {{date}}.", "Notification templates"],
+    ["notification", "workout-reminder", "Workout reminder", "Hi {{name}}, {{coach}} has your next session ready in your program (reminder sent {{date}}).", "Notification templates"],
     ["safety", "escalation-policy", "Safety escalation policy", "Chest pain, fainting or sharp joint pain pause training and reach the coach and the safety operator.", "Safety policy documents"],
   ] as const)
     await r.step(A, feature, `${kind} ${key} drafted and published`, async () => {

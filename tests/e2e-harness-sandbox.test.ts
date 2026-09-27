@@ -142,3 +142,44 @@ test("the mock-provider banner renders only for the sandbox", () => {
   assert.equal(renderToStaticMarkup(createElement(ProviderSandboxBanner, { mode: null })), "");
   assert.equal(renderToStaticMarkup(createElement(ProviderSandboxBanner, { mode: "live" })), "");
 });
+
+test("sign-in issuer overrides and the DNS double are honoured only inside the sandbox", async () => {
+  const { oidcIssuer } = await import("../packages/providers/src/oidc.ts");
+  const { sandboxDnsServer, sandboxResolver, isSandboxLoopbackAddress } = await import("../packages/providers/src/sandbox.ts");
+  const overrides = { GOOGLE_OIDC_ISSUER: "https://127.0.0.1:9551", APPLE_OIDC_ISSUER: "https://127.0.0.1:9552", DOMAIN_DNS_SERVER: "127.0.0.1:9553" };
+  // Startup accepts them only with the sandbox, and only in their loopback form.
+  assert.equal(assertProviderSandboxBinding({ ...local, ...overrides }), "mock");
+  for (const env of [
+    { PUBLIC_APP_URL: "https://coach.example.com", GOOGLE_OIDC_ISSUER: "https://127.0.0.1:9551" },
+    { PUBLIC_APP_URL: "https://coach.example.com", DOMAIN_DNS_SERVER: "127.0.0.1:9553" },
+    { ...local, APPLE_OIDC_ISSUER: "https://appleid.apple.com" },
+    { ...local, DOMAIN_DNS_SERVER: "10.0.0.2:53" },
+    { ...local, DOMAIN_DNS_SERVER: "8.8.8.8" },
+    { ...local, DOMAIN_DNS_SERVER: "127.0.0.1:0" },
+  ])
+    assert.throws(() => assertProviderSandboxBinding(env), ProviderSandboxRefused, JSON.stringify(env));
+  assert.equal(sandboxDnsServer({ ...local, ...overrides }), "127.0.0.1:9553");
+  assert.equal(sandboxDnsServer({ ...overrides, PUBLIC_APP_URL: "https://coach.example.com" }), null);
+  assert.ok(isSandboxLoopbackAddress("127.77.0.1"));
+  assert.ok(!isSandboxLoopbackAddress("10.0.0.1"));
+  const oidcKeys = ["GOOGLE_OIDC_ISSUER", "APPLE_OIDC_ISSUER", "DOMAIN_DNS_SERVER"];
+  const savedOidc = Object.fromEntries(oidcKeys.map((k) => [k, process.env[k]]));
+  try {
+    await withEnv({ PUBLIC_APP_URL: "https://coach.example.com" }, () => {
+      Object.assign(process.env, overrides);
+      assert.equal(oidcIssuer("google"), "https://accounts.google.com", "real issuer outside the sandbox");
+      assert.equal(oidcIssuer("apple"), "https://appleid.apple.com");
+      assert.equal(sandboxResolver(), null, "system resolver outside the sandbox");
+    });
+    await withEnv(local, () => {
+      Object.assign(process.env, overrides);
+      assert.equal(oidcIssuer("google"), "https://127.0.0.1:9551");
+      assert.equal(oidcIssuer("apple"), "https://127.0.0.1:9552");
+      assert.ok(sandboxResolver(), "the sandbox resolver is bound to the DNS double");
+    });
+  } finally {
+    for (const k of oidcKeys)
+      if (savedOidc[k] === undefined) delete process.env[k];
+      else process.env[k] = savedOidc[k];
+  }
+});

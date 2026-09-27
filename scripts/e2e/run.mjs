@@ -14,7 +14,7 @@
  * Everything is torn down at the end unless --keep is given.
  *
  * Options:
- *   --suites=super-admin,trainer,follower,public-join,extended   (default: all)
+ *   --suites=super-admin,trainer,follower,public-join,completion,extended,browser (default: all)
  *   --rebuild | --skip-build     force or skip `next build`
  *   --keep                       leave the stack running until Ctrl-C
  *   --model-capture=FILE         append every model request/answer (JSONL)
@@ -29,7 +29,7 @@
  * Never point this at a shared database or run it on a server.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import {
   chmodSync,
   chownSync,
@@ -43,6 +43,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
+import { createSecureContext } from "node:tls";
 import { request as httpRequest } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir, userInfo } from "node:os";
@@ -238,9 +239,14 @@ function ensureWebBuild() {
 }
 
 // ---------------------------------------------------------------- TLS edge
-/** Stands in for Caddy: TLS on https://localhost:<port>, X-Forwarded-For set by the edge. */
-function startEdge(port, target, tlsMaterial) {
-  const server = createHttpsServer(tlsMaterial, (req, res) => {
+/**
+ * Stands in for Caddy: TLS on https://localhost:<port>, X-Forwarded-For set by
+ * the edge. With `domains`, the same edge also listens on <address>:443 for
+ * simulated coach domains and, like Caddy's on-demand TLS, asks the API's
+ * internal TLS endpoint before presenting a certificate for any other name.
+ */
+function startEdge(port, target, tlsMaterial, domains) {
+  const handler = (req, res) => {
     // The harness names each simulated person's address; any other client
     // gets its socket address, as the production edge overwrites the header.
     const simulated = req.headers["x-e2e-client-ip"];
@@ -252,7 +258,7 @@ function startEdge(port, target, tlsMaterial) {
         : req.socket.remoteAddress ?? "127.0.0.1";
     headers["x-forwarded-proto"] = "https";
     const upstream = httpRequest(
-      { host: "127.0.0.1", port: target, method: req.method, path: req.url, headers },
+      { host: "localhost", port: target, method: req.method, path: req.url, headers },
       (response) => {
         res.writeHead(response.statusCode ?? 502, response.headers);
         response.pipe(res);
@@ -263,13 +269,54 @@ function startEdge(port, target, tlsMaterial) {
       res.end("edge upstream error");
     });
     req.pipe(upstream);
-  });
-  return new Promise((resolve) =>
-    server.listen(port, "127.0.0.1", () => {
-      cleanups.push(() => new Promise((r) => server.close(() => r())));
-      resolve(server);
-    }),
-  );
+  };
+  const listen = (server, listenPort, address) =>
+    new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(listenPort, address, () => {
+        cleanups.push(() => new Promise((r) => server.close(() => r())));
+        resolve(server);
+      });
+    });
+  const main = createHttpsServer(tlsMaterial, handler);
+  const edge = { asks: [], domainAddress: null, domainError: null };
+  const started = [listen(main, port, "127.0.0.1")];
+  if (domains?.material) {
+    const platformContext = createSecureContext(tlsMaterial);
+    const domainContext = createSecureContext({ key: domains.material.key, cert: domains.material.cert });
+    const coach = createHttpsServer(
+      {
+        ...tlsMaterial,
+        SNICallback: (servername, callback) => {
+          const name = String(servername ?? "").toLowerCase();
+          if (!name || name === "localhost") return callback(null, platformContext);
+          domains
+            .ask(name)
+            .then((status) => {
+              edge.asks.push({ at: new Date().toISOString(), name, status });
+              if (status === 200 && domains.material.names.includes(name)) callback(null, domainContext);
+              else callback(new Error("certificate issuance not permitted for " + name));
+            })
+            .catch((error) => {
+              edge.asks.push({ at: new Date().toISOString(), name, status: "error" });
+              callback(error);
+            });
+        },
+      },
+      handler,
+    );
+    coach.on("tlsClientError", () => {});
+    started.push(
+      listen(coach, 443, domains.address).then(
+        () => (edge.domainAddress = domains.address),
+        (error) => {
+          // Another process holds the address: domain scenarios record why they cannot run.
+          edge.domainError = error.message;
+        },
+      ),
+    );
+  }
+  return Promise.all(started).then(() => edge);
 }
 
 async function teardown() {
@@ -287,10 +334,10 @@ let exitCode = 1;
 try {
   register();
   const { createMockTls, trustMockCa } = await import("../../tests/e2e/mocks/tls.ts");
-  const { startMocks } = await import("../../tests/e2e/mocks/index.ts");
+  const { startMocks, COACH_DOMAIN_NAMES, COACH_DOMAIN_EDGE_ADDRESS } = await import("../../tests/e2e/mocks/index.ts");
   const { runHarness } = await import("../../tests/e2e/harness/main.ts");
 
-  const tls = createMockTls(work);
+  const tls = createMockTls(work, COACH_DOMAIN_NAMES);
   trustMockCa(tls.ca);
   say("throwaway CA created");
   const db = await startPostgres();
@@ -338,7 +385,11 @@ try {
   await waitFor(`http://127.0.0.1:${apiPort}/health`);
   startService(
     "web",
-    [join(root, "node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(webPort)],
+    // "localhost", not 127.0.0.1: Next normalises 127.0.0.1 to localhost in
+    // request.nextUrl but not in its own base URL, so a proxy.ts rewrite on a
+    // coach domain would otherwise be proxied as an external URL (production
+    // listens on 0.0.0.0, which Next leaves unchanged).
+    [join(root, "node_modules/next/dist/bin/next"), "start", "--hostname", "localhost", "--port", String(webPort)],
     join(root, "apps/web"),
     baseEnv({
       NODE_ENV: "production",
@@ -347,7 +398,24 @@ try {
       API_INTERNAL_URL: `http://127.0.0.1:${apiPort}`,
     }),
   );
-  await startEdge(edgePort, webPort, { key: tls.key, cert: tls.cert });
+  // Caddy's on-demand TLS "ask": the edge calls the API directly (never through web).
+  const askToken = createHmac("sha256", secrets.INTERNAL_PROXY_SECRET).update("gymmembership-tls-ask-v1").digest("hex");
+  const edge = await startEdge(edgePort, webPort, { key: tls.key, cert: tls.cert }, {
+    address: COACH_DOMAIN_EDGE_ADDRESS,
+    material: tls.domains,
+    ask: async (name) =>
+      (
+        await fetch(
+          `http://127.0.0.1:${apiPort}/api/v1/internal/tls/ask?domain=${encodeURIComponent(name)}&token=${askToken}`,
+          { signal: AbortSignal.timeout(5000) },
+        )
+      ).status,
+  });
+  say(
+    edge.domainAddress
+      ? `coach-domain edge on ${edge.domainAddress}:443 (on-demand TLS asks the API)`
+      : `coach-domain edge unavailable: ${edge.domainError}`,
+  );
   startService("worker", ["--import", "tsx", "src/index.ts"], join(root, "apps/worker"), runtimeEnv);
   await waitFor(`${publicUrl}/api/v1/ready`, async (r) => r.ok && (await r.json()).providerSandbox === "mock", 120000);
   say(`stack ready at ${publicUrl} (API ${apiPort}, web ${webPort})`);
@@ -379,6 +447,8 @@ try {
     log: say,
     hostEnv: runtimeEnv,
     root,
+    edge,
+    apiPort,
   });
   const reportPath = args.report ? String(args.report) : join(root, "tests/e2e/report.json");
   report.run = {
@@ -394,6 +464,13 @@ try {
   writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
   writeFileSync(join(artifacts, "report.json"), JSON.stringify(report, null, 2) + "\n");
   say(`report: ${reportPath} — ${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped`);
+  if (report.inventory) {
+    const table = report.inventory.table;
+    const count = (result) => table.filter((row) => row.result === result).length;
+    say(
+      `inventory: ${table.length} features — pass ${count("pass")}, same flow ${count("equivalent")}, not local ${count("not-local")}, not exercised ${count("not-exercised")}, fail ${count("fail")}; provider-dependent without a scenario or stated limit: ${report.inventory.providerDependentUnaccounted.length}`,
+    );
+  }
   exitCode = report.summary.failed ? 1 : 0;
   if (args.keep) {
     say(`--keep: stack stays up at ${publicUrl}; Ctrl-C to stop`);

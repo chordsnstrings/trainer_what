@@ -10,6 +10,8 @@ export class RegistrarMock {
   readonly server: MockServer;
   registrations = new Map<string, { id: string; domain: string; expiresAt: string; priceMinor: number }>();
   records = new Map<string, Array<{ type: string; name: string; value: string }>>();
+  /** Publishes saved records to the DNS double, as the registrar's name servers would. */
+  onRecords?: (domain: string, records: Array<{ type: string; name: string; value: string }>) => void;
   constructor(
     tlsMaterial: { key: string; cert: string },
     public apiKey: string,
@@ -47,6 +49,7 @@ export class RegistrarMock {
     s.route("PUT", "/v1/domains/:domain/records", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();
       this.records.set(r.params.domain, [...(r.json?.records ?? [])]);
+      this.onRecords?.(r.params.domain, this.records.get(r.params.domain)!);
       return { body: { domain: r.params.domain, records: this.records.get(r.params.domain) } };
     });
   }

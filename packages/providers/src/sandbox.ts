@@ -11,6 +11,8 @@
  * any other situation. Only process environment is read: the Superadmin
  * settings store cannot hold these keys.
  */
+import { Resolver } from "node:dns/promises";
+
 type Env = Record<string, string | undefined>;
 
 export const PROVIDER_SANDBOX_VARIABLE = "TRAINER_PROVIDER_SANDBOX";
@@ -19,7 +21,16 @@ export const PROVIDER_SANDBOX_OVERRIDES = [
   "STRIPE_API_BASE_URL",
   "WHOOP_API_BASE_URL",
   "FOOD_LOOKUP_BASE_URL",
+  // OpenID Connect issuers for Sign in with Google / Apple (mock issuers).
+  "GOOGLE_OIDC_ISSUER",
+  "APPLE_OIDC_ISSUER",
 ] as const;
+/**
+ * A loopback DNS server (127.0.0.1:<port>) that answers the custom-domain
+ * ownership (TXT), target (CNAME) and address (A) lookups in the sandbox.
+ * Not a URL, so it is validated separately from the endpoint overrides.
+ */
+export const PROVIDER_SANDBOX_DNS_VARIABLE = "DOMAIN_DNS_SERVER";
 export type ProviderSandboxOverride =
   (typeof PROVIDER_SANDBOX_OVERRIDES)[number];
 
@@ -101,6 +112,38 @@ export function sandboxOverride(
   return sandboxEndpoint(value);
 }
 
+function dnsServerValue(value: string | undefined): string | null {
+  const text = value?.trim() ?? "";
+  const match = /^127\.0\.0\.1:(\d{1,5})$/.exec(text);
+  return match && Number(match[1]) > 0 && Number(match[1]) < 65536
+    ? text
+    : null;
+}
+/** The sandbox DNS server, only when the sandbox is honoured; otherwise null. */
+export function sandboxDnsServer(env: Env = process.env): string | null {
+  if (providerSandbox(env) !== "mock") return null;
+  return dnsServerValue(env[PROVIDER_SANDBOX_DNS_VARIABLE]);
+}
+let cachedResolver: { server: string; resolver: Resolver } | undefined;
+/**
+ * A resolver bound to the sandbox DNS server, or null outside the sandbox.
+ * Callers fall back to the system resolver when this is null.
+ */
+export function sandboxResolver(env: Env = process.env): Resolver | null {
+  const server = sandboxDnsServer(env);
+  if (!server) return null;
+  if (cachedResolver?.server !== server) {
+    const resolver = new Resolver({ timeout: 2000, tries: 2 });
+    resolver.setServers([server]);
+    cachedResolver = { server, resolver };
+  }
+  return cachedResolver.resolver;
+}
+/** Loopback IPv4 answers the sandbox resolver may return (127.0.0.0/8). */
+export function isSandboxLoopbackAddress(address: string) {
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+}
+
 /**
  * Called by API and worker startup. Refuses the sandbox variable or any
  * sandbox-only override unless the sandbox is honoured, and refuses override
@@ -108,9 +151,11 @@ export function sandboxOverride(
  */
 export function assertProviderSandboxBinding(env: Env = process.env) {
   const requested = env[PROVIDER_SANDBOX_VARIABLE];
-  const overrides = PROVIDER_SANDBOX_OVERRIDES.filter((key) =>
+  const overrides: string[] = PROVIDER_SANDBOX_OVERRIDES.filter((key) =>
     env[key]?.trim(),
   );
+  if (env[PROVIDER_SANDBOX_DNS_VARIABLE]?.trim())
+    overrides.push(PROVIDER_SANDBOX_DNS_VARIABLE);
   if (requested === undefined && !overrides.length) return null;
   if (providerSandbox(env) !== "mock")
     throw new ProviderSandboxRefused(
@@ -119,7 +164,12 @@ export function assertProviderSandboxBinding(env: Env = process.env) {
         : `${overrides.join(", ")} can only be set together with ${PROVIDER_SANDBOX_VARIABLE}=mock on a loopback address. Remove it from any shared or public deployment.`,
     );
   for (const key of overrides)
-    if (!sandboxEndpoint(env[key]!.trim()))
+    if (key === PROVIDER_SANDBOX_DNS_VARIABLE) {
+      if (!dnsServerValue(env[key]))
+        throw new ProviderSandboxRefused(
+          `${key} must be 127.0.0.1:<port> (a loopback DNS server).`,
+        );
+    } else if (!sandboxEndpoint(env[key]!.trim()))
       throw new ProviderSandboxRefused(
         `${key} must be an HTTPS loopback URL without credentials.`,
       );
@@ -132,7 +182,7 @@ export function providerSandboxStatus(env: Env = process.env) {
     ? {
         providerSandbox: "mock" as const,
         providerSandboxNotice:
-          "MOCK PROVIDERS: this local sandbox sends payments, payouts, email, AI, push, wearables, voice and food lookups to local test doubles. Nothing here is real.",
+          "MOCK PROVIDERS: this local sandbox sends payments, payouts, email, AI, push, wearables, voice, food lookups, Apple/Google sign-in and custom-domain DNS to local test doubles. Nothing here is real.",
       }
     : { providerSandbox: null, providerSandboxNotice: null };
 }

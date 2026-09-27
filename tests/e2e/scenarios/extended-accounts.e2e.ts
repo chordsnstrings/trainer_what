@@ -499,6 +499,8 @@ export async function memberReminders(ctx: E2EContext, layla: TrainerSeed, membe
       return booking && workout && { booking, workout };
     }, 90000);
     assert.match(items.workout.body, /^Hi /, "template body rendered with the member's name");
+    // {{coach}} is the workspace name; {{date}} is the recipient's local date when sent (documented).
+    assert.ok(!/\{\{|Your coach has/.test(items.workout.body), "every variable rendered, coach named: " + items.workout.body);
     return `${items.booking.title} | ${items.workout.title}: ${String(items.workout.body).slice(0, 60)}`;
   });
 }
