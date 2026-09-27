@@ -7,6 +7,7 @@ import { notifyUser } from "./notifications.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
+import { readHostHealth } from "./host-operations.ts";
 
 // Operator alert engine. Rules observe conditions (never personal content) and
 // return candidates; the engine de-duplicates by key, tracks each condition by
@@ -160,6 +161,65 @@ export function safetyWaitMinutes() {
 const count = (n: number) => (n >= 200 ? "200 or more" : String(n));
 
 // Built-in condition rules.
+registerPlatformAlertRule({
+  id: "backups.stale",
+  description:
+    "Database backups are missing, too old, or no verified controller report shows them.",
+  async evaluate({ db, now }) {
+    const health = await readHostHealth(db, { now: now.getTime() });
+    const b = health.backups;
+    // No controller has ever reported (local and CI runs, or a deployment
+    // without the host controller): the observer screen says so instead.
+    if (!b.stale || b.state === "unreported") return [];
+    return [
+      {
+        dedupeKey: "backups:stale",
+        fingerprint: `${b.state}:${b.lastSuccessAt ?? "none"}`,
+        severity:
+          b.state === "stale" || b.state === "missing" ? "critical" : "warning",
+        scope: ["admin"],
+        title: "Database backups need attention",
+        detail: b.message,
+        data: { state: b.state, href: "/admin/infrastructure/host" },
+      },
+    ];
+  },
+});
+registerPlatformAlertRule({
+  id: "host.health",
+  description:
+    "Host disk, memory, load or container status crossed a reviewed threshold.",
+  async evaluate({ db, now }) {
+    const health = await readHostHealth(db, { now: now.getTime() });
+    const problems = [
+      ...health.metrics
+        .filter((m) => m.status === "warning" || m.status === "critical")
+        .map((m) => ({
+          key: "metric:" + m.key,
+          label: m.label,
+          status: m.status,
+          detail: m.detail,
+        })),
+      ...(health.containers ?? [])
+        .filter((c: any) => c.status === "warning" || c.status === "critical")
+        .map((c: any) => ({
+          key: "container:" + c.service,
+          label: `${c.service} container`,
+          status: c.status,
+          detail: c.detail ?? "",
+        })),
+    ];
+    return problems.map((p) => ({
+      dedupeKey: `host:${p.key}`,
+      fingerprint: p.status,
+      severity: p.status === "critical" ? "critical" : "warning",
+      scope: ["admin"],
+      title: `Host: ${p.label}`.slice(0, 160),
+      detail: p.detail || `${p.label} crossed its ${p.status} threshold.`,
+      data: { href: "/admin/infrastructure/host" },
+    }));
+  },
+});
 registerPlatformAlertRule({
   id: "infrastructure.threshold",
   description:

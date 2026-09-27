@@ -31,6 +31,7 @@ import {
   readCoachWearablePolicy,
   revokeHealthKitDevices,
 } from "./healthkit-sync.ts";
+import { permitCertificateIssuance } from "./host-operations.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -1625,6 +1626,13 @@ function registerDomainRoutes(
         "DOMAIN_TARGET",
         "The domain CNAME does not point to the approved ingress.",
       );
+    // Let the edge obtain this domain's certificate for the HTTPS check below.
+    await permitCertificateIssuance(db, {
+      hostname: row.hostname,
+      tenantId: row.tenant_id,
+      orderId: row.id,
+      actorId: operator.userId,
+    });
     await integrationRequest("https://" + row.hostname + "/", {
       method: "HEAD",
       signal: AbortSignal.timeout(10000),

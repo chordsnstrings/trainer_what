@@ -63,6 +63,7 @@ export function InfrastructureActions() {
         <a href="/admin/infrastructure/actions" aria-current="page">
           Approved actions
         </a>
+        <a href="/admin/infrastructure/host">Host and backups</a>
       </nav>
       {error && (
         <p className="notice" role="alert">

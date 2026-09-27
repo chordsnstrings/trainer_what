@@ -2,6 +2,7 @@
 import base64
 import fcntl
 import hashlib
+import hmac
 import ipaddress
 import json
 import os
@@ -54,7 +55,7 @@ def docker(*args):
         return None
 
 
-def compose(release, sha, *args, **kwargs):
+def compose_command(release, sha, *args):
     command = ["docker", "compose", "--project-name", "gymmembership",
                "--env-file", str(ROOT / "runtime.env"), "-f", str(release / "compose.yaml"),
                "-f", str(ROOT / "edge.json"), *args]
@@ -63,6 +64,11 @@ def compose(release, sha, *args, **kwargs):
     # dedicated-server controller to another engine.
     environment = engine_environment()
     environment["RELEASE_TAG"] = valid_sha(sha)
+    return command, environment
+
+
+def compose(release, sha, *args, **kwargs):
+    command, environment = compose_command(release, sha, *args)
     return run(command, cwd=release, env=environment, **kwargs)
 
 
@@ -99,12 +105,48 @@ def existing_deployment():
     return result is not None and result.returncode == 0
 
 
-def edge_config(endpoint, revision=None):
+TLS_ASK_URL = "http://api:4000/api/v1/internal/tls/ask?token="
+
+
+def edge_config(endpoint, revision=None, ask=None):
     # Overwrite X-Forwarded-For with the connecting address: the web proxy signs it
     # for the API's per-client budgets, so a client must not be able to choose it.
     release = "    header X-GymMembership-Release " + valid_sha(revision) + "\n" if revision else ""
-    return (endpoint + " {\n    encode zstd gzip\n" + release
-            + "    reverse_proxy web:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }\n}\n")
+    site = ("    encode zstd gzip\n" + release
+            + "    reverse_proxy web:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }\n")
+    if not ask:
+        return endpoint + " {\n" + site + "}\n"
+    if not ask.startswith(TLS_ASK_URL) or not re.fullmatch(r"[0-9a-f]{64}", ask[len(TLS_ASK_URL):]):
+        raise DeploymentError("Unexpected TLS ask endpoint")
+    # Coach domains: Caddy obtains a certificate on the first TLS handshake for a
+    # name only when the API's ask endpoint answers 200 (an active, verified
+    # mapping or a short activation allowance). The platform keeps its own block.
+    return ("{\n    on_demand_tls {\n        ask " + ask + "\n    }\n}\n\n"
+            + endpoint + " {\n" + site + "}\n\n"
+            + "https:// {\n    tls {\n        on_demand\n    }\n" + site + "}\n")
+
+
+def runtime_values():
+    """Parsed private runtime settings, or an empty mapping when unavailable."""
+    path = ROOT / "runtime.env"
+    try:
+        mode = path.lstat().st_mode
+        if not stat.S_ISREG(mode) or mode & 0o077:
+            return {}
+        return dict(line.split("=", 1) for line in path.read_text().splitlines()
+                    if line and not line.startswith("#") and "=" in line)
+    except OSError:
+        return {}
+
+
+def edge_ask(values=None):
+    """On-demand TLS ask URL with a token derived from the proxy secret, unless disabled."""
+    values = runtime_values() if values is None else values
+    secret = values.get("INTERNAL_PROXY_SECRET", "")
+    if values.get("EDGE_ON_DEMAND_TLS", "true").strip().lower() == "false" or len(secret.encode()) < 32:
+        return None
+    token = hmac.new(secret.encode(), b"gymmembership-tls-ask-v1", hashlib.sha256).hexdigest()
+    return TLS_ASK_URL + token
 
 
 def ensure_runtime():
@@ -160,7 +202,7 @@ def ensure_runtime():
         raise DeploymentError("Expected a public HTTPS origin")
     # Recover interruption after writing runtime.env without rotating database secrets.
     if not (ROOT / "Caddyfile").exists():
-        (ROOT / "Caddyfile").write_text(edge_config(endpoint))
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, ask=edge_ask(values)))
     if not (ROOT / "edge.json").exists():
         atomic_json(ROOT / "edge.json", {
             "services": {"edge": {
@@ -328,7 +370,10 @@ def deploy(sha, github):
     if state.get("current"):
         valid_sha(state["current"])
     if state.get("current") == sha:
-        return
+        return False
+    # After an operator rollback the previous release serves while "current" keeps
+    # naming the newest controller; a failed deployment restores what is serving.
+    running = serving_release(state)
     releases = ROOT / "releases"
     releases.mkdir(exist_ok=True)
     release = releases / sha
@@ -353,7 +398,7 @@ def deploy(sha, github):
     # A newer main commit may have arrived while this image built.
     if approved_head(github) != sha:
         print("A newer main commit is pending; no running services changed")
-        return
+        return False
     compose(release, sha, "up", "-d", "--no-recreate", "--wait", "--wait-timeout", "120", "database")
     if state.get("current"):
         backups = ROOT / "backups"
@@ -370,8 +415,10 @@ def deploy(sha, github):
     compose(release, sha, "run", "--rm", "--no-deps", "migrate")
     runtime_role(release, sha)
     endpoint = json.loads((ROOT / "endpoint.json").read_text())["url"]
+    ask = edge_ask()
+
     def edge_release(revision):
-        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision))
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision, ask))
     try:
         edge_release(sha)
         compose(release, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
@@ -380,7 +427,7 @@ def deploy(sha, github):
         wait_ready(endpoint + "/api/v1/ready", expected_sha=sha)
         wait_ready(endpoint + "/", attempts=10, expected_sha=sha)
     except Exception:
-        previous = state.get("current")
+        previous = running
         if previous:
             edge_release(previous)
             compose(releases / previous, previous, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
@@ -391,11 +438,99 @@ def deploy(sha, github):
         else:
             compose(release, sha, "stop", "api", "web", "worker", "edge")
         raise
-    atomic_json(state_path, {"current": sha, "previous": state.get("current"), "deployed_at": int(time.time())})
+    atomic_json(state_path, {"current": sha, "previous": running, "deployed_at": int(time.time())})
     print("Deployed checked main commit " + sha)
     # Retention only after the deployment is recorded (see prune_backups).
     prune_backups()
-    prune_releases({sha, state.get("current")})
+    prune_releases({sha, running})
+    return True
+
+
+def read_state():
+    path = ROOT / "release-state.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def serving_release(state):
+    """The release whose containers serve traffic: an operator rollback, else current."""
+    sha = state.get("serving") or state.get("current")
+    return valid_sha(sha) if sha else None
+
+
+def endpoint_url():
+    return json.loads((ROOT / "endpoint.json").read_text())["url"]
+
+
+def start_release(sha, endpoint):
+    """Recreate the application services of one recorded release and verify it."""
+    sha = valid_sha(sha)
+    (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask()))
+    compose(ROOT / "releases" / sha, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
+            "api", "web", "worker", "edge")
+    wait_ready("http://127.0.0.1:3000/api/v1/ready")
+    wait_ready(endpoint + "/api/v1/ready", expected_sha=sha)
+
+
+def switch_release(target):
+    """Serve the latest or previous deployed release without touching the database.
+
+    "current" keeps naming the newest release, so dispatch.py keeps running this
+    controller (which honours a deploy pause) after a rollback.
+    """
+    state = read_state()
+    current, running = valid_sha(state.get("current")), serving_release(state)
+    target = valid_sha(target)
+    if target not in (current, state.get("previous")):
+        raise DeploymentError("Only the latest or previous deployed release can be served")
+    if target == running:
+        return False
+    release = ROOT / "releases" / target
+    if not release.is_dir():
+        raise DeploymentError("That release is no longer on this server")
+    rendered = compose(release, target, "config", "--format", "json", capture_output=True, text=True)
+    validate_exposure(json.loads(rendered.stdout), release)
+    endpoint = endpoint_url()
+    try:
+        start_release(target, endpoint)
+    except Exception:
+        start_release(running, endpoint)
+        print("The release that was serving has been restored")
+        raise
+    updated = {key: value for key, value in state.items() if key != "serving"}
+    if target != current:
+        updated["serving"] = target
+    updated["switched_at"] = int(time.time())
+    atomic_json(ROOT / "release-state.json", updated)
+    return True
+
+
+def reapply_release():
+    """Recreate the serving release with the current runtime settings and edge address."""
+    sha = serving_release(read_state())
+    if not sha:
+        raise DeploymentError("No release has been deployed on this server")
+    start_release(sha, endpoint_url())
+    return sha
+
+
+DEPLOY_CONTROL = "deploy-control.json"
+
+
+def deploy_control():
+    path = ROOT / DEPLOY_CONTROL
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError):
+        # An unreadable control file fails safe: automatic deployment stays paused.
+        return {"paused": True, "reason": "unreadable"}
+    return data if isinstance(data, dict) else {"paused": True, "reason": "unreadable"}
+
+
+def set_deploy_pause(paused, reason, request_id=None):
+    if reason not in ("operator", "rollback"):
+        raise DeploymentError("Unknown pause reason")
+    atomic_json(ROOT / DEPLOY_CONTROL, {"paused": bool(paused), "reason": reason, "changed_at": int(time.time()),
+                                        "request_id": request_id})
 
 
 ADMIN_REQUEST = "bootstrap-admin.json"
@@ -465,7 +600,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/gymmembership/dispatch.py
-TimeoutStartSec=1800
+TimeoutStartSec=""" + str(UNIT_TIMEOUT_SECONDS) + """
 UMask=0077
 """
         timer = """[Unit]
@@ -487,13 +622,69 @@ WantedBy=timers.target
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        github = API("https://api.github.com")
-        sha = approved_head(github)
-        if sha:
-            deploy(sha, github)
-            bootstrap_pending_admin()
+        run_cycle()
+
+
+def operations_module():
+    """Backups, host reports and operator actions (hostops.py beside this file).
+
+    The bootstrap copy of this controller has no hostops.py; operations then wait
+    until the first release's controller runs.
+    """
+    try:
+        import hostops
+    except ImportError:
+        return None
+    except Exception as error:
+        # A broken operations module must never block deploying its fix.
+        print("Host operations unavailable: " + type(error).__name__, file=sys.stderr)
+        return None
+    return hostops
+
+
+# The deploy unit's TimeoutStartSec. systemd stops a cycle that runs longer, and
+# Python finally blocks do not run then, so long operations budget against it.
+UNIT_TIMEOUT_SECONDS = 1800
+CYCLE_STARTED = None
+
+
+def cycle_remaining():
+    """Seconds left before systemd stops this timer cycle; None outside a cycle (console commands)."""
+    if CYCLE_STARTED is None:
+        return None
+    return UNIT_TIMEOUT_SECONDS - (time.monotonic() - CYCLE_STARTED)
+
+
+def run_cycle():
+    """One serialized controller cycle: operator actions, deployment, then upkeep."""
+    global CYCLE_STARTED
+    CYCLE_STARTED = time.monotonic()
+    operations = operations_module()
+    this = sys.modules[__name__]
+    # True only when a long action (a backup or a restore check) ran in this cycle.
+    busy = operations.before_deploy(this) is True if operations else False
+    deployed = False
+    try:
+        if deploy_control().get("paused"):
+            print("Automatic deployment is paused by an operator")
+        elif busy:
+            print("A backup or restore check used this cycle; deployment waits for the next cycle")
         else:
-            print("Waiting for current main application checks to succeed")
+            github = API("https://api.github.com")
+            sha = approved_head(github)
+            if sha:
+                # Only a recorded deployment counts as having used the cycle. A failed
+                # attempt is retried every cycle and must not hold back the backup.
+                deployed = bool(deploy(sha, github))
+                bootstrap_pending_admin()
+            else:
+                print("Waiting for current main application checks to succeed")
+    finally:
+        try:
+            if operations:
+                operations.after_deploy(this, deployed or busy)
+        finally:
+            CYCLE_STARTED = None
 
 
 if __name__ == "__main__":

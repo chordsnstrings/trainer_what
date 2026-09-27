@@ -65,6 +65,7 @@ import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
+import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
 import { hasMemberAccess } from "./entitlements.ts";
@@ -377,9 +378,11 @@ export async function buildApp(
     const requestPath = req.url.split("?")[0];
     // Readiness is intentionally reachable by the local container probe; it
     // exposes no workspace data and cannot select a tenant.
-    const probe = ["/health", "/api/v1/health", "/api/v1/ready"].includes(
-      requestPath,
-    );
+    // The edge's TLS "ask" check reaches the API directly on the private
+    // network, never through a mapped host; it is handled like a probe.
+    const probe =
+      ["/health", "/api/v1/health", "/api/v1/ready"].includes(requestPath) ||
+      requestPath === TLS_ASK_PATH;
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
     // Probes relayed by the web proxy carry a proof; verify it so the signed
@@ -600,6 +603,9 @@ export async function buildApp(
   registerSupportPreview(app, db, identity);
   registerInfrastructureObserver(app, db, identity, {
     startCollector: !options.testing,
+  });
+  registerHostOperations(app, db, identity, {
+    startSampler: !options.testing,
   });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
