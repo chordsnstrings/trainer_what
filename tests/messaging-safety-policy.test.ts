@@ -95,12 +95,12 @@ const operator = (
   payload?: any,
   headers = {},
 ) => admin.inject({ url: "/api/v1" + url, method, payload, headers });
-async function join(email: string, subscribed = false) {
+async function join(email: string, subscribed = false, owner = coach) {
   const invite = await request(
     "/invitations",
     "POST",
     { email, role: "subscriber" },
-    coach,
+    owner,
   );
   assert.equal(invite.statusCode, 200, invite.body);
   const joined = await request("/invitations/accept", "POST", {
@@ -117,10 +117,10 @@ async function join(email: string, subscribed = false) {
     cookie,
   };
   if (subscribed)
-    await db.tenant(coach, (tx) =>
+    await db.tenant(owner, (tx) =>
       tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,price_minor) VALUES($1,$2,$3,'active',now()+interval '30 days',10000)",
-        [randomUUID(), coach.tenantId, user.userId],
+        [randomUUID(), owner.tenantId, user.userId],
       ),
     );
   return user;
@@ -148,36 +148,43 @@ async function publishPolicy(content: unknown) {
   assert.equal(published.statusCode, 200, published.body);
   return published.json();
 }
-const rows = (userId: string) =>
-  db.tenant(coach, (tx) =>
+const rows = (userId: string, owner = coach) =>
+  db.tenant(owner, (tx) =>
     tx.query(
       "SELECT * FROM records WHERE owner_user_id=$1 AND kind IN ('training_hold','exception') ORDER BY created_at",
       [userId],
     ),
   );
-const exceptionOf = async (userId: string, category = "safety"): Promise<any> =>
-  (await rows(userId)).find(
+const exceptionOf = async (
+  userId: string,
+  category = "safety",
+  owner = coach,
+): Promise<any> =>
+  (await rows(userId, owner)).find(
     (r) => r.kind === "exception" && r.data.category === category,
   );
+async function registerCoach(slug: string) {
+  const r = await request("/auth/register", "POST", {
+    name: "Policy Coach " + slug,
+    email: slug + "@example.test",
+    password: "PolicyCoach2026!",
+    slug,
+    accepted: true,
+  });
+  assert.equal(r.statusCode, 201, r.body);
+  const cookie = String(r.headers["set-cookie"]).split(";")[0];
+  return {
+    ...(await request("/bootstrap", "GET", undefined, { cookie })).json().user,
+    cookie,
+  };
+}
 const hoursUntilDue = (r: any) =>
   (Date.parse(r.data.reviewDueAt) - new Date(r.created_at).getTime()) / HOUR;
 
 before(async () => {
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true });
-  const r = await request("/auth/register", "POST", {
-    name: "Policy Coach",
-    email: "policy-coach@example.test",
-    password: "PolicyCoach2026!",
-    slug: "policy-coach",
-    accepted: true,
-  });
-  assert.equal(r.statusCode, 201, r.body);
-  const cookie = String(r.headers["set-cookie"]).split(";")[0];
-  coach = {
-    ...(await request("/bootstrap", "GET", undefined, { cookie })).json().user,
-    cookie,
-  };
+  coach = await registerCoach("policy-coach");
   admin.setErrorHandler((e: any, _req, reply) =>
     reply
       .code(e.statusCode ?? (e.name === "ZodError" ? 400 : 500))
@@ -213,6 +220,45 @@ test("a document can add terms and shorten deadlines but can never weaken the co
     assert.equal((result as any).weakening, true, JSON.stringify(policy));
   }
   assert.equal(validateSafetyPolicy("not json").ok, false);
+  // A term made only of characters the screen removes (tatweel, diacritics)
+  // would match any punctuation and hold every message: refused and ignored.
+  for (const empty of ["ــ", "ــــ", "ـًـ"]) {
+    const refused = validateSafetyPolicy(
+      JSON.stringify({ schema: 1, redFlagTerms: [empty] }),
+    );
+    assert.equal(refused.ok, false, empty);
+    assert.match((refused as any).errors[0], /two letters or numbers/);
+    assert.equal(
+      validateSafetyPolicy(
+        JSON.stringify({ schema: 1, personalReviewTerms: [empty] }),
+      ).ok,
+      false,
+    );
+  }
+  const tatweel = effectiveSafetyPolicy({
+    key: "coaching-safety-policy",
+    version: 3,
+    effectiveAt: null,
+    content: JSON.stringify({
+      schema: 1,
+      redFlagTerms: ["ــ", "dialysis"],
+      personalReviewTerms: ["ــ"],
+    }),
+  });
+  assert.deepEqual(tatweel.redFlagTerms, ["dialysis"]);
+  assert.deepEqual(tatweel.personalReviewTerms, []);
+  assert.ok(
+    tatweel.pin.ignored.includes("invalid redFlagTerms (1 ignored)"),
+    tatweel.pin.ignored.join(),
+  );
+  for (const text of ["Great session!", "Thanks coach.", "تمام، شكراً!"]) {
+    const r = screenSafety(text, {
+      redFlagTerms: ["ــ"],
+      personalReviewCategories: [],
+      personalReviewTerms: ["ــ"],
+    });
+    assert.equal(r.hold || r.review, false, text);
+  }
   assert.equal(
     validateSafetyPolicy(
       JSON.stringify({ schema: 1, redFlagTerms: ["<script>"] }),
@@ -352,6 +398,36 @@ test("the published policy drives holds, pins its version and tightens escalatio
   assert.deepEqual(policyException.data.screening.policyTerms, ["dialysis"]);
   assert.equal(policyException.data.safetyPolicy.version, 1);
   assert.ok(Math.abs(hoursUntilDue(policyException) - 6) < 0.05);
+  // The attention list shows the deadline that escalates: the floor-era
+  // hold now falls due at created_at + 6h, not its pinned 24h.
+  const deadlines = await request(
+    "/safety/review-deadlines",
+    "GET",
+    undefined,
+    coach,
+  );
+  assert.equal(deadlines.statusCode, 200, deadlines.body);
+  assert.equal(deadlines.json().policy.holdReviewHours, 6);
+  const effectiveDue = Date.parse(
+    deadlines.json().deadlines[floorException.id],
+  );
+  assert.ok(
+    Math.abs(
+      effectiveDue - (new Date(floorException.created_at).getTime() + 6 * HOUR),
+    ) < 1000,
+  );
+  assert.ok(effectiveDue < Date.parse(floorException.data.reviewDueAt));
+  assert.equal(
+    (await request("/safety/review-deadlines", "GET", undefined, later))
+      .statusCode,
+    403,
+  );
+  const queued = (
+    await operator(`/admin/operations/safety?tenantId=${coach.tenantId}`)
+  )
+    .json()
+    .rows.find((r: any) => r.id === floorException.id);
+  assert.equal(Date.parse(queued.review_due_at), effectiveDue);
   const trainerView = await request("/safety/policy", "GET", undefined, coach);
   assert.equal(trainerView.statusCode, 200, trainerView.body);
   assert.equal(trainerView.json().version, 1);
@@ -444,6 +520,46 @@ test("policy personal-review topics bypass automatic coaching and the model", as
     ]),
   );
   assert.equal(notice.data.template.key, "policy-review");
+
+  // More routed questions join the open review: no new exception or alert.
+  for (const message of [
+    "Can I take my prescription after the workout?",
+    "Is insulin timing important before cardio?",
+  ]) {
+    const again = await request("/coaching/ask", "POST", { message }, member);
+    assert.equal(again.statusCode, 200, again.body);
+    assert.match(again.json().data.text, /answer this question personally/);
+  }
+  const reviews = (await rows(member.userId)).filter(
+    (r) => r.kind === "exception" && r.data.category === "policy_review",
+  );
+  assert.equal(reviews.length, 1);
+  const joined = reviews[0];
+  assert.equal(joined.id, review.id);
+  assert.equal(joined.data.questionCount, 3);
+  assert.deepEqual(
+    joined.data.followUps.map((q: any) => q.text),
+    [
+      "Can I take my prescription after the workout?",
+      "Is insulin timing important before cardio?",
+    ],
+  );
+  assert.equal(joined.data.reviewDueAt, review.data.reviewDueAt);
+  const alerts = await db.tenant(coach, (tx) =>
+    tx.query(
+      "SELECT id FROM notifications WHERE user_id=$1 AND dedupe_key LIKE 'policy-review:%'",
+      [coach.userId],
+    ),
+  );
+  assert.equal(alerts.length, 1, "one trainer alert per open review");
+  const logged = await db.tenant(coach, (tx) =>
+    tx.query(
+      "SELECT data FROM events WHERE name='coaching.policy_review_required' AND subject_id=$1",
+      [review.id],
+    ),
+  );
+  assert.equal(logged.length, 3);
+  assert.equal(logged.filter((e) => e.data.repeat).length, 2);
 });
 
 test("a published document that bypasses the draft check cannot weaken runtime handling", async () => {
@@ -493,5 +609,100 @@ test("a published document that bypasses the draft check cannot weaken runtime h
       })
     ).statusCode,
     403,
+  );
+});
+
+test("open reviews that are not yet due never hide an overdue safety hold", async () => {
+  // A separate workspace so earlier tests' open items do not count here.
+  // The active policy is the tampered v2: 24h holds, 72h personal reviews.
+  const owner = await registerCoach("policy-starve");
+  const asker = await join("policy-starve-asker@example.test", true, owner);
+  const reporter = await join(
+    "policy-starve-report@example.test",
+    false,
+    owner,
+  );
+  // Sixty personal reviews, all older than the hold and none due for 72h.
+  await db.tenant(owner, async (tx) => {
+    for (let i = 0; i < 60; i++)
+      await tx.query(
+        "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data,created_at) VALUES($1,$2,'exception',$3,'open',$4,now()-interval '2 hours'-make_interval(secs=>$5))",
+        [
+          randomUUID(),
+          owner.tenantId,
+          asker.userId,
+          JSON.stringify({
+            category: "policy_review",
+            description: "Should I take my medication before training?",
+            subscriberId: asker.userId,
+            reviewDueAt: new Date(
+              Date.now() + 70 * HOUR - i * 1000,
+            ).toISOString(),
+          }),
+          i,
+        ],
+      );
+  });
+  assert.equal(
+    (
+      await request(
+        "/messages",
+        "POST",
+        { text: "Chest pain after my run" },
+        reporter,
+      )
+    ).statusCode,
+    200,
+  );
+  const hold = await exceptionOf(reporter.userId, "safety", owner);
+  assert.ok(Math.abs(hoursUntilDue(hold) - 24) < 0.05);
+  const now = Date.now();
+  assert.equal(
+    await scheduleSafetyEscalations(
+      db,
+      owner.tenantId,
+      new Date(now + 23 * HOUR),
+    ),
+    0,
+  );
+  assert.equal(
+    await scheduleSafetyEscalations(
+      db,
+      owner.tenantId,
+      new Date(now + 25 * HOUR),
+    ),
+    1,
+    "the overdue hold is found despite sixty older open reviews",
+  );
+  const overdue = await exceptionOf(reporter.userId, "safety", owner);
+  assert.ok(overdue.data.overdueAt);
+  assert.equal(
+    (await rows(asker.userId, owner)).filter((r) => r.data.overdueAt).length,
+    0,
+  );
+  // Once due, reviews escalate at most fifty per pass, oldest deadline first.
+  assert.equal(
+    await scheduleSafetyEscalations(
+      db,
+      owner.tenantId,
+      new Date(now + 73 * HOUR),
+    ),
+    50,
+  );
+  assert.equal(
+    await scheduleSafetyEscalations(
+      db,
+      owner.tenantId,
+      new Date(now + 73 * HOUR),
+    ),
+    10,
+  );
+  assert.equal(
+    await scheduleSafetyEscalations(
+      db,
+      owner.tenantId,
+      new Date(now + 74 * HOUR),
+    ),
+    0,
   );
 });

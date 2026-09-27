@@ -113,27 +113,116 @@ const emailJob = (id: string) =>
     )
     .then((rows) => rows[0]);
 
-test("every template key a sender uses is a registered message kind", async () => {
-  const dir = new URL("../apps/api/src/", import.meta.url);
+/** Text of a call's arguments, skipping string and template literals. */
+function callArguments(source: string, open: number) {
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const c = source[i];
+    if (c === '"' || c === "'" || c === "`") {
+      for (i++; i < source.length && source[i] !== c; i++)
+        if (source[i] === "\\") i++;
+      continue;
+    }
+    if (c === "(" || c === "{" || c === "[") depth++;
+    if (c === ")" || c === "}" || c === "]") depth--;
+    if (depth === 0) return source.slice(open + 1, i);
+  }
+  throw new Error("unbalanced call");
+}
+/** The expression after `templateKey:` up to the next top-level comma or brace. */
+function templateKeyValues(args: string) {
+  const keys: string[] = [];
+  for (const m of args.matchAll(/templateKey:/g)) {
+    let depth = 0,
+      end = m.index! + m[0].length;
+    for (; end < args.length; end++) {
+      const c = args[end];
+      if ((c === "," || c === "}" || c === ")") && depth === 0) break;
+      if (c === "(" || c === "[" || c === "{") depth++;
+      if (c === ")" || c === "]" || c === "}") depth--;
+    }
+    const value = args.slice(m.index! + m[0].length, end);
+    // Every literal shaped like a key is a candidate (ternaries included).
+    for (const literal of value.matchAll(/"([a-z0-9]+(?:-[a-z0-9]+)+)"/g))
+      keys.push(literal[1]);
+  }
+  return keys;
+}
+// Calls that forward a caller's input unchanged; the caller is checked instead.
+const forwarding = new Set([
+  "notifications.ts:notifyUser(tx, a, { ...input, userId: trainer.user_id })",
+]);
+test("every notification sender names a registered template key in its own category", async () => {
+  const registered = new Map(MESSAGE_KINDS.map((k) => [k.templateKey, k]));
   const used = new Set<string>();
-  for (const name of await readdir(dir)) {
-    if (!name.endsWith(".ts")) continue;
-    const source = await readFile(new URL(name, dir), "utf8");
-    for (const m of source.matchAll(/templateKey:\s*"([a-z0-9-]+)"/g))
-      used.add(m[1]);
-    if (name === "lifecycle-messages.ts") {
-      const version = /const VERSION = (\d+);/.exec(source)![1];
-      for (const m of source.matchAll(/emit\(\s*"([a-z-]+)"/g))
-        used.add(`lifecycle-${m[1]}-v${version}`);
+  const missing: string[] = [],
+    wrongCategory: string[] = [];
+  for (const folder of ["../apps/api/src/", "../apps/worker/src/"]) {
+    const dir = new URL(folder, import.meta.url);
+    for (const name of await readdir(dir)) {
+      if (!name.endsWith(".ts")) continue;
+      const source = await readFile(new URL(name, dir), "utf8");
+      for (const m of source.matchAll(
+        /(?<!function )\b(notifyUser|notifyCoachingTeam|hooks\.notify)\(/g,
+      )) {
+        const args = callArguments(source, m.index! + m[0].length - 1);
+        const call = `${name}:${m[1]}(${args.replace(/\s+/g, " ").trim()})`;
+        if (forwarding.has(call)) continue;
+        let keys = templateKeyValues(args);
+        let category = /category:\s*"([a-z]+)"/.exec(args)?.[1];
+        // A spread notice object defined in the same file carries the key.
+        const spread = /\.\.\.([A-Za-z_]\w*)/.exec(args)?.[1];
+        if (spread && !/templateKey/.test(args)) {
+          const at = source.search(new RegExp(`const ${spread} = \\{`));
+          if (at >= 0) {
+            const literal = callArguments(source, source.indexOf("{", at));
+            keys = templateKeyValues(literal);
+            category ??= /category:\s*"([a-z]+)"/.exec(literal)?.[1];
+          }
+        }
+        if (!/templateKey/.test(args) && !keys.length) {
+          missing.push(call.slice(0, 120));
+          continue;
+        }
+        for (const key of keys) {
+          used.add(key);
+          const k = registered.get(key);
+          if (k && category && k.category !== category)
+            wrongCategory.push(
+              `${key}: sender ${category}, registry ${k.category}`,
+            );
+        }
+      }
+      // Keys passed through a helper (booking notices) are literal elsewhere.
+      for (const m of source.matchAll(/templateKey:\s*"([a-z0-9-]+)"/g))
+        used.add(m[1]);
+      if (name === "lifecycle-messages.ts") {
+        const version = /const VERSION = (\d+);/.exec(source)![1];
+        for (const m of source.matchAll(/emit\(\s*"([a-z-]+)"/g))
+          used.add(`lifecycle-${m[1]}-v${version}`);
+      }
     }
   }
-  assert.ok(used.size >= 25, `found ${used.size} template keys`);
-  const registered = new Set(MESSAGE_KINDS.map((k) => k.templateKey));
+  assert.deepEqual(missing, [], "every sender passes a templateKey");
+  assert.deepEqual(wrongCategory, [], "registry categories match senders");
+  assert.ok(used.size >= 39, `found ${used.size} template keys`);
   assert.deepEqual(
     [...used].filter((key) => !registered.has(key)),
     [],
     "register new template keys in message-templates.ts",
   );
+  assert.deepEqual(
+    [...registered.keys()].filter((key) => !used.has(key)),
+    [],
+    "every registered kind has a sender",
+  );
+  // Criticality is decided by category at send time; the registry agrees.
+  for (const k of MESSAGE_KINDS)
+    assert.equal(
+      k.critical,
+      k.category === "safety" || k.category === "account",
+      k.templateKey,
+    );
   assert.equal(
     messageKindForKey("website-inquiry--ar")?.kind,
     "website-inquiry",

@@ -4,7 +4,12 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { assertNotificationDocument } from "./message-templates.ts";
-import { assertSafetyPolicyDocument } from "../../../packages/domain/src/safety-policy.ts";
+import {
+  EFFECTIVE_DUE_SQL,
+  PINNED_DUE_SQL,
+  assertSafetyPolicyDocument,
+  effectiveSafetyPolicy,
+} from "../../../packages/domain/src/safety-policy.ts";
 
 type Identity = Actor & { platformRole: string; mfaAt?: string | null };
 const fail = (statusCode: number, code: string, message: string) =>
@@ -109,6 +114,17 @@ export function consentedAcquisition(cookieValue?: string) {
     return null;
   }
 }
+const attributionTouch = z
+  .object({
+    source: z.string().max(80),
+    campaign: z.string().max(80),
+    medium: z.string().max(40),
+    referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/),
+    /** Workspace whose page captured the touch (never shown to visitors). */
+    site: z.string().uuid().optional(),
+  })
+  .strict();
+type AttributionTouch = z.infer<typeof attributionTouch>;
 export async function recordAcquisition(
   db: Database,
   input: {
@@ -120,7 +136,12 @@ export async function recordAcquisition(
     source: string;
     campaign?: string;
     medium?: string;
-    attribution?: { first: { source: string; campaign: string; medium: string; referral: string }; last: { source: string; campaign: string; medium: string; referral: string } };
+    attribution?: {
+      first: AttributionTouch;
+      last: AttributionTouch;
+      /** Lead events: only the touches captured on the lead workspace's pages. */
+      workspace?: { first?: AttributionTouch; last?: AttributionTouch };
+    };
     experimentId?: string;
     experimentRevision?: number;
     variant?: "a" | "b";
@@ -144,8 +165,12 @@ export async function recordAcquisition(
         .regex(/^[a-zA-Z0-9._ -]{0,40}$/)
         .default(""),
       attribution: z.object({
-        first: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
-        last: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
+        first: attributionTouch,
+        last: attributionTouch,
+        workspace: z
+          .object({ first: attributionTouch.optional(), last: attributionTouch.optional() })
+          .strict()
+          .optional(),
       }).strict().optional(),
       experimentId: z.string().uuid().optional(),
       experimentRevision: z.number().int().positive().optional(),
@@ -173,7 +198,9 @@ export async function recordAcquisition(
 /**
  * Website inquiries are the workspace's own records and are always counted.
  * Source, campaign and referral exist only for visitors who allowed optional
- * analytics (lead events), so the attributed share is shown separately.
+ * analytics (lead events), and only for touches captured on this
+ * workspace's own pages; the platform's and other workspaces' campaigns stay
+ * in the operator funnel. Owner only: finance cannot read inquiry records.
  */
 export async function leadAnalytics(db: Database, a: Actor) {
   const monthly = await db.tenant(a, (tx) =>
@@ -183,13 +210,13 @@ export async function leadAnalytics(db: Database, a: Actor) {
   );
   const attributed = await db.system((tx) =>
     tx.query(
-      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*)::int AS attributed FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND created_at>now()-interval '12 months' GROUP BY 1",
+      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*) FILTER(WHERE attribution->'workspace'->'first' IS NOT NULL OR attribution->'workspace'->'last' IS NOT NULL)::int AS attributed FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND created_at>now()-interval '12 months' GROUP BY 1",
       [a.tenantId],
     ),
   );
   const sources = await db.system((tx) =>
     tx.query(
-      "SELECT e.source,e.campaign,e.medium,coalesce(nullif(e.attribution->'last'->>'referral',''),nullif(e.attribution->'first'->>'referral',''),'') AS referral,count(*)::int AS leads,count(*) FILTER(WHERE EXISTS(SELECT 1 FROM acquisition_events j WHERE j.visitor_id=e.visitor_id AND j.tenant_id=e.tenant_id AND j.name='enroll' AND j.created_at>=e.created_at))::int AS joined FROM acquisition_events e WHERE e.tenant_id=$1 AND e.name='lead' AND e.created_at>now()-interval '90 days' GROUP BY 1,2,3,4 ORDER BY leads DESC,1 LIMIT 50",
+      "WITH l AS (SELECT e.visitor_id,e.tenant_id,e.created_at,coalesce(e.attribution->'workspace'->'first',e.attribution->'workspace'->'last') AS t,e.attribution->'workspace' AS w FROM acquisition_events e WHERE e.tenant_id=$1 AND e.name='lead' AND e.created_at>now()-interval '90 days') SELECT coalesce(t->>'source','') AS source,coalesce(t->>'campaign','') AS campaign,coalesce(t->>'medium','') AS medium,coalesce(nullif(w->'last'->>'referral',''),nullif(w->'first'->>'referral',''),'') AS referral,(t IS NULL) AS outside,count(*)::int AS leads,count(*) FILTER(WHERE EXISTS(SELECT 1 FROM acquisition_events j WHERE j.visitor_id=l.visitor_id AND j.tenant_id=l.tenant_id AND j.name='enroll' AND j.created_at>=l.created_at))::int AS joined FROM l GROUP BY 1,2,3,4,5 ORDER BY leads DESC,5,1 LIMIT 50",
       [a.tenantId],
     ),
   );
@@ -200,11 +227,12 @@ export async function leadAnalytics(db: Database, a: Actor) {
       attributed: byMonth.get(r.month) ?? 0,
     })),
     sources,
-    note: "Every website inquiry is counted. Source, campaign and referral are shown only for visitors who allowed optional analytics; withdrawing that permission removes their attribution. Joined counts attributed leads whose visitor later joined your coaching.",
+    note: "Every website inquiry is counted. Source, campaign and referral are shown only for visitors who allowed optional analytics, and only from visits to your own website pages; withdrawing that permission removes their attribution. Joined counts leads whose visitor later joined your coaching.",
   };
 }
 export async function businessAnalytics(db: Database, a: Actor) {
-  const leads = await leadAnalytics(db, a);
+  // Inquiries are not finance records: the finance role gets no lead card.
+  const leads = a.role === "owner" ? await leadAnalytics(db, a) : null;
   // Account join months come from the account registry, which tenant
   // transactions cannot read; subscription state stays tenant-scoped.
   const joined = await db.system((tx) =>
@@ -408,10 +436,18 @@ export function registerAdminOperations(
               return tx.query(
                 "SELECT id,kind,status,version,created_at,data->>'score' AS score,data->>'releaseId' AS release_id FROM records WHERE kind IN ('brain_release','evaluation','coaching_evaluation') ORDER BY created_at DESC LIMIT 100",
               );
-            if (view === "safety")
-              return tx.query(
-                "SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,data->>'reviewDueAt' AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY (status='open' AND data ? 'overdueAt') DESC,created_at DESC LIMIT 100",
+            if (view === "safety") {
+              // The due time shown is the one that escalates: the earlier of
+              // the pinned deadline and the current policy's.
+              const [published] = await tx.query(
+                "SELECT published_safety_policy() AS value",
               );
+              const policy = effectiveSafetyPolicy(published?.value ?? null);
+              return tx.query(
+                `SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,CASE WHEN kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') THEN ${EFFECTIVE_DUE_SQL} ELSE ${PINNED_DUE_SQL} END AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY (status='open' AND data ? 'overdueAt') DESC,created_at DESC LIMIT 100`,
+                [policy.holdReviewHours, policy.personalReviewHours],
+              );
+            }
             if (view === "finops")
               return tx.query(
                 "SELECT task,provider,model,status,count(*)::int AS requests,sum(input_tokens)::text AS input_tokens,sum(output_tokens)::text AS output_tokens,sum(cost_usd)::text AS cost_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unresolved FROM cost_events WHERE created_at>now()-interval '30 days' GROUP BY task,provider,model,status ORDER BY task,provider",

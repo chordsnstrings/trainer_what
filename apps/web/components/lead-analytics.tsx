@@ -60,7 +60,9 @@ export function LeadAnalytics({ leads }: { leads: any }) {
             <tbody>
               {leads.sources.map((r: any, i: number) => (
                 <tr key={i}>
-                  <td style={cell}>{r.source}</td>
+                  <td style={cell}>
+                    {r.outside ? "Other platform pages" : r.source}
+                  </td>
                   <td style={cell}>{r.campaign || "—"}</td>
                   <td style={cell}>{r.medium || "—"}</td>
                   <td style={cell}>{r.referral || "—"}</td>
@@ -82,6 +84,12 @@ export function InquirySource({ attribution }: { attribution: any }) {
     return (
       <small className="muted" style={{ display: "block" }}>
         Source not recorded (the visitor did not allow optional analytics).
+      </small>
+    );
+  if (attribution.outside)
+    return (
+      <small className="muted" style={{ display: "block" }}>
+        Source not recorded: no tagged visit to your own website pages.
       </small>
     );
   const parts = [

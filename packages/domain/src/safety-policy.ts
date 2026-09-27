@@ -167,12 +167,21 @@ const reviewCategoryKeys = Object.keys(REVIEW_CATEGORIES) as [
 ];
 
 const termPattern = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}' -]*$/u;
+/** Letters and numbers left once a term is folded like screened text. */
+const foldedCore = (value: string) =>
+  screeningText(value).replace(/[^\p{L}\p{N}]/gu, "");
 const term = z
   .string()
   .trim()
   .min(2)
   .max(60)
-  .regex(termPattern, "Use words, numbers, spaces, hyphens or apostrophes");
+  .regex(termPattern, "Use words, numbers, spaces, hyphens or apostrophes")
+  // Tatweel and diacritics are removed before matching; a term made only of
+  // them would match any punctuation and hold or route every message.
+  .refine(
+    (value) => foldedCore(value).length >= 2,
+    "Use at least two letters or numbers besides diacritics and tatweel",
+  );
 const hours = (max: number) =>
   z.number().int().min(SAFETY_FLOOR.minimumHours).max(max);
 export const safetyPolicySchema = z
@@ -338,7 +347,10 @@ export function effectiveSafetyPolicy(
   const terms = (field: string) => {
     const list = Array.isArray(raw[field]) ? raw[field].slice(0, 200) : [];
     const valid = list.filter((t: unknown) => term.safeParse(t).success);
-    if (valid.length !== list.length) pin.ignored.push(`invalid ${field}`);
+    if (valid.length !== list.length)
+      pin.ignored.push(
+        `invalid ${field} (${list.length - valid.length} ignored)`,
+      );
     return unique(valid.map((t: string) => t.trim()));
   };
   const deadline = (field: "holdReviewHours" | "personalReviewHours") => {
@@ -374,12 +386,27 @@ export function effectiveSafetyPolicy(
   };
 }
 
+/** Pinned deadlines are written by the server as ISO timestamps; anything else is ignored. */
+export const PINNED_DUE_SQL =
+  "CASE WHEN data->>'reviewDueAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$' THEN (data->>'reviewDueAt')::timestamptz END";
+/**
+ * The deadline that governs an open review: the earlier of the deadline
+ * pinned when it opened and its age limit under the current policy. $1 is
+ * the current hold deadline in hours, $2 the personal-review deadline.
+ */
+export const EFFECTIVE_DUE_SQL = `LEAST(coalesce(${PINNED_DUE_SQL},'infinity'::timestamptz),created_at+make_interval(hours=>CASE WHEN data->>'category'='safety' THEN $1::int ELSE $2::int END))`;
 const compiled = new Map<string, RegExp>();
 /** Terms are folded like the red-flag screen; Arabic clitic prefixes are allowed. */
 function matcher(value: string) {
   let pattern = compiled.get(value);
   if (!pattern) {
     const folded = screeningText(value).trim().replace(/\s+/g, " ");
+    // Defence in depth: a term with no letters or numbers never matches.
+    if (foldedCore(folded).length < 2) {
+      pattern = /(?!)/u;
+      compiled.set(value, pattern);
+      return pattern;
+    }
     const escaped = folded
       .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
       .replace(/ /g, "\\s+");

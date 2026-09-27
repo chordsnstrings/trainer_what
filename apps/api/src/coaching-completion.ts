@@ -16,6 +16,7 @@ import { currentPaidSubscription } from "./finance-billing.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import {
   activeSafetyPolicy,
+  openPersonalReview,
   safetyDecisionData,
   screenForSafety,
   type SafetyDecision,
@@ -354,6 +355,10 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
             ? "Your trainer has resumed your session. Read their instructions in your coaching conversation before continuing."
             : "Your trainer has ended the paused session. Read their instructions in your coaching conversation before your next workout.",
         href: "/app/chat",
+        templateKey:
+          b.action === "resume"
+            ? "training-hold-resumed"
+            : "training-hold-ended",
       });
       return { ok: true, action: b.action };
     });
@@ -720,32 +725,8 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       // The published policy can route listed topics to the trainer's
       // personal review before any model or automatic coaching is used.
       const personalReview = !safety && !hold && !takeover && screen.review;
-      if (personalReview) {
-        const review = await putRecord(
-          tx,
-          a,
-          "exception",
-          {
-            category: "policy_review",
-            description: b.message,
-            subscriberId: a.userId,
-            ...safetyDecisionData(screen, "personal_review"),
-          },
-          { status: "open" },
-        );
-        await event(tx, a, "coaching.policy_review_required", review.id, {
-          categories: screen.reviewCategories,
-          policyVersion: screen.policy.pin.version,
-        });
-        await notifyCoachingTeam(tx, a, {
-          category: "coaching",
-          dedupeKey: `policy-review:${review.id}`,
-          title: "A client question needs your personal review",
-          body: "The platform safety policy routed a coaching question to you instead of an automatic response. Open your exceptions to reply personally.",
-          href: "/trainer/exceptions",
-          templateKey: "policy-review",
-        });
-      }
+      if (personalReview)
+        await openPersonalReview(tx, a, a.userId, b.message, screen);
       if (safety || hold || takeover || personalReview) {
         if (!safety && !hold && !personalReview)
           await putRecord(

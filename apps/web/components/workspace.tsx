@@ -2653,7 +2653,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
               </span>
             </div>
             <h3>{e.data.description}</h3>
-            <SafetyReviewDue data={e.data} />
+            <SafetyReviewDue record={e} />
             {e.data.decisionId && (
               <blockquote>
                 {

@@ -24,24 +24,29 @@ export type MessageKind = {
   templateKey: string;
   audience: "trainer" | "member" | "trainer or member";
   category: "safety" | "account" | "booking" | "workout" | "coaching";
-  /** Critical copy always keeps the built-in text after the template text. */
+  /**
+   * Critical copy always keeps the built-in text after the template text.
+   * Derived from the category exactly as notifyUser decides at send time.
+   */
   critical: boolean;
   description: string;
   sample: { title: string; body: string; href: string };
 };
+/** Safety and account messages are critical; notifyUser applies the same rule. */
+export const criticalCategory = (category: string) =>
+  category === "safety" || category === "account";
 const kind = (
   templateKey: string,
   audience: MessageKind["audience"],
   category: MessageKind["category"],
   description: string,
   sample: MessageKind["sample"],
-  critical = false,
 ): MessageKind => ({
   kind: templateKey.replace(/-v\d+$/, ""),
   templateKey,
   audience,
   category,
-  critical,
+  critical: criticalCategory(category),
   description,
   sample,
 });
@@ -85,6 +90,83 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     },
   ),
   kind(
+    "booking-reserved",
+    "member",
+    "booking",
+    "A member reserved a coaching session",
+    {
+      title: "Session reserved",
+      body: "Strength session is reserved. View your session time and cancellation policy in bookings.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-changed",
+    "member",
+    "booking",
+    "The coach changed a booked session",
+    {
+      title: "Session updated",
+      body: "Strength session has changed. Check the date, time and location in your bookings.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-canceled",
+    "member",
+    "booking",
+    "A booked session was canceled",
+    {
+      title: "Session canceled",
+      body: "Strength session has been canceled. Any payment refund is tracked separately.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-canceled-by-coach",
+    "member",
+    "booking",
+    "The coach canceled a session slot that had a booking",
+    {
+      title: "Coach canceled session",
+      body: "Strength session was canceled by your coach. Any payment refund is tracked separately.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-payment-confirmed",
+    "member",
+    "booking",
+    "A paid session's payment is confirmed and the session is reserved",
+    {
+      title: "Your paid coaching session is confirmed",
+      body: "Your payment is confirmed and your coaching session is reserved. Open your bookings for its current details.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-payment-compensation",
+    "member",
+    "booking",
+    "A paid session could not be reserved after payment",
+    {
+      title: "Your session payment needs a refund",
+      body: "The original session could not be reserved after payment. A refund review has been opened; check your booking for the latest status.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
+    "booking-refund",
+    "member",
+    "booking",
+    "The payment provider confirmed a session refund",
+    {
+      title: "Your session refund is confirmed",
+      body: "The payment provider confirmed the refund for your canceled coaching session. Open your booking for the details.",
+      href: "/app/bookings",
+    },
+  ),
+  kind(
     "workout-reminder",
     "member",
     "workout",
@@ -105,7 +187,6 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       body: "Training has been paused after a safety report. Open your exceptions to review the report and explicitly resume or end the session.",
       href: "/trainer/exceptions",
     },
-    true,
   ),
   kind(
     "training-paused",
@@ -117,7 +198,28 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       body: "Stop this training session. Your trainer needs to review the safety report before training can resume. Contact local emergency services if you need urgent help.",
       href: "/app/chat",
     },
-    true,
+  ),
+  kind(
+    "training-hold-resumed",
+    "member",
+    "safety",
+    "The trainer resumed a paused training session",
+    {
+      title: "Your trainer reviewed the training hold",
+      body: "Your trainer has resumed your session. Read their instructions in your coaching conversation before continuing.",
+      href: "/app/chat",
+    },
+  ),
+  kind(
+    "training-hold-ended",
+    "member",
+    "safety",
+    "The trainer ended a paused training session",
+    {
+      title: "Your trainer reviewed the training hold",
+      body: "Your trainer has ended the paused session. Read their instructions in your coaching conversation before your next workout.",
+      href: "/app/chat",
+    },
   ),
   kind(
     "safety-review-overdue",
@@ -129,7 +231,6 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       body: "A client's safety review passed its review deadline. Open your exceptions and review it now; the platform safety team can see overdue reviews.",
       href: "/trainer/exceptions",
     },
-    true,
   ),
   kind(
     "policy-review",
@@ -140,6 +241,28 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       title: "A client question needs your personal review",
       body: "The platform safety policy routed a coaching question to you instead of an automatic response. Open your exceptions to reply personally.",
       href: "/trainer/exceptions",
+    },
+  ),
+  kind(
+    "coaching-followup-review",
+    "trainer",
+    "coaching",
+    "A scheduled follow-up could not be sent and needs the trainer",
+    {
+      title: "A scheduled follow-up needs your review",
+      body: "The client is no longer a member of this workspace. Review and reschedule it from the client's conversation.",
+      href: "/trainer/messages",
+    },
+  ),
+  kind(
+    "coaching-followup",
+    "member",
+    "coaching",
+    "A trainer's scheduled follow-up message was delivered",
+    {
+      title: "Your coach sent a follow-up",
+      body: "Open your coaching conversation to read the scheduled message from your trainer.",
+      href: "/app/chat",
     },
   ),
   kind(

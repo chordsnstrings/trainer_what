@@ -1,7 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import {
+  event,
+  putRecord,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
+import {
+  EFFECTIVE_DUE_SQL,
   REVIEW_CATEGORIES,
   SAFETY_FLOOR,
   SAFETY_POLICY_KEY,
@@ -72,10 +79,122 @@ export function safetyDecisionData(
     },
   };
 }
+/** Most recent follow-up questions kept on one open personal review. */
+export const PERSONAL_REVIEW_FOLLOW_UPS = 10;
+/**
+ * A question the policy routes to the trainer joins the member's open
+ * personal review, so repeated questions never create a stream of exceptions
+ * or trainer alerts. The first open question keeps the deadline: the oldest
+ * unanswered question governs escalation. Call under the member's training
+ * lock (lockTraining), which serialises this read-then-write.
+ */
+export async function openPersonalReview(
+  tx: Tx,
+  a: Actor,
+  userId: string,
+  message: string,
+  screen: SafetyDecision,
+) {
+  const [open] = await tx.query(
+    "SELECT id,data FROM records WHERE kind='exception' AND status='open' AND owner_user_id=$1 AND data->>'category'='policy_review' ORDER BY created_at,id LIMIT 1 FOR UPDATE",
+    [userId],
+  );
+  if (open) {
+    const prior: any[] = Array.isArray(open.data.followUps)
+      ? open.data.followUps
+      : [];
+    const categories = [
+      ...new Set([
+        ...(open.data.screening?.reviewCategories ?? []),
+        ...screen.reviewCategories,
+      ]),
+    ];
+    const followUps = [
+      ...prior,
+      {
+        text: message,
+        askedAt: new Date().toISOString(),
+        categories: screen.reviewCategories,
+        policyVersion: screen.policy.pin.version,
+      },
+    ].slice(-PERSONAL_REVIEW_FOLLOW_UPS);
+    await tx.query(
+      "UPDATE records SET data=data||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1",
+      [
+        open.id,
+        JSON.stringify({
+          followUps,
+          questionCount: (Number(open.data.questionCount) || 1) + 1,
+          screening: {
+            ...(open.data.screening ?? {}),
+            reviewCategories: categories,
+          },
+        }),
+      ],
+    );
+    await event(tx, a, "coaching.policy_review_required", open.id, {
+      categories: screen.reviewCategories,
+      policyVersion: screen.policy.pin.version,
+      repeat: true,
+    });
+    return { id: open.id as string, created: false };
+  }
+  const review = await putRecord(
+    tx,
+    a,
+    "exception",
+    {
+      category: "policy_review",
+      description: message,
+      subscriberId: userId,
+      questionCount: 1,
+      ...safetyDecisionData(screen, "personal_review"),
+    },
+    { status: "open", ownerId: userId },
+  );
+  await event(tx, a, "coaching.policy_review_required", review.id, {
+    categories: screen.reviewCategories,
+    policyVersion: screen.policy.pin.version,
+  });
+  // One alert per open review: follow-up questions join it silently.
+  await notifyCoachingTeam(tx, a, {
+    category: "coaching",
+    dedupeKey: `policy-review:${review.id}`,
+    title: "A client question needs your personal review",
+    body: "The platform safety policy routed a coaching question to you instead of an automatic response. Open your exceptions to reply personally.",
+    href: "/trainer/exceptions",
+    templateKey: "policy-review",
+  });
+  return { id: review.id as string, created: true };
+}
+/**
+ * Effective deadlines for open reviews, exactly as the escalation pass
+ * applies them, so the trainer never sees a later deadline than the one
+ * that escalates.
+ */
+export async function effectiveReviewDeadlines(tx: Tx) {
+  const policy = await activeSafetyPolicy(tx);
+  const rows = await tx.query(
+    `SELECT id,${EFFECTIVE_DUE_SQL} AS due_at FROM records WHERE kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') ORDER BY created_at DESC,id LIMIT 500`,
+    [policy.holdReviewHours, policy.personalReviewHours],
+  );
+  return {
+    policy: {
+      version: policy.pin.version,
+      holdReviewHours: policy.holdReviewHours,
+      personalReviewHours: policy.personalReviewHours,
+    },
+    deadlines: Object.fromEntries(
+      rows.map((r) => [String(r.id), new Date(r.due_at).toISOString()]),
+    ),
+  };
+}
 /**
  * Worker pass: an open safety hold or policy personal review past its
  * deadline is marked overdue once, logged and re-sent to the coaching team.
  * Deadlines only shorten: a later, stricter policy applies to open items.
+ * Only due rows are fetched, safety holds first, so any number of open
+ * not-yet-due reviews can never hide an overdue hold.
  */
 export async function scheduleSafetyEscalations(
   db: Database,
@@ -84,24 +203,16 @@ export async function scheduleSafetyEscalations(
 ) {
   const a: Actor = { tenantId, userId: SYSTEM_ACTOR, role: "owner" };
   return db.tenant(a, async (tx) => {
-    const rows = await tx.query(
-      "SELECT id,owner_user_id,created_at,data FROM records WHERE kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') AND NOT (data ? 'overdueAt') ORDER BY created_at,id LIMIT 50",
-    );
-    if (!rows.length) return 0;
     const policy = await activeSafetyPolicy(tx);
+    const rows = await tx.query(
+      `SELECT id,owner_user_id,created_at,data,due_at FROM (SELECT id,owner_user_id,created_at,data,${EFFECTIVE_DUE_SQL} AS due_at FROM records WHERE kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') AND NOT (data ? 'overdueAt')) open_reviews WHERE due_at<=$3::timestamptz ORDER BY (data->>'category'='safety') DESC,due_at,id LIMIT 50`,
+      [policy.holdReviewHours, policy.personalReviewHours, now.toISOString()],
+    );
     let escalated = 0;
     for (const r of rows) {
-      const hours =
-        r.data.category === "safety"
-          ? policy.holdReviewHours
-          : policy.personalReviewHours;
-      const pinned = Date.parse(r.data.reviewDueAt ?? ""),
-        current = new Date(r.created_at).getTime() + hours * HOUR,
-        due = Number.isFinite(pinned) ? Math.min(pinned, current) : current;
-      if (due > now.getTime()) continue;
       const escalation = {
         at: now.toISOString(),
-        dueAt: new Date(due).toISOString(),
+        dueAt: new Date(r.due_at).toISOString(),
         safetyPolicy: policy.pin,
       };
       const [updated] = await tx.query(
@@ -169,6 +280,14 @@ export function registerSafetyPolicy(
     if (!["owner", "staff"].includes(a.role))
       throw fail(403, "TRAINER_REQUIRED", "Trainer access required");
     return policySummary(await db.tenant(a, activeSafetyPolicy));
+  });
+  // The deadline shown on each open review is the one that escalates it.
+  app.get("/api/v1/safety/review-deadlines", async (req, reply) => {
+    const a = identity(req);
+    if (!["owner", "staff"].includes(a.role))
+      throw fail(403, "TRAINER_REQUIRED", "Trainer access required");
+    reply.header("Cache-Control", "no-store");
+    return db.tenant(a, effectiveReviewDeadlines);
   });
   app.get("/api/v1/admin/safety-policy", async (req) => {
     operator(req, ["admin", "safety"]);

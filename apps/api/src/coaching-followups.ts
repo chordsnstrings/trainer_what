@@ -410,6 +410,7 @@ export async function deliverCoachingFollowup(
               reason +
               ". Review and reschedule it from the client's conversation.",
             href: "/trainer/messages",
+            templateKey: "coaching-followup-review",
             source: { type: "coaching_followup", id: key, phase: "review" },
           });
         await event(tx, a, "coaching.followup_review_required", key, {
@@ -452,6 +453,7 @@ export async function deliverCoachingFollowup(
         title: "Your coach sent a follow-up",
         body: "Open your coaching conversation to read the scheduled message from your trainer.",
         href: "/app/chat",
+        templateKey: "coaching-followup",
         source: { type: "coaching_followup", id: key, phase: "delivered" },
       });
       await event(tx, a, "coaching.followup_delivered", key, {

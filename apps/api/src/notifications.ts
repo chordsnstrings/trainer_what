@@ -6,6 +6,7 @@ import { currentPaidSubscription } from "./finance-billing.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 import {
+  criticalCategory,
   localDate,
   messageKindForKey,
   renderMessage,
@@ -59,7 +60,7 @@ export type NotificationInput = {
   push?: boolean;
   source?: Record<string, unknown>;
 };
-const critical = (category: string) => ["safety", "account"].includes(category);
+const critical = criticalCategory;
 function enabled(
   p: Preferences,
   category: string,

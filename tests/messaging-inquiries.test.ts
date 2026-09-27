@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { createDatabase, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
-import { registerAdminOperations } from "../apps/api/src/admin-operations.ts";
+import {
+  businessAnalytics,
+  registerAdminOperations,
+} from "../apps/api/src/admin-operations.ts";
 import { INQUIRY_ALERTS_PER_HOUR } from "../apps/api/src/coach-site.ts";
 import { notificationDeliveryDecision } from "../apps/api/src/notifications.ts";
 
@@ -116,12 +119,25 @@ after(async () => {
 });
 
 test("each website inquiry notifies the owner, follows preferences and caps email floods", async () => {
+  // Consent granted on the coach's own page on the shared address.
   const visitor = await allowAnalytics({
     source: "instagram",
     campaign: "spring_launch",
     medium: "social",
     referral: "friend42",
+    site: slug,
   });
+  // Consent granted on the platform's own landing page (trainer acquisition).
+  const platformVisitor = await allowAnalytics({
+    source: "google",
+    campaign: "trainer_acquisition",
+    medium: "cpc",
+    referral: "partner7",
+  });
+  const readback = (
+    await call("/public/acquisition/consent", "GET", undefined, visitor)
+  ).json();
+  assert.equal(readback.firstTouch.site, undefined, "scope is internal");
   assert.equal((await contact(visitor, "Consenting visitor")).statusCode, 200);
   let notices = await inquiryNotices();
   assert.equal(notices.length, 1);
@@ -197,20 +213,28 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
     0,
   );
   // The route's own abuse limit (4 per hour per address) still applies.
-  assert.equal((await contact(undefined, "Fourth")).statusCode, 200);
+  assert.equal(
+    (await contact(platformVisitor, "Platform visitor")).statusCode,
+    200,
+  );
   assert.equal((await contact(undefined, "Fifth")).statusCode, 429);
   const events = await db.tenant(coach, (tx) =>
     tx.query("SELECT data FROM events WHERE name='website.inquiry_received'"),
   );
   assert.equal(events.length, 4);
 
-  // Leads: only the consenting visitor has attribution.
+  // Leads: both consenting visitors are leads in the operator funnel, but
+  // the coach sees only touches captured on the coach's own pages.
   const leads = await leadEvents();
-  assert.equal(leads.length, 1);
-  assert.equal(leads[0].source, "instagram");
-  assert.equal(leads[0].campaign, "spring_launch");
-  assert.equal(leads[0].attribution.last.referral, "friend42");
-  assert.equal(leads[0].user_id, null);
+  assert.equal(leads.length, 2);
+  const own = leads.find((l) => l.source === "instagram")!;
+  assert.equal(own.campaign, "spring_launch");
+  assert.equal(own.attribution.last.referral, "friend42");
+  assert.equal(own.attribution.workspace.first.site, coach.tenantId);
+  assert.equal(own.user_id, null);
+  const platformLead = leads.find((l) => l.source === "google")!;
+  assert.equal(platformLead.campaign, "trainer_acquisition");
+  assert.deepEqual(platformLead.attribution.workspace, {});
   const items = await inbox();
   assert.equal(items.length, 4);
   const attributed = items.find((r) => r.data.name === "Consenting visitor");
@@ -221,24 +245,71 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
     lastSource: "instagram",
     lastCampaign: "spring_launch",
     referral: "friend42",
+    outside: false,
   });
   assert.equal(
     items.find((r) => r.data.name === "Private visitor").attribution,
     null,
   );
+  const outside = items.find((r) => r.data.name === "Platform visitor");
+  assert.equal(outside.attribution.outside, true);
+  assert.ok(
+    !JSON.stringify(items).includes("trainer_acquisition") &&
+      !JSON.stringify(items).includes("partner7"),
+    "platform campaigns and referral codes never reach the coach",
+  );
   let report = await analytics();
   assert.equal(report.monthly[0].inquiries, 4);
   assert.equal(report.monthly[0].attributed, 1);
+  const outsideRow = {
+    source: "",
+    campaign: "",
+    medium: "",
+    referral: "",
+    outside: true,
+    leads: 1,
+    joined: 0,
+  };
   assert.deepEqual(report.sources, [
     {
       source: "instagram",
       campaign: "spring_launch",
       medium: "social",
       referral: "friend42",
+      outside: false,
       leads: 1,
       joined: 0,
     },
+    outsideRow,
   ]);
+  assert.ok(!JSON.stringify(report).includes("trainer_acquisition"));
+  // Inquiries are not finance records: the finance role gets no lead card
+  // (and so never sees a lead table beside an empty inquiry count).
+  const finance = await businessAnalytics(db, {
+    tenantId: coach.tenantId,
+    userId: coach.userId,
+    role: "finance",
+  });
+  assert.equal(finance.leads, null);
+  // A later tagged visit to this coach's page is scoped to this workspace.
+  assert.equal(
+    (
+      await call(
+        "/public/acquisition/visit",
+        "POST",
+        { source: "newsletter", campaign: "may_tips", site: slug },
+        platformVisitor,
+      )
+    ).json().recorded,
+    true,
+  );
+  const [scoped] = await db.system((tx) =>
+    tx.query(
+      "SELECT first_touch,last_touch FROM acquisition_consents WHERE last_touch->>'campaign'='may_tips'",
+    ),
+  );
+  assert.equal(scoped.last_touch.site, coach.tenantId);
+  assert.equal(scoped.first_touch.site, undefined);
 
   // The lead joins through the website: the funnel links lead to join.
   const joined = await call(
@@ -255,6 +326,7 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
   );
   assert.equal(joined.statusCode, 201, joined.body);
   report = await analytics();
+  assert.equal(report.sources[0].source, "instagram");
   assert.equal(report.sources[0].joined, 1);
   // The whole trainer analytics report loads under the restricted tenant role.
   const full = (
@@ -279,7 +351,7 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
     visitor,
   );
   assert.equal(withdrawn.statusCode, 200, withdrawn.body);
-  assert.equal((await leadEvents()).length, 0);
+  assert.equal((await leadEvents()).length, 1);
   assert.equal(
     (await inbox()).find((r) => r.data.name === "Consenting visitor")
       .attribution,
@@ -288,7 +360,7 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
   report = await analytics();
   assert.equal(report.monthly[0].inquiries, 4);
   assert.equal(report.monthly[0].attributed, 0);
-  assert.deepEqual(report.sources, []);
+  assert.deepEqual(report.sources, [outsideRow]);
 
   // A delayed alert for an inquiry the owner already handled is not sent.
   const later = new Date(Date.now() + 12 * 3600_000);

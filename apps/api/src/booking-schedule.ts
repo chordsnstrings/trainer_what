@@ -54,6 +54,7 @@ export type BookingHooks = {
       title: string;
       body: string;
       href?: string;
+      templateKey?: string;
     },
   ) => Promise<any>;
 };
@@ -171,18 +172,17 @@ async function notification(
   tx: Tx,
   a: Actor,
   booking: any,
-  title: string,
-  body: string,
-  key: string,
+  notice: { title: string; body: string; key: string; templateKey: string },
 ) {
   if (hooks.notify)
     await hooks.notify(tx, a, {
       userId: booking.user_id,
       category: "booking",
-      dedupeKey: `booking:${booking.id}:${key}`,
-      title,
-      body,
+      dedupeKey: `booking:${booking.id}:${notice.key}`,
+      title: notice.title,
+      body: notice.body,
       href: "/app/bookings",
+      templateKey: notice.templateKey,
     });
 }
 const escapeIcs = (value: string) =>
@@ -456,15 +456,12 @@ export function registerBookingRoutes(
         startsAt: b.startsAt,
       });
       for (const booking of booked)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Session updated",
-          `${b.title} has changed. Check the date, time and location in your bookings.`,
-          "changed:" + r.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Session updated",
+          body: `${b.title} has changed. Check the date, time and location in your bookings.`,
+          key: "changed:" + r.version,
+          templateKey: "booking-changed",
+        });
       return r;
     });
   });
@@ -558,15 +555,12 @@ export function registerBookingRoutes(
         booking.id,
       );
       if (!paid)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Session reserved",
-          `${slot.title} is reserved. View your session time and cancellation policy in bookings.`,
-          "reserved:" + booking.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Session reserved",
+          body: `${slot.title} is reserved. View your session time and cancellation policy in bookings.`,
+          key: "reserved:" + booking.version,
+          templateKey: "booking-reserved",
+        });
       return { booking, paid };
     });
     if (result.paid) {
@@ -633,15 +627,12 @@ export function registerBookingRoutes(
         reason: b.reason,
         priorStatus: r.status,
       });
-      await notification(
-        hooks,
-        tx,
-        a,
-        updated,
-        "Session canceled",
-        `${r.title} has been canceled. Any payment refund is tracked separately.`,
-        "canceled:" + updated.version,
-      );
+      await notification(hooks, tx, a, updated, {
+        title: "Session canceled",
+        body: `${r.title} has been canceled. Any payment refund is tracked separately.`,
+        key: "canceled:" + updated.version,
+        templateKey: "booking-canceled",
+      });
       return updated;
     });
     if (
@@ -696,15 +687,12 @@ export function registerBookingRoutes(
         [slotId, b.reason],
       );
       for (const booking of bookings)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Coach canceled session",
-          `${slot.title} was canceled by your coach. Any payment refund is tracked separately.`,
-          "canceled:" + booking.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Coach canceled session",
+          body: `${slot.title} was canceled by your coach. Any payment refund is tracked separately.`,
+          key: "canceled:" + booking.version,
+          templateKey: "booking-canceled-by-coach",
+        });
       await event(tx, a, "booking.slot_canceled", slotId, {
         reason: b.reason,
         reservations: bookings.length,

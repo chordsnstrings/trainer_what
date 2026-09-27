@@ -61,10 +61,20 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
   version, deadlines against the floor, and any ignored instructions, and has
   a "Check policy" box. Other `safety` keys stay free text as before.
 - **Safety queue**: rows now show the review deadline, overdue time and the
-  pinned policy version; overdue open items sort first.
+  pinned policy version; overdue open items sort first. For open safety holds
+  and personal reviews the deadline shown is the effective one (the earlier of
+  the pinned deadline and the current policy's), the same value that
+  escalates.
 - **Acquisition funnel**: website leads from consenting visitors appear in the
-  existing `leads` column; the summary text says so, and "first paid" now
-  names subscription or paid-session journals.
+  existing `leads` column with the visitor's platform-wide first touch (this
+  is the only place the platform's own and other workspaces' campaigns are
+  shown); the summary text says so, and "first paid" now names subscription
+  or paid-session journals.
+- **Safety policy terms**: a term must keep at least two letters or numbers
+  after screening folds it (tatweel and Arabic diacritics are removed before
+  matching). A term such as `ــ` would otherwise match any punctuation and
+  hold every message; drafts with one are refused and a published one is
+  ignored at runtime and listed under ignored instructions.
 
 ### Trainer
 
@@ -78,22 +88,36 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
   route's own abuse limits (4 per hour per address, honeypot, consent) are
   unchanged.
 - **Inquiry inbox**: each inquiry shows its source, campaign, medium and
-  referral when the visitor allowed optional analytics, and otherwise says the
-  source was not recorded.
-- **Analytics**: a "Website inquiries and leads" section with monthly
-  inquiries, handled and attributed counts, and 90-day lead sources with how
-  many attributed leads later joined. The analytics endpoint previously failed
-  under the restricted tenant role (its cohort query read `users`); cohorts are
-  now built from a scoped registry read plus tenant subscription state.
+  referral when the visitor allowed optional analytics and the touch was
+  captured on this workspace's own pages (its own web address, or its
+  `/coach/<slug>` and `/join-coach/<slug>` pages on the shared address).
+  A consenting visitor whose tagged visits were only on platform pages or
+  another coach's pages shows "no tagged visit to your own website pages";
+  campaign names and referral codes from elsewhere never reach the trainer.
+- **Analytics**: a "Website inquiries and leads" section (owner only) with
+  monthly inquiries, handled and attributed counts, and 90-day lead sources
+  with how many leads later joined; leads without an own-page touch are one
+  "Other platform pages" row. Finance users get no lead card: they cannot read
+  inquiry records, so the card would have shown "no inquiries" beside a lead
+  table. The analytics endpoint previously failed under the restricted tenant
+  role (its cohort query read `users`); cohorts are now built from a scoped
+  registry read plus tenant subscription state.
 - **Attention list**: safety and policy-review exceptions show "Review due
   by …" or "Overdue", the governing policy version, and matched review topics
-  (new component `apps/web/components/safety-review-due.tsx`).
+  (new component `apps/web/components/safety-review-due.tsx`). The deadline
+  comes from `GET /api/v1/safety/review-deadlines`, computed by the same SQL
+  as the escalation pass, so a stricter policy published later shows the
+  earlier deadline ("a stricter safety policy now applies"). A personal
+  review that collected follow-up questions lists them (latest 10).
 - **Safety deadlines**: an open safety hold past its deadline (floor 24 h, or
   shorter by policy) or a policy personal review past its deadline (floor
   72 h) is marked overdue once, logged (`safety.review_overdue`) and re-sent to
   the owner and staff as a critical alert (`safety-review-overdue`). A later,
   stricter policy also shortens deadlines of already-open items; nothing ever
-  lengthens one.
+  lengthens one. The worker pass selects only rows that are already due, in
+  SQL, ordered safety holds first and then by effective deadline (50 per pass
+  per workspace), so any number of open not-yet-due reviews can never hide an
+  overdue hold.
 - **Message language**: the notification preferences gain English/Arabic.
 
 ### Follower (subscriber)
@@ -110,18 +134,33 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
   terms) is answered "Your trainer will answer this question personally",
   opens a `policy_review` exception with the pinned policy and a deadline, and
   alerts the coaching team. No model or automatic action runs, and training is
-  not paused.
+  not paused. Further routed questions from the same member join that open
+  review (`followUps`, `questionCount`, merged topics; the first question's
+  deadline stays) with no new exception and no new trainer alert, so one
+  member cannot create a stream of exceptions or emails. After the trainer
+  resolves it, the next routed question opens a new review.
 - Notification copy uses the member's language choice when a reviewed
   template exists, then English, then the built-in wording.
 
 ## Templates in detail
 
-- Registry: `MESSAGE_KINDS` in `apps/api/src/message-templates.ts` (28 kinds:
-  coaching message, booking/workout reminders, training safety alert, training
-  paused, safety review overdue, policy review, website inquiry, nutrition
-  review, retention review, Brain import/compilation review and 16 lifecycle
-  messages). A test scans `apps/api/src` for every `templateKey` literal and
-  lifecycle trigger and fails if one is not registered.
+- Registry: `MESSAGE_KINDS` in `apps/api/src/message-templates.ts` (39 kinds:
+  coaching message, booking/workout reminders, session reserved / changed /
+  canceled / canceled by coach, paid session confirmed / needs refund, session
+  refund confirmed, training safety alert, training paused, training hold
+  resumed / ended, safety review overdue, policy review, scheduled follow-up
+  delivered / needs review, website inquiry, nutrition review, retention
+  review, Brain import/compilation review and 16 lifecycle messages). Every
+  sender now passes a key. A kind's `critical` flag is derived from its
+  category (`safety` or `account`), the same rule `notifyUser` applies at send
+  time, so the preview and "keeps built-in text" label match production.
+- Registry test: scans every `notifyUser`, `notifyCoachingTeam` and
+  `hooks.notify` call in `apps/api/src` and `apps/worker/src` and fails when a
+  call has no `templateKey` (one forwarding call inside `notifyCoachingTeam` is
+  allow-listed), when a key is unregistered, when a registered kind has no
+  sender, or when a sender's literal category differs from the registry's.
+  Checked by mutation: removing the refund key and changing a registry
+  category each made it fail.
 - Rendering (`renderMessage`): one substitution pass (a value such as
   `{{coach}}` inside a name is never expanded again); titles are single-line
   (control and line-separator characters removed, which also prevents header
@@ -150,11 +189,13 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
 | `GET /api/v1/admin/safety-policy` | admin or safety operator + fresh MFA | Policy in effect, floor, categories, example |
 | `POST /api/v1/admin/safety-policy/check` | admin or safety operator + fresh MFA | Validate a policy draft |
 | `GET /api/v1/safety/policy` | trainer owner/staff | Policy in effect for the attention list |
+| `GET /api/v1/safety/review-deadlines` | trainer owner/staff | Effective deadline per open safety/personal review |
 | `POST /api/v1/admin/documents` (changed) | admin | Validates notification keys/variables and the safety policy |
 | `POST /api/v1/admin/documents/:id/publish` (changed) | admin | Re-validates before publishing |
 | `POST /api/v1/public/sites/:slug/contact` (changed) | public | Notifies owner; records a lead with consent |
 | `GET /api/v1/tenant/site/inquiries` (changed) | owner | Adds `attribution` per inquiry |
-| `GET /api/v1/analytics/business` (changed) | owner/finance | Adds `leads`; cohort query fixed |
+| `GET /api/v1/analytics/business` (changed) | owner/finance | Adds `leads` (owner only; `null` for finance); cohort query fixed |
+| `POST /api/v1/public/acquisition/consent`, `/visit` (changed) | public | Optional `site` (coach slug) scopes a touch to that workspace |
 | `GET/PUT /api/v1/notifications/preferences` (changed) | signed in | `inquiries`, `language`; GET adds `options.inquiries` |
 
 ## Settings, flags and data
@@ -169,7 +210,12 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
   new `safety.review_overdue`, `coaching.policy_review_required`,
   `website.inquiry_received`.
 - Acquisition: `lead` events use `event_key = lead:<inquiryId>`, the contacted
-  workspace as `tenant_id`, no `user_id`, the visitor's first/last touch.
+  workspace as `tenant_id`, no `user_id`, the visitor's first/last touch, and
+  `attribution.workspace` holding only the touches captured on that
+  workspace's pages. Each stored touch may carry `site` (the workspace id of
+  the page that captured it: the host's workspace on a workspace address, or a
+  published coach page's workspace on the shared address, resolved by the
+  server from the slug the page sends). `site` is not returned to visitors.
   Consent withdrawal, expiry and privacy erasure delete them with the other
   analytics history. `first_paid` evidence includes `booking-charge:%`
   journals.
@@ -184,7 +230,57 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
 - `scripts/verify-runtime-access.mjs` lists both helpers;
   `infra/runtime-role.sql` comment updated (no grant changes needed).
 
+## Review round 1 fixes (27 September 2026)
+
+An adversarial review of commit `d538e5e` found one major and six minor
+issues and two missing requirements; all were fixed:
+
+1. Escalation starvation (major): the pass fetched the 50 oldest open items
+   and then filtered in code, so 50+ not-yet-due personal reviews hid an
+   overdue hold. Now the effective deadline
+   (`EFFECTIVE_DUE_SQL` in `packages/domain/src/safety-policy.ts`) is computed
+   and filtered in SQL. Regression test: 60 older personal reviews plus one
+   chest-pain hold; before the fix the pass returned 0 at +25 h (confirmed by
+   temporarily restoring the old ordering), now 1, then 50 and 10 once the
+   reviews fall due.
+2. Personal-review flood: follow-up questions join the member's open review
+   (see Follower).
+3. Senders without template keys: the nine remaining sender calls now pass
+   keys (eleven new kinds), and the registry test fails on any new sender
+   without one.
+4. Tatweel-only policy terms: refused and ignored (see Super admin).
+5. Registry `critical` flag: derived from category.
+6. Trainer deadline display: effective deadline from the API.
+7. Finance lead analytics: lead card is owner-only.
+8. Lead attribution on the shared host: scoped to the workspace's own pages.
+
 ## Tests actually run (27 September 2026)
+
+Review round 1 (after the fixes above, Node 24):
+
+- `npx tsc --noEmit`: exit 0.
+- PGlite, `node --import tsx --test --test-concurrency=2` on
+  messaging-templates, messaging-safety-policy, messaging-inquiries,
+  messaging-milestones, acquisition, admin-completion, bookings-completion,
+  coach-site, coaching-completion, coaching-followups, fix2-safety,
+  lifecycle-messages, notifications, push-notifications, support-preview,
+  retention, source-review-notifications, privacy-lifecycle: 131 tests, 130
+  pass, 0 fail, 1 skipped (a PostgreSQL-only interleaving test).
+- PostgreSQL restricted role:
+  `/opt/tools/pg-sandbox.sh 56114 "$PWD"` with messaging-templates,
+  messaging-safety-policy, messaging-inquiries, messaging-milestones,
+  acquisition, admin-completion, bookings-completion, coach-site,
+  coaching-completion, coaching-followups, fix2-safety, notifications:
+  runtime access verified (46 migrations, 11 helpers); 5+6+1+2+13+7+7+12+8+7+6+9
+  = 83 tests pass, 0 fail, `PG_SELECTED_FAILED_FILES=0`, exit 0.
+- After `prettier --write` on the changed files (formatting only), PGlite
+  re-run of messaging-templates, messaging-safety-policy, messaging-inquiries,
+  messaging-milestones, bookings-completion, coaching-completion and
+  coaching-followups: 36 tests, 36 pass, 0 fail; `npx tsc --noEmit` exit 0.
+  (`apps/api/src/admin-operations.ts` was already not Prettier-clean at the
+  base commit and was left unformatted to avoid unrelated churn.)
+
+First round:
 
 New files: `tests/messaging-templates.test.ts` (5 tests),
 `tests/messaging-safety-policy.test.ts` (5), `tests/messaging-inquiries.test.ts`
@@ -234,5 +330,9 @@ Not run (by instruction): `npm run build`, the full suite, browsers.
 - Overdue reviews are shown in the platform safety queue and re-sent to the
   coaching team; a direct alert to platform operators is left to the
   operator-alerts work package.
+- Lead attribution for touches stored before this change (no `site`) on the
+  shared address is not shown to trainers; only workspace-address consents
+  and new page-scoped touches are. This branch was never deployed, so no
+  production data is affected.
 - UI was checked by type and by reading, not in a browser (no cloud browser;
   screenshots waived). New CSS uses logical properties only inline.
