@@ -1,9 +1,21 @@
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
-import { readFile, mkdir, readdir, open, unlink } from "node:fs/promises";
+import { readFile, mkdir, open, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import {
+  applyMigrations,
+  assertRuntimeRoles,
+  verifyMigrations,
+} from "./migrations.ts";
+export {
+  applyMigrations,
+  assertRuntimeRoles,
+  planMigrations,
+  readMigrations,
+  verifyMigrations,
+} from "./migrations.ts";
 export type Actor = { tenantId: string; userId: string; role: string };
 export type Tx = {
   query: <T = Record<string, any>>(sql: string, values?: any[]) => Promise<T[]>;
@@ -99,66 +111,44 @@ export async function createDatabase(
       release();
     }
   }
+  const close = async () => {
+    if (pool) await pool.end();
+    if (embedded) await embedded.close();
+    if (lock) {
+      await lock.close();
+      await unlink(directory + ".lock");
+    }
+  };
   if (options.migrate !== false) {
     const client: any = pool ? await pool.connect() : embedded!;
     try {
-      const exists = await client.query(
-        "SELECT to_regclass('public.schema_migrations') AS table_name",
-      );
-      const files = (await readdir(new URL("../migrations/", import.meta.url)))
-        .filter((f) => f.endsWith(".sql"))
-        .sort();
-      const applied = exists.rows[0].table_name
-        ? new Set(
-            (
-              await client.query("SELECT version FROM schema_migrations")
-            ).rows.map((r: any) => r.version),
-          )
-        : new Set();
-      for (const file of files) {
-        if (applied.has(file.replace(".sql", ""))) continue;
-        if (pool && process.env.NODE_ENV === "production")
+      if (pool && process.env.NODE_ENV === "production") {
+        // The runtime role only reads: edited or pending files stop startup.
+        if ((await verifyMigrations(client)).pending.length)
           throw new Error(
             "Run pending migrations with the separate migration connection",
           );
-        const sql = await readFile(
-          new URL("../migrations/" + file, import.meta.url),
-          "utf8",
+        await assertRuntimeRoles(client);
+      } else
+        await applyMigrations(
+          embedded
+            ? {
+                query: (sql, values) => embedded.query(sql, values),
+                exec: (sql) => embedded.exec(sql),
+              }
+            : client,
         );
-        if (embedded) await embedded.exec("BEGIN;" + sql + "COMMIT;");
-        else {
-          await client.query("BEGIN");
-          try {
-            await client.query(sql);
-            await client.query("COMMIT");
-          } catch (e) {
-            await client.query("ROLLBACK");
-            throw e;
-          }
-        }
-      }
-      if (pool && process.env.NODE_ENV === "production") {
-        const role = await client.query(
-          "SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user",
-        );
-        if (role.rows[0].rolsuper || role.rows[0].rolbypassrls)
-          throw new Error("Runtime database role must not bypass RLS");
-      }
-    } finally {
+    } catch (error) {
       if (pool) (client as pg.PoolClient).release();
+      await close();
+      throw error;
     }
+    if (pool) (client as pg.PoolClient).release();
   }
   return {
     system: (fn) => transaction(null, fn),
     tenant: (actor, fn) => transaction(actor, fn),
-    close: async () => {
-      if (pool) await pool.end();
-      if (embedded) await embedded.close();
-      if (lock) {
-        await lock.close();
-        await unlink(directory + ".lock");
-      }
-    },
+    close,
   };
 }
 export async function event(

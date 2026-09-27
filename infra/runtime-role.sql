@@ -41,3 +41,6 @@ GRANT SELECT ON brand_media,coach_galleries,coach_gallery_photos,coach_sites,coa
 GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO trainer_service;
 -- trainer_brand_tenant(), notification-template and membership proof helpers
 -- remain executable only by trainer_app, exactly as their migrations specify.
+
+-- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
+ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
@@ -28,14 +29,23 @@ export async function verifyRuntimeAccess(client) {
       false,
       `Runtime role must not have ${property}`,
     );
-  const expected = (
-    await readdir(new URL("../packages/db/migrations/", import.meta.url))
-  )
+  // Tenant transactions SET ROLE to trainer_app, so it must obey RLS too.
+  assert.deepEqual(
+    (
+      await query(
+        "SELECT r.rolname FROM pg_roles r WHERE (r.rolname IN ('trainer_app',current_user) OR pg_has_role(current_user,r.oid,'MEMBER')) AND (r.rolsuper OR r.rolbypassrls)",
+      )
+    ).map((row) => row.rolname),
+    [],
+    "Runtime and tenant roles must not bypass RLS",
+  );
+  const migrations = new URL("../packages/db/migrations/", import.meta.url);
+  const expected = (await readdir(migrations))
     .filter((name) => name.endsWith(".sql"))
     .map((name) => name.slice(0, -4));
-  const applied = new Set(
-    (await query("SELECT version FROM schema_migrations")).map(
-      (row) => row.version,
+  const applied = new Map(
+    (await query("SELECT version,checksum FROM schema_migrations")).map(
+      (row) => [row.version, row.checksum],
     ),
   );
   assert.deepEqual(
@@ -43,6 +53,14 @@ export async function verifyRuntimeAccess(client) {
     [],
     "Apply every repository migration before runtime verification",
   );
+  for (const version of expected)
+    assert.equal(
+      applied.get(version),
+      createHash("sha256")
+        .update(await readFile(new URL(version + ".sql", migrations), "utf8"))
+        .digest("hex"),
+      `Migration ${version} changed after it was applied or lacks a checksum`,
+    );
   const systemTables = {
     schema_migrations: ["SELECT"],
     users: ["SELECT", "INSERT", "UPDATE", "DELETE"],
@@ -236,6 +254,39 @@ export async function verifyRuntimeAccess(client) {
         [table],
       );
       assert.equal(r.allowed, false, `Tenant actor must not read ${table}`);
+    }
+    // Host routing trusts domain_mappings: tenants read their own rows and
+    // owners may only disconnect them. Payout and subscription rows persist.
+    const [mapping] = await query(
+      "SELECT has_table_privilege(current_user,'domain_mappings','SELECT') AS can_select,has_table_privilege(current_user,'domain_mappings','INSERT') AS can_insert,has_table_privilege(current_user,'domain_mappings','UPDATE') AS can_update,has_table_privilege(current_user,'domain_mappings','DELETE') AS can_delete,has_column_privilege(current_user,'domain_mappings','active','UPDATE') AS disconnect,has_any_column_privilege(current_user,'domain_mappings','INSERT') AS insert_column,relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='domain_mappings'::regclass",
+    );
+    assert.deepEqual(
+      mapping,
+      {
+        can_select: true,
+        can_insert: false,
+        can_update: false,
+        can_delete: false,
+        disconnect: true,
+        insert_column: false,
+        relrowsecurity: true,
+        relforcerowsecurity: true,
+      },
+      "Tenant actors must not reassign or create domain mappings",
+    );
+    for (const column of ["hostname", "tenant_id", "verified_at"]) {
+      const [r] = await query(
+        "SELECT has_column_privilege(current_user,'domain_mappings',$1,'UPDATE') AS allowed",
+        [column],
+      );
+      assert.equal(r.allowed, false, `Tenant actor must not set ${column}`);
+    }
+    for (const table of ["payouts", "subscriptions"]) {
+      const [r] = await query(
+        "SELECT has_table_privilege(current_user,$1,'DELETE') AS allowed",
+        [table],
+      );
+      assert.equal(r.allowed, false, `Tenant actor must not delete ${table}`);
     }
     for (const table of [
       ...scopedTables,
