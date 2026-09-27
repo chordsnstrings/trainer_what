@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { Field } from "./field";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
@@ -16,12 +17,6 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!r.ok) throw new Error(data.message ?? "Please try again.");
   return data;
 }
-const Field = ({ label, children }: { label: string; children: ReactNode }) => (
-  <label className="field">
-    <span>{label}</span>
-    {children}
-  </label>
-);
 const Notice = ({ message }: { message: string }) =>
   message ? (
     <p className="notice" role="status">

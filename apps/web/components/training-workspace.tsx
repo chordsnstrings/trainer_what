@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Field } from "./field";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TrainingHoldNotice } from "./coaching-completion";
 import { ChatAttachmentList, ChatAttachmentPicker, type ChatAttachment } from "./chat-attachments";
@@ -9,7 +10,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, { method, credentials: "same-origin", headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const d = await r.json(); if (!r.ok) throw new Error(d.message ?? "Request failed"); return d;
 }
-function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
+
 function useTraining(userId?: string) {
   const [data, setData] = useState<any>(), [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
   const load = useCallback(async () => { const result = await api("/training/overview" + (userId ? "?subscriberId=" + userId : "")); setData(result); return result; }, [userId]);

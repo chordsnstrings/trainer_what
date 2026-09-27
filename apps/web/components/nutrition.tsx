@@ -1,4 +1,5 @@
 "use client";
+import { Field } from "./field";
 import {
   useCallback,
   useEffect,
@@ -39,14 +40,7 @@ const list = (v: FormDataEntryValue | null) =>
     .map((s) => s.trim())
     .filter(Boolean);
 const num = (f: FormData, key: string) => Number(f.get(key));
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
+
 function Notice({ children }: { children: ReactNode }) {
   return (
     <p className="notice" role="status">

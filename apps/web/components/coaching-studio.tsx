@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { Field } from "./field";
+import { useEffect, useState } from "react";
 import { coachingActions } from "../../../packages/domain/src/coaching-completion";
 
 async function api(path: string, method = "GET", body?: unknown) {
@@ -14,14 +15,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!r.ok) throw new Error(d.message ?? "Request failed");
   return d;
 }
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
+
 const label = (value: string) => value.replaceAll("_", " ");
 const list = (value: FormDataEntryValue | null) =>
   String(value ?? "")

@@ -1,4 +1,5 @@
 "use client";
+import { Field } from "./field";
 import { TeamControls } from "./team-controls";
 import { Affiliates } from "./affiliates";
 import { InfrastructureActions } from "./infrastructure-actions";
@@ -231,14 +232,6 @@ function Button({
     >
       {children}
     </button>
-  );
-}
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
   );
 }
 function Empty({

@@ -1,10 +1,10 @@
 "use client";
+import { Field } from "./field";
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 
 async function api(
@@ -28,20 +28,6 @@ async function api(
   return data;
 }
 const label = (value: string) => value.replaceAll("_", " ");
-function Field({
-  label: title,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="field">
-      <span>{title}</span>
-      {children}
-    </label>
-  );
-}
 export function ExceptionCorrection({
   exceptionId,
   onChange,
