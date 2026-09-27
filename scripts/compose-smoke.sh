@@ -118,6 +118,18 @@ done
 [ -n "$ready" ] || { echo "FAIL readiness through the edge" >&2; exit 1; }
 edge_release "readiness through the edge"
 echo "ok   readiness through edge, web proxy and API"
+# The host controller (infra/digitalocean/host.py) also probes web directly on
+# its loopback port, so web signs the host 127.0.0.1:3000, which no tenant maps.
+# Readiness must not depend on host mapping.
+got="$(curl --silent --show-error --max-time 15 --noproxy '*' --output "$work/body" \
+  --write-out '%{http_code}' "http://127.0.0.1:3000/api/v1/ready")" || got="no response"
+if [ "$got" != "200" ] || ! grep -qF '"status":"ready"' "$work/body"; then
+  echo "FAIL readiness on web's loopback port as the host controller probes it: got $got" >&2
+  head -c 400 "$work/body" >&2 || true
+  echo >&2
+  exit 1
+fi
+echo "ok   readiness on web's loopback port (host controller probe)"
 
 # Only a request signed by web with the shared secret is marked verifiedProxy.
 check "signed host context" 200 '"verifiedProxy":true' GET /api/v1/public/host

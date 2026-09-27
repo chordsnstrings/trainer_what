@@ -247,22 +247,26 @@ test("tampered, unsigned, downgraded or malformed client addresses are rejected"
   assert.equal(malformed.json().code, "HOST_SIGNATURE");
 });
 
-test("per-account attempt budgets span client addresses and do not reveal accounts", async () => {
+// The hard budget is per account and client source (fix2: one source must not
+// lock another out); tests/fix2-edge-deploy.test.ts covers the account-wide
+// ceiling and IPv6 /64 grouping.
+test("per-account attempt budgets are per client source and do not reveal accounts", async () => {
   let address = 0;
   const next = () => `203.0.113.${++address}`;
-  const login = (email: string, secretValue: string) =>
-    viaWeb("/api/v1/auth/login", next(), {
+  const login = (email: string, secretValue: string, source = next()) =>
+    viaWeb("/api/v1/auth/login", source, {
       method: "POST",
       payload: { email, password: secretValue },
     });
   const unknown = `edge-missing-${randomUUID()}@example.test`;
   const bodies: any[] = [];
   for (const email of [guarded, unknown]) {
+    const source = next();
     for (let index = 0; index < 10; index++) {
-      const { response } = await login(email, "wrong-password");
+      const { response } = await login(email, "wrong-password", source);
       assert.equal(response.statusCode, 401, `${email} ${index + 1}`);
     }
-    const limited = await login(email, password);
+    const limited = await login(email, password, source);
     assert.equal(limited.response.statusCode, 429, limited.response.body);
     assert.ok(Number(limited.response.headers["retry-after"]) > 0);
     bodies.push(limited.response.json());
@@ -275,10 +279,18 @@ test("per-account attempt budgets span client addresses and do not reveal accoun
     "The throttle response is identical for existing and unknown addresses",
   );
   assert.equal(
+    (await login(guarded, password)).response.statusCode,
+    200,
+    "Another source still signs in to the throttled account",
+  );
+  assert.equal(
     (await login(member, password)).response.statusCode,
     200,
     "Other accounts are unaffected",
   );
+  // Recovery routes: attempts spread across sources never lock a fresh source
+  // out. Their per-client route budget (8 per 10 minutes) trips before the
+  // per-source account budget, which the unit tests cover.
   for (const [path, expected, payload] of [
     ["/api/v1/auth/forgot-password", 200, {}],
     ["/api/v1/auth/magic-link", 200, {}],
@@ -300,8 +312,7 @@ test("per-account attempt budgets span client addresses and do not reveal accoun
       method: "POST",
       payload: { email, ...payload },
     });
-    assert.equal(response.statusCode, 429, path);
-    assert.equal(response.json().code, "TOO_MANY_ATTEMPTS");
+    assert.equal(response.statusCode, expected, `${path} ${response.body}`);
   }
 });
 
@@ -315,7 +326,10 @@ test("the per-account budget resets after its window and stays memory bounded", 
         return reply;
       },
     } as any;
-    const attempt = auth.accountAttempts(2, 60_000, 2);
+    // One client source throughout; the limiter now also takes the source.
+    const limit = auth.accountAttempts(2, 60_000, 2),
+      attempt = (response: any, email: string) =>
+        limit(response, email, "198.51.100.1");
     attempt(reply, "Edge@Example.test");
     attempt(reply, " edge@example.test ");
     assert.throws(

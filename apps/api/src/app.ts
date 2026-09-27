@@ -40,6 +40,7 @@ import {
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import {
+  resolveProbeHost,
   resolveRequestHost,
   enforceHostTenant,
   allowedRequestOrigin,
@@ -106,7 +107,7 @@ import { processStripeEvent } from "./stripe-events.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
-import rateLimit, { normalizeIP } from "@fastify/rate-limit";
+import rateLimit from "@fastify/rate-limit";
 import { randomUUID, createHash } from "node:crypto";
 import { z, ZodError } from "zod";
 import {
@@ -144,6 +145,7 @@ import {
 } from "@trainer/providers";
 import {
   accountAttempts,
+  clientSource,
   passwordHash,
   passwordMatches,
   tokenHash,
@@ -297,13 +299,10 @@ export async function buildApp(
     // Behind the edge, request.ip is the web container. Anonymous budgets use
     // the client address carried inside the verified proxy proof instead, and
     // fall back to the socket address when no signed address is present.
-    keyGenerator: (request) => {
-      if (request.identity) return `user:${request.identity.userId}`;
-      const signed = request.hostContext?.verifiedProxy
-        ? request.hostContext.clientIp
-        : undefined;
-      return `ip:${normalizeIP(signed ?? request.ip)}`;
-    },
+    keyGenerator: (request) =>
+      request.identity
+        ? `user:${request.identity.userId}`
+        : `ip:${clientSource(request)}`,
   });
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser(
@@ -340,12 +339,13 @@ export async function buildApp(
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
     // Probes relayed by the web proxy carry a proof; verify it so the signed
-    // client address, not the web container, keys their budget.
+    // client address, not the web container, keys their budget. Host mapping
+    // never decides a probe: the deploy controller probes web at 127.0.0.1:3000.
     if (
       probe &&
       Object.values(HOST_HEADERS).some((name) => req.headers[name] != null)
     )
-      req.hostContext = await resolveRequestHost(db, req);
+      req.hostContext = resolveProbeHost(req);
     if (!probe) {
       req.hostContext = await resolveRequestHost(db, req);
       if (req.hostContext.custom) {
@@ -745,7 +745,7 @@ export async function buildApp(
     { config: { rateLimit: { max: 15, timeWindow: "10 minutes" } } },
     async (req, reply) => {
       const b = loginSchema.parse(req.body);
-      loginAttempts(reply, b.email);
+      loginAttempts(reply, b.email, clientSource(req));
       const [u] = await db.system((tx) =>
         tx.query("SELECT * FROM users WHERE email=$1", [b.email]),
       );

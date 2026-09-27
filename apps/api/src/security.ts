@@ -25,6 +25,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { z } from "zod";
 import {
   accountAttempts,
+  clientSource,
   passwordHash,
   passwordMatches,
   newToken,
@@ -269,7 +270,7 @@ export function securityRoutes(
     const b = z
       .object({ email: z.email().transform((s) => s.toLowerCase()) })
       .parse(req.body);
-    resetAttempts(reply, b.email);
+    resetAttempts(reply, b.email, clientSource(req));
     const host = accountHost(req);
     requireEmailConfiguration();
     const [u] = await db.system((tx) =>

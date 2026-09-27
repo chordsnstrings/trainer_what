@@ -9,6 +9,7 @@ import {
 } from "../../../packages/providers/src/configuration.ts";
 import {
   accountAttempts,
+  clientSource,
   newToken,
   passwordMatches,
   tokenHash,
@@ -305,7 +306,7 @@ export function registerAccountCompletion(
         .strict()
         .parse(req.body),
       host = accountHost(req);
-    recoveryAttempts(reply, b.email);
+    recoveryAttempts(reply, b.email, clientSource(req));
     const result = await db.system(async (tx) => {
       const [initial] = await tx.query("SELECT id FROM users WHERE email=$1", [
         b.email,
@@ -385,7 +386,7 @@ export function registerAccountCompletion(
         .strict()
         .parse(req.body),
       host = accountHost(req);
-    magicLinkAttempts(reply, b.email);
+    magicLinkAttempts(reply, b.email, clientSource(req));
     // Apply unavailable-service behavior before lookup so it cannot disclose the
     // existence of an account when production email is not configured.
     requireEmailConfiguration();
