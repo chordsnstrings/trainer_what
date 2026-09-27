@@ -213,7 +213,7 @@ export async function checkCompletionFlows({
   });
   const publicPage = await publicContext.newPage();
   pages.push(publicPage);
-  observe(publicPage);
+  await observe(publicPage);
   await coach.setViewportSize({ width: 1440, height: 1050 });
   await coach.goto(base + "/trainer/galleries");
   await coach

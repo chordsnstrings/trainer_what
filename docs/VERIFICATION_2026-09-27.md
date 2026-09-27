@@ -48,3 +48,7 @@ Browser execution verified offline workout replay and preference saving, then fo
 ### 27 September — PostgreSQL/container qualification and stable shared form labels
 
 Run36294655491 passed all367 PostgreSQL tests as the non-owner runtime, all40 migrations,35 system/33 scoped table classifications and nine privileged helpers, plus the production container build and readiness probe. Application tests/typecheck/build also passed. Browser flows reached and passed client-context persistence/trainer read-only access, offline workout and meal replay, grocery persistence and private gallery upload; gallery visibility exposed implicit labels containing select-option text. Galleries, workspace, coaching, training and nutrition now share a label component binding controls to their visible label text, preserving existing explicit accessible names. TypeScript passes; final browser requalification remains before merge.
+
+### 27 September — Browser request pacing
+
+Run36295139032 again passed the full application and PostgreSQL suites, build, permission checks and container readiness. Browser execution passed gallery editing, then correctly hit the production120-request/minute budget while traversing dozens of screens. The harness now spaces real API requests per browser context below that budget; server limits and responses are unchanged. Browser-script syntax passes.

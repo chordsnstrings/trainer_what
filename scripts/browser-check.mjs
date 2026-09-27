@@ -17,7 +17,8 @@ const errors = [];
 const failedRequests = [];
 const visitedRoutes = new Set();
 const pages = [page];
-function observe(page) {
+const nextApiRequest = new WeakMap();
+async function observe(page) {
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && frame.url().startsWith(base))
       visitedRoutes.add(new URL(frame.url()).pathname);
@@ -26,8 +27,18 @@ function observe(page) {
   page.on("requestfailed", (r) =>
     failedRequests.push({ url: r.url(), error: r.failure()?.errorText }),
   );
+  // This journey visits dozens of screens faster than a person. Keep actual
+  // network requests inside the normal server budget; never weaken its limits.
+  await page.route("**/api/v1/**", async (route) => {
+    const context = page.context();
+    const now = Date.now();
+    const delay = Math.max(0, (nextApiRequest.get(context) ?? now) - now);
+    nextApiRequest.set(context, now + delay + 650);
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (!page.isClosed()) await route.continue();
+  });
 }
-observe(page);
+await observe(page);
 
 async function capture(target, options) {
   if (process.env.BROWSER_SCREENSHOTS === "true")
@@ -181,7 +192,7 @@ try {
   });
   const subscriber = await subscriberContext.newPage();
   pages.push(subscriber);
-  observe(subscriber);
+  await observe(subscriber);
   await subscriber.goto(base + "/login");
   await subscriber
     .getByRole("button", {
