@@ -64,8 +64,15 @@ async function register(slug: string) {
     slug,
   };
 }
+// Tenant rows go through the member's own tenant transaction, as the
+// restricted PostgreSQL runtime role requires.
+const asOwner = (user: any, fn: (tx: any) => Promise<any>): Promise<any> =>
+  db.tenant(
+    { tenantId: user.tenantId, userId: user.userId, role: "owner" },
+    fn,
+  );
 const marketingRows = (user: any) =>
-  db.system((tx) =>
+  asOwner(user, (tx) =>
     tx.query(
       "SELECT granted,document_version FROM consent_records WHERE tenant_id=$1 AND user_id=$2 AND document_type='marketing' ORDER BY created_at,id",
       [user.tenantId, user.userId],
@@ -179,7 +186,7 @@ test("web:G2 privacy consent and the settings toggle are one source of truth", a
     (await marketingRows(user)).map((r: any) => r.granted),
     [true, false, true],
   );
-  const [records] = await db.system((tx) =>
+  const [records] = await asOwner(user, (tx) =>
     tx.query(
       "SELECT count(*)::int n FROM records WHERE kind='preferences' AND owner_user_id=$1",
       [user.userId],
@@ -191,7 +198,7 @@ test("web:G2 privacy consent and the settings toggle are one source of truth", a
 test("web:G2 a marketing notification needs a granted consent record, not the flag alone", async () => {
   const user = await register("fix-web-notify");
   // A mirror flag with no consent decision (e.g. written by an older client).
-  await db.system((tx) =>
+  await asOwner(user, (tx) =>
     tx.query(
       "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,'{\"marketing\":true}')",
       [user.tenantId, user.userId],
@@ -223,69 +230,79 @@ test("web:G2 a marketing notification needs a granted consent record, not the fl
   assert.equal(await send("news-2"), "pending");
 });
 
-test("web:G2 the consent-history migration keeps opt-outs and records legacy opt-ins", async () => {
-  const optIn = await register("fix-web-mig-in"),
-    optOut = await register("fix-web-mig-out"),
-    laterGrant = await register("fix-web-mig-grant");
-  await db.system(async (tx) => {
-    const put = (u: any, marketing: boolean, at: string) =>
+test(
+  "web:G2 the consent-history migration keeps opt-outs and records legacy opt-ins",
+  {
+    // Replaying a migration needs the migration role, which the PostgreSQL test
+    // harness never gives tests; CI applies 053 on PostgreSQL through db:migrate.
+    skip: process.env.DATABASE_URL
+      ? "embedded only: replays a migration with the owner connection"
+      : false,
+  },
+  async () => {
+    const optIn = await register("fix-web-mig-in"),
+      optOut = await register("fix-web-mig-out"),
+      laterGrant = await register("fix-web-mig-grant");
+    await db.system(async (tx) => {
+      const put = (u: any, marketing: boolean, at: string) =>
+        tx.query(
+          "INSERT INTO notification_preferences(tenant_id,user_id,data,updated_at) VALUES($1,$2,$3,$4)",
+          [u.tenantId, u.userId, JSON.stringify({ marketing }), at],
+        );
+      const consent = (u: any, granted: boolean, at: string) =>
+        tx.query(
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted,created_at) VALUES(gen_random_uuid(),$1,$2,'marketing','privacy:1',$3,$4)",
+          [u.tenantId, u.userId, granted, at],
+        );
+      await put(optIn, true, "2026-01-02T00:00:00Z");
+      // Granted, then opted out in settings: the opt-out must survive.
+      await consent(optOut, true, "2026-01-01T00:00:00Z");
+      await put(optOut, false, "2026-01-02T00:00:00Z");
+      // A stale unticked flag older than a later explicit grant stays granted.
+      await put(laterGrant, false, "2026-01-01T00:00:00Z");
+      await consent(laterGrant, true, "2026-01-02T00:00:00Z");
+    });
+    const sql = await readFile(
+      new URL(
+        "../packages/db/migrations/053_marketing_consent_history.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const statements = sql
+      .split(/;\s*\n/)
+      .map((s) => s.replace(/^\s*--.*$/gm, "").trim())
+      .filter((s) => s && !s.startsWith("INSERT INTO schema_migrations"));
+    assert.equal(statements.length, 2);
+    await db.system(async (tx) => {
+      for (const statement of statements) await tx.query(statement);
+    });
+    assert.deepEqual(
+      (await marketingRows(optIn)).map((r: any) => [
+        r.granted,
+        r.document_version,
+      ]),
+      [[true, "legacy:notification-preferences"]],
+    );
+    assert.equal((await preferences(optIn)).data.marketing, true);
+    assert.deepEqual(
+      (await marketingRows(optOut)).map((r: any) => r.granted),
+      [true, false],
+    );
+    assert.equal((await preferences(optOut)).data.marketing, false);
+    assert.deepEqual(
+      (await marketingRows(laterGrant)).map((r: any) => r.granted),
+      [true],
+    );
+    const [mirror] = await asOwner(laterGrant, (tx) =>
       tx.query(
-        "INSERT INTO notification_preferences(tenant_id,user_id,data,updated_at) VALUES($1,$2,$3,$4)",
-        [u.tenantId, u.userId, JSON.stringify({ marketing }), at],
-      );
-    const consent = (u: any, granted: boolean, at: string) =>
-      tx.query(
-        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted,created_at) VALUES(gen_random_uuid(),$1,$2,'marketing','privacy:1',$3,$4)",
-        [u.tenantId, u.userId, granted, at],
-      );
-    await put(optIn, true, "2026-01-02T00:00:00Z");
-    // Granted, then opted out in settings: the opt-out must survive.
-    await consent(optOut, true, "2026-01-01T00:00:00Z");
-    await put(optOut, false, "2026-01-02T00:00:00Z");
-    // A stale unticked flag older than a later explicit grant stays granted.
-    await put(laterGrant, false, "2026-01-01T00:00:00Z");
-    await consent(laterGrant, true, "2026-01-02T00:00:00Z");
-  });
-  const sql = await readFile(
-    new URL(
-      "../packages/db/migrations/053_marketing_consent_history.sql",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const statements = sql
-    .split(/;\s*\n/)
-    .map((s) => s.replace(/^\s*--.*$/gm, "").trim())
-    .filter((s) => s && !s.startsWith("INSERT INTO schema_migrations"));
-  assert.equal(statements.length, 2);
-  await db.system(async (tx) => {
-    for (const statement of statements) await tx.query(statement);
-  });
-  assert.deepEqual(
-    (await marketingRows(optIn)).map((r: any) => [
-      r.granted,
-      r.document_version,
-    ]),
-    [[true, "legacy:notification-preferences"]],
-  );
-  assert.equal((await preferences(optIn)).data.marketing, true);
-  assert.deepEqual(
-    (await marketingRows(optOut)).map((r: any) => r.granted),
-    [true, false],
-  );
-  assert.equal((await preferences(optOut)).data.marketing, false);
-  assert.deepEqual(
-    (await marketingRows(laterGrant)).map((r: any) => r.granted),
-    [true],
-  );
-  const [mirror] = await db.system((tx) =>
-    tx.query(
-      "SELECT data FROM notification_preferences WHERE tenant_id=$1 AND user_id=$2",
-      [laterGrant.tenantId, laterGrant.userId],
-    ),
-  );
-  assert.equal(mirror.data.marketing, true);
-});
+        "SELECT data FROM notification_preferences WHERE tenant_id=$1 AND user_id=$2",
+        [laterGrant.tenantId, laterGrant.userId],
+      ),
+    );
+    assert.equal(mirror.data.marketing, true);
+  },
+);
 
 test("web:G7 development accepts the 127.0.0.1 alias origin; production does not", async () => {
   const login = (host: string, origin: string) =>
