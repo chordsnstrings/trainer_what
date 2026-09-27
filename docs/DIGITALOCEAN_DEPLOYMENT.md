@@ -37,6 +37,30 @@ Failed migrations leave the current application running. If a new application re
 
 The controller takes a private local SQL dump before updating an existing deployment. This is a local recovery aid, not off-host backup or demonstrated restore evidence. Provider backups, retention, external monitoring and measured recovery remain operational work.
 
+## Host safeguards
+
+- **Retention.** After a deployment is recorded, the controller keeps only the current and previous release trees and `trainer-brain:<sha>` images. It removes other release trees and leftover `.unpack-*` directories. Image removal is never forced, so an image still used by a container remains. Build cache older than seven days is pruned. The seven newest complete `backups/<time>.sql` dumps are kept. A dump that fails part-way is deleted, so it cannot displace a complete one. A failed deployment prunes nothing. Retention problems are logged and retried after the next successful deployment.
+- **Missing runtime secrets.** New secrets are generated only on a new host. If `runtime.env` is missing but `release-state.json`, `runtime.fingerprint`, a release, a backup or the `gymmembership_postgres_data` volume exists, every cycle stops with a restore error. It does not create credentials that cannot open the existing database or the encrypted records. To recover, restore the original `runtime.env` with mode 600 from its private copy. `runtime.fingerprint` holds only a SHA-256 of the encryption key, for comparing a restored file. Keep a private off-host copy of `runtime.env`; the host does not create one.
+- **Compose allowlist.** Before building, the controller checks the rendered Compose configuration:
+  - Services must be exactly database, migrate, api, web, worker and edge.
+  - Services must not use privileged mode, added capabilities, devices, host or shared namespaces, `network_mode`, the engine socket, security options, secrets/configs or env files.
+  - Mounts are limited to the `postgres_data`, `caddy_data` and `caddy_config` volumes and the read-only edge Caddyfile.
+  - Only migrate may build, only from its own release directory, and without host access.
+  - The database and edge images stay pinned.
+  - Networks must be private bridge networks.
+
+  Adding a service or volume, or upgrading a pinned image, takes two `main` commits: the first extends the allowlist in `host.py` and deploys, and the second changes Compose.
+- **Residual risk.** Write access to `main` still controls the server. Once a commit passes `check.yml`, its Dockerfile is built and its `host.py` becomes the root controller on the next cycle. The allowlist stops obvious Compose escalation, not a deliberate controller change. Branch protection and review on `main` remain the real control. Root SSH is key-only.
+- **CI topology smoke.** The `compose-topology` job in `check.yml` builds the image and starts database, migrate, api, web, worker and a loopback HTTP Caddy edge with throwaway secrets, following the controller's order. It checks the following through the edge:
+  - readiness and a web-signed host context;
+  - the home page;
+  - an anonymous 401;
+  - a cross-origin 403;
+  - a worker cycle that succeeded;
+  - that no service restarted.
+
+  Deployment therefore waits for the topology smoke as well.
+
 On the owned host, inspect `cloud-init status --long`, `journalctl -u gymmembership-deploy.service` and `systemctl status gymmembership-deploy.timer`. Do not print runtime environment files or rendered Compose configuration, which contain credentials. Retain the new project/server IDs, selected quote, exact release SHA, migration/runtime-role evidence, HTTPS response and a subsequent Git-triggered update before declaring automatic deployment operational.
 
 ## Current evidence and activation boundary
