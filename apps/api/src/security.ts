@@ -275,7 +275,7 @@ export function securityRoutes(
     requireEmailConfiguration();
     const [u] = await db.system((tx) =>
       tx.query(
-        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY (t.lifecycle_state='active') DESC," +
           recentWorkspaceOrder +
           " LIMIT 1",
         [b.email, host.tenantId, host.custom],

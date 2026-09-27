@@ -11,6 +11,7 @@ import {
   unconfirmedPayoutFailure,
 } from "./finance.ts";
 import { pendingAffiliateClawbacks } from "./affiliates.ts";
+import { assertWorkspacePayoutsAllowed } from "./workspace-state.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 /** Authority and recent MFA are checked by both route entry points. */
@@ -32,6 +33,7 @@ export async function executePayout(
     );
   const payout = await db.tenant(a, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+    await assertWorkspacePayoutsAllowed(tx);
     const [p] = await tx.query("SELECT * FROM payouts WHERE id=$1 FOR UPDATE", [
       payoutId,
     ]);

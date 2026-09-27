@@ -66,6 +66,11 @@ import {
 } from "./trainer-design";
 import { resolveBrandDesign, setSchema } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
+import { WorkspaceGovernance } from "./workspace-governance";
+import { BusinessMetrics } from "./business-metrics";
+import { PlatformAlerts } from "./platform-alerts";
+import { WorkspaceSuspended } from "./workspace-suspended";
+import { GovernanceLinks } from "./governance-shared";
 import {
   clearLocalData,
   discardRejected,
@@ -418,7 +423,8 @@ export default function Workspace() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
-    [online, setOnline] = useState(true);
+    [online, setOnline] = useState(true),
+    [suspended, setSuspended] = useState(false);
   const publicPath =
     path === "/" ||
     [
@@ -445,6 +451,7 @@ export default function Workspace() {
     try {
       const next = await api("/bootstrap");
       setState(next);
+      setSuspended(false);
       setBootstrapError("");
       if (next.user.role === "subscriber")
         localStorage.setItem(
@@ -463,6 +470,13 @@ export default function Workspace() {
           }),
         );
     } catch (e) {
+      if ((e as any).code === "WORKSPACE_SUSPENDED") {
+        // A platform suspension: show its status instead of the workspace.
+        setState(null);
+        setBootstrapError("");
+        setSuspended(true);
+        return;
+      }
       if ((e as any).status === 401) {
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
@@ -540,7 +554,14 @@ export default function Workspace() {
         path={path}
         onAuthenticated={async () => {
           await load();
-          const s = await api("/bootstrap");
+          const s = await api("/bootstrap").catch(async (e) => {
+            if ((e as any).code !== "WORKSPACE_SUSPENDED") throw e;
+            // Signed in to a suspended workspace: open its status screen.
+            const status = await api("/workspace/status");
+            router.push(status.role === "subscriber" ? "/app" : "/trainer");
+            return null;
+          });
+          if (!s) return;
           router.push(
             s.user.role === "subscriber"
               ? "/app"
@@ -548,6 +569,16 @@ export default function Workspace() {
                 ? "/trainer/onboarding/identity"
                 : "/trainer",
           );
+        }}
+      />
+    );
+  if (suspended)
+    return (
+      <WorkspaceSuspended
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {});
+          clearLocalData(localStorage, { keepQueues: true });
+          router.push("/login");
         }}
       />
     );
@@ -829,6 +860,12 @@ export default function Workspace() {
             <InfrastructureObserver />
           ) : path === "/admin/infrastructure/actions" ? (
             <InfrastructureActions />
+          ) : path === "/admin/alerts" ? (
+            <PlatformAlerts platformRole={state.user.platformRole} />
+          ) : path === "/admin/metrics" ? (
+            <BusinessMetrics platformRole={state.user.platformRole} />
+          ) : path === "/admin/governance" ? (
+            <WorkspaceGovernance platformRole={state.user.platformRole} />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -3751,6 +3788,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           </Link>
         </nav>
       )}
+      <GovernanceLinks platformRole={state.user.platformRole} />
       {error && <div className="notice error">{error}</div>}
       {data ? (
         <>

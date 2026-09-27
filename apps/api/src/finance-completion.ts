@@ -22,11 +22,13 @@ function owner(req: FastifyRequest, write = true) {
   if (write) requireRecentMfa(a);
   return a;
 }
-function operator(req: FastifyRequest, write = true) {
+function operator(req: FastifyRequest, _write = true) {
   const a = identity(req);
   if (!["admin", "finance"].includes(a.platformRole))
     throw fail(403, "FINANCE_REQUIRED", "Platform finance access required");
-  if (write) requireRecentMfa(a);
+  // Finance controls, statements included, need a fresh authenticator in
+  // every environment, like the other platform finance routes.
+  requireRecentMfa(a, true);
   return {
     ...a,
     tenantId: z

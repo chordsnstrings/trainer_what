@@ -421,7 +421,7 @@ export function registerFinanceAutomation(app: FastifyInstance, db: Database) {
       throw Object.assign(new Error("Platform finance access required"), {
         statusCode: 403,
       });
-    requireRecentMfa(a);
+    requireRecentMfa(a, true);
     return {
       ...a,
       tenantId: z

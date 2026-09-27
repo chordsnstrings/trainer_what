@@ -98,6 +98,10 @@ export async function verifyRuntimeAccess(client) {
     coach_gallery_photos: ["SELECT"],
     coach_sites: ["SELECT"],
     coach_design_drafts: ["SELECT"],
+    workspace_suspensions: ["SELECT", "INSERT", "UPDATE"],
+    account_locks: ["SELECT", "INSERT", "UPDATE"],
+    platform_alerts: ["SELECT", "INSERT", "UPDATE"],
+    platform_alert_deliveries: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -187,6 +191,7 @@ export async function verifyRuntimeAccess(client) {
     "erase_personal_chat_media(uuid)",
     "expire_unattached_chat_media()",
     "erase_workspace_chat_media()",
+    "current_workspace_state()",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -250,6 +255,10 @@ export async function verifyRuntimeAccess(client) {
       "auth_passkey_challenges",
       "privacy_erasure_registry",
       "workspace_lifecycle_requests",
+      "workspace_suspensions",
+      "account_locks",
+      "platform_alerts",
+      "platform_alert_deliveries",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
