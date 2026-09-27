@@ -10,7 +10,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -480,11 +480,59 @@ class HostDeployment(unittest.TestCase):
         old = "c" * 40
         _, _, _, ready = self.deployment()
         (self.root / "releases" / old).mkdir()
+        backups = self.root / "backups"
+        backups.mkdir()
+        seeded = [str(1000 + index) + ".sql" for index in range(host.BACKUPS_KEPT + 3)]
+        for name in seeded:
+            (backups / name).write_text("complete")
         ready.side_effect = common.DeploymentError("bad readiness")
         with self.assertRaises(common.DeploymentError):
             host.deploy(SHA, Mock())
         self.assertTrue((self.root / "releases" / old).is_dir())
         self.assertFalse(any(args[:2] == ("image", "rm") for args, _ in self.docker.call_args_list))
+        names = {p.name for p in backups.iterdir()}
+        self.assertTrue(set(seeded) <= names, "a failed deployment removes no dump")
+        self.assertEqual(len(names), len(seeded) + 1)
+
+    def test_failed_retries_keep_every_dump_including_the_pre_migration_one(self):
+        # The timer retries a failing head every cycle; each retry dumps the
+        # already-migrated database. None of that may push out older dumps.
+        calls, _, _, ready = self.deployment()
+        backups = self.root / "backups"
+        backups.mkdir()
+        seeded = [str(1000 + index) + ".sql" for index in range(host.BACKUPS_KEPT)]
+        for name in seeded:
+            (backups / name).write_text("complete")
+        ready.side_effect = lambda url, **kwargs: (_ for _ in ()).throw(common.DeploymentError("bad readiness")) \
+            if kwargs.get("expected_sha") == SHA else None
+        clock = iter(range(2000, 3000))
+        self.stack.enter_context(patch.object(host, "time", SimpleNamespace(
+            time_ns=lambda: next(clock), time=host.time.time, sleep=host.time.sleep)))
+        attempts = host.BACKUPS_KEPT + 2
+        for _ in range(attempts):
+            with self.assertRaises(common.DeploymentError):
+                host.deploy(SHA, Mock())
+        self.assertEqual(len([args for _, args, _ in calls if args[0] == "run"]), attempts)
+        self.assertEqual(sorted(p.name for p in backups.iterdir()),
+                         sorted(seeded + [str(2000 + index) + ".sql" for index in range(attempts)]))
+        self.assertTrue((backups / "2000.sql").is_file(), "the dump taken before the migration survives")
+        self.assertEqual(json.loads((self.root / "release-state.json").read_text()), {"current": PREVIOUS})
+
+    def test_backup_retention_errors_never_fail_a_recorded_deployment(self):
+        self.deployment()
+        backups = self.root / "backups"
+        backups.mkdir()
+        for index in range(host.BACKUPS_KEPT + 2):
+            (backups / (str(1000 + index) + ".sql")).write_text("complete")
+        errors = io.StringIO()
+        with patch.object(host.Path, "unlink", side_effect=PermissionError("read-only")), redirect_stderr(errors):
+            host.deploy(SHA, Mock())
+        state = json.loads((self.root / "release-state.json").read_text())
+        self.assertEqual((state["current"], state["previous"]), (SHA, PREVIOUS))
+        self.assertIn("Old backups could not all be removed", errors.getvalue())
+        self.assertEqual(len(list(backups.glob("[0-9]*.sql"))), host.BACKUPS_KEPT + 3)
+        # Release retention still ran after the backup error.
+        self.docker.assert_any_call("builder", "prune", "--force", "--filter", "until=168h")
 
     def test_retention_removes_links_without_following_them(self):
         outside = self.root / "outside"

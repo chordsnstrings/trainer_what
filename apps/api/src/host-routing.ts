@@ -70,20 +70,19 @@ export function signHostRequest(
     .update(fields.join("\n"))
     .digest("hex");
 }
-export async function resolveRequestHost(
-  db: Database,
-  request: {
-    headers: Record<string, string | string[] | undefined>;
-    method: string;
-    url: string;
-  },
-  options: {
-    now?: number;
-    secret?: string;
-    publicUrl?: string;
-    production?: boolean;
-  } = {},
-): Promise<HostContext> {
+type HostRequest = {
+  headers: Record<string, string | string[] | undefined>;
+  method: string;
+  url: string;
+};
+type HostOptions = {
+  now?: number;
+  secret?: string;
+  publicUrl?: string;
+  production?: boolean;
+};
+// Verify the request's host proof, if any. Host mapping is a separate step.
+function verifyHostProof(request: HostRequest, options: HostOptions) {
   const publicUrl = new URL(
       options.publicUrl ??
         runtimeConfig().PUBLIC_APP_URL ??
@@ -139,8 +138,41 @@ export async function resolveRequestHost(
     host = canonicalHost(h);
     verifiedProxy = true;
   }
-  const production = options.production ?? strictSecurity(),
-    client = verifiedProxy && clientIp ? { clientIp } : {};
+  const client = verifiedProxy && clientIp ? { clientIp } : {};
+  return { publicUrl, configured, host, verifiedProxy, client };
+}
+/**
+ * Health and readiness probes never depend on host mapping: the host
+ * controller probes web on its loopback port, which no tenant maps. A supplied
+ * proof must still be valid, so a verified client address keeps keying the
+ * probe's rate budget. The context is the platform's and never selects a tenant.
+ */
+export function resolveProbeHost(
+  request: HostRequest,
+  options: HostOptions = {},
+): HostContext {
+  const { publicUrl, configured, verifiedProxy, client } = verifyHostProof(
+    request,
+    options,
+  );
+  return {
+    host: configured,
+    origin: publicUrl.origin,
+    tenantId: null,
+    tenantSlug: null,
+    custom: false,
+    verifiedProxy,
+    ...client,
+  };
+}
+export async function resolveRequestHost(
+  db: Database,
+  request: HostRequest,
+  options: HostOptions = {},
+): Promise<HostContext> {
+  const { publicUrl, configured, host, verifiedProxy, client } =
+    verifyHostProof(request, options);
+  const production = options.production ?? strictSecurity();
   if (
     host === configured ||
     (!production && !verifiedProxy && loopback.test(host))

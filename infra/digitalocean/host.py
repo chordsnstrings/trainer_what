@@ -279,14 +279,22 @@ def remove_entry(path):
 
 
 def prune_backups(kept=BACKUPS_KEPT):
-    """Keep only the newest complete local dumps; this is a recovery aid, not off-host backup."""
+    """After a recorded deployment, keep only the newest complete local dumps.
+
+    A failed or retried deployment never prunes, so the dump taken before its
+    migration survives. This is a recovery aid, not off-host backup, and
+    retention never fails a deployment that has already been recorded.
+    """
     backups = ROOT / "backups"
-    if not backups.is_dir():
-        return
-    dumps = sorted((p for p in backups.iterdir() if re.fullmatch(r"[0-9]+\.sql", p.name)
-                    and p.is_file() and not p.is_symlink()), key=lambda p: int(p.stem), reverse=True)
-    for old in dumps[kept:]:
-        old.unlink(missing_ok=True)
+    try:
+        if not backups.is_dir():
+            return
+        dumps = sorted((p for p in backups.iterdir() if re.fullmatch(r"[0-9]+\.sql", p.name)
+                        and p.is_file() and not p.is_symlink()), key=lambda p: int(p.stem), reverse=True)
+        for old in dumps[kept:]:
+            old.unlink(missing_ok=True)
+    except OSError:
+        print("Old backups could not all be removed; retrying after the next deployment", file=sys.stderr)
 
 
 def prune_releases(keep):
@@ -358,7 +366,6 @@ def deploy(sha, github):
             # A partial dump must never displace a complete one from retention.
             backup.unlink(missing_ok=True)
             raise
-        prune_backups()
     # Failed migrations do not replace the currently running application.
     compose(release, sha, "run", "--rm", "--no-deps", "migrate")
     runtime_role(release, sha)
@@ -386,6 +393,8 @@ def deploy(sha, github):
         raise
     atomic_json(state_path, {"current": sha, "previous": state.get("current"), "deployed_at": int(time.time())})
     print("Deployed checked main commit " + sha)
+    # Retention only after the deployment is recorded (see prune_backups).
+    prune_backups()
     prune_releases({sha, state.get("current")})
 
 
