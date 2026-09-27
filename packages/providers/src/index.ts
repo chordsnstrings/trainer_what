@@ -126,6 +126,8 @@ export function requireCommerce() {
     );
   return stripeClient();
 }
+/** Every evidence item is sent; larger inputs fail closed instead of being truncated. */
+export const MODEL_EVIDENCE_LIMIT = 40;
 export async function modelDecision(
   task: string,
   prompt: string,
@@ -133,6 +135,13 @@ export async function modelDecision(
   accounting: ModelAccounting,
 ) {
   allowedModelEvidence(evidence);
+  if (evidence.length > MODEL_EVIDENCE_LIMIT)
+    throw Object.assign(
+      new Error(
+        `Model input is limited to ${MODEL_EVIDENCE_LIMIT} evidence items; nothing has been sent. Reduce the confirmed rules in the release.`,
+      ),
+      { statusCode: 409, code: "EVIDENCE_LIMIT" },
+    );
   const {
     MODEL_BASE_URL: base,
     MODEL_API_KEY: key,
@@ -158,9 +167,7 @@ export async function modelDecision(
           content: JSON.stringify({
             task,
             request: prompt,
-            evidence: evidence
-              .slice(0, 20)
-              .map((e) => ({ id: e.id, data: e.data })),
+            evidence: evidence.map((e) => ({ id: e.id, data: e.data })),
           }),
         },
       ],

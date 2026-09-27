@@ -94,17 +94,55 @@ export const decisionSchema = z
     program: programSchema.optional(),
   })
   .strict();
+// Deterministic red-flag screening, enforced in code before any model or paid
+// gate. It is deliberately conservative: any match pauses training for trainer
+// review. Only plain routine negations ("no pain", "pain-free") are removed, and
+// never when an exception follows ("no pain except ...") or the phrase is itself
+// negated ("not pain-free"). Arabic text is folded first so hamza, ta marbuta,
+// alef maqsura, diacritics and tatweel variants are screened alike.
+// Boundaries avoid lookbehind because this module is also bundled for browsers.
+function screeningText(text: string) {
+  return text
+    .normalize("NFKC")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[أإٱ]/g, "ا")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[ىی]/g, "ي")
+    .replace(/ک/g, "ك")
+    .replace(/ة/g, "ه")
+    .replace(/[’‘`]/g, "'")
+    .toLowerCase();
+}
+const routineNegation =
+  /(^|[^\p{L}\p{N}])(?:(?:no|zero)\s+(?:pains?|injur(?:y|ies))|(?:pain|injury)[\s-]?free|(?:ما\s*فيه?|مافيه?|لا\s*يوجد|ما\s*عندي|ماعندي|ليس\s*لدي|(?:ما|لا)\s*(?:احس|اشعر)\s*ب)\s*(?:اي\s*)?(?:ال)?(?:الم|وجع))(?![\p{L}\p{N}])(?!\s*[,،]?\s*(?:except|unless|until|apart|other\s+than|besides|relief|killers?|meds?|medications?|الا|غير|ماعدا|ما\s*عدا|سوي))/giu;
+const negatedBefore =
+  /(?:^|[^\p{L}])(?:not|never|no\s+longer|\p{L}+n't)\s+(?:\p{L}+\s+)?$/u;
+const englishRedFlags =
+  /(?:^|[^\p{L}\p{N}])(?:chest\s+(?:pains?|tightness|pressure)|pain(?:s|ful|killers?)?|hurt(?:s|ing)?|injur(?:e|ed|y|ies)|sprain(?:s|ed)?|pulled\s+(?:a\s+|my\s+)?muscle|numb(?:ness)?|faint(?:s|ed|ing)?|pass(?:ed|es|ing)?\s+out|black(?:ed|ing)?\s+out|blackouts?|lost\s+consciousness|unconscious|collaps(?:e|ed|es|ing)|dizz(?:y|iness)|light[\s-]?headed(?:ness)?|vertigo|short(?:ness)?\s+of\s+breath|(?:can'?t|cannot|can\s+not|couldn'?t|could\s+not)\s+breathe|hard\s+to\s+breathe|(?:trouble|difficulty|struggling)\s+(?:to\s+)?breath(?:e|ing)|palpitations?|irregular\s+heart\s*beats?|heart\s+flutter(?:s|ing)?|heart\s+attack|bleed(?:s|ing)?|bled|pregnan(?:t|cy)?|miscarr(?:y|iage|ied)|suicid(?:e|al)|self[\s-]?harm(?:ing)?|kill\s+myself|end\s+my\s+life|want\s+to\s+die|severe\s+headache|seizures?)(?![\p{L}\p{N}])/iu;
+const arabicRedFlags =
+  /(?:^|[^\p{L}\p{N}])[وفبلك]{0,2}(?:ال)?(?:الم|آلام|[يت]ولم(?:ني|ه|ها|ك|نا)?|[اين]?تالم|[يت]?وجع(?:ني|ي|ه|ها|ك|نا)?|اوجاع|موجوعه?|[يت]عور(?:ني|ه|ها|ك|نا)?|عورني|ضيق\s*(?:في\s*|ب)?(?:ال)?(?:صدر|تنفس|نفس)ي?|صعوبه\s*(?:في\s*|ب)?(?:ال)?تنفس|(?:لا|ما|مو|مش)\s*(?:اقدر|استطيع|قادره?)\s*(?:علي\s*)?(?:ال|ا)?تنفس|[ايتن]?دوخ(?:ه|ان|ني|تني|ت)?|دايخه?|اغماء?|اغمي\s*علي(?:ه|ها|ا)?|فقد(?:ت|ان)?\s*(?:ال)?وعي|غيبوبه|نزيف|[يت]?نزف(?:ت|ني)?|خفقان|(?:تسارع|سرعه)\s*(?:في\s*)?(?:ال)?(?:ضربات|دقات|نبضات)\s*(?:ال)?قلبي?|نوبه\s*قلبيه|جلطه|اصابه|اصابات|مصابه?|التواء|ملتويه?|تمزق|تنميل|خدر|حامل|حوامل|اجهاض|انتحار|[اي]نتحر|اقتل\s*نفسي|انهي\s*حياتي|اوذي\s*نفسي|ايذاء\s*(?:ال)?نفس|صداع\s*شديد)(?![\p{L}\p{N}])/u;
 export function safetySignal(text: string) {
-  return /\b(chest pain|faint(?:ed|ing)?|dizz(?:y|iness)|shortness of breath|pain|hurt(?:s|ing)?|injur(?:y|ed)|numbness|pregnan(?:t|cy)?|suicid(?:e|al)?)\b/i.test(
-    text,
+  const screened = screeningText(text).replace(
+    routineNegation,
+    (match: string, lead: string, offset: number, whole: string) =>
+      negatedBefore.test(
+        whole.slice(Math.max(0, offset - 40), offset + lead.length),
+      )
+        ? match
+        : lead + " ",
   );
+  return englishRedFlags.test(screened) || arabicRedFlags.test(screened);
 }
 export function allowedModelEvidence(
   records: Array<{ id: string; data: any }>,
 ) {
   for (const r of records)
     if (!r.data.allowedUses?.includes("model_prompt"))
-      throw new Error("Evidence is not permitted for model input");
+      throw Object.assign(
+        new Error("Evidence is not permitted for model input"),
+        { statusCode: 409, code: "EVIDENCE_NOT_PERMITTED" },
+      );
   return records;
 }
 export const payoutTransitions: Record<string, string[]> = {
