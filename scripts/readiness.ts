@@ -5,6 +5,8 @@ import {
   withRuntimeConfig,
 } from "@trainer/providers";
 import { loadRuntimeSettings } from "../apps/api/src/platform-settings.ts";
+import { encryptionKeyring } from "../apps/api/src/sealing.ts";
+import { resealSecrets, sealedTotals } from "../apps/api/src/key-rotation.ts";
 const required = [
   "DATABASE_URL",
   "PUBLIC_APP_URL",
@@ -57,20 +59,39 @@ if (
   Buffer.from(process.env.SECURITY_ENCRYPTION_KEY, "base64").length !== 32
 )
   findings.push("Security encryption key must decode to 32 bytes");
+const keyring = encryptionKeyring();
+if (keyring.invalidPrevious)
+  findings.push("Each previous encryption key must decode to 32 bytes");
 let database = "not checked";
 let settings: Record<string, string> = {};
+let sealedValues: ReturnType<typeof sealedTotals> | "not checked" =
+  "not checked";
 if (process.env.DATABASE_URL) {
   const db = await createDatabase();
   try {
     await db.system((tx) => tx.query("SELECT 1"));
     settings = await loadRuntimeSettings(db);
     database = "connected; migrations and runtime role checked";
+    if (keyring.active) {
+      // Counts only. "legacy" values use the active key in the older envelope.
+      sealedValues = sealedTotals(await resealSecrets(db, { apply: false }));
+      if (sealedValues.previous)
+        findings.push(
+          `${sealedValues.previous} sealed values still use a previous encryption key; run npm run secrets:reseal before removing it`,
+        );
+      if (sealedValues.unreadable)
+        findings.push(
+          `${sealedValues.unreadable} sealed values cannot be opened with the configured encryption keys`,
+        );
+    }
   } finally {
     await db.close();
   }
 }
 const report = withRuntimeConfig(settings, () => ({
   database,
+  sealedValues,
+  previousEncryptionKeys: keyring.previous.length,
   missing,
   findings,
   flags: Object.fromEntries(

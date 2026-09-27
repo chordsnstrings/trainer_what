@@ -46,6 +46,16 @@ Endpoint-based integrations require public HTTPS. Requests reject local/private 
 
 Disabling Stripe stops new commerce while preserving its credentials for signed lifecycle events already owed to existing subscribers. Disconnect explicitly removes its credentials and therefore requires coordination with webhook operations. Neither action rewrites ledger history. Failed/blocked jobs are not automatically replayed merely because settings change; inspect their existing state before retrying.
 
+## Encryption key rotation
+
+Saved provider credentials, authenticator secrets, wearable tokens and verifiers, and push endpoints are sealed with `SECURITY_ENCRYPTION_KEY`. New values record the key's public identifier (`v2.<key id>.…`). Values written before identifiers existed stay readable with the key that wrote them; no data migration is required. `SECURITY_ENCRYPTION_PREVIOUS_KEYS` (comma-separated base64 keys) is decrypt-only and never seals new values. To rotate, working only in the host's private runtime environment (`runtime.env` on the DigitalOcean host, which keeps an existing key and never generates a replacement):
+
+1. Generate a new 32-byte base64 key. Move the current value to `SECURITY_ENCRYPTION_PREVIOUS_KEYS` and set the new value as `SECURITY_ENCRYPTION_KEY`.
+2. Recreate the API and worker so both read the same keys. Existing values remain readable.
+3. Run `npm run secrets:reseal` with the runtime `DATABASE_URL`, e.g. inside the API container. It re-encrypts every readable value under the active key in locked, paged transactions without changing revisions, test results or connection versions. It prints counts only. A repeat run rewrites nothing. It exits non-zero if any value cannot be opened; those values stay unchanged until their credentials are replaced or cleared.
+4. Run `npm run readiness`. It reports finding counts for values that still need a previous key or that no configured key can open.
+5. When readiness reports no previous-key values, remove `SECURITY_ENCRYPTION_PREVIOUS_KEYS`, recreate the API and worker, then destroy the retired key through the host secret process. Never paste keys into tickets, logs or chat.
+
 ## Trainer Design Studio
 
 Owners open `/trainer/design`; existing brand and brand-onboarding routes also open the studio. Four presets can be personalised through primary/accent/background colours, local font choices, spacing, buttons and corners. The app derives readable text colours. Trainers can set their name, headline, story, welcome message, program label, logo, portrait and cover image, and reorder the client home sections.

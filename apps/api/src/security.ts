@@ -7,8 +7,6 @@ import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
-  createCipheriv,
-  createDecipheriv,
   createHmac,
   randomBytes,
   randomUUID,
@@ -20,6 +18,12 @@ import { event } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { z } from "zod";
 import { passwordHash, passwordMatches, newToken, tokenHash } from "./auth.ts";
+import {
+  openSealedValue,
+  sealContexts,
+  sealValue,
+  SealingUnavailable,
+} from "./sealing.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -55,30 +59,28 @@ function decode32(value: string) {
   }
   return Buffer.from(out);
 }
-function encryptionKey() {
-  const key = Buffer.from(process.env.SECURITY_ENCRYPTION_KEY ?? "", "base64");
-  if (key.length !== 32)
-    throw new ProviderUnavailable(
-      "security",
-      "A 32-byte security encryption key must be configured",
-    );
-  return key;
+function keyUnavailable(error: unknown) {
+  return error instanceof SealingUnavailable &&
+    error.reason === "key_unavailable"
+    ? new ProviderUnavailable(
+        "security",
+        "A 32-byte security encryption key must be configured",
+      )
+    : error;
 }
-function seal(value: string) {
-  const iv = randomBytes(12),
-    cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  const body = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  return [iv, cipher.getAuthTag(), body]
-    .map((x) => x.toString("base64url"))
-    .join(".");
+function seal(userId: string, value: string) {
+  try {
+    return sealValue(sealContexts.authenticator(userId), value);
+  } catch (error) {
+    throw keyUnavailable(error);
+  }
 }
-function open(value: string) {
-  const [iv, tag, body] = value
-    .split(".")
-    .map((x) => Buffer.from(x, "base64url"));
-  const cipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAuthTag(tag);
-  return Buffer.concat([cipher.update(body), cipher.final()]).toString("utf8");
+function open(userId: string, value: string) {
+  try {
+    return openSealedValue(sealContexts.authenticator(userId), value).value;
+  } catch (error) {
+    throw keyUnavailable(error);
+  }
 }
 export function totpAt(secret: string, counter: number) {
   const b = Buffer.alloc(8);
@@ -109,7 +111,7 @@ export async function consumeMfa(tx: Tx, userId: string, code?: string) {
   );
   if (!s?.enabled) return false;
   const counter = matchCounter(
-    open(s.totp_secret),
+    open(userId, s.totp_secret),
     code ?? "",
     Number(s.last_counter),
   );
@@ -323,7 +325,7 @@ export function securityRoutes(
         throw fail(409, "MFA_ENABLED", "An authenticator is already enabled");
       await tx.query(
         "INSERT INTO user_security(user_id,pending_secret,pending_until) VALUES($1,$2,now()+interval '10 minutes') ON CONFLICT(user_id) DO UPDATE SET pending_secret=EXCLUDED.pending_secret,pending_until=EXCLUDED.pending_until",
-        [a.userId, seal(secret)],
+        [a.userId, seal(a.userId, secret)],
       );
     });
     return {
@@ -340,7 +342,7 @@ export function securityRoutes(
         [a.userId],
       );
       const counter = s?.pending_secret
-        ? matchCounter(open(s.pending_secret), b.code, -1)
+        ? matchCounter(open(a.userId, s.pending_secret), b.code, -1)
         : null;
       if (counter === null)
         throw fail(

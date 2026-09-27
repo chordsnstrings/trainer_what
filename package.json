@@ -22,7 +22,8 @@
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
     "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts",
-    "admin:bootstrap": "node --import tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts"
+    "admin:bootstrap": "node --import tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",
+    "secrets:reseal": "node --import tsx --env-file-if-exists=.env scripts/reseal-secrets.ts"
   },
   "dependencies": {
     "tsx": "4.23.15",
