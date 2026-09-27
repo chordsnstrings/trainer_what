@@ -54,12 +54,15 @@ Not changed in this work:
 
 ## Checks
 
+Final head `7a58c7f`, after both fix rounds:
+
 | Gate | Result |
 | --- | --- |
-| Full local suite on the merged fixes (embedded PostgreSQL) | 461 of 461 passed |
-| Restricted-role PostgreSQL suite, local reproduction of the CI job | Passed after moving five new test fixtures to tenant transactions; one migration-replay test is embedded-only by design |
+| Full local suite (embedded PostgreSQL) | 484 tests: 483 passed, 0 failed, 1 skipped (the retirement race test, which needs real PostgreSQL connections) |
+| Restricted-role PostgreSQL suite, local reproduction of the CI job | 477 passed, 0 failed, 2 embedded-only skips; the retirement race test passed here; 45 migrations, permission gate verified |
 | TypeScript and production web build | Passed |
-| Deployment controller tests | 54 passed |
-| GitHub CI, all three jobs (application with browser journey, PostgreSQL and container, new Compose topology) | Passed on the merged fixes |
+| Deployment controller tests | 56 passed |
+| Upgrade rehearsal | A database migrated by `main` with demo data was upgraded by the merged runner (40 checksums backfilled, 5 migrations applied atomically). The API, web and worker then started in production mode: loopback readiness through the web, the canonical home page and a demo sign-in all worked |
+| GitHub CI | All three jobs passed on the reviewed fixes, including the Compose-topology smoke with the controller-style loopback readiness check |
 
-Second-round results and the post-merge live redeployment are recorded in `CLAUDE_HANDOFF.md`.
+During the merge, five new test fixtures wrote tenant tables through the service connection. They passed on the embedded engine but correctly failed on PostgreSQL under the restricted runtime role, and now use tenant transactions. One test asserted the order of two events that share a timestamp; it now compares them as a set.
