@@ -37,13 +37,10 @@ export function integrationStatus() {
       id: "lean",
       name: "Lean",
       purpose: "Monthly payments to trainer bank accounts",
-      configured:
-        !!config.LEAN_BASE_URL &&
-        !!config.LEAN_ACCESS_TOKEN &&
-        !!config.LEAN_SOURCE_ACCOUNT_ID,
+      configured: integrationCapability("lean", config)!.configured,
       approved:
-        config.PAYOUTS_APPROVED === "true" &&
-        config.LEAN_CONTRACT_VERIFIED === "true",
+        integrationCapability("lean", config)!.approved &&
+        config.PAYOUTS_APPROVED === "true",
     },
     {
       id: "model",

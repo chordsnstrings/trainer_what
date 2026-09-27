@@ -91,6 +91,20 @@ export function integrationCapability(
         Number(config.VOICE_DAILY_USD_LIMIT) > 0,
     };
   }
+  if (id === "lean") {
+    // The connection check validates only the public endpoint; no read-only
+    // account request exists in the verified contract. Activation therefore
+    // requires the recorded account-contract verification, never a URL check.
+    const configured = has(
+      "LEAN_BASE_URL",
+      "LEAN_ACCESS_TOKEN",
+      "LEAN_SOURCE_ACCOUNT_ID",
+    );
+    return {
+      configured,
+      approved: configured && config.LEAN_CONTRACT_VERIFIED === "true",
+    };
+  }
   if (id === "domains") {
     const configured =
       has("DOMAIN_CNAME_TARGET") &&
@@ -212,7 +226,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Company-bank payout instructions for eligible verified trainer bank accounts.",
     setupNotes:
-      "The adapter requires your account-specific API contract. Validation does not move money, verify bank permissions or establish recipient eligibility. Reconciliation is required before retrying an unknown payout.",
+      "The adapter requires your account-specific API contract. The connection check validates the public endpoint only and sends no authenticated request, so Lean stays inactive until the account API contract verification is recorded. Validation does not move money, verify bank permissions or establish recipient eligibility. Reconciliation is required before retrying an unknown payout.",
     fields: [
       field("LEAN_BASE_URL", "Account API base URL", "url", { required: true }),
       field("LEAN_ACCESS_TOKEN", "Access token", "secret", { required: true }),
