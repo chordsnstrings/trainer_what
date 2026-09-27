@@ -317,22 +317,26 @@ async function reconcileIntent(
           "CHECKOUT_IDENTITY_MISMATCH",
           "Subscription identity conflicts with the completed checkout",
         );
-      await processStripeEvent(db, {
-        type: "customer.subscription.updated",
-        id: `reconcile-checkout-subscription:${sid}:${Date.now()}`,
-        created: Math.floor(Date.now() / 1000),
-        data: {
-          object: {
-            ...subscription,
-            metadata: {
-              ...subscription.metadata,
-              tenant_id: a.tenantId,
-              user_id: a.userId,
-              intent_id: r.id,
+      await processStripeEvent(
+        db,
+        {
+          type: "customer.subscription.updated",
+          id: `reconcile-checkout-subscription:${sid}:${Date.now()}`,
+          created: Math.floor(Date.now() / 1000),
+          data: {
+            object: {
+              ...subscription,
+              metadata: {
+                ...subscription.metadata,
+                tenant_id: a.tenantId,
+                user_id: a.userId,
+                intent_id: r.id,
+              },
             },
           },
         },
-      });
+        { stripe },
+      );
     }
   } else if (remote.status === "open") {
     if (!remote.url)

@@ -211,8 +211,21 @@ async function activeMembership(tx: Tx, a: Actor) {
 }
 
 export async function buildApp(
-  options: { db?: Database; testing?: boolean } = {},
+  options: {
+    db?: Database;
+    testing?: boolean;
+    /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
+    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+  } = {},
 ) {
+  const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
+  const commerceProvider = () => {
+    const fixture = options.providers?.stripe;
+    if (!fixture) return requireCommerce();
+    // The approval gate throws its canonical error before any client is built.
+    if (runtimeConfig().COMMERCE_APPROVED !== "true") requireCommerce();
+    return fixture();
+  };
   const db = options.db ?? (await createDatabase());
   const app = Fastify({
     logger: options.testing
@@ -430,7 +443,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
-  registerFinanceBilling(app, db);
+  registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
   registerAffiliates(app, db, identity);
@@ -1512,10 +1525,13 @@ export async function buildApp(
   });
   app.post("/api/v1/products/:id/activate", async (req) => {
     const a = owner(req),
-      stripe = requireCommerce();
+      stripe = commerceProvider();
     const product = await db.tenant(a, (tx) =>
       findRecord(tx, (req.params as any).id, "product"),
     );
+    // Stripe idempotency keys expire, so a repeated activation must not mint a second product/price.
+    if (product.status === "published" && product.data.stripePriceId)
+      return { ok: true };
     if (product.data.tier === "workout_nutrition")
       await db.tenant(a, requireNutritionReady);
     const remote = await stripe.products.create(
@@ -1561,7 +1577,7 @@ export async function buildApp(
         "PLAN_CHANGES_PENDING",
         "Plan changes await activation of the reviewed billing policy.",
       );
-    const stripe = stripeClient();
+    const stripe = stripeProvider();
     const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
@@ -2046,9 +2062,10 @@ export async function buildApp(
   app.post("/api/v1/webhooks/stripe", async (req, reply) => {
     const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) throw new ProviderUnavailable("stripe");
-    let stripeEvent: any;
+    let stripeEvent: any, stripe: ReturnType<typeof stripeClient>;
     try {
-      stripeEvent = stripeClient().webhooks.constructEvent(
+      stripe = stripeClient();
+      stripeEvent = stripe.webhooks.constructEvent(
         req.rawBody ?? "",
         String(req.headers["stripe-signature"] ?? ""),
         webhookSecret,
@@ -2076,7 +2093,7 @@ export async function buildApp(
       if (existing.status === "processed")
         return { received: true, duplicate: true };
     }
-    await processStripeEvent(db, stripeEvent);
+    await processStripeEvent(db, stripeEvent, { stripe });
     await db.system((tx) =>
       tx.query(
         "UPDATE provider_events SET status='processed' WHERE provider='stripe' AND external_id=$1",

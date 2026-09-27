@@ -110,8 +110,11 @@ export async function createPayout(
       "A reconciled monthly close is required before payout preparation",
     );
   const totals = await financeSummary(tx);
+  // Debits posted after the cutoff (the period's usage charge, buffer-week refunds and disputes,
+  // settlement fees) reduce what this close can release; later earnings wait for the next close.
+  // A refund or dispute of a charge that itself posted after the cutoff belongs to that later close.
   const [laterPayments] = await tx.query(
-    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%') AND j.created_at >= $1",
+    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND j.created_at >= $1 AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%' OR (l.amount_minor > 0 AND NOT EXISTS (SELECT 1 FROM journals c WHERE c.source_key LIKE 'stripe-invoice:%' AND c.created_at >= $1 AND (c.id::text=j.data->>'originalJournalId' OR (j.source_key LIKE 'dispute-reserve:%' AND c.data->>'chargeId'=j.data->>'chargeId')))))",
     [closed.data.cutoff],
   );
   const eligible = Math.max(

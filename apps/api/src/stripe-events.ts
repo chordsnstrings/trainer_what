@@ -11,8 +11,52 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
+import { stripeClient } from "@trainer/providers";
 import { recordCharge, journal } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
+type StripeLike = ReturnType<typeof stripeClient>;
+/** Stable rank: position by first paid date and user ID among every subscriber who has paid, assigned once. */
+export const COMMISSION_RANK_METHOD = "stable-first-paid-v1";
+const idOf = (value: any): string | undefined =>
+  typeof value === "string" ? value : (value?.id ?? undefined);
+function optionalStripe(): StripeLike | undefined {
+  try {
+    return stripeClient();
+  } catch {
+    return undefined;
+  }
+}
+/**
+ * Basil and later invoices (the pinned dahlia API) carry no `charge`; the paid InvoicePayment
+ * names a PaymentIntent, or a bare charge only when no PaymentIntent exists.
+ */
+async function resolveInvoicePayment(object: any, stripe?: StripeLike) {
+  let payments: any[] | undefined = object.payments?.has_more
+    ? undefined
+    : object.payments?.data;
+  if (!payments?.length) {
+    if (!stripe) return {};
+    const page = await stripe.invoicePayments.list({
+      invoice: object.id,
+      status: "paid",
+      limit: 10,
+      expand: ["data.payment.payment_intent"],
+    });
+    if (page.has_more) return {};
+    payments = page.data;
+  }
+  const paid = payments.filter((p) => p?.status === "paid");
+  if (paid.length !== 1) return {};
+  const intent = paid[0].payment?.payment_intent;
+  let chargeId =
+    idOf(paid[0].payment?.charge) ?? idOf(intent?.latest_charge ?? undefined);
+  const paymentIntentId = idOf(intent);
+  if (!chargeId && paymentIntentId && stripe)
+    chargeId = idOf(
+      (await stripe.paymentIntents.retrieve(paymentIntentId)).latest_charge,
+    );
+  return { chargeId, paymentIntentId };
+}
 const supported = new Set([
   "invoice.paid",
   "invoice.payment_failed",
@@ -25,11 +69,15 @@ const supported = new Set([
   "charge.dispute.created",
   "charge.dispute.closed",
 ]);
-export async function processStripeEvent(db: Database, e: any) {
+export async function processStripeEvent(
+  db: Database,
+  e: any,
+  deps: { stripe?: StripeLike } = {},
+) {
   if (await processBookingStripeEvent(db, e)) return { processed: true };
   if (await processMembershipCheckoutEvent(db, e)) return { processed: true };
   if (!supported.has(e.type)) return { ignored: true };
-  const object = e.data.object;
+  let object = e.data.object;
   const meta = object.metadata?.tenant_id
     ? object.metadata
     : (object.parent?.subscription_details?.metadata ??
@@ -41,12 +89,12 @@ export async function processStripeEvent(db: Database, e: any) {
       ? object.subscription
       : (object.parent?.subscription_details?.subscription ??
         (object.object === "subscription" ? object.id : undefined));
-  const chargeId =
-    typeof object.charge === "string"
-      ? object.charge
-      : (object.charge?.id ?? object.payments?.data?.[0]?.payment?.charge);
+  let chargeId: string | undefined = idOf(object.charge),
+    paymentIntentId: string | undefined = idOf(object.payment_intent);
   if (!tenantId || !userId) {
-    const refs = [object.id, subscriptionId, chargeId].filter(Boolean);
+    const refs = [object.id, subscriptionId, chargeId, paymentIntentId].filter(
+      Boolean,
+    );
     const [mapping] = await db.system((tx) =>
       tx.query(
         "SELECT tenant_id,user_id FROM provider_objects WHERE provider='stripe' AND external_id=ANY($1::text[]) LIMIT 1",
@@ -81,11 +129,67 @@ export async function processStripeEvent(db: Database, e: any) {
       "Payment event refers to an unknown subscriber relationship",
     );
   const a = { tenantId, userId, role: "finance" };
+  const eventTime = Number(e.created ?? 0);
+  if (e.type === "invoice.paid" && !chargeId && object.amount_paid > 0) {
+    // Journals are immutable, so the charge link must be known before money is posted.
+    const [posted] = await db.tenant(a, (tx) =>
+      tx.query("SELECT data FROM journals WHERE source_key=$1", [
+        `stripe-invoice:${object.id}`,
+      ]),
+    );
+    const resolved = posted
+      ? {
+          chargeId: posted.data.chargeId ?? undefined,
+          paymentIntentId: posted.data.paymentIntentId ?? undefined,
+        }
+      : await resolveInvoicePayment(object, deps.stripe ?? optionalStripe());
+    chargeId = resolved.chargeId;
+    paymentIntentId ??= resolved.paymentIntentId;
+    if (!chargeId && !posted)
+      throw new Error(
+        "Invoice payment identity unresolved; retain receipt for reconciliation",
+      );
+  }
+  if (e.type.startsWith("customer.subscription.") && eventTime) {
+    const [row] = await db.tenant(a, (tx) =>
+      tx.query(
+        "SELECT data->>'lastStripeEventAt' AS last FROM subscriptions WHERE user_id=$1",
+        [userId],
+      ),
+    );
+    if (Number(row?.last ?? 0) === eventTime) {
+      // Stripe timestamps have one-second resolution and delivery order is not guaranteed;
+      // a same-second subscription event is applied only from the provider's current object.
+      const stripe = deps.stripe ?? optionalStripe();
+      if (!stripe)
+        throw new Error(
+          "Same-second subscription events need provider confirmation; retain receipt for reconciliation",
+        );
+      const remote: any = await stripe.subscriptions.retrieve(object.id);
+      if (
+        remote.id !== object.id ||
+        (remote.metadata?.tenant_id &&
+          remote.metadata.tenant_id !== tenantId) ||
+        (remote.metadata?.user_id && remote.metadata.user_id !== userId)
+      )
+        throw new Error("Conflicting provider object ownership");
+      object = {
+        ...remote,
+        metadata: {
+          ...object.metadata,
+          ...remote.metadata,
+          tenant_id: tenantId,
+          user_id: userId,
+        },
+      };
+    }
+  }
   await db.system(async (tx) => {
     for (const [externalId, kind] of [
       [object.id, object.object ?? "payment"],
       [subscriptionId, "subscription"],
       [chargeId, "charge"],
+      [paymentIntentId, "payment_intent"],
     ])
       if (externalId) {
         const [old] = await tx.query(
@@ -106,8 +210,7 @@ export async function processStripeEvent(db: Database, e: any) {
       "SELECT * FROM subscriptions WHERE user_id=$1",
       [userId],
     );
-    const eventTime = Number(e.created ?? 0),
-      lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
+    const lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
     const newer = !eventTime || eventTime >= lastTime;
     const differentSubscription = !!(
       subscriptionId &&
@@ -179,7 +282,8 @@ export async function processStripeEvent(db: Database, e: any) {
       const snapshot = {
         invoiceId: object.id,
         subscriptionId,
-        chargeId,
+        chargeId: chargeId ?? null,
+        paymentIntentId: paymentIntentId ?? null,
         amountPaid: object.amount_paid ?? 0,
         amountDue: object.amount_due ?? 0,
         currency: object.currency,
@@ -249,27 +353,43 @@ export async function processStripeEvent(db: Database, e: any) {
             JSON.stringify(metadata),
           ],
         );
-      const [position] = await tx.query(
-        "SELECT rank FROM (SELECT user_id,row_number() OVER(ORDER BY (data->>'firstPaidAt')::timestamptz,user_id)::int AS rank FROM subscriptions WHERE status IN ('active','trialing') AND data ? 'firstPaidAt') ranked WHERE user_id=$1",
-        [userId],
-      );
-      if (amount > 0)
-        await recordCharge(
-          tx,
-          a,
-          `stripe-invoice:${object.id}`,
-          amount,
-          position?.rank ?? 1,
-          {
-            userId,
-            chargeId:
-              chargeId ?? object.payments?.data?.[0]?.payment?.charge ?? null,
-            invoiceId: object.id,
-            chargedAt: new Date(
-              (object.created ?? e.created ?? Date.now() / 1000) * 1000,
-            ).toISOString(),
-          },
-        );
+      if (amount > 0) {
+        // The commission rank is assigned once, at the first positive charge, from the first-paid
+        // order of every subscriber who has paid (any current status), and reused for every later
+        // charge, so churn or a late invoice never re-ranks a payer. Treatment of churned and
+        // re-entering subscribers remains a finance-policy decision.
+        let rank = Number(current?.data?.commissionRank);
+        if (!Number.isSafeInteger(rank) || rank < 1) {
+          const [position] = await tx.query(
+            "SELECT 1+count(*)::int AS rank FROM subscriptions WHERE user_id<>$1 AND data ? 'firstPaidAt' AND ((data->>'firstPaidAt')::timestamptz,user_id)<($2::timestamptz,$1::uuid)",
+            [userId, firstPaidAt],
+          );
+          rank = Number(position.rank);
+          await tx.query(
+            "UPDATE subscriptions SET data=$2::jsonb||data WHERE user_id=$1 AND NOT data ? 'commissionRank'",
+            [
+              userId,
+              JSON.stringify({
+                firstPaidAt,
+                commissionRank: rank,
+                commissionRankMethod: COMMISSION_RANK_METHOD,
+              }),
+            ],
+          );
+        }
+        await recordCharge(tx, a, `stripe-invoice:${object.id}`, amount, rank, {
+          userId,
+          chargeId: chargeId ?? null,
+          paymentIntentId: paymentIntentId ?? null,
+          invoiceId: object.id,
+          chargedAt: new Date(
+            (object.created ?? e.created ?? Date.now() / 1000) * 1000,
+          ).toISOString(),
+          firstPaidAt,
+          rankMethod:
+            current?.data?.commissionRankMethod ?? COMMISSION_RANK_METHOD,
+        });
+      }
       await event(tx, a, "invoice.paid", object.id, { providerEventId: e.id });
     } else if (e.type.startsWith("customer.subscription.") && newer) {
       if (differentSubscription && !currentTerminal) {
@@ -376,17 +496,21 @@ export async function processStripeEvent(db: Database, e: any) {
         { disputeId: object.id, chargeId },
       );
       if (e.type === "charge.dispute.closed") {
-        if (object.status === "won")
+        // Won disputes, closed inquiries and prevented disputes withdraw nothing through the dispute;
+        // any prevention refund is posted from its own refund event.
+        if (["won", "warning_closed", "prevented"].includes(object.status))
           await journal(
             tx,
             a,
             `dispute-resolution:${object.id}`,
-            "Dispute won; reserve released",
+            object.status === "won"
+              ? "Dispute won; reserve released"
+              : "Dispute closed without loss; reserve released",
             [
               { account: "dispute_reserve", amount },
               { account: "trainer_payable", amount: -amount },
             ],
-            { disputeId: object.id },
+            { disputeId: object.id, status: object.status },
           );
         else if (object.status === "lost") {
           const fee = Math.round(
