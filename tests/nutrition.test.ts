@@ -1,3 +1,4 @@
+import { principleForCategory } from "../packages/domain/src/nutrition-learning.ts";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -49,6 +50,8 @@ const envKeys = [
   "MODEL_MAX_DAILY_CALLS",
 ];
 const saved = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
+let invalidMeal = false,
+  invalidRationale = false;
 let modelCalls = 0,
   delay: undefined | (() => Promise<void>),
   invalid = false;
@@ -145,6 +148,27 @@ before(async () => {
           const category =
             nutritionCategories.find((c) => s.prompt.includes("[" + c + "]")) ??
             "diet";
+          const teaching = input.cases.find(
+              (c: any) => c.data.category === category,
+            ),
+            recipe = input.recipes.find((r: any) =>
+              r.slots.includes(s.requestedMealSlot),
+            ),
+            variant = recipe.variants.find((v: any) => v.key === "hob");
+          const nutrients = Object.fromEntries(
+            ["kcal", "protein", "carbohydrate", "fat"].map((key) => [
+              key,
+              variant.ingredients.reduce(
+                (sum: number, i: any) =>
+                  sum +
+                  (input.foods.find((f: any) => f.id === i.foodId)
+                    .nutrientsPer100g[key] *
+                    i.grams) /
+                    100,
+                0,
+              ),
+            ]),
+          );
           return {
             scenarioId: s.id,
             action: target === null ? "exception" : "plan",
@@ -153,6 +177,27 @@ before(async () => {
               input.cases.find((c: any) => c.data.category === category).id,
             ],
             reason: "Applies the confirmed synthetic fixture policy.",
+            principle: principleForCategory[category],
+            rationaleEvidence: {
+              caseId: teaching.id,
+              quote: invalidRationale
+                ? "This is a fabricated quotation absent from the coach teaching."
+                : teaching.data.reason,
+            },
+            sampleMeal:
+              target === null
+                ? null
+                : {
+                    slot: s.requestedMealSlot,
+                    recipeId: recipe.id,
+                    variantKey: variant.key,
+                    servings: 1,
+                    ingredients: variant.ingredients.map((i: any) => ({
+                      ...i,
+                      grams: i.grams + (invalidMeal ? 50 : 0),
+                    })),
+                    nutrients,
+                  },
           };
         }),
       };
@@ -434,11 +479,34 @@ test("held-out evaluation and a sample week qualify automatic nutrition independ
       expectedTargetKcal: exception ? null : 1500,
       expectedCaseId: c.id,
       heldOut: true,
+      expectedPrinciple: principleForCategory[c.data.category],
+      ...(!exception
+        ? {
+            expectedMeal: {
+              recipeIds: [recipes[0].id],
+              slot: "Breakfast",
+              minServings: 1,
+              maxServings: 1,
+            },
+          }
+        : {}),
     });
   }
   evaluation = await ok("/nutrition/evaluate", "POST", {});
   assert.equal(evaluation.status, "passed");
   assert.equal(evaluation.data.verificationMode, "fixture");
+  assert.equal(evaluation.data.qualificationVersion, 2);
+  assert.equal(evaluation.data.outcomes.filter((o: any) => o.system).length, 4);
+  invalidMeal = true;
+  const badMeal = await ok("/nutrition/evaluate", "POST", {});
+  invalidMeal = false;
+  assert.equal(badMeal.status, "failed");
+  assert.ok(badMeal.data.outcomes.some((o: any) => !o.meal.passed));
+  invalidRationale = true;
+  const badRationale = await ok("/nutrition/evaluate", "POST", {});
+  invalidRationale = false;
+  assert.equal(badRationale.status, "failed");
+  assert.ok(badRationale.data.outcomes.some((o: any) => !o.rationale));
   preview = await ok("/nutrition/preview", "POST", {
     profile: fixtureProfile,
     weekStart: today,
@@ -626,6 +694,70 @@ test("invalid model output retains cost, creates an exception and preserves the 
   );
   assert.equal(cost[0].status, "recorded");
   assert.equal(Number(cost[0].cost_usd), 0.0004);
+});
+test("timed-out manual generation has a recoverable durable intent and cannot repeat under a fresh key", async () => {
+  const requestKey = randomUUID(),
+    before = modelCalls;
+  delay = async () => {
+    const [row] = await db.tenant(owner, (tx) =>
+      tx.query(
+        "SELECT * FROM records WHERE kind='nutrition_request' AND data->>'requestKey'=$1",
+        [requestKey],
+      ),
+    );
+    assert.equal(row.data.providerState, "uncertain");
+    throw new Error("Synthetic transport timeout after dispatch");
+  };
+  const result = await ok(
+    "/nutrition/generate",
+    "POST",
+    { requestKey, weekStart: dateOffset(today, 21) },
+    subscriber,
+  );
+  delay = undefined;
+  assert.equal(result.status, "exception");
+  assert.equal(modelCalls, before + 1);
+  assert.equal(
+    (
+      await req(
+        "/nutrition/generate",
+        "POST",
+        { requestKey: randomUUID(), weekStart: dateOffset(today, 21) },
+        subscriber,
+      )
+    ).statusCode,
+    409,
+  );
+  assert.equal(modelCalls, before + 1);
+  const jobs = await ok("/nutrition/recovery"),
+    job = jobs.find((j: any) => j.data.requestKey === requestKey);
+  assert.ok(job);
+  assert.equal(job.provider_state, "uncertain");
+  assert.equal(
+    (
+      await req(`/nutrition/recovery/${job.id}`, "POST", {
+        attempts: job.attempts,
+        action: "retry_unsent",
+        reason: "Uncertain outcome must not retry",
+      })
+    ).statusCode,
+    409,
+  );
+  await ok(`/nutrition/recovery/${job.id}`, "POST", {
+    attempts: job.attempts,
+    action: "provider_confirmed_processed_close",
+    reason: "Synthetic provider evidence records processing without delivery",
+    providerReference: "fixture-support-trace-1",
+  });
+  const [request] = await db.tenant(owner, (tx) =>
+    tx.query(
+      "SELECT * FROM records WHERE kind='nutrition_request' AND data->>'requestKey'=$1",
+      [requestKey],
+    ),
+  );
+  assert.equal(request.status, "closed");
+  assert.equal(request.data.providerState, "responded");
+  assert.equal(modelCalls, before + 1);
 });
 test("consent changed while the model runs prevents delivery and leaves workouts independent", async () => {
   let reached!: () => void, continueRun!: () => void;

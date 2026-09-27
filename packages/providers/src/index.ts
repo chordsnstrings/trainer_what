@@ -1,5 +1,10 @@
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
-import { runtimeConfig, providerRequest } from "./configuration.ts";
+import { createHash } from "node:crypto";
+import {
+  runtimeConfig,
+  providerRequest,
+  integrationCapability,
+} from "./configuration.ts";
 export * from "./configuration.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
@@ -63,11 +68,23 @@ export function integrationStatus() {
         !!config.EMAIL_API_KEY && !!config.EMAIL_API_URL && !!config.EMAIL_FROM,
     },
     {
+      id: "push",
+      name: "Device notifications",
+      purpose: "Opt-in private app update reminders",
+      configured:
+        !!config.PUSH_VAPID_PUBLIC_KEY &&
+        !!config.PUSH_VAPID_PRIVATE_KEY &&
+        !!config.PUSH_VAPID_SUBJECT,
+      approved:
+        !!config.PUSH_VAPID_PUBLIC_KEY &&
+        !!config.PUSH_VAPID_PRIVATE_KEY &&
+        !!config.PUSH_VAPID_SUBJECT,
+    },
+    {
       id: "whoop",
       name: "WHOOP",
       purpose: "Recovery and workout data",
-      configured: false,
-      approved: false,
+      ...integrationCapability("whoop", config)!,
     },
     {
       id: "apple",
@@ -80,22 +97,19 @@ export function integrationStatus() {
       id: "zepp",
       name: "Amazfit / Zepp",
       purpose: "Fitness data through an approved partner connection",
-      configured: false,
-      approved: false,
+      ...integrationCapability("zepp", config)!,
     },
     {
       id: "voice",
       name: "Trainer voice",
       purpose: "Consented premium guided sessions",
-      configured: false,
-      approved: false,
+      ...integrationCapability("voice", config)!,
     },
     {
       id: "domains",
       name: "Custom domains",
-      purpose: "Register and connect your own address",
-      configured: false,
-      approved: false,
+      purpose: "Connect an owned address or approve a registrar quote",
+      ...integrationCapability("domains", config)!,
     },
   ];
 }
@@ -267,20 +281,75 @@ export async function compileTrainerRules(
   accounting: ModelAccounting,
 ) {
   allowedModelEvidence(evidence);
-  if (!evidence.length) throw new Error("Teaching material is required");
+  const invalidSelection = (message: string) =>
+    Object.assign(new Error(message), {
+      statusCode: 400,
+      code: "COMPILATION_LIMIT",
+    });
+  if (!evidence.length || evidence.length > 20)
+    throw invalidSelection(
+      "Select between one and twenty reviewed teaching sources; no sources have been sent.",
+    );
+  const ids = new Set<string>();
+  let characters = 0;
+  const input = evidence.map((r) => {
+    if (!r.data.allowedUses?.includes("trainer_specific_learning"))
+      throw Object.assign(
+        new Error(
+          "Teaching material is not permitted for trainer-specific learning",
+        ),
+        {
+          statusCode: 400,
+          code: "SOURCE_NOT_REVIEWED",
+        },
+      );
+    if (!z.string().uuid().safeParse(r.id).success || ids.has(r.id))
+      throw invalidSelection(
+        "Select distinct, identified teaching sources; no sources have been sent.",
+      );
+    ids.add(r.id);
+    const text = r.data.text ?? r.data.answer ?? "",
+      title = r.data.title ?? r.data.question ?? "";
+    if (typeof text !== "string" || !text.trim() || text.length > 60000)
+      throw invalidSelection(
+        "Each selected teaching source must contain text of at most 60,000 characters; no sources have been sent.",
+      );
+    if (typeof title !== "string" || title.length > 2000)
+      throw invalidSelection(
+        "Each source title must contain at most 2,000 characters; no sources have been sent.",
+      );
+    characters += text.length;
+    if (characters > 120000)
+      throw invalidSelection(
+        "Choose teaching excerpts totaling at most 120,000 characters; no sources have been sent.",
+      );
+    return { id: r.id, title, text };
+  });
+  const coverage = {
+    version: "compilation-input-v1",
+    selection: "entire_selected_text",
+    completeInput: true,
+    sourceCount: input.length,
+    sourceCharacters: characters,
+    includedCharacters: characters,
+    sources: input.map((source, i) => ({
+      sourceId: source.id,
+      sourceVersion: evidence[i].data.sourceVersion ?? null,
+      contentHash: createHash("sha256").update(source.text).digest("hex"),
+      sourceCharacters: source.text.length,
+      includedCharacters: source.text.length,
+      start: 0,
+      end: source.text.length,
+    })),
+    notice:
+      "All selected source text was supplied. Draft rules are limited proposals and still require trainer review.",
+  };
   const {
     MODEL_BASE_URL: base,
     MODEL_API_KEY: key,
     MODEL_NAME: model,
   } = runtimeConfig();
   if (!base || !key || !model) throw new ProviderUnavailable("model");
-  const input = evidence.slice(0, 20).map((r) => ({
-    id: r.id,
-    title: r.data.title ?? r.data.question,
-    text: (r.data.text ?? r.data.answer ?? "").slice(0, 6000),
-  }));
-  if (JSON.stringify(input).length > 50000)
-    throw new Error("Select a smaller source batch, up to 50,000 characters");
   const { payload, usage } = await modelCompletion(
     base,
     key,
@@ -325,7 +394,7 @@ export async function compileTrainerRules(
         throw new Error(
           "Compilation returned missing or unverified source references",
         );
-    return { ...result, usage };
+    return { ...result, usage, coverage };
   } catch {
     throw new ProviderUnavailable(
       "model",

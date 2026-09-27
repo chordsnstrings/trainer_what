@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Database, type Actor } from "@trainer/db";
+import { currentPaidSubscription } from "./finance-billing.ts";
 import { prepareNutritionWeek } from "./nutrition.ts";
 import {
   localDate,
@@ -16,6 +17,9 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
     role: "owner",
   };
   return db.tenant(a, async (tx) => {
+    await tx.query(
+      "UPDATE jobs SET status='blocked',leased_until=NULL,last_error='Generation interrupted; inspect provider state before retry' WHERE kind='nutrition_week' AND status='running' AND data->>'origin'='manual' AND leased_until<now()",
+    );
     const profiles = await tx.query(
       "SELECT DISTINCT ON(owner_user_id) * FROM records WHERE kind='nutrition_profile' ORDER BY owner_user_id,created_at DESC,id DESC",
     );
@@ -25,17 +29,19 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
     if (!enabled) return 0;
     let count = 0;
     for (const profile of profiles) {
-      const [paid] = await tx.query(
-        "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now() AND data->'modules' ? 'nutrition'",
-        [profile.owner_user_id],
-      );
-      if (!paid) continue;
+      const paid = await currentPaidSubscription(tx, profile.owner_user_id);
+      if (!paid?.data?.modules?.includes("nutrition")) continue;
       const permissions = await tx.query(
         "SELECT DISTINCT ON(document_type) document_type,granted FROM consent_records WHERE user_id=$1 AND document_type IN ('nutrition','nutrition_model') ORDER BY document_type,created_at DESC,id DESC",
         [profile.owner_user_id],
       );
       if (permissions.length !== 2 || permissions.some((p) => !p.granted))
         continue;
+      const [uncertain] = await tx.query(
+        "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status IN ('running','failed','closed') AND coalesce(data->>'providerState','uncertain')='uncertain' LIMIT 1",
+        [profile.owner_user_id],
+      );
+      if (uncertain) continue;
       const today = localDate(profile.data.profile.timezone);
       const [release] = await tx.query(
         "SELECT id FROM records WHERE kind='nutrition_release' AND status='published'",
@@ -81,7 +87,7 @@ export async function executeNutritionJob(
   );
   if (profile?.id !== job.data.profileId) return { status: "obsolete" };
   return prepareNutritionWeek(db, a, {
-    requestKey: job.id,
+    requestKey: job.data.requestKey ?? job.id,
     weekStart: job.data.weekStart,
   });
 }

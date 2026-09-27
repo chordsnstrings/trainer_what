@@ -1,0 +1,6 @@
+ALTER POLICY coach_financial_scope ON records USING (current_setting('app.role',true)<>'staff' OR kind NOT IN ('beneficiary','refund','close','statement','checkout','reconciliation','billing_invoice','subscription_transition','finance_policy','finance_automation','cost_allocation','booking_payment','promotion'));
+ALTER POLICY finance_record_scope ON records USING (current_setting('app.role',true)<>'finance' OR kind IN ('product','beneficiary','refund','statement','reconciliation','close','billing_invoice','subscription_transition','finance_policy','finance_automation','cost_allocation','booking_payment','promotion') OR (owner_user_id=nullif(current_setting('app.user_id',true),'')::uuid AND kind IN ('preferences','settings','privacy_request')));
+CREATE UNIQUE INDEX billing_invoice_identity ON records(tenant_id,(data->>'invoiceId')) WHERE kind='billing_invoice';
+CREATE UNIQUE INDEX renewal_pending_identity ON records(tenant_id,owner_user_id) WHERE kind='subscription_transition' AND status IN ('submitting','unknown');
+CREATE INDEX finance_policy_effective ON records(tenant_id,kind,status) WHERE kind IN ('finance_policy','finance_automation','cost_allocation','billing_invoice','subscription_transition');
+INSERT INTO schema_migrations(version) VALUES('015_finance_completion');

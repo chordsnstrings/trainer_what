@@ -1,21 +1,18 @@
-"""Bounded text extraction. Never extracts ZIP members to disk or loads external XML."""
+"""Local DOCX text extraction; never extract archive members or resolve links."""
 import sys
 from zipfile import ZipFile
-from xml.etree import ElementTree
-
+from office_safety import validate_archive, xml, MAX_TEXT
 with ZipFile(sys.argv[1]) as archive:
-    entry = archive.getinfo("word/document.xml")
-    if entry.flag_bits & 1 or entry.file_size > 12_000_000:
-        raise ValueError("Encrypted or oversized document")
-    if entry.file_size > max(entry.compress_size, 1) * 100:
-        raise ValueError("Unusual document compression ratio")
-    content = archive.read(entry)
-    if b"<!DOCTYPE" in content.upper() or b"<!ENTITY" in content.upper():
-        raise ValueError("External declarations are not accepted")
-    root = ElementTree.fromstring(content)
-    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    paragraphs = ["".join(p.itertext()) for p in root.iter(namespace + "p")]
+    validate_archive(archive)
+    root = xml(archive.read("word/document.xml"))
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    paragraphs = []
+    for paragraph in root.iter(ns + "p"):
+        pieces = []
+        for item in paragraph.iter():
+            if item.tag == ns + "t": pieces.append(item.text or "")
+            elif item.tag in (ns + "tab", ns + "br"): pieces.append(" ")
+        paragraphs.append("".join(pieces))
     text = "\n".join(paragraphs)
-    if len(text) > 60_000:
-        raise ValueError("Choose a smaller document or selected excerpts")
+    if len(text) > MAX_TEXT: raise ValueError("Choose selected excerpts under 60,000 characters")
     sys.stdout.write(text)

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
 
 type Food = {
   name: string;
@@ -84,7 +85,8 @@ function CameraIcon({ barcode = false }: { barcode?: boolean }) {
 export function MealCapture() {
   const [mode, setMode] = useState<"photo" | "barcode" | "manual">("photo"),
     [settings, setSettings] = useState<any>(null),
-    [nutrition, setNutrition] = useState<any>(null);
+    [nutrition, setNutrition] = useState<any>(null),
+    [foodOptions, setFoodOptions] = useState<any[]>([]);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
@@ -154,6 +156,10 @@ export function MealCapture() {
     );
   }
   function openDraft(d: Draft) {
+    if (d.kind === "photo")
+      void api("/nutrition/captures/food-options")
+        .then(setFoodOptions)
+        .catch(() => setFoodOptions([]));
     setPhoto(null);
     setDraft(null);
     setError("");
@@ -484,6 +490,34 @@ export function MealCapture() {
             ? "Preparing your estimate. Nothing enters your diary until you confirm."
             : "Working on your request…"}
         </p>
+      )}
+      {settings?.photoConsent && (
+        <section className="card">
+          <h2>Photo analysis permission</h2>
+          <p>
+            You can turn off meal-photo analysis separately from nutrition plans
+            and manual logging. Unconfirmed photo drafts are removed.
+          </p>
+          <button
+            className="button secondary"
+            disabled={busy}
+            onClick={() =>
+              void action(async () => {
+                await api("/privacy/consent", "POST", {
+                  type: "nutrition_photo",
+                  granted: false,
+                });
+                setDraft(null);
+                setPhoto(null);
+                setPhotoConsent(false);
+                await load();
+                setMessage("Photo analysis permission withdrawn");
+              })
+            }
+          >
+            Turn off photo analysis
+          </button>
+        </section>
       )}
       {!draft && mode === "photo" && (
         <div className="capture-columns">
@@ -982,7 +1016,13 @@ export function MealCapture() {
                         onChange={(e) =>
                           draft.kind === "barcode"
                             ? scaleLabel(value(e.target.value), labelUnit)
-                            : edit(i, { amount: value(e.target.value) })
+                            : edit(
+                                i,
+                                scaleCapturedPortion(
+                                  item,
+                                  value(e.target.value),
+                                ),
+                              )
                         }
                         placeholder="Unknown"
                       />
@@ -1002,9 +1042,14 @@ export function MealCapture() {
                                 item.amount,
                                 e.target.value as "g" | "ml",
                               )
-                            : edit(i, {
-                                unit: (e.target.value as Food["unit"]) || null,
-                              })
+                            : edit(
+                                i,
+                                scaleCapturedPortion(
+                                  item,
+                                  item.amount,
+                                  (e.target.value as Food["unit"]) || null,
+                                ),
+                              )
                         }
                       >
                         <option value="">
@@ -1020,6 +1065,45 @@ export function MealCapture() {
                       </select>
                     </label>
                   </div>
+                  {draft.kind === "photo" && (
+                    <>
+                      <label className="field">
+                        <span>Match to your coach's ingredient facts</span>
+                        <select
+                          defaultValue=""
+                          disabled={busy || item.unit !== "g" || !item.amount}
+                          onChange={(e) => {
+                            const foodId = e.target.value;
+                            if (!foodId || !item.amount) return;
+                            void action(async () => {
+                              const grounded = await api(
+                                `/nutrition/captures/${draft.id}/ground`,
+                                "POST",
+                                { index: i, foodId, grams: item.amount },
+                              );
+                              setDraft(grounded);
+                              edit(i, grounded.data.estimate.items[i]);
+                              setMessage(
+                                "Ingredient facts applied. Check the preparation and portion before confirming.",
+                              );
+                            });
+                          }}
+                        >
+                          <option value="">Choose a matching ingredient</option>
+                          {foodOptions.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} · {f.preparation.replaceAll("_", " ")}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <small>
+                        Set a measured gram amount to use stored food facts.
+                        Changing the amount rescales nutrients; changing units
+                        clears them for review.
+                      </small>
+                    </>
+                  )}
                   <div className="capture-nutrients">
                     {(
                       [

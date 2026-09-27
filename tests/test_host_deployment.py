@@ -171,6 +171,23 @@ class HostDeployment(unittest.TestCase):
         with self.assertRaises(common.DeploymentError):
             host.validate_exposure(rendered)
 
+    def test_compose_cannot_inherit_runtime_or_remote_engine_overrides(self):
+        overrides = {
+            "PUBLIC_APP_URL": "http://localhost:3000",
+            "DATABASE_URL": "postgres://foreign/other",
+            "PAYOUTS_APPROVED": "true",
+            "DOCKER_HOST": "tcp://foreign:2375",
+            "COMPOSE_FILE": "/foreign/compose.yaml",
+            "RELEASE_TAG": PREVIOUS,
+        }
+        with patch.dict(os.environ, overrides), patch.object(host, "run") as run:
+            host.compose(self.root / "release", SHA, "config")
+        args, kwargs = run.call_args
+        self.assertEqual(kwargs["env"]["RELEASE_TAG"], SHA)
+        for key in overrides.keys() - {"RELEASE_TAG"}:
+            self.assertNotIn(key, kwargs["env"])
+        self.assertIn(str(self.root / "runtime.env"), args[0])
+
     def test_real_compose_renders_repository_and_private_runtime(self):
         if not shutil.which("docker"):
             if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -185,7 +202,8 @@ class HostDeployment(unittest.TestCase):
             host.ensure_runtime()
         release = Path(__file__).resolve().parents[1]
         # Configuration parsing only: no image build, network, daemon or service start.
-        result = host.compose(release, SHA, "config", "--format", "json", capture_output=True, text=True)
+        with patch.dict(os.environ, {"PUBLIC_APP_URL": "http://localhost:3000", "PAYOUTS_APPROVED": "true"}):
+            result = host.compose(release, SHA, "config", "--format", "json", capture_output=True, text=True)
         rendered = json.loads(result.stdout)
         host.validate_exposure(rendered)
         services = rendered["services"]
@@ -200,6 +218,7 @@ class HostDeployment(unittest.TestCase):
         self.assertNotIn("MIGRATION_DATABASE_URL", api_env)
         self.assertNotIn("MIGRATION_DATABASE_URL", worker_env)
         self.assertEqual(api_env["PUBLIC_APP_URL"], ENDPOINT)
+        self.assertEqual(api_env["PAYOUTS_APPROVED"], "false")
 
     def test_readiness_rejects_old_release_and_non_ready_body(self):
         class Response(io.BytesIO):

@@ -59,6 +59,7 @@ export const productSchema = z
     description: z.string().max(1500),
     priceMinor: z.number().int().min(100).max(1000000),
     tier: z.enum(["workout", "workout_nutrition"]).default("workout"),
+    premiumVoice: z.boolean().default(false),
     baseProductId: z.string().uuid().optional(),
   })
   .strict();

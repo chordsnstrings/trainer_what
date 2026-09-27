@@ -464,7 +464,7 @@ export function PlatformSettings({
                 your platform.
               </p>
             </div>
-            <Link className="button secondary" href="/admin/security">
+            <Link className="button secondary" href="/admin/account-security">
               <ShieldCheck size={16} />
               Account security
             </Link>

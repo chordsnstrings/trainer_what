@@ -1,6 +1,68 @@
+import { registerFinanceAutomation } from "./finance-automation.ts";
+import { clientContextRoutes } from "./client-context.ts";
+import { registerAffiliates } from "./affiliates.ts";
+import { registerInfrastructureActions } from "./infrastructure-actions.ts";
+import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
+import { registerLifecycleMessages } from "./lifecycle-messages.ts";
+import { registerRetention } from "./retention.ts";
+import {
+  lockBrainReviewActor,
+  notifyCompilationReview,
+} from "./source-review-notifications.ts";
+import { registerFinanceCompletion } from "./finance-completion.ts";
+import { registerSubscriptionCheckout } from "./finance-checkout.ts";
+import { registerBookingPayments } from "./finance-bookings.ts";
+import { registerTrainingPrograms } from "./training-programs.ts";
+import { registerCoachingFollowups } from "./coaching-followups.ts";
+import {
+  registerCoachingFeedback,
+  revokeCoachingFeedbackLearning,
+} from "./coaching-feedback.ts";
+import {
+  registerChatAttachments,
+  validateChatAttachments,
+  bindChatAttachments,
+} from "./chat-attachments.ts";
+import {
+  registerAccountCompletion,
+  touchAccountSession,
+} from "./account-completion.ts";
+import { registerPasskeys } from "./passkeys.ts";
+import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import {
+  registerIntegrationCompletion,
+  disableUserIntegrations,
+} from "./integrations-completion.ts";
+import {
+  resolveRequestHost,
+  enforceHostTenant,
+  allowedRequestOrigin,
+  type HostContext,
+} from "./host-routing.ts";
+import {
+  registerPrivacyLifecycle,
+  exportPersonalData,
+  workspaceLock,
+} from "./privacy-lifecycle.ts";
+import { privacyHooks } from "./privacy-hooks.ts";
+import { legalAcceptanceVersion } from "./legal.ts";
+import { registerAdminOperations } from "./admin-operations.ts";
+import { registerSupportPreview } from "./support-preview.ts";
+import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
+import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
+import {
+  registerFinanceBilling,
+  currentPaidSubscription,
+} from "./finance-billing.ts";
+import {
+  registerCoachingCompletion,
+  lockTraining,
+  openTrainingHold,
+} from "./coaching-completion.ts";
 import {
   runtimeConfig,
   withRuntimeConfig,
+  ConfigurationError,
 } from "../../../packages/providers/src/configuration.ts";
 import {
   loadRuntimeSettings,
@@ -18,7 +80,17 @@ import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
-import { ingestionRoutes } from "./ingestion.ts";
+import {
+  ingestionRoutes,
+  compilationMaterial,
+  privacyMatches,
+  buildSourceEvidence,
+} from "./ingestion.ts";
+import {
+  registerTeamRoutes,
+  createTeamInvitation,
+  lockActiveInvitation,
+} from "./team.ts";
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
@@ -81,6 +153,7 @@ declare module "fastify" {
   interface FastifyRequest {
     identity?: Identity;
     rawBody?: string;
+    hostContext?: HostContext;
   }
 }
 const id = z.string().uuid();
@@ -132,10 +205,7 @@ async function putException(
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const [s] = await tx.query(
-    "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())",
-    [a.userId],
-  );
+  const s = await currentPaidSubscription(tx, a.userId);
   if (!s)
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
@@ -148,6 +218,14 @@ export async function buildApp(
     logger: options.testing
       ? false
       : {
+          serializers: {
+            req: (request: any) => ({
+              method: request.method,
+              url: String(request.url).split("?")[0],
+              hostname: request.hostname,
+              remoteAddress: request.ip,
+            }),
+          },
           redact: [
             "req.headers.authorization",
             "req.headers.cookie",
@@ -195,23 +273,54 @@ export async function buildApp(
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin")
       .header("Cache-Control", "no-store");
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-      !req.url.startsWith("/api/v1/webhooks/")
-    ) {
-      if (req.headers.origin !== publicUrl())
-        throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
+    const requestPath = req.url.split("?")[0];
+    // Readiness is intentionally reachable by the local container probe; it
+    // exposes no workspace data and cannot select a tenant.
+    const probe = ["/health", "/api/v1/health", "/api/v1/ready"].includes(
+      requestPath,
+    );
+    // Probes do not need a verified host, but a supplied session still needs to
+    // be verified for the per-user rate budget. Never trust a raw cookie key.
+    if (!probe) {
+      req.hostContext = await resolveRequestHost(db, req);
+      if (req.hostContext.custom) {
+        const publicSlug = requestPath.match(
+          /^\/api\/v1\/public\/(?:trainers|sites|coach)\/([^/]+)/,
+        )?.[1];
+        if (
+          publicSlug &&
+          decodeURIComponent(publicSlug) !== req.hostContext.tenantSlug
+        )
+          throw fail(
+            403,
+            "HOST_TENANT_MISMATCH",
+            "This page belongs to a different coaching website.",
+          );
+        if (requestPath.startsWith("/api/v1/webhooks/"))
+          throw fail(
+            403,
+            "PLATFORM_HOST_REQUIRED",
+            "Provider callbacks use the platform address.",
+          );
+      }
+      if (
+        !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+        !req.url.startsWith("/api/v1/webhooks/")
+      ) {
+        if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
+          throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
+      }
     }
     const token = req.cookies.session;
     if (token) {
       const rows = await db.system((tx) =>
         tx.query(
-          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now()",
+          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state='active'",
           [tokenHash(token)],
         ),
       );
       const s = rows[0];
-      if (s)
+      if (s) {
         req.identity = {
           tenantId: s.tenant_id,
           userId: s.user_id,
@@ -222,9 +331,31 @@ export async function buildApp(
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
         };
+        if (!probe)
+          try {
+            enforceHostTenant(req.hostContext!, req.identity);
+          } catch (error) {
+            // A stale cookie from a reassigned domain must not prevent sign-out,
+            // a new login, or viewing that domain's public website.
+            if (
+              requestPath.startsWith("/api/v1/auth/") ||
+              requestPath.startsWith("/api/v1/public/")
+            )
+              req.identity = undefined;
+            else throw error;
+          }
+        if (req.identity && !probe)
+          await touchAccountSession(db, tokenHash(token)).catch(() => {});
+      }
     }
   });
   app.setErrorHandler((error, req, reply) => {
+    if (error instanceof ConfigurationError)
+      return reply.code(409).send({
+        code: "INTEGRATION_CONFIGURATION",
+        message: error.message,
+        requestId: req.id,
+      });
     if (error instanceof NutritionBlocked)
       return reply
         .code(409)
@@ -269,12 +400,20 @@ export async function buildApp(
     mfa = false,
   ) {
     const token = newToken();
-    await db.system((tx) =>
-      tx.query(
+    await db.system(async (tx) => {
+      await workspaceLock(tx, tenantId);
+      await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
+      const [membership] = await tx.query(
+        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+        [userId, tenantId],
+      );
+      if (!membership)
+        throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
+      await tx.query(
         "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
         [tokenHash(token), userId, tenantId, mfa],
-      ),
-    );
+      );
+    });
     reply.setCookie("session", token, {
       path: "/",
       httpOnly: true,
@@ -283,17 +422,44 @@ export async function buildApp(
       maxAge: 604800,
     });
   }
+  registerCoachingCompletion(app, db);
+  registerCoachingFollowups(app, db);
+  registerCoachingFeedback(app, db);
+  registerLifecycleMessages(app, db);
+  registerRetention(app, db);
+  registerChatAttachments(app, db);
+  registerTrainingPrograms(app, db);
+  registerIntegrationCompletion(app, db);
+  registerFinanceBilling(app, db);
+  registerFinanceCompletion(app, db);
+  registerFinanceAutomation(app, db);
+  registerAffiliates(app, db, identity);
+  registerInfrastructureActions(app, db, identity);
+  registerBookingPayments(app, db);
+  registerAdminOperations(app, db, identity);
+  registerSupportPreview(app, db, identity);
+  registerInfrastructureObserver(app, db, identity, {
+    startCollector: !options.testing,
+  });
+  registerAcquisition(app, db);
   securityRoutes(app, db, identity);
+  registerAccountCompletion(app, db, identity);
+  registerPasskeys(app, db, identity);
+  registerCoachSite(app, db);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
-  privacyOperations(app, db, identity);
+  privacyOperations(app, db, identity, privacyHooks);
+  registerPrivacyLifecycle(app, db, identity, privacyHooks);
   clientTwinRoutes(app, db, identity);
+  clientContextRoutes(app, db, identity);
   nutritionRoutes(app, db, identity, !!options.testing);
   mealCaptureRoutes(app, db, identity);
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
+  registerTeamRoutes(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
+  app.get("/api/v1/public/host", async (req) => req.hostContext);
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
     return { status: "ready" };
@@ -302,7 +468,17 @@ export async function buildApp(
     "/api/v1/auth/register",
     { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } },
     async (req, reply) => {
+      if (req.hostContext?.custom)
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Trainer registration uses the platform address.",
+        );
       const b = signupSchema.parse(req.body);
+      const registrationVersion = await legalAcceptanceVersion(
+        db,
+        "registration",
+      );
       if (
         [
           "admin",
@@ -352,12 +528,21 @@ export async function buildApp(
           licenceStatus: "NOT_REQUESTED",
         });
         await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration','draft-2026-09',true)",
-          [randomUUID(), tid, uid],
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+          [randomUUID(), tid, uid, registrationVersion],
         );
         await event(tx, a, "trainer.signup_completed", uid);
       });
       await session(reply, uid, tid);
+      try {
+        await recordSignupAcquisition(db, req, {
+          tenantId: tid,
+          userId: uid,
+          role: "owner",
+        });
+      } catch {
+        req.log.warn("Signup acquisition conversion could not be recorded");
+      }
       return reply.code(201).send({ ok: true });
     },
   );
@@ -379,6 +564,16 @@ export async function buildApp(
         })
         .strict()
         .parse(req.body);
+      if (req.hostContext?.custom && b.coachSlug !== req.hostContext.tenantSlug)
+        throw fail(
+          403,
+          "HOST_TENANT_MISMATCH",
+          "Join the coach connected to this website.",
+        );
+      const registrationVersion = await legalAcceptanceVersion(
+        db,
+        "registration",
+      );
       if (
         process.env.NODE_ENV === "production" &&
         runtimeConfig().LEGAL_APPROVED !== "true"
@@ -391,7 +586,7 @@ export async function buildApp(
       const hash = await passwordHash(b.password);
       const result = await db.system(async (tx) => {
         const [tenant] = await tx.query(
-          "SELECT id FROM tenants WHERE slug=$1 AND published=true",
+          "SELECT id FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state='active'",
           [b.coachSlug],
         );
         if (!tenant)
@@ -400,10 +595,31 @@ export async function buildApp(
             "TRAINER_UNAVAILABLE",
             "This coaching space is not accepting public signups",
           );
+        await workspaceLock(tx, tenant.id);
+        const [stillOpen] = await tx.query(
+          "SELECT id FROM tenants WHERE id=$1 AND published=true AND lifecycle_state='active' FOR UPDATE",
+          [tenant.id],
+        );
+        if (!stillOpen)
+          throw fail(
+            409,
+            "WORKSPACE_CLOSED",
+            "This workspace is not accepting signups",
+          );
         const [existing] = await tx.query(
-          "SELECT * FROM users WHERE email=$1",
+          "SELECT * FROM users WHERE email=$1 FOR UPDATE",
           [b.email],
         );
+        if (
+          req.hostContext?.custom &&
+          existing &&
+          existing.platform_role !== "none"
+        )
+          throw fail(
+            403,
+            "PLATFORM_HOST_REQUIRED",
+            "Platform accounts sign in at the platform address.",
+          );
         if (
           existing &&
           !(await passwordMatches(b.password, existing.password_hash))
@@ -422,8 +638,8 @@ export async function buildApp(
             "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4)",
             [uid, b.email, b.name, hash],
           );
-        await tx.query(
-          "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING",
+        const [membership] = await tx.query(
+          "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING RETURNING user_id",
           [tenant.id, uid],
         );
         await tx.query("SET LOCAL ROLE trainer_app");
@@ -433,12 +649,7 @@ export async function buildApp(
         );
         await tx.query(
           "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [
-            randomUUID(),
-            tenant.id,
-            uid,
-            runtimeConfig().LEGAL_VERSION ?? "draft-2026-09",
-          ],
+          [randomUUID(), tenant.id, uid, registrationVersion],
         );
         await event(
           tx,
@@ -446,9 +657,23 @@ export async function buildApp(
           "subscriber.enrolled",
           uid,
         );
-        return { uid, tid: tenant.id, mfa };
+        return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
       await session(reply, result.uid, result.tid, result.mfa);
+      if (result.joined) {
+        try {
+          await recordSignupAcquisition(
+            db,
+            req,
+            { tenantId: result.tid, userId: result.uid, role: "subscriber" },
+            "enroll",
+          );
+        } catch {
+          req.log.warn(
+            "Enrollment acquisition conversion could not be recorded",
+          );
+        }
+      }
       return reply.code(201).send({ ok: true });
     },
   );
@@ -462,10 +687,16 @@ export async function buildApp(
       );
       if (!u || !(await passwordMatches(b.password, u.password_hash)))
         throw fail(401, "INVALID_LOGIN", "Email or password is incorrect");
+      if (req.hostContext?.custom && u.platform_role !== "none")
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Platform accounts sign in at the platform address.",
+        );
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT tenant_id FROM memberships WHERE user_id=$1 ORDER BY tenant_id LIMIT 1",
-          [u.id],
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY m.tenant_id LIMIT 1",
+          [u.id, req.hostContext?.tenantId ?? null],
         ),
       );
       if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
@@ -487,9 +718,15 @@ export async function buildApp(
   app.post("/api/v1/auth/workspace", async (req, reply) => {
     const a = identity(req);
     const b = z.object({ tenantId: id }).parse(req.body);
+    if (req.hostContext?.custom && b.tenantId !== req.hostContext.tenantId)
+      throw fail(
+        403,
+        "HOST_TENANT_MISMATCH",
+        "Switch workspaces from the platform address.",
+      );
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT tenant_id FROM memberships WHERE user_id=$1 AND tenant_id=$2",
+        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
         [a.userId, b.tenantId],
       ),
     );
@@ -517,7 +754,7 @@ export async function buildApp(
       },
       tenant,
       records: await tx.query(
-        "SELECT * FROM records WHERE kind<>'twin_snapshot' AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
+        "SELECT * FROM records WHERE kind NOT IN ('twin_snapshot','retention_policy') AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
       ),
       sets: await tx.query(
         "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",
@@ -563,34 +800,7 @@ export async function buildApp(
   app.put("/api/v1/tenant/brand", async (req) => {
     const a = owner(req),
       b = brandSchema.parse(req.body);
-    const theme = await db.system(async (tx) => {
-      const [current] = await tx.query(
-        "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
-        [a.tenantId],
-      );
-      const version = Number(current.theme?.brandVersion ?? 0);
-      if (b.expectedVersion !== undefined && b.expectedVersion !== version)
-        throw fail(
-          409,
-          "BRAND_VERSION_CONFLICT",
-          "Your design changed in another session. Reload before saving.",
-        );
-      const { expectedVersion, ...submitted } = b;
-      const next = {
-        ...current.theme,
-        ...submitted,
-        brandVersion: version + 1,
-      };
-      await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
-        a.tenantId,
-        b.name,
-        JSON.stringify(next),
-      ]);
-      return next;
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "tenant.brand_updated", a.tenantId),
-    );
+    const theme = await saveCoachBrand(db, a, b);
     return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
@@ -601,7 +811,7 @@ export async function buildApp(
     const slug = (req.params as any).slug;
     const [t] = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,theme FROM tenants WHERE slug=$1 AND published=true",
+        "SELECT id,slug,name,theme FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state='active'",
         [slug],
       ),
     );
@@ -628,17 +838,37 @@ export async function buildApp(
         role: z.enum(["staff", "finance", "subscriber"]),
       })
       .parse(req.body);
+    if (b.role !== "subscriber")
+      return createTeamInvitation(db, a, b, publicUrl());
     const token = newToken();
-    await db.system((tx) =>
-      tx.query(
+    await db.system(async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [current] = await tx.query(
+        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND t.lifecycle_state='active'",
+        [a.tenantId, a.userId],
+      );
+      if (!current)
+        throw fail(
+          403,
+          "OWNER_REQUIRED",
+          "Current workspace owner access is required",
+        );
+      await tx.query(
         "INSERT INTO one_time_tokens(token_hash,purpose,tenant_id,payload,expires_at) VALUES($1,'invite',$2,$3,now()+interval '7 days')",
-        [tokenHash(token), a.tenantId, JSON.stringify(b)],
-      ),
-    );
+        [
+          tokenHash(token),
+          a.tenantId,
+          JSON.stringify({ ...b, invitedBy: a.userId }),
+        ],
+      );
+    });
     await db.tenant(a, (tx) =>
       event(tx, a, "team.invited", undefined, { role: b.role }),
     );
-    return { url: `${publicUrl()}/join/${token}`, expiresInDays: 7 };
+    return {
+      url: `${req.hostContext?.origin ?? publicUrl()}/join/${token}`,
+      expiresInDays: 7,
+    };
   });
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
@@ -655,18 +885,36 @@ export async function buildApp(
       .parse(req.body);
     const hash = await passwordHash(b.password);
     const result = await db.system(async (tx) => {
-      const [invite] = await tx.query(
-        "SELECT * FROM one_time_tokens WHERE token_hash=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
-        [tokenHash(b.token)],
-      );
+      const invite = await lockActiveInvitation(tx, tokenHash(b.token));
       if (
         !invite ||
         invite.payload.email.toLowerCase() !== b.email.toLowerCase()
       )
         throw fail(400, "INVALID_INVITE", "Invitation is invalid or expired");
-      const [existing] = await tx.query("SELECT * FROM users WHERE email=$1", [
-        b.email.toLowerCase(),
-      ]);
+      if (
+        req.hostContext?.custom &&
+        (invite.tenant_id !== req.hostContext.tenantId ||
+          invite.payload.role !== "subscriber")
+      )
+        throw fail(
+          403,
+          "HOST_TENANT_MISMATCH",
+          "This invitation must be accepted at its own coaching or platform address.",
+        );
+      const [existing] = await tx.query(
+        "SELECT * FROM users WHERE email=$1 FOR UPDATE",
+        [b.email.toLowerCase()],
+      );
+      if (
+        req.hostContext?.custom &&
+        existing &&
+        existing.platform_role !== "none"
+      )
+        throw fail(
+          403,
+          "PLATFORM_HOST_REQUIRED",
+          "Platform accounts sign in at the platform address.",
+        );
       if (
         existing &&
         !(await passwordMatches(b.password, existing.password_hash))
@@ -683,42 +931,36 @@ export async function buildApp(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
           [uid, b.email.toLowerCase(), b.name, hash, false],
         );
-      await tx.query(
-        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+      const [membership] = await tx.query(
+        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
         [invite.tenant_id, uid, invite.payload.role],
       );
       await tx.query(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
         [tokenHash(b.token)],
       );
-      return { uid, tid: invite.tenant_id, mfa };
+      return {
+        uid,
+        tid: invite.tenant_id,
+        mfa,
+        joined: !!membership && invite.payload.role === "subscriber",
+      };
     });
     await session(reply, result.uid, result.tid, result.mfa);
+    if (result.joined) {
+      try {
+        await recordSignupAcquisition(
+          db,
+          req,
+          { tenantId: result.tid, userId: result.uid, role: "subscriber" },
+          "enroll",
+        );
+      } catch {
+        req.log.warn("Enrollment acquisition conversion could not be recorded");
+      }
+    }
     return { ok: true };
   });
-  app.delete("/api/v1/team/:userId", async (req) => {
-    const a = owner(req),
-      uid = id.parse((req.params as any).userId);
-    if (uid === a.userId)
-      throw fail(
-        400,
-        "SELF_REVOKE",
-        "The owner cannot revoke their own membership",
-      );
-    await db.system(async (tx) => {
-      await tx.query(
-        "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role IN ('staff','finance')",
-        [a.tenantId, uid],
-      );
-      await tx.query("DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2", [
-        a.tenantId,
-        uid,
-      ]);
-    });
-    await db.tenant(a, (tx) => event(tx, a, "team.revoked", uid));
-    return { ok: true };
-  });
-
   app.post("/api/v1/brain/sources", async (req) => {
     const a = trainer(req);
     const b = z
@@ -728,11 +970,21 @@ export async function buildApp(
         rights: z.literal(true),
       })
       .parse(req.body);
+    const text = b.text.replace(/\r\n/g, "\n").trim();
+    if (privacyMatches(text).length)
+      throw fail(
+        400,
+        "PERSONAL_DATA_REMAINS",
+        "Remove identifying details before adding teaching material, or import a document for redaction and private review.",
+      );
+    const evidence = buildSourceEvidence(text);
     return db.tenant(a, async (tx) => {
-      const hash = createHash("sha256").update(b.text).digest("hex");
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":source:" + evidence.hash,
+      ]);
       const [exists] = await tx.query(
         "SELECT * FROM records WHERE kind='source' AND data->>'hash'=$1",
-        [hash],
+        [evidence.hash],
       );
       if (exists) return exists;
       const r = await putRecord(
@@ -741,11 +993,13 @@ export async function buildApp(
         "source",
         {
           title: b.title,
-          text: b.text,
-          hash,
+          text,
+          ...evidence,
           origin: "trainer_upload",
           allowedUses: ["render", "model_prompt", "trainer_specific_learning"],
           rightsAttestedAt: new Date().toISOString(),
+          privacyReviewedAt: new Date().toISOString(),
+          reviewedBy: a.userId,
         },
         { status: "ready" },
       );
@@ -776,24 +1030,47 @@ export async function buildApp(
   app.post("/api/v1/brain/compile", async (req) => {
     const a = owner(req),
       b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
-    const material = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview')",
+    const material = await db.tenant(a, async (tx) => {
+      await lockBrainReviewActor(tx, a);
+      return tx.query(
+        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview') ORDER BY id",
         [b.sourceIds],
-      ),
-    );
+      );
+    });
     if (material.length !== new Set(b.sourceIds).size)
       throw fail(
         400,
         "SOURCE_UNAVAILABLE",
         "All sources must belong to this workspace and be trainer teaching material",
       );
+    const prepared = compilationMaterial(material);
     const generated = await compileTrainerRules(
-      material.map((r) => ({ id: r.id, data: r.data })),
+      prepared,
       modelAccounting(db, a, "brain_compilation"),
     );
     return db.tenant(a, async (tx) => {
-      const rules = [];
+      await lockBrainReviewActor(tx, a);
+      const current = await tx.query(
+        "SELECT * FROM records WHERE id=ANY($1::uuid[]) AND kind IN ('source','interview') ORDER BY id FOR UPDATE",
+        [b.sourceIds],
+      );
+      let unchanged = false;
+      try {
+        unchanged =
+          JSON.stringify(compilationMaterial(current)) ===
+          JSON.stringify(prepared);
+      } catch {
+        // Material removed or withdrawn while the provider was working is stale.
+      }
+      if (!unchanged)
+        throw fail(
+          409,
+          "SOURCE_CHANGED",
+          "Your selected material changed during compilation. Review the current sources before trying again.",
+        );
+      const rules = [],
+        conflicts = [],
+        batchId = randomUUID();
       for (const rule of generated.rules)
         rules.push(
           await putRecord(
@@ -808,17 +1085,34 @@ export async function buildApp(
                 "trainer_specific_learning",
               ],
               origin: "compiler",
+              compilationCoverage: generated.coverage,
             },
             { status: "draft" },
           ),
         );
       for (const conflict of generated.conflicts)
-        await putRecord(tx, a, "conflict", conflict, { status: "open" });
-      await event(tx, a, "brain.compiled", undefined, {
+        conflicts.push(
+          await putRecord(tx, a, "conflict", conflict, { status: "open" }),
+        );
+      await event(tx, a, "brain.compiled", batchId, {
         rules: rules.length,
         conflicts: generated.conflicts.length,
+        coverage: generated.coverage,
+        ruleIds: rules.map((r) => r.id),
+        conflictIds: conflicts.map((c) => c.id),
       });
-      return { rules, conflicts: generated.conflicts.length };
+      const reference = (r: any) => ({ id: r.id, version: r.version });
+      await notifyCompilationReview(tx, a, {
+        id: batchId,
+        sources: current.map(reference),
+        rules: rules.map(reference),
+        conflicts: conflicts.map(reference),
+      });
+      return {
+        rules,
+        conflicts: generated.conflicts.length,
+        coverage: generated.coverage,
+      };
     });
   });
   app.patch("/api/v1/brain/rules/:id", async (req) => {
@@ -1068,6 +1362,9 @@ export async function buildApp(
   app.post("/api/v1/brain/releases/:id/rollback", async (req) => {
     const a = owner(req);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brain",
+      ]);
       const target = await findRecord(
         tx,
         (req.params as any).id,
@@ -1088,7 +1385,9 @@ export async function buildApp(
   app.post("/api/v1/intake", async (req) => {
     const a = identity(req),
       b = intakeSchema.parse(req.body);
+    const coachingVersion = await legalAcceptanceVersion(db, "coaching");
     return db.tenant(a, async (tx) => {
+      await lockTraining(tx, a);
       const r = await putRecord(
         tx,
         a,
@@ -1102,317 +1401,11 @@ export async function buildApp(
         { status: "complete" },
       );
       await tx.query(
-        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching','draft-2026-09',true)",
-        [randomUUID(), a.tenantId, a.userId],
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching',$4,true)",
+        [randomUUID(), a.tenantId, a.userId, coachingVersion],
       );
       await event(tx, a, "intake.completed", r.id);
       return r;
-    });
-  });
-  app.post("/api/v1/programs", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({ program: programSchema, subscriberId: id.optional() })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      if (b.subscriberId) {
-        const [m] = await tx.query(
-          "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
-          [a.tenantId, b.subscriberId],
-        );
-        if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      }
-      const r = await putRecord(
-        tx,
-        a,
-        "program",
-        {
-          ...b.program,
-          authorId: a.userId,
-          allowedUses: ["render", "model_prompt"],
-        },
-        {
-          ownerId: b.subscriberId ?? a.userId,
-          status: b.subscriberId ? "assigned" : "template",
-        },
-      );
-      await event(tx, a, "program.created", r.id);
-      return r;
-    });
-  });
-  app.post("/api/v1/workouts/start", async (req) => {
-    const a = identity(req);
-    const b = z.object({ programId: id }).parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await activeMembership(tx, a);
-      const program = await findRecord(tx, b.programId, "program");
-      const r = await putRecord(
-        tx,
-        a,
-        "workout",
-        {
-          programId: program.id,
-          programVersion: program.version,
-          program: program.data,
-          startedAt: new Date().toISOString(),
-        },
-        { status: "active" },
-      );
-      await event(tx, a, "workout.started", r.id);
-      return r;
-    });
-  });
-  app.post("/api/v1/workouts/:id/sets", async (req) => {
-    const a = identity(req);
-    const b = setSchema.parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        a.tenantId + ":set:" + a.userId + ":" + b.eventKey,
-      ]);
-      const [prior] = await tx.query(
-        "SELECT id,workout_id,data=$3::jsonb AS matches FROM workout_events WHERE user_id=$1 AND event_key=$2",
-        [a.userId, b.eventKey, JSON.stringify(b)],
-      );
-      if (prior) {
-        if (prior.workout_id !== (req.params as any).id || !prior.matches)
-          throw fail(
-            409,
-            "INTENT_CONFLICT",
-            "This event key was already used with different set details",
-          );
-        return { id: prior.id, duplicate: true };
-      }
-      await activeMembership(tx, a);
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId || w.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "This workout is not open for logging",
-        );
-      await tx.query("SELECT id FROM records WHERE id=$1 FOR UPDATE", [w.id]);
-      const current = await findRecord(tx, w.id, "workout");
-      if (current.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "This workout has been paused or completed",
-        );
-      const exercise = current.data.program.exercises.find(
-        (ex: any) => ex.name === b.exercise,
-      );
-      if (!exercise || b.set > exercise.sets)
-        throw fail(
-          400,
-          "SET_NOT_IN_PROGRAM",
-          "This set is outside the assigned workout",
-        );
-      const [r] = await tx.query(
-        "INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,user_id,event_key) DO NOTHING RETURNING *",
-        [
-          randomUUID(),
-          a.tenantId,
-          a.userId,
-          w.id,
-          b.eventKey,
-          JSON.stringify(b),
-        ],
-      );
-      return r ?? { duplicate: true };
-    });
-  });
-  app.post("/api/v1/workouts/:id/finish", async (req) => {
-    const a = identity(req);
-    return db.tenant(a, async (tx) => {
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId)
-        throw fail(403, "OWNER_REQUIRED", "Workout ownership required");
-      if (w.status === "completed") return w;
-      if (w.status !== "active")
-        throw fail(
-          409,
-          "WORKOUT_STATE",
-          "Resolve the safety hold before continuing",
-        );
-      await tx.query(
-        "UPDATE records SET status='completed',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [w.id, JSON.stringify({ completedAt: new Date().toISOString() })],
-      );
-      await event(tx, a, "workout.completed", w.id);
-      return { ok: true };
-    });
-  });
-  app.post("/api/v1/workouts/:id/pain", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({ description: z.string().min(3).max(2000) })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      const w = await findRecord(tx, (req.params as any).id, "workout");
-      if (w.owner_user_id !== a.userId)
-        throw fail(403, "OWNER_REQUIRED", "Workout ownership required");
-      await tx.query(
-        "UPDATE records SET status='safety_hold',updated_at=now() WHERE id=$1",
-        [w.id],
-      );
-      const r = await putException(
-        tx,
-        a,
-        {
-          category: "safety",
-          description: b.description,
-          workoutId: w.id,
-          subscriberId: a.userId,
-        },
-        { status: "open" },
-      );
-      await event(tx, a, "safety.escalated", r.id);
-      return {
-        message:
-          "Pause this workout. Your trainer has been notified for review. Seek urgent local medical help if your symptoms are severe or urgent.",
-      };
-    });
-  });
-
-  app.post("/api/v1/coaching/ask", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({ message: z.string().min(1).max(4000) })
-      .parse(req.body);
-    const material = await db.tenant({ ...a, role: "staff" }, async (tx) => {
-      await activeMembership(tx, a);
-      await putRecord(
-        tx,
-        a,
-        "message",
-        { text: b.message, author: "subscriber", subscriberId: a.userId },
-        { status: "sent" },
-      );
-      const takeover = await tx.query(
-        "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
-        [a.userId],
-      );
-      const intake = await tx.query(
-        "SELECT * FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      const [consent] = await tx.query(
-        "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      return {
-        takeover: takeover.length > 0,
-        intake,
-        consent: !!consent?.granted,
-      };
-    });
-    if (safetySignal(b.message) || material.takeover) {
-      return db.tenant(a, async (tx) => {
-        await putException(
-          tx,
-          a,
-          {
-            category: safetySignal(b.message) ? "safety" : "human_review",
-            description: b.message,
-            subscriberId: a.userId,
-          },
-          { status: "open" },
-        );
-        const r = await putRecord(
-          tx,
-          a,
-          "message",
-          {
-            text: "I have sent this to your trainer for review. Pause exercise if you have new pain or concerning symptoms; seek urgent local help when needed.",
-            author: "system",
-            subscriberId: a.userId,
-          },
-          { status: "sent" },
-        );
-        return r;
-      });
-    }
-    if (!material.consent)
-      throw fail(
-        409,
-        "COACHING_CONSENT_REQUIRED",
-        "Digital coaching permission is not active. You can send a personal message to your trainer.",
-      );
-    const released = await db.tenant({ ...a, role: "staff" }, (tx) =>
-      tx.query(
-        "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
-      ),
-    );
-    if (!released[0])
-      throw fail(
-        409,
-        "BRAIN_NOT_READY",
-        "Your trainer is preparing the digital coaching release. Send them a message for personal review.",
-      );
-    if (!material.intake.length)
-      throw fail(
-        409,
-        "INTAKE_REQUIRED",
-        "Complete your coaching profile before using digital coaching",
-      );
-    const rules = released[0].data.rules;
-    const twin = await db.tenant({ ...a, role: "staff" }, (tx) =>
-      currentClientTwin(tx, a, a.userId),
-    );
-    const evidence = [
-      {
-        id: twin.id,
-        data: {
-          ...twin.data.coaching,
-          training: {
-            ...twin.data.coaching.training,
-            performance: twin.data.coaching.training.performance
-              .slice(0, 20)
-              .map((p: any) => ({
-                ...p,
-                sourceEventIds: p.sourceEventIds.slice(-10),
-              })),
-          },
-        },
-      },
-      ...material.intake.map((r) => ({ id: r.id, data: r.data })),
-      ...rules,
-    ];
-    const generated = await modelDecision(
-      "coaching",
-      b.message,
-      evidence,
-      modelAccounting(db, a, "coaching"),
-    );
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
-      const d = await putRecord(
-        tx,
-        a,
-        "decision",
-        {
-          ...generated.decision,
-          brainVersionId: released[0].id,
-          clientSnapshotId: twin.id,
-        },
-        { ownerId: a.userId, status: "pending_review" },
-      );
-      await putException(
-        tx,
-        a,
-        {
-          category: "decision_review",
-          decisionId: d.id,
-          subscriberId: a.userId,
-          description: generated.decision.reason,
-        },
-        { ownerId: a.userId, status: "open" },
-      );
-      await event(tx, a, "coaching.review_required", d.id);
-      return {
-        pendingReview: true,
-        message:
-          "Your digital coach has prepared a response for your trainer to review.",
-      };
     });
   });
   app.post("/api/v1/messages", async (req) => {
@@ -1420,127 +1413,64 @@ export async function buildApp(
     if (a.role !== "subscriber") trainer(req);
     const b = z
       .object({
-        text: z.string().min(1).max(4000),
+        text: z.string().trim().max(4000).default(""),
         subscriberId: id.optional(),
+        attachmentIds: z.array(id).max(5).default([]),
       })
+      .refine(
+        (b) => b.text.length > 0 || b.attachmentIds.length > 0,
+        "Write a message or attach a file",
+      )
       .parse(req.body);
     const target = a.role === "subscriber" ? a.userId : b.subscriberId;
     if (!target) throw fail(400, "SUBSCRIBER_REQUIRED", "Select a subscriber");
     return db.tenant(a, async (tx) => {
+      await validateChatAttachments(tx, a, target, b.attachmentIds);
+      await lockTraining(tx, a, target);
       const [m] = await tx.query(
         "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role='subscriber'",
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      return putRecord(
+      const safety = a.role === "subscriber" && safetySignal(b.text);
+      if (safety) await openTrainingHold(tx, a, target, b.text);
+      const message = await putRecord(
         tx,
         a,
         "message",
         {
           text: b.text,
           author: a.role === "subscriber" ? "subscriber" : "trainer",
+          authorUserId: a.userId,
           subscriberId: target,
         },
         { ownerId: target, status: "sent" },
       );
+      await bindChatAttachments(tx, a, target, message.id, b.attachmentIds);
+      const notice = {
+        category: "coaching" as const,
+        dedupeKey: `message:${message.id}`,
+        title: "You have a new coaching message",
+        body: "Open your coaching conversation to read the new message.",
+        templateKey: "coaching-message",
+      };
+      if (a.role === "subscriber") {
+        if (!safety)
+          await notifyCoachingTeam(tx, a, {
+            ...notice,
+            href: "/trainer/messages",
+          });
+      } else
+        await notifyUser(tx, a, {
+          ...notice,
+          userId: target,
+          href: "/app/chat",
+        });
+      return b.attachmentIds.length
+        ? (await tx.query("SELECT * FROM records WHERE id=$1", [message.id]))[0]
+        : message;
     });
   });
-  app.post("/api/v1/takeover", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({ subscriberId: id, active: z.boolean() })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      await tx.query(
-        "UPDATE records SET status='ended' WHERE kind='takeover' AND owner_user_id=$1",
-        [b.subscriberId],
-      );
-      if (b.active)
-        await putRecord(
-          tx,
-          a,
-          "takeover",
-          { trainerId: a.userId },
-          { ownerId: b.subscriberId, status: "active" },
-        );
-      await event(tx, a, "coaching.takeover_changed", b.subscriberId, {
-        active: b.active,
-      });
-      return { ok: true };
-    });
-  });
-  app.post("/api/v1/exceptions/:id/resolve", async (req) => {
-    const a = trainer(req);
-    const b = z
-      .object({
-        note: z.string().min(3).max(4000),
-        approveDecision: z.boolean().default(false),
-      })
-      .parse(req.body);
-    return db.tenant(a, async (tx) => {
-      const e = await findRecord(tx, (req.params as any).id, "exception");
-      if (e.status === "resolved") return e;
-      if (b.approveDecision && e.data.decisionId) {
-        const d = await findRecord(tx, e.data.decisionId, "decision");
-        const [release] = await tx.query(
-          "SELECT id FROM records WHERE kind='brain_release' AND status='published'",
-        );
-        const [consent] = await tx.query(
-          "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC LIMIT 1",
-          [e.data.subscriberId],
-        );
-        if (!consent?.granted || release?.id !== d.data.brainVersionId)
-          throw fail(
-            409,
-            "REVIEW_STALE",
-            "Consent or the published Brain changed; prepare a fresh decision",
-          );
-        if (d.status !== "pending_review")
-          throw fail(
-            409,
-            "DECISION_STATE",
-            "This decision has already been reviewed",
-          );
-        if (d.data.program)
-          await putRecord(
-            tx,
-            a,
-            "program",
-            {
-              ...d.data.program,
-              sourceDecisionId: d.id,
-              brainVersionId: d.data.brainVersionId,
-              authorId: a.userId,
-              allowedUses: ["render", "model_prompt"],
-            },
-            { ownerId: e.data.subscriberId, status: "assigned" },
-          );
-        await tx.query("UPDATE records SET status='approved' WHERE id=$1", [
-          d.id,
-        ]);
-        await putRecord(
-          tx,
-          a,
-          "message",
-          {
-            text: d.data.message,
-            author: "digital_reviewed",
-            reviewedBy: a.userId,
-            decisionId: d.id,
-            subscriberId: e.data.subscriberId,
-          },
-          { ownerId: e.data.subscriberId, status: "sent" },
-        );
-      }
-      await tx.query(
-        "UPDATE records SET status='resolved',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [e.id, JSON.stringify({ resolution: b.note, resolvedBy: a.userId })],
-      );
-      await event(tx, a, "exception.resolved", e.id);
-      return { ok: true };
-    });
-  });
-
   app.post("/api/v1/products", async (req) => {
     const a = owner(req),
       b = productSchema.parse(req.body);
@@ -1619,95 +1549,7 @@ export async function buildApp(
     );
     return { ok: true };
   });
-  app.post("/api/v1/payments/checkout", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const b = z.object({ productId: id }).parse(req.body);
-    const product = await db.tenant(a, (tx) =>
-      findRecord(tx, b.productId, "product"),
-    );
-    if (product.status !== "published" || !product.data.stripePriceId)
-      throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not available");
-    if (product.data.tier === "workout_nutrition")
-      await db.tenant({ ...a, role: "owner" }, requireNutritionReady);
-    const existing = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing')",
-        [a.userId],
-      ),
-    );
-    if (existing.length)
-      throw fail(409, "ALREADY_SUBSCRIBED", "Manage your existing membership");
-    if (a.role !== "subscriber")
-      throw fail(
-        403,
-        "SUBSCRIBER_REQUIRED",
-        "Sign in as a subscriber to purchase a membership",
-      );
-    const intent = await db.tenant({ ...a, role: "owner" }, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        a.tenantId + ":checkout:" + a.userId,
-      ]);
-      const [existing] = await tx.query(
-        "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->>'expiresAt')::timestamptz>now() ORDER BY created_at DESC LIMIT 1",
-        [a.userId],
-      );
-      if (existing) {
-        if (existing.data.productId !== product.id)
-          throw fail(
-            409,
-            "CHECKOUT_OPEN",
-            "Finish or wait for your current checkout to expire before choosing another offer",
-          );
-        return existing;
-      }
-      return putRecord(
-        tx,
-        a,
-        "checkout",
-        {
-          productId: product.id,
-          priceId: product.data.stripePriceId,
-          email: a.email,
-          expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
-        },
-        { status: "creating" },
-      );
-    });
-    const checkout = await stripe.checkout.sessions.create(
-      {
-        mode: "subscription",
-        customer_email: intent.data.email,
-        client_reference_id: intent.id,
-        line_items: [{ price: intent.data.priceId, quantity: 1 }],
-        expires_at: Math.floor(
-          new Date(intent.data.expiresAt).getTime() / 1000,
-        ),
-        metadata: {
-          tenant_id: a.tenantId,
-          user_id: a.userId,
-          intent_id: intent.id,
-        },
-        subscription_data: {
-          metadata: {
-            tenant_id: a.tenantId,
-            user_id: a.userId,
-            product_id: product.id,
-          },
-        },
-        success_url: `${publicUrl()}/app/membership?checkout=complete`,
-        cancel_url: `${publicUrl()}/app/membership`,
-      },
-      { idempotencyKey: "checkout:" + intent.id },
-    );
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
-      tx.query(
-        "UPDATE records SET status='open',data=data||$2::jsonb WHERE id=$1",
-        [intent.id, JSON.stringify({ providerId: checkout.id })],
-      ),
-    );
-    return { url: checkout.url };
-  });
+  registerSubscriptionCheckout(app, db, requireNutritionReady);
   app.post("/api/v1/membership/change-plan", async (req) => {
     const a = identity(req),
       b = z.object({ productId: id }).strict().parse(req.body);
@@ -1719,7 +1561,7 @@ export async function buildApp(
         "PLAN_CHANGES_PENDING",
         "Plan changes await activation of the reviewed billing policy.",
       );
-    const stripe = requireCommerce();
+    const stripe = stripeClient();
     const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
@@ -1830,202 +1672,6 @@ export async function buildApp(
     );
     return { url: portal.url };
   });
-  app.post("/api/v1/membership/cancel", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const [s] = await db.tenant(a, (tx) =>
-      tx.query("SELECT * FROM subscriptions WHERE user_id=$1", [a.userId]),
-    );
-    if (!s?.provider_id)
-      throw fail(404, "NO_SUBSCRIPTION", "No provider subscription found");
-    await stripe.subscriptions.update(
-      s.provider_id,
-      { cancel_at_period_end: true },
-      { idempotencyKey: `cancel:${s.id}:${s.period_end}` },
-    );
-    await db.tenant(a, async (tx) => {
-      await tx.query(
-        "UPDATE subscriptions SET cancel_at_period_end=true WHERE id=$1",
-        [s.id],
-      );
-      await event(tx, a, "subscription.cancel_scheduled", s.id);
-    });
-    return { ok: true, accessUntil: s.period_end };
-  });
-  app.post("/api/v1/membership/reactivate", async (req) => {
-    const a = identity(req),
-      stripe = requireCommerce();
-    const [s] = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 AND period_end>now()",
-        [a.userId],
-      ),
-    );
-    if (!s?.provider_id)
-      throw fail(404, "NO_SUBSCRIPTION", "No renewable membership");
-    await stripe.subscriptions.update(
-      s.provider_id,
-      { cancel_at_period_end: false },
-      { idempotencyKey: `reactivate:${s.id}:${s.period_end}` },
-    );
-    await db.tenant(a, (tx) =>
-      tx.query(
-        "UPDATE subscriptions SET cancel_at_period_end=false WHERE id=$1",
-        [s.id],
-      ),
-    );
-    return { ok: true };
-  });
-  app.post("/api/v1/refund-requests", async (req) => {
-    const a = identity(req);
-    const b = z
-      .object({
-        chargeId: z.string().min(3).max(200),
-        reason: z.string().min(5).max(2000),
-      })
-      .parse(req.body);
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
-      const [charge] = await tx.query(
-        "SELECT * FROM journals WHERE data->>'userId'=$1 AND data->>'chargeId'=$2",
-        [a.userId, b.chargeId],
-      );
-      if (
-        !charge ||
-        !refundEligible(charge.data.chargedAt ?? charge.created_at)
-      )
-        throw fail(
-          400,
-          "REFUND_WINDOW",
-          "This charge is outside the seven-day request window",
-        );
-      const [existing] = await tx.query(
-        "SELECT id FROM records WHERE kind='refund' AND data->>'chargeId'=$1",
-        [b.chargeId],
-      );
-      if (existing)
-        throw fail(409, "ALREADY_REQUESTED", "A refund request already exists");
-      return putRecord(
-        tx,
-        a,
-        "refund",
-        {
-          ...b,
-          journalId: charge.id,
-          amountMinor: charge.data.grossMinor,
-          requestedAt: new Date().toISOString(),
-        },
-        { ownerId: a.userId, status: "requested" },
-      );
-    });
-  });
-  app.post("/api/v1/refund-requests/:id/decision", async (req) => {
-    const a = owner(req);
-    const b = z
-      .object({ approve: z.boolean(), reason: z.string().min(3).max(2000) })
-      .parse(req.body);
-    requireRecentMfa(a);
-    const stripe = b.approve ? requireCommerce() : null;
-    const r = await db.tenant(a, async (tx) => {
-      const [r] = await tx.query(
-        "SELECT * FROM records WHERE id=$1 AND kind='refund' FOR UPDATE",
-        [id.parse((req.params as any).id)],
-      );
-      if (!r) throw fail(404, "NOT_FOUND", "Refund request unavailable");
-      if (r.status !== "requested")
-        throw fail(
-          409,
-          "REFUND_STATE",
-          "This request is already being reviewed or submitted; reconcile its existing instruction",
-        );
-      await tx.query(
-        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1",
-        [
-          r.id,
-          b.approve ? "submitting" : "declined",
-          JSON.stringify({
-            decisionReason: b.reason,
-            reviewedBy: a.userId,
-            submittedAt: new Date().toISOString(),
-          }),
-        ],
-      );
-      await event(
-        tx,
-        a,
-        b.approve ? "refund.approved" : "refund.declined",
-        r.id,
-      );
-      return r;
-    });
-    if (stripe) {
-      try {
-        const refund = await stripe.refunds.create(
-          {
-            charge: r.data.chargeId,
-            metadata: { refund_request_id: r.id, tenant_id: a.tenantId },
-          },
-          { idempotencyKey: `refund:${r.id}` },
-        );
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE records SET status='submitted',data=data||$2::jsonb WHERE id=$1 AND status IN ('submitting','unknown')",
-            [r.id, JSON.stringify({ providerRefundId: refund.id })],
-          ),
-        );
-      } catch (error) {
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE records SET status='unknown' WHERE id=$1 AND status='submitting'",
-            [r.id],
-          ),
-        );
-        throw error;
-      }
-    }
-    return { ok: true };
-  });
-
-  app.post("/api/v1/refund-requests/:id/reconcile", async (req) => {
-    const a = owner(req);
-    requireRecentMfa(a);
-    const stripe = requireCommerce();
-    const r = await db.tenant(a, (tx) =>
-      findRecord(tx, (req.params as any).id, "refund"),
-    );
-    if (!["submitting", "submitted", "unknown"].includes(r.status))
-      return { status: r.status };
-    const page = await stripe.refunds.list({
-      charge: r.data.chargeId,
-      limit: 100,
-    });
-    const remote = page.data.find(
-      (item) =>
-        item.id === r.data.providerRefundId ||
-        item.metadata?.refund_request_id === r.id,
-    );
-    if (!remote)
-      throw fail(
-        409,
-        "REFUND_UNRESOLVED",
-        page.has_more
-          ? "The provider history needs a full finance reconciliation"
-          : "No matching provider refund is confirmed; the existing instruction remains held",
-      );
-    await processStripeEvent(db, {
-      id: "reconcile-refund:" + remote.id + ":" + remote.status,
-      created: Math.floor(Date.now() / 1000),
-      type: "refund.updated",
-      data: { object: remote },
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "refund.provider_reconciled", r.id, {
-        providerRefundId: remote.id,
-        status: remote.status,
-      }),
-    );
-    return { status: remote.status };
-  });
-
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);
     requireRecentMfa(a);
@@ -2177,27 +1823,44 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
+      if (b.type === "voice" || b.type === "wearable") {
+        await workspaceLock(tx, a.tenantId);
+        if (b.type === "voice")
+          await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+            a.tenantId + ":training:" + a.userId,
+          ]);
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId +
+            ":" +
+            (b.type === "voice" ? "voice" : "integrations") +
+            ":" +
+            a.userId,
+        ]);
+      }
+      if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":training:" + a.userId,
+        ]);
+      if (!b.granted && (b.type === "voice" || b.type === "wearable"))
+        await disableUserIntegrations(tx, a.userId, b.type);
       if (b.type.startsWith("nutrition"))
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
         ]);
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
-        [
-          randomUUID(),
-          a.tenantId,
-          a.userId,
-          b.type,
-          "draft-2026-09",
-          b.granted,
-        ],
+        [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
-      if (!b.granted && !b.type.startsWith("nutrition"))
+      if (!b.granted && b.type === "coaching") {
+        await revokeCoachingFeedbackLearning(tx, a.userId);
         await tx.query(
           "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
           [a.userId],
         );
+      }
       if (!b.granted && b.type.startsWith("nutrition")) {
         await eraseMealCaptures(tx, a.userId);
         if (b.type !== "nutrition_photo")
@@ -2212,26 +1875,7 @@ export async function buildApp(
   });
   app.get("/api/v1/privacy/export", async (req, reply) => {
     const a = identity(req);
-    const data = await db.tenant(a, async (tx) => ({
-      profile: { name: a.name, email: a.email },
-      records: await tx.query(
-        "SELECT kind,status,data,created_at FROM records WHERE owner_user_id=$1",
-        [a.userId],
-      ),
-      workouts: await tx.query(
-        "SELECT * FROM workout_events WHERE user_id=$1",
-        [a.userId],
-      ),
-      mealCaptures: await exportMealCaptures(tx, a.userId),
-      consents: await tx.query(
-        "SELECT document_type,document_version,granted,created_at FROM consent_records WHERE user_id=$1",
-        [a.userId],
-      ),
-      subscriptions: await tx.query(
-        "SELECT status,period_end,cancel_at_period_end,price_minor FROM subscriptions WHERE user_id=$1",
-        [a.userId],
-      ),
-    }));
+    const data = await exportPersonalData(db, a, privacyHooks);
     reply.header(
       "Content-Disposition",
       'attachment; filename="coaching-data.json"',
@@ -2274,7 +1918,34 @@ export async function buildApp(
         consent: z.literal(true),
       })
       .parse(req.body);
+    const importConsentVersion =
+      (await legalAcceptanceVersion(db, "wearable")) +
+      "|integration-consent:v1";
     return db.tenant(a, async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [current] = await tx.query(
+        "SELECT integration_actor_is_current($1,$2) AS active",
+        [a.tenantId, a.userId],
+      );
+      if (!current?.active)
+        throw fail(
+          403,
+          "WORKSPACE_CLOSED",
+          "This workspace is no longer active.",
+        );
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":integrations:" + a.userId,
+      ]);
+      await tx.query(
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,true)",
+        [
+          randomUUID(),
+          a.tenantId,
+          a.userId,
+          "wearable:" + b.source,
+          importConsentVersion,
+        ],
+      );
       const hash = createHash("sha256")
         .update(JSON.stringify(b.observations))
         .digest("hex");
@@ -2313,9 +1984,23 @@ export async function buildApp(
         marketing: z.boolean(),
       })
       .parse(req.body);
-    return db.tenant(a, (tx) =>
-      putRecord(tx, a, "preferences", b, { status: "active" }),
-    );
+    return db.tenant(a, async (tx) => {
+      // Older clients still use this endpoint. Keep their explicit opt-outs
+      // effective without resetting newer quiet-hour or booking preferences.
+      await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+        [
+          a.tenantId,
+          a.userId,
+          JSON.stringify({
+            email: b.emailNotifications,
+            workouts: b.workoutReminders,
+            marketing: b.marketing,
+          }),
+        ],
+      );
+      return putRecord(tx, a, "preferences", b, { status: "active" });
+    });
   });
   app.get("/api/v1/admin/overview", async (req) => {
     const a = identity(req);

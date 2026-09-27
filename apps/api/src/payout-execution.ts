@@ -5,10 +5,20 @@ import {
   ProviderUnavailable,
 } from "@trainer/providers";
 import { financeSummary, transitionPayout } from "./finance.ts";
+import { pendingAffiliateClawbacks } from "./affiliates.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 /** Authority and recent MFA are checked by both route entry points. */
-export async function executePayout(db: Database, a: Actor, payoutId: string) {
+export async function executePayout(
+  db: Database,
+  a: Actor,
+  payoutId: string,
+  approval?: {
+    configurationId: string;
+    revision: number;
+    maxPayoutMinor: number;
+  },
+) {
   const lean = integrationStatus().find((x) => x.id === "lean");
   if (!lean?.configured || !lean.approved)
     throw new ProviderUnavailable(
@@ -25,6 +35,24 @@ export async function executePayout(db: Database, a: Actor, payoutId: string) {
         "PAYOUT_STATE",
         "Only a prepared, unsubmitted instruction may execute",
       );
+    if (approval) {
+      const [configuration] = await tx.query(
+        "SELECT version,data FROM records WHERE id=$1 AND kind='finance_automation' FOR UPDATE",
+        [approval.configurationId],
+      );
+      if (
+        !configuration ||
+        configuration.version !== approval.revision ||
+        !configuration.data.enabled ||
+        !configuration.data.executePayouts ||
+        Number(p.amount_minor) > approval.maxPayoutMinor ||
+        Number(p.amount_minor) > configuration.data.maxPayoutMinor
+      )
+        throw fail(
+          "AUTOMATION_APPROVAL_CHANGED",
+          "Payment execution approval or cap changed before dispatch",
+        );
+    }
     const [beneficiary] = await tx.query(
       "SELECT id FROM records WHERE kind='beneficiary' AND status='verified' AND data->>'providerId'=$1 AND (data->>'holdUntil')::timestamptz<now()",
       [p.beneficiary_id],
@@ -35,6 +63,11 @@ export async function executePayout(db: Database, a: Actor, payoutId: string) {
         "Recheck destination approval and the bank-change hold",
       );
     const summary = await financeSummary(tx);
+    if (await pendingAffiliateClawbacks(tx))
+      throw fail(
+        "AFFILIATE_RECONCILIATION_REQUIRED",
+        "Reconcile affiliate corrections before paying trainer earnings",
+      );
     if (
       summary.earnedMinor < summary.reservedMinor ||
       (summary.accounts.bank_cash ?? 0) < summary.reservedMinor

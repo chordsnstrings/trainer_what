@@ -12,6 +12,7 @@ import {
   INTEGRATION_CATALOG,
   testIntegration,
   validateIntegrationValues,
+  integrationCapability,
   type IntegrationDefinition,
 } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
@@ -108,8 +109,20 @@ function isActive(def: IntegrationDefinition, row?: SettingsRow) {
     const inherited = integrationStatus().find((item) => item.id === def.id);
     return Boolean(inherited?.configured && inherited.approved);
   }
+  const capability = integrationCapability(def.id, {
+    ...fieldValues(def, row),
+    ...Object.fromEntries(
+      def.fields
+        .filter((field) => field.type === "secret")
+        .map((field) => [
+          field.key,
+          row.encrypted_secrets[field.key] ? "stored" : "",
+        ]),
+    ),
+  });
   return Boolean(
     def.implemented &&
+    (!capability || capability.approved) &&
     row.enabled &&
     row.last_test?.revision === row.revision &&
     ["verified", "validated"].includes(row.last_test.status),
@@ -480,7 +493,12 @@ export function platformSettingsRoutes(
       let status: TestResult["status"] = "failed";
       // Network calls never hold a database transaction or receive unsaved fields.
       try {
-        const result = await probe(def.id, configuredValues(def, snapshot));
+        const values = configuredValues(def, snapshot);
+        const capability = integrationCapability(def.id, values);
+        const result =
+          capability && !capability.approved
+            ? { status: "unavailable" as const }
+            : await probe(def.id, values);
         if (
           ["verified", "validated", "unavailable", "failed"].includes(
             result.status,

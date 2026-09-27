@@ -1,5 +1,9 @@
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
+import {
+  checkAcquisitionConsent,
+  checkCompletionFlows,
+} from "./browser-completion-check.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const browser = await chromium.launch({
@@ -13,7 +17,8 @@ const errors = [];
 const failedRequests = [];
 const visitedRoutes = new Set();
 const pages = [page];
-function observe(page) {
+const nextApiRequest = new WeakMap();
+async function observe(page) {
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && frame.url().startsWith(base))
       visitedRoutes.add(new URL(frame.url()).pathname);
@@ -22,14 +27,29 @@ function observe(page) {
   page.on("requestfailed", (r) =>
     failedRequests.push({ url: r.url(), error: r.failure()?.errorText }),
   );
+  // This journey visits dozens of screens faster than a person. Keep actual
+  // network requests inside the normal server budget; never weaken its limits.
+  await page.route("**/api/v1/**", async (route) => {
+    const context = page.context();
+    const now = Date.now();
+    const delay = Math.max(0, (nextApiRequest.get(context) ?? now) - now);
+    nextApiRequest.set(context, now + delay + 650);
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (!page.isClosed()) await route.continue();
+  });
 }
-observe(page);
+await observe(page);
 
+async function capture(target, options) {
+  if (process.env.BROWSER_SCREENSHOTS === "true")
+    await target.screenshot(options);
+}
 const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
 await mkdir("test-results", { recursive: true });
 try {
+  const acquisitionConsent = await checkAcquisitionConsent({ page, base });
   await page.goto(base, { waitUntil: "networkidle" });
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/landing-desktop.png",
     fullPage: true,
   });
@@ -51,7 +71,7 @@ try {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/trainer");
   await page.getByRole("heading", { name: "Good to see you, Alex." }).waitFor();
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/trainer-desktop.png",
     fullPage: true,
   });
@@ -60,12 +80,15 @@ try {
     "/trainer/subscribers",
     "/trainer/programs",
     "/trainer/finance",
+    "/trainer/affiliates",
     "/trainer/integrations",
     "/trainer/settings",
     "/admin",
+    "/admin/affiliates",
+    "/admin/infrastructure/actions",
   ]) {
     await page.goto(base + route);
-    await page.locator(".page-heading h1").waitFor();
+    await page.getByRole("heading", { level: 1 }).first().waitFor();
   }
   await page.goto(base + "/trainer/onboarding/identity");
   await page
@@ -101,12 +124,12 @@ try {
     throw new Error("Onboarding did not resume persisted identity");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + "/trainer");
-  await page.locator(".page-heading h1").waitFor();
+  await page.getByRole("heading", { level: 1 }).first().waitFor();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   if (overflow) throw new Error("Mobile page overflows viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/trainer-mobile.png",
     fullPage: true,
   });
@@ -121,7 +144,7 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   )
     throw new Error("Mobile onboarding overflows viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/onboarding-mobile.png",
     fullPage: true,
   });
@@ -129,6 +152,11 @@ try {
   for (const route of [
     "/trainer/nutrition",
     "/trainer/nutrition/cases",
+    "/trainer/nutrition/learning",
+    "/trainer/nutrition/methods",
+    "/trainer/nutrition/clients",
+    "/trainer/nutrition/purchases",
+    "/trainer/nutrition/recovery",
     "/trainer/nutrition/recipes",
     "/trainer/nutrition/policy",
     "/trainer/nutrition/scenarios",
@@ -141,7 +169,7 @@ try {
       .getByRole("heading", { name: "Nutrition coaching", exact: true })
       .waitFor();
     if (route.endsWith("/cases"))
-      await page.screenshot({
+      await capture(page, {
         path: "test-results/nutrition-coach-cases.png",
         fullPage: true,
       });
@@ -155,7 +183,7 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   )
     throw new Error("Nutrition onboarding overflows mobile viewport");
-  await page.screenshot({
+  await capture(page, {
     path: "test-results/nutrition-onboarding-mobile.png",
     fullPage: true,
   });
@@ -164,8 +192,14 @@ try {
   });
   const subscriber = await subscriberContext.newPage();
   pages.push(subscriber);
-  observe(subscriber);
+  await observe(subscriber);
   await subscriber.goto(base + "/login");
+  await subscriber
+    .getByRole("button", {
+      name: "Continue without analytics",
+      exact: true,
+    })
+    .click();
   await subscriber.getByLabel("Email address").fill("sam.taylor@example.test");
   await subscriber
     .getByLabel("Password", { exact: true })
@@ -176,7 +210,7 @@ try {
   await subscriber.waitForURL("**/app");
   await subscriber.goto(base + "/app/program");
   await subscriber
-    .getByRole("button", { name: "Start workout" })
+    .getByRole("button", { name: /^Start (workout|this session)$/ })
     .first()
     .click();
   await subscriber.waitForURL("**/app/workouts/*");
@@ -213,13 +247,13 @@ try {
     .getByRole("button", { name: "Finish workout", exact: true })
     .click();
   await subscriber.getByText("Workout completed", { exact: true }).waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/subscriber-workout-mobile.png",
     fullPage: true,
   });
   for (const route of ["/app/bookings", "/app/support", "/app/profile"]) {
     await subscriber.goto(base + route);
-    await subscriber.locator(".page-heading h1").waitFor();
+    await subscriber.getByRole("heading", { level: 1 }).first().waitFor();
   }
   await subscriber.goto(base + "/app/twin");
   await subscriber
@@ -228,13 +262,50 @@ try {
       exact: true,
     })
     .waitFor();
+  await subscriber
+    .getByLabel("Communication preferences", { exact: true })
+    .fill("Please explain the next step clearly.");
+  const contextSaved = subscriber.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname.endsWith("/context") &&
+      r.request().method() === "PUT",
+  );
+  await subscriber
+    .getByRole("button", { name: "Save preferences", exact: true })
+    .click();
+  const contextResponse = await contextSaved;
+  if (!contextResponse.ok())
+    throw new Error(
+      "Client context save failed: " + (await contextResponse.text()),
+    );
+  const savedContext = await contextResponse.json();
+  await subscriber.reload();
+  await subscriber
+    .getByLabel("Communication preferences", { exact: true })
+    .waitFor();
+  if (
+    (await subscriber
+      .getByLabel("Communication preferences", { exact: true })
+      .inputValue()) !== "Please explain the next step clearly."
+  )
+    throw new Error("Client context did not persist");
+  await page.goto(
+    base + `/trainer/subscribers/${savedContext.provenance.userId}`,
+  );
+  await page.getByLabel("Communication preferences", { exact: true }).waitFor();
+  if (
+    !(await page
+      .getByLabel("Communication preferences", { exact: true })
+      .isDisabled())
+  )
+    throw new Error("Trainer must not overwrite client-owned preferences");
   if (
     await subscriber.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
     )
   )
     throw new Error("Mobile Client Twin overflows viewport");
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/client-twin-mobile.png",
     fullPage: true,
   });
@@ -248,7 +319,7 @@ try {
       exact: false,
     })
     .waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/nutrition-meals-mobile.png",
     fullPage: true,
   });
@@ -264,18 +335,28 @@ try {
   await subscriber
     .getByRole("heading", { name: "One list for the week", exact: true })
     .waitFor();
-  await subscriber.getByText("2800 g", { exact: true }).waitFor();
-  await subscriber.locator(".nutrition-grocery input").first().check();
+  await subscriber.getByText("2800 g", { exact: true }).first().waitFor();
+  await subscriber.getByRole("checkbox", { name: /^Oat mixture/ }).check();
   await subscriber
     .getByRole("button", { name: "Save shopping progress", exact: true })
     .click();
   await subscriber
     .getByText("Pantry checklist saved", { exact: true })
     .waitFor();
-  await subscriber.screenshot({
+  await capture(subscriber, {
     path: "test-results/nutrition-groceries-mobile.png",
     fullPage: true,
   });
+  await subscriber.reload();
+  await subscriber
+    .getByRole("button", { name: "Weekly groceries", exact: true })
+    .click();
+  const persistedPantry = subscriber.getByRole("checkbox", {
+    name: /^Oat mixture/,
+  });
+  await persistedPantry.waitFor();
+  if (!(await persistedPantry.isChecked()))
+    throw new Error("Saved grocery checklist was not restored");
   await subscriber
     .getByRole("button", { name: "Meal plan", exact: true })
     .click();
@@ -337,6 +418,14 @@ try {
     .getByRole("button", { name: "Meal diary", exact: true })
     .click();
   await subscriber.getByText(/1 meals across 1 days/).waitFor();
+  const completionFlows = await checkCompletionFlows({
+    coach: page,
+    subscriber,
+    browser,
+    base,
+    observe,
+    pages,
+  });
   await subscriberContext.close();
   await writeFile(
     "test-results/browser-check.json",
@@ -344,6 +433,8 @@ try {
       {
         routes: visitedRoutes.size,
         routePaths: [...visitedRoutes].sort(),
+        acquisitionConsent,
+        completionFlows,
         onboardingResume: true,
         clientTwin: true,
         mobileWidth: 390,
@@ -363,15 +454,16 @@ try {
   );
   if (errors.length) throw new Error(errors.join("\n"));
   console.log(
-    "Browser smoke passed: landing, login, trainer routes, admin, mobile navigation, no overflow and offline workout reload/replay.",
+    "Browser smoke passed: consent lifecycle, saved onboarding, galleries and website publication, private chat downloads, notification preferences, mobile layout and offline workout/meal replay.",
   );
 } catch (error) {
   const details = [];
   for (const [index, p] of pages.entries()) {
     if (p.isClosed()) continue;
-    await p
-      .screenshot({ path: `test-results/failure-${index}.png`, fullPage: true })
-      .catch(() => {});
+    await capture(p, {
+      path: `test-results/failure-${index}.png`,
+      fullPage: true,
+    }).catch(() => {});
     details.push({
       url: p.url(),
       text: await p

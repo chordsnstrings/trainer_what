@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  nutritionTeachingDecisionSchema,
+  nutritionExpectedMealSchema,
+  nutritionPrinciples,
+  nutritionSampleMealSchema,
+} from "./nutrition-learning-schema.ts";
 
 export const nutritionCategories = [
   "diet",
@@ -43,6 +49,7 @@ export const nutritionCaseSchema = z
     changeWhen: text(),
     referWhen: text(),
     rights: z.literal(true),
+    decision: nutritionTeachingDecisionSchema.optional(),
   })
   .strict();
 export const nutrientSchema = z
@@ -242,6 +249,8 @@ export const nutritionScenarioSchema = z
     expectedTargetKcal: z.number().int().positive().nullable(),
     expectedCaseId: z.string().uuid(),
     heldOut: z.literal(true),
+    expectedMeal: nutritionExpectedMealSchema.optional(),
+    expectedPrinciple: z.enum(nutritionPrinciples).optional(),
   })
   .strict();
 export const nutritionEvaluationSchema = z
@@ -255,11 +264,19 @@ export const nutritionEvaluationSchema = z
             targetKcal: z.number().int().positive().nullable(),
             caseIds: z.array(z.string().uuid()).max(40),
             reason: text(),
+            principle: z.enum(nutritionPrinciples),
+            rationaleEvidence: z
+              .object({
+                caseId: z.string().uuid(),
+                quote: z.string().min(12).max(500),
+              })
+              .strict(),
+            sampleMeal: nutritionSampleMealSchema.nullable(),
           })
           .strict(),
       )
       .min(1)
-      .max(40),
+      .max(50),
   })
   .strict();
 export class NutritionBlocked extends Error {

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { AcquisitionConsent } from "../components/acquisition";
 import "./globals.css";
 import "./nutrition.css";
 import "./platform-settings.css";
 import "./trainer-design.css";
 import "./meal-capture.css";
+import "./coach-site.css";
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },
@@ -14,7 +16,10 @@ export const metadata: Metadata = {
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <AcquisitionConsent />
+      </body>
     </html>
   );
 }

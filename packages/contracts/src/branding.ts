@@ -7,6 +7,7 @@ export const brandColorSchema = z
 /** Public display images only. No server fetch, credentials, signed URLs or local hosts. */
 export function isPublicBrandImage(value: string): boolean {
   if (!value) return true;
+  if (/^\/api\/v1\/media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();

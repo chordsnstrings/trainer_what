@@ -200,6 +200,87 @@ export function Onboarding({
         </p>
       )}
       {step.blocker && <p className="notice">{step.blocker}</p>}
+      {!!step.links?.length && (
+        <nav className="onboarding-actions" aria-label="Setup tools">
+          {step.links.map((link: any) => (
+            <Link className="button secondary" key={link.href} href={link.href}>
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+      )}
+      {["interview", "knowledge", "scenarios", "readiness", "publish"].includes(
+        stepKey,
+      ) && (
+        <section className="card" aria-label="Coaching readiness">
+          <h2>Current coaching guidance</h2>
+          <p>
+            {data.teaching.confirmedRules} confirmed rules ·{" "}
+            {data.teaching.coachingCases} coaching cases ·{" "}
+            {data.teaching.actions} bounded actions
+          </p>
+          <p>
+            {data.teaching.brainCurrent
+              ? "Your published Brain matches its current rules and evaluation."
+              : "Current guidance needs evaluation and publication."}
+          </p>
+          <p>
+            {!data.teaching.modelReady
+              ? "A coaching model connection is needed before digital responses are available."
+              : data.teaching.runtime.current
+                ? data.teaching.runtime.automatic
+                  ? "Qualified routine actions run automatically. Exceptions go to you."
+                  : "Shadow mode is active: proposed routine actions still need your review."
+                : data.teaching.runtime.releaseId
+                  ? "Automatic qualification is stale. New teaching, action limits or model settings need requalification."
+                  : "Coaching responses currently need your review. Qualify bounded actions to enable automation."}
+          </p>
+        </section>
+      )}
+      {stepKey.startsWith("nutrition-") && data.teaching.nutrition && (
+        <section className="card" aria-label="Nutrition readiness">
+          <h2>Your nutrition teaching</h2>
+          <p>
+            {
+              data.teaching.nutrition.coverage.filter((c: any) => c.taught > 0)
+                .length
+            }{" "}
+            of {data.teaching.nutrition.coverage.length} decision areas taught ·{" "}
+            {data.teaching.nutrition.calorieMethods} saved calorie methods
+          </p>
+          <p>
+            Provide the recommendation, reasoning, alternatives, client
+            conditions and limits. Calorie methods and client targets express
+            your approach; the app does not choose a clinical formula for you.
+          </p>
+          {data.teaching.nutrition.questions.length > 0 && (
+            <details>
+              <summary>Next teaching questions</summary>
+              <ul>
+                {data.teaching.nutrition.questions.map((q: any) => (
+                  <li key={q.key}>{q.prompt}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <p>
+            Current case evaluation:{" "}
+            {data.teaching.nutrition.evaluationCurrent ? "passed" : "needed"}.
+            Sample week:{" "}
+            {data.teaching.nutrition.previewCurrent ? "current" : "needed"}.
+            Automatic delivery:{" "}
+            {data.teaching.nutrition.ready ? "ready" : "not ready"}.
+          </p>
+          {stepKey === "nutrition-readiness" &&
+            data.teaching.nutrition.gaps.length > 0 && (
+              <ul>
+                {data.teaching.nutrition.gaps.map((gap: string) => (
+                  <li key={gap}>{gap}</li>
+                ))}
+              </ul>
+            )}
+        </section>
+      )}
       <section className="card">
         {stepKey === "identity" ? (
           <IdentityForm step={step} onSaved={refresh} />
@@ -217,9 +298,11 @@ export function Onboarding({
           <>
             <p>
               Your Brain is a versioned set of coaching rules, supporting
-              material and evaluated examples. You review extracted rules and
-              each proposed response. Subscribers see when guidance is digital.
-              Corrections preserve their reason and evidence.
+              material and evaluated examples. You confirm your rules and action
+              limits. Qualified routine actions can run automatically, while
+              exceptions and unqualified responses need your review. Subscribers
+              see when guidance is digital. Corrections keep their reason and
+              evidence.
             </p>
             <p>
               Offering workout + nutrition? Teach your nutrition approach
@@ -274,12 +357,14 @@ export function Onboarding({
         ) : stepKey === "voice" ? (
           <>
             <p>
-              Voice setup is optional. Deferring it does not prevent text
-              coaching.
+              Voice setup is optional. Record separate consent, submit your
+              trainer voice and complete identity verification. The step becomes
+              complete when verification, permission and provider approval are
+              current.
             </p>
             <button
               className="button secondary"
-              disabled={busy}
+              disabled={busy || step.status === "complete"}
               onClick={() => void save({}, true)}
             >
               Defer voice setup
@@ -292,9 +377,9 @@ export function Onboarding({
             </p>
             <p>
               After publication, your storefront is available at{" "}
-              <code>{data.storefrontPath}</code>. Custom domains and subdomain
-              DNS require deployment configuration; no domain has been
-              purchased.
+              <code>{data.storefrontPath}</code>. Manage an owned domain and
+              check its DNS and certificate status in Domains. The reserved
+              address works independently of a custom domain.
             </p>
           </>
         ) : stepKey === "preview" ? (
@@ -317,14 +402,101 @@ export function Onboarding({
                 </div>
               ))}
             </div>
+            <section aria-label="Website and gallery preview">
+              <h3>Your website and galleries</h3>
+              <p>
+                {data.preview.website.published
+                  ? "Website content has been published."
+                  : "Website content has not been published yet."}{" "}
+                {data.preview.website.hasUnpublishedChanges
+                  ? "The saved website draft has unpublished changes."
+                  : ""}
+              </p>
+              {data.preview.website.draft && (
+                <div>
+                  <strong>Saved website draft</strong>
+                  <p>
+                    {data.preview.website.draft.headline ||
+                      "No website headline saved."}
+                  </p>
+                  <p>{data.preview.website.draft.introduction}</p>
+                </div>
+              )}
+              {data.preview.brandDraft && (
+                <p>
+                  A private app design draft is saved (version{" "}
+                  {data.preview.brandDraft.version}). Review and apply it in
+                  Design studio when ready.
+                </p>
+              )}
+              <p>
+                {data.preview.website.launchRequired
+                  ? "Complete launch first, then publish your website draft in the website editor."
+                  : "The website editor publishes its saved draft separately."}
+              </p>
+              <div className="onboarding-actions">
+                <Link
+                  className="button secondary"
+                  href="/trainer/website/preview"
+                >
+                  Open private website preview
+                </Link>
+                <Link className="button secondary" href="/trainer/design">
+                  Review app design
+                </Link>
+                <Link className="button secondary" href="/trainer/galleries">
+                  Review photos and galleries
+                </Link>
+              </div>
+              {data.preview.galleries.length > 0 ? (
+                <ul>
+                  {data.preview.galleries.map((g: any) => (
+                    <li key={g.id}>
+                      {g.title} · {g.photos.length} photos ·{" "}
+                      {g.audience === "draft"
+                        ? "private draft"
+                        : g.audience === "both"
+                          ? "website and client app"
+                          : g.audience === "site"
+                            ? "website"
+                            : "client app"}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No galleries saved yet.</p>
+              )}
+            </section>
+            <section aria-label="Published legal documents">
+              <h3>Current legal documents</h3>
+              <ul>
+                {data.preview.legal.documents.map((document: any) => (
+                  <li key={document.key}>
+                    {document.version === null ? (
+                      `${document.title}: awaiting publication`
+                    ) : (
+                      <Link href={`/${document.key}`}>
+                        {document.title} · version {document.version}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!data.preview.legal.approved && (
+                <p className="notice">
+                  Operator approval of legal documents is pending.
+                </p>
+              )}
+            </section>
             <p className="muted">
-              This preview does not create a charge. Changes to your brand,
-              offer, Brain release or legal version require another review.
+              This preview does not create a charge. Changes to saved teaching,
+              action policies, nutrition methods, design, website, galleries,
+              offers or effective legal documents require another review.
             </p>
             <button
               className="button"
               disabled={busy}
-              onClick={() => void save({})}
+              onClick={() => void save({ digest: data.previewDigest })}
             >
               I have reviewed this preview
             </button>

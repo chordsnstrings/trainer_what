@@ -1,3 +1,5 @@
+> Current completion and verification: [27 September engineering record](docs/VERIFICATION_2026-09-27.md). Real services and deployment remain deferred.
+
 # Trainer Brain Platform
 
 Trainer-branded coaching for UAE/AED: teach a Brain, review its rules, publish a coaching offer, serve subscribers and track trainer earnings.

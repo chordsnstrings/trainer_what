@@ -1,0 +1,14 @@
+ALTER TABLE booking_slots ADD COLUMN timezone text NOT NULL DEFAULT 'Asia/Dubai';
+ALTER TABLE booking_slots ADD COLUMN series_id uuid;
+ALTER TABLE booking_slots ADD COLUMN version integer NOT NULL DEFAULT 1;
+ALTER TABLE booking_slots ADD COLUMN cancellation_hours integer NOT NULL DEFAULT 24 CHECK(cancellation_hours BETWEEN 0 AND 168);
+ALTER TABLE booking_slots ADD COLUMN no_show_policy text NOT NULL DEFAULT 'coach_review' CHECK(no_show_policy IN ('forfeit','coach_review'));
+ALTER TABLE booking_slots ADD COLUMN price_minor bigint NOT NULL DEFAULT 0 CHECK(price_minor BETWEEN 0 AND 10000000);
+ALTER TABLE bookings ADD COLUMN version integer NOT NULL DEFAULT 1;
+ALTER TABLE bookings ADD COLUMN payment_status text NOT NULL DEFAULT 'not_required';
+ALTER TABLE bookings ADD COLUMN hold_expires_at timestamptz;
+ALTER TABLE bookings ADD COLUMN cancel_reason text;
+ALTER TABLE bookings ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX booking_series ON booking_slots(tenant_id,series_id,starts_at);
+CREATE INDEX booking_payment_holds ON bookings(tenant_id,slot_id,status,hold_expires_at);
+INSERT INTO schema_migrations(version) VALUES('019_bookings_completion');

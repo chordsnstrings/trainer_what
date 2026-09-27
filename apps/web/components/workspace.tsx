@@ -1,13 +1,58 @@
 "use client";
+import { Field } from "./field";
+import { TeamControls } from "./team-controls";
+import { Affiliates } from "./affiliates";
+import { InfrastructureActions } from "./infrastructure-actions";
+import { NotificationPreferences, NotificationInbox } from "./notifications";
+import { PushNotifications } from "./push-notifications";
+import { WorkoutNotificationPolicy } from "./lifecycle-policy";
+import { KnowledgeImportReview } from "./ingestion-review";
+import {
+  IntegrationCenter,
+  GuidedSession,
+  IntegrationOperations,
+} from "./integration-center";
+import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
+import { CoachingStudio } from "./coaching-studio";
+import {
+  ExceptionCorrection,
+  CoachingFeedbackQueue,
+} from "./coaching-feedback";
+import {
+  BillingHistory,
+  TrainerFinanceTools,
+  FinancePolicyConsole,
+  FinanceAutomationConsole,
+} from "./finance-completion";
+import { AdminOperations, TrainerAnalytics } from "./admin-operations";
+import { RetentionPanel } from "./retention";
+import {
+  TrainingPrograms,
+  CoachingMessages,
+  TrainingProgress,
+  WorkoutTools,
+} from "./training-workspace";
+import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
+import { SourceCompilation } from "./source-compilation";
+import { InfrastructureObserver } from "./infrastructure-observer";
 import { MarketingPage } from "./marketing-pages";
+import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
+import { AccountExtras, MagicAccess } from "./account-completion";
+import { PasskeyLoginButton } from "./passkeys";
+import {
+  GalleryStudio,
+  WebsiteStudio,
+  CoachWebsite,
+  ClientCoachManifest,
+} from "./coach-site";
 import { PlatformSettings } from "./platform-settings";
 import { MealCapture } from "./meal-capture";
 import {
@@ -98,13 +143,18 @@ const nav = [
   ["Programs", "/trainer/programs", Layers],
   ["Nutrition", "/trainer/nutrition", Activity],
   ["Messages", "/trainer/messages", MessageCircle],
+  ["Notifications", "/trainer/notifications", MessageCircle],
   ["Bookings", "/trainer/bookings", Activity],
   ["Support", "/trainer/support", MessageCircle],
   ["Exceptions", "/trainer/exceptions", AlertCircle],
   ["Business", "/trainer/analytics", Activity],
   ["Finance", "/trainer/finance", Wallet],
+  ["Affiliates", "/trainer/affiliates", Wallet],
   ["Design studio", "/trainer/design", Palette],
+  ["Photos & galleries", "/trainer/galleries", Camera],
+  ["Website", "/trainer/website", Link2],
   ["Integrations", "/trainer/integrations", Link2],
+  ["Team", "/trainer/team", Users],
   ["Settings", "/trainer/settings", Settings],
 ] as const;
 const subNav = [
@@ -113,12 +163,14 @@ const subNav = [
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
   ["Coach chat", "/app/chat", MessageCircle],
+  ["Notifications", "/app/notifications", MessageCircle],
   ["Bookings", "/app/bookings", Activity],
   ["Support", "/app/support", MessageCircle],
   ["Progress", "/app/progress", Activity],
   ["Coaching context", "/app/twin", Brain],
   ["Membership", "/app/membership", Wallet],
   ["Connections", "/app/wearables", Link2],
+  ["Coach galleries", "/app/galleries", Camera],
   ["My profile", "/app/profile", Settings],
 ] as const;
 const questions = [
@@ -180,14 +232,6 @@ function Button({
     >
       {children}
     </button>
-  );
-}
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
   );
 }
 function Empty({
@@ -287,6 +331,9 @@ export default function Workspace() {
       "/signup",
     ].includes(path) ||
     path === "/forgot-password" ||
+    path === "/magic-link" ||
+    path.startsWith("/magic-link/") ||
+    path === "/recover-authenticator" ||
     path.startsWith("/reset-password/") ||
     path.startsWith("/verify-email/") ||
     path.startsWith("/join-coach/") ||
@@ -443,7 +490,16 @@ export default function Workspace() {
           ["Overview", "Finance", "Settings"].includes(item[0]),
         )
       : state.user.role === "staff"
-        ? nav.filter((item) => !["Finance", "Design studio"].includes(item[0]))
+        ? nav.filter(
+            (item) =>
+              ![
+                "Finance",
+                "Design studio",
+                "Photos & galleries",
+                "Website",
+                "Team",
+              ].includes(item[0]),
+          )
         : nav;
   const records = (kind: string) =>
     state.records.filter((x) => x.kind === kind);
@@ -463,6 +519,7 @@ export default function Workspace() {
   const platformName = state.platform?.name || "Trainer Brain";
   return (
     <Shell className="workspace" theme={state.tenant.theme}>
+      {subscriber && <ClientCoachManifest tenant={state.tenant} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
           {subscriber ? (
@@ -618,7 +675,10 @@ export default function Workspace() {
               {success}
             </div>
           )}
-          {path === "/admin/security" ? (
+          {path === "/trainer/notifications" ||
+          path === "/app/notifications" ? (
+            <NotificationInbox />
+          ) : path === "/admin/account-security" ? (
             state.user.platformRole === "admin" ? (
               <>
                 <Heading
@@ -630,6 +690,7 @@ export default function Workspace() {
                   Return to settings & connections
                 </Link>
                 <AccountSecurity />
+                <AccountExtras />
               </>
             ) : (
               <PlatformSettings
@@ -637,6 +698,23 @@ export default function Workspace() {
                 platformRole={state.user.platformRole}
               />
             )
+          ) : path === "/admin/integration-operations" ? (
+            state.user.platformRole === "admin" ? (
+              <IntegrationOperations />
+            ) : (
+              <PlatformSettings
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            )
+          ) : path === "/admin/affiliates" ? (
+            <Affiliates />
+          ) : path === "/trainer/affiliates" ? (
+            <Affiliates trainer />
+          ) : path === "/admin/infrastructure/observer" ? (
+            <InfrastructureObserver />
+          ) : path === "/admin/infrastructure/actions" ? (
+            <InfrastructureActions />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -644,6 +722,34 @@ export default function Workspace() {
               platformRole={state.user.platformRole}
               onSettingsChanged={load}
             />
+          ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(
+              path,
+            ) ? (
+            <>
+              {path === "/admin/acquisition" &&
+                ["admin", "finance"].includes(state.user.platformRole) && (
+                  <p>
+                    <Link className="button secondary" href="/admin/affiliates">
+                      Affiliate agreements and earnings
+                    </Link>
+                  </p>
+                )}
+              {path === "/admin/infrastructure" &&
+                state.user.platformRole === "admin" && (
+                  <p>
+                    <Link
+                      className="button secondary"
+                      href="/admin/infrastructure/observer"
+                    >
+                      Infrastructure status and recommendations
+                    </Link>
+                  </p>
+                )}
+              <AdminOperations
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            </>
           ) : path.startsWith("/admin") ? (
             <Admin {...props} />
           ) : path.includes("/onboarding") ? (
@@ -673,12 +779,43 @@ export default function Workspace() {
               userId={state.user.userId}
               tenantId={state.user.tenantId}
             />
+          ) : path === "/trainer/galleries" ||
+            path === "/trainer/website" ||
+            path.startsWith("/trainer/website/preview") ? (
+            state.user.role === "owner" ? (
+              path === "/trainer/galleries" ? (
+                <GalleryStudio />
+              ) : path === "/trainer/website" ? (
+                <WebsiteStudio tenant={state.tenant} />
+              ) : (
+                <CoachWebsite
+                  preview
+                  path={path.slice("/trainer/website/preview".length)}
+                />
+              )
+            ) : (
+              <div className="notice">
+                Only the trainer owner can manage their galleries and website.
+              </div>
+            )
+          ) : path === "/app/galleries" ? (
+            subscriber ? (
+              <GalleryStudio client />
+            ) : (
+              <div className="notice">
+                Open your trainer galleries to manage client photos.
+              </div>
+            )
           ) : path.includes("/brand") || path === "/trainer/design" ? (
             <Brand {...props} />
           ) : path.includes("/bookings") ? (
             <Bookings role={state.user.role} />
           ) : path.includes("/support") ? (
             <Support records={records("support")} action={action} busy={busy} />
+          ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
+              path,
+            ) ? (
+            <CoachingStudio key={path} path={path} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
@@ -692,12 +829,14 @@ export default function Workspace() {
             <Members {...props} />
           ) : path === "/app/twin" ? (
             <ClientTwin userId={state.user.userId} subscriber />
+          ) : path.startsWith("/app/guided/") ? (
+            <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.includes("/program") ? (
-            <Programs {...props} />
+            <TrainingPrograms state={state} />
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <Messages {...props} />
+            <CoachingMessages state={state} />
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
           ) : path.includes("/finance") ||
@@ -709,11 +848,25 @@ export default function Workspace() {
             path.includes("/wearables") ||
             path.includes("/voice") ||
             path.includes("/domains") ? (
-            <Integrations {...props} />
+            <IntegrationCenter
+              path={path}
+              role={state.user.role}
+              integrations={state.integrations}
+            />
+          ) : path === "/trainer/team" ? (
+            <TeamControls role={state.user.role} />
           ) : path.includes("/settings") ||
             path.includes("/profile") ||
             path.includes("/intake") ? (
             <SettingsView {...props} />
+          ) : path === "/trainer/analytics" &&
+            ["owner", "finance"].includes(state.user.role) ? (
+            <>
+              <TrainerAnalytics />
+              {state.user.role === "owner" && <RetentionPanel />}
+            </>
+          ) : path === "/app/progress" ? (
+            <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
@@ -1032,7 +1185,7 @@ function Brand({ state, onSaved }: ViewProps) {
   );
 }
 
-function BrainView({ state, records, action, busy, path }: ViewProps) {
+function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   const [tab, setTab] = useState(
     path.includes("constitution")
       ? "rules"
@@ -1044,7 +1197,9 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
             ? "releases"
             : "interview",
   );
-  const sources = records("source"),
+  const sources = records("source").filter(
+      (source) => source.status === "ready",
+    ),
     rules = records("rule"),
     answers = records("interview");
   const question =
@@ -1057,6 +1212,22 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
         title="Your coaching mind, made clear."
         detail="Teach the decisions behind your method. Confirm the rules. Keep control of every release."
       />
+      <nav className="button-row" aria-label="Qualified coaching">
+        {[
+          ["teaching", "Teach through cases"],
+          ["actions", "Routine actions"],
+          ["checks", "Independent checks"],
+          ["autonomy", "Activation"],
+        ].map(([key, label]) => (
+          <Link
+            key={key}
+            className="button secondary"
+            href={`/trainer/brain/${key}`}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
       <div className="tabs">
         {[
           ["interview", "Interview"],
@@ -1182,80 +1353,30 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
                 Add to knowledge <Plus size={16} />
               </Button>
             </form>
-            <details>
-              <summary>Import a document</summary>
-              <p className="muted">
-                PDF with selectable text, DOCX, Markdown, CSV or UTF-8 text. Up
-                to 5 MB and 60,000 extracted characters. Scanned documents need
-                OCR first.
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget),
-                    file = f.get("file") as File;
-                  void action(async () => {
-                    if (file.size > 5 * 1024 * 1024)
-                      throw new Error("Choose a file smaller than 5 MB");
-                    const base64 = await new Promise<string>(
-                      (resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onerror = () =>
-                          reject(new Error("Could not read this file"));
-                        reader.onload = () =>
-                          resolve(String(reader.result).split(",")[1]);
-                        reader.readAsDataURL(file);
-                      },
-                    );
-                    return api("/brain/documents", "POST", {
-                      fileName: file.name,
-                      title: f.get("title"),
-                      contentBase64: base64,
-                      rights: true,
-                    });
-                  }, "Document imported for review");
-                }}
-              >
-                <Field label="Document title">
-                  <input name="title" minLength={2} maxLength={120} required />
-                </Field>
-                <Field label="Document">
-                  <input
-                    type="file"
-                    name="file"
-                    accept=".pdf,.docx,.txt,.md,.csv"
-                    required
-                  />
-                </Field>
-                <label className="check-field">
-                  <input type="checkbox" required />I have rights to use this
-                  document and have removed unnecessary personal information.
-                </label>
-                <Button type="submit" secondary disabled={busy}>
-                  Import document
-                </Button>
-              </form>
-            </details>
+            <KnowledgeImportReview onApproved={onSaved} />
           </Card>
           <Card>
             <div className="card-heading">
               <h2>Sources</h2>
               <Badge>{sources.length}</Badge>
             </div>
-            <Button
-              disabled={busy || !sources.length}
-              onClick={() =>
-                void action(
+            <SourceCompilation
+              sources={sources}
+              busy={busy}
+              previous={
+                rules.find((rule) => rule.data.compilationCoverage)?.data
+                  .compilationCoverage
+              }
+              onCompile={(sourceIds) =>
+                action(
                   () =>
                     api("/brain/compile", "POST", {
-                      sourceIds: sources.slice(0, 20).map((s) => s.id),
+                      sourceIds,
                     }),
                   "Draft rules compiled for your review",
                 )
               }
-            >
-              Compile draft rules
-            </Button>
+            />
             {records("conflict")
               .filter((c) => c.status === "open")
               .map((c) => (
@@ -1283,23 +1404,7 @@ function BrainView({ state, records, action, busy, path }: ViewProps) {
                   </form>
                 </div>
               ))}
-            {sources.length ? (
-              sources.map((s) => (
-                <div key={s.id} className="source-row">
-                  <span className="file-icon">
-                    <FileText size={19} />
-                  </span>
-                  <div>
-                    <strong>{s.data.title}</strong>
-                    <p>
-                      {s.data.text.length.toLocaleString()} characters ·{" "}
-                      {new Date(s.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <Badge>Ready</Badge>
-                </div>
-              ))
-            ) : (
+            {!sources.length && (
               <Empty
                 title="Your knowledge starts here"
                 detail="Add a piece of your coaching experience. Every source remains traceable."
@@ -1704,6 +1809,7 @@ function Programs({ state, records, action, busy }: ViewProps) {
   const router = useRouter();
   return (
     <>
+      {sub && <TrainingHoldNotice records={state.records} />}
       <Heading
         eyebrow="STRUCTURE WITH INTENTION"
         title={
@@ -1983,12 +2089,25 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     );
   return (
     <>
+      <TrainingHoldNotice records={state.records} />
+      <WorkoutTools
+        workout={workout}
+        userId={state.user.userId}
+        onChange={async () => {
+          await action(async () => ({}), "Session updated");
+        }}
+      />
       <Heading
         eyebrow="ONE SET AT A TIME"
         title={workout.data.program.title}
         detail="Log what you actually do. You can adjust the weight and reps for every set."
         action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
       />
+      {workout.status === "active" && (
+        <Link className="text-link" href={`/app/guided/${workout.id}`}>
+          Open guided session with exercise cues and rest timers
+        </Link>
+      )}
       {queued > 0 && (
         <div className="notice">
           {queued} set logs waiting to sync.{" "}
@@ -2033,6 +2152,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   const f = new FormData(e.currentTarget),
                     body = {
                       eventKey: crypto.randomUUID(),
+                      rir: Number(f.get("rir")),
+                      notes: String(f.get("notes") || ""),
                       exercise: ex.name,
                       set: set + 1,
                       reps: Number(f.get("reps")),
@@ -2075,6 +2196,26 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     min={0}
                   />
                   <small>reps</small>
+                </label>
+                <label>
+                  <input
+                    aria-label={`${ex.name} set ${set + 1} repetitions in reserve`}
+                    name="rir"
+                    type="number"
+                    min={0}
+                    max={10}
+                    defaultValue={ex.rir ?? 2}
+                    required
+                  />
+                  <small>RIR</small>
+                </label>
+                <label>
+                  <input
+                    aria-label={`${ex.name} set ${set + 1} notes`}
+                    name="notes"
+                    maxLength={1000}
+                    placeholder="Set notes"
+                  />
                 </label>
                 <Button
                   type="submit"
@@ -2281,6 +2422,9 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
   const exceptions = records("exception").filter((e) => e.status === "open");
   return (
     <>
+      <TrainingHoldReview
+        onChange={() => action(async () => {}, "Training review saved")}
+      />
       <Heading
         eyebrow="YOUR JUDGMENT MATTERS"
         title="The attention list."
@@ -2334,6 +2478,14 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
                 Resolve with my review <Check size={16} />
               </Button>
             </form>
+            {e.data.decisionId && (
+              <ExceptionCorrection
+                exceptionId={e.id}
+                onChange={() =>
+                  action(async () => {}, "Coaching correction saved")
+                }
+              />
+            )}
           </Card>
         ))
       ) : (
@@ -2344,13 +2496,24 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
           />
         </Card>
       )}
+      <CoachingFeedbackQueue owner={state.user.role === "owner"} />
     </>
   );
 }
 
 function Finance({ state, records, action, busy, path }: ViewProps) {
+  const [promotionCode, setPromotionCode] = useState("");
+  const [checkout, setCheckout] = useState<{
+    status: string;
+    url?: string;
+  } | null>(null);
   const sub = state.user.role === "subscriber",
-    membership = state.subscriptions[0];
+    subscription = state.subscriptions[0],
+    membership =
+      subscription &&
+      !["canceled", "incomplete_expired"].includes(subscription.status)
+        ? subscription
+        : null;
   const [offer, setOffer] = useState(path.includes("products"));
   return (
     <>
@@ -2371,8 +2534,18 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
           ) : undefined
         }
       />
+      {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
+          {!membership && (
+            <Field label="Discount code (optional)">
+              <input
+                value={promotionCode}
+                maxLength={40}
+                onChange={(e) => setPromotionCode(e.target.value)}
+              />
+            </Field>
+          )}
           <Card>
             <h2>
               {membership
@@ -2391,6 +2564,9 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     ? "Workout + nutrition"
                     : "Workout only"}
                 </p>
+                {membership.data?.premiumVoice === true && (
+                  <p>Premium guided voice included</p>
+                )}
                 {records("product")
                   .filter(
                     (p) =>
@@ -2460,14 +2636,19 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     <div>
                       <h3>{p.data.name}</h3>
                       <p>{p.data.description}</p>
+                      {p.data.premiumVoice === true && (
+                        <p>Premium guided voice included</p>
+                      )}
                       <strong>{money(p.data.priceMinor)} / month</strong>
                     </div>
                     <Button
+                      disabled={busy}
                       onClick={() =>
                         void action(
                           () =>
                             api("/payments/checkout", "POST", {
                               productId: p.id,
+                              promotionCode,
                             }),
                           "Opening checkout",
                         ).then((r) => {
@@ -2482,39 +2663,50 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
             )}
           </Card>
           <Card>
-            <h2>Request a refund</h2>
+            <h2>Checkout status</h2>
             <p className="muted">
-              Requests are separate from cancellation and can be submitted
-              within seven days of the charge. Your trainer reviews each
-              request.
+              If checkout was interrupted or your payment is still being
+              confirmed, check the original purchase before trying again.
             </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
+            <Button
+              secondary
+              disabled={busy}
+              onClick={() => {
+                setCheckout({ status: "checking" });
                 void action(
-                  () => api("/refund-requests", "POST", Object.fromEntries(f)),
-                  "Refund request sent",
+                  () => api("/payments/checkout/reconcile", "POST", {}),
+                  "Checkout status checked",
+                ).then((result) =>
+                  setCheckout(result ?? { status: "unresolved" }),
                 );
               }}
             >
-              <Field label="Charge reference from your receipt">
-                <input name="chargeId" required />
-              </Field>
-              <Field label="Reason">
-                <textarea name="reason" required minLength={5} />
-              </Field>
-              <Button type="submit" secondary disabled={busy}>
-                Submit request
-              </Button>
-            </form>
-            {records("refund").map((r) => (
-              <div className="list-row" key={r.id}>
-                <span>{r.data.reason}</span>
-                <Badge>{r.status}</Badge>
-              </div>
-            ))}
+              {checkout?.status === "checking"
+                ? "Checking checkout…"
+                : "Check checkout status"}
+            </Button>
+            {checkout && (
+              <p role="status">
+                {checkout.status === "checking"
+                  ? "Checking your original purchase."
+                  : checkout.status === "open"
+                    ? "Your original checkout is still open. Continue that purchase using the link below."
+                    : checkout.status === "complete"
+                      ? "Checkout is complete. Your membership status has been refreshed above."
+                      : checkout.status === "expired"
+                        ? "The payment provider confirmed that checkout expired. You can choose a plan above."
+                        : checkout.status === "resolved"
+                          ? "There is no pending checkout to reconcile."
+                          : "The payment outcome is not confirmed. Your original purchase remains held while it is checked."}
+              </p>
+            )}
+            {checkout?.status === "open" && checkout.url && (
+              <a className="button secondary" href={checkout.url}>
+                Continue original checkout
+              </a>
+            )}
           </Card>
+          <BillingHistory />
         </>
       ) : (
         <>
@@ -2604,6 +2796,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                           description: f.get("description"),
                           priceMinor: Math.round(Number(f.get("price")) * 100),
                           tier: f.get("tier"),
+                          premiumVoice: f.get("premiumVoice") === "on",
                           ...(f.get("baseProductId")
                             ? { baseProductId: f.get("baseProductId") }
                             : {}),
@@ -2623,6 +2816,10 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                       </option>
                     </select>
                   </Field>
+                  <label>
+                    <input type="checkbox" name="premiumVoice" />
+                    Include premium guided voice in this offer
+                  </label>
                   <Field label="Comparable workout offer (required for the combined tier)">
                     <select name="baseProductId">
                       <option value="">Choose for combined tier</option>
@@ -2662,6 +2859,9 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                         ? "Workout + nutrition"
                         : "Workout only"}
                     </p>
+                    {p.data.premiumVoice === true && (
+                      <p>Premium guided voice included</p>
+                    )}
                     <div className="membership-price">
                       {money(p.data.priceMinor)}
                       <span>/ month</span>
@@ -3016,7 +3216,6 @@ function Integrations({ state, action, busy, path }: ViewProps) {
 function SettingsView({ state, records, action, busy, path }: ViewProps) {
   const intake = records("intake")[0]?.data ?? {},
     sub = state.user.role === "subscriber";
-  const [invite, setInvite] = useState("");
   return (
     <>
       <Heading
@@ -3025,6 +3224,11 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         detail="Keep your information useful, your permissions clear and your data under your control."
       />
       <AccountSecurity />
+      <AccountExtras />
+      <PersonalPrivacyStatus />
+      {["owner", "staff"].includes(state.user.role) && (
+        <WorkspaceLifecycle role={state.user.role} />
+      )}
       {sub && (
         <Card>
           <h2>Help your coach understand you</h2>
@@ -3103,42 +3307,9 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         </Card>
       )}
       <div className="two-columns">
-        <Card>
-          <h2>Notifications</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/settings", "POST", {
-                    emailNotifications: f.get("email") === "on",
-                    workoutReminders: f.get("workouts") === "on",
-                    marketing: f.get("marketing") === "on",
-                  }),
-                "Preferences saved",
-              );
-            }}
-          >
-            {[
-              ["email", "Coaching and account email"],
-              ["workouts", "Workout reminders"],
-              ["marketing", "Optional product news"],
-            ].map(([key, label]) => (
-              <label className="check-field" key={key}>
-                <input
-                  type="checkbox"
-                  name={key}
-                  defaultChecked={key !== "marketing"}
-                />
-                {label}
-              </label>
-            ))}
-            <Button type="submit" secondary disabled={busy}>
-              Save preferences
-            </Button>
-          </form>
-        </Card>
+        <NotificationPreferences />
+        <PushNotifications />
+        {state.user.role === "owner" && <WorkoutNotificationPolicy />}
         <Card>
           <h2>Your data</h2>
           <p className="muted">
@@ -3185,57 +3356,14 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       </div>
       {state.user.role === "owner" && (
         <Card>
-          <h2>Invite a team member</h2>
-          <form
-            className="button-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(
-                () =>
-                  api("/invitations", "POST", {
-                    email: new FormData(e.currentTarget).get("email"),
-                    role: new FormData(e.currentTarget).get("role"),
-                  }),
-                "Team invitation created",
-              ).then((r) => {
-                if (r) setInvite(r.url);
-              });
-            }}
-          >
-            <input
-              type="email"
-              name="email"
-              required
-              aria-label="Staff email"
-              placeholder="colleague@example.com"
-            />
-            <Button type="submit" disabled={busy}>
-              Create invitation
-            </Button>
-          </form>
-          {invite && (
-            <input readOnly value={invite} aria-label="Team invitation URL" />
-          )}
-          {state.members
-            ?.filter((m) => ["staff", "finance"].includes(m.role))
-            .map((m) => (
-              <div className="list-row" key={m.id}>
-                <span>
-                  {m.name} · {m.email}
-                </span>
-                <Button
-                  secondary
-                  onClick={() =>
-                    void action(
-                      () => api(`/team/${m.id}`, "DELETE"),
-                      "Access revoked",
-                    )
-                  }
-                >
-                  Revoke
-                </Button>
-              </div>
-            ))}
+          <h2>Team access</h2>
+          <p className="muted">
+            Manage coaching and finance roles, invitations, MFA status and
+            workspace access in your team settings.
+          </p>
+          <Link href="/trainer/team" className="button secondary">
+            Manage your team
+          </Link>
         </Card>
       )}
     </>
@@ -3344,7 +3472,7 @@ function Analytics({ state, records }: ViewProps) {
   );
 }
 
-function Admin({ state }: ViewProps) {
+function Admin({ state, path }: ViewProps) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -3354,6 +3482,14 @@ function Admin({ state }: ViewProps) {
   }, []);
   return (
     <>
+      {path === "/admin/finance/controls" &&
+        data &&
+        ["admin", "finance"].includes(state.user.platformRole) && (
+          <>
+            <FinancePolicyConsole tenants={data.tenants} />
+            <FinanceAutomationConsole tenants={data.tenants} />
+          </>
+        )}
       <Heading
         eyebrow="PLATFORM OPERATIONS"
         title="An accountable view of the platform."
@@ -3365,9 +3501,13 @@ function Admin({ state }: ViewProps) {
             <Settings size={15} />
             Settings & API connections
           </Link>
-          <Link href="/admin/security">
+          <Link href="/admin/account-security">
             <Shield size={15} />
             Account security
+          </Link>
+          <Link href="/admin/integration-operations">
+            <Link2 size={15} />
+            Voice & domain operations
           </Link>
         </nav>
       )}
@@ -3527,9 +3667,13 @@ function Public({
           <ArrowUpRight size={16} />
         </Link>
       </header>
-      {path.startsWith("/reset-password/") ||
-      path.startsWith("/verify-email/") ||
-      path === "/forgot-password" ? (
+      {path === "/magic-link" ||
+      path.startsWith("/magic-link/") ||
+      path === "/recover-authenticator" ? (
+        <MagicAccess path={path} />
+      ) : path.startsWith("/reset-password/") ||
+        path.startsWith("/verify-email/") ||
+        path === "/forgot-password" ? (
         <AccountRecovery path={path} />
       ) : auth ? (
         <main className="auth-layout">
@@ -3710,6 +3854,20 @@ function Public({
                 <ArrowRight size={16} />
               </Button>
             </form>
+            {path === "/login" && (
+              <>
+                <div className="divider" />
+                <PasskeyLoginButton />
+                <p>
+                  <Link href="/magic-link">Email me a sign-in link</Link>
+                </p>
+                <p>
+                  <Link href="/recover-authenticator">
+                    Use an authenticator recovery code
+                  </Link>
+                </p>
+              </>
+            )}
             <div className="divider" />
             <p className="muted">
               {signup
@@ -3762,39 +3920,9 @@ function Public({
       ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
         <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
-        <main className="legal public-section">
-          <p className="eyebrow">TRANSPARENCY</p>
-          <h1>
-            {path === "/privacy"
-              ? "Your data belongs in a clear conversation."
-              : path === "/terms"
-                ? "Terms of service"
-                : "Digital coaching, clearly identified."}
-          </h1>
-          <Card>
-            <Badge tone="amber">Draft · production review required</Badge>
-            <p>
-              This development build does not publish approved legal terms or
-              accept live customers until the operator’s reviewed documents and
-              consent configuration are in place.
-            </p>
-            <p>
-              Digital coaching uses trainer-approved methods and is identified
-              separately from personally written trainer messages. It does not
-              replace medical assessment or emergency services. Fitness data is
-              used within its recorded permissions. Trainer material stays
-              scoped to that trainer, and provider restrictions remain
-              enforceable.
-            </p>
-            <p>
-              Account controls include export, consent management, a
-              deletion-request workflow, and separate renewal cancellation and
-              refund requests. Final rights, responsibilities, retention periods
-              and contact details must be stated in the reviewed documents
-              before launch.
-            </p>
-          </Card>
-        </main>
+        <PublishedLegal
+          documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
+        />
       ) : (
         <>
           <section className="hero">
