@@ -370,6 +370,44 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "google_signin",
+    name: "Sign in with Google",
+    category: "platform",
+    implemented: true,
+    description:
+      "Google accounts as a sign-in method (OpenID Connect with PKCE) for existing members, public joins and invitations.",
+    setupNotes:
+      "Create an OAuth web client in Google Cloud and register <public app address>/api/v1/auth/oidc/google/callback as an authorized redirect URI. The connection check reads Google's discovery document and signing keys and confirms the client credentials without signing anyone in. Sign-in stays off until this connection is enabled and checked. New accounts are still limited to public joins and invitations under the legal approval gate.",
+    fields: [
+      field("GOOGLE_SIGNIN_CLIENT_ID", "OAuth client ID", "text", {
+        required: true,
+      }),
+      field("GOOGLE_SIGNIN_CLIENT_SECRET", "OAuth client secret", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
+    id: "apple_signin",
+    name: "Sign in with Apple",
+    category: "platform",
+    implemented: true,
+    description:
+      "Apple IDs as a sign-in method (OpenID Connect with PKCE and an ES256 client secret).",
+    setupNotes:
+      "Create a Services ID with Sign in with Apple, register <public app address>/api/v1/auth/oidc/apple/callback as the return URL, and create a Sign in with Apple key. Paste the .p8 key contents (line breaks are removed automatically). The connection check reads Apple's discovery document and signing keys and confirms the client secret without signing anyone in.",
+    fields: [
+      field("APPLE_SIGNIN_SERVICES_ID", "Services ID (client ID)", "text", {
+        required: true,
+      }),
+      field("APPLE_SIGNIN_TEAM_ID", "Team ID", "text", { required: true }),
+      field("APPLE_SIGNIN_KEY_ID", "Key ID", "text", { required: true }),
+      field("APPLE_SIGNIN_PRIVATE_KEY", "Private key (.p8)", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
     id: "whoop",
     name: "WHOOP",
     category: "health",
@@ -849,6 +887,13 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "google_signin" || id === "apple_signin") {
+      const { checkOidcConnection } = await import("./oidc.ts");
+      return await checkOidcConnection(
+        id === "google_signin" ? "google" : "apple",
+        config,
+      );
+    }
     if (id === "push") {
       const { pushConfiguration } = await import("./push.ts");
       pushConfiguration(config);

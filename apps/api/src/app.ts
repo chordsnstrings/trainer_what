@@ -103,6 +103,14 @@ import {
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
+import { openSignInSession, type SignInMethod } from "./sign-in.ts";
+import {
+  membershipEndedError,
+  registerAccountSelfService,
+} from "./account-self-service.ts";
+import { registerOperatorRecovery } from "./operator-recovery.ts";
+import { assertMayRejoin, registerMembershipExit } from "./membership-exit.ts";
+import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -370,7 +378,8 @@ export async function buildApp(
       }
       if (
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-        !req.url.startsWith("/api/v1/webhooks/")
+        !req.url.startsWith("/api/v1/webhooks/") &&
+        !isOidcFormCallback(requestPath)
       ) {
         if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
           throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
@@ -476,21 +485,29 @@ export async function buildApp(
     userId: string,
     tenantId: string,
     mfa = false,
+    method: SignInMethod = "password",
+    /** Hash of the session this one replaces; its sign-in time carries over. */
+    replaces?: string,
   ) {
-    const token = newToken();
-    await db.system(async (tx) => {
+    const token = await db.system(async (tx) => {
       await workspaceLock(tx, tenantId);
       await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
-      const [membership] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
-        [userId, tenantId],
-      );
-      if (!membership)
-        throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
-      await tx.query(
-        "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
-        [tokenHash(token), userId, tenantId, mfa],
-      );
+      let authenticatedAt: Date | string | null = null;
+      if (replaces) {
+        const [old] = await tx.query(
+          "DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now() RETURNING authenticated_at",
+          [replaces, userId],
+        );
+        if (!old) throw fail(401, "AUTH_REQUIRED", "Please sign in");
+        authenticatedAt = old.authenticated_at;
+      }
+      return openSignInSession(tx, {
+        userId,
+        tenantId,
+        mfa,
+        method,
+        authenticatedAt,
+      });
     });
     reply.setCookie("session", token, {
       path: "/",
@@ -523,6 +540,12 @@ export async function buildApp(
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
+  registerAccountSelfService(app, db, identity);
+  registerOperatorRecovery(app, db, identity);
+  registerOidcSignIn(app, db, identity);
+  registerMembershipExit(app, db, identity, {
+    stripe: options.providers?.stripe,
+  });
   registerCoachSite(app, db);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
@@ -611,7 +634,7 @@ export async function buildApp(
         );
         await event(tx, a, "trainer.signup_completed", uid);
       });
-      await session(reply, uid, tid);
+      await session(reply, uid, tid, false, "registration");
       try {
         await recordSignupAcquisition(db, req, {
           tenantId: tid,
@@ -707,6 +730,7 @@ export async function buildApp(
         const mfa = existing
           ? await consumeMfa(tx, existing.id, b.code)
           : false;
+        if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
         if (!existing)
           await tx.query(
@@ -734,7 +758,7 @@ export async function buildApp(
         );
         return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
-      await session(reply, result.uid, result.tid, result.mfa);
+      await session(reply, result.uid, result.tid, result.mfa, "public_join");
       if (result.joined) {
         try {
           await recordSignupAcquisition(
@@ -779,9 +803,22 @@ export async function buildApp(
           [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
         ),
       );
-      if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
+      if (!m) {
+        // A follower whose membership ended learns why, once the password
+        // and any enrolled authenticator have been proven.
+        const ended = await db.system(async (tx) => {
+          const error = await membershipEndedError(
+            tx,
+            u.id,
+            req.hostContext?.tenantId ?? b.tenantId ?? null,
+          );
+          if (error) await consumeMfa(tx, u.id, b.code);
+          return error;
+        });
+        throw ended ?? fail(403, "NO_MEMBERSHIP", "No active workspace");
+      }
       const mfa = await db.system((tx) => consumeMfa(tx, u.id, b.code));
-      await session(reply, u.id, m.tenant_id, mfa);
+      await session(reply, u.id, m.tenant_id, mfa, "password");
       return { ok: true };
     },
   );
@@ -831,12 +868,16 @@ export async function buildApp(
       ),
     );
     if (!m) throw fail(403, "NO_MEMBERSHIP", "Workspace access denied");
-    await db.system((tx) =>
-      tx.query("DELETE FROM sessions WHERE token_hash=$1", [
-        tokenHash(req.cookies.session!),
-      ]),
+    // The old session is replaced in the same transaction and its sign-in
+    // time carries over: switching is not a fresh sign-in.
+    await session(
+      reply,
+      a.userId,
+      b.tenantId,
+      false,
+      "workspace_switch",
+      tokenHash(req.cookies.session ?? ""),
     );
-    await session(reply, a.userId, b.tenantId);
     return { ok: true };
   });
   app.get("/api/v1/bootstrap", async (req) => {
@@ -1068,7 +1109,7 @@ export async function buildApp(
         joined: !!membership && invite.payload.role === "subscriber",
       };
     });
-    await session(reply, result.uid, result.tid, result.mfa);
+    await session(reply, result.uid, result.tid, result.mfa, "invitation");
     if (result.joined) {
       try {
         await recordSignupAcquisition(

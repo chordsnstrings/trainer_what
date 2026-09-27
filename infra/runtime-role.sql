@@ -35,6 +35,9 @@ GRANT SELECT,INSERT,UPDATE ON workspace_lifecycle_requests TO trainer_service;
 -- Account secrets and WebAuthn are system-only; tenant actors cannot read them.
 GRANT SELECT,INSERT,DELETE ON mfa_recovery_codes TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON auth_passkeys,auth_passkey_challenges TO trainer_service;
+-- Linked sign-in identities, OIDC requests, email changes, operator recovery
+-- grants and account notices are account-level and service-only as well.
+GRANT SELECT,INSERT,UPDATE,DELETE ON account_identities,oidc_sign_in_requests,email_change_requests,account_recovery_grants,account_notices TO trainer_service;
 
 -- Public-site lookups use the service role after host/visibility checks. All
 -- writes still use scoped owner transactions. Do not grant table-wide writes.

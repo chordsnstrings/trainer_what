@@ -7,6 +7,7 @@ import {
   strictSecurity,
 } from "./configuration.ts";
 export * from "./configuration.ts";
+import { oidcClientConfig } from "./oidc.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
 import {
@@ -78,6 +79,16 @@ export function integrationStatus() {
         !!config.PUSH_VAPID_PRIVATE_KEY &&
         !!config.PUSH_VAPID_SUBJECT,
     },
+    ...(["google", "apple"] as const).map((provider) => {
+      const configured = !!oidcClientConfig(provider, config);
+      return {
+        id: provider + "_signin",
+        name: provider === "google" ? "Sign in with Google" : "Sign in with Apple",
+        purpose: "Optional sign-in method for members",
+        configured,
+        approved: configured,
+      };
+    }),
     {
       id: "whoop",
       name: "WHOOP",

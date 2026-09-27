@@ -244,12 +244,16 @@ export function securityRoutes(
   app.get("/api/v1/auth/security", async (req) => {
     const a = identity(req);
     const [s] = await db.system((tx) =>
-      tx.query("SELECT enabled FROM user_security WHERE user_id=$1", [
-        a.userId,
-      ]),
+      tx.query(
+        "SELECT (SELECT enabled FROM user_security WHERE user_id=$1) AS enabled,(SELECT password_hash LIKE 'scrypt:%' FROM users WHERE id=$1) AS has_password",
+        [a.userId],
+      ),
     );
     return {
       emailVerified: a.emailVerified,
+      // Accounts created through Apple or Google set a password before an
+      // authenticator, because both authenticator routes confirm with it.
+      hasPassword: !!s?.has_password,
       mfaEnabled: s?.enabled ?? false,
       mfaConfigured: !!process.env.SECURITY_ENCRYPTION_KEY,
       mfaAt: a.mfaAt ?? null,
@@ -389,6 +393,12 @@ export function securityRoutes(
           403,
           "EMAIL_VERIFICATION",
           "Verify your email before setting up an authenticator",
+        );
+      if (!String(u.password_hash).startsWith("scrypt:"))
+        throw fail(
+          409,
+          "PASSWORD_REQUIRED",
+          "Set a password in Account settings first. It confirms authenticator setup and sensitive actions.",
         );
       if (!(await passwordMatches(b.password, u.password_hash)))
         throw fail(401, "INVALID_PASSWORD", "Password is incorrect");
