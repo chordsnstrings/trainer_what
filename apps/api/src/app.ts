@@ -409,10 +409,23 @@ export async function buildApp(
               req.identity = undefined;
             else throw error;
           }
-        if (req.identity && !probe)
-          await touchAccountSession(db, tokenHash(token)).catch(() => {});
       }
     }
+    // A device queue replays only under the member who saved it (web
+    // offline-queue.ts). A tab left open after another person signs in must
+    // not write into their record; the queue stays on the device instead.
+    const queueOwner = req.headers["x-queue-owner"];
+    if (queueOwner !== undefined) {
+      if (!req.identity) throw fail(401, "AUTH_REQUIRED", "Please sign in");
+      if (queueOwner !== `${req.identity.tenantId}:${req.identity.userId}`)
+        throw fail(
+          409,
+          "SESSION_OWNER_MISMATCH",
+          "These entries were saved by another member. Sign in as that member to sync them.",
+        );
+    }
+    if (token && req.identity && !probe)
+      await touchAccountSession(db, tokenHash(token)).catch(() => {});
   });
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof ConfigurationError)

@@ -70,11 +70,10 @@ import {
   clearLocalData,
   discardRejected,
   drainWorkoutQueue,
+  leaveSession,
   offlineQueueKeys,
   readList,
-  replayOfflineQueues,
   retryRejected,
-  unsyncedCount,
   type RejectedEntry,
   type WorkoutQueueItem,
 } from "./offline-queue";
@@ -208,11 +207,18 @@ const questions = [
   "How much explanation do your clients need?",
   "What distinguishes your method from generic coaching?",
 ];
-async function api(path: string, method = "GET", body?: unknown) {
+async function api(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  headers?: Record<string, string>,
+) {
   const r = await fetch("/api/v1" + path, {
     method,
     headers:
-      body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body !== undefined
+        ? { "Content-Type": "application/json", ...headers }
+        : headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });
@@ -322,7 +328,13 @@ const roleNames: Record<string, string> = {
   subscriber: "Member",
 };
 /** Lists this account's workspaces and switches the signed-in session. */
-function WorkspaceSwitcher({ current }: { current: string }) {
+function WorkspaceSwitcher({
+  current,
+  userId,
+}: {
+  current: string;
+  userId: string;
+}) {
   const [choices, setChoices] = useState<WorkspaceChoice[]>([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -349,9 +361,22 @@ function WorkspaceSwitcher({ current }: { current: string }) {
           setBusy(true);
           setError("");
           try {
-            await api("/auth/workspace", "POST", { tenantId: next.tenantId });
-            for (const k of Object.keys(localStorage))
-              if (k.startsWith("trainer:")) localStorage.removeItem(k);
+            // Replay before the switch replaces this session. Unsynced entries
+            // stay scoped to this workspace and member; only caches are cleared.
+            const left = await leaveSession(localStorage, current, userId, {
+              online: navigator.onLine,
+              post: (p, b, h) => api(p, "POST", b, h),
+              confirm: (n) =>
+                window.confirm(
+                  `${n} workout or meal ${n === 1 ? "entry has" : "entries have"} not synced. ${n === 1 ? "It stays" : "They stay"} on this device and will sync when you return to this workspace. Switch anyway?`,
+                ),
+              leave: () =>
+                api("/auth/workspace", "POST", { tenantId: next.tenantId }),
+            });
+            if (!left) {
+              setBusy(false);
+              return;
+            }
             window.location.assign(
               next.role === "subscriber" ? "/app" : "/trainer",
             );
@@ -629,7 +654,10 @@ export default function Workspace() {
             </span>
           </div>
         </div>
-        <WorkspaceSwitcher current={state.user.tenantId} />
+        <WorkspaceSwitcher
+          current={state.user.tenantId}
+          userId={state.user.userId}
+        />
         <nav aria-label="Main navigation">
           {items.map(([label, url, Icon]) => (
             <Link
@@ -680,24 +708,16 @@ export default function Workspace() {
             className="text-button"
             onClick={async () => {
               const { tenantId, userId } = state.user;
-              if (navigator.onLine)
-                await replayOfflineQueues(
-                  localStorage,
-                  tenantId,
-                  userId,
-                  (p, b) => api(p, "POST", b),
-                ).catch(() => {});
-              const unsynced = unsyncedCount(localStorage, tenantId, userId);
-              if (
-                unsynced > 0 &&
-                !window.confirm(
-                  `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
-                )
-              )
-                return;
-              await api("/auth/logout", "POST", {});
-              clearLocalData(localStorage, { keepQueues: true });
-              router.push("/login");
+              const left = await leaveSession(localStorage, tenantId, userId, {
+                online: navigator.onLine,
+                post: (p, b, h) => api(p, "POST", b, h),
+                confirm: (unsynced) =>
+                  window.confirm(
+                    `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
+                  ),
+                leave: () => api("/auth/logout", "POST", {}),
+              });
+              if (left) router.push("/login");
             }}
           >
             <LogOut size={15} /> Sign out
@@ -2126,7 +2146,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       localStorage,
       tenantId,
       userId,
-      (p, b) => api(p, "POST", b),
+      (p, b, h) => api(p, "POST", b, h),
     );
     refreshQueue();
     if (result.stopped?.reason === "session")
