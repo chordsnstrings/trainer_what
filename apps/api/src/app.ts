@@ -2,7 +2,12 @@ import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
 import { registerAffiliates } from "./affiliates.ts";
 import { registerInfrastructureActions } from "./infrastructure-actions.ts";
-import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
+import {
+  marketingConsentVersion,
+  notifyCoachingTeam,
+  notifyUser,
+  recordMarketingChoice,
+} from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
 import { registerRetention } from "./retention.ts";
 import {
@@ -1971,10 +1976,20 @@ export async function buildApp(
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
         ]);
+      if (b.type === "marketing")
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":notifications:" + a.userId,
+        ]);
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
         [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
+      // The consent history decides marketing; keep the settings toggle in step.
+      if (b.type === "marketing")
+        await tx.query(
+          "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+          [a.tenantId, a.userId, JSON.stringify({ marketing: b.granted })],
+        );
       if (!b.granted && b.type === "coaching") {
         await revokeCoachingFeedbackLearning(tx, a.userId);
         // Remove only model use. Wearable rows are governed by wearable consent
@@ -2113,11 +2128,22 @@ export async function buildApp(
         marketing: z.boolean(),
       })
       .parse(req.body);
+    const marketingVersion = await marketingConsentVersion(db);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":notifications:" + a.userId,
+      ]);
+      await recordMarketingChoice(
+        tx,
+        a,
+        b.marketing,
+        marketingVersion,
+        "legacy_settings",
+      );
       // Older clients still use this endpoint. Keep their explicit opt-outs
       // effective without resetting newer quiet-hour or booking preferences.
-      await tx.query(
-        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+      const [saved] = await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now() RETURNING data,version",
         [
           a.tenantId,
           a.userId,
@@ -2128,7 +2154,7 @@ export async function buildApp(
           }),
         ],
       );
-      return putRecord(tx, a, "preferences", b, { status: "active" });
+      return saved;
     });
   });
   app.get("/api/v1/admin/overview", async (req) => {

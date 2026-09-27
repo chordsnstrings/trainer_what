@@ -4,6 +4,7 @@ import { Field } from "./field";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
+import { coachAppLinks } from "./app-routes";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -1135,16 +1136,13 @@ export function CoachWebsite({
 export function ClientCoachManifest({
   tenant,
 }: {
-  tenant: { slug: string; name: string };
+  tenant: { slug: string; name: string; published?: boolean | null };
 }) {
   const path = usePathname();
   useEffect(() => {
     const changes: Array<() => void> = [];
-    for (const [rel, url] of [
-      ["manifest", `/api/v1/public/sites/${tenant.slug}/manifest.webmanifest`],
-      ["icon", `/api/v1/public/sites/${tenant.slug}/icon/192`],
-      ["apple-touch-icon", `/api/v1/public/sites/${tenant.slug}/icon/192`],
-    ]) {
+    // A private workspace has no public site assets; keep the platform icon.
+    for (const [rel, url] of coachAppLinks(tenant)) {
       const existing = document.head.querySelector<HTMLLinkElement>(
           `link[rel="${rel}"]`,
         ),
@@ -1167,6 +1165,6 @@ export function ClientCoachManifest({
       if (document.title === `${tenant.name} · Coaching`)
         document.title = originalTitle;
     };
-  }, [tenant.slug, tenant.name, path]);
+  }, [tenant.slug, tenant.name, tenant.published, path]);
   return null;
 }

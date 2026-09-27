@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Actor, type Database, type Tx } from "@trainer/db";
+import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import { legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -53,6 +54,44 @@ function enabled(p: Preferences, category: string, channel = "email") {
       (category !== "booking" || p.bookings) &&
       (category !== "workout" || p.workouts))
   );
+}
+/**
+ * Marketing permission is the latest versioned consent record. The
+ * preference flag only mirrors it, so it can never grant marketing alone.
+ */
+export async function marketingConsent(tx: Tx, userId: string) {
+  const [row] = await tx.query(
+    "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='marketing' ORDER BY created_at DESC,id DESC LIMIT 1",
+    [userId],
+  );
+  return row?.granted === true;
+}
+/** Resolve outside the tenant transaction; an error is raised only if a change needs it. */
+export const marketingConsentVersion = (db: Database) =>
+  legalAcceptanceVersion(db, "marketing").catch((e: Error) => e);
+/**
+ * Records a changed marketing choice in the consent history. Call it while
+ * holding the member's notifications lock, before saving the mirror flag.
+ */
+export async function recordMarketingChoice(
+  tx: Tx,
+  a: Actor,
+  granted: boolean,
+  version: string | Error,
+  source: string,
+) {
+  if ((await marketingConsent(tx, a.userId)) === granted) return false;
+  if (version instanceof Error) throw version;
+  await tx.query(
+    "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'marketing',$4,$5)",
+    [randomUUID(), a.tenantId, a.userId, version, granted],
+  );
+  await event(tx, a, "consent.changed", undefined, {
+    type: "marketing",
+    granted,
+    source,
+  });
+  return true;
 }
 export function nextNotificationTime(p: Preferences, now = new Date()): Date {
   if (p.quietStart === p.quietEnd) return now;
@@ -110,6 +149,8 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         [input.userId],
       ),
       p = notificationPreferencesSchema.parse(pref?.data ?? {});
+    if (input.category === "marketing")
+      p.marketing = await marketingConsent(tx, input.userId);
     const body = input.body.slice(0, 4000),
       href = /^\/(app|trainer)(\/|$)/.test(input.href ?? "")
         ? (input.href ?? "")
@@ -284,6 +325,8 @@ export async function notificationDeliveryDecision(
           [job.data.userId],
         ),
         p = notificationPreferencesSchema.parse(pref?.data ?? {});
+      if (n.category === "marketing")
+        p.marketing = await marketingConsent(tx, job.data.userId);
       if (!enabled(p, n.category, push ? "push" : "email"))
         return { allowed: false };
       const source = n.data.source;
@@ -451,7 +494,10 @@ export function registerNotifications(
         [a.userId],
       );
       return {
-        data: notificationPreferencesSchema.parse(r?.data ?? {}),
+        data: {
+          ...notificationPreferencesSchema.parse(r?.data ?? {}),
+          marketing: await marketingConsent(tx, a.userId),
+        },
         version: r?.version ?? 0,
       };
     });
@@ -465,6 +511,7 @@ export function registerNotifications(
         })
         .strict()
         .parse(req.body);
+    const marketingVersion = await marketingConsentVersion(db);
     return db.tenant(a, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":notifications:" + a.userId,
@@ -479,6 +526,13 @@ export function registerNotifications(
           "PREFERENCES_CHANGED",
           "Your preferences changed. Reload before saving",
         );
+      await recordMarketingChoice(
+        tx,
+        a,
+        b.data.marketing,
+        marketingVersion,
+        "notification_preferences",
+      );
       return (
         await tx.query(
           "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=excluded.data,version=notification_preferences.version+1,updated_at=now() RETURNING data,version",

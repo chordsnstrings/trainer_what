@@ -17,7 +17,10 @@ export type HostContext = {
   verifiedProxy: boolean;
   // Edge-observed client address, present only inside a verified proxy proof.
   clientIp?: string;
+  /** Development only: loopback spellings of the configured local address. */
+  localOrigins?: string[];
 };
+const loopback = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 export const HOST_HEADERS = {
   host: "x-trainer-host",
   time: "x-trainer-host-time",
@@ -140,9 +143,7 @@ export async function resolveRequestHost(
     client = verifiedProxy && clientIp ? { clientIp } : {};
   if (
     host === configured ||
-    (!production &&
-      !verifiedProxy &&
-      /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host))
+    (!production && !verifiedProxy && loopback.test(host))
   )
     return {
       host: configured,
@@ -152,6 +153,16 @@ export async function resolveRequestHost(
       custom: false,
       verifiedProxy,
       ...client,
+      // The router treats localhost and 127.0.0.1 as one local address outside
+      // production, so the origin gate accepts both on the configured port.
+      ...(!production && loopback.test(configured)
+        ? {
+            localOrigins: ["localhost", "127.0.0.1"].map(
+              (name) =>
+                `${publicUrl.protocol}//${name}${publicUrl.port ? ":" + publicUrl.port : ""}`,
+            ),
+          }
+        : {}),
     };
   if (!verifiedProxy)
     throw fail(
@@ -204,7 +215,11 @@ export function allowedRequestOrigin(
   if (!origin) return false;
   try {
     const parsed = new URL(origin);
-    return parsed.origin === context.origin && origin === parsed.origin;
+    return (
+      origin === parsed.origin &&
+      (parsed.origin === context.origin ||
+        (!context.custom && !!context.localOrigins?.includes(parsed.origin)))
+    );
   } catch {
     return false;
   }

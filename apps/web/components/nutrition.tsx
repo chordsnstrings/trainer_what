@@ -18,6 +18,15 @@ import {
   nutritionCategories,
   localDate,
 } from "../../../packages/domain/src/nutrition";
+import {
+  discardRejected,
+  drainNutritionQueue,
+  offlineQueueKeys,
+  readList,
+  retryRejected,
+  type NutritionQueueItem,
+  type RejectedEntry,
+} from "./offline-queue";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -31,6 +40,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!r.ok)
     throw Object.assign(new Error(data.message ?? "Request failed"), {
       status: r.status,
+      code: data.code,
     });
   return data;
 }
@@ -85,7 +95,17 @@ function useNutrition(path: string) {
       setBusy(false);
     }
   }
-  return { data, setData, error, setError, busy, message, action, load };
+  return {
+    data,
+    setData,
+    error,
+    setError,
+    busy,
+    message,
+    setMessage,
+    action,
+    load,
+  };
 }
 const sections = [
   ["overview", "Overview"],
@@ -2078,16 +2098,40 @@ export function NutritionSubscriber({
     [options, setOptions] = useState<any>(null),
     [offline, setOffline] = useState(false),
     [queued, setQueued] = useState<any[]>([]),
+    [rejected, setRejected] = useState<RejectedEntry<NutritionQueueItem>[]>([]),
     [cache, setCache] = useState(false);
   const key = "trainer:nutrition:" + tenantId + ":" + userId,
-    queueKey = key + ":queue";
+    keys = offlineQueueKeys("nutrition", tenantId, userId),
+    queueKey = keys.pending;
+  const refreshQueue = () => {
+    setQueued(readList(localStorage, queueKey));
+    setRejected(readList(localStorage, keys.rejected));
+  };
+  // Consent withdrawal or lost access removes local nutrition data, and says
+  // how many unsynced entries that discarded.
+  const clearDevice = () => {
+    const removed =
+      readList(localStorage, queueKey).length +
+      readList(localStorage, keys.rejected).length;
+    localStorage.removeItem(key);
+    localStorage.removeItem(queueKey);
+    localStorage.removeItem(keys.rejected);
+    setQueued([]);
+    setRejected([]);
+    setCache(false);
+    return removed;
+  };
+  const removedText = (removed: number) =>
+    removed
+      ? ` ${removed} unsynced meal ${removed === 1 ? "entry was" : "entries were"} removed from this device.`
+      : "";
   useEffect(() => {
     setOffline(!navigator.onLine);
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
     try {
-      setQueued(JSON.parse(localStorage.getItem(queueKey) ?? "[]"));
+      refreshQueue();
       const saved = JSON.parse(localStorage.getItem(key) ?? "null");
       setCache(!!saved);
       if (!navigator.onLine && saved?.expires > Date.now())
@@ -2101,10 +2145,9 @@ export function NutritionSubscriber({
   useEffect(() => {
     if (!r.data) return;
     if (!r.data.processingConsent) {
-      localStorage.removeItem(key);
-      localStorage.removeItem(queueKey);
-      setQueued([]);
-      setCache(false);
+      const removed = clearDevice();
+      if (removed)
+        r.setError("Nutrition permission is off." + removedText(removed));
     } else if (cache && !coachView && !offline && navigator.onLine) {
       const data = {
         ...r.data,
@@ -2129,44 +2172,111 @@ export function NutritionSubscriber({
   }, [r.data, cache, key, queueKey, coachView, offline]);
   async function sync() {
     r.setError("");
-    let pending: any[];
-    try {
-      pending = JSON.parse(localStorage.getItem(queueKey) ?? "[]");
-    } catch {
-      return;
+    if (!navigator.onLine) return null;
+    if (coachView) {
+      // A coach views the member's diary; only the member's device replays it.
+      await r.load();
+      return null;
     }
-    for (const entry of pending) {
-      try {
-        await api("/nutrition/logs", "POST", entry);
-        const rest = JSON.parse(localStorage.getItem(queueKey) ?? "[]").filter(
-          (e: any) => e.eventKey !== entry.eventKey,
-        );
-        localStorage.setItem(queueKey, JSON.stringify(rest));
-        setQueued(rest);
-      } catch (e) {
-        if ([401, 402, 403].includes((e as any).status)) {
-          localStorage.removeItem(key);
-          localStorage.removeItem(queueKey);
-          setQueued([]);
-          r.setError(
-            "Nutrition syncing stopped because access or permission changed. Local nutrition data was cleared.",
-          );
-        } else r.setError((e as Error).message);
-        break;
-      }
-    }
-    if (navigator.onLine) await r.load();
+    const result = await drainNutritionQueue(
+      localStorage,
+      tenantId,
+      userId,
+      (path, body) => api(path, "POST", body),
+    );
+    refreshQueue();
+    const stop = result.stopped?.reason;
+    if (stop === "blocked") {
+      const removed = clearDevice();
+      r.setError(
+        "Nutrition syncing stopped because access or permission changed. Local nutrition data was cleared." +
+          removedText(removed),
+      );
+    } else if (stop === "session")
+      r.setError(
+        "Your session ended. Sign in again to sync; unsynced meal entries stay on this device.",
+      );
+    else if (stop) r.setError(result.stopped!.failure.message);
+    else if (result.rejected.length)
+      r.setError(
+        "A meal entry could not be saved. Review it below; later entries kept syncing.",
+      );
+    if (stop !== "session") await r.load();
+    return result;
   }
   useEffect(() => {
     if (!offline && navigator.onLine)
       void sync().catch((e) => r.setError((e as Error).message));
   }, [offline, queueKey]);
   async function queue(body: any) {
-    const entries = JSON.parse(localStorage.getItem(queueKey) ?? "[]");
-    entries.push(body);
-    localStorage.setItem(queueKey, JSON.stringify(entries));
-    setQueued(entries);
-    if (navigator.onLine) await r.action(sync, "Meal recorded");
+    const entries = readList<NutritionQueueItem>(localStorage, queueKey);
+    if (
+      body.correctsId &&
+      entries.some((e) => e.correctsId === body.correctsId)
+    ) {
+      r.setError(
+        "A correction for this entry is already waiting to sync. Sync it before correcting the entry again.",
+      );
+      return;
+    }
+    localStorage.setItem(queueKey, JSON.stringify([...entries, body]));
+    refreshQueue();
+    r.setMessage("");
+    if (navigator.onLine)
+      await sync().catch((e) => r.setError((e as Error).message));
+    const waiting = readList<NutritionQueueItem>(localStorage, queueKey).some(
+        (e) => e.eventKey === body.eventKey,
+      ),
+      refused = readList<RejectedEntry<NutritionQueueItem>>(
+        localStorage,
+        keys.rejected,
+      ).some((e) => e.item.eventKey === body.eventKey);
+    // Only an accepted entry is reported as recorded.
+    if (waiting)
+      r.setMessage(
+        "Saved on this device. It will sync when your connection is available.",
+      );
+    else if (!refused) r.setMessage("Meal recorded");
+  }
+  async function syncNow() {
+    r.setMessage("");
+    const result = await sync().catch((e) => {
+      r.setError((e as Error).message);
+      return null;
+    });
+    if (result && !result.stopped && !result.rejected.length)
+      r.setMessage("Diary synced");
+  }
+  function retryEntry(entry: RejectedEntry<NutritionQueueItem>, zone: string) {
+    // A diary date is checked in the profile time zone; a retry after a zone
+    // change is a new diary event in the current zone.
+    retryRejected<NutritionQueueItem>(
+      localStorage,
+      keys,
+      entry.item.eventKey,
+      (item) => item.eventKey,
+      (item) =>
+        entry.failure.code === "LOG_DATE" && item.timezone !== zone
+          ? { ...item, eventKey: crypto.randomUUID(), timezone: zone }
+          : item,
+    );
+    refreshQueue();
+    void sync().catch((e) => r.setError((e as Error).message));
+  }
+  function discardEntry(entry: RejectedEntry<NutritionQueueItem>) {
+    if (
+      !window.confirm(
+        "Discard this meal entry from this device? It has not been saved.",
+      )
+    )
+      return;
+    discardRejected<NutritionQueueItem>(
+      localStorage,
+      keys,
+      entry.item.eventKey,
+      (item) => item.eventKey,
+    );
+    refreshQueue();
   }
   const d = r.data;
   if (!d) return <Notice>{r.error || "Loading your nutrition…"}</Notice>;
@@ -2247,14 +2357,49 @@ export function NutritionSubscriber({
         <Notice>
           {queued.length} meal entry/entries waiting to sync.{" "}
           {!offline && (
-            <button
-              className="button secondary"
-              onClick={() => void r.action(sync, "Diary synced")}
-            >
+            <button className="button secondary" onClick={() => void syncNow()}>
               Sync now
             </button>
           )}
         </Notice>
+      )}
+      {rejected.length > 0 && !coachView && (
+        <div className="notice error" role="alert">
+          <strong>
+            {rejected.length} meal{" "}
+            {rejected.length === 1 ? "entry needs" : "entries need"} your
+            attention.
+          </strong>{" "}
+          Your diary did not accept{" "}
+          {rejected.length === 1 ? "this entry" : "these entries"}. Try again,
+          or discard it and record the meal again.
+          <ul>
+            {rejected.map((entry) => (
+              <li key={entry.item.eventKey}>
+                {entry.item.date} · {entry.item.name}
+                {entry.item.correctsId ? " (correction)" : ""} —{" "}
+                {entry.failure.message}{" "}
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={offline}
+                  onClick={() =>
+                    retryEntry(entry, profile?.timezone ?? entry.item.timezone)
+                  }
+                >
+                  Try again
+                </button>{" "}
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => discardEntry(entry)}
+                >
+                  Discard
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {!d.entitled && (
         <Notice>
