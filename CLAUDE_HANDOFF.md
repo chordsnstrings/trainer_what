@@ -1,11 +1,11 @@
 # Claude continuation handoff
 
-Updated 27 September 2026. Application completion and the job audit passed both CI jobs in PR #1. The owner authorized merge to main; real services and deployment are the next phase. Voluntary client context, affiliate administration and guarded local-worker operations are connected. The final handoff commit changes documentation only; historical stage entries below retain their original evidence and are superseded by the current verification record.
+Updated 27 September 2026 (afternoon). PR #1 is merged into `main`. At the owner's request the application now runs live on a new DigitalOcean project, GymMembership, deploying checked `main` automatically. [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) holds the audited defect fixes and the reviewed follow-ups; merging it is the next release. Historical stage entries below retain their original evidence.
 
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what
-- Delivery: [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1), from `work/completion-2026-09-27` to `main`. GitHub records the final merge state. Start subsequent real-service work from `main` once this PR is merged.
+- Delivery: [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2), from `claude/repository-overview-osejlw` to `main`, with the defect fixes and live-deployment support. PR #1 is merged. Evidence for this phase: `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`.
 - Local checkout used here: `/workspace/scratch/50654f17bfe7/trainer_what`. A fresh GitHub checkout is sufficient; do not depend on this temporary directory or old chat attachments.
 - Read [current verification](docs/VERIFICATION_2026-09-27.md) and the GitHub delivery state first; older per-area handoffs may name superseded checkpoints. Stage commits include their own handoff updates.
 - GitHub commits were published through the connector because direct Git transport was unreliable. Their hashes differ from local commits, but each published tree was compared with the local committed tree. Prefer GitHub history in a fresh checkout.
@@ -15,7 +15,7 @@ Updated 27 September 2026. Application completion and the job audit passed both 
 ## Owner decisions to preserve
 
 1. Complete application work one bounded, checked, committed stage at a time. Parallel agents are authorized; use tokens wisely. **Update this file and the stage register after every completed stage.**
-2. Deployment is stopped and assigned separately to Claude. No DigitalOcean resources were created by this work. Never use a cloud browser. Any later authorized DO work must use direct API access and only wholly new resources in the `GymMembership` project; existing projects/resources must remain untouched.
+2. On 27 September the owner asked Claude to deploy everything under a new DigitalOcean project. The GymMembership project, one SSH key and one Droplet were created (IDs in `docs/DIGITALOCEAN_DEPLOYMENT.md`); existing projects/resources remain untouched. Never use a cloud browser. Further DO work uses the direct API from the coordinating session only and creates only new owned resources.
 3. Screenshots were explicitly waived on September 26. Functional checks still matter.
 4. Stripe collects subscriber money; Lean initiates eligible trainer payouts from the company bank. Do not restore the superseded Stripe Connect payout design.
 5. Exactly two subscriber tiers: workout only; workout + nutrition at a higher price. Premium voice is an optional product capability, not a third nutrition tier.
@@ -69,7 +69,7 @@ The audit also corrected overlapping infrastructure routes, health-probe request
 1. PR #1 is qualified for the owner-authorized merge. Verify its GitHub merge state, then start the next phase from `main`; do not reconstruct already connected routes from older handoffs.
 2. Qualify enabled providers/models/legal and operational paths with the correct account access. Configure encrypted settings and deployment secrets without copying old chat keys.
 3. Exercise real Stripe collections, Lean payouts and bank finality; model/food/voice/wearable rights and quality; email and device push; camera/barcodes; registrar/DNS/TLS; reviewed legal/retention/residency policy; hosted backup restoration, accessibility, monitoring and load/canary behavior.
-4. Deployment remains stopped and separately owned. The GymMembership workflow is manual-only and was not run. No live transaction, cloud purchase or production deployment occurred.
+4. GymMembership is live at `https://gymmembership.64.227.151.196.sslip.io` on `main`. It redeploys every checked `main` commit. No live payment, payout, model, email or food-provider transaction occurred; provider flags stay disabled.
 
 ## Preserved scope boundaries
 
@@ -256,3 +256,14 @@ Run36295139032 again passed the full application and PostgreSQL suites, build, p
 ### 27 September — Final combined qualification and merge handoff
 
 Both jobs in [run 36295491678](https://github.com/chordsnstrings/trainer_what/actions/runs/36295491678) passed on `dcfa92c4b353520f7444bb20055eda1fe1a0145c`: 367 application tests, 367 non-owner PostgreSQL tests, TypeScript/build, all 38 deployment checks, migration/runtime permissions, container readiness and the 50-route browser journey. Exact evidence and audit fixes are consolidated in `docs/VERIFICATION_2026-09-27.md`. This stage changes documentation only. Next action is the authorized PR #1 merge, followed by the separate real-services phase; no application code or engineering gate remains open.
+
+### 27 September — Live GymMembership deployment and audited defect fixes
+
+- **Deployment.** Created only new DigitalOcean resources (project, SSH key, Droplet) with the repository's create-only provisioner, driven locally because the session has no GitHub Actions secret access. The controller deployed `main` `2708f21` with TLS. The host controller gained a one-time private Superadmin request because the automation environment cannot SSH. Live checks passed: public pages and headers, Superadmin bootstrap with rotation and MFA, settings, the registration gates, trainer and subscriber journeys, and 32 browser views at two widths.
+- **Rechecked audit.** Of 109 earlier findings, 26 were already fixed on `main`, 28 partly and 55 still present.
+- **Fixes.** Twelve area branches fixed them: edge rate limiting, authentication, settings, key rotation, database integrity, deploy host and CI, ledger, payouts, coaching safety, nutrition safety, nutrition delivery and the web client. Conflicts were resolved by hand: authenticator sealing now uses the shared key-rotation module, with re-seal on use. The worker dispatcher keeps the scrub of bearer links from email jobs. `operator:role` keeps both the audited role change and the emergency `reset-mfa`.
+- **Review round.** An adversarial review confirmed 15 findings, which a second round fixed. They include a blocker: after the edge change, probes resolved the signed host, so the controller's `127.0.0.1:3000` readiness check would have returned 421 and rolled back every deploy.
+- **Files and migrations.** New migrations 043 (platform role audit), 046 and 046b (domain mapping isolation, migration checksums, payout integrity), 049 (payout separation) and 053 (marketing consent history). New test files are `tests/fix-*.test.ts` and `tests/fix2-*.test.ts`. The CI Compose-topology job and `scripts/compose-smoke.sh` are new, as is `npm run secrets:reseal`.
+- **Checks on the final head.** Local full suite, TypeScript, production build and 56 deployment tests. The full restricted-role PostgreSQL suite passed 477 tests with 0 failures and 2 embedded-only skips. A local upgrade rehearsal from a `main`-migrated database with data to the merged head passed in production mode. GitHub CI passed all three jobs on the reviewed fixes.
+- **Not done.** The right-to-left layout was blocked by the session's permission policy. Architectural isolation redesign, Lean status reads and commission-rank policy sign-off are open.
+- **Next action.** The owner marks PR #2 ready and merges it. The server auto-deploys within one cycle after `check.yml` passes on `main`; then verify the release header and rerun the live smoke. The owner rotates the DigitalOcean token and takes over the Superadmin through account recovery or the host `reset-mfa` command.
