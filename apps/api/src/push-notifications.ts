@@ -9,6 +9,7 @@ import {
 import { tokenHash } from "./auth.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import { sealIntegrationSecret } from "./integrations-completion.ts";
+import { encryptionReady } from "./sealing.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -87,10 +88,7 @@ export function registerPushNotifications(
         );
       },
     );
-    const configured =
-      !!config &&
-      Buffer.from(process.env.SECURITY_ENCRYPTION_KEY ?? "", "base64")
-        .length === 32;
+    const configured = !!config && encryptionReady();
     return {
       configured,
       publicKey: configured ? config!.publicKey : null,

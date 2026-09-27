@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  randomUUID,
-} from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { integrationStatus } from "@trainer/providers";
@@ -16,6 +11,12 @@ import {
   type IntegrationDefinition,
 } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
+import {
+  encryptionReady,
+  openSealedValue,
+  sealContexts,
+  sealValue,
+} from "./sealing.ts";
 
 type AdminIdentity = Actor & { platformRole: string; mfaAt?: string | null };
 type TestResult = {
@@ -48,47 +49,19 @@ const missingKey = () =>
     "The server encryption key is unavailable. Configure SECURITY_ENCRYPTION_KEY before storing or using credentials.",
   );
 
-function encryptionKey() {
-  const key = Buffer.from(process.env.SECURITY_ENCRYPTION_KEY ?? "", "base64");
-  if (key.length !== 32) throw missingKey();
-  return key;
-}
-function encryptionReady() {
-  try {
-    encryptionKey();
-    return true;
-  } catch {
-    return false;
-  }
-}
 function seal(integrationId: string, key: string, value: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAAD(Buffer.from(`platform-settings:v1:${integrationId}:${key}`));
-  const body = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  return [
-    "v1",
-    iv.toString("base64url"),
-    cipher.getAuthTag().toString("base64url"),
-    body.toString("base64url"),
-  ].join(".");
+  try {
+    return sealValue(sealContexts.platformSetting(integrationId, key), value);
+  } catch {
+    throw missingKey();
+  }
 }
 function open(integrationId: string, key: string, value: string) {
   try {
-    const parts = value.split(".");
-    if (parts.length !== 4 || parts[0] !== "v1") throw missingKey();
-    const [, iv, tag, body] = parts;
-    const cipher = createDecipheriv(
-      "aes-256-gcm",
-      encryptionKey(),
-      Buffer.from(iv, "base64url"),
-    );
-    cipher.setAAD(Buffer.from(`platform-settings:v1:${integrationId}:${key}`));
-    cipher.setAuthTag(Buffer.from(tag, "base64url"));
-    return Buffer.concat([
-      cipher.update(Buffer.from(body, "base64url")),
-      cipher.final(),
-    ]).toString("utf8");
+    return openSealedValue(
+      sealContexts.platformSetting(integrationId, key),
+      value,
+    ).value;
   } catch {
     throw missingKey();
   }

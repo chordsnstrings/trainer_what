@@ -1,10 +1,4 @@
-import {
-  createHash,
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  randomUUID,
-} from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolveTxt, resolveCname } from "node:dns/promises";
 import { domainToASCII } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -34,6 +28,12 @@ import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
+import {
+  encryptionReady,
+  openSealedValue,
+  sealContexts,
+  sealValue,
+} from "./sealing.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
@@ -83,46 +83,21 @@ function origin(req: FastifyRequest) {
   );
 }
 function encryptionKey() {
-  const key = Buffer.from(process.env.SECURITY_ENCRYPTION_KEY ?? "", "base64");
-  if (key.length !== 32)
+  if (!encryptionReady())
     throw fail(
       503,
       "ENCRYPTION_REQUIRED",
       "Configure the server encryption key before connecting providers.",
     );
-  return key;
 }
 export function sealIntegrationSecret(scope: string, value: unknown) {
-  const iv = randomBytes(12),
-    cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAAD(Buffer.from("integration-v1:" + scope));
-  const body = Buffer.concat([
-    cipher.update(JSON.stringify(value)),
-    cipher.final(),
-  ]);
-  return [
-    "v1",
-    iv.toString("base64url"),
-    cipher.getAuthTag().toString("base64url"),
-    body.toString("base64url"),
-  ].join(".");
+  encryptionKey();
+  return sealValue(sealContexts.integration(scope), JSON.stringify(value));
 }
 export function openIntegrationSecret<T>(scope: string, value: string): T {
   try {
-    const [version, iv, tag, body] = value.split(".");
-    if (version !== "v1") throw new Error();
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      encryptionKey(),
-      Buffer.from(iv, "base64url"),
-    );
-    decipher.setAAD(Buffer.from("integration-v1:" + scope));
-    decipher.setAuthTag(Buffer.from(tag, "base64url"));
     return JSON.parse(
-      Buffer.concat([
-        decipher.update(Buffer.from(body, "base64url")),
-        decipher.final(),
-      ]).toString(),
+      openSealedValue(sealContexts.integration(scope), value).value,
     );
   } catch {
     throw fail(
