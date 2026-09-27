@@ -42,7 +42,12 @@ def compose(release, sha, *args, **kwargs):
     command = ["docker", "compose", "--project-name", "gymmembership",
                "--env-file", str(ROOT / "runtime.env"), "-f", str(release / "compose.yaml"),
                "-f", str(ROOT / "edge.json"), *args]
-    return run(command, cwd=release, env={**os.environ, "RELEASE_TAG": valid_sha(sha)}, **kwargs)
+    # The reviewed private runtime file is authoritative. Inherited application
+    # flags/credentials must not override it, nor may DOCKER_HOST redirect this
+    # dedicated-server controller to another engine.
+    environment = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TMPDIR") if key in os.environ}
+    environment["RELEASE_TAG"] = valid_sha(sha)
+    return run(command, cwd=release, env=environment, **kwargs)
 
 
 def wait_ready(url, attempts=60, expected_sha=None):

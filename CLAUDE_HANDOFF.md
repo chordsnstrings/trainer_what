@@ -305,3 +305,7 @@ Added disabled-by-default execution policy and an immutable proposal/approval hi
 ### 27 September — Integrated application audit and regression fixes
 
 The first full run found a route collision between the new broker and legacy observe-only rejection routes, plus a preexisting health-probe rate-budget regression. Broker APIs now use /infrastructure/operations while the historical denial endpoints remain intact. Authenticated probes use verified session identities for their budget, without requiring a host proof or extending session activity; invalid cookies remain IP-limited. Forty affected assembly checks and nine host/rate-limit checks passed after fixes. Whole-tree TypeScript and the production web build pass. Browser coverage now checks client-context persistence and trainer read-only access and visits the new operator pages. See docs/VERIFICATION_2026-09-27.md for exact counts, initial failures and remaining GitHub gates.
+
+### 27 September — Controller environment isolation
+
+First PR CI exposed inherited application variables overriding the reviewed private Compose runtime file. The controller now inherits only ordinary process settings, pins the release, and excludes application, Docker-host and Compose overrides. Added mock and real-Compose assertions. All 38 local deployment checks ran: 37 passed and the Docker-only check skipped. No controller was deployed. PR #1 reruns all release gates before merge.

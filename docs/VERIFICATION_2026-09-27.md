@@ -24,4 +24,8 @@ The owner authorized finishing application work, auditing it and merging to main
 
 ## External phase
 
+## First GitHub qualification
+
+PR #1 runs the combined checks. Run `36293353753` passed fresh PostgreSQL migrations and non-owner runtime grants before its full database suite. The application job exposed a real Compose boundary defect: inherited controller environment values could override the private runtime file. The controller now inherits only ordinary process settings, pins the requested release and obtains application credentials/approval flags from the reviewed runtime file. Remote Docker/Compose overrides are excluded. A regression protects this boundary; 38 local deployment checks ran, 37 passed and the Docker-only case remained skipped. The next CI run must verify real Compose rendering and the remaining application/browser/container gates.
+
 Real Stripe/Lean contracts and bank finality, actual provider/model quality, real device push/camera/wearables/voice, registrar/DNS/TLS, live email, reviewed legal/retention/residency policy, hosted backup/restore and operational load/canary qualification require the next real-services phase. Native HealthKit/BLE is separate platform scope, not provided by the PWA. Actual cloud telemetry/scaling adapters remain disabled pending real account/resource qualification; the shipped infrastructure executor controls only the application worker. No production release or live transaction is claimed.
