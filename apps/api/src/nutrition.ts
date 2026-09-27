@@ -3,6 +3,9 @@ import {
   checkNutritionSample,
   rationaleMatches,
   principleForCategory,
+  heldOutOverlaps,
+  heldOutDuplicate,
+  staleHeldOut,
 } from "../../../packages/domain/src/nutrition-learning.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
@@ -53,6 +56,7 @@ import {
   nutritionSummary,
   localDate,
   dateOffset,
+  allergenKey,
   type Food,
   type Recipe,
   type NutritionPolicy,
@@ -70,6 +74,8 @@ const fail = (statusCode: number, code: string, message: string) =>
 const hash = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
 const internal = (a: Actor) => ({ ...a, role: "owner" });
+// Every active held-out check is evaluated; the model output schema allows 50 decisions.
+const maxHeldOut = 40;
 async function lock(tx: Tx, a: Actor, suffix = "setup") {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":nutrition:" + suffix,
@@ -412,6 +418,67 @@ async function exception(
   });
   return e;
 }
+/**
+ * A retired (superseded or archived) food or recipe must not stay silently in a
+ * current or future delivered week. Such weeks move to needs_recheck (the event
+ * records which entity caused it) and each affected client gets one open
+ * CATALOG_RETIRED exception, shown to the client and routed to the coach.
+ * Call under the tenant's nutrition setup lock.
+ */
+export async function invalidatePlansUsing(
+  tx: Tx,
+  a: Actor,
+  retired: { kind: "food" | "recipe"; id: string },
+) {
+  // Prefilter with the earliest current date on Earth; exact per-client dates follow.
+  const plans = await tx.query(
+    "SELECT p.*,(SELECT pr.data->'profile'->>'timezone' FROM records pr WHERE pr.kind='nutrition_profile' AND pr.owner_user_id=p.owner_user_id ORDER BY pr.created_at DESC,pr.id DESC LIMIT 1) AS profile_timezone FROM records p WHERE p.kind='nutrition_plan' AND p.status='delivered' AND p.data->>'weekStart'>=$1 ORDER BY p.id",
+    [dateOffset(localDate("Etc/GMT+12"), -6)],
+  );
+  const users = new Set<string>();
+  for (const p of plans) {
+    const view = p.data.view ?? {},
+      meals = (view.days ?? []).flatMap((d: any) => d.meals ?? []);
+    let today: string;
+    try {
+      today = localDate(p.profile_timezone ?? "Asia/Dubai");
+    } catch {
+      today = localDate("Asia/Dubai");
+    }
+    const uses =
+      retired.kind === "food"
+        ? (view.groceries ?? []).some((g: any) => g.food?.id === retired.id) ||
+          meals.some((m: any) =>
+            (m.ingredients ?? []).some((i: any) => i.food?.id === retired.id),
+          )
+        : meals.some((m: any) => m.recipeId === retired.id) ||
+          (p.data.choices?.days ?? []).some((d: any) =>
+            (d.meals ?? []).some((m: any) => m.recipeId === retired.id),
+          );
+    if (!uses || dateOffset(p.data.weekStart, 6) < today) continue;
+    // Plan snapshots are immutable (migration 010); only status and version change.
+    const changed = await tx.query(
+      "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE id=$1 AND status='delivered' RETURNING id",
+      [p.id],
+    );
+    if (!changed.length) continue;
+    await event(tx, a, "nutrition.plan_invalidated", p.id, {
+      reason: "catalog_retired",
+      entityKind: retired.kind,
+      entityId: retired.id,
+    });
+    users.add(p.owner_user_id);
+  }
+  for (const userId of users)
+    await exception(
+      tx,
+      a,
+      userId,
+      "CATALOG_RETIRED",
+      "A food or recipe in your current meal week was withdrawn by your coach for review. That week is paused for a recheck; do not follow it or shop from it until a new week is prepared.",
+    );
+  return users.size;
+}
 function availabilityError(error: unknown) {
   if (error instanceof NutritionBlocked)
     return { code: error.code, message: error.message };
@@ -536,6 +603,14 @@ export function nutritionRoutes(
         cases: m.cases,
         scenarios,
         policy: m.policy,
+        staleScenarios: m.policy
+          ? staleHeldOut(
+              scenarios as any,
+              m.cases as any,
+              m.policy.data.policy,
+              m,
+            )
+          : [],
       };
     });
   });
@@ -558,6 +633,17 @@ export function nutritionRoutes(
           "SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name",
           [a.tenantId],
         ),
+        heldOutLimit: maxHeldOut,
+        staleScenarios: r.material.policy
+          ? staleHeldOut(
+              (await tx.query(
+                "SELECT id,data FROM records WHERE kind='nutrition_scenario' AND status='held_out'",
+              )) as any,
+              r.material.cases as any,
+              r.material.policy.data.policy,
+              r.material,
+            )
+          : [],
       };
     });
   });
@@ -733,6 +819,13 @@ export function nutritionRoutes(
         .object({ food: foodSchema, supersedesId: id.optional() })
         .strict()
         .parse(req.body);
+    const unknownTag = b.food.allergens.find((t) => !allergenKey(t));
+    if (unknownTag !== undefined)
+      throw fail(
+        400,
+        "ALLERGEN_TAG",
+        `Use a recognised allergen name instead of "${unknownTag}" (for example milk, egg, peanut, tree nut, soy, wheat, gluten, fish, shellfish or sesame).`,
+      );
     return db.tenant(a, async (tx) => {
       await lock(tx, a);
       if (b.supersedesId) {
@@ -762,6 +855,8 @@ export function nutritionRoutes(
         ],
       );
       await event(tx, a, "nutrition.food_version_created", fid);
+      if (b.supersedesId)
+        await invalidatePlansUsing(tx, a, { kind: "food", id: b.supersedesId });
       return { id: fid, ...b.food };
     });
   });
@@ -839,6 +934,11 @@ export function nutritionRoutes(
           );
       }
       await event(tx, a, "nutrition.recipe_version_created", rid);
+      if (b.supersedesId)
+        await invalidatePlansUsing(tx, a, {
+          kind: "recipe",
+          id: b.supersedesId,
+        });
       return { id: rid, ...r };
     });
   });
@@ -972,15 +1072,34 @@ export function nutritionRoutes(
     const a = owner(req),
       b = nutritionScenarioSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
-      const c = await find(tx, b.expectedCaseId, "nutrition_case");
+      await lock(tx, a);
+      const c = await find(tx, b.expectedCaseId, "nutrition_case"),
+        confirmed = await tx.query(
+          "SELECT id,data FROM records WHERE kind='nutrition_case' AND status='confirmed'",
+        ),
+        heldOut = await tx.query(
+          "SELECT id,data FROM records WHERE kind='nutrition_scenario' AND status='held_out'",
+        );
+      if (heldOut.length >= maxHeldOut)
+        throw fail(
+          409,
+          "HELD_OUT_LIMIT",
+          `Keep at most ${maxHeldOut} active held-out checks so every check is evaluated. Archive a check first.`,
+        );
       if (
         c.status !== "confirmed" ||
-        c.data.scenario.trim() === b.prompt.trim()
+        heldOutOverlaps(b.prompt, confirmed as any).length
       )
         throw fail(
           400,
           "HELD_OUT_REQUIRED",
-          "Use a different scenario from the teaching case.",
+          "Use a scenario that differs from every confirmed teaching case, not a reworded copy.",
+        );
+      if (heldOutDuplicate(b, heldOut as any))
+        throw fail(
+          400,
+          "HELD_OUT_DUPLICATE",
+          "An equivalent held-out check with this client profile already exists.",
         );
       if (b.expectedMeal) {
         const catalog = await nutritionCatalog(tx);
@@ -999,7 +1118,6 @@ export function nutritionRoutes(
             "Select current recipes suitable for the expected meal slot",
           );
       }
-      await lock(tx, a);
       await tx.query(
         "UPDATE records SET status='needs_recheck' WHERE kind='nutrition_release' AND status='published'",
       );
@@ -1042,8 +1160,15 @@ export function nutritionRoutes(
       m = await db.tenant(a, nutritionMaterial),
       scenarios = await db.tenant(a, (tx) =>
         tx.query(
-          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT 40",
+          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT $1",
+          [maxHeldOut + 1],
         ),
+      );
+    if (scenarios.length > maxHeldOut)
+      throw fail(
+        409,
+        "HELD_OUT_LIMIT",
+        `More than ${maxHeldOut} held-out checks are active; archive checks so that every one is evaluated.`,
       );
     if (
       !m.policy ||
@@ -1067,6 +1192,24 @@ export function nutritionRoutes(
         409,
         "EVALUATION_COVERAGE",
         "Confirm all teaching categories and policy, resolve contradictions, and add at least twenty held-out cases including eight worked meal expectations spanning portions, substitutions, cooking and budget.",
+      );
+    const stale = staleHeldOut(
+      scenarios as any,
+      m.cases as any,
+      m.policy.data.policy,
+      {
+        foods: m.foods,
+        recipes: m.recipes,
+      },
+    );
+    if (stale.length)
+      throw fail(
+        409,
+        "HELD_OUT_STALE",
+        "These held-out checks can no longer pass after teaching, policy or catalog changes; archive or replace them before evaluation. " +
+          stale
+            .map((s) => `${s.scenarioId}: ${s.reasons.join(" ")}`)
+            .join("; "),
       );
     const expectedDigest = hash(
       scenarios.map((s) => ({ id: s.id, data: s.data, version: s.version })),
@@ -1266,7 +1409,8 @@ export function nutritionRoutes(
         evaluation = await find(tx, b.evaluationId, "nutrition_evaluation"),
         preview = await find(tx, b.previewId, "nutrition_preview"),
         scenarios = await tx.query(
-          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT 40",
+          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT $1",
+          [maxHeldOut + 1],
         );
       if (
         evaluation.status !== "passed" ||
@@ -2175,7 +2319,8 @@ export async function prepareNutritionWeek(
         profileId: s.profile.id,
         releaseId: s.release.id,
         digest: s.material.digest,
-        choices: week,
+        // The client-readable record keeps only the checked explanation.
+        choices: { ...week, explanation: view.explanation },
         view,
         origin: "automatic",
         targetId: s.individualTarget.id,

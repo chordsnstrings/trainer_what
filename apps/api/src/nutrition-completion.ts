@@ -12,6 +12,7 @@ import {
   nutritionCatalog,
   nutritionEntitlement,
   nutritionMaterial,
+  invalidatePlansUsing,
 } from "./nutrition.ts";
 import {
   nutritionMethodSchema,
@@ -805,6 +806,8 @@ export function nutritionCompletionRoutes(
         archived: b.archived,
         reason: b.reason,
       });
+      if (b.archived)
+        await invalidatePlansUsing(tx, a, { kind: p.kind, id: p.id });
       return record;
     });
   });
