@@ -66,3 +66,16 @@ Final head `7a58c7f`, after both fix rounds:
 | GitHub CI | All three jobs passed on the reviewed fixes, including the Compose-topology smoke with the controller-style loopback readiness check |
 
 During the merge, five new test fixtures wrote tenant tables through the service connection. They passed on the embedded engine but correctly failed on PostgreSQL under the restricted runtime role, and now use tenant transactions. One test asserted the order of two events that share a timestamp; it now compares them as a set.
+
+## Post-merge automatic deployment
+
+The owner authorized the merge. PR #2 merged into `main` as `eb7b678` at 14:24 UTC. The push run of `check.yml` passed all three jobs at about 14:35. The server's controller then built and deployed the commit on its own schedule, and served it with the matching release header at 14:38. This is the first Git-triggered update on the live host. During the service switch, one 30-second poll found readiness unavailable, so the interruption was under a minute.
+
+| Live check on `eb7b678` | Result |
+| --- | --- |
+| Public pages, headers, redirect, anonymous 401, cross-origin 403 | 11 of 11 passed |
+| Superadmin sign-in with authenticator after the new key-rotation envelopes | Passed |
+| Fix checks: legal-version field removed, blank platform name rejected with `SETTINGS_INVALID`, rejected save leaves settings unchanged, health probe through the edge | 4 of 4 passed |
+| Trainer signup, onboarding, invitation with consent, subscriber workspace, role isolation, sign-out (registration opened only for this run) | 9 of 9 passed |
+| Registration after the run | Closed again (`LEGAL_PENDING`) |
+| Browser pass, 16 screens at 1440 px and 390 px | All 32 views rendered; no overflow; no server errors. The subscriber app no longer requests the unpublished-site icon |

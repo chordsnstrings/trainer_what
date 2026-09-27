@@ -7,7 +7,7 @@ Updated: 27 September 2026. This is durable project context for future build ses
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 27 September (latest): fix the audited errors, test everything, and deploy everything under a new DigitalOcean project without touching existing projects. The owner supplied a DO token in the session and said they will rotate it. Delivery is [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2); the owner merges it, which the server then auto-deploys. |
+| Current request | 27 September (latest): fix the audited errors, test everything, and deploy everything under a new DigitalOcean project without touching existing projects. The owner supplied a DO token in the session and said they will rotate it. Delivered in [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2), merged with the owner's authorization and deployed automatically. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification. On 25 September at 13:44 Asia/Dubai, the owner explicitly requested multiple agents for speed; split nonoverlapping implementation/review work and keep cloud writes with the coordinating agent. Avoid repeated planning/research and unnecessary confirmation. |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
@@ -26,10 +26,10 @@ Updated: 27 September 2026. This is durable project context for future build ses
 
 ## Current state
 
-- **Live deployment.** `main` at `2708f21` runs on the GymMembership server. The first Superadmin was created from a one-time host request and then had its password rotated and an authenticator enrolled; the credentials sit only in the coordinating session's private scratch file. Registration is closed (`LEGAL_PENDING`). Three labelled placeholder legal documents and synthetic `@gymmembership.invalid` test accounts exist. Evidence: `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`.
+- **Live deployment.** `main` at `eb7b678` (PR #2 merged) runs on the GymMembership server, deployed automatically after its checks passed; live checks passed on it. The first Superadmin was created from a one-time host request and then had its password rotated and an authenticator enrolled; the credentials sit only in the coordinating session's private scratch file. Registration is closed (`LEGAL_PENDING`). Three labelled placeholder legal documents and synthetic `@gymmembership.invalid` test accounts exist. Evidence: `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`.
 - **Defect fixes (PR #2).** An earlier audit's 109 items were rechecked on `main`: 26 fixed, 28 partly fixed, 55 still present. Twelve area fixes and a verified adversarial review round (15 confirmed findings, one deploy blocker) are merged on `claude/repository-overview-osejlw`. New migrations 043, 046, 046b, 049 and 053. CI passes all three jobs, including the new Compose-topology smoke that also checks loopback readiness the way the host controller does. A local upgrade rehearsal from a `main`-migrated database with data to the merged head passed in production mode.
 - **Not done.** The right-to-left layout conversion was blocked by the session's permission policy. Architectural isolation items (subscriber requests under staff/owner roles, application-only predicates on some global tables, `RESET ROLE` inside tenant transactions, unbounded bootstrap payloads) need a separate redesign. Lean status reads and probes need a verified provider contract. Commission-rank policy questions await finance sign-off.
-- **Next action.** The owner reviews and merges PR #2 (mark it ready first). Within one five-minute cycle after `check.yml` passes on `main`, the server builds and deploys it; verify readiness and the release header, then re-run the live smoke. Rotate the DigitalOcean token as the owner planned.
+- **Next action.** The owner rotates the DigitalOcean token and takes over the Superadmin. Then real-provider qualification, reviewed legal documents and the open items above. Every checked `main` commit deploys automatically.
 
 ## Handoff format
 

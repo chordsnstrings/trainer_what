@@ -1,6 +1,6 @@
 # Claude continuation handoff
 
-Updated 27 September 2026 (afternoon). PR #1 is merged into `main`. At the owner's request the application now runs live on a new DigitalOcean project, GymMembership, deploying checked `main` automatically. [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) holds the audited defect fixes and the reviewed follow-ups; merging it is the next release. Historical stage entries below retain their original evidence.
+Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
 ## Start here
 
@@ -266,4 +266,5 @@ Both jobs in [run 36295491678](https://github.com/chordsnstrings/trainer_what/ac
 - **Files and migrations.** New migrations 043 (platform role audit), 046 and 046b (domain mapping isolation, migration checksums, payout integrity), 049 (payout separation) and 053 (marketing consent history). New test files are `tests/fix-*.test.ts` and `tests/fix2-*.test.ts`. The CI Compose-topology job and `scripts/compose-smoke.sh` are new, as is `npm run secrets:reseal`.
 - **Checks on the final head.** The local full suite ran 484 tests: 483 passed, 0 failed, and 1 PostgreSQL-only test was skipped. TypeScript, the production build and 56 deployment tests passed. The full restricted-role PostgreSQL suite passed 477 tests with 0 failures and 2 embedded-only skips. A local upgrade rehearsal from a `main`-migrated database with data to the merged head passed in production mode. GitHub CI passed all three jobs on the reviewed fixes.
 - **Not done.** The right-to-left layout was blocked by the session's permission policy. Architectural isolation redesign, Lean status reads and commission-rank policy sign-off are open.
-- **Next action.** The owner marks PR #2 ready and merges it. The server auto-deploys within one cycle after `check.yml` passes on `main`; then verify the release header and rerun the live smoke. The owner rotates the DigitalOcean token and takes over the Superadmin through account recovery or the host `reset-mfa` command.
+- **Merged and deployed.** The owner authorized the merge; `main` `eb7b678` deployed automatically at 14:38 UTC. Live public, fix, journey and browser checks passed on it (see the verification record).
+- **Next action.** The owner rotates the DigitalOcean token and takes over the Superadmin through account recovery or the host `reset-mfa` command. Then real-provider qualification, reviewed legal documents and the open items above.
