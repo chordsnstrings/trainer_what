@@ -17,6 +17,7 @@ import {
 import { consumeMfa, requireRecentMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
+import { openSignInSession, type SignInMethod } from "./sign-in.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -90,13 +91,9 @@ export async function insertAccountSession(
   userId: string,
   tenantId: string,
   mfa = false,
+  method: SignInMethod = "magic_link",
 ) {
-  const token = newToken();
-  await tx.query(
-    "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
-    [tokenHash(token), userId, tenantId, mfa],
-  );
-  return token;
+  return openSignInSession(tx, { userId, tenantId, mfa, method });
 }
 export function setAccountCookie(reply: FastifyReply, token: string) {
   reply.setCookie("session", token, {
@@ -367,7 +364,13 @@ export function registerAccountCompletion(
         "auth-recovery:" + randomUUID(),
       );
       return {
-        token: await insertAccountSession(tx, u.id, m.tenant_id, false),
+        token: await insertAccountSession(
+          tx,
+          u.id,
+          m.tenant_id,
+          false,
+          "authenticator_recovery",
+        ),
         role: m.role,
         platformRole: m.platform_role,
       };
@@ -481,7 +484,13 @@ export function registerAccountCompletion(
         t.user_id,
       );
       return {
-        token: await insertAccountSession(tx, t.user_id, t.tenant_id, mfa),
+        token: await insertAccountSession(
+          tx,
+          t.user_id,
+          t.tenant_id,
+          mfa,
+          "magic_link",
+        ),
         role: m.role,
         platformRole: m.platform_role,
       };

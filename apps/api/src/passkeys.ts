@@ -420,6 +420,7 @@ export function registerPasskeys(
             credential.user_id,
             m.tenant_id,
             true,
+            "passkey",
           ),
           role: m.role,
           platformRole: m.platform_role,

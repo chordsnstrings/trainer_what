@@ -93,6 +93,11 @@ export async function verifyRuntimeAccess(client) {
     mfa_recovery_codes: ["SELECT", "INSERT", "DELETE"],
     auth_passkeys: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     auth_passkey_challenges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_identities: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    oidc_sign_in_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    email_change_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_recovery_grants: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_notices: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     brand_media: ["SELECT"],
     coach_galleries: ["SELECT"],
     coach_gallery_photos: ["SELECT"],
@@ -148,6 +153,7 @@ export async function verifyRuntimeAccess(client) {
     "notifications",
     "push_subscriptions",
     "chat_attachments",
+    "membership_exits",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -250,6 +256,11 @@ export async function verifyRuntimeAccess(client) {
       "auth_passkey_challenges",
       "privacy_erasure_registry",
       "workspace_lifecycle_requests",
+      "account_identities",
+      "oidc_sign_in_requests",
+      "email_change_requests",
+      "account_recovery_grants",
+      "account_notices",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
@@ -283,7 +294,7 @@ export async function verifyRuntimeAccess(client) {
       );
       assert.equal(r.allowed, false, `Tenant actor must not set ${column}`);
     }
-    for (const table of ["payouts", "subscriptions"]) {
+    for (const table of ["payouts", "subscriptions", "membership_exits"]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'DELETE') AS allowed",
         [table],

@@ -236,6 +236,16 @@ export async function exportPersonalData(
       profile: u,
       membership: m,
       acquisition: await exportAcquisitionData(tx, a.tenantId, a.userId),
+      // Account-level sign-in methods and notices belong to the person, not
+      // the workspace; provider subjects are included, tokens never exist.
+      signInIdentities: await tx.query(
+        "SELECT provider,subject,email,email_verified,created_at,last_used_at FROM account_identities WHERE user_id=$1 ORDER BY provider",
+        [a.userId],
+      ),
+      accountNotices: await tx.query(
+        "SELECT kind,title,body,created_at,read_at FROM account_notices WHERE user_id=$1 ORDER BY created_at",
+        [a.userId],
+      ),
     };
   });
   return db.tenant({ ...a, role: "owner" }, async (tx) => ({
@@ -339,6 +349,11 @@ export async function scrubUnusedAccount(tx: Tx, userId: string) {
       "mfa_recovery_codes",
       "auth_passkeys",
       "auth_passkey_challenges",
+      "account_identities",
+      "oidc_sign_in_requests",
+      "email_change_requests",
+      "account_recovery_grants",
+      "account_notices",
     ])
       await optionalDelete(tx, table, "user_id=$1", [userId]);
   }

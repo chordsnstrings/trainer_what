@@ -46,6 +46,11 @@ import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
 import { AccountExtras, MagicAccess } from "./account-completion";
+import { AccountSettings } from "./account-settings";
+import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
+import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
+import { OperatorRecovery } from "./operator-recovery";
+import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
 import {
   GalleryStudio,
@@ -436,6 +441,9 @@ export default function Workspace() {
     path === "/magic-link" ||
     path.startsWith("/magic-link/") ||
     path === "/recover-authenticator" ||
+    path === "/sign-in/verify" ||
+    path.startsWith("/verify-email-change/") ||
+    path.startsWith("/account-recovery/") ||
     path.startsWith("/reset-password/") ||
     path.startsWith("/verify-email/") ||
     path.startsWith("/join-coach/") ||
@@ -805,6 +813,8 @@ export default function Workspace() {
                 </Link>
                 <AccountSecurity />
                 <AccountExtras />
+                <AccountSettings returnTo="/admin/account-security" />
+                <OperatorRecovery />
               </>
             ) : (
               <PlatformSettings
@@ -861,6 +871,10 @@ export default function Workspace() {
                 path={path}
                 platformRole={state.user.platformRole}
               />
+              {path === "/admin/support" &&
+                ["admin", "support"].includes(state.user.platformRole) && (
+                  <OperatorRecovery />
+                )}
             </>
           ) : path.startsWith("/admin") ? (
             adminRoute(path) === "overview" ? (
@@ -937,12 +951,23 @@ export default function Workspace() {
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
-            <ClientTwin
-              userId={path.split("/")[3]}
-              name={
-                state.members?.find((m) => m.id === path.split("/")[3])?.name
-              }
-            />
+            <>
+              <ClientTwin
+                userId={path.split("/")[3]}
+                name={
+                  state.members?.find((m) => m.id === path.split("/")[3])?.name
+                }
+              />
+              {state.user.role === "owner" && (
+                <FollowerRemoval
+                  userId={path.split("/")[3]}
+                  name={
+                    state.members?.find((m) => m.id === path.split("/")[3])
+                      ?.name
+                  }
+                />
+              )}
+            </>
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
@@ -1915,6 +1940,7 @@ function Members({ state, records, action, busy }: ViewProps) {
           )}
         </Card>
       </div>
+      <FormerFollowers />
     </>
   );
 }
@@ -3434,6 +3460,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       />
       <AccountSecurity />
       <AccountExtras />
+      <AccountSettings returnTo={sub ? "/app/profile" : "/trainer/settings"} />
       <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
@@ -3907,9 +3934,15 @@ function Public({
           <ArrowUpRight size={16} />
         </Link>
       </header>
-      {path === "/magic-link" ||
-      path.startsWith("/magic-link/") ||
-      path === "/recover-authenticator" ? (
+      {path === "/sign-in/verify" ? (
+        <SocialSignInVerify />
+      ) : path.startsWith("/verify-email-change/") ? (
+        <EmailChangeConfirm token={path.split("/").pop() ?? ""} />
+      ) : path.startsWith("/account-recovery/") ? (
+        <RecoveryLinkReset token={path.split("/").pop() ?? ""} />
+      ) : path === "/magic-link" ||
+        path.startsWith("/magic-link/") ||
+        path === "/recover-authenticator" ? (
         <MagicAccess path={path} />
       ) : path.startsWith("/reset-password/") ||
         path.startsWith("/verify-email/") ||
@@ -4095,6 +4128,13 @@ function Public({
                 <ArrowRight size={16} />
               </Button>
             </form>
+            {(path === "/login" || join || enroll) && (
+              <SocialSignIn
+                intent={join ? "invite" : enroll ? "join" : "sign_in"}
+                coachSlug={enroll ? path.split("/").pop() : undefined}
+                inviteToken={join ? path.split("/").pop() : undefined}
+              />
+            )}
             {path === "/login" && (
               <>
                 <div className="divider" />

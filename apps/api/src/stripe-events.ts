@@ -128,7 +128,16 @@ export async function processStripeEvent(
       [tenantId, userId],
     ),
   );
-  if (!member)
+  // A follower who left or was removed keeps a recorded exit; the winding-down
+  // subscription's remaining provider events must still reach the ledger.
+  const [former] = member
+    ? []
+    : await db.tenant({ tenantId, userId, role: "finance" }, (tx) =>
+        tx.query("SELECT id FROM membership_exits WHERE user_id=$1 LIMIT 1", [
+          userId,
+        ]),
+      );
+  if (!member && !former)
     throw new Error(
       "Payment event refers to an unknown subscriber relationship",
     );
