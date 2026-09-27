@@ -36,6 +36,7 @@ import {
 import {
   nutritionModel,
   nutritionModelIdentity,
+  NUTRITION_CONTEXT_LIMIT,
 } from "../../../packages/providers/src/nutrition.ts";
 import {
   foodSchema,
@@ -53,6 +54,7 @@ import {
   nutritionSummary,
   localDate,
   dateOffset,
+  recipeCompatibility,
   type Food,
   type Recipe,
   type NutritionPolicy,
@@ -254,12 +256,29 @@ export async function nutritionReadiness(tx: Tx) {
     );
   if (!material.foods.length || !material.recipes.length)
     gaps.push("Add ingredient facts and recipes with cooking options.");
-  if (
-    !release ||
-    release.data.qualificationVersion !== 2 ||
-    release.data.digest !== material.digest
-  )
-    gaps.push("Evaluate and activate the current nutrition knowledge.");
+  const promptSize = JSON.stringify(evidence(material, "policy")).length;
+  if (promptSize > NUTRITION_CONTEXT_LIMIT)
+    gaps.push(
+      `Teaching and in-scope recipes need ${promptSize} characters, above the ${NUTRITION_CONTEXT_LIMIT}-character model request bound. Archive unused recipes or ingredient versions, or consolidate cases.`,
+    );
+  if (!release || release.data.qualificationVersion !== 2) {
+    const [held] = await tx.query(
+      "SELECT status FROM records WHERE kind='nutrition_release' AND status IN ('paused','needs_recheck') ORDER BY created_at DESC LIMIT 1",
+    );
+    gaps.push(
+      held?.status === "paused"
+        ? "Automatic nutrition is paused. Evaluate and activate the current knowledge to resume new weeks and swaps."
+        : held?.status === "needs_recheck"
+          ? "Held-out checks changed after activation. Evaluate and activate again to resume new weeks and swaps."
+          : "Evaluate and activate the current nutrition knowledge.",
+    );
+  } else if (release.data.digest !== material.digest)
+    // The release stays pinned to its evaluated digest; delivery waits for requalification.
+    gaps.push(
+      hash(release.data.model) !== hash(nutritionModelIdentity())
+        ? "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available."
+        : "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available.",
+    );
   const configured =
     !!runtimeConfig().MODEL_API_KEY &&
     !!runtimeConfig().MODEL_BASE_URL &&
@@ -304,6 +323,7 @@ async function generate(
   a: Actor,
   db: Database,
   requestId?: string,
+  requestVersion?: number,
 ) {
   const accounting = modelAccounting(db, a, "nutrition_week");
   const tracked = {
@@ -317,9 +337,11 @@ async function generate(
             await entitled(tx, a.userId);
             await permission(tx, a.userId, true);
             const profile = await latest(tx, "nutrition_profile", a.userId),
+              // A later attempt of the same intent increments the version; only the
+              // attempt that still owns the request may dispatch it.
               [request] = await tx.query(
-                "SELECT * FROM records WHERE id=$1 AND kind='nutrition_request' AND status='running'",
-                [requestId],
+                "SELECT * FROM records WHERE id=$1 AND kind='nutrition_request' AND status='running' AND version=$2",
+                [requestId, requestVersion],
               );
             if (!request || request.data.profileId !== profile?.id)
               throw fail(
@@ -373,13 +395,51 @@ async function generate(
     tracked,
   );
 }
-function evidence(material: Awaited<ReturnType<typeof nutritionMaterial>>) {
+type Material = Awaited<ReturnType<typeof nutritionMaterial>>;
+// Prompts carry only recipes and cooking options the validator could accept for the
+// supplied profiles (or, without profiles, for the policy's diets and meal slots) and
+// the ingredient facts they use. Validation still uses the complete current catalog.
+function promptCatalog(material: Material, profiles?: NutritionProfile[]) {
+  const policy = material.policy?.data.policy as NutritionPolicy | undefined;
+  if (!policy) return { foods: material.foods, recipes: material.recipes };
+  const facts = new Map(material.foods.map((f) => [f.id, f]));
+  const recipes = material.recipes.flatMap((r) => {
+    if (!r.slots.some((slot) => policy.slots.includes(slot))) return [];
+    const variants = r.variants.filter((v) =>
+      profiles
+        ? profiles.some((p) => !recipeCompatibility(r, v, facts, p, policy))
+        : r.dietTags.some((d) => policy.supportedDiets.includes(d)),
+    );
+    return variants.length ? [{ ...r, variants }] : [];
+  });
+  const used = new Set(
+    recipes.flatMap((r) =>
+      r.variants.flatMap((v) => v.ingredients.map((i) => i.foodId)),
+    ),
+  );
+  return { foods: material.foods.filter((f) => used.has(f.id)), recipes };
+}
+function evidence(
+  material: Material,
+  selection?: "policy" | NutritionProfile[],
+) {
+  const catalog = selection
+    ? promptCatalog(material, selection === "policy" ? undefined : selection)
+    : material;
   return {
     cases: material.snapshot.cases,
     policy: material.policy?.data.policy,
-    foods: material.foods,
-    recipes: material.recipes,
+    foods: catalog.foods,
+    recipes: catalog.recipes,
   };
+}
+// Intake context reaches the model as dated counts and totals; record IDs stay local.
+function promptIntakeContext(context: unknown) {
+  return JSON.parse(
+    JSON.stringify(context, (key, value) =>
+      key === "sourceIds" || key === "sourceId" ? undefined : value,
+    ),
+  );
 }
 async function exception(
   tx: Tx,
@@ -412,9 +472,25 @@ async function exception(
   });
   return e;
 }
+const TEMPORARY_UNSENT_CODES = [
+  "MODEL_DAILY_LIMIT",
+  "MODEL_USER_LIMIT",
+  "GENERATION_STALE",
+];
+const COACH_ACTION_CODES = [
+  "TARGET_REVIEW",
+  "TARGET_LIMIT",
+  "NUTRITION_CONTEXT_TOO_LARGE",
+];
 function availabilityError(error: unknown) {
-  if (error instanceof NutritionBlocked)
-    return { code: error.code, message: error.message };
+  if (
+    error instanceof NutritionBlocked ||
+    COACH_ACTION_CODES.includes((error as any)?.code)
+  )
+    return {
+      code: (error as any).code as string,
+      message: (error as Error).message,
+    };
   return {
     code: "GENERATION_UNAVAILABLE",
     message:
@@ -1121,7 +1197,10 @@ export function nutritionRoutes(
       "nutrition_evaluation",
       "For each unseen scenario return {decisions:[{scenarioId,action:plan|exception,targetKcal:number or null,caseIds:[relevant teaching IDs],reason,principle:diet_match|goal_target|portion_arithmetic|allergen_limit|equipment_time|budget_limit|adjustment_limit|scope_referral,rationaleEvidence:{caseId,quote:exact supporting words from that teaching case},sampleMeal:null or {slot,recipeId,variantKey,servings,ingredients:[{foodId,grams}],nutrients:{kcal,protein,carbohydrate,fat}}}]}. For a plan, provide a worked meal for requestedMealSlot with independently calculated ingredient quantities and nutrients; combine repeated ingredients. For exceptions withhold the sample meal. Apply coach policy and cases; unknown allergy, specialist needs or unsupported age/diet/goal require exception. For system safety cases use scope_referral. Category principle mapping is supplied, but held-out expected recipes and portions are withheld. Cite real teaching evidence and explain its application. Never invent food facts.",
       {
-        ...evidence(m),
+        ...evidence(
+          m,
+          allScenarios.map((s) => s.data.profile),
+        ),
         categoryPrinciples: principleForCategory,
         scenarios: allScenarios.map((s) => ({
           id: s.id,
@@ -1222,7 +1301,7 @@ export function nutritionRoutes(
       throw fail(409, "POLICY_REQUIRED", "Confirm the nutrition policy first.");
     const targetKcal = nutritionTarget(m.policy.data.policy, b.profile),
       week = await generate(
-        { ...evidence(m), profile: b.profile, targetKcal },
+        { ...evidence(m, [b.profile]), profile: b.profile, targetKcal },
         a,
         db,
       );
@@ -1325,7 +1404,16 @@ export function nutritionRoutes(
     return db.tenant(a, async (tx) => {
       await lock(tx, a);
       const r = await find(tx, (req.params as any).id, "nutrition_release");
-      await tx.query("UPDATE records SET status='paused' WHERE id=$1", [r.id]);
+      const paused = await tx.query(
+        "UPDATE records SET status='paused',version=version+1,updated_at=now() WHERE id=$1 AND status='published' RETURNING id",
+        [r.id],
+      );
+      if (!paused.length)
+        throw fail(
+          409,
+          "RELEASE_CHANGED",
+          "Only the active nutrition release can be paused. Reload the release status.",
+        );
       await event(tx, a, "nutrition.release_paused", r.id);
       return { ok: true };
     });
@@ -1341,13 +1429,20 @@ export function nutritionRoutes(
         .parse(req.body);
     return db.tenant(a, async (tx) => {
       const r = await find(tx, (req.params as any).id, "nutrition_exception");
-      await tx.query(
-        "UPDATE records SET status='resolved',data=data||$2::jsonb WHERE id=$1",
+      // Resolution is single-use: a repeated submission cannot append duplicate teaching.
+      const resolved = await tx.query(
+        "UPDATE records SET status='resolved',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1 AND status='open' RETURNING id",
         [
           r.id,
           JSON.stringify({ resolution: b.resolution, resolvedBy: a.userId }),
         ],
       );
+      if (!resolved.length)
+        throw fail(
+          409,
+          "EXCEPTION_CHANGED",
+          "This exception has already been resolved. Reload the exception list.",
+        );
       if (b.teaching)
         await putRecord(
           tx,
@@ -1499,15 +1594,18 @@ function subscriberRoutes(
       return { ...r, version: (old?.version ?? 0) + 1 };
     });
   });
-  app.post(prefix + "/generate", async (req) =>
-    prepareNutritionWeek(
-      db,
-      auth.client(req),
-      z
-        .object({ requestKey: id, weekStart: z.iso.date() })
-        .strict()
-        .parse(req.body),
-    ),
+  app.post(
+    prefix + "/generate",
+    { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } },
+    async (req) =>
+      prepareNutritionWeek(
+        db,
+        auth.client(req),
+        z
+          .object({ requestKey: id, weekStart: z.iso.date() })
+          .strict()
+          .parse(req.body),
+      ),
   );
   app.get(prefix + "/plans/:id/options", async (req) => {
     const a = auth.client(req);
@@ -1517,13 +1615,11 @@ function subscriberRoutes(
       const plan = await find(tx, (req.params as any).id, "nutrition_plan");
       if (plan.owner_user_id !== a.userId)
         throw fail(404, "NOT_FOUND", "Plan unavailable");
+      // Any current delivered week, including coach-assigned weeks and weeks from an
+      // earlier release, takes options from the active release it will be validated against.
       const ready = await requireNutritionReady(tx),
         profile = await latest(tx, "nutrition_profile", a.userId);
-      if (
-        plan.status !== "delivered" ||
-        profile?.id !== plan.data.profileId ||
-        ready.release!.id !== plan.data.releaseId
-      )
+      if (plan.status !== "delivered" || profile?.id !== plan.data.profileId)
         throw fail(
           409,
           "PLAN_CHANGED",
@@ -1561,8 +1657,7 @@ function subscriberRoutes(
       if (
         old.status !== "delivered" ||
         old.version !== b.expectedVersion ||
-        old.data.profileId !== profile?.id ||
-        ready.release!.id !== old.data.releaseId
+        old.data.profileId !== profile?.id
       )
         throw fail(
           409,
@@ -1611,7 +1706,11 @@ function subscriberRoutes(
           policy,
           profile: profile!.data.profile,
           ...{ foods: ready.material.foods, recipes: ready.material.recipes },
-          caseIds: ready.material.cases.map((c) => c.id),
+          // The week's recorded rationale was validated when it was delivered.
+          caseIds: [
+            ...ready.material.cases.map((c) => c.id),
+            ...(old.data.choices.caseIds ?? []),
+          ],
           weekStart: old.data.weekStart,
           targetKcal: old.data.view.targetKcal,
         });
@@ -1646,6 +1745,12 @@ function subscriberRoutes(
             view,
             origin: "automatic_swap",
             groceryChanges: delta,
+            releaseId: ready.release!.id,
+            digest: ready.material.digest,
+            // A swapped coach-assigned week stays coach-authored; /generate reuses it.
+            coachAssignedId:
+              old.data.coachAssignedId ??
+              (old.data.origin === "coach_assigned" ? old.id : undefined),
           },
           old,
         ),
@@ -1923,7 +2028,7 @@ export async function prepareNutritionWeek(
         "Start a new plan today or within the next four weeks.",
       );
     const [prior] = await tx.query(
-      "SELECT * FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2",
+      "SELECT *,updated_at<now()-interval '2 minutes' AS lease_expired FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2",
       [a.userId, b.requestKey],
     );
     if (prior) {
@@ -1935,7 +2040,13 @@ export async function prepareNutritionWeek(
         );
       if (prior.status === "completed")
         return { done: await find(tx, prior.data.planId, "nutrition_plan") };
-      if (prior.status !== "retryable")
+      // An attempt interrupted before dispatch left a known not-sent state; its lease has
+      // lapsed and the version check before dispatch fences off the earlier attempt.
+      const interrupted =
+        prior.status === "running" &&
+        prior.data.providerState === "not_sent" &&
+        prior.lease_expired === true;
+      if (prior.status !== "retryable" && !interrupted)
         return {
           blocked: {
             code: prior.data.code ?? "GENERATION_PENDING",
@@ -1961,10 +2072,18 @@ export async function prepareNutritionWeek(
       "SELECT * FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' AND data->>'weekStart'=$2",
       [a.userId, b.weekStart],
     );
-    if (existing && existing.data.profileId === profile.id)
+    // Coach-authored weeks and weeks from the active release are reused. A week from an
+    // earlier release is replaced only by a validated week from the active release.
+    if (
+      existing &&
+      existing.data.profileId === profile.id &&
+      (existing.data.releaseId === r.release!.id ||
+        existing.data.origin === "coach_assigned" ||
+        existing.data.coachAssignedId)
+    )
       return { done: existing };
     const [running] = await tx.query(
-      "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND created_at>now()-interval '2 minutes'",
+      "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND updated_at>now()-interval '2 minutes'",
       [a.userId],
     );
     if (running)
@@ -2069,6 +2188,7 @@ export async function prepareNutritionWeek(
       providerState: "not_sent",
       recoveryJobId: recoveryJob.id,
       attempt: (prior?.data.attempt ?? 0) + 1,
+      targetId: individualTarget.id,
     };
     const request = prior
       ? (
@@ -2091,6 +2211,7 @@ export async function prepareNutritionWeek(
       adjustmentEvidence,
       individualTarget,
       nutritionContext: await nutritionTwin(tx, a, a.userId),
+      replaceId: (existing?.id ?? null) as string | null,
     };
   });
   if (initial.done) return { plan: initial.done, reused: true };
@@ -2107,20 +2228,22 @@ export async function prepareNutritionWeek(
       | "adjustmentEvidence"
       | "individualTarget"
       | "nutritionContext"
+      | "replaceId"
     >
   >;
   try {
     const week = await generate(
       {
-        ...evidence(s.material),
+        ...evidence(s.material, [s.profile.data.profile]),
         profile: s.profile.data.profile,
         targetKcal: s.targetKcal,
         individualTarget: s.individualTarget.details,
-        recordedIntakeContext: s.nutritionContext,
+        recordedIntakeContext: promptIntakeContext(s.nutritionContext),
       },
       a,
       db,
       s.request.id,
+      s.request.version,
     );
     const view = validateNutritionWeek({
       week,
@@ -2164,25 +2287,31 @@ export async function prepareNutritionWeek(
         "SELECT id FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' AND data->>'weekStart'=$2",
         [a.userId, b.weekStart],
       );
-      if (other)
+      if (other && other.id !== s.replaceId)
         throw fail(
           409,
           "PLAN_CHANGED",
           "Another plan has already been delivered for this week.",
         );
-      const plan = await deliver(tx, a, a.userId, {
-        weekStart: b.weekStart,
-        profileId: s.profile.id,
-        releaseId: s.release.id,
-        digest: s.material.digest,
-        choices: week,
-        view,
-        origin: "automatic",
-        targetId: s.individualTarget.id,
-        target: s.individualTarget.details,
-        adjustmentEvidence: s.adjustmentEvidence,
-        model: nutritionModelIdentity(),
-      });
+      const plan = await deliver(
+        tx,
+        a,
+        a.userId,
+        {
+          weekStart: b.weekStart,
+          profileId: s.profile.id,
+          releaseId: s.release.id,
+          digest: s.material.digest,
+          choices: week,
+          view,
+          origin: "automatic",
+          targetId: s.individualTarget.id,
+          target: s.individualTarget.details,
+          adjustmentEvidence: s.adjustmentEvidence,
+          model: nutritionModelIdentity(),
+        },
+        other,
+      );
       await tx.query(
         "UPDATE records SET status='completed',data=data||$2::jsonb WHERE id=$1",
         [s.request.id, JSON.stringify({ planId: plan.id })],
@@ -2194,7 +2323,8 @@ export async function prepareNutritionWeek(
       return { plan, reused: false };
     });
   } catch (error) {
-    const issue = availabilityError(error);
+    const issue = availabilityError(error),
+      code = (error as any)?.code;
     await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
       const [stillMember] = await tx.query(
@@ -2202,15 +2332,40 @@ export async function prepareNutritionWeek(
         [a.tenantId, a.userId],
       );
       if (!stillMember) return;
+      // Only the attempt that still owns the request records its outcome.
+      const [owned] = await tx.query(
+        "SELECT data->>'providerState' AS state FROM records WHERE id=$1 AND status='running' AND version=$2",
+        [s.request.id, s.request.version],
+      );
+      if (!owned) return;
+      // A known not-sent outcome never reached the provider, so the same intent may be
+      // attempted again without a second charge. Temporary refusals need no coach review.
+      const unsent = owned.state === "not_sent",
+        temporary = unsent && TEMPORARY_UNSENT_CODES.includes(code),
+        recorded = temporary
+          ? { code, message: (error as Error).message }
+          : issue;
       await tx.query(
         "UPDATE jobs SET status='blocked',leased_until=NULL,last_error=$2 WHERE id=$1 AND data->>'origin'='manual'",
-        [s.request.data.recoveryJobId, issue.code],
+        [s.request.data.recoveryJobId, recorded.code],
       );
       await tx.query(
-        "UPDATE records SET status='failed',data=data||$2::jsonb WHERE id=$1 AND status='running'",
-        [s.request.id, JSON.stringify(issue)],
+        "UPDATE records SET status=$3,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
+        [
+          s.request.id,
+          JSON.stringify(recorded),
+          unsent ? "retryable" : "failed",
+        ],
       );
-      await exception(tx, a, a.userId, issue.code, issue.message, s.request.id);
+      if (!temporary)
+        await exception(
+          tx,
+          a,
+          a.userId,
+          issue.code,
+          issue.message,
+          s.request.id,
+        );
     });
     if ((error as any).statusCode) throw error;
     return { status: "exception", ...issue };

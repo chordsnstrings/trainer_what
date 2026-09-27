@@ -279,6 +279,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "number",
         { required: true, defaultValue: "100" },
       ),
+      field(
+        "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER",
+        "Maximum daily nutrition calls per subscriber",
+        "number",
+        {
+          defaultValue: "20",
+          help: "Weekly plans and meal-photo analyses one subscriber can start each day. Subscriber requests together also leave the final fifth of the workspace limit for coach work.",
+        },
+      ),
     ],
   },
   {
@@ -582,7 +591,8 @@ export function validateIntegrationValues(
           `${entry.label} must be a nonnegative number up to 1000000`,
         );
       if (
-        key === "MODEL_MAX_DAILY_CALLS" &&
+        (key === "MODEL_MAX_DAILY_CALLS" ||
+          key === "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER") &&
         (!Number.isInteger(Number(text)) ||
           Number(text) < 1 ||
           Number(text) > 10000)

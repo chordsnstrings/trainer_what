@@ -1,11 +1,6 @@
-import {
-  scheduleFinance,
-  runClaimedFinanceJob,
-} from "../../api/src/finance-automation.ts";
-import { createDatabase, type Actor } from "@trainer/db";
-import { ProviderUnavailable } from "@trainer/providers";
-import { executeEmailDelivery } from "./email-delivery.ts";
-import { executePushDelivery } from "./push-delivery.ts";
+import { scheduleFinance } from "../../api/src/finance-automation.ts";
+import { createDatabase } from "@trainer/db";
+import { claimJob, runClaimedJob } from "./dispatch.ts";
 import { scheduleNotifications } from "../../api/src/notifications.ts";
 import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
 import { scheduleRetentionAlerts } from "../../api/src/retention.ts";
@@ -18,10 +13,7 @@ import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
-import {
-  scheduleNutrition,
-  executeNutritionJob,
-} from "../../api/src/nutrition-schedule.ts";
+import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
 if (!process.env.DATABASE_URL) {
   console.log(
     "Jobs are persisted locally. Delivery requires a PostgreSQL worker and configured providers.",
@@ -106,79 +98,9 @@ if (!process.env.DATABASE_URL) {
       } catch {
         console.error("Scheduled coaching follow-up delivery failed");
       }
-      const a: Actor = {
-        tenantId: tenant.id,
-        userId: "00000000-0000-0000-0000-000000000000",
-        role: "staff",
-      };
-      const job = await db.tenant(a, async (tx) => {
-        const [j] = await tx.query(
-          "SELECT * FROM jobs WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now()) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1",
-        );
-        if (!j) return null;
-        const [claimed] = await tx.query(
-          "UPDATE jobs SET leased_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=$1 RETURNING *",
-          [j.id],
-        );
-        return claimed;
-      });
+      const job = await claimJob(db, tenant.id);
       if (!job) continue;
-      try {
-        if (job.kind.startsWith("finance_")) {
-          try {
-            await runClaimedFinanceJob(db, tenant.id, job);
-          } catch {
-            console.error("Finance job result could not be persisted");
-          }
-          continue;
-        }
-        if (job.kind === "nutrition_week") {
-          const result: any = await executeNutritionJob(db, tenant.id, job);
-          await db.tenant(a, (tx) =>
-            tx.query(
-              "UPDATE jobs SET status=$2,leased_until=NULL,last_error=$3 WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
-              [
-                job.id,
-                result.status === "exception" ? "blocked" : "completed",
-                result.status === "exception" ? result.code : null,
-                job.attempts,
-                job.leased_until,
-              ],
-            ),
-          );
-          continue;
-        }
-        if (job.kind === "push") {
-          await executePushDelivery(db, tenant.id, job);
-          continue;
-        }
-        if (job.kind !== "email")
-          throw new ProviderUnavailable(
-            job.kind,
-            "No verified handler configured",
-          );
-        await executeEmailDelivery(db, tenant.id, job);
-      } catch (e) {
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
-            [
-              job.id,
-              e instanceof ProviderUnavailable ||
-              job.kind.startsWith("finance_")
-                ? "blocked"
-                : job.attempts >= 4
-                  ? "failed"
-                  : "pending",
-              e instanceof ProviderUnavailable
-                ? e.message
-                : "Provider delivery failed",
-              job.attempts,
-              job.leased_until,
-            ],
-          ),
-        );
-      }
+      await runClaimedJob(db, tenant.id, job);
     }
   }
   async function loop() {

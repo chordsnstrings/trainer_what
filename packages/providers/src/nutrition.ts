@@ -3,6 +3,7 @@ import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ProviderUnavailable } from "./index.ts";
 import { runtimeConfig } from "./configuration.ts";
 export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v2";
+export const NUTRITION_CONTEXT_LIMIT = 180000;
 export function nutritionModelIdentity() {
   const config = runtimeConfig();
   return {
@@ -29,8 +30,14 @@ export async function nutritionModel<T>(
       "Connect a model provider to teach and evaluate nutrition. Your saved coach material and recipes remain available.",
     );
   const content = JSON.stringify(input);
-  if (content.length > 180000)
-    throw new Error("Nutrition context exceeds the bounded request size");
+  // Checked before accounting or dispatch: an oversized request is never sent.
+  if (content.length > NUTRITION_CONTEXT_LIMIT)
+    throw Object.assign(
+      new Error(
+        `This nutrition request needs ${content.length} characters, above the ${NUTRITION_CONTEXT_LIMIT}-character model request bound. Archive unused recipes or ingredient versions, or consolidate teaching cases, then try again.`,
+      ),
+      { statusCode: 409, code: "NUTRITION_CONTEXT_TOO_LARGE" },
+    );
   const { payload } = await modelCompletion(
     base,
     key,

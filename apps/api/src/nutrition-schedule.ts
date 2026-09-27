@@ -1,11 +1,73 @@
 import { randomUUID } from "node:crypto";
-import { type Database, type Actor } from "@trainer/db";
+import {
+  event,
+  putRecord,
+  type Database,
+  type Actor,
+  type Tx,
+} from "@trainer/db";
 import { currentPaidSubscription } from "./finance-billing.ts";
 import { prepareNutritionWeek } from "./nutrition.ts";
 import {
   localDate,
   dateOffset,
 } from "../../../packages/domain/src/nutrition.ts";
+
+// Scheduled weeks refused before any provider dispatch (no request yet, or a request
+// whose provider state is known to be not_sent) are requeued under the same intent key
+// once the worker's backoff has elapsed. Unknown or responded outcomes are never
+// requeued here; they stay with the coach's recovery and reconciliation console.
+const AUTOMATIC_RECOVERY_ATTEMPTS = 12;
+async function recoverUnsentWeeks(tx: Tx, a: Actor) {
+  // Eligibility is decided in SQL so ineligible history cannot crowd out due weeks:
+  // the week's intent is not superseded, its profile is current, its request is absent
+  // or known not_sent (a running one only after its lease), and no request of the
+  // subscriber awaits provider reconciliation. weekStart is prefiltered against the
+  // earliest local date anywhere and checked exactly in the profile's timezone below.
+  const jobs = await tx.query(
+    "SELECT j.*,r.id AS request_id FROM jobs j LEFT JOIN records r ON r.kind='nutrition_request' AND r.owner_user_id=(j.data->>'userId')::uuid AND r.data->>'requestKey'=coalesce(j.data->>'requestKey',j.id::text) WHERE j.kind='nutrition_week' AND j.status IN ('blocked','failed') AND coalesce(j.data->>'origin','scheduled')<>'manual' AND j.available_at<=now() AND j.attempts<$1 AND (j.leased_until IS NULL OR j.leased_until<now()) AND j.data->>'weekStart'>=to_char(now()-interval '1 day','YYYY-MM-DD') AND (r.id IS NULL OR (r.data->>'providerState'='not_sent' AND (r.status IN ('retryable','failed') OR (r.status='running' AND r.updated_at<now()-interval '2 minutes')))) AND j.data->>'profileId'=(SELECT p.id::text FROM records p WHERE p.kind='nutrition_profile' AND p.owner_user_id=(j.data->>'userId')::uuid ORDER BY p.created_at DESC,p.id DESC LIMIT 1) AND NOT EXISTS(SELECT 1 FROM records u WHERE u.kind='nutrition_request' AND u.owner_user_id=(j.data->>'userId')::uuid AND u.status IN ('running','failed','closed') AND coalesce(u.data->>'providerState','uncertain')='uncertain') AND NOT EXISTS(SELECT 1 FROM jobs n WHERE n.kind='nutrition_week' AND n.data->>'userId'=j.data->>'userId' AND n.data->>'weekStart'=j.data->>'weekStart' AND n.created_at>j.created_at) ORDER BY j.available_at LIMIT 25 FOR UPDATE OF j SKIP LOCKED",
+    [AUTOMATIC_RECOVERY_ATTEMPTS],
+  );
+  let recovered = 0;
+  for (const job of jobs) {
+    const userId = job.data.userId;
+    const [profile] = await tx.query(
+      "SELECT * FROM records WHERE kind='nutrition_profile' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
+      [userId],
+    );
+    if (job.data.weekStart < localDate(profile.data.profile.timezone)) continue;
+    if (job.request_id)
+      await tx.query(
+        "UPDATE records SET status='retryable',version=version+1,updated_at=now() WHERE id=$1",
+        [job.request_id],
+      );
+    const changed = await tx.query(
+      "UPDATE jobs SET status='pending',available_at=now(),leased_until=NULL,last_error=NULL WHERE id=$1 AND status=$2 AND attempts=$3 RETURNING id",
+      [job.id, job.status, job.attempts],
+    );
+    if (!changed.length) continue;
+    const recovery = await putRecord(
+      tx,
+      a,
+      "nutrition_recovery",
+      {
+        jobId: job.id,
+        requestId: job.request_id ?? null,
+        providerState: "not_sent",
+        attempts: job.attempts,
+        action: "automatic_retry_unsent",
+        reason: job.last_error ?? "Refused before provider dispatch",
+      },
+      { ownerId: userId, status: "recorded" },
+    );
+    await event(tx, a, "nutrition.week_recovered", job.id, {
+      recoveryId: recovery.id,
+      action: "automatic_retry_unsent",
+    });
+    recovered++;
+  }
+  return recovered;
+}
 
 // The scheduler prepares the first week after intake and the next week one day
 // before the current week ends. Daily views come from the delivered weekly version.
@@ -27,6 +89,10 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
       "SELECT id FROM records WHERE kind='nutrition_setup' AND data->>'enabled'='true'",
     );
     if (!enabled) return 0;
+    const [published] = await tx.query(
+      "SELECT id FROM records WHERE kind='nutrition_release' AND status='published'",
+    );
+    if (published) await recoverUnsentWeeks(tx, a);
     let count = 0;
     for (const profile of profiles) {
       const paid = await currentPaidSubscription(tx, profile.owner_user_id);
@@ -55,6 +121,19 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
       const next = plan ? dateOffset(plan.data.weekStart, 7) : today,
         weekStart = next < today ? today : next;
       const key = `nutrition:${tenantId}:${profile.owner_user_id}:${profile.id}:${release.id}:${weekStart}`;
+      // A generation the provider answered but validation rejected is deterministic for
+      // the same profile, release and individual target. Do not pay for it again each day;
+      // the open exception routes it to the coach. A new profile, release or target, a
+      // coach resolution after the failure, or a deliberate recovery retry resumes it.
+      const [target] = await tx.query(
+        "SELECT id FROM records WHERE kind='nutrition_target' AND owner_user_id=$1 AND status='active' ORDER BY created_at DESC,id DESC LIMIT 1",
+        [profile.owner_user_id],
+      );
+      const [rejected] = await tx.query(
+        "SELECT r.id FROM records r WHERE r.kind='nutrition_request' AND r.owner_user_id=$1 AND r.status='failed' AND r.data->>'providerState'='responded' AND r.data->>'profileId'=$2 AND r.data->>'releaseId'=$3 AND (r.data->>'targetId') IS NOT DISTINCT FROM $4::text AND NOT EXISTS(SELECT 1 FROM records e WHERE e.kind='nutrition_exception' AND e.owner_user_id=$1 AND e.status='resolved' AND e.updated_at>r.updated_at) LIMIT 1",
+        [profile.owner_user_id, profile.id, release.id, target?.id ?? null],
+      );
+      if (rejected) continue;
       const rows = await tx.query(
         "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'nutrition_week',$3,$4) ON CONFLICT(intent_key) DO NOTHING RETURNING id",
         [
