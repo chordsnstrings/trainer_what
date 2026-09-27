@@ -708,7 +708,13 @@ export function onboardingRoutes(
         .parse(b.values);
     else if (step === "wearables")
       values = z
-        .object({ policy: z.enum(["none", "permitted_imports"]) })
+        .object({
+          policy: z.enum([
+            "none",
+            "permitted_imports",
+            "permitted_imports_and_sync",
+          ]),
+        })
         .strict()
         .parse(b.values);
     else if (step === "voice") {

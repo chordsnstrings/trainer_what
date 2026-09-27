@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { HealthKitSyncPanel } from "./healthkit-sync";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -100,7 +101,10 @@ export function IntegrationCenter({
       ) : trainer && path.includes("/domains") ? (
         <DomainCenter />
       ) : (
-        <HealthConnections integrations={integrations} />
+        <>
+          <HealthConnections integrations={integrations} />
+          <HealthKitSyncPanel role={role} />
+        </>
       )}
     </div>
   );

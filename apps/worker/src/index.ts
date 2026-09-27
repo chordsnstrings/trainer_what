@@ -13,6 +13,7 @@ import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
+import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
 if (!process.env.DATABASE_URL) {
   console.log(
@@ -25,6 +26,7 @@ if (!process.env.DATABASE_URL) {
   let running = true;
   let lastMediaPurge = 0;
   let lastAcquisitionPurge = 0;
+  let lastHealthKitMaintenance = 0;
   let lastIntegrationTick = 0;
   let integrationTask: Promise<void> | undefined;
   async function tick() {
@@ -56,6 +58,13 @@ if (!process.env.DATABASE_URL) {
         lastAcquisitionPurge = Date.now();
         console.error("Expired acquisition history could not be removed");
       }
+    }
+    if (Date.now() - lastHealthKitMaintenance >= 60 * 60 * 1000) {
+      lastHealthKitMaintenance = Date.now();
+      // Revoke devices of former members or withdrawn consent; expire receipts.
+      await maintainHealthKitSync(db).catch(() =>
+        console.error("HealthKit device maintenance needs review"),
+      );
     }
     const tenants = await db.system((tx) =>
       tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"),

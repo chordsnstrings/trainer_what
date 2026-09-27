@@ -402,15 +402,24 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     category: "health",
     implemented: true,
     description:
-      "User-provided health exports through the existing import flow.",
+      "User-provided health exports and, when enabled, automatic sync from the HealthKit companion app.",
     setupNotes:
-      "Manual import needs no Apple API credential. Import approval and user consent apply. Native HealthKit synchronization requires a companion app and is not available.",
+      "Manual import needs no Apple API credential. Import approval and user consent apply. Automatic HealthKit sync needs the native companion app, which is not part of this release; keep it off until that app is approved and published. Trainers must also allow sync in their wearable policy.",
     fields: [
       field(
         "APPLE_IMPORTS_ENABLED",
         "Enable Apple Health file import",
         "boolean",
         { defaultValue: "true" },
+      ),
+      field(
+        "HEALTHKIT_SYNC_ENABLED",
+        "Enable automatic sync from the HealthKit companion app",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Accepts device pairing and background uploads from the companion iPhone app. The import approval and Apple Health file import switch also apply.",
+        },
       ),
     ],
   },
@@ -963,7 +972,7 @@ export async function testIntegration(
       status: "validated",
       message:
         id === "apple"
-          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; native sync is unavailable."
+          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; automatic sync also needs the companion app and its switch."
           : "Application settings are valid. Approval controls represent your recorded review decision.",
       checkedAt,
     };

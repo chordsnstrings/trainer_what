@@ -34,6 +34,11 @@ import {
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
+import {
+  registerHealthKitSync,
+  isCompanionDevicePath,
+  readCoachWearablePolicy,
+} from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import {
   registerIntegrationCompletion,
@@ -368,9 +373,12 @@ export async function buildApp(
             "Provider callbacks use the platform address.",
           );
       }
+      // Companion-app routes authenticate with a device bearer token only and
+      // never read the session cookie, so a browser origin does not apply.
       if (
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-        !req.url.startsWith("/api/v1/webhooks/")
+        !req.url.startsWith("/api/v1/webhooks/") &&
+        !isCompanionDevicePath(req.url)
       ) {
         if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
           throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
@@ -508,6 +516,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
+  registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
@@ -2075,6 +2084,13 @@ export async function buildApp(
         consent: z.literal(true),
       })
       .parse(req.body);
+    // The coach's wearable policy applies to file imports and automatic sync.
+    if ((await readCoachWearablePolicy(db, a)) === "none")
+      throw fail(
+        403,
+        "WEARABLE_POLICY",
+        "Your coach does not accept health imports.",
+      );
     const importConsentVersion =
       (await legalAcceptanceVersion(db, "wearable")) +
       "|integration-consent:v1";

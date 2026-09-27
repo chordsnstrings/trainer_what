@@ -95,6 +95,17 @@ export function integrationStatus() {
         (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
     },
     {
+      id: "apple_healthkit",
+      name: "Apple Health automatic sync",
+      purpose: "Background uploads from the HealthKit companion app",
+      configured: config.HEALTHKIT_SYNC_ENABLED === "true",
+      // Mirrors the HealthKit routes: the file-import gates also apply.
+      approved:
+        config.HEALTHKIT_SYNC_ENABLED === "true" &&
+        config.APPLE_IMPORTS_ENABLED !== "false" &&
+        (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
+    },
+    {
       id: "zepp",
       name: "Amazfit / Zepp",
       purpose: "Fitness data through an approved partner connection",

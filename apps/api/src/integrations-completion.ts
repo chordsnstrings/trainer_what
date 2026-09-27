@@ -27,6 +27,7 @@ import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import { revokeHealthKitDevices } from "./healthkit-sync.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -232,6 +233,7 @@ export async function disableUserIntegrations(
       "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE owner_user_id=$1 AND kind='wearable'",
       [userId],
     );
+    await revokeHealthKitDevices(tx, userId, "consent");
   }
   if (kind !== "wearable") {
     await tx.query(
@@ -776,6 +778,9 @@ export function registerIntegrationCompletion(
         "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE kind='wearable' AND owner_user_id=$1 AND data->>'source'=$2",
         [a.userId, provider],
       );
+      // Apple Health use covers both the export import and automatic sync.
+      if (provider === "apple_health")
+        await revokeHealthKitDevices(tx, a.userId, "source_revoked");
       await event(tx, a, "wearable.revoked", undefined, { provider });
       return {
         ok: true,

@@ -148,6 +148,8 @@ export async function verifyRuntimeAccess(client) {
     "notifications",
     "push_subscriptions",
     "chat_attachments",
+    "healthkit_devices",
+    "healthkit_sync_batches",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
