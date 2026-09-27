@@ -46,7 +46,9 @@ Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,e
 adds per-audience coverage), `--report=<file>`, and the model options below.
 
 Requirements: Node 24, PostgreSQL 16+ server binaries (`initdb`, `pg_ctl`), `openssl`, the
-installed dependencies. A full run takes about eight minutes (474 s measured for 356 steps) plus a
+installed dependencies; `python3` for the host-controller cycle; optionally a local Chromium under
+`PLAYWRIGHT_BROWSERS_PATH` for the browser suite; the loopback address `127.77.0.1:443` for the
+coach-domain edge. A full run takes about nine minutes (537 s and 546 s measured for 394 steps) plus a
 web build when one is needed, mostly authenticator waits (each fresh code needs a new 30-second
 window) and worker deliveries the suites wait for. The Superadmin sets the worker cycle to one second
 through the reviewed worker-speed operation. A person's session that proved an authenticator code in
@@ -190,8 +192,10 @@ finished. Amounts and every other record are untouched; all other data is create
 `tests/e2e-harness-sandbox.test.ts` (guard, overrides, readiness flag, banner) and
 `tests/e2e-harness-mocks.test.ts` (real Stripe SDK against the mock over TLS with verifiable
 webhooks, email/Lean/push adapters, capture/replay across runs, report coverage, the software
-passkey against `@simplewebauthn/server`) run in the normal `npm test`, as do the regression tests
+passkey against `@simplewebauthn/server`, the DNS double against Node's resolver, the Google and
+Apple doubles against the app's OIDC client, the S3 double against a Signature Version 4 client) run in the normal `npm test`, as do the regression tests
 for defects the harness found (`tests/e2e-harness-booking-refund.test.ts`,
+`tests/e2e-harness-booking-dispute.test.ts`,
 `tests/e2e-harness-member-dates.test.ts`, `tests/e2e-harness-payout-precondition.test.ts`,
 `tests/e2e-harness-takeover-notice.test.ts`; see `docs/features/e2e-harness.md`). The member-dates test needs PostgreSQL with the restricted runtime
 role (`/opt/tools/pg-sandbox.sh`) to prove the column grant; PGlite does not enforce column grants.

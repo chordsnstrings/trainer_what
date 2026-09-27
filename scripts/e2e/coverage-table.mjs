@@ -33,6 +33,10 @@ lines.push("# End-to-end harness: per-feature results");
 lines.push("");
 lines.push(`Generated from ${reports.map((r, i) => "`" + label(r, i) + "`").join(" and ")} by \`scripts/e2e/coverage-table.mjs\`.`);
 lines.push("");
+lines.push(
+  "Inventory status comes from the inventory file given to the run, a snapshot: a feature built after it (for example one marked not_built) keeps its snapshot status here. \"pass (same flow)\" means another audience's step runs exactly this flow (`EQUIVALENT_FEATURES` in `tests/e2e/harness/report.ts`). A local limit names the part of a feature the sandbox cannot exercise (`LOCAL_LIMITS`).",
+);
+lines.push("");
 lines.push("| Run | Steps | Passed | Failed | Skipped | Duration |");
 lines.push("| --- | --- | --- | --- | --- | --- |");
 for (const [i, r] of reports.entries()) {
