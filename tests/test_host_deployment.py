@@ -1,5 +1,6 @@
 """Mock host operations: no Docker, cloud API, or real provider verification."""
 import copy
+import hashlib
 import io
 import json
 import os
@@ -26,6 +27,7 @@ RENDERED = {"services": {
     "database": {"image": "postgres:17.6-alpine"},
     "api": {"environment": {"DATABASE_URL": "postgres://trainer_service:fixture_password@database:5432/trainer"}},
     "worker": {}, "web": {"ports": [{"host_ip": "127.0.0.1", "published": "3000"}]},
+    "migrate": {}, "edge": {"image": "caddy:2.11.4-alpine"},
 }}
 
 
@@ -37,6 +39,8 @@ class HostDeployment(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(host, "ROOT", self.root))
+        # Engine maintenance (volume inspection, image and build-cache pruning) is mocked too.
+        self.docker = self.stack.enter_context(patch.object(host, "docker", return_value=None))
 
     def deployment(self, previous=PREVIOUS, failure=None):
         releases = self.root / "releases"
@@ -314,6 +318,249 @@ class HostDeployment(unittest.TestCase):
             with self.assertRaises(common.DeploymentError):
                 common.extract_release(output.getvalue(), destination, SHA)
             self.assertFalse(destination.exists())
+
+    # Compose allowlist (quality-delivery:G13)
+
+    def test_compose_host_escalation_is_rejected_before_build_or_start(self):
+        self.deployment()
+        (self.root / "outside").mkdir()
+
+        def variant(change):
+            rendered = copy.deepcopy(RENDERED)
+            change(rendered, rendered["services"])
+            return rendered
+
+        caddyfile = str(self.root / "Caddyfile")
+        release = str(self.root / "releases" / SHA)
+        variants = {
+            "privileged": variant(lambda r, s: s["api"].update(privileged=True)),
+            "host root bind": variant(lambda r, s: s["worker"].update(
+                volumes=[{"type": "bind", "source": "/", "target": "/host"}])),
+            "extra service": variant(lambda r, s: s.update(sidecar={"image": "alpine"})),
+            "missing edge": variant(lambda r, s: s.pop("edge")),
+            "capability": variant(lambda r, s: s["edge"].update(cap_add=["SYS_ADMIN"])),
+            "host pid": variant(lambda r, s: s["database"].update(pid="host")),
+            "host ipc": variant(lambda r, s: s["web"].update(ipc="host")),
+            "device": variant(lambda r, s: s["api"].update(devices=[{"source": "/dev/sda", "target": "/dev/sda"}])),
+            "engine socket": variant(lambda r, s: s["worker"].update(use_api_socket=True)),
+            "security option": variant(lambda r, s: s["api"].update(security_opt=["apparmor=unconfined"])),
+            "user namespace": variant(lambda r, s: s["api"].update(userns_mode="host")),
+            "container network": variant(lambda r, s: s["worker"].update(network_mode="service:database")),
+            "host file secret": variant(lambda r, s: s["api"].update(secrets=[{"source": "shadow"}])),
+            "gpu reservation": variant(lambda r, s: s["worker"].update(
+                deploy={"resources": {"reservations": {"devices": [{"capabilities": ["gpu"]}]}}})),
+            "database volume in api": variant(lambda r, s: s["api"].update(
+                volumes=[{"type": "volume", "source": "postgres_data", "target": "/data"}])),
+            "writable caddyfile": variant(lambda r, s: s["edge"].update(
+                volumes=[{"type": "bind", "source": caddyfile, "target": "/etc/caddy/Caddyfile", "read_only": False}])),
+            "other edge bind": variant(lambda r, s: s["edge"].update(
+                volumes=[{"type": "bind", "source": str(self.root / "outside"), "target": "/etc/caddy/Caddyfile",
+                          "read_only": True}])),
+            "edge image": variant(lambda r, s: s["edge"].update(image="caddy:latest")),
+            "migrate port": variant(lambda r, s: s["migrate"].update(ports=[{"published": "9229", "target": 9229}])),
+            "second builder": variant(lambda r, s: s["api"].update(build={"context": release})),
+            "build outside release": variant(lambda r, s: s["migrate"].update(build={"context": "/", "dockerfile": "Dockerfile"})),
+            "build host context": variant(lambda r, s: s["migrate"].update(
+                build={"context": release, "additional_contexts": {"host": "/"}})),
+            "privileged build": variant(lambda r, s: s["migrate"].update(
+                build={"context": release, "entitlements": ["security.insecure"]})),
+            "host bind named volume": variant(lambda r, s: r.update(volumes={"postgres_data": {
+                "driver": "local", "driver_opts": {"type": "none", "o": "bind", "device": "/"}}})),
+            "unreviewed named volume": variant(lambda r, s: r.update(volumes={"host_data": {}})),
+            "external host network": variant(lambda r, s: r.update(networks={"default": {"name": "host", "external": True}})),
+        }
+        for name, rendered in variants.items():
+            calls = []
+
+            def compose(release, sha, *args, rendered=rendered, **kwargs):
+                calls.append(args)
+                return SimpleNamespace(stdout=json.dumps(rendered))
+
+            with self.subTest(name), patch.object(host, "compose", side_effect=compose):
+                with self.assertRaises(common.DeploymentError) as raised:
+                    host.deploy(SHA, Mock())
+                self.assertEqual([args[0] for args in calls], ["config"])
+                self.assertNotIn("fixture_password", str(raised.exception))
+        self.assertEqual(json.loads((self.root / "release-state.json").read_text()), {"current": PREVIOUS})
+
+    def test_reviewed_topology_with_release_build_and_edge_caddyfile_is_accepted(self):
+        release = self.root / "releases" / SHA
+        release.mkdir(parents=True)
+        rendered = copy.deepcopy(RENDERED)
+        services = rendered["services"]
+        services["migrate"]["build"] = {"context": str(release), "dockerfile": "Dockerfile"}
+        services["database"]["volumes"] = [{"type": "volume", "source": "postgres_data", "target": "/var/lib/postgresql/data"}]
+        services["edge"].update(ports=[{"published": "80", "target": 80}, {"published": "443", "target": 443}], volumes=[
+            {"type": "bind", "source": str(self.root / "Caddyfile"), "target": "/etc/caddy/Caddyfile", "read_only": True,
+             "bind": {"create_host_path": True}},
+            {"type": "volume", "source": "caddy_data", "target": "/data", "volume": {}},
+            {"type": "volume", "source": "caddy_config", "target": "/config", "volume": {}}])
+        for service in services.values():
+            # Benign or empty settings that some Compose versions render must not halt deployment.
+            service.update(networks={"default": None}, entrypoint=None, privileged=False, cap_add=[], pull_policy="missing")
+        rendered["volumes"] = {name: {"name": "gymmembership_" + name} for name in ("postgres_data", "caddy_data", "caddy_config")}
+        rendered["networks"] = {"default": {"name": "gymmembership_default", "ipam": {}, "external": False}}
+        host.validate_exposure(rendered, release)
+        with self.assertRaises(common.DeploymentError):
+            host.validate_exposure(rendered, self.root / "releases" / PREVIOUS)
+
+    def test_real_compose_render_passes_allowlist_only_for_its_release(self):
+        if not shutil.which("docker") or subprocess.run(["docker", "compose", "version"], capture_output=True,
+                                                        check=False).returncode:
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                self.fail("Docker Compose CLI is required for the CI configuration gate")
+            self.skipTest("Docker Compose CLI unavailable; real configuration was not verified locally")
+        with patch.object(host, "metadata", return_value="1.1.1.1"):
+            host.ensure_runtime()
+        release = Path(__file__).resolve().parents[1]
+        rendered = json.loads(host.compose(release, SHA, "config", "--format", "json", capture_output=True, text=True).stdout)
+        host.validate_exposure(rendered, release)
+        self.assertEqual(Path(rendered["services"]["migrate"]["build"]["context"]).resolve(), release)
+        with self.assertRaises(common.DeploymentError):
+            host.validate_exposure(rendered, self.root)
+
+    # Bounded host retention (quality-delivery:G12)
+
+    def test_success_prunes_old_releases_unpack_dirs_backups_and_images(self):
+        old = "c" * 40
+        self.deployment()
+        releases = self.root / "releases"
+        (releases / old / "infra").mkdir(parents=True)
+        (releases / (".unpack-" + old + "-0123abcd") / "partial").mkdir(parents=True)
+        (releases / "operator-notes").mkdir()
+        backups = self.root / "backups"
+        backups.mkdir()
+        for index in range(10):
+            (backups / (str(1000 + index) + ".sql")).write_text("dump")
+        (backups / "manual-copy.sql").write_text("kept")
+        self.docker.side_effect = lambda *args: SimpleNamespace(
+            returncode=0, stdout="\n".join((old, PREVIOUS, SHA, "local", "latest")) + "\n") \
+            if args[:2] == ("image", "ls") else SimpleNamespace(returncode=0, stdout="")
+        host.deploy(SHA, Mock())
+        self.assertEqual(sorted(p.name for p in releases.iterdir()), sorted([SHA, PREVIOUS, "operator-notes"]))
+        dumps = sorted(p.name for p in backups.glob("[0-9]*.sql"))
+        self.assertEqual(len(dumps), host.BACKUPS_KEPT)
+        self.assertEqual(dumps[:6], [str(1000 + index) + ".sql" for index in range(4, 10)])
+        self.assertTrue((backups / "manual-copy.sql").exists())
+        removed = [args for args, _ in self.docker.call_args_list if args[:2] == ("image", "rm")]
+        self.assertEqual(removed, [("image", "rm", "trainer-brain:" + old)])
+        self.docker.assert_any_call("builder", "prune", "--force", "--filter", "until=168h")
+        self.assertEqual(json.loads((self.root / "release-state.json").read_text())["previous"], PREVIOUS)
+
+    def test_failed_deploy_prunes_nothing(self):
+        old = "c" * 40
+        _, _, _, ready = self.deployment()
+        (self.root / "releases" / old).mkdir()
+        ready.side_effect = common.DeploymentError("bad readiness")
+        with self.assertRaises(common.DeploymentError):
+            host.deploy(SHA, Mock())
+        self.assertTrue((self.root / "releases" / old).is_dir())
+        self.assertFalse(any(args[:2] == ("image", "rm") for args, _ in self.docker.call_args_list))
+
+    def test_retention_removes_links_without_following_them(self):
+        outside = self.root / "outside"
+        (outside / "data").mkdir(parents=True)
+        (outside / "data" / "keep.txt").write_text("outside")
+        releases = self.root / "releases"
+        releases.mkdir()
+        (releases / ("c" * 40)).symlink_to(outside, target_is_directory=True)
+        (releases / ".unpack-link").symlink_to(outside / "data", target_is_directory=True)
+        (releases / SHA).mkdir()
+        host.prune_releases({SHA, None})
+        self.assertEqual([p.name for p in releases.iterdir()], [SHA])
+        self.assertEqual((outside / "data" / "keep.txt").read_text(), "outside")
+
+    def test_failed_extract_leaves_no_partial_release(self):
+        common.atomic_json(self.root / "release-state.json", {"current": PREVIOUS})
+        compose = self.stack.enter_context(patch.object(host, "compose"))
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def partial_extract(archive, destination, sha):
+            (destination / "apps").mkdir(parents=True)
+            (destination / "apps" / "file").write_text("partial")
+            raise OSError("No space left on device")
+
+        self.stack.enter_context(patch.object(host.urllib.request, "urlopen", return_value=Response(b"archive")))
+        self.stack.enter_context(patch.object(host, "extract_release", side_effect=partial_extract))
+        with self.assertRaises(OSError):
+            host.deploy(SHA, Mock())
+        self.assertEqual(list((self.root / "releases").iterdir()), [])
+        compose.assert_not_called()
+
+    def test_failed_backup_is_removed_and_older_dumps_are_kept(self):
+        calls, _, role, _ = self.deployment(failure=lambda sha, args: args[0] == "exec" and "pg_dump" in args)
+        backups = self.root / "backups"
+        backups.mkdir()
+        for index in range(host.BACKUPS_KEPT):
+            (backups / (str(1000 + index) + ".sql")).write_text("complete")
+        with self.assertRaises(subprocess.CalledProcessError):
+            host.deploy(SHA, Mock())
+        self.assertEqual(sorted(p.name for p in backups.iterdir()),
+                         sorted(str(1000 + index) + ".sql" for index in range(host.BACKUPS_KEPT)))
+        self.assertFalse(any(args[0] == "run" for _, args, _ in calls))
+        role.assert_not_called()
+
+    # Missing runtime secrets on an existing host (quality-delivery:M2)
+
+    def test_missing_runtime_on_existing_deployment_is_not_regenerated(self):
+        def state(root):
+            common.atomic_json(root / "release-state.json", {"current": SHA})
+
+        def fingerprint(root):
+            (root / host.FINGERPRINT).write_text("{}")
+
+        def release(root):
+            (root / "releases" / SHA).mkdir(parents=True)
+
+        def backup(root):
+            (root / "backups").mkdir()
+            (root / "backups" / "1.sql").write_text("dump")
+
+        def volume(root):
+            self.docker.return_value = SimpleNamespace(returncode=0, stdout="[]")
+
+        for name, arrange in (("state", state), ("fingerprint", fingerprint), ("release", release),
+                              ("backup", backup), ("database volume", volume)):
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(host, "ROOT", Path(directory)), patch.object(host, "metadata", return_value="1.1.1.1"):
+                root = Path(directory)
+                self.docker.return_value = SimpleNamespace(returncode=1, stdout="")
+                arrange(root)
+                before = sorted(p.name for p in root.iterdir())
+                with self.assertRaises(common.DeploymentError) as raised:
+                    host.ensure_runtime()
+                self.assertIn("restore", str(raised.exception))
+                self.assertFalse((root / "runtime.env").exists())
+                self.assertEqual(sorted(p.name for p in root.iterdir()), before)
+        self.docker.assert_any_call("volume", "inspect", "gymmembership_postgres_data")
+
+    def test_new_host_generates_runtime_and_records_non_secret_fingerprint(self):
+        self.docker.return_value = SimpleNamespace(returncode=1, stdout="")
+        with patch.object(host, "metadata", return_value="1.1.1.1"):
+            host.ensure_runtime()
+            values = dict(line.split("=", 1) for line in (self.root / "runtime.env").read_text().splitlines())
+            path = self.root / host.FINGERPRINT
+            recorded = path.read_text()
+            self.assertEqual(json.loads(recorded)["security_encryption_key_sha256"],
+                             hashlib.sha256(values["SECURITY_ENCRYPTION_KEY"].encode()).hexdigest())
+            self.assertNotIn(values["SECURITY_ENCRYPTION_KEY"], recorded)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            # Existing hosts are backfilled from their unchanged runtime file.
+            path.unlink()
+            original = (self.root / "runtime.env").read_bytes()
+            host.ensure_runtime()
+            self.assertEqual(path.read_text(), recorded)
+            self.assertEqual((self.root / "runtime.env").read_bytes(), original)
+            (self.root / "runtime.env").unlink()
+            with self.assertRaises(common.DeploymentError):
+                host.ensure_runtime()
+            self.assertFalse((self.root / "runtime.env").exists())
 
 
 if __name__ == "__main__":

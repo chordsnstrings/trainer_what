@@ -83,3 +83,14 @@ jobs:
       - name: Container logs
         if: failure()
         run: docker logs trainer-api-ci 2>/dev/null || true
+  compose-topology:
+    # The deployed topology from the built image: database, migrate, api, web,
+    # worker and a loopback HTTP edge in place of Caddy. Throwaway secrets only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compose topology smoke
+        run: bash scripts/compose-smoke.sh
