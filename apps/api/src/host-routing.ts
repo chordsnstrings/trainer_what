@@ -11,7 +11,10 @@ export type HostContext = {
   tenantSlug: string | null;
   custom: boolean;
   verifiedProxy: boolean;
+  /** Development only: loopback spellings of the configured local address. */
+  localOrigins?: string[];
 };
+const loopback = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 export const HOST_HEADERS = {
   host: "x-trainer-host",
   time: "x-trainer-host-time",
@@ -127,9 +130,7 @@ export async function resolveRequestHost(
     options.production ?? process.env.NODE_ENV === "production";
   if (
     host === configured ||
-    (!production &&
-      !verifiedProxy &&
-      /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host))
+    (!production && !verifiedProxy && loopback.test(host))
   )
     return {
       host: configured,
@@ -138,6 +139,16 @@ export async function resolveRequestHost(
       tenantSlug: null,
       custom: false,
       verifiedProxy,
+      // The router treats localhost and 127.0.0.1 as one local address outside
+      // production, so the origin gate accepts both on the configured port.
+      ...(!production && loopback.test(configured)
+        ? {
+            localOrigins: ["localhost", "127.0.0.1"].map(
+              (name) =>
+                `${publicUrl.protocol}//${name}${publicUrl.port ? ":" + publicUrl.port : ""}`,
+            ),
+          }
+        : {}),
     };
   if (!verifiedProxy)
     throw fail(
@@ -189,7 +200,11 @@ export function allowedRequestOrigin(
   if (!origin) return false;
   try {
     const parsed = new URL(origin);
-    return parsed.origin === context.origin && origin === parsed.origin;
+    return (
+      origin === parsed.origin &&
+      (parsed.origin === context.origin ||
+        (!context.custom && !!context.localOrigins?.includes(parsed.origin)))
+    );
   } catch {
     return false;
   }
