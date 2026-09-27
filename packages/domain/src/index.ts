@@ -97,15 +97,20 @@ export const decisionSchema = z
 // Deterministic red-flag screening, enforced in code before any model or paid
 // gate. It is deliberately conservative: any match pauses training for trainer
 // review. Only plain routine negations ("no pain", "pain-free") are removed, and
-// never when an exception follows ("no pain except ...") or the phrase is itself
-// negated ("not pain-free"). Arabic text is folded first so hamza, ta marbuta,
-// alef maqsura, diacritics and tatweel variants are screened alike.
+// only when nothing qualifies them: a contrast, exception, time, condition or
+// painkiller cue later in the same sentence (or a contrast opening the next
+// one), a physical symptom anywhere in the message, or a negation of the phrase
+// itself ("not pain-free") keeps the report screened. Arabic text is folded
+// first so hamza, madda, ta marbuta, alef maqsura, diacritics and tatweel
+// variants are screened alike; "الأم" (the mother) is set apart before folding
+// so it is not read as "الام" (pains).
 // Boundaries avoid lookbehind because this module is also bundled for browsers.
 function screeningText(text: string) {
   return text
     .normalize("NFKC")
     .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
-    .replace(/[أإٱ]/g, "ا")
+    .replace(/(^|[^\p{L}\p{N}])([وفبك]?)الأم(?![\p{L}\p{N}])/gu, "$1$2ام")
+    .replace(/[آأإٱ]/g, "ا")
     .replace(/ؤ/g, "و")
     .replace(/ئ/g, "ي")
     .replace(/[ىی]/g, "ي")
@@ -114,18 +119,50 @@ function screeningText(text: string) {
     .replace(/[’‘`]/g, "'")
     .toLowerCase();
 }
-const routineNegation =
-  /(^|[^\p{L}\p{N}])(?:(?:no|zero)\s+(?:pains?|injur(?:y|ies))|(?:pain|injury)[\s-]?free|(?:ما\s*فيه?|مافيه?|لا\s*يوجد|ما\s*عندي|ماعندي|ليس\s*لدي|(?:ما|لا)\s*(?:احس|اشعر)\s*ب)\s*(?:اي\s*)?(?:ال)?(?:الم|وجع))(?![\p{L}\p{N}])(?!\s*[,،]?\s*(?:except|unless|until|apart|other\s+than|besides|relief|killers?|meds?|medications?|الا|غير|ماعدا|ما\s*عدا|سوي))/giu;
+// Cues that contradict a routine negation. Contrast and exception cues also count
+// when they open the next sentence ("No pain. Only when I squat.").
+const contrastCue =
+  "except|unless|until|till|apart|other\\s+than|besides|but|however|only|though|although|yet|still|" +
+  "[وف]?(?:لكن(?:ي|ه|ها|نا)?|بس|الا|غير|ماعدا|ما\\s*عدا|عدا|سوي|فقط|رغم|مع\\s*ان|مازال|ما\\s*زال|لازال|لا\\s*زال|لسه|لسا|للحين|باقي)";
+const conditionCue =
+  "when|whenever|while|if|then|now|after|afterwards?|before|sometimes|occasionally|mostly|relief|killers?|meds?|medications?|pills?|" +
+  "[وف]?(?:عندما|حين|حينما|لما|وقت|اذا|لو|بعد|بعدين|ثم|قبل|الحين|الان|حاليا|امس|البارحه?|احيانا|مسكن(?:ات)?|دواء|ادويه|حبوب)";
+const symptomCue =
+  "ach(?:e|es|ed|ing|y)|swell(?:s|ing)?|swollen|bruis(?:e|ed|es|ing)|sharp|stabbing|shooting|burning|throbb(?:ing|ed|s)?|twinges?|tweak(?:ed|ing)?|pop(?:s|ped|ping)?|click(?:s|ed|ing)?|gave\\s+(?:out|way)|giv(?:es|ing)\\s+(?:out|way)|tingl(?:e|es|ed|ing)|cramp(?:s|ed|ing)?|tender(?:ness)?|" +
+  "[وفب]?(?:ال)?(?:ورم|متورمه?|تورم|انتفاخ|منتفخه?|كدمه|كدمات|طقه|طقطقه|وخز|وخزه|حرقان|تشنج)";
+// A sentence ends at ! ? ؟, a line break, or a full stop that is not a decimal point.
+const sentenceChar = "(?:[^.!?؟\\n]|\\.(?=\\p{N}))",
+  sentenceEnd = "(?:[!?؟\\n]|\\.(?!\\p{N}))";
+const routineNegation = new RegExp(
+  "(^|[^\\p{L}\\p{N}])(?:(?:no|zero)\\s+(?:pains?|injur(?:y|ies))|(?:pain|injury)[\\s-]?free|(?:ما\\s*فيه?|مافيه?|لا\\s*يوجد|ما\\s*عندي|ماعندي|ليس\\s*لدي|(?:ما|لا)\\s*(?:احس|اشعر)\\s*ب)\\s*(?:اي\\s*)?(?:ال)?(?:الم|الام|وجع|اوجاع))(?![\\p{L}\\p{N}])" +
+    "(?!" +
+    sentenceChar +
+    "*?(?:[^\\p{L}\\p{N}.!?؟\\n](?:" +
+    contrastCue +
+    "|" +
+    conditionCue +
+    ")|" +
+    sentenceEnd +
+    "[^\\p{L}\\p{N}]*?(?:" +
+    contrastCue +
+    "))(?![\\p{L}\\p{N}]))",
+  "giu",
+);
+const symptomMentioned = new RegExp(
+  "(?:^|[^\\p{L}\\p{N}])(?:" + symptomCue + ")(?![\\p{L}\\p{N}])",
+  "u",
+);
 const negatedBefore =
   /(?:^|[^\p{L}])(?:not|never|no\s+longer|\p{L}+n't)\s+(?:\p{L}+\s+)?$/u;
 const englishRedFlags =
   /(?:^|[^\p{L}\p{N}])(?:chest\s+(?:pains?|tightness|pressure)|pain(?:s|ful|killers?)?|hurt(?:s|ing)?|injur(?:e|ed|y|ies)|sprain(?:s|ed)?|pulled\s+(?:a\s+|my\s+)?muscle|numb(?:ness)?|faint(?:s|ed|ing)?|pass(?:ed|es|ing)?\s+out|black(?:ed|ing)?\s+out|blackouts?|lost\s+consciousness|unconscious|collaps(?:e|ed|es|ing)|dizz(?:y|iness)|light[\s-]?headed(?:ness)?|vertigo|short(?:ness)?\s+of\s+breath|(?:can'?t|cannot|can\s+not|couldn'?t|could\s+not)\s+breathe|hard\s+to\s+breathe|(?:trouble|difficulty|struggling)\s+(?:to\s+)?breath(?:e|ing)|palpitations?|irregular\s+heart\s*beats?|heart\s+flutter(?:s|ing)?|heart\s+attack|bleed(?:s|ing)?|bled|pregnan(?:t|cy)?|miscarr(?:y|iage|ied)|suicid(?:e|al)|self[\s-]?harm(?:ing)?|kill\s+myself|end\s+my\s+life|want\s+to\s+die|severe\s+headache|seizures?)(?![\p{L}\p{N}])/iu;
 const arabicRedFlags =
-  /(?:^|[^\p{L}\p{N}])[وفبلك]{0,2}(?:ال)?(?:الم|آلام|[يت]ولم(?:ني|ه|ها|ك|نا)?|[اين]?تالم|[يت]?وجع(?:ني|ي|ه|ها|ك|نا)?|اوجاع|موجوعه?|[يت]عور(?:ني|ه|ها|ك|نا)?|عورني|ضيق\s*(?:في\s*|ب)?(?:ال)?(?:صدر|تنفس|نفس)ي?|صعوبه\s*(?:في\s*|ب)?(?:ال)?تنفس|(?:لا|ما|مو|مش)\s*(?:اقدر|استطيع|قادره?)\s*(?:علي\s*)?(?:ال|ا)?تنفس|[ايتن]?دوخ(?:ه|ان|ني|تني|ت)?|دايخه?|اغماء?|اغمي\s*علي(?:ه|ها|ا)?|فقد(?:ت|ان)?\s*(?:ال)?وعي|غيبوبه|نزيف|[يت]?نزف(?:ت|ني)?|خفقان|(?:تسارع|سرعه)\s*(?:في\s*)?(?:ال)?(?:ضربات|دقات|نبضات)\s*(?:ال)?قلبي?|نوبه\s*قلبيه|جلطه|اصابه|اصابات|مصابه?|التواء|ملتويه?|تمزق|تنميل|خدر|حامل|حوامل|اجهاض|انتحار|[اي]نتحر|اقتل\s*نفسي|انهي\s*حياتي|اوذي\s*نفسي|ايذاء\s*(?:ال)?نفس|صداع\s*شديد)(?![\p{L}\p{N}])/u;
+  /(?:^|[^\p{L}\p{N}])[وفبلك]{0,2}(?:ال)?(?:الم|الام|[يت]ولم(?:ني|ه|ها|ك|نا)?|[اين]?تالم|[يت]?وجع(?:ني|ي|ه|ها|ك|نا)?|اوجاع|موجوعه?|[يت]عور(?:ني|ه|ها|ك|نا)?|عورني|ضيق\s*(?:في\s*|ب)?(?:ال)?(?:صدر|تنفس|نفس)ي?|صعوبه\s*(?:في\s*|ب)?(?:ال)?تنفس|(?:لا|ما|مو|مش|لم)\s*(?:اقدرت?|قدرت|استطيع|استطعت|استطع|قادره?)\s*(?:علي\s*)?(?:ال|ا)?تنفس|[ايتن]?دوخ(?:ه|ان|ني|تني|ت)?|دايخه?|اغماء?|اغمي\s*علي(?:ه|ها|ا)?|فقد(?:ت|ان)?\s*(?:ال)?وعي|غيبوبه|نزيف|[يت]?نزف(?:ت|ني)?|خفقان|(?:تسارع|سرعه)\s*(?:في\s*)?(?:ال)?(?:ضربات|دقات|نبضات)\s*(?:ال)?قلبي?|نوبه\s*قلبيه|جلطه|اصابه|اصابات|مصابه?|التواء|ملتويه?|تمزق|تنميل|خدر|حامل|حوامل|اجهاض|انتحار|[اي]نتحر|اقتل\s*نفسي|انهي\s*حياتي|اوذي\s*نفسي|ايذاء\s*(?:ال)?نفس|صداع\s*شديد)(?![\p{L}\p{N}])/u;
 export function safetySignal(text: string) {
   const screened = screeningText(text).replace(
     routineNegation,
     (match: string, lead: string, offset: number, whole: string) =>
+      symptomMentioned.test(whole) ||
       negatedBefore.test(
         whole.slice(Math.max(0, offset - 40), offset + lead.length),
       )
