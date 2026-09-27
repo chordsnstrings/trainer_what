@@ -22,10 +22,17 @@ The owner authorized finishing application work, auditing it and merging to main
 - Deployment boundary suite ran 37 tests: 36 passed, one Docker-only case skipped because Docker is unavailable locally. Provider and infrastructure calls in these tests are synthetic.
 - Local browser installation failed because the Playwright CDN returned invalid archives. No local browser success is claimed. GitHub must run the full suite, non-owner PostgreSQL permission gate, container build/readiness and functional browser journeys before merge.
 
-## External phase
-
 ## First GitHub qualification
 
 PR #1 runs the combined checks. Run `36293353753` passed fresh PostgreSQL migrations and non-owner runtime grants before its full database suite. The application job exposed a real Compose boundary defect: inherited controller environment values could override the private runtime file. The controller now inherits only ordinary process settings, pins the requested release and obtains application credentials/approval flags from the reviewed runtime file. Remote Docker/Compose overrides are excluded. A regression protects this boundary; 38 local deployment checks ran, 37 passed and the Docker-only case remained skipped. The next CI run must verify real Compose rendering and the remaining application/browser/container gates.
 
+
+### 27 September — PostgreSQL runtime and job fixes
+
+The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
+
+## External phase
+
 Real Stripe/Lean contracts and bank finality, actual provider/model quality, real device push/camera/wearables/voice, registrar/DNS/TLS, live email, reviewed legal/retention/residency policy, hosted backup/restore and operational load/canary qualification require the next real-services phase. Native HealthKit/BLE is separate platform scope, not provided by the PWA. Actual cloud telemetry/scaling adapters remain disabled pending real account/resource qualification; the shipped infrastructure executor controls only the application worker. No production release or live transaction is claimed.
+
+- Second CI application job passed all 367 tests, TypeScript, production build and all 38 deployment checks. Browser execution reached analytics consent and caught a stale fixture expectation: arbitrary channel names are intentionally normalized to `other`. The harness now uses supported `instagram`/`newsletter` channels; privacy filtering is unchanged. The targeted account/payment/notification/push rerun after the PostgreSQL fixes passed all 50 tests locally. Final PostgreSQL/browser qualification is still pending.

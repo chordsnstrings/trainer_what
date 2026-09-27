@@ -65,7 +65,8 @@ jobs:
       - run: node scripts/prepare-ci-postgres.mjs
       - name: Verify non-owner runtime grants and migration completeness
         run: node scripts/verify-runtime-access.mjs
-      - run: npm test
+      - name: Test isolated databases with non-owner runtime role
+        run: node scripts/run-postgres-tests.mjs
       - run: docker build --build-arg API_INTERNAL_URL=http://127.0.0.1:4000 -t trainer-brain:ci .
       - name: Create isolated container fixture keys
         run: |

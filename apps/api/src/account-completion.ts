@@ -267,7 +267,9 @@ export function registerAccountCompletion(
         [u.id],
       );
       const [code] = await tx.query(
-        "SELECT code_hash FROM mfa_recovery_codes WHERE user_id=$1 AND code_hash=$2 FOR UPDATE",
+        // The user_security row above serializes recovery and code rotation.
+        // Recovery codes have deliberately no UPDATE grant.
+        "SELECT code_hash FROM mfa_recovery_codes WHERE user_id=$1 AND code_hash=$2",
         [u.id, recoveryHash(u.id, b.recoveryCode)],
       );
       if (!s?.enabled || !code)

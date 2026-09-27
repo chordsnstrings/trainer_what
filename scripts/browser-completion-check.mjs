@@ -67,7 +67,7 @@ export async function checkAcquisitionConsent({ page, base }) {
     name: "Optional analytics preferences",
   });
   await page.goto(
-    base + "/?utm_source=browser-smoke&utm_campaign=consent-check",
+    base + "/?utm_source=instagram&utm_campaign=consent-check",
   );
   await panel
     .getByRole("button", { name: "Continue without analytics", exact: true })
@@ -102,7 +102,7 @@ export async function checkAcquisitionConsent({ page, base }) {
         .click(),
   );
   assert.equal(granted.granted, true);
-  assert.equal(granted.firstTouch.source, "browser-smoke");
+  assert.equal(granted.firstTouch.source, "instagram");
   const cookie = (await page.context().cookies(base)).find(
     (item) => item.name === "acquisition",
   );
@@ -125,10 +125,10 @@ export async function checkAcquisitionConsent({ page, base }) {
     "POST",
     () =>
       page.goto(
-        base + "/pricing?utm_source=browser-return&utm_campaign=second-touch",
+        base + "/pricing?utm_source=newsletter&utm_campaign=second-touch",
       ),
     (response) =>
-      response.request().postDataJSON()?.source === "browser-return",
+      response.request().postDataJSON()?.source === "newsletter",
   );
   await panel
     .getByRole("button", { name: "Analytics preferences", exact: true })
@@ -140,7 +140,7 @@ export async function checkAcquisitionConsent({ page, base }) {
     .click();
   await panel
     .getByText(
-      "First source: browser-smoke. Last tagged source: browser-return.",
+      "First source: instagram. Last tagged source: newsletter.",
       { exact: true },
     )
     .waitFor();

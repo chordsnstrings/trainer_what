@@ -179,7 +179,7 @@ test("actual API hooks persist bounded request metrics and scoped aggregate queu
   ] as const)
     await db.tenant({ ...operator, tenantId }, (tx) =>
       tx.query(
-          "INSERT INTO jobs(id,tenant_id,kind,intent_key,data,status,available_at,leased_until,last_error) VALUES($1::uuid,$2,'fixture',$1::text,$3,$4,now()+$5::interval,CASE WHEN $6::text IS NULL THEN NULL ELSE now()+$6::interval END,'private-error-text')",
+        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data,status,available_at,leased_until,last_error) VALUES($1::uuid,$2,'fixture',$1::text,$3,$4,now()+$5::interval,CASE WHEN $6::text IS NULL THEN NULL ELSE now()+$6::interval END,'private-error-text')",
         [
           randomUUID(),
           tenantId,
@@ -208,11 +208,16 @@ test("actual API hooks persist bounded request metrics and scoped aggregate queu
   assert.equal(row.measurements.queue_tenants_observed?.value, 2);
   assert.ok((row.measurements.queue_oldest_ready_seconds?.value ?? 0) >= 600);
   assert.equal(row.measurements.database_probe_ms?.state, "measured");
-  assert.equal(row.measurements.database_connections?.state, "unavailable");
-  assert.equal(
-    row.measurements.database_connections?.reason,
-    "embedded_database",
-  );
+  if (process.env.DATABASE_URL) {
+    assert.equal(row.measurements.database_connections?.state, "measured");
+    assert.ok((row.measurements.database_connections?.value ?? 0) >= 1);
+  } else {
+    assert.equal(row.measurements.database_connections?.state, "unavailable");
+    assert.equal(
+      row.measurements.database_connections?.reason,
+      "embedded_database",
+    );
+  }
   assert.doesNotMatch(
     JSON.stringify(row),
     /PRIVATE-HEALTH|private@example|private-error|recipient|medical/,
@@ -258,7 +263,7 @@ test("observations are immutable, retry-safe, source-checked and reject arbitrar
         [first.id],
       ),
     ),
-    /immutable/,
+    /immutable|permission denied/,
   );
   const rows = await db.system((tx) =>
     tx.query(
@@ -316,7 +321,7 @@ test("threshold changes use bounded strict schemas, immutable versions, CAS and 
         "UPDATE infrastructure_policies SET thresholds='{}' WHERE revision=1",
       ),
     ),
-    /immutable/,
+    /immutable|permission denied/,
   );
 });
 

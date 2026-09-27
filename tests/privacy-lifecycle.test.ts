@@ -447,7 +447,7 @@ test("backup deadlines do not mark cleanup complete; evidence updates are CAS an
         r.id,
       ]),
     ),
-    /immutable/,
+    /immutable|permission denied/,
   );
 });
 

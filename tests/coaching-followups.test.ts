@@ -44,6 +44,8 @@ async function member(tenantId: string, role = "subscriber"): Promise<Actor> {
       "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
       [tokenHash(token), a.userId, tenantId],
     );
+  });
+  await db.tenant({ ...a, role: "owner" }, async (tx) => {
     if (role === "subscriber") {
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end) VALUES($1,$2,$3,'active',now()+interval '120 days')",

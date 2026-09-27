@@ -512,7 +512,7 @@ test("personal export and erasure include private drafts, sent files and author 
   );
   assert.equal(
     (
-      await db.system((tx) =>
+      await db.tenant(coach, (tx) =>
         tx.query(
           "SELECT id FROM chat_attachments WHERE tenant_id=$1 AND (subject_user_id=$2 OR uploaded_by=$2)",
           [coach.tenantId, client.userId],

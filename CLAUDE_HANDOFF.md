@@ -309,3 +309,7 @@ The first full run found a route collision between the new broker and legacy obs
 ### 27 September — Controller environment isolation
 
 First PR CI exposed inherited application variables overriding the reviewed private Compose runtime file. The controller now inherits only ordinary process settings, pins the release, and excludes application, Docker-host and Compose overrides. Added mock and real-Compose assertions. All 38 local deployment checks ran: 37 passed and the Docker-only check skipped. No controller was deployed. PR #1 reruns all release gates before merge.
+
+### 27 September — PostgreSQL runtime and job fixes
+
+The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.

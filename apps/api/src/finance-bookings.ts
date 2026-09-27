@@ -319,6 +319,8 @@ export async function processBookingStripeEvent(
   )
     return false;
   let paymentId = object.metadata?.booking_payment_id;
+  let tenantId = object.metadata?.tenant_id;
+  let userId = object.metadata?.user_id;
   const pi =
     typeof object.payment_intent === "string"
       ? object.payment_intent
@@ -326,12 +328,14 @@ export async function processBookingStripeEvent(
   if (!paymentId && pi) {
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT external_id,tenant_id FROM provider_objects WHERE provider='stripe' AND external_id=$1 AND kind='booking_payment_intent'",
+        "SELECT external_id,tenant_id,user_id FROM provider_objects WHERE provider='stripe' AND external_id=$1 AND kind='booking_payment_intent'",
         [pi],
       ),
     );
     if (m) {
-      const [r] = await db.system((tx) =>
+      tenantId = m.tenant_id;
+      userId = m.user_id;
+      const [r] = await db.tenant({ tenantId, userId, role: "owner" }, (tx) =>
         tx.query(
           "SELECT id FROM records WHERE tenant_id=$1 AND kind='booking_payment' AND data->>'paymentIntentId'=$2",
           [m.tenant_id, pi],
@@ -341,7 +345,15 @@ export async function processBookingStripeEvent(
     }
   }
   if (!paymentId) return false;
-  const [p] = await db.system((tx) =>
+  if (
+    !z.string().uuid().safeParse(tenantId).success ||
+    !z.string().uuid().safeParse(userId).success
+  )
+    throw fail(
+      "BOOKING_MAPPING_REQUIRED",
+      "Booking tenant and user identity are required",
+    );
+  const [p] = await db.tenant({ tenantId, userId, role: "owner" }, (tx) =>
     tx.query("SELECT * FROM records WHERE id=$1 AND kind='booking_payment'", [
       z.string().uuid().parse(paymentId),
     ]),

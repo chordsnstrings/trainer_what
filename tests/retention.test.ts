@@ -61,6 +61,8 @@ async function workspace() {
       "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')",
       [a.tenantId, a.userId],
     );
+  });
+  await db.tenant(a, async (tx) => {
     await tx.query(
       "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3)",
       [a.tenantId, a.userId, JSON.stringify({ quietStart: 0, quietEnd: 0 })],

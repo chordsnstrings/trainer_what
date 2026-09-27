@@ -111,7 +111,20 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
       "CHECKOUT_MAPPING_REQUIRED",
       "Subscription checkout has no recognized business intent",
     );
-  const [r] = await db.system((tx) =>
+  if (
+    !uuid.safeParse(remote.metadata?.tenant_id).success ||
+    !uuid.safeParse(remote.metadata?.user_id).success
+  )
+    throw fail(
+      "CHECKOUT_MAPPING_REQUIRED",
+      "Checkout tenant and user identity are required",
+    );
+  const providerActor = {
+    tenantId: remote.metadata.tenant_id,
+    userId: remote.metadata.user_id,
+    role: "owner",
+  };
+  const [r] = await db.tenant(providerActor, (tx) =>
     tx.query("SELECT * FROM records WHERE id=$1 AND kind='checkout'", [
       intentId,
     ]),
