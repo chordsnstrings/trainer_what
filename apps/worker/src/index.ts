@@ -161,7 +161,8 @@ if (!process.env.DATABASE_URL) {
       } catch (e) {
         await db.tenant(a, (tx) =>
           tx.query(
-            "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes' WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
+            // A terminal account-link email does not keep its bearer link.
+            "UPDATE jobs SET status=$2,last_error=$3,leased_until=NULL,available_at=now()+interval '5 minutes',data=CASE WHEN $2::text<>'pending' AND data->>'sensitive'='true' THEN data-'text' ELSE data END WHERE id=$1 AND status='pending' AND attempts=$4 AND leased_until=$5",
             [
               job.id,
               e instanceof ProviderUnavailable ||

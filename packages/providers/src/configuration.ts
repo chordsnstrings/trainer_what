@@ -144,15 +144,12 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     implemented: true,
     description: "Platform identity, reviewed policies and feature controls.",
     setupNotes:
-      "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Infrastructure secrets stay outside this page.",
+      "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Legal document versions come from the published documents registry, not from this page. Infrastructure secrets stay outside this page.",
     fields: [
       field("APP_NAME", "Platform name", "text", {
         defaultValue: "Trainer Brain",
       }),
       field("SUPPORT_EMAIL", "Support email", "text"),
-      field("LEGAL_VERSION", "Published legal document version", "text", {
-        defaultValue: "draft-2026-09",
-      }),
       field("LEGAL_APPROVED", "Legal documents approved", "boolean", {
         defaultValue: "false",
       }),

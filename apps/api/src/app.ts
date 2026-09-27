@@ -387,7 +387,7 @@ export async function buildApp(
       message:
         e.code === "23505"
           ? "This record already exists"
-          : status < 500
+          : status < 500 || e.expose === true
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,

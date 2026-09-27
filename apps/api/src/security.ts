@@ -73,12 +73,26 @@ function seal(value: string) {
     .join(".");
 }
 function open(value: string) {
-  const [iv, tag, body] = value
-    .split(".")
-    .map((x) => Buffer.from(x, "base64url"));
-  const cipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAuthTag(tag);
-  return Buffer.concat([cipher.update(body), cipher.final()]).toString("utf8");
+  try {
+    const [iv, tag, body] = value
+      .split(".")
+      .map((x) => Buffer.from(x, "base64url"));
+    const cipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
+    cipher.setAuthTag(tag);
+    return Buffer.concat([cipher.update(body), cipher.final()]).toString(
+      "utf8",
+    );
+  } catch {
+    // Fail closed: an unreadable secret never counts as MFA being disabled.
+    throw Object.assign(
+      fail(
+        503,
+        "MFA_KEY_UNAVAILABLE",
+        "Your authenticator cannot be checked because the server security key is missing or has changed. Sign in with a passkey or use a recovery code, then set up your authenticator again. Without either, ask the platform host operator to reset your authenticator.",
+      ),
+      { expose: true },
+    );
+  }
 }
 export function totpAt(secret: string, counter: number) {
   const b = Buffer.alloc(8);
@@ -178,8 +192,10 @@ export function securityRoutes(
         "SELECT set_config('app.tenant_id',$1,true),set_config('app.role','owner',true)",
         [tenantId],
       );
+      // The link is a bearer credential: the worker removes the text after a
+      // terminal outcome and never sends it after the link expires.
       await tx.query(
-        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4)",
+        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||jsonb_build_object('expiresAt',now()+interval '30 minutes'))",
         [
           randomUUID(),
           tenantId,
@@ -188,6 +204,7 @@ export function securityRoutes(
             to: user.email,
             category: "account",
             critical: true,
+            sensitive: true,
             userId: user.id,
             subject:
               purpose === "reset" ? "Reset your password" : "Verify your email",

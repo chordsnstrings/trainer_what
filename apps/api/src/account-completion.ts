@@ -100,14 +100,17 @@ async function queueAccountEmail(
   subject: string,
   text: string,
   intentKey: string,
+  linkMinutes?: number,
 ) {
   await tx.query("SET LOCAL ROLE trainer_app");
   await tx.query(
     "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
     [a.tenantId, a.userId],
   );
+  // A message carrying a bearer link is scrubbed after a terminal outcome and
+  // is never sent once the link has expired.
   await tx.query(
-    "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4) ON CONFLICT DO NOTHING",
+    "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||CASE WHEN $5::int IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('sensitive',true,'expiresAt',now()+make_interval(mins=>$5::int)) END) ON CONFLICT DO NOTHING",
     [
       randomUUID(),
       a.tenantId,
@@ -120,6 +123,7 @@ async function queueAccountEmail(
         category: "account",
         critical: true,
       }),
+      linkMinutes ?? null,
     ],
   );
   await tx.query("RESET ROLE");
@@ -131,6 +135,49 @@ export async function touchAccountSession(db: Database, hash: string) {
       [hash],
     ),
   );
+}
+/**
+ * Host-only recovery (scripts/operator.ts) for an account whose authenticator
+ * can no longer be read, for example after a security key change, and that has
+ * no passkey or recovery code. Mirrors /auth/mfa/recover; never mounted as a route.
+ */
+export async function resetAccountMfa(db: Database, email: string) {
+  const address = z.email().parse(email).toLowerCase();
+  return db.system(async (tx) => {
+    const [m] = await tx.query(
+      "SELECT u.id AS user_id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' ORDER BY m.tenant_id LIMIT 1",
+      [address],
+    );
+    if (!m)
+      throw new Error("No account with an active workspace uses this email");
+    await workspaceLock(tx, m.tenant_id);
+    await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [m.user_id]);
+    const [s] = await tx.query(
+      "UPDATE user_security SET enabled=false,totp_secret=NULL,pending_secret=NULL,pending_until=NULL,last_counter=-1 WHERE user_id=$1 RETURNING user_id",
+      [m.user_id],
+    );
+    await tx.query("DELETE FROM mfa_recovery_codes WHERE user_id=$1", [
+      m.user_id,
+    ]);
+    await tx.query("DELETE FROM sessions WHERE user_id=$1", [m.user_id]);
+    await tx.query(
+      "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose IN ('magic','reset') AND consumed_at IS NULL",
+      [m.user_id],
+    );
+    const a = { tenantId: m.tenant_id, userId: m.user_id, role: m.role };
+    await accountAudit(tx, a, "security.authenticator_reset", m.user_id, {
+      by: "host_operator",
+    });
+    await queueAccountEmail(
+      tx,
+      a,
+      m.email,
+      "Your authenticator was reset",
+      "A platform operator reset your authenticator. All sessions and recovery codes were revoked. Sign in and set up a new authenticator. If you did not request this, reset your password and contact support.",
+      "auth-reset:" + randomUUID(),
+    );
+    return { userId: m.user_id as string, authenticatorWasSet: !!s };
+  });
 }
 const recoveryHash = (userId: string, code: string) =>
   tokenHash(
@@ -351,6 +398,7 @@ export function registerAccountCompletion(
         "Your secure sign-in link",
         `${host.origin}/magic-link/${token}\nThis link expires in 15 minutes. Your authenticator is still required if enabled.`,
         "magic:" + tokenHash(token),
+        15,
       );
     });
     return {
