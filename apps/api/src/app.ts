@@ -58,10 +58,15 @@ import { registerAdminOperations } from "./admin-operations.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
+import { registerFinanceBilling } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import {
-  registerFinanceBilling,
-  currentPaidSubscription,
-} from "./finance-billing.ts";
+  announceFollowerJoined,
+  completeInvitationAcceptance,
+  createFollowerInvitation,
+  registerJoiningRoutes,
+} from "./joining.ts";
+import { registerComplimentaryAccess } from "./complimentary-access.ts";
 import {
   registerCoachingCompletion,
   lockTraining,
@@ -246,8 +251,8 @@ async function putException(
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const s = await currentPaidSubscription(tx, a.userId);
-  if (!s)
+  // Paid or trainer-granted complimentary access (entitlements.ts).
+  if (!(await hasMemberAccess(tx, a.userId)))
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
 
@@ -535,6 +540,12 @@ export async function buildApp(
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   registerTeamRoutes(app, db, identity);
+  registerJoiningRoutes(app, db, identity, session, {
+    publicUrl,
+    afterJoin: (req, actor) =>
+      recordSignupAcquisition(db, req, actor, "enroll"),
+  });
+  registerComplimentaryAccess(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/public/host", async (req) => {
@@ -732,6 +743,12 @@ export async function buildApp(
           "subscriber.enrolled",
           uid,
         );
+        if (membership)
+          await announceFollowerJoined(
+            tx,
+            { tenantId: tenant.id, userId: uid, role: "subscriber" },
+            "website",
+          );
         return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
       await session(reply, result.uid, result.tid, result.mfa);
@@ -861,6 +878,9 @@ export async function buildApp(
       subscriptions: await tx.query(
         "SELECT * FROM subscriptions ORDER BY period_end DESC",
       ),
+      complimentary: await tx.query(
+        "SELECT id,user_id,tier,starts_at,ends_at FROM complimentary_access WHERE closed_at IS NULL AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 1000",
+      ),
       consents: await tx.query(
         "SELECT * FROM consent_records WHERE user_id=$1 ORDER BY created_at DESC",
         [a.userId],
@@ -929,7 +949,10 @@ export async function buildApp(
     return { trainer: t, products };
   });
 
-  app.post("/api/v1/invitations", async (req) => {
+  app.post(
+    "/api/v1/invitations",
+    { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } },
+    async (req) => {
     const a = owner(req);
     const b = z
       .object({
@@ -939,41 +962,22 @@ export async function buildApp(
       .parse(req.body);
     if (b.role !== "subscriber")
       return createTeamInvitation(db, a, b, publicUrl());
-    const token = newToken();
-    await db.system(async (tx) => {
-      await workspaceLock(tx, a.tenantId);
-      const [current] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND t.lifecycle_state='active'",
-        [a.tenantId, a.userId],
-      );
-      if (!current)
-        throw fail(
-          403,
-          "OWNER_REQUIRED",
-          "Current workspace owner access is required",
-        );
-      await tx.query(
-        "INSERT INTO one_time_tokens(token_hash,purpose,tenant_id,payload,expires_at) VALUES($1,'invite',$2,$3,now()+interval '7 days')",
-        [
-          tokenHash(token),
-          a.tenantId,
-          JSON.stringify({ ...b, invitedBy: a.userId }),
-        ],
-      );
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "team.invited", undefined, { role: b.role }),
+    // Follower invitations: optional email delivery, status and cancellation
+    // live in joining.ts; the copy-link result is always returned.
+    return createFollowerInvitation(
+      db,
+      a,
+      req.body,
+      req.hostContext?.origin ?? publicUrl(),
     );
-    return {
-      url: `${req.hostContext?.origin ?? publicUrl()}/join/${token}`,
-      expiresInDays: 7,
-    };
-  });
+  },
+  );
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
       .object({
         token: z.string().min(20),
-        name: z.string().min(2).max(100),
+        // An existing account joins with its own password; only a new account needs a name.
+        name: z.string().trim().min(2).max(100).optional(),
         email: z.email(),
         password: z.string().min(12).max(128),
         accepted: z.literal(true),
@@ -1036,36 +1040,23 @@ export async function buildApp(
         );
       const mfa = existing ? await consumeMfa(tx, existing.id, b.code) : false;
       const uid = existing?.id ?? randomUUID();
+      if (!existing && !b.name)
+        throw fail(400, "NAME_REQUIRED", "Enter your name to create your account");
       if (!existing)
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
           [uid, b.email.toLowerCase(), b.name, hash, false],
         );
-      const [membership] = await tx.query(
-        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
-        [invite.tenant_id, uid, invite.payload.role],
-      );
-      await tx.query(
-        "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
-        [tokenHash(b.token)],
-      );
-      if (membership) {
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-          [invite.tenant_id, uid, invite.payload.role],
-        );
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), invite.tenant_id, uid, registrationVersion],
-        );
-        await tx.query("RESET ROLE");
-      }
+      const joined = await completeInvitationAcceptance(tx, {
+        invite,
+        userId: uid,
+        registrationVersion,
+      });
       return {
         uid,
         tid: invite.tenant_id,
         mfa,
-        joined: !!membership && invite.payload.role === "subscriber",
+        joined: joined && invite.payload.role === "subscriber",
       };
     });
     await session(reply, result.uid, result.tid, result.mfa);

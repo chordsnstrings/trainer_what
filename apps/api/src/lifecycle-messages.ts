@@ -9,6 +9,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import { trainingAdherence } from "../../../packages/domain/src/client-twin.ts";
 import { addTrainingDays } from "../../../packages/domain/src/coaching-completion.ts";
 import {
@@ -383,7 +384,7 @@ async function current(
       r.status === "assigned" &&
       r.version === s.recordVersion &&
       !!schedule &&
-      !!(await currentPaidSubscription(tx, userId)) &&
+      (await hasMemberAccess(tx, userId)) &&
       (await noTrainingHold(tx, userId))
     );
   }
@@ -412,7 +413,7 @@ async function current(
     if (
       !policy.data.enabled ||
       policy.version !== s.policyVersion ||
-      !(await currentPaidSubscription(tx, userId)) ||
+      !(await hasMemberAccess(tx, userId)) ||
       !(await noTrainingHold(tx, userId))
     )
       return false;

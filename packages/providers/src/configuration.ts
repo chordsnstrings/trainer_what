@@ -215,6 +215,45 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         defaultValue: "false",
         help: "Looks up products in Open Food Facts. Food labels and portions require subscriber confirmation; coverage varies.",
       }),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_DAY",
+        "Follower invitation emails per workspace per day",
+        "number",
+        {
+          defaultValue: "50",
+          help: "Whole number, 0 to 10000. Includes resends. Copy-link invitations are not limited by this.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_ADDRESS",
+        "Invitation emails to one address per day",
+        "number",
+        {
+          defaultValue: "3",
+          help: "Whole number, 1 to 20, counted per workspace over 24 hours.",
+        },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_DAYS",
+        "Longest complimentary access period (days)",
+        "number",
+        { defaultValue: "365", help: "Whole number, 1 to 3650." },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_OPEN_ENDED",
+        "Allow complimentary access until revoked",
+        "boolean",
+        { defaultValue: "true" },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_ACTIVE",
+        "Active complimentary members per workspace",
+        "number",
+        {
+          defaultValue: "25",
+          help: "Whole number. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
+        },
+      ),
     ],
   },
   {

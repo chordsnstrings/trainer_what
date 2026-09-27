@@ -148,6 +148,7 @@ export async function verifyRuntimeAccess(client) {
     "notifications",
     "push_subscriptions",
     "chat_attachments",
+    "complimentary_access",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),

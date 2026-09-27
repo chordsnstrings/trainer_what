@@ -13,7 +13,7 @@ import { safetySignal } from "@trainer/domain";
 import { modelDecision } from "@trainer/providers";
 import { currentClientTwin } from "./client-twin.ts";
 import { modelAccounting } from "./model-accounting.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import {
   registerCoachingRuntime,
@@ -80,8 +80,8 @@ export async function assertTrainingOpen(tx: Tx, userId: string) {
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const s = await currentPaidSubscription(tx, a.userId);
-  if (!s)
+  // Paid or trainer-granted complimentary access (entitlements.ts).
+  if (!(await hasMemberAccess(tx, a.userId)))
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
 export async function openTrainingHold(
@@ -434,7 +434,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         b.notes &&
         safetySignal(b.notes) &&
         a.role === "subscriber" &&
-        !(await currentPaidSubscription(tx, a.userId))
+        !(await hasMemberAccess(tx, a.userId))
       ) {
         const [reported] = await tx.query(
           "SELECT id FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",

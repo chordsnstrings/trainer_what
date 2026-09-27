@@ -1,0 +1,15 @@
+# Joining a trainer and complimentary access
+
+Branch `feat/joining`, based on `6fa8aba`. Migration `055_joining_complimentary_access.sql`.
+
+## Plan (written before implementation)
+
+Existing code read first: `apps/api/src/app.ts` (invitation create/accept, public enroll, workspace switch, bootstrap), `team.ts` (team invitations, `lockActiveInvitation`), `notifications.ts` (in-app + email + push fan-out, worker delivery decision), `apps/worker/src/email-delivery.ts`, `security.ts` (queued account links), `finance-billing.ts` (`currentPaidSubscription`), every caller of it, `privacy-lifecycle.ts`/`privacy-hooks.ts` (erasure and closure), `admin-operations.ts` (operator scopes, audit), `platform-settings.ts` + `packages/providers/src/configuration.ts` (Superadmin-configurable values), and the web shell `apps/web/components/workspace.tsx`.
+
+1. **Invitation email.** Follower invitations stay single-use `one_time_tokens` rows (hash only). The owner may tick "email this invitation"; the link is queued as a `jobs` email with `sensitive:true` and `expiresAt`, using the existing worker. A new branch in `notificationDeliveryDecision` suppresses a queued invitation email once the invitation is accepted, cancelled, expired or re-sent. Resend rotates the link (the plain token is never stored), subject to a per-invitation cooldown, a per-address daily cap and a per-workspace daily cap. When email is not configured the invitation is still created and the copy-link result is returned with an explicit email status.
+2. **Pending invitations.** Outcome is recorded in the token payload (`accepted`, `cancelled`, `replaced`); status is derived as pending / accepted / expired / cancelled. Owner can list, cancel and resend. Cancelled and expired tokens are refused by the existing `lockActiveInvitation`.
+3. **Coach alert.** A shared `announceFollowerJoined` sends an in-app notification (email/push through the existing preferences and channels) to the owner and coaching staff when an invitation is accepted or a public self-join creates a membership.
+4. **Complimentary access.** New tenant table `complimentary_access` with RLS (followers read only their own rows, only the owner role writes), an immutability guard and no delete grant. One shared entitlement module `apps/api/src/entitlements.ts` (`memberAccess`, `hasMemberAccess`, `hasNutritionAccess`) replaces the scattered paid-subscription checks for workouts, guided sessions, bookings, reminders, digital coach, scheduled follow-ups, program nudges and nutrition. Grants create no subscription, Stripe object or journal. Nutrition tier requires the nutrition approval flags. Limits are Superadmin settings.
+5. **Second coach.** A signed-in follower accepts another trainer's invitation with one click (no password re-entry, no new account); an existing account that is signed out can sign in and join from the same page. Switching coaches is surfaced with a "Your coaches" card and a top-bar switcher.
+
+The sections below record what was actually built and checked.

@@ -8,6 +8,7 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
+import { hasMemberAccess } from "./entitlements.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const id = z.string().uuid();
@@ -481,11 +482,8 @@ export function registerBookingRoutes(
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":booking-subscriber:" + a.userId,
       ]);
-      const [sub] = await tx.query(
-        "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())",
-        [a.userId],
-      );
-      if (!sub)
+      // Active paid (not grace) or complimentary access (entitlements.ts).
+      if (!(await hasMemberAccess(tx, a.userId, { grace: false })))
         throw fail(
           402,
           "MEMBERSHIP_REQUIRED",
