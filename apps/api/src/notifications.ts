@@ -585,14 +585,37 @@ export function registerNotifications(
   app.get("/api/v1/notifications", async (req) => {
     const a = identity(req),
       q = z
-        .object({ offset: z.coerce.number().int().min(0).default(0) })
+        .object({
+          offset: z.coerce.number().int().min(0).default(0),
+          // Keyset paging: the id of the last notification already shown.
+          // Unlike an offset, a notice arriving between pages neither
+          // repeats nor hides one.
+          before: z.string().uuid().optional(),
+        })
         .parse(req.query);
-    return db.tenant(a, (tx) =>
-      tx.query(
+    return db.tenant(a, async (tx) => {
+      if (q.before) {
+        const [cursor] = await tx.query(
+          "SELECT created_at,id FROM notifications WHERE id=$1 AND user_id=$2",
+          [q.before, a.userId],
+        );
+        if (!cursor)
+          throw fail(
+            400,
+            "INVALID_CURSOR",
+            "This list position is not valid. Reload the list.",
+          );
+        // Compared inside the database, so the timestamp keeps full precision.
+        return tx.query(
+          "SELECT * FROM notifications WHERE user_id=$1 AND (created_at,id)<(SELECT created_at,id FROM notifications WHERE id=$2) ORDER BY created_at DESC,id DESC LIMIT 50",
+          [a.userId, cursor.id],
+        );
+      }
+      return tx.query(
         "SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET $2",
         [a.userId, q.offset],
-      ),
-    );
+      );
+    });
   });
   app.post("/api/v1/notifications/:id/read", async (req) => {
     const a = identity(req);

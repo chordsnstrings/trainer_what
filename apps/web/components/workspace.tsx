@@ -80,6 +80,15 @@ import { WorkspaceGovernance } from "./workspace-governance";
 import { BusinessMetrics } from "./business-metrics";
 import { PlatformAlerts } from "./platform-alerts";
 import { WorkspaceSuspended } from "./workspace-suspended";
+import {
+  appendPage,
+  canLoadMore,
+  mergePages,
+  nextPagePath,
+  pageInfo,
+  pageKey,
+  type ExtraPages,
+} from "./workspace-paging";
 import { GovernanceLinks } from "./governance-shared";
 import {
   clearLocalData,
@@ -96,6 +105,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   type ReactNode,
   type FormEvent,
@@ -162,7 +172,43 @@ type State = {
   consents: any[];
   environment?: string;
   platform?: { name?: string; supportEmail?: string };
+  /** First-page positions: { hasMore, cursor } per collection (records per kind). */
+  pages?: Record<string, any>;
+  /** Exact counts, independent of how many rows are loaded. */
+  totals?: Record<string, any>;
 };
+type More = {
+  has: (collection: string, kind?: string) => boolean;
+  load: (collection: string, kind?: string) => Promise<void>;
+  loading: string;
+};
+/** Shown while a paged list has rows beyond those loaded. */
+function LoadMore({
+  more,
+  collection,
+  kind,
+  label = "Load more",
+}: {
+  more: More;
+  collection: string;
+  kind?: string;
+  label?: string;
+}) {
+  if (!more.has(collection, kind)) return null;
+  const loading = more.loading === pageKey(collection, kind);
+  return (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loading}
+        onClick={() => void more.load(collection, kind)}
+      >
+        {loading ? "Loading…" : label}
+      </button>
+    </div>
+  );
+}
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
   ["Setup", "/trainer/onboarding/account", CheckCircle],
@@ -439,7 +485,16 @@ export default function Workspace() {
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
     [online, setOnline] = useState(true),
-    [suspended, setSuspended] = useState(false);
+    [suspended, setSuspended] = useState(false),
+    // Pages loaded beyond the bootstrap's first page. Cleared whenever the
+    // bootstrap reloads, so a changed row is never shown from an old page.
+    [extra, setExtra] = useState<ExtraPages>({}),
+    [moreLoading, setMoreLoading] = useState("");
+  const generation = useRef(0);
+  const shown = useMemo(
+    () => (state ? mergePages(state, extra) : null),
+    [state, extra],
+  );
   const publicPath =
     path === "/" ||
     [
@@ -468,6 +523,8 @@ export default function Workspace() {
   const load = useCallback(async () => {
     try {
       const next = await api("/bootstrap");
+      generation.current++;
+      setExtra({});
       setState(next);
       setSuspended(false);
       setBootstrapError("");
@@ -653,8 +710,29 @@ export default function Workspace() {
               ].includes(item[0]),
           )
         : nav;
-  const records = (kind: string) =>
-    state.records.filter((x) => x.kind === kind);
+  const view = shown ?? state;
+  const records = (kind: string) => view.records.filter((x) => x.kind === kind);
+  const more: More = {
+    has: (collection, kind) =>
+      canLoadMore(pageInfo(state.pages, extra, collection, kind)),
+    loading: moreLoading,
+    load: async (collection, kind) => {
+      const info = pageInfo(state.pages, extra, collection, kind),
+        key = pageKey(collection, kind),
+        started = generation.current;
+      if (!info || !canLoadMore(info)) return;
+      setMoreLoading(key);
+      try {
+        const page = await api(nextPagePath(collection, info, kind));
+        if (started === generation.current)
+          setExtra((current) => appendPage(current, key, page));
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setMoreLoading("");
+      }
+    },
+  };
   const firstName = state.user.name.split(" ")[0];
   const activeNavUrl = [...items]
     .sort((a, b) => b[1].length - a[1].length)
@@ -666,7 +744,15 @@ export default function Workspace() {
   const topTitle = path.startsWith("/admin")
     ? "Platform operations"
     : (items.find((x) => x[1] === path)?.[0] ?? "Your workspace");
-  const props = { state, records, action, busy, path, onSaved: load };
+  const props = {
+    state: view,
+    records,
+    action,
+    busy,
+    path,
+    onSaved: load,
+    more,
+  };
   const Shell = subscriber ? TrainerTheme : PlainShell;
   const platformName = state.platform?.name || "Trainer Brain";
   return (
@@ -721,13 +807,9 @@ export default function Workspace() {
                 ? resolveBrandDesign(state.tenant.theme).programLabel
                 : label}
               {label === "Exceptions" &&
-                records("exception").filter((x) => x.status === "open").length >
-                  0 && (
+                openExceptionCount(state, records) > 0 && (
                   <span className="nav-count">
-                    {
-                      records("exception").filter((x) => x.status === "open")
-                        .length
-                    }
+                    {openExceptionCount(state, records)}
                   </span>
                 )}
             </Link>
@@ -1009,7 +1091,19 @@ export default function Workspace() {
           ) : path.includes("/bookings") ? (
             <Bookings role={state.user.role} />
           ) : path.includes("/support") ? (
-            <Support records={records("support")} action={action} busy={busy} />
+            <>
+              <Support
+                records={records("support")}
+                action={action}
+                busy={busy}
+              />
+              <LoadMore
+                more={more}
+                collection="records"
+                kind="support"
+                label="Load older support conversations"
+              />
+            </>
           ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
               path,
             ) ? (
@@ -1017,23 +1111,7 @@ export default function Workspace() {
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
-            <>
-              <ClientTwin
-                userId={path.split("/")[3]}
-                name={
-                  state.members?.find((m) => m.id === path.split("/")[3])?.name
-                }
-              />
-              {state.user.role === "owner" && (
-                <FollowerRemoval
-                  userId={path.split("/")[3]}
-                  name={
-                    state.members?.find((m) => m.id === path.split("/")[3])
-                      ?.name
-                  }
-                />
-              )}
-            </>
+            <SubscriberDetail state={state} userId={path.split("/")[3]} />
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
@@ -1106,6 +1184,35 @@ export default function Workspace() {
     </Shell>
   );
 }
+/** A follower's name, read from the server when outside the first page. */
+function SubscriberDetail({ state, userId }: { state: State; userId: string }) {
+  const known = state.members?.find((m) => m.id === userId)?.name;
+  const [name, setName] = useState<string | undefined>(known);
+  useEffect(() => {
+    if (known) {
+      setName(known);
+      return;
+    }
+    let active = true;
+    api(
+      `/workspace/pages/members?role=subscriber&userId=${encodeURIComponent(userId)}`,
+    ).then(
+      (r) => active && setName(r.items[0]?.name),
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [known, userId]);
+  return (
+    <>
+      <ClientTwin userId={userId} name={name} />
+      {state.user.role === "owner" && (
+        <FollowerRemoval userId={userId} name={name} />
+      )}
+    </>
+  );
+}
 type ViewProps = {
   state: State;
   records: (kind: string) => Row[];
@@ -1113,7 +1220,21 @@ type ViewProps = {
   busy: boolean;
   path: string;
   onSaved?: () => Promise<void>;
+  more: More;
 };
+/** Exact when the bootstrap sent totals; otherwise the loaded rows. */
+const total = (state: State, key: string, fallback: number): number =>
+  typeof state.totals?.[key] === "number" ? state.totals[key] : fallback;
+const kindTotal = (state: State, kind: string, fallback: number): number =>
+  typeof state.totals?.records?.[kind] === "number"
+    ? state.totals.records[kind]
+    : fallback;
+const openExceptionCount = (state: State, records: ViewProps["records"]) =>
+  total(
+    state,
+    "openExceptions",
+    records("exception").filter((x) => x.status === "open").length,
+  );
 
 function Overview({ state, records }: ViewProps) {
   const sub = state.user.role === "subscriber";
@@ -1121,20 +1242,26 @@ function Overview({ state, records }: ViewProps) {
     exceptions = records("exception").filter((x) => x.status === "open"),
     programs = records("program"),
     workouts = records("workout");
+  const confirmedRules = total(state, "confirmedRules", rules.length),
+    programCount = kindTotal(state, "program", programs.length);
   const steps = [
     ["Shape your identity", !!state.tenant.theme?.bio, "/trainer/brand"],
     [
       "Teach your coaching rules",
-      rules.length > 0,
+      confirmedRules > 0,
       "/trainer/brain/constitution",
     ],
     [
       "Add your source material",
-      records("source").length > 0,
+      kindTotal(state, "source", records("source").length) > 0,
       "/trainer/brain/knowledge",
     ],
-    ["Create your first program", programs.length > 0, "/trainer/programs"],
-    ["Prepare your offer", records("product").length > 0, "/trainer/products"],
+    ["Create your first program", programCount > 0, "/trainer/programs"],
+    [
+      "Prepare your offer",
+      kindTotal(state, "product", records("product").length) > 0,
+      "/trainer/products",
+    ],
   ] as const;
   return (
     <>
@@ -1171,37 +1298,47 @@ function Overview({ state, records }: ViewProps) {
           ? [
               [
                 "Completed workouts",
-                workouts.filter((w) => w.status === "completed").length,
+                total(
+                  state,
+                  "completedWorkouts",
+                  workouts.filter((w) => w.status === "completed").length,
+                ),
                 "Every session counts",
               ],
-              ["Sets recorded", state.sets.length, "Your actual training log"],
-              ["My programs", programs.length, "Created by your trainer"],
+              [
+                "Sets recorded",
+                total(state, "sets", state.sets.length),
+                "Your actual training log",
+              ],
+              ["My programs", programCount, "Created by your trainer"],
               [
                 "Coach messages",
-                records("message").length,
+                kindTotal(state, "message", records("message").length),
                 "Personal and digital coaching",
               ],
             ]
           : [
               [
                 "Subscribers",
-                state.members?.filter((m) => m.role === "subscriber").length ??
-                  0,
+                total(
+                  state,
+                  "subscribers",
+                  state.members?.filter((m) => m.role === "subscriber")
+                    .length ?? 0,
+                ),
                 "People in your coaching space",
               ],
               [
                 state.finance ? "Trainer earnings" : "Programs",
-                state.finance
-                  ? money(state.finance.earnedMinor)
-                  : programs.length,
+                state.finance ? money(state.finance.earnedMinor) : programCount,
                 state.finance
                   ? "Reconciled ledger balance"
                   : "Training blocks in this workspace",
               ],
-              ["Confirmed rules", rules.length, "Your methodology, captured"],
+              ["Confirmed rules", confirmedRules, "Your methodology, captured"],
               [
                 "Need your attention",
-                exceptions.length,
+                total(state, "openExceptions", exceptions.length),
                 "Open coaching exceptions",
               ],
             ]
@@ -1402,7 +1539,15 @@ function Brand({ state, onSaved }: ViewProps) {
   );
 }
 
-function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
+function BrainView({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  onSaved,
+  more,
+}: ViewProps) {
   const [tab, setTab] = useState(
     path.includes("constitution")
       ? "rules"
@@ -1466,7 +1611,9 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
         <div className="two-columns wide-left">
           <Card>
             <p className="eyebrow">
-              CONVERSATION {Math.min(answers.length + 1, 20)} OF 20
+              CONVERSATION{" "}
+              {Math.min(kindTotal(state, "interview", answers.length) + 1, 20)}{" "}
+              OF 20
             </p>
             <h2>{question}</h2>
             <p className="muted">
@@ -1575,7 +1722,11 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
           <Card>
             <div className="card-heading">
               <h2>Sources</h2>
-              <Badge>{sources.length}</Badge>
+              <Badge>
+                {more.has("records", "source")
+                  ? `${sources.length} loaded`
+                  : sources.length}
+              </Badge>
             </div>
             <SourceCompilation
               sources={sources}
@@ -1621,6 +1772,18 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                   </form>
                 </div>
               ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="source"
+              label="Load older sources"
+            />
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="conflict"
+              label="Load older conflicts"
+            />
             {!sources.length && (
               <Empty
                 title="Your knowledge starts here"
@@ -1737,6 +1900,12 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 />
               </Card>
             )}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="rule"
+              label="Load older rules"
+            />
           </div>
         </div>
       )}
@@ -1796,6 +1965,12 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 <Badge>Held out</Badge>
               </div>
             ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="scenario"
+              label="Load older scenarios"
+            />
             {!records("scenario").length && (
               <Empty
                 title="No scenarios yet"
@@ -1812,12 +1987,19 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
             <div className="readiness-row">
               <span>Confirmed coaching rules</span>
               <strong>
-                {rules.filter((r) => r.status === "confirmed").length}
+                {total(
+                  state,
+                  "confirmedRules",
+                  rules.filter((r) => r.status === "confirmed").length,
+                )}
               </strong>
             </div>
             <div className="readiness-row">
               <span>Held-out scenarios</span>
-              <strong>{records("scenario").length} / 20 minimum</strong>
+              <strong>
+                {kindTotal(state, "scenario", records("scenario").length)} / 20
+                minimum
+              </strong>
             </div>
             <div className="readiness-row">
               <span>Model connection</span>
@@ -1899,6 +2081,18 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 )}
               </Card>
             ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="evaluation"
+              label="Load older evaluations"
+            />
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="brain_release"
+              label="Load older releases"
+            />
           </div>
         </div>
       )}
@@ -1906,12 +2100,84 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   );
 }
 
-function Members({ state, records }: ViewProps) {
-  const [query, setQuery] = useState("");
-  const members = (state.members ?? []).filter(
-    (m) =>
-      m.role === "subscriber" &&
-      `${m.name} ${m.email}`.toLowerCase().includes(query.toLowerCase()),
+type MemberPage = { items: any[]; hasMore: boolean; cursor: string | null };
+/** Subscribers page from the server: search and "load more" reach everyone. */
+function Members({ state }: ViewProps) {
+  const [query, setQuery] = useState(""),
+    [list, setList] = useState<MemberPage | null>(null),
+    [loading, setLoading] = useState(false),
+    [listError, setListError] = useState("");
+  const currentQuery = useRef("");
+  const fetchPage = useCallback(
+    (q: string, cursor?: string | null): Promise<MemberPage> => {
+      const params = new URLSearchParams({ role: "subscriber" });
+      // One value per word: the web proxy's signed request proof does not
+      // accept a space inside a query value.
+      for (const term of q.split(/\s+/).filter(Boolean).slice(0, 5))
+        params.append("q", term);
+      if (cursor) params.set("cursor", cursor);
+      return api(`/workspace/pages/members?${params}`);
+    },
+    [],
+  );
+  // Reloads with each bootstrap refresh (a new `pages` object) and search.
+  useEffect(() => {
+    const q = query.trim();
+    currentQuery.current = q;
+    let active = true;
+    const timer = setTimeout(
+      () => {
+        setLoading(true);
+        fetchPage(q)
+          .then(
+            (page) => {
+              if (!active) return;
+              setList(page);
+              setListError("");
+            },
+            (e) => active && setListError((e as Error).message),
+          )
+          .finally(() => active && setLoading(false));
+      },
+      q ? 250 : 0,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query, fetchPage, state.pages]);
+  const loadMore = async () => {
+    if (!list?.cursor) return;
+    const q = currentQuery.current;
+    setLoading(true);
+    try {
+      const page = await fetchPage(q, list.cursor);
+      if (currentQuery.current !== q) return;
+      setList((prev) =>
+        prev
+          ? {
+              items: [
+                ...prev.items,
+                ...page.items.filter(
+                  (m) => !prev.items.some((p) => p.id === m.id),
+                ),
+              ],
+              hasMore: page.hasMore,
+              cursor: page.cursor,
+            }
+          : page,
+      );
+    } catch (e) {
+      setListError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const members = list?.items ?? [];
+  const subscriberTotal = total(
+    state,
+    "subscribers",
+    (state.members ?? []).filter((m) => m.role === "subscriber").length,
   );
   return (
     <>
@@ -1929,6 +2195,16 @@ function Members({ state, records }: ViewProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {listError && (
+            <p className="notice error" role="alert">
+              {listError}
+            </p>
+          )}
+          {list && !query.trim() && subscriberTotal > 0 && (
+            <p className="muted" role="status">
+              Showing {members.length} of {subscriberTotal} subscribers
+            </p>
+          )}
           {members.length ? (
             <div className="table-wrap">
               <table>
@@ -1948,23 +2224,11 @@ function Members({ state, records }: ViewProps) {
                         </Link>
                         <small>{m.email}</small>
                       </td>
-                      <td>
-                        {
-                          records("program").filter(
-                            (p) => p.owner_user_id === m.id,
-                          ).length
-                        }{" "}
-                        assigned
-                      </td>
+                      <td>{m.programs ?? 0} assigned</td>
                       <td>
                         <Badge>
-                          {state.subscriptions.find((s) => s.user_id === m.id)
-                            ?.status ??
-                            (state.complimentary?.some(
-                              (g) => g.user_id === m.id,
-                            )
-                              ? "Complimentary"
-                              : "No plan")}
+                          {m.subscription_status ??
+                            (m.complimentary ? "Complimentary" : "No plan")}
                         </Badge>
                       </td>
                     </tr>
@@ -1972,11 +2236,27 @@ function Members({ state, records }: ViewProps) {
                 </tbody>
               </table>
             </div>
+          ) : !list || loading ? (
+            <p role="status">Loading subscribers…</p>
+          ) : query.trim() ? (
+            <p className="muted">No subscriber matches this search.</p>
           ) : (
             <Empty
               title="Make room for your first subscriber"
               detail="Invite someone into your coaching space. Access starts with a paid membership offer or complimentary access you grant."
             />
+          )}
+          {list?.hasMore && (
+            <div className="button-row load-more">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={loading}
+                onClick={() => void loadMore()}
+              >
+                {loading ? "Loading…" : "Load more subscribers"}
+              </button>
+            </div>
           )}
         </Card>
         <FollowerInvitations role={state.user.role} />
@@ -2190,10 +2470,56 @@ function Programs({ state, records, action, busy }: ViewProps) {
   );
 }
 
-function Workout({ state, records, action, busy, path }: ViewProps) {
-  const workout = records("workout").find(
-    (w) => w.id === path.split("/").pop(),
+/**
+ * An older workout outside the bootstrap's first page is fetched by address,
+ * with its set logs, so every session in the history can still be opened.
+ */
+function useListedOrFetchedWorkout(listed: Row | undefined, workoutId: string) {
+  const [fetched, setFetched] = useState<{ workout: Row; sets: any[] } | null>(
+    null,
   );
+  useEffect(() => {
+    if (listed || !workoutId || !navigator.onLine) return;
+    let active = true;
+    void (async () => {
+      try {
+        const workout = await api(`/workspace/records/${workoutId}`);
+        if (workout.kind !== "workout") return;
+        const sets: any[] = [];
+        let cursor: string | null = null;
+        for (let page = 0; page < 5; page++) {
+          const params = new URLSearchParams({ workoutId });
+          if (cursor) params.set("cursor", cursor);
+          const r = await api(`/workspace/pages/sets?${params}`);
+          sets.push(...r.items);
+          if (!r.hasMore) break;
+          cursor = r.cursor;
+        }
+        if (active) setFetched({ workout, sets });
+      } catch {
+        // The empty state below explains that the workout is unavailable.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [listed, workoutId]);
+  return listed
+    ? { workout: listed, sets: [] as any[] }
+    : fetched?.workout.id === workoutId
+      ? fetched
+      : { workout: undefined, sets: [] as any[] };
+}
+function Workout({ state, records, action, busy, path }: ViewProps) {
+  const workoutId = path.split("/").pop() ?? "";
+  const found = useListedOrFetchedWorkout(
+    records("workout").find((w) => w.id === workoutId),
+    workoutId,
+  );
+  const workout = found.workout,
+    loggedSets = found.sets.length
+      ? [...state.sets, ...found.sets]
+      : state.sets;
   const [queued, setQueued] = useState(0),
     [notice, setNotice] = useState(""),
     [rejected, setRejected] = useState<RejectedEntry<WorkoutQueueItem>[]>([]);
@@ -2382,7 +2708,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             const done =
               pendingHere ||
               localDone.includes(logicalKey) ||
-              state.sets.some(
+              loggedSets.some(
                 (s) =>
                   s.workout_id === workout.id &&
                   s.data.exercise === ex.name &&
@@ -2695,7 +3021,28 @@ function Messages({ state, records, action, busy }: ViewProps) {
   );
 }
 
-function Exceptions({ records, state, action, busy }: ViewProps) {
+/** A decision outside the bootstrap's pinned set is read by its id. */
+function DecisionQuote({ id, known }: { id: string; known?: Row }) {
+  const [message, setMessage] = useState<string | undefined>(
+    known?.data?.message,
+  );
+  useEffect(() => {
+    if (known) {
+      setMessage(known.data?.message);
+      return;
+    }
+    let active = true;
+    api(`/workspace/records/${id}`).then(
+      (r) => active && setMessage(r.data?.message),
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [id, known]);
+  return message ? <blockquote>{message}</blockquote> : null;
+}
+function Exceptions({ records, state, action, busy, more }: ViewProps) {
   const exceptions = records("exception").filter((e) => e.status === "open");
   return (
     <>
@@ -2722,12 +3069,12 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
             <h3>{e.data.description}</h3>
             <SafetyReviewDue record={e} />
             {e.data.decisionId && (
-              <blockquote>
-                {
-                  records("decision").find((d) => d.id === e.data.decisionId)
-                    ?.data.message
-                }
-              </blockquote>
+              <DecisionQuote
+                id={e.data.decisionId}
+                known={records("decision").find(
+                  (d) => d.id === e.data.decisionId,
+                )}
+              />
             )}
             <form
               onSubmit={(ev) => {
@@ -2774,12 +3121,24 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
           />
         </Card>
       )}
+      {exceptions.length > 0 && (
+        <p className="muted" role="status">
+          Showing {exceptions.length} of{" "}
+          {total(state, "openExceptions", exceptions.length)} open items
+        </p>
+      )}
+      <LoadMore
+        more={more}
+        collection="records"
+        kind="exception"
+        label="Load older open items"
+      />
       <CoachingFeedbackQueue owner={state.user.role === "owner"} />
     </>
   );
 }
 
-function Finance({ state, records, action, busy, path }: ViewProps) {
+function Finance({ state, records, action, busy, path, more }: ViewProps) {
   const [promotionCode, setPromotionCode] = useState("");
   const [checkout, setCheckout] = useState<{
     status: string;
@@ -3038,6 +3397,11 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   </tbody>
                 </table>
               </div>
+              <LoadMore
+                more={more}
+                collection="usageStatements"
+                label="Load earlier months"
+              />
             </Card>
           )}
           <div className="tabs">
@@ -3245,6 +3609,12 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   detail="Eligible subscriber requests will appear here for your decision."
                 />
               )}
+              <LoadMore
+                more={more}
+                collection="records"
+                kind="refund"
+                label="Load older refund requests"
+              />
             </Card>
           ) : (offer as any) === "payouts" || path.includes("payout") ? (
             <PayoutView
@@ -3253,6 +3623,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
               action={action}
               busy={busy}
               path={path}
+              more={more}
             />
           ) : (
             <Card>
@@ -3288,6 +3659,11 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                       ))}
                     </tbody>
                   </table>
+                  <LoadMore
+                    more={more}
+                    collection="journals"
+                    label="Load earlier ledger entries"
+                  />
                 </div>
               ) : (
                 <Empty
@@ -3303,7 +3679,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
   );
 }
 
-function PayoutView({ state, records, action, busy }: ViewProps) {
+function PayoutView({ state, records, action, busy, more }: ViewProps) {
   return (
     <div className="two-columns">
       <Card>
@@ -3391,6 +3767,11 @@ function PayoutView({ state, records, action, busy }: ViewProps) {
             detail="Monthly statements and confirmed bank outcomes will appear here."
           />
         )}
+        <LoadMore
+          more={more}
+          collection="payouts"
+          label="Load earlier payouts"
+        />
       </Card>
     </div>
   );
@@ -3650,12 +4031,17 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
   );
 }
 
-function Analytics({ state, records }: ViewProps) {
-  const completed = records("workout").filter((w) => w.status === "completed"),
-    count = state.sets.length,
-    volume = state.sets.reduce(
-      (sum, s) => sum + s.data.reps * s.data.loadKg,
-      0,
+function Analytics({ state, records, more }: ViewProps) {
+  const completed = total(
+      state,
+      "completedWorkouts",
+      records("workout").filter((w) => w.status === "completed").length,
+    ),
+    count = total(state, "sets", state.sets.length),
+    volume = total(
+      state,
+      "setVolumeKg",
+      state.sets.reduce((sum, s) => sum + s.data.reps * s.data.loadKg, 0),
     );
   return (
     <>
@@ -3667,7 +4053,7 @@ function Analytics({ state, records }: ViewProps) {
       <div className="stats-grid">
         <Card className="stat">
           <span className="small-label">Completed workouts</span>
-          <strong>{completed.length}</strong>
+          <strong>{completed}</strong>
         </Card>
         <Card className="stat">
           <span className="small-label">Recorded sets</span>
@@ -3683,7 +4069,11 @@ function Analytics({ state, records }: ViewProps) {
         <Card className="stat">
           <span className="small-label">Active subscriptions</span>
           <strong>
-            {state.subscriptions.filter((s) => s.status === "active").length}
+            {total(
+              state,
+              "activeSubscriptions",
+              state.subscriptions.filter((s) => s.status === "active").length,
+            )}
           </strong>
         </Card>
       </div>
@@ -3707,6 +4097,12 @@ function Analytics({ state, records }: ViewProps) {
             detail="Log workouts consistently to build a useful picture of progress."
           />
         )}
+        <LoadMore
+          more={more}
+          collection="records"
+          kind="workout"
+          label="Load older workouts"
+        />
       </Card>
       {state.costs && (
         <Card>
@@ -3746,6 +4142,7 @@ function Analytics({ state, records }: ViewProps) {
               shown as unpriced, never as free.
             </p>
           )}
+          <LoadMore more={more} collection="costs" label="Load older usage" />
         </Card>
       )}
     </>
@@ -3767,13 +4164,51 @@ function AdminNotFound() {
 }
 function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
   const [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [loadingMore, setLoadingMore] = useState(false);
   const financeRole = ["admin", "finance"].includes(state.user.platformRole);
   useEffect(() => {
     api("/admin/overview")
       .then(setData)
       .catch((e) => setError(e.message));
   }, []);
+  // Workspaces arrive a page at a time; each page is inspected (and audited)
+  // only when an operator asks for it.
+  async function loadMoreWorkspaces() {
+    if (!data?.cursor) return;
+    setLoadingMore(true);
+    try {
+      const next = await api(
+        `/admin/overview?cursor=${encodeURIComponent(data.cursor)}`,
+      );
+      setData((current: any) => ({
+        ...next,
+        tenants: [
+          ...current.tenants,
+          ...next.tenants.filter(
+            (t: any) => !current.tenants.some((c: any) => c.id === t.id),
+          ),
+        ],
+      }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+  const moreWorkspaces = data?.hasMore ? (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loadingMore}
+        onClick={() => void loadMoreWorkspaces()}
+      >
+        {loadingMore ? "Loading…" : "Load more workspaces"}
+      </button>
+    </div>
+  ) : null;
+  const openCount = (t: any) => t.openExceptions ?? t.exceptions.length;
   if (finance)
     return (
       <>
@@ -3793,6 +4228,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
             <FinancePolicyConsole tenants={data.tenants} />
             <FinanceAutomationConsole tenants={data.tenants} />
             <FinanceOperations tenants={data.tenants} />
+            {moreWorkspaces}
           </>
         ) : (
           <p>Loading platform finance…</p>
@@ -3835,25 +4271,32 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           <div className="stats-grid">
             <Card className="stat">
               <span className="small-label">Trainer workspaces</span>
-              <strong>{data.tenants.length}</strong>
+              <strong>{data.totals?.workspaces ?? data.tenants.length}</strong>
             </Card>
             <Card className="stat">
               <span className="small-label">Published</span>
               <strong>
-                {data.tenants.filter((t: any) => t.published).length}
+                {data.totals?.published ??
+                  data.tenants.filter((t: any) => t.published).length}
               </strong>
             </Card>
             <Card className="stat">
-              <span className="small-label">Open exceptions</span>
+              <span className="small-label">
+                Open exceptions
+                {data.hasMore ? ` (${data.tenants.length} loaded)` : ""}
+              </span>
               <strong>
                 {data.tenants.reduce(
-                  (s: number, t: any) => s + t.exceptions.length,
+                  (s: number, t: any) => s + openCount(t),
                   0,
                 )}
               </strong>
             </Card>
             <Card className="stat">
-              <span className="small-label">Trainer liabilities</span>
+              <span className="small-label">
+                Trainer liabilities
+                {data.hasMore ? ` (${data.tenants.length} loaded)` : ""}
+              </span>
               <strong>
                 {money(
                   data.tenants.reduce(
@@ -3896,12 +4339,13 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                           ? money(t.finance.earnedMinor)
                           : "Restricted"}
                       </td>
-                      <td>{t.exceptions.length}</td>
+                      <td>{openCount(t)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {moreWorkspaces}
           </Card>
         </>
       ) : (

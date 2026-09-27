@@ -1,7 +1,13 @@
 "use client";
 import { useState } from "react";
 
-type Source = { id: string; data: { title?: string; text?: string } };
+type Source = {
+  id: string;
+  data: { title?: string; text?: string; textLength?: number };
+};
+// The workspace bootstrap sends a source's size, not its full text.
+const sourceLength = (source: Source) =>
+  source.data.textLength ?? source.data.text?.length ?? 0;
 type Coverage = {
   sourceCount: number;
   includedCharacters: number;
@@ -25,12 +31,12 @@ export function SourceCompilation({
   const [coverage, setCoverage] = useState<Coverage | undefined>();
   const included = sources.filter((source) => selected.includes(source.id));
   const characters = included.reduce(
-    (sum, source) => sum + (source.data.text?.length ?? 0),
+    (sum, source) => sum + sourceLength(source),
     0,
   );
   const overLimit =
     characters > 120000 ||
-    included.some((source) => (source.data.text?.length ?? 0) > 60000);
+    included.some((source) => sourceLength(source) > 60000);
   const observed = coverage ?? previous;
   return (
     <>
@@ -58,7 +64,7 @@ export function SourceCompilation({
             <span>
               {source.data.title ?? "Teaching source"}{" "}
               <small className="muted">
-                · {(source.data.text?.length ?? 0).toLocaleString()} characters
+                · {sourceLength(source).toLocaleString()} characters
               </small>
             </span>
           </label>

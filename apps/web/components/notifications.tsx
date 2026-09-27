@@ -146,12 +146,20 @@ export function NotificationInbox() {
     [more, setMore] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  async function load(offset = 0) {
+  // Older pages continue after the last notification shown (a keyset
+  // cursor), so a notice arriving meanwhile neither repeats nor hides one.
+  async function load(before?: string) {
     setLoading(true);
     setError("");
     try {
-      const d = await api(`/notifications?offset=${offset}`);
-      setRows((v) => (offset ? [...v, ...d] : d));
+      const d: any[] = await api(
+        before
+          ? `/notifications?before=${encodeURIComponent(before)}`
+          : "/notifications",
+      );
+      setRows((v) =>
+        before ? [...v, ...d.filter((n) => !v.some((r) => r.id === n.id))] : d,
+      );
       setMore(d.length === 50);
     } finally {
       setLoading(false);
@@ -229,7 +237,9 @@ export function NotificationInbox() {
           className="button secondary"
           disabled={loading}
           onClick={() =>
-            void load(rows.length).catch((e) => setError(e.message))
+            void load(rows[rows.length - 1]?.id).catch((e) =>
+              setError(e.message),
+            )
           }
         >
           Load earlier notifications

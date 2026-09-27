@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { assertNotificationDocument } from "./message-templates.ts";
+import { createdKey, keysetPage } from "./workspace-pages.ts";
 import {
   EFFECTIVE_DUE_SQL,
   PINNED_DUE_SQL,
@@ -341,24 +342,63 @@ export function registerAdminOperations(
         tenantId: z.string().uuid().optional(),
         userId: z.string().uuid().optional(),
         page: z.coerce.number().int().min(0).default(0),
+        // Keyset position of the workspace page (newest first) and of the
+        // security audit list; `page` remains for older clients.
+        cursor: z.string().max(1000).optional(),
+        rowsCursor: z.string().max(1000).optional(),
       })
       .parse(req.query);
+    // The workspace picker lists the 500 most recent; paging and a selected
+    // workspace are resolved directly, so older workspaces stay reachable.
     const tenants = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC LIMIT 500",
+        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC,id DESC LIMIT 500",
       ),
     );
-    if (q.tenantId && !tenants.some((t) => t.id === q.tenantId))
-      throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+    let selected: any[],
+      nextCursor: string | null = null,
+      hasMore = false;
+    if (q.tenantId) {
+      selected = await db.system((tx) =>
+        tx.query(
+          "SELECT id,slug,name,published,created_at FROM tenants WHERE id=$1",
+          [q.tenantId],
+        ),
+      );
+      if (!selected.length)
+        throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+    } else if (q.cursor !== undefined) {
+      const page = await db.system((tx) =>
+        keysetPage(tx, {
+          select: "id,slug,name,published,created_at",
+          from: "tenants",
+          key: createdKey(),
+          descending: true,
+          cursor: q.cursor,
+          limit: 25,
+        }),
+      );
+      selected = page.items;
+      nextCursor = page.cursor;
+      hasMore = page.hasMore;
+    } else {
+      const page = await db.system((tx) =>
+        tx.query(
+          "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC,id DESC LIMIT 26 OFFSET $1",
+          [q.page * 25],
+        ),
+      );
+      hasMore = page.length > 25;
+      selected = page.slice(0, 25);
+    }
     await db.system((tx) =>
       audit(tx, a, "operations." + view + ".read", q.tenantId, q.userId),
     );
-    const selected = q.tenantId
-      ? tenants.filter((t) => t.id === q.tenantId)
-      : tenants.slice(q.page * 25, q.page * 25 + 25);
     let rows: any[] = [],
       summary: any = {},
-      documents: any[] = [];
+      documents: any[] = [],
+      rowsCursor: string | null = null,
+      rowsHasMore = false;
     if (view === "configuration")
       documents = await db.system((tx) =>
         tx.query(
@@ -383,11 +423,20 @@ export function registerAdminOperations(
           "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. Leads are website inquiries from consenting visitors. First paid counts workspaces with a verified positive subscription or paid-session journal. No health targeting or referral commission.",
       };
     } else if (view === "security") {
-      rows = await db.system((tx) =>
-        tx.query(
-          "SELECT o.id,o.action,o.tenant_id,o.subject_id,o.created_at,u.name AS operator FROM admin_operations_audit o JOIN users u ON u.id=o.actor_id ORDER BY o.created_at DESC LIMIT 200",
-        ),
+      const page = await db.system((tx) =>
+        keysetPage(tx, {
+          select:
+            "o.id,o.action,o.tenant_id,o.subject_id,o.created_at,u.name AS operator",
+          from: "admin_operations_audit o JOIN users u ON u.id=o.actor_id",
+          key: createdKey("o."),
+          descending: true,
+          cursor: q.rowsCursor,
+          limit: 100,
+        }),
       );
+      rows = page.items;
+      rowsCursor = page.cursor;
+      rowsHasMore = page.hasMore;
       summary = {
         operators: await db.system((tx) =>
           tx.query(
@@ -502,7 +551,10 @@ export function registerAdminOperations(
       macros,
       summary,
       page: q.page,
-      hasMore: !q.tenantId && tenants.length > (q.page + 1) * 25,
+      hasMore: !q.tenantId && hasMore,
+      nextCursor: q.tenantId ? null : nextCursor,
+      rowsHasMore,
+      rowsCursor,
     };
   });
   app.post("/api/v1/admin/documents", async (req) => {

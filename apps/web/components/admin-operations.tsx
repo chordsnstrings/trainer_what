@@ -145,21 +145,47 @@ function AdminOperationsWorkbench({
           ? (new URLSearchParams(window.location.search).get("tenantId") ?? "")
           : "",
     ),
-    [page, setPage] = useState(0),
+    // Keyset positions of the visited workspace pages; "" is the first page.
+    [cursors, setCursors] = useState<string[]>([""]),
     [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loadingRows, setLoadingRows] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   const [kind, setKind] = useState("legal"),
     [draft, setDraft] = useState<any>(null);
   const query = new URLSearchParams();
   if (tenant) query.set("tenantId", tenant);
-  query.set("page", String(page));
+  query.set("cursor", cursor);
   if (view === "subscribers" && segments[2]) query.set("userId", segments[2]);
   const load = () =>
     request("/admin/operations/" + view + "?" + query).then(setData);
   useEffect(() => {
     setData(null);
     void load().catch((e) => setNotice(e.message));
-  }, [view, tenant, page]);
+  }, [view, tenant, cursor]);
+  // The security audit list pages by its own cursor.
+  async function loadMoreRows() {
+    if (!data?.rowsCursor) return;
+    setLoadingRows(true);
+    try {
+      const next = new URLSearchParams(query);
+      next.set("rowsCursor", data.rowsCursor);
+      const page = await request("/admin/operations/" + view + "?" + next);
+      setData((current: any) => ({
+        ...page,
+        rows: [
+          ...current.rows,
+          ...page.rows.filter(
+            (r: any) => !current.rows.some((c: any) => c.id === r.id),
+          ),
+        ],
+      }));
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setLoadingRows(false);
+    }
+  }
   async function act(url: string, body: unknown) {
     setBusy(true);
     try {
@@ -227,7 +253,7 @@ function AdminOperationsWorkbench({
                   value={tenant}
                   onChange={(e) => {
                     setTenant(e.target.value);
-                    setPage(0);
+                    setCursors([""]);
                   }}
                 >
                   <option value="">All workspaces</option>
@@ -241,15 +267,17 @@ function AdminOperationsWorkbench({
               <div className="button-row">
                 <button
                   className="button secondary"
-                  disabled={!page}
-                  onClick={() => setPage(page - 1)}
+                  disabled={cursors.length < 2}
+                  onClick={() => setCursors((c) => c.slice(0, -1))}
                 >
                   Previous
                 </button>
                 <button
                   className="button secondary"
-                  disabled={!data.hasMore}
-                  onClick={() => setPage(page + 1)}
+                  disabled={!data.hasMore || !data.nextCursor}
+                  onClick={() =>
+                    setCursors((c) => [...c, data.nextCursor as string])
+                  }
                 >
                   Next
                 </button>
@@ -633,6 +661,18 @@ function AdminOperationsWorkbench({
                 </p>
               )}
               <Table rows={data.rows} />
+              {data.rowsHasMore && (
+                <div className="button-row load-more">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={loadingRows}
+                    onClick={() => void loadMoreRows()}
+                  >
+                    {loadingRows ? "Loading…" : "Load older audit entries"}
+                  </button>
+                </div>
+              )}
               {view === "security" && (
                 <>
                   <h2>Operator access</h2>
