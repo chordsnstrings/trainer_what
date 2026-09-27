@@ -9,12 +9,17 @@ import {
   type Tx,
 } from "@trainer/db";
 import { setSchema } from "@trainer/contracts";
-import { safetySignal } from "@trainer/domain";
 import { modelDecision } from "@trainer/providers";
 import { currentClientTwin } from "./client-twin.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
+import {
+  activeSafetyPolicy,
+  safetyDecisionData,
+  screenForSafety,
+  type SafetyDecision,
+} from "./safety-policy.ts";
 import {
   registerCoachingRuntime,
   tryQualifiedCoaching,
@@ -90,6 +95,7 @@ export async function openTrainingHold(
   userId: string,
   reason: string,
   workoutId?: string,
+  screening?: SafetyDecision,
 ) {
   await lockTraining(tx, a, userId);
   const [prior] = await tx.query(
@@ -97,6 +103,12 @@ export async function openTrainingHold(
     [userId],
   );
   if (prior) return prior;
+  // Pin the governing safety policy version and its review deadline on both
+  // safety decision records. An explicit report has no screening result.
+  const decision = safetyDecisionData(
+    screening ?? { policy: await activeSafetyPolicy(tx) },
+    "hold",
+  );
   const workouts = await tx.query(
     "UPDATE records SET status='safety_hold',version=version+1,updated_at=now() WHERE kind='workout' AND owner_user_id=$1 AND status='active' RETURNING id",
     [userId],
@@ -110,6 +122,8 @@ export async function openTrainingHold(
       workoutIds: workouts.map((w) => w.id),
       reportedWorkoutId: workoutId ?? null,
       openedAt: new Date().toISOString(),
+      safetyPolicy: decision.safetyPolicy,
+      reviewDueAt: decision.reviewDueAt,
     },
     { ownerId: userId, status: "active" },
   );
@@ -128,12 +142,20 @@ export async function openTrainingHold(
         subscriberId: userId,
         holdId: hold.id,
         workoutId: workoutId ?? null,
+        trigger: screening
+          ? screening.floor
+            ? "code_floor"
+            : "policy_term"
+          : "reported",
+        ...decision,
       }),
     ],
   );
   await event(tx, a, "safety.escalated", exceptionId, {
     holdId: hold.id,
     subscriberId: userId,
+    policyVersion: decision.safetyPolicy.version,
+    reviewDueAt: decision.reviewDueAt,
   });
   await notifyCoachingTeam(tx, a, {
     category: "safety",
@@ -150,6 +172,7 @@ export async function openTrainingHold(
     title: "Your training is paused",
     body: "Stop this training session. Your trainer needs to review the safety report before training can resume. Contact local emergency services if you need urgent help.",
     href: "/app/chat",
+    templateKey: "training-paused",
   });
   return hold;
 }
@@ -430,9 +453,11 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       }
       // A red-flag note is escalated even when paid access has lapsed; the set
       // itself is not logged without an active membership.
+      const noteScreen = b.notes
+        ? await screenForSafety(tx, b.notes)
+        : undefined;
       if (
-        b.notes &&
-        safetySignal(b.notes) &&
+        noteScreen?.hold &&
         a.role === "subscriber" &&
         !(await currentPaidSubscription(tx, a.userId))
       ) {
@@ -440,7 +465,14 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "SELECT id FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
           [id.parse((req.params as any).id), a.userId],
         );
-        await openTrainingHold(tx, a, a.userId, b.notes, reported?.id);
+        await openTrainingHold(
+          tx,
+          a,
+          a.userId,
+          b.notes!,
+          reported?.id,
+          noteScreen,
+        );
         return { trainingHeld: true, logged: false };
       }
       await activeMembership(tx, a);
@@ -483,8 +515,8 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         ],
       );
       await event(tx, a, "workout.set_logged", r.id, { workoutId: w.id });
-      if (b.notes && safetySignal(b.notes)) {
-        await openTrainingHold(tx, a, a.userId, b.notes, w.id);
+      if (b.notes && noteScreen?.hold) {
+        await openTrainingHold(tx, a, a.userId, b.notes, w.id, noteScreen);
         return { ...r, trainingHeld: true };
       }
       return r;
@@ -665,7 +697,8 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       // Safety screening precedes the paid gate: a lapsed or past-due member's
       // red-flag report is still held and escalated. The reply is the fixed
       // safety notice, never paid coaching content.
-      const safety = safetySignal(b.message);
+      const screen = await screenForSafety(tx, b.message);
+      const safety = screen.hold;
       const [hold] = await tx.query(
         "SELECT id FROM records WHERE kind='training_hold' AND owner_user_id=$1 AND status='active'",
         [a.userId],
@@ -682,9 +715,39 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
         [a.userId],
       );
-      if (safety) await openTrainingHold(tx, a, a.userId, b.message);
-      if (safety || hold || takeover) {
-        if (!safety && !hold)
+      if (safety)
+        await openTrainingHold(tx, a, a.userId, b.message, undefined, screen);
+      // The published policy can route listed topics to the trainer's
+      // personal review before any model or automatic coaching is used.
+      const personalReview = !safety && !hold && !takeover && screen.review;
+      if (personalReview) {
+        const review = await putRecord(
+          tx,
+          a,
+          "exception",
+          {
+            category: "policy_review",
+            description: b.message,
+            subscriberId: a.userId,
+            ...safetyDecisionData(screen, "personal_review"),
+          },
+          { status: "open" },
+        );
+        await event(tx, a, "coaching.policy_review_required", review.id, {
+          categories: screen.reviewCategories,
+          policyVersion: screen.policy.pin.version,
+        });
+        await notifyCoachingTeam(tx, a, {
+          category: "coaching",
+          dedupeKey: `policy-review:${review.id}`,
+          title: "A client question needs your personal review",
+          body: "The platform safety policy routed a coaching question to you instead of an automatic response. Open your exceptions to reply personally.",
+          href: "/trainer/exceptions",
+          templateKey: "policy-review",
+        });
+      }
+      if (safety || hold || takeover || personalReview) {
+        if (!safety && !hold && !personalReview)
           await putRecord(
             tx,
             a,
@@ -704,7 +767,9 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
             text:
               safety || hold
                 ? "Training is paused for your trainer's review. Seek urgent local medical help for severe or urgent symptoms."
-                : "Your trainer is handling this conversation personally. Your message is ready for their review.",
+                : personalReview
+                  ? "Your trainer will answer this question personally. Your message is ready for their review."
+                  : "Your trainer is handling this conversation personally. Your message is ready for their review.",
             author: "system",
             subscriberId: a.userId,
           },

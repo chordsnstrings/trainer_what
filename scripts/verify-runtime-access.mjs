@@ -183,6 +183,8 @@ export async function verifyRuntimeAccess(client) {
     "training_actor_is_current(uuid,uuid,text)",
     "integration_actor_is_current(uuid,uuid)",
     "published_notification_template(text)",
+    "published_safety_policy()",
+    "notification_workspace_name()",
     "export_personal_chat_media(uuid)",
     "erase_personal_chat_media(uuid)",
     "expire_unattached_chat_media()",

@@ -436,7 +436,13 @@ async function ownerConversion(
 export const recordPublishAcquisition = (db: Database, tenantId: string) =>
   ownerConversion(db, tenantId, "publish");
 
-/** Run after a verified positive invoice payment transaction. Reads ledger evidence again. */
+// Member money reaches a workspace as a subscription invoice or a paid session.
+const paidJournal =
+  "(source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'booking-charge:%') AND (data->>'grossMinor')::numeric>0";
+/**
+ * Run after a verified positive subscription invoice or a confirmed paid
+ * session booking commits. Reads ledger evidence again.
+ */
 export async function recordFirstPaidAcquisition(
   db: Database,
   tenantId: string,
@@ -446,12 +452,12 @@ export async function recordFirstPaidAcquisition(
     { tenantId, userId, role: "finance" },
     async (tx) => {
       const [paid] = await tx.query(
-        "SELECT id FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$1 AND (data->>'grossMinor')::numeric>0 LIMIT 1",
+        `SELECT id FROM journals WHERE ${paidJournal} AND data->>'userId'=$1 LIMIT 1`,
         [userId],
       );
       if (!paid) return null;
       const [first] = await tx.query(
-        "SELECT coalesce(nullif(data->>'chargedAt','')::timestamptz,created_at) AS happened_at FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND (data->>'grossMinor')::numeric>0 ORDER BY happened_at,id LIMIT 1",
+        `SELECT coalesce(nullif(data->>'chargedAt','')::timestamptz,created_at) AS happened_at FROM journals WHERE ${paidJournal} ORDER BY happened_at,id LIMIT 1`,
       );
       return first?.happened_at;
     },
@@ -459,6 +465,70 @@ export async function recordFirstPaidAcquisition(
   return evidence
     ? ownerConversion(db, tenantId, "first_paid", evidence)
     : false;
+}
+
+/**
+ * A website inquiry from a visitor who allowed optional analytics becomes a
+ * lead for the contacted workspace, with that visitor's first/last touch.
+ * No permission, no event: the inquiry itself is still saved and counted.
+ * Call after the inquiry commits; withdrawal deletes the event like any other.
+ */
+export async function recordLeadAcquisition(
+  db: Database,
+  req: RequestContext & { headers?: FastifyRequest["headers"] },
+  tenantId: string,
+  inquiryId: string,
+) {
+  const host = req.hostContext;
+  if (!host || (host.tenantId && host.tenantId !== tenantId)) return false;
+  if (req.headers?.origin !== host.origin) return false;
+  return db.system(async (tx) => {
+    const row = await consentFor(tx, req, true);
+    if (!row) return false;
+    const inserted = await recordAcquisition(
+      db,
+      {
+        eventKey: `lead:${inquiryId}`,
+        name: "lead",
+        tenantId,
+        visitorId: row.visitor_id,
+        source: row.first_touch.source,
+        campaign: row.first_touch.campaign,
+        medium: row.first_touch.medium,
+        attribution: snapshot(row),
+      },
+      tx,
+    );
+    return inserted.length > 0;
+  });
+}
+/** Attribution for the owner's inquiry inbox; only consented, unexpired history exists. */
+export async function inquiryAttribution(
+  db: Database,
+  tenantId: string,
+  inquiryIds: string[],
+) {
+  if (!inquiryIds.length) return new Map<string, Record<string, string>>();
+  const rows = await db.system((tx) =>
+    tx.query(
+      "SELECT event_key,source,campaign,medium,attribution FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND event_key=ANY($2::text[])",
+      [tenantId, inquiryIds.map((id) => "lead:" + id)],
+    ),
+  );
+  return new Map(
+    rows.map((r) => [
+      String(r.event_key).slice("lead:".length),
+      {
+        source: r.source,
+        campaign: r.campaign,
+        medium: r.medium,
+        lastSource: r.attribution?.last?.source ?? r.source,
+        lastCampaign: r.attribution?.last?.campaign ?? r.campaign,
+        referral:
+          r.attribution?.last?.referral || r.attribution?.first?.referral || "",
+      },
+    ]),
+  );
 }
 
 /** These helpers require a system transaction; tenant SQL intentionally cannot read this store. */

@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
+import { assertNotificationDocument } from "./message-templates.ts";
+import { assertSafetyPolicyDocument } from "../../../packages/domain/src/safety-policy.ts";
 
 type Identity = Actor & { platformRole: string; mfaAt?: string | null };
 const fail = (statusCode: number, code: string, message: string) =>
@@ -168,14 +170,81 @@ export async function recordAcquisition(
     );
   return transaction ? write(transaction) : db.system(write);
 }
+/**
+ * Website inquiries are the workspace's own records and are always counted.
+ * Source, campaign and referral exist only for visitors who allowed optional
+ * analytics (lead events), so the attributed share is shown separately.
+ */
+export async function leadAnalytics(db: Database, a: Actor) {
+  const monthly = await db.tenant(a, (tx) =>
+    tx.query(
+      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*)::int AS inquiries,count(*) FILTER(WHERE status='handled')::int AS handled FROM records WHERE kind='website_inquiry' AND created_at>now()-interval '12 months' GROUP BY 1 ORDER BY 1 DESC",
+    ),
+  );
+  const attributed = await db.system((tx) =>
+    tx.query(
+      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*)::int AS attributed FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND created_at>now()-interval '12 months' GROUP BY 1",
+      [a.tenantId],
+    ),
+  );
+  const sources = await db.system((tx) =>
+    tx.query(
+      "SELECT e.source,e.campaign,e.medium,coalesce(nullif(e.attribution->'last'->>'referral',''),nullif(e.attribution->'first'->>'referral',''),'') AS referral,count(*)::int AS leads,count(*) FILTER(WHERE EXISTS(SELECT 1 FROM acquisition_events j WHERE j.visitor_id=e.visitor_id AND j.tenant_id=e.tenant_id AND j.name='enroll' AND j.created_at>=e.created_at))::int AS joined FROM acquisition_events e WHERE e.tenant_id=$1 AND e.name='lead' AND e.created_at>now()-interval '90 days' GROUP BY 1,2,3,4 ORDER BY leads DESC,1 LIMIT 50",
+      [a.tenantId],
+    ),
+  );
+  const byMonth = new Map(attributed.map((r) => [r.month, r.attributed]));
+  return {
+    monthly: monthly.map((r) => ({
+      ...r,
+      attributed: byMonth.get(r.month) ?? 0,
+    })),
+    sources,
+    note: "Every website inquiry is counted. Source, campaign and referral are shown only for visitors who allowed optional analytics; withdrawing that permission removes their attribution. Joined counts attributed leads whose visitor later joined your coaching.",
+  };
+}
 export async function businessAnalytics(db: Database, a: Actor) {
+  const leads = await leadAnalytics(db, a);
+  // Account join months come from the account registry, which tenant
+  // transactions cannot read; subscription state stays tenant-scoped.
+  const joined = await db.system((tx) =>
+    tx.query(
+      "SELECT m.user_id,to_char(u.created_at,'YYYY-MM') AS cohort FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='subscriber'",
+      [a.tenantId],
+    ),
+  );
   return db.tenant(a, async (tx) => ({
+    leads,
     members: await tx.query(
       "SELECT status,count(*)::int AS members,coalesce(sum(price_minor),0)::text AS recurring_minor FROM subscriptions GROUP BY status ORDER BY status",
     ),
-    cohorts: await tx.query(
-      "SELECT to_char(u.created_at,'YYYY-MM') AS cohort,count(*)::int AS joined,count(*) FILTER(WHERE s.status IN ('active','trialing'))::int AS active,count(*) FILTER(WHERE s.status IN ('canceled','unpaid'))::int AS ended FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.role='subscriber' GROUP BY 1 ORDER BY 1 DESC LIMIT 24",
-    ),
+    cohorts: await (async () => {
+      const status = new Map(
+        (await tx.query("SELECT user_id,status FROM subscriptions")).map(
+          (s) => [s.user_id, s.status],
+        ),
+      );
+      const cohorts = new Map<
+        string,
+        { cohort: string; joined: number; active: number; ended: number }
+      >();
+      for (const m of joined) {
+        const c = cohorts.get(m.cohort) ?? {
+          cohort: m.cohort,
+          joined: 0,
+          active: 0,
+          ended: 0,
+        };
+        const s = status.get(m.user_id);
+        c.joined++;
+        if (s === "active" || s === "trialing") c.active++;
+        if (s === "canceled" || s === "unpaid") c.ended++;
+        cohorts.set(m.cohort, c);
+      }
+      return [...cohorts.values()]
+        .sort((x, y) => y.cohort.localeCompare(x.cohort))
+        .slice(0, 24);
+    })(),
     revenue: await tx.query(
       "SELECT to_char(j.created_at,'YYYY-MM') AS month,l.account,sum(l.amount_minor)::text AS amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.created_at>now()-interval '24 months' AND l.account IN ('gross_revenue','trainer_payable','commission_revenue','platform_commission','refunds') GROUP BY 1,2 ORDER BY 1 DESC,2",
     ),
@@ -283,7 +352,7 @@ export function registerAdminOperations(
       summary = {
         period: "90 days",
         attribution:
-          "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. First paid counts workspaces with a verified positive subscription journal. No health targeting or referral commission.",
+          "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. Leads are website inquiries from consenting visitors. First paid counts workspaces with a verified positive subscription or paid-session journal. No health targeting or referral commission.",
       };
     } else if (view === "security") {
       rows = await db.system((tx) =>
@@ -341,7 +410,7 @@ export function registerAdminOperations(
               );
             if (view === "safety")
               return tx.query(
-                "SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY created_at DESC LIMIT 100",
+                "SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,data->>'reviewDueAt' AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY (status='open' AND data ? 'overdueAt') DESC,created_at DESC LIMIT 100",
               );
             if (view === "finops")
               return tx.query(
@@ -405,15 +474,11 @@ export function registerAdminOperations(
         "DOCUMENT_KEY",
         "Choose terms, privacy, or ai-disclosure.",
       );
-    if (
-      b.kind === "notification" &&
-      /\{\{(?!\s*(name|link|coach|date|message)\s*\}\})/.test(b.content)
-    )
-      throw fail(
-        400,
-        "TEMPLATE_VARIABLE",
-        "Use only name, link, coach, date, and message template variables.",
-      );
+    // Templates must name a registered message kind and only its variables;
+    // the structured safety policy may only tighten the code floor.
+    if (b.kind === "notification")
+      assertNotificationDocument(b.key, b.title, b.content);
+    if (b.kind === "safety") assertSafetyPolicyDocument(b.key, b.content);
     return db.system(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         "document:" + b.kind + ":" + b.key,
@@ -463,6 +528,15 @@ export function registerAdminOperations(
         "Publish now or schedule a future effective date.",
       );
     return db.system(async (tx) => {
+      // Drafts saved before these checks existed are checked again here.
+      const [draft] = await tx.query(
+        "SELECT kind,key,title,content FROM admin_documents WHERE id=$1",
+        [documentId],
+      );
+      if (draft?.kind === "notification")
+        assertNotificationDocument(draft.key, draft.title, draft.content);
+      if (draft?.kind === "safety")
+        assertSafetyPolicyDocument(draft.key, draft.content);
       const [r] = await tx.query(
         "UPDATE admin_documents SET status='published',revision=revision+1,effective_at=$3,published_at=now(),published_by=$4 WHERE id=$1 AND revision=$2 AND status='draft' RETURNING *",
         [documentId, b.revision, b.effectiveAt, a.userId],

@@ -9,6 +9,7 @@ import { requireCommerce, stripeClient } from "@trainer/providers";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { journal } from "./finance.ts";
+import { recordFirstPaidAcquisition } from "./acquisition.ts";
 import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
 import { notifyUser } from "./notifications.ts";
 const fail = (code: string, message: string) =>
@@ -393,7 +394,8 @@ export async function processBookingStripeEvent(
           "Provider payment already maps to a different owner",
         );
     });
-  let compensation = false;
+  let compensation = false,
+    paidMember: string | undefined;
   await db.tenant(a, async (tx) => {
     const [slot] = await tx.query(
       "SELECT * FROM booking_slots WHERE id=$1 FOR UPDATE",
@@ -491,6 +493,7 @@ export async function processBookingStripeEvent(
         [b.id, canConfirm ? "confirmed" : "canceled"],
       );
       compensation = !canConfirm;
+      if (canConfirm) paidMember = b.user_id;
       await event(
         tx,
         a,
@@ -588,6 +591,14 @@ export async function processBookingStripeEvent(
       });
     }
   });
+  // A confirmed paid session can be a workspace's first member payment.
+  // Analytics never affects the payment outcome.
+  if (paidMember)
+    try {
+      await recordFirstPaidAcquisition(db, a.tenantId, paidMember);
+    } catch {
+      console.warn("Payment acquisition conversion could not be recorded");
+    }
   if (compensation)
     await refundCanceledBooking(
       db,
