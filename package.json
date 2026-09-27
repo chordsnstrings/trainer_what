@@ -23,7 +23,8 @@
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
     "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts",
     "admin:bootstrap": "node --import tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",
-    "secrets:reseal": "node --import tsx --env-file-if-exists=.env scripts/reseal-secrets.ts"
+    "secrets:reseal": "node --import tsx --env-file-if-exists=.env scripts/reseal-secrets.ts",
+    "e2e": "node scripts/e2e/run.mjs"
   },
   "dependencies": {
     "tsx": "4.23.15",

@@ -204,6 +204,8 @@ export async function verifyRuntimeAccess(client) {
     "integration_actor_is_current(uuid,uuid)",
     "published_notification_template(text)",
     "published_safety_policy()",
+    // A follower's own takeover flag (migration 062; the same helper as 061_tenant_scope_isolation).
+    "member_takeover_active()",
     "notification_workspace_name()",
     "export_personal_chat_media(uuid)",
     "erase_personal_chat_media(uuid)",

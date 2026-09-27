@@ -9,6 +9,12 @@ import { processIntegrationJobs } from "../../api/src/integrations-completion.ts
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
+import { assertProviderSandboxBinding } from "../../../packages/providers/src/sandbox.ts";
+// The mock-provider sandbox is refused anywhere but a loopback-only process.
+if (assertProviderSandboxBinding())
+  console.warn(
+    "MOCK PROVIDERS: TRAINER_PROVIDER_SANDBOX=mock is active on this loopback worker. No real provider is contacted.",
+  );
 if (!process.env.DATABASE_URL) {
   console.log(
     "Jobs are persisted locally. Delivery requires a PostgreSQL worker and configured providers.",

@@ -11,3 +11,6 @@ coverage/
 *.log
 .deployment-result/
 __pycache__/
+# End-to-end harness output (scripts/e2e/run.mjs)
+tests/e2e/report.json
+tests/e2e/artifacts/

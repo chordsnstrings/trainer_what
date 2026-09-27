@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
-import { integrationStatus } from "@trainer/providers";
+import { integrationStatus, providerSandboxStatus } from "@trainer/providers";
 import { z } from "zod";
 import {
   INTEGRATION_CATALOG,
@@ -380,6 +380,8 @@ export function platformSettingsRoutes(
       );
       return {
         encryptionReady: encryptionReady(),
+        // Loud marker for the local mock-provider sandbox; null elsewhere.
+        ...providerSandboxStatus(),
         integrations: INTEGRATION_CATALOG.map((def) =>
           safeView(
             def,

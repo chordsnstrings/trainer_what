@@ -5,6 +5,7 @@ import {
   providerRequest,
   runtimeConfig,
 } from "./configuration.ts";
+import { sandboxOverride } from "./sandbox.ts";
 
 type FixtureTransport = (value: string, init: RequestInit) => Promise<Response>;
 const fixtureTransport = new AsyncLocalStorage<FixtureTransport>();
@@ -115,16 +116,15 @@ export function wearableContract(provider: WearableProvider) {
     throw new ConfigurationError(
       "An approved Zepp partner must implement the documented canonical-observations-v1 adapter contract.",
     );
-  const base =
-    provider === "whoop" ? "https://api.prod.whoop.com" : c.ZEPP_API_BASE_URL;
+  // Only the local mock-provider sandbox (sandbox.ts) can replace the WHOOP host.
+  const whoop = (
+    sandboxOverride("WHOOP_API_BASE_URL")?.origin ?? "https://api.prod.whoop.com"
+  ).replace(/\/$/, "");
+  const base = provider === "whoop" ? whoop : c.ZEPP_API_BASE_URL;
   const authorize =
-    provider === "whoop"
-      ? "https://api.prod.whoop.com/oauth/oauth2/auth"
-      : c.ZEPP_AUTHORIZE_URL;
+    provider === "whoop" ? whoop + "/oauth/oauth2/auth" : c.ZEPP_AUTHORIZE_URL;
   const token =
-    provider === "whoop"
-      ? "https://api.prod.whoop.com/oauth/oauth2/token"
-      : c.ZEPP_TOKEN_URL;
+    provider === "whoop" ? whoop + "/oauth/oauth2/token" : c.ZEPP_TOKEN_URL;
   if (!base || !authorize || !token)
     throw new ConfigurationError(
       "The approved partner endpoint configuration is incomplete.",

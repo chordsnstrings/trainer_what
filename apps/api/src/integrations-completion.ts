@@ -11,6 +11,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
   exchangeWearableToken,
@@ -42,6 +43,15 @@ import {
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
+// The local mock-provider sandbox answers domain lookups from a loopback DNS
+// double; everywhere else (sandboxResolver() is null) the system resolver runs.
+const txtLookup = (dependencies: Deps): typeof resolveTxt =>
+  dependencies.txt ??
+  ((name: string) => (sandboxResolver() ?? { resolveTxt }).resolveTxt(name));
+const cnameLookup = (dependencies: Deps): typeof resolveCname =>
+  dependencies.cname ??
+  ((name: string) =>
+    (sandboxResolver() ?? { resolveCname }).resolveCname(name));
 const id = z.string().uuid(),
   providerSchema = z.enum(["whoop", "zepp"]);
 const fail = (statusCode: number, code: string, message: string) =>
@@ -1457,7 +1467,7 @@ function registerDomainRoutes(
       ),
     );
     if (!row) throw conflict();
-    await dnsProof(row.hostname, row.token, dependencies.txt ?? resolveTxt);
+    await dnsProof(row.hostname, row.token, txtLookup(dependencies));
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
         "UPDATE domain_orders SET status='verified',verified_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 RETURNING *",
@@ -1597,7 +1607,7 @@ function registerDomainRoutes(
       Date.parse(b.expiresAt) <= Date.now()
     )
       throw conflict();
-    await dnsProof(row.hostname, row.token, dependencies.txt ?? resolveTxt);
+    await dnsProof(row.hostname, row.token, txtLookup(dependencies));
     const approvedTarget = runtimeConfig().DOMAIN_CNAME_TARGET;
     if (
       !approvedTarget ||
@@ -1610,7 +1620,7 @@ function registerDomainRoutes(
       );
     let names: string[];
     try {
-      names = await (dependencies.cname ?? resolveCname)(row.hostname);
+      names = await cnameLookup(dependencies)(row.hostname);
     } catch {
       throw fail(409, "DOMAIN_TARGET", "The domain CNAME is not visible yet.");
     }

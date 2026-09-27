@@ -499,9 +499,11 @@ export async function processStripeEvent(
         object.currency !== "aed"
       )
         throw new Error("Unsupported dispute amount");
+      // A membership charge is found by its charge id; a paid coaching
+      // session's charge journal records only its payment intent.
       const [original] = await tx.query(
-        "SELECT * FROM journals WHERE data->>'chargeId'=$1 AND source_key LIKE 'stripe-invoice:%'",
-        [chargeId],
+        "SELECT * FROM journals WHERE (data->>'chargeId'=$1 AND source_key LIKE 'stripe-invoice:%') OR ($2::text IS NOT NULL AND source_key LIKE 'booking-charge:%' AND data->>'paymentIntentId'=$2) ORDER BY created_at LIMIT 1",
+        [chargeId, paymentIntentId ?? null],
       );
       if (!original) throw new Error("Disputed charge has not been reconciled");
       await journal(

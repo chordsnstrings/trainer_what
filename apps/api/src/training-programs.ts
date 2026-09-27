@@ -149,8 +149,12 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const cursor = q.before ? await record(tx, q.before, "message") : undefined;
       if (cursor && cursor.owner_user_id !== target) throw fail(404, "Message unavailable");
       const rows = await tx.query("SELECT * FROM records WHERE kind='message' AND owner_user_id=$1 AND status='sent' AND ($2::timestamptz IS NULL OR (created_at,id)<($2::timestamptz,$3::uuid)) ORDER BY created_at DESC,id DESC LIMIT 100", [target, cursor?.created_at ?? null, cursor?.id ?? null]);
-      const takeover = await tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'", [target]);
-      return { messages: rows.reverse(), hasMore: rows.length === 100, personalReview: takeover.length > 0 };
+      // Takeover records are staff-only; a member reads just its own flag, in its own scope,
+      // through the member_takeover_active() definer helper (migration 062).
+      const personalReview = a.role === "subscriber"
+        ? (await tx.query("SELECT member_takeover_active() AS active"))[0]?.active === true
+        : (await tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active' LIMIT 1", [target])).length > 0;
+      return { messages: rows.reverse(), hasMore: rows.length === 100, personalReview };
     });
   });
 }

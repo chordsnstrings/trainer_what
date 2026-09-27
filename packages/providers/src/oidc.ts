@@ -15,6 +15,7 @@ import {
   type IntegrationTestResult,
   type RuntimeConfig,
 } from "./configuration.ts";
+import { sandboxOverride } from "./sandbox.ts";
 
 /**
  * OpenID Connect sign-in with Google and Apple: discovery, signing-key cache,
@@ -89,11 +90,25 @@ export function setOidcTestOverrides(next: TestOverrides) {
   clearOidcCaches();
 }
 const now = () => overrides.now?.() ?? Date.now();
+/**
+ * Local mock-provider sandbox only (sandbox.ts): a loopback HTTPS mock issuer.
+ * Null in every real deployment, where the variable is refused at startup.
+ */
+function sandboxIssuer(provider: OidcProviderId) {
+  const url = sandboxOverride(
+    provider === "google" ? "GOOGLE_OIDC_ISSUER" : "APPLE_OIDC_ISSUER",
+  );
+  return url ? url.href.replace(/\/$/, "") : undefined;
+}
 export function oidcIssuer(provider: OidcProviderId) {
-  return overrides.issuers?.[provider] ?? OIDC_PROVIDERS[provider].issuer;
+  return (
+    overrides.issuers?.[provider] ??
+    sandboxIssuer(provider) ??
+    OIDC_PROVIDERS[provider].issuer
+  );
 }
 function acceptedIssuers(provider: OidcProviderId) {
-  const override = overrides.issuers?.[provider];
+  const override = overrides.issuers?.[provider] ?? sandboxIssuer(provider);
   return override ? [override] : OIDC_PROVIDERS[provider].acceptedIssuers;
 }
 
@@ -367,13 +382,12 @@ export async function verifyIdToken(
     (typeof claims.nbf !== "number" || claims.nbf - skew > seconds)
   )
     throw invalidToken("is not yet valid");
-  if (typeof claims.nonce !== "string" || !sameText(claims.nonce, expected.nonce))
-    throw invalidToken("does not belong to this sign-in");
   if (
-    typeof claims.sub !== "string" ||
-    !claims.sub ||
-    claims.sub.length > 255
+    typeof claims.nonce !== "string" ||
+    !sameText(claims.nonce, expected.nonce)
   )
+    throw invalidToken("does not belong to this sign-in");
+  if (typeof claims.sub !== "string" || !claims.sub || claims.sub.length > 255)
     throw invalidToken("has no subject");
   const email =
     typeof claims.email === "string" &&

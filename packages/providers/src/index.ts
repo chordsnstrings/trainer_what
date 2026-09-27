@@ -7,6 +7,8 @@ import {
   strictSecurity,
 } from "./configuration.ts";
 export * from "./configuration.ts";
+export * from "./sandbox.ts";
+import { sandboxOverride } from "./sandbox.ts";
 import { oidcClientConfig } from "./oidc.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
@@ -139,9 +141,19 @@ export function integrationStatus() {
 export function stripeClient() {
   const config = runtimeConfig();
   if (!config.STRIPE_SECRET_KEY) throw new ProviderUnavailable("stripe");
+  // The local mock-provider sandbox (sandbox.ts) may point the SDK at a
+  // loopback HTTPS mock; the override is ignored everywhere else.
+  const sandbox = sandboxOverride("STRIPE_API_BASE_URL");
   return new Stripe(config.STRIPE_SECRET_KEY, {
     maxNetworkRetries: 2,
     timeout: 15000,
+    ...(sandbox
+      ? {
+          host: sandbox.hostname.replace(/^\[|\]$/g, ""),
+          port: Number(sandbox.port || 443),
+          protocol: "https" as const,
+        }
+      : {}),
   });
 }
 export function requireCommerce() {
