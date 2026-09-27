@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-> **27 September completion:** PR #1 contains the expanded application and final job/runtime fixes. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md) for live completion status. Older dates and gap lists below are historical; external-service qualification and deployment remain separate.
+> **27 September completion:** application work and the job audit passed both CI jobs in [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1): 367 tests on each database path, build, 50-route browser journey, runtime permissions and container readiness. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md). All older pending-check and feature-gap statements below are historical; real-service qualification and deployment remain separate.
 
 
 > **26 September continuation notice:** the owner requested a Claude handoff because of token budget. Current work and next actions are in [CLAUDE_HANDOFF.md](../CLAUDE_HANDOFF.md); stage evidence is in [COMPLETION_STAGES.md](COMPLETION_STAGES.md). September 25 status and screenshot requirements below are historical. Screenshots are now waived, parallel agents are authorized and deployment remains stopped. This roadmap continues to define requirements; a saved unfinished checkpoint is not a completed release.

@@ -1,6 +1,6 @@
 # Build status
 
-> **27 September completion:** PR #1 contains the expanded application and final job/runtime fixes. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md) for live completion status. Older dates and gap lists below are historical; external-service qualification and deployment remain separate.
+> **27 September completion:** application work and the job audit passed both CI jobs in [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1): 367 tests on each database path, build, 50-route browser journey, runtime permissions and container readiness. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md). All older pending-check and feature-gap statements below are historical; real-service qualification and deployment remain separate.
 
 
 > **26 September continuation notice:** this document records the historical September 25 release. The current completion branch is `work/completion-2026-09-26`. Read [CLAUDE_HANDOFF.md](../CLAUDE_HANDOFF.md) and [COMPLETION_STAGES.md](COMPLETION_STAGES.md) for implemented stages, frozen unfinished work and known failures. The combined expanded branch has not passed final release checks. Screenshots have been waived by the owner; deployment remains stopped.

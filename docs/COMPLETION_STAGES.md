@@ -1,6 +1,6 @@
-# Completion stages — 26 September 2026
+# Completion stages — 26–27 September 2026
 
-The owner requested all unfinished application work, verified and committed in stages. Screenshots are no longer requested. Parallel agents are authorized for separate areas. Latest owner steering: prioritize finishing app features; broad review and release qualification are deferred to the queue in CLAUDE_HANDOFF.md. Deployment remains stopped and owned by Claude; no cloud browser, live transactions, infrastructure purchases or provider qualification are part of these implementation checks.
+Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
 ## Recovery boundary
 
@@ -10,18 +10,17 @@ The local environment restored an older snapshot. Yesterday's uncommitted comple
 
 Each implemented stage records concrete behavior, changed paths, actual checks and its remaining qualification. Only the coordinating agent stages and commits files. Completed stages are pushed before moving on; provider-dependent functionality stays gated until its real contract and account are qualified.
 
-| Area | State | Next acceptance |
+| Area | State | Next phase |
 | --- | --- | --- |
-| Recovery and ownership | Committed | Published checkpoint on work/completion-2026-09-26 |
-| Workout coaching | Qualified runtime, training, attachments, case/history and scheduled follow-ups committed | Correction feedback, source coverage and adherence are connected; broad review is deferred |
-| Nutrition | Four stages and current onboarding readiness committed | Qualify actual providers and final assembled application |
-| Billing and finance | Servicing, statements, bookings, jobs, Checkout and paid conversion connected | Actual Stripe/Lean qualification remains |
-| Administration and team | Scoped views, publication, team, ingestion, acquisition and temporary support preview connected | Infrastructure status connected; deferred review |
-| Integrations | Connected and stage-tested | Premium voice product UI is connected; external qualification remains |
-| Privacy and accounts | Connected, including attachments, acquisition and former-owner website media | Final combined privacy checks and external erasure evidence |
-| Galleries and website | Uploads, galleries, drafts, SSR, manifests and former-owner privacy connected | Browser journeys |
-| Notifications and worker | Routes, preferences/inbox, lifecycle/source-review/retention alerts, trainer policy and worker connected | Final browser and live email qualification remain |
-| Release checks | Stage TypeScript passes; combined branch not qualified | Full tests/build/browser and non-owner PostgreSQL/container CI |
+| Workout coaching and Client Twin | Connected and included in passing combined checks | Real model/device and coach-quality qualification |
+| Nutrition and teaching | Connected, including meal photos/barcodes, weekly plans and groceries | Real food/model/camera qualification |
+| Billing, finance and affiliates | Ledger, servicing, bookings, statements, jobs and bank-evidence settlement connected | Stripe/Lean capabilities, agreements and bank finality |
+| Administration, team and support | Scoped controls, onboarding, ingestion and support connected | Operational account/policy qualification |
+| Integrations and worker controls | Guarded adapters and disabled-by-default local execution connected | Real accounts; cloud operations remain gated |
+| Privacy and accounts | Combined account, consent, isolation and erasure checks passed | Reviewed legal/retention and external erasure evidence |
+| Galleries and website | Upload, draft/publication, private/public/client visibility passed in Chromium | Real domains and media capacity |
+| Notifications and worker | Job audit, restricted PostgreSQL and inbox/preference browser checks passed | Real email/push device delivery |
+| Release checks | Both CI jobs passed on `dcfa92c`; 367 tests on each database path, build, browser and container | Merge PR #1; then real-service qualification |
 
 ## Evidence
 
@@ -211,7 +210,7 @@ First PR CI exposed inherited application variables overriding the reviewed priv
 
 ### 27 September — PostgreSQL runtime and job fixes
 
-The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
+The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration 041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
 
 ### 27 September — Retention scope and final fixture corrections
 
@@ -223,8 +222,12 @@ Browser execution verified offline workout replay and preference saving, then fo
 
 ### 27 September — PostgreSQL/container qualification and stable shared form labels
 
-Run36294655491 passed all367 PostgreSQL tests as the non-owner runtime, all40 migrations,35 system/33 scoped table classifications and nine privileged helpers, plus the production container build and readiness probe. Application tests/typecheck/build also passed. Browser flows reached and passed client-context persistence/trainer read-only access, offline workout and meal replay, grocery persistence and private gallery upload; gallery visibility exposed implicit labels containing select-option text. Galleries, workspace, coaching, training and nutrition now share a label component binding controls to their visible label text, preserving existing explicit accessible names. TypeScript passes; final browser requalification remains before merge.
+Run36294655491 passed all367 PostgreSQL tests as the non-owner runtime, all 40 migrations,35 system/33 scoped table classifications and nine privileged helpers, plus the production container build and readiness probe. Application tests/typecheck/build also passed. Browser flows reached and passed client-context persistence/trainer read-only access, offline workout and meal replay, grocery persistence and private gallery upload; gallery visibility exposed implicit labels containing select-option text. Galleries, workspace, coaching, training and nutrition now share a label component binding controls to their visible label text, preserving existing explicit accessible names. TypeScript passes; final browser requalification remains before merge.
 
 ### 27 September — Browser request pacing
 
 Run36295139032 again passed the full application and PostgreSQL suites, build, permission checks and container readiness. Browser execution passed gallery editing, then correctly hit the production120-request/minute budget while traversing dozens of screens. The harness now spaces real API requests per browser context below that budget; server limits and responses are unchanged. Browser-script syntax passes.
+
+### 27 September — Final combined qualification and merge handoff
+
+Both jobs in [run 36295491678](https://github.com/chordsnstrings/trainer_what/actions/runs/36295491678) passed on `dcfa92c4b353520f7444bb20055eda1fe1a0145c`: 367 application tests, 367 non-owner PostgreSQL tests, TypeScript, production build, 38 deployment boundary tests, 40 migrations with 35 system/33 scoped tables and nine helpers, container readiness and the 50-route Chromium journey. Browser evidence reports zero page errors, no mobile overflow, publication/privacy/attachment/preference flows and offline workout/meal replay. The final documentation-only commit consolidates exact evidence, resolved job/security/runtime findings and the real-services handoff. No code or workflow changed after the qualified revision. Next: merge PR #1 as authorized; begin real-service qualification separately. No deployment or live transaction occurred.

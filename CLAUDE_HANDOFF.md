@@ -1,13 +1,13 @@
 # Claude continuation handoff
 
-Updated 27 September 2026. The owner has authorized completing the remaining application work, auditing the combined tree and merging to main after successful checks. Real services and deployment are deferred. Voluntary client context is now implemented and verified; affiliate administration is complete; guarded local infrastructure operations are complete; combined release checks and the job audit are in progress in PR #1. Earlier broad-review deferral is superseded by the current request.
+Updated 27 September 2026. Application completion and the job audit passed both CI jobs in PR #1. The owner authorized merge to main; real services and deployment are the next phase. Voluntary client context, affiliate administration and guarded local-worker operations are connected. The final handoff commit changes documentation only; historical stage entries below retain their original evidence and are superseded by the current verification record.
 
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what
-- Branch: `work/completion-2026-09-27` (continues the published September 26 branch). Continue this branch; `main` does not contain this completion work.
-- Local checkout used here: `/workspace/scratch/50654f17bfe7/trainer_what`. A fresh GitHub checkout of the work branch is sufficient; do not depend on this temporary directory or old chat attachments.
-- Read the current work-branch tip and stage logs below for the latest completed work; older per-area handoffs may name superseded checkpoints. Stage commits include their own handoff updates.
+- Delivery: [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1), from `work/completion-2026-09-27` to `main`. GitHub records the final merge state. Start subsequent real-service work from `main` once this PR is merged.
+- Local checkout used here: `/workspace/scratch/50654f17bfe7/trainer_what`. A fresh GitHub checkout is sufficient; do not depend on this temporary directory or old chat attachments.
+- Read [current verification](docs/VERIFICATION_2026-09-27.md) and the GitHub delivery state first; older per-area handoffs may name superseded checkpoints. Stage commits include their own handoff updates.
 - GitHub commits were published through the connector because direct Git transport was unreliable. Their hashes differ from local commits, but each published tree was compared with the local committed tree. Prefer GitHub history in a fresh checkout.
 - Read this file before `docs/BUILD_STATUS.md`, `docs/DELIVERY_ROADMAP.md` or the September 25 audit: those documents contain historical verification and many now-superseded gap lists. Current stage evidence is in `docs/COMPLETION_STAGES.md`.
 - Node 24; npm workspaces; Next.js 16.3.6, Fastify API, PostgreSQL/PGlite, separate worker. Read `apps/web/AGENTS.md` and the installed Next documentation before web changes.
@@ -47,119 +47,43 @@ These are engineering-stage results. Counts overlap across stages and must not b
 
 Area details and earlier root-hook notes: `docs/COACHING_COMPLETION_HANDOFF.md`, `NUTRITION_COMPLETION_HANDOFF.md`, `FINANCE_COMPLETION_HANDOFF.md`, `ADMIN_COMPLETION_HANDOFF.md`, `INGESTION_COMPLETION_HANDOFF.md`, `PRIVACY_COMPLETION_HANDOFF.md`, `INTEGRATIONS_COMPLETION_HANDOFF.md`. Many earlier hook instructions in those files have already been applied; inspect current code before duplicating routes.
 
-## Connected stages and remaining release gates
+## Final engineering qualification
 
-### 1. Combined-tree verification
+[GitHub run 36295491678](https://github.com/chordsnstrings/trainer_what/actions/runs/36295491678) passed on code commit `dcfa92c4b353520f7444bb20055eda1fe1a0145c`:
 
-- Checkout/onboarding typing and the temporary acquisition syntax error are fixed; whole-tree TypeScript subsequently passed. Repeat aggregate checks after the final shared hooks.
-- Public website/media routes, previews, client galleries and brand saves are now registered and connected; final browser journeys remain unverified.
-- Final full tests, production build, functional browser smoke, and PostgreSQL/container CI have **not** run on the combined work.
+- 367 application tests and 367 restricted-role PostgreSQL tests; zero failures or skips on either path.
+- TypeScript, production web build and all 38 deployment boundary checks.
+- 40 migration files through 041; permission verification for 35 system tables, 33 scoped tables and nine privileged helpers. Production container build and readiness passed.
+- A 50-route Chromium journey, with zero page errors and no 390px overflow: analytics consent, onboarding/context persistence, offline workout/meal replay, groceries, gallery privacy/publication, private attachment send/download/delete, inbox state and preferences.
 
-### 2. Photos, galleries, design and actual trainer website — completed
+The final documentation commit does not change qualified code or workflows. Exact logs, browser artifact and audit corrections are in `docs/VERIFICATION_2026-09-27.md`. Historical stage counts overlap and must not be summed. Local Docker/Chromium limitations were resolved by running those gates in GitHub Actions; screenshots were waived.
 
-Decoded/re-encoded uploads remove metadata and validate crop/rights/limits. Trainers can manage unlimited paginated galleries with public-site, client-app and private audiences, ordering, captions and alt text. Versioned website/design drafts publish separately from workspace launch; the actual multipage public site supports membership links, inquiries and social links. Hidden pages are excluded from public responses. The owner preview, website/gallery navigation, client galleries, coach-specific manifest and PNG icons are connected.
+## Job and runtime audit resolved
 
-Brand saves serialize workspace and brand changes, recheck the current active owner through the scoped helper, validate same-workspace media and apply revision checks atomically. UI fixes preserve unsaved website edits when handling inquiries, reload current galleries/drafts and paginate private previews beyond 24 entries.
+Migration 041 preserves worker lease identity across JavaScript/PostgreSQL timestamp precision. Payment callbacks and retention now enter validated tenant scope; retention joins only a bounded scoped projection to privileged provider evidence. Recovery-code consumption retains security-row serialization without broader code-table permissions. Tests run as the restricted runtime role in isolated migrated databases. Email/push/finance retries retain attempt/lease compare-and-set guards, and unknown external outcomes require reconciliation before another dispatch.
 
-Checks: **12 coach-site and 5 branding tests passed**, including the assembled app registration/brand save, stale revision and media-deletion race. Whole-tree TypeScript and scoped diff checks passed. No additional migration beyond018. Actual browser upload → gallery → site publish → client/public visibility remains pending. Approved former-owner personal erasure now removes owned media/galleries and exact image references from applied/private designs under workspace→brand locks, with revision bumps to invalidate stale editors. Other users' media and the ongoing workspace remain intact. Four new media privacy and eight existing privacy lifecycle tests, TypeScript and diff checks passed; no migration or broader grant was needed.
-
-### 3. Notifications, email and browser push — completed
-
-Notification routes are registered through operationsRoutes. Saved preferences/quiet hours reload in Settings; trainer/client navigation opens the scoped inbox. Safety holds/resolutions, nutrition exceptions, ordinary chat, booking confirmations/changes/cancellations, signed paid-booking confirmation/refund and scheduled booking/workout reminders enqueue deduplicated notifications. Email contains generic review prompts, with sensitive report/message details kept in the app. Critical safety/account alerts bypass reminder opt-outs and quiet hours.
-
-The worker rechecks preferences and source state before delivery, marks the outbound outcome unknown before sending, and never automatically sends that unknown result again. Attempt/lease CAS prevents stale workers from sending or overwriting newer results. Admin evidence-based reconciliation updates both the job and inbox delivery status. Privacy export/erasure already includes notifications/preferences. The additional lifecycle triggers and trainer reminder policy are recorded below. Device push is now connected through explicit browser opt-in, encrypted session-bound subscriptions, category/quiet-hour/source checks, generic service-worker notices and a role-aware authenticated inbox redirect. Session sign-out/revocation removes the subscription; unknown dispatch outcomes never automatically resend. Superadmin has encrypted VAPID configuration and an offline key-pair check. Supported push services are restricted to FCM/Mozilla/Apple; HTTPS, device permissions and real delivery remain qualification gates.
-
-Checks: final **8 notification tests passed**, including assembled app safety/inbox/booking routes and stale lease/no-repeat delivery; **2 signed paid-booking regressions passed**, including replay deduplication. Earlier connected runs passed 22 notification/admin/coaching checks and 30 notification/nutrition/booking checks. These overlap and are not a summed suite count. Whole-tree TypeScript subsequently passed; final build/browser/provider delivery qualification remains pending.
-
-### 4. Subscription Checkout and premium voice — completed
-
-The resumed stage fixed the tenant-table permission failure with one system transaction: workspace → tenant → checkout locks, current active subscriber admission, then the scoped tenant role. No broad grants were added. Unresolved provider outcomes survive elapsed local expiry; signed lifecycle or authenticated provider reads reconcile the original intent before a new purchase. Closure/erasure blocks unresolved Checkout while allowing an exactly matched terminal subscription.
-
-`registerSubscriptionCheckout(app, db, requireNutritionReady)` now replaces the old inline route. The member UI can reconcile the original attempt, reopen its stored provider URL and repurchase only after canceled/incomplete-expired membership. Product creation persists the premium voice checkbox; signed offer mapping keeps unknown/legacy prices false. The strict plan-change body no longer includes an unsupported promotion field.
-
-Checks: **8 Checkout tests and 16 finance tests passed**, including actual assembled-app route/product persistence and current actor/closure regressions. Scoped diff checks passed. The concurrent typing fixes are complete and whole-tree TypeScript subsequently passed. No live transactions occurred. First-paid acquisition is completed in the acquisition stage below; actual Stripe/Lean account qualification remains open.
-
-### 5. Onboarding readiness — completed
-
-The API and UI now agree on preview confirmation: the client submits the exact observed digest and stale approvals fail. Readiness uses current base/qualified coaching material and model connection, effective legal publications/approval, independently checked nutrition evaluation/sample week, and actual verified voice with current consent or explicit optional deferral. Preview material includes teaching/actions/model, nutrition methods/policy, private/published website/design, galleries/photos and voice evidence. A published combined-tier product retains nutrition gates even when setup is disabled.
-
-The UI renders concrete readiness links, legal/teaching details and private-versus-published website state. Launch precedes separate website publication without a circular prerequisite. Checks: **6 dedicated onboarding tests and 2 existing platform/nutrition onboarding regressions passed**; an additional final assertion confirms model disconnection invalidates readiness. Diff checks passed. No migration was added. Aggregate compilation/build/browser validation remains a final gate after concurrent modules settle.
-
-Files: apps/api/src/onboarding.ts, apps/web/components/onboarding.tsx, tests/onboarding-completion.test.ts and the preview fixture in tests/platform.test.ts.
-
-### 6. Private chat attachments — completed
-
-Image/PDF uploads, the message composer and shared-file controls are connected. Uploads require rights confirmation, are private until sent, and bind once to the authenticated sender and correct client conversation. Images are decoded/re-encoded without metadata. PDFs are rebuilt from bounded rasterized pages into a new PDF without original actions, links or embedded files. Attachment-only messages work; digital coaching explicitly does not read these files.
-
-Personal export/erasure, reviewed workspace closure and hourly orphan expiry include attachment data and message references. Current membership, active workspace, expiry and independent tenant/subject/author checks are enforced. Migration028 is preserved exactly; forward migration030 applies the binding policy, sealed expiry and narrow privacy-helper fixes to existing installations without deleting data.
-
-Checks: **7 attachment and 8 privacy tests passed together after the forward migration**, including assembled application upload/message routes, real image/PDF sanitization, erasure/expiry and cross-tenant access. A separate original001–029 →030 upgrade test passed its five behavioral subtests (six reported checks including the parent), preserving existing bytes/timestamps/messages and checking expiry, binding, null-role rejection and cross-tenant cleanup. TypeScript passed at the stage boundary. Final browser interaction and aggregate release gates remain pending.
-
-### 7. Consented acquisition and experiments — completed
-
-Explicit optional consent/readback/withdrawal is mounted once in layout. An opaque HttpOnly host-only cookie is created only after opt-in; stored hashes, exact origin/verified-host binding and current identity checks prevent reassignment. Safe first/last source fields omit referrer/IP/health traits. Withdrawal removes linked anonymous and identified event history; export/erasure and bounded hourly expiry cleanup are connected.
-
-Actual registration, new enrollment/invitation acceptance, successful storefront publication and first positive verified subscription payment record deduplicated conversions after core transactions commit. Delayed historical receipts cannot attribute a payment made before consent. Analytics failure does not undo signup, publication or payment success. Public landing/onboarding wording experiments require current consent, a permitted surface and an observed assignment/revision; only one runs per surface. Admin exposure/conversion reports are connected. Referral codes are attribution only; no affiliate payout contract is claimed.
-
-Migration029 remains unchanged. **34 tests passed** across acquisition, onboarding completion, privacy lifecycle and administration, including actual registration/enrollment, publication, Stripe dispatch and erasure hooks. Whole-tree TypeScript passed. Browser consent interaction remains pending.
-
-### 8. Runtime configuration and release checks
-
-Frozen infra changes cover `.env.example`, `.github/workflows/check.yml`, `apps/web/package.json`, `compose.yaml`, `infra/digitalocean/host.py`, `infra/runtime-role.sql`, browser/CI/readiness scripts and new `scripts/verify-runtime-access.mjs`.
-
-Written: shared raw UTF-8 `INTERNAL_PROXY_SECRET` (at least 32 bytes) for API/web, exact `PUBLIC_APP_URL`, web `API_INTERNAL_URL`, root env loading for Next dev/start, browser-test signing key, narrow account/media/acquisition grants, idempotent runtime role setup, PostgreSQL permission gate, screenshot CI gate removal with functional smoke retained.
-
-Observed: all **33 migrations** plus runtime grants twice passed in fresh PGlite; runtime verification covered 31 system tables, 27 scoped tables and 9 privileged helpers. The gate also rejects unclassified privileged helpers, PUBLIC execution and runtime-owned helpers. The historical028→030 upgrade is tested separately with existing data. Migration034 adds search indexes and was applied by the new functional tests; the last explicit full runtime-grant gate covered001–033. **36 Python deployment boundary tests passed; 1 Docker-only check skipped** because Docker is unavailable. Changed infra JS/TS/YAML was formatted. Actual PostgreSQL 17.6, Docker/container CI, web build and browser smoke remain unrun. Local Playwright installation exhausted its built-in retries because the CDN returned invalid/truncated Chromium archives; no local browser executable is available. Use the existing CI browser gate without claiming local verification. No environment was deployed.
+The audit also corrected overlapping infrastructure routes, health-probe request identity, invalid/future MFA timestamps, inherited Compose environment overrides and unstable form labels. Runtime grants and production rate budgets were not relaxed. The full combined checks above pass after these changes.
 
 ## Current completion and next real-service phase
 
-1. Complete PR #1 qualification on the published September27 branch, fix any remaining CI failures, record the exact passing run and merge to main. Current evidence: [verification record](docs/VERIFICATION_2026-09-27.md). Older stage notes below describe the evidence available at their original commit.
-2. Start subsequent work from GitHub main after merge. Do not reconstruct already connected routes from older area handoffs.
-3. Qualify enabled real providers/models/legal and operational paths with the correct account access. Configure encrypted settings and deployment secrets without copying old chat keys.
-4. Real deployment remains stopped and separately owned. Do not launch the manual provisioning workflow as part of application completion. Bespoke per-coach weights, per-trainer App Store apps, a social marketplace and gym ERP remain outside the initial scope.
+1. PR #1 is qualified for the owner-authorized merge. Verify its GitHub merge state, then start the next phase from `main`; do not reconstruct already connected routes from older handoffs.
+2. Qualify enabled providers/models/legal and operational paths with the correct account access. Configure encrypted settings and deployment secrets without copying old chat keys.
+3. Exercise real Stripe collections, Lean payouts and bank finality; model/food/voice/wearable rights and quality; email and device push; camera/barcodes; registrar/DNS/TLS; reviewed legal/retention/residency policy; hosted backup restoration, accessibility, monitoring and load/canary behavior.
+4. Deployment remains stopped and separately owned. The GymMembership workflow is manual-only and was not run. No live transaction, cloud purchase or production deployment occurred.
 
-Useful commands from repository root:
+## Preserved scope boundaries
 
-```sh
-npm ci
-npm run typecheck
-node --import tsx --test --test-concurrency=1 tests/coaching-completion.test.ts tests/coaching-runtime.test.ts
-node --import tsx --test --test-concurrency=1 tests/nutrition.test.ts tests/nutrition-completion.test.ts tests/meal-capture.test.ts
-node --import tsx --test --test-concurrency=1 tests/finance-completion.test.ts tests/finance-checkout.test.ts
-node --import tsx --test --test-concurrency=1 tests/coach-site.test.ts tests/notifications.test.ts tests/account-completion.test.ts tests/privacy-lifecycle.test.ts
-npm test
-npm run build
-npm run test:browser
-```
-
-The next operator should run the broad gates on the final committed tree. Stage evidence below records the focused checks already performed. PR #1 is running current GitHub Actions qualification; see the verification record for each observed result. Review CI conditions before triggering it; do not launch the separate provisioning workflow.
-
-## Qualification checklist
-
-The 27 September verification record governs the current result of these checks. Historical stage entries below may still say deferred:
-
-- Run the combined test suite, production build, fresh/upgrade migrations, real non-owner PostgreSQL permission gate and Docker readiness on the final committed tree. Current stage tests are partial evidence, not the final release result.
-- Run the updated `scripts/run-browser-check.mjs` / `browser-completion-check.mjs` harness (syntax checked only): photo upload/gallery/site publication and client/public visibility; chat file send/download/delete; preference persistence/inbox; analytics opt-in/withdrawal; trainer/client/admin journeys and offline replay. The site browser fixture seeds an already launched synthetic workspace; actual launch prerequisites are separately covered by onboarding tests. Local Chromium was unavailable because downloads returned invalid archives.
-- Independently review support access permissions, temporary grants, sensitive-field projection, erasure/retention and audit attribution; scheduled coaching context/consent/safety checks and duplicate-worker behavior; compiler source coverage/current Twin facts and teaching/evaluation separation.
-- Review the complete source contract against the finished implementation, including richer Twin domains, lexical retrieval quality/rights and outcome-source projection, edit→teach regression, campaign/affiliate policy and observe-only infrastructure boundaries. Coach prompt v2/retrieval pins intentionally invalidate older qualification; fresh independent evaluation and activation are required. Missing code must remain an implementation item; source review itself is deferred.
-- Qualify browser push on Android, installed iOS/iPadOS and desktop with HTTPS, valid VAPID keys and the real worker. Check opt-in/denial, permission changes, multi-device removal, session expiry/revocation, key rotation and generic lock-screen text. Mock acceptance means service acceptance, not device delivery. Audit outbound restricted-host/public-DNS controls and blocked/unknown outcomes.
-- Complete accessibility/device testing, load/latency, backup restoration and rollback, operational monitoring and the real provider/model/legal qualification below. Deployment stays separately owned by Claude and stopped in this task.
-
-## Known boundaries that still require scope or implementation decisions
-
-Do not relabel these as passed review. The implemented controls are usable, but the broader capabilities below are not claimed:
-
-| Area | Implemented boundary | Remaining decision/work |
+| Area | Implemented boundary | Next-phase or separate scope |
 | --- | --- | --- |
-| Support access | Temporary audited account/access/connection/settings previews, explicit consent-gated schedule scopes and exact single-use preference correction | Arbitrary customer impersonation, payment/consent/safety edits and unrestricted raw history remain unavailable by design; independent permission/browser review is pending |
-| Infrastructure | Measured app/worker/DB/queue status and tracked recommendations | A separately guarded local-worker execution broker is implemented and initially disabled. Actual cloud billing/capacity feeds and cloud-operation adapters remain real-service qualifications; deployment remains stopped |
-| Client Twin / learning | Training/nutrition evidence, bounded histories, current-block summaries and evaluated coaching material | Trainer search and bounded model-side relevance retrieval of confirmed cases/reviewed outcome summaries are implemented. Voluntary communication/exercise/travel context is implemented as consent-gated, display-only client-owned data. Wearable baselines are already displayed; physiological/travel facts are not automatic action inputs, and any such expansion requires separate rights and qualification |
-| Campaigns / affiliates | Consented attribution, safe copy experiments and deterministic lifecycle messages | Contract/receipt/statement administration and evidence-based ledger settlement are implemented; actual provider agreement and bank evidence remain external qualifications. Configurable cancellation alerts and upload/compilation review notices are implemented; browser push is implemented; predictive churn/rate claims are not supplied |
-| Native integration | Governed wearable connections and imports | Native HealthKit/BLE companion requires separate platform work if approved; it is not supplied by the PWA |
+| Support | Temporary audited previews, consent-gated schedule scope and exact single-use preference correction | Arbitrary impersonation, payment/consent/safety edits and unrestricted raw history remain unavailable by design |
+| Infrastructure | Measured app/worker/DB/queue status and approved worker pause/resume/interval operations | Execution is disabled by default; real cloud capacity/billing feeds and cloud-operation adapters require account qualification |
+| Client Twin and learning | Training/nutrition evidence, current-block summaries, private cases/reviewed outcomes and evaluated actions | Voluntary communication/exercise/travel context remains display-only; new physiological or travel action inputs require rights and qualification |
+| Acquisition and affiliates | Consented attribution, copy experiments, deterministic lifecycle/retention notices, reviewed agreements/receipts/statements and bank-evidence ledger settlement | Actual provider agreements and bank evidence; no predictive churn or fabricated commercial claims |
+| Devices and native integration | Browser push, governed wearables/imports and PWA offline behavior | Real Android/iOS/desktop device delivery and permissions; native HealthKit/BLE companion is separate platform work |
 
-## External qualification remains open
+Bespoke per-coach model weights, per-trainer App Store apps, a social marketplace and gym ERP remain outside initial scope. Fixture acceptance does not establish real provider quality, device delivery, legal approval or production readiness. No live Lean finality adapter was fabricated.
 
-Application controls and provider fixtures do not establish real coach/model fidelity, clinical scope, camera/barcode device behavior, legal/retention approval, Stripe/Lean account capabilities or bank finality, production WHOOP/Zepp rights, real voice identity/quality/cost, domain registrar/DNS/TLS operation, sender delivery, restoration, accessibility/load or production deployment. Complete the enabled engineering paths and leave unavailable external capabilities explicitly gated. No live Lean finality adapter was fabricated; audited bank/provider evidence remains necessary.
+Useful verification entry points are `npm run check`, `node scripts/run-browser-check.mjs` and the non-owner PostgreSQL/container workflow in `.github/workflows/check.yml`. Repeat only checks affected by subsequent changes or required for the next release; do not launch provisioning during application review.
 
 ## Ongoing completion log format
 
@@ -235,7 +159,7 @@ Migration033 and narrow runtime grants are included. Nine focused observer tests
 
 Client Twin now presents the prior 28 calendar days including today and next 28 days using each session timezone. Completion requires matching client/program/session/workout evidence; missed past sessions, today's schedule, upcoming, canceled, held, in-progress, abandoned and unverifiable records stay separate. The latest assigned block includes actual sessions across verified revisions, including older completions outside the rolling window, with source lineage and expandable trainer/subscriber views. No adherence percentage or health/readiness inference is invented.
 
-Two new checks (including rendered trainer and subscriber variants), two existing coverage regressions and one snapshot/isolation/revocation regression passed; whole-tree TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Limits: 1,000 rolling sessions, 182 block sessions, 64 linked revisions and 2,400 linked workouts, with explicit incomplete coverage. Multiple assigned programs are possible, so the screen says “Latest assigned block”; selecting the intended active block is a product review item. Browser/timezone and broader release checks remain deferred. Next: correction feedback and lifecycle messages.
+Two new checks (including rendered trainer and subscriber variants), two existing coverage regressions and one snapshot/isolation/revocation regression passed; whole-tree TypeScript and scoped diff checks passed. No migration. Commit: the stage commit containing this entry. Limits: 1,000 rolling sessions, 182 block sessions, 64 linked revisions and 2, 400 linked workouts, with explicit incomplete coverage. Multiple assigned programs are possible, so the screen says “Latest assigned block”; selecting the intended active block is a product review item. Browser/timezone and broader release checks remain deferred. Next: correction feedback and lifecycle messages.
 
 ### 26 September — Correction-to-teaching and regression workflow completed
 
@@ -311,7 +235,7 @@ First PR CI exposed inherited application variables overriding the reviewed priv
 
 ### 27 September — PostgreSQL runtime and job fixes
 
-The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
+The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration 041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
 
 ### 27 September — Retention scope and final fixture corrections
 
@@ -323,8 +247,12 @@ Browser execution verified offline workout replay and preference saving, then fo
 
 ### 27 September — PostgreSQL/container qualification and stable shared form labels
 
-Run36294655491 passed all367 PostgreSQL tests as the non-owner runtime, all40 migrations,35 system/33 scoped table classifications and nine privileged helpers, plus the production container build and readiness probe. Application tests/typecheck/build also passed. Browser flows reached and passed client-context persistence/trainer read-only access, offline workout and meal replay, grocery persistence and private gallery upload; gallery visibility exposed implicit labels containing select-option text. Galleries, workspace, coaching, training and nutrition now share a label component binding controls to their visible label text, preserving existing explicit accessible names. TypeScript passes; final browser requalification remains before merge.
+Run36294655491 passed all367 PostgreSQL tests as the non-owner runtime, all 40 migrations,35 system/33 scoped table classifications and nine privileged helpers, plus the production container build and readiness probe. Application tests/typecheck/build also passed. Browser flows reached and passed client-context persistence/trainer read-only access, offline workout and meal replay, grocery persistence and private gallery upload; gallery visibility exposed implicit labels containing select-option text. Galleries, workspace, coaching, training and nutrition now share a label component binding controls to their visible label text, preserving existing explicit accessible names. TypeScript passes; final browser requalification remains before merge.
 
 ### 27 September — Browser request pacing
 
 Run36295139032 again passed the full application and PostgreSQL suites, build, permission checks and container readiness. Browser execution passed gallery editing, then correctly hit the production120-request/minute budget while traversing dozens of screens. The harness now spaces real API requests per browser context below that budget; server limits and responses are unchanged. Browser-script syntax passes.
+
+### 27 September — Final combined qualification and merge handoff
+
+Both jobs in [run 36295491678](https://github.com/chordsnstrings/trainer_what/actions/runs/36295491678) passed on `dcfa92c4b353520f7444bb20055eda1fe1a0145c`: 367 application tests, 367 non-owner PostgreSQL tests, TypeScript/build, all 38 deployment checks, migration/runtime permissions, container readiness and the 50-route browser journey. Exact evidence and audit fixes are consolidated in `docs/VERIFICATION_2026-09-27.md`. This stage changes documentation only. Next action is the authorized PR #1 merge, followed by the separate real-services phase; no application code or engineering gate remains open.
