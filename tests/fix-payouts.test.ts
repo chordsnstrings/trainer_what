@@ -317,7 +317,9 @@ test("bank payout flow: owner destination, independent review, hold, prepare, on
   );
   assert.equal(r.statusCode, 409, r.body);
   assert.equal(r.json().code, "BANK_CHANGE_HOLD");
-  await db.system((tx) =>
+  // Tenant rows are changed through a tenant transaction, as the restricted
+  // PostgreSQL runtime role requires.
+  await db.tenant(actor(owner), (tx) =>
     tx.query(
       'UPDATE records SET data=data||\'{"holdUntil":"2020-01-01T00:00:00.000Z"}\'::jsonb WHERE id=$1',
       [destination.id],

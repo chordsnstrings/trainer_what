@@ -1,11 +1,17 @@
 import {
+  accountAudit,
   accountHost,
   accountMembership,
+  recentWorkspaceOrder,
+  replaceRecoveryCodes,
   requireEmailConfiguration,
 } from "./account-completion.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 import {
   createHmac,
   randomBytes,
@@ -95,12 +101,17 @@ class MfaKeyUnavailable extends ProviderUnavailable {
     );
   }
 }
-function open(userId: string, value: string) {
+/** Opens an authenticator secret with the active or a previous (rotation) key.
+ * An unreadable secret is a configuration fault, never "MFA disabled". */
+function openAuthenticator(userId: string, value: string) {
   try {
-    return openSealedValue(sealContexts.authenticator(userId), value).value;
+    return openSealedValue(sealContexts.authenticator(userId), value);
   } catch {
     throw new MfaKeyUnavailable();
   }
+}
+function open(userId: string, value: string) {
+  return openAuthenticator(userId, value).value;
 }
 export function totpAt(secret: string, counter: number) {
   const b = Buffer.alloc(8);
@@ -130,8 +141,9 @@ export async function consumeMfa(tx: Tx, userId: string, code?: string) {
     [userId],
   );
   if (!s?.enabled) return false;
+  const secret = openAuthenticator(userId, s.totp_secret);
   const counter = matchCounter(
-    open(userId, s.totp_secret),
+    secret.value,
     code ?? "",
     Number(s.last_counter),
   );
@@ -141,14 +153,19 @@ export async function consumeMfa(tx: Tx, userId: string, code?: string) {
       "MFA_REQUIRED",
       "Enter a fresh six-digit authenticator code",
     );
-  await tx.query("UPDATE user_security SET last_counter=$2 WHERE user_id=$1", [
-    userId,
-    counter,
-  ]);
+  // Upgrade a secret still sealed with a legacy envelope or a previous key.
+  await tx.query(
+    "UPDATE user_security SET last_counter=$2,totp_secret=coalesce($3,totp_secret) WHERE user_id=$1",
+    [
+      userId,
+      counter,
+      secret.state === "active" ? null : seal(userId, secret.value),
+    ],
+  );
   return true;
 }
 export function requireRecentMfa(a: { mfaAt?: string | null }, force = false) {
-  if (!force && process.env.NODE_ENV !== "production") return;
+  if (!force && !strictSecurity()) return;
   const at = Date.parse(a.mfaAt ?? "");
   if (
     !Number.isFinite(at) ||
@@ -257,7 +274,9 @@ export function securityRoutes(
     requireEmailConfiguration();
     const [u] = await db.system((tx) =>
       tx.query(
-        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY m.tenant_id LIMIT 1",
+        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+          recentWorkspaceOrder +
+          " LIMIT 1",
         [b.email, host.tenantId, host.custom],
       ),
     );
@@ -292,9 +311,10 @@ export function securityRoutes(
           if (!initial)
             throw fail(400, "LINK_EXPIRED", "This link is invalid or expired");
           await workspaceLock(tx, initial.tenant_id);
-          await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
-            initial.user_id,
-          ]);
+          const [owner] = await tx.query(
+            "SELECT id,email_verified FROM users WHERE id=$1 FOR UPDATE",
+            [initial.user_id],
+          );
           const [t] = await tx.query(
             "SELECT * FROM one_time_tokens WHERE token_hash=$1 AND purpose=$2 AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
             [tokenHash(b.token), purpose],
@@ -308,7 +328,7 @@ export function securityRoutes(
               "LINK_EXPIRED",
               "This link is invalid, expired or belongs to another address",
             );
-          await accountMembership(tx, t.user_id, host, t.tenant_id);
+          const m = await accountMembership(tx, t.user_id, host, t.tenant_id);
           await tx.query(
             "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
             [tokenHash(b.token)],
@@ -325,6 +345,28 @@ export function securityRoutes(
               "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose IN ('magic','reset') AND consumed_at IS NULL",
               [t.user_id],
             );
+            // First proof of mailbox ownership: factors added before the address
+            // was verified may belong to someone who claimed it, so remove them.
+            if (!owner?.email_verified) {
+              await tx.query(
+                "UPDATE user_security SET enabled=false,totp_secret=NULL,pending_secret=NULL,pending_until=NULL,last_counter=-1 WHERE user_id=$1",
+                [t.user_id],
+              );
+              for (const table of [
+                "mfa_recovery_codes",
+                "auth_passkeys",
+                "auth_passkey_challenges",
+              ])
+                await tx.query(`DELETE FROM ${table} WHERE user_id=$1`, [
+                  t.user_id,
+                ]);
+              await accountAudit(
+                tx,
+                { tenantId: t.tenant_id, userId: t.user_id, role: m.role },
+                "security.unverified_factors_cleared",
+                t.user_id,
+              );
+            }
           }
         });
         if (purpose === "reset") reply.clearCookie("session", { path: "/" });
@@ -337,9 +379,16 @@ export function securityRoutes(
     const secret = base32(randomBytes(20));
     await db.system(async (tx) => {
       const [u] = await tx.query(
-        "SELECT password_hash FROM users WHERE id=$1",
+        "SELECT password_hash,email_verified FROM users WHERE id=$1 FOR UPDATE",
         [a.userId],
       );
+      // An authenticator must not be bound to an address nobody has proven.
+      if (!u?.email_verified)
+        throw fail(
+          403,
+          "EMAIL_VERIFICATION",
+          "Verify your email before setting up an authenticator",
+        );
       if (!(await passwordMatches(b.password, u.password_hash)))
         throw fail(401, "INVALID_PASSWORD", "Password is incorrect");
       const [s] = await tx.query(
@@ -361,7 +410,7 @@ export function securityRoutes(
   app.post("/api/v1/auth/mfa/confirm", rate, async (req) => {
     const a = identity(req);
     const b = z.object({ code: z.string().length(6) }).parse(req.body);
-    await db.system(async (tx) => {
+    const recoveryCodes = await db.system(async (tx) => {
       const [s] = await tx.query(
         "SELECT * FROM user_security WHERE user_id=$1 AND pending_until>now() FOR UPDATE",
         [a.userId],
@@ -386,9 +435,16 @@ export function securityRoutes(
       await tx.query("UPDATE sessions SET mfa_at=now() WHERE token_hash=$1", [
         tokenHash(req.cookies.session!),
       ]);
+      // Every enabled authenticator starts with a recovery path.
+      return replaceRecoveryCodes(tx, a.userId);
     });
     await db.tenant(a, (tx) => event(tx, a, "security.mfa_enabled", a.userId));
-    return { ok: true };
+    return {
+      ok: true,
+      recoveryCodes,
+      message:
+        "Save these recovery codes privately. They are shown once. One code resets your authenticator if you lose it.",
+    };
   });
   app.post("/api/v1/auth/mfa/verify", rate, async (req) => {
     const a = identity(req);

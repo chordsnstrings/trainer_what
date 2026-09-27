@@ -275,10 +275,12 @@ test("envelopes written before key identifiers still open with the unchanged key
   useKeys(keyA);
   await everythingReadable();
   const totals = sealedTotals(await resealSecrets(db, { apply: false }));
-  // Stripe webhook, TOTP, one wearable connection and the push endpoint are legacy.
+  // Stripe webhook, one wearable connection and the push endpoint are legacy.
+  // The authenticator was legacy too, but verifying a code upgrades it to the
+  // active envelope on use.
   assert.deepEqual(totals, {
-    active: oauthStates + 2,
-    legacy: 4,
+    active: oauthStates + 3,
+    legacy: 3,
     previous: 0,
     unreadable: 0,
     resealed: 0,
@@ -321,8 +323,10 @@ test("new seals record the active key id; previous keys decrypt but never encryp
   );
   await everythingReadable();
   const inspected = sealedTotals(await resealSecrets(db, { apply: false }));
-  assert.equal(inspected.previous, oauthStates + 6);
-  assert.equal(inspected.active + inspected.legacy + inspected.unreadable, 0);
+  // Verifying the authenticator re-sealed it under the active key on use.
+  assert.equal(inspected.previous, oauthStates + 5);
+  assert.equal(inspected.active, 1);
+  assert.equal(inspected.legacy + inspected.unreadable, 0);
   // A previous key alone is never enough to open or seal.
   useKeys(null, b64(keyA));
   assert.equal(encryptionReady(), false);
@@ -346,8 +350,9 @@ test("re-seal rewrites every sealed value under the active key once and reports 
   assert.deepEqual(await storedEnvelopes(), before, "inspection never writes");
   const first = await resealSecrets(db, { apply: true });
   const totals = sealedTotals(first);
-  assert.equal(totals.resealed, before.length);
-  assert.equal(totals.previous, before.length);
+  // The authenticator was already upgraded on use in the previous test.
+  assert.equal(totals.resealed, before.length - 1);
+  assert.equal(totals.previous, before.length - 1);
   assert.equal(totals.unreadable, 0);
   assert.deepEqual(
     Object.fromEntries(
@@ -356,7 +361,7 @@ test("re-seal rewrites every sealed value under the active key once and reports 
     inspected,
   );
   assert.deepEqual(first.platformSettings.resealed, 2);
-  assert.deepEqual(first.authenticators.resealed, 1);
+  assert.deepEqual(first.authenticators.resealed, 0);
   assert.deepEqual(first.wearableConnections.resealed, 2);
   assert.deepEqual(first.wearableAuthorizations.resealed, oauthStates);
   assert.deepEqual(first.pushSubscriptions.resealed, 1);

@@ -24,7 +24,10 @@ import {
   nutritionCompletionRoutes,
   clientNutritionTarget,
 } from "./nutrition-completion.ts";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 import { eraseMealCaptures } from "./meal-capture.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -275,7 +278,7 @@ export async function nutritionReadiness(tx: Tx) {
       "A model connection is needed for evaluation and automatic delivery.",
     );
   if (
-    process.env.NODE_ENV === "production" &&
+    strictSecurity() &&
     (runtimeConfig().NUTRITION_ENABLED !== "true" ||
       runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true" ||
       release?.data.verificationMode !== "provider")
@@ -772,10 +775,7 @@ export function nutritionRoutes(
           })
           .strict()
           .parse(req.body);
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().FILE_IMPORTS_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().FILE_IMPORTS_APPROVED !== "true")
         throw fail(
           503,
           "IMPORT_REVIEW_PENDING",
@@ -1433,7 +1433,7 @@ export function nutritionRoutes(
           "A passing evaluation including worked meals, rationale and safety boundaries, plus a reviewed current sample week, is required.",
         );
       if (
-        process.env.NODE_ENV === "production" &&
+        strictSecurity() &&
         (evaluation.data.verificationMode !== "provider" ||
           preview.data.verificationMode !== "provider" ||
           runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true")

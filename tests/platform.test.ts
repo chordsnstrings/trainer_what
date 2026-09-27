@@ -77,6 +77,7 @@ before(async () => {
     name: "Test Client",
     email: "client@example.test",
     password: "TestingClient2026!",
+    accepted: true,
   });
   assert.equal(joined.statusCode, 200, joined.body);
   const cookie = String(joined.headers["set-cookie"]).split(";")[0];
@@ -214,7 +215,12 @@ test("intake is persisted with consent and revocation removes model permission",
     boot.records.find((r: any) => r.kind === "intake").data.allowedUses,
     ["render"],
   );
-  assert.equal(boot.consents.length, 2);
+  // Invitation acceptance also records the registration consent.
+  assert.equal(
+    boot.consents.filter((c: any) => c.document_type !== "registration")
+      .length,
+    2,
+  );
 });
 test("paid workout logs replay once and pain blocks normal completion", async () => {
   await db.tenant(a, (tx) =>
@@ -605,6 +611,7 @@ test("authenticator verification is required for login and cannot be replayed th
     name: "Secure Coach",
     email: secure.email,
     password: "TestingOnly2026!",
+    accepted: true,
   });
   assert.equal(bypass.statusCode, 401, bypass.body);
 });
@@ -676,6 +683,7 @@ test("booking capacity is serialized and a canceled seat can be reserved again",
       name: `Booking ${suffix}`,
       email: `booking-${suffix}@example.test`,
       password: "BookingOnly2026!",
+      accepted: true,
       token: invite.json().url.split("/").pop(),
     });
     const cookie = String(join.headers["set-cookie"]).split(";")[0];
@@ -1268,6 +1276,7 @@ test("coaching staff cannot read finance, and finance staff cannot access coachi
     name: b.name,
     email: b.email,
     password: "TestingOnly2026!",
+    accepted: true,
     token: invite.json().url.split("/").pop(),
   });
   assert.equal(join.statusCode, 200, join.body);
@@ -1746,6 +1755,7 @@ test("Client Twin snapshots are scoped, stable, versioned and respect revoked co
     email: "twin-client@example.test",
     name: "Twin Client",
     password: "TestingTwin2026!",
+    accepted: true,
   });
   const cookie = String(joined.headers["set-cookie"]).split(";")[0],
     client = (await request("/bootstrap", "GET", undefined, cookie)).json()

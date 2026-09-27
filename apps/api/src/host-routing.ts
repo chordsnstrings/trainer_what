@@ -1,7 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { Database, Actor } from "@trainer/db";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -133,8 +136,7 @@ export async function resolveRequestHost(
     host = canonicalHost(h);
     verifiedProxy = true;
   }
-  const production =
-      options.production ?? process.env.NODE_ENV === "production",
+  const production = options.production ?? strictSecurity(),
     client = verifiedProxy && clientIp ? { clientIp } : {};
   if (
     host === configured ||

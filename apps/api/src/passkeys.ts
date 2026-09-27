@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { strictSecurity } from "../../../packages/providers/src/configuration.ts";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { type Actor, type Database, type Tx } from "@trainer/db";
@@ -72,7 +73,7 @@ async function challenge(
     path: "/api/v1/auth/passkeys",
     httpOnly: true,
     sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    secure: strictSecurity(),
     maxAge: 300,
   });
   return id;

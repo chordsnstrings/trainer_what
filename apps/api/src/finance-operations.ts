@@ -1,4 +1,5 @@
 import { executePayout } from "./payout-execution.ts";
+import { strictSecurity } from "../../../packages/providers/src/configuration.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";

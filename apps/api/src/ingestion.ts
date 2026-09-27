@@ -1,4 +1,7 @@
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -459,10 +462,7 @@ export function ingestionRoutes(
           })
           .strict()
           .parse(req.body);
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().FILE_IMPORTS_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().FILE_IMPORTS_APPROVED !== "true")
         throw fail(
           503,
           "IMPORT_REVIEW_PENDING",

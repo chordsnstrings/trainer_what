@@ -244,6 +244,7 @@ test("custom enrollment and invitations cannot create a membership in a differen
       name: "Invited client",
       email: "invite@host-fixture.test",
       password: "FixturePassword2026!",
+      accepted: true,
     });
     assert.equal(accepted.statusCode, 403, accepted.body);
     const [stored] = await db.system((tx) =>

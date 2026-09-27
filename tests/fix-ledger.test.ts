@@ -152,10 +152,18 @@ test("finance-commerce:G2 a canceled payer's invoice uses its first-paid positio
   const owner = await workspace(),
     payer = await member(owner),
     sub = "sub_rank_" + randomUUID();
-  await db.system(async (tx) => {
+  // Global users go through the service role; tenant rows through a tenant
+  // transaction, as the restricted PostgreSQL runtime role requires.
+  const earlier = await db.system((tx) =>
+    tx.query(
+      "INSERT INTO users(id,email,name,password_hash) SELECT gen_random_uuid(),'rank-'||g||'-'||$1::text||'@example.test','Rank fixture','fixture-only' FROM generate_series(1,100) g RETURNING id",
+      [owner.tenantId],
+    ),
+  );
+  await db.tenant(owner, async (tx) => {
     await tx.query(
-      "WITH u AS (INSERT INTO users(id,email,name,password_hash) SELECT gen_random_uuid(),'rank-'||g||'-'||$1::text||'@example.test','Rank fixture','fixture-only' FROM generate_series(1,100) g RETURNING id) INSERT INTO subscriptions(id,tenant_id,user_id,status,data) SELECT gen_random_uuid(),$2::uuid,u.id,'active','{\"firstPaidAt\":\"2025-01-01T00:00:00.000Z\"}'::jsonb FROM u",
-      [owner.tenantId, owner.tenantId],
+      "INSERT INTO subscriptions(id,tenant_id,user_id,status,data) SELECT gen_random_uuid(),$1::uuid,u,'active','{\"firstPaidAt\":\"2025-01-01T00:00:00.000Z\"}'::jsonb FROM unnest($2::uuid[]) u",
+      [owner.tenantId, earlier.map((row: { id: string }) => row.id)],
     );
     await tx.query(
       "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,data) VALUES($1,$2,$3,$4,'canceled',$5)",
