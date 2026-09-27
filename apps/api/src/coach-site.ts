@@ -54,6 +54,10 @@ export const siteSchema = z
     cta: z.string().trim().min(1).max(60).default("Start coaching"),
     seoTitle: z.string().trim().max(100).default(""),
     seoDescription: z.string().trim().max(200).default(""),
+    // The language the coach writes the website in. Arabic lays the public
+    // website out right to left unless the visitor chose a language; older
+    // drafts and published sites read as English.
+    language: z.enum(["en", "ar"]).default("en"),
     pages: z.array(page).max(100).default([]),
   })
   .strict()

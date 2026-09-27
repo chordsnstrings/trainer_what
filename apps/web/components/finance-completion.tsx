@@ -397,7 +397,9 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
                 {Object.entries(labels).map(([key, label]) => (
                   <tr key={key}>
                     <td>{String(label)}</td>
-                    <td>{money(data.totals[key])}</td>
+                    <td>
+                      <span dir="ltr">{money(data.totals[key])}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -133,7 +133,16 @@ function WorkspaceSuspensions() {
                 <div>
                   <strong>{w.name}</strong>
                   <small className="muted">
-                    {w.slug} · {w.owner ? `${w.owner.name} (${w.owner.email})` : "No owner"} ·{" "}
+                    {w.slug} ·{" "}
+                    {w.owner ? (
+                      <>
+                        <bdi>{w.owner.name}</bdi> (
+                        <span dir="ltr">{w.owner.email}</span>)
+                      </>
+                    ) : (
+                      "No owner"
+                    )}{" "}
+                    ·{" "}
                     {w.followers} follower{w.followers === 1 ? "" : "s"}
                   </small>
                 </div>
@@ -324,7 +333,7 @@ function AccountLocks() {
             <div>
               <strong>{account.name}</strong>
               <small className="muted">
-                {account.email} · platform role {account.platform_role} ·{" "}
+                <span dir="ltr">{account.email}</span> · platform role {account.platform_role} ·{" "}
                 {account.mfa_enabled ? "authenticator on" : "no authenticator"} ·{" "}
                 {account.activeSessions} active session(s)
               </small>
@@ -407,7 +416,7 @@ function AccountLocks() {
                   load(l.email).catch(setError);
                 }}
               >
-                {l.name} ({l.email})
+                <bdi>{l.name}</bdi> (<span dir="ltr">{l.email}</span>)
               </button>{" "}
               · locked {when(l.locked_at)} by {l.locked_by}: {l.reason}
             </li>

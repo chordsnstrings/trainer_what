@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { AcquisitionConsent } from "../components/acquisition";
+import { documentLanguage } from "../components/public-website";
 import "./globals.css";
 import "./nutrition.css";
 import "./platform-settings.css";
@@ -26,9 +27,18 @@ export const metadata: Metadata = {
     "Build a digital coaching practice around your own methods, judgment and brand.",
 };
 export const viewport: Viewport = { themeColor: "#254d42" };
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // English and left to right unless the visitor chose Arabic (?lang= or the
+  // device cookie mirrored from a member's saved language), or a coach
+  // website is written in Arabic. The workspace applies the member's saved
+  // language after sign-in (components/document-direction.tsx).
+  const { lang, dir } = await documentLanguage();
   return (
-    <html lang="en">
+    <html lang={lang} dir={dir}>
       <body>
         {children}
         <AcquisitionConsent />

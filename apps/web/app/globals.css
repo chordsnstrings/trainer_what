@@ -15,6 +15,59 @@
   background: var(--paper);
   font-size: 14px;
 }
+/* Direction helpers. --inline-sign is 1 left to right and -1 right to left,
+   for transforms and shadows that have no logical form. Nested dir="ltr"
+   islands (numbers, codes) reset it. */
+[dir="ltr"] {
+  --inline-sign: 1;
+}
+[dir="rtl"] {
+  --inline-sign: -1;
+}
+/* Icons and text arrows that point along the reading direction mirror in
+   right-to-left layouts. Media and chart icons keep their orientation. */
+.lucide-arrow-right,
+.lucide-arrow-left,
+.lucide-arrow-up-right,
+.lucide-arrow-up-left,
+.lucide-chevron-right,
+.lucide-chevron-left,
+.lucide-chevrons-right,
+.lucide-chevrons-left,
+.lucide-log-out,
+.lucide-log-in,
+.lucide-send,
+.lucide-reply,
+.bidi-mirror {
+  transform: scaleX(var(--inline-sign, 1));
+}
+.bidi-mirror {
+  display: inline-block;
+}
+/* Codes, times, emails, phone numbers, web addresses and numbers typed as
+   numbers read left to right in every layout. */
+code,
+kbd,
+samp,
+pre,
+time,
+input[type="email"],
+input[type="tel"],
+input[type="url"],
+input[type="number"],
+input[type="password"],
+.ltr-data {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+/* Text people type or write (Arabic or English) follows its own direction in
+   either layout. */
+textarea,
+input:not([type]),
+input[type="text"],
+input[type="search"] {
+  unicode-bidi: plaintext;
+}
 * {
   box-sizing: border-box;
 }
@@ -370,7 +423,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  text-align: left;
+  text-align: start;
 }
 th {
   font-size: 10px;
@@ -416,7 +469,7 @@ tr:last-child td {
   color: #3c6547;
 }
 .notice button {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: transparent;
   border: 0;
   color: inherit;
@@ -452,7 +505,9 @@ tr:last-child td {
   font-weight: 800;
   font-size: 25px;
   letter-spacing: -0.09em;
-  padding-right: 4px;
+  padding-inline-end: 4px;
+  /* The mark is Latin lettering: the padding balances its letter spacing. */
+  direction: ltr;
 }
 .wordmark {
   display: flex;
@@ -466,7 +521,7 @@ tr:last-child td {
 .wordmark-light {
   font-weight: 400;
   color: var(--muted);
-  margin-left: 1px;
+  margin-inline-start: 1px;
 }
 .workspace {
   display: flex;
@@ -475,9 +530,10 @@ tr:last-child td {
 .sidebar {
   position: fixed;
   width: 236px;
-  inset: 0 auto 0 0;
+  inset-block: 0;
+  inset-inline-start: 0;
   background: #fcfcf9;
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
   padding: 32px 23px 24px;
   display: flex;
   flex-direction: column;
@@ -530,7 +586,7 @@ tr:last-child td {
 .avatar.small {
   width: 30px;
   height: 30px;
-  margin-left: 10px;
+  margin-inline-start: 10px;
   font-size: 12px;
 }
 .sidebar nav {
@@ -562,7 +618,7 @@ tr:last-child td {
   padding: 3px;
   border-radius: 4px;
   text-align: center;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -579,7 +635,7 @@ tr:last-child td {
   color: #9aab98;
 }
 .main {
-  margin-left: 236px;
+  margin-inline-start: 236px;
   width: calc(100% - 236px);
   min-height: 100vh;
   display: flex;
@@ -703,7 +759,7 @@ tr:last-child td {
   border: 0;
 }
 .checklist-row > svg:last-child {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: #a0aaa0;
 }
 .step-circle {
@@ -752,7 +808,7 @@ tr:last-child td {
 .large-number > span {
   font-size: 22px;
   color: #a2aca2;
-  margin-left: 10px;
+  margin-inline-start: 10px;
 }
 .progress-track {
   height: 5px;
@@ -793,7 +849,7 @@ tr:last-child td {
   margin: 5px 0 0;
 }
 .source-row .badge {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .file-icon {
   display: grid;
@@ -916,6 +972,7 @@ tr:last-child td {
   border-color: #dfe7d9;
 }
 .message p {
+  unicode-bidi: plaintext;
   margin: 8px 0;
   font-size: 13px;
   white-space: pre-wrap;
@@ -933,7 +990,7 @@ tr:last-child td {
   font-size: 13px;
   color: var(--muted);
   letter-spacing: 0;
-  margin-left: 8px;
+  margin-inline-start: 8px;
 }
 .refund-item {
   padding: 22px 0;
@@ -969,7 +1026,7 @@ tr:last-child td {
   margin-top: 12px;
 }
 blockquote {
-  border-left: 3px solid #8ba47a;
+  border-inline-start: 3px solid #8ba47a;
   padding: 15px 20px;
   background: #f5f8f1;
   margin: 20px 0;
@@ -1065,7 +1122,7 @@ blockquote {
 .art-label {
   position: absolute;
   top: 24px;
-  left: 25px;
+  inset-inline-start: 25px;
   font-size: 9px;
   letter-spacing: 0.16em;
   color: #6f7a65;
@@ -1079,14 +1136,14 @@ blockquote {
   width: 420px;
   height: 420px;
   top: 57px;
-  left: 55px;
+  inset-inline-start: 55px;
   background: linear-gradient(160deg, #e1e9d3, #f3f5e7);
 }
 .orb-two {
   width: 510px;
   height: 510px;
   top: 30px;
-  left: 8px;
+  inset-inline-start: 8px;
   background: transparent;
 }
 .floating-rule {
@@ -1097,7 +1154,7 @@ blockquote {
   width: 72%;
   padding: 29px;
   border-radius: 11px;
-  transform: rotate(-3deg);
+  transform: rotate(calc(-3deg * var(--inline-sign, 1)));
 }
 .floating-rule .small-label {
   font-size: 8px;
@@ -1139,8 +1196,7 @@ blockquote {
 .art-bottom {
   position: absolute;
   bottom: 26px;
-  left: 26px;
-  right: 26px;
+  inset-inline: 26px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1341,7 +1397,7 @@ blockquote {
   align-items: center;
   border: 1px solid #dbe0da;
   border-radius: 6px;
-  padding-left: 11px;
+  padding-inline-start: 11px;
   gap: 2px;
   background: white;
 }
@@ -1351,7 +1407,7 @@ blockquote {
 }
 .input-affix > input {
   border: 0 !important;
-  padding-left: 3px !important;
+  padding-inline-start: 3px !important;
 }
 .legal {
   max-width: 1000px;
@@ -1371,7 +1427,7 @@ blockquote {
     padding-inline: 28px;
   }
   .main {
-    margin-left: 260px;
+    margin-inline-start: 260px;
     width: calc(100% - 260px);
   }
 }
@@ -1428,7 +1484,7 @@ blockquote {
     padding-inline: 16px;
   }
   .main {
-    margin-left: 210px;
+    margin-inline-start: 210px;
     width: calc(100% - 210px);
   }
   .wordmark {
@@ -1506,10 +1562,11 @@ blockquote {
 }
 @media (max-width: 650px) {
   .sidebar {
-    transform: translateX(-100%);
+    /* Off canvas beyond the inline-start edge in either direction. */
+    transform: translateX(calc(-100% * var(--inline-sign, 1)));
     transition: transform 0.2s;
     width: 260px;
-    box-shadow: 5px 0 40px #25352818;
+    box-shadow: calc(5px * var(--inline-sign, 1)) 0 40px #25352818;
   }
   .sidebar.is-open {
     transform: translateX(0);
@@ -1520,11 +1577,11 @@ blockquote {
   }
   .mobile-close {
     position: absolute;
-    right: 13px;
+    inset-inline-end: 13px;
     top: 34px;
   }
   .main {
-    margin-left: 0;
+    margin-inline-start: 0;
     width: 100%;
   }
   .topbar {

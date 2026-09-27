@@ -113,7 +113,7 @@ export function TeamControls({ role }: { role: string }) {
             <div>
               <strong>{m.name}</strong>
               <p>
-                {m.email} · {m.role}
+                <span dir="ltr">{m.email}</span> · {m.role}
               </p>
               <p className="muted">
                 Authenticator: {m.mfa_enabled ? "enabled" : "not enabled"} ·
@@ -197,7 +197,9 @@ export function TeamControls({ role }: { role: string }) {
         {data?.invitations.map((i: any) => (
           <div className="list-row" key={i.id}>
             <div>
-              <strong>{i.email}</strong>
+              <strong>
+                <span dir="ltr">{i.email}</span>
+              </strong>
               <p>
                 {i.role} · expires {new Date(i.expires_at).toLocaleString()}
               </p>

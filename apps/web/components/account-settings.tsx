@@ -229,7 +229,9 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       <section className="card" aria-labelledby="acct-email">
         <h2 id="acct-email">Sign-in email</h2>
         <p className="acct-row">
-          <span className="acct-break">{account.profile.email}</span>
+          <span className="acct-break" dir="ltr">
+            {account.profile.email}
+          </span>
           <span
             className={`badge ${account.profile.emailVerified ? "green" : "amber"}`}
           >

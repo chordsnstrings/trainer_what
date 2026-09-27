@@ -197,7 +197,7 @@ export function AcquisitionConsent() {
         style={{
           position: "fixed",
           bottom: 16,
-          right: 16,
+          insetInlineEnd: 16,
           zIndex: 45,
           maxWidth: "min(390px,calc(100vw - 32px))",
         }}

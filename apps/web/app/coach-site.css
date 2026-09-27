@@ -133,7 +133,8 @@
 }
 .site-honeypot {
   position: absolute;
-  left: -10000px;
+  /* Beyond the start edge: never scrollable in either direction. */
+  inset-inline-start: -10000px;
   width: 1px;
   height: 1px;
 }
