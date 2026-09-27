@@ -37,6 +37,7 @@ import {
   resolveRequestHost,
   enforceHostTenant,
   allowedRequestOrigin,
+  HOST_HEADERS,
   type HostContext,
 } from "./host-routing.ts";
 import {
@@ -133,7 +134,13 @@ import {
   stripeClient,
   LeanGateway,
 } from "@trainer/providers";
-import { passwordHash, passwordMatches, tokenHash, newToken } from "./auth.ts";
+import {
+  accountAttempts,
+  passwordHash,
+  passwordMatches,
+  tokenHash,
+  newToken,
+} from "./auth.ts";
 import {
   financeSummary,
   recordCharge,
@@ -242,10 +249,16 @@ export async function buildApp(
     // Session verification runs in onRequest. A reverse proxy's loopback address
     // must not give every signed-in member one shared request budget.
     hook: "preHandler",
-    keyGenerator: (request) =>
-      request.identity
-        ? `user:${request.identity.userId}`
-        : `ip:${normalizeIP(request.ip)}`,
+    // Behind the edge, request.ip is the web container. Anonymous budgets use
+    // the client address carried inside the verified proxy proof instead, and
+    // fall back to the socket address when no signed address is present.
+    keyGenerator: (request) => {
+      if (request.identity) return `user:${request.identity.userId}`;
+      const signed = request.hostContext?.verifiedProxy
+        ? request.hostContext.clientIp
+        : undefined;
+      return `ip:${normalizeIP(signed ?? request.ip)}`;
+    },
   });
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser(
@@ -281,6 +294,13 @@ export async function buildApp(
     );
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
+    // Probes relayed by the web proxy carry a proof; verify it so the signed
+    // client address, not the web container, keys their budget.
+    if (
+      probe &&
+      Object.values(HOST_HEADERS).some((name) => req.headers[name] != null)
+    )
+      req.hostContext = await resolveRequestHost(db, req);
     if (!probe) {
       req.hostContext = await resolveRequestHost(db, req);
       if (req.hostContext.custom) {
@@ -459,7 +479,10 @@ export async function buildApp(
   registerTeamRoutes(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
-  app.get("/api/v1/public/host", async (req) => req.hostContext);
+  app.get("/api/v1/public/host", async (req) => {
+    const { clientIp: _clientIp, ...context } = req.hostContext!;
+    return context;
+  });
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
     return { status: "ready" };
@@ -677,11 +700,13 @@ export async function buildApp(
       return reply.code(201).send({ ok: true });
     },
   );
+  const loginAttempts = accountAttempts();
   app.post(
     "/api/v1/auth/login",
     { config: { rateLimit: { max: 15, timeWindow: "10 minutes" } } },
     async (req, reply) => {
       const b = loginSchema.parse(req.body);
+      loginAttempts(reply, b.email);
       const [u] = await db.system((tx) =>
         tx.query("SELECT * FROM users WHERE email=$1", [b.email]),
       );
@@ -2043,7 +2068,12 @@ export async function buildApp(
     return { tenants: results, integrations: integrationStatus() };
   });
 
-  app.post("/api/v1/webhooks/stripe", async (req, reply) => {
+  // Signed provider deliveries have their own per-source budget, separate from
+  // the anonymous public budget, so storefront traffic cannot starve them.
+  const webhookRate = {
+    config: { rateLimit: { max: 600, timeWindow: "1 minute" } },
+  };
+  app.post("/api/v1/webhooks/stripe", webhookRate, async (req, reply) => {
     const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) throw new ProviderUnavailable("stripe");
     let stripeEvent: any;

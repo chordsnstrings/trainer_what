@@ -69,6 +69,14 @@ def wait_ready(url, attempts=60, expected_sha=None):
     raise DeploymentError("Application readiness did not pass at " + url)
 
 
+def edge_config(endpoint, revision=None):
+    # Overwrite X-Forwarded-For with the connecting address: the web proxy signs it
+    # for the API's per-client budgets, so a client must not be able to choose it.
+    release = "    header X-GymMembership-Release " + valid_sha(revision) + "\n" if revision else ""
+    return (endpoint + " {\n    encode zstd gzip\n" + release
+            + "    reverse_proxy web:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }\n}\n")
+
+
 def ensure_runtime():
     path = ROOT / "runtime.env"
     ip = str(ipaddress.IPv4Address(metadata("interfaces/public/0/ipv4/address")))
@@ -113,7 +121,7 @@ def ensure_runtime():
         raise DeploymentError("Expected a public HTTPS origin")
     # Recover interruption after writing runtime.env without rotating database secrets.
     if not (ROOT / "Caddyfile").exists():
-        (ROOT / "Caddyfile").write_text(endpoint + " {\n    encode zstd gzip\n    reverse_proxy web:3000\n}\n")
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint))
     if not (ROOT / "edge.json").exists():
         atomic_json(ROOT / "edge.json", {
             "services": {"edge": {
@@ -202,8 +210,7 @@ def deploy(sha, github):
     runtime_role(release, sha)
     endpoint = json.loads((ROOT / "endpoint.json").read_text())["url"]
     def edge_release(revision):
-        (ROOT / "Caddyfile").write_text(endpoint + " {\n    encode zstd gzip\n    header X-GymMembership-Release "
-                                       + valid_sha(revision) + "\n    reverse_proxy web:3000\n}\n")
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision))
     try:
         edge_release(sha)
         compose(release, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { Database, Actor } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 
@@ -11,11 +12,14 @@ export type HostContext = {
   tenantSlug: string | null;
   custom: boolean;
   verifiedProxy: boolean;
+  // Edge-observed client address, present only inside a verified proxy proof.
+  clientIp?: string;
 };
 export const HOST_HEADERS = {
   host: "x-trainer-host",
   time: "x-trainer-host-time",
   signature: "x-trainer-host-signature",
+  clientIp: "x-trainer-client-ip",
 } as const;
 export function canonicalHost(value: string): string {
   if (!value || /[\s,@/\\#?]/.test(value) || value.length > 260)
@@ -45,17 +49,19 @@ export function signHostRequest(
   target: string,
   timestamp: string,
   secret?: string,
+  clientIp?: string,
 ) {
+  // v2 binds the edge-observed client address into the same proof.
+  const fields = [
+    clientIp ? "trainer-host-v2" : "trainer-host-v1",
+    canonicalHost(host),
+    method.toUpperCase(),
+    target,
+    timestamp,
+  ];
+  if (clientIp) fields.push(clientIp);
   return createHmac("sha256", proxyKey(secret))
-    .update(
-      [
-        "trainer-host-v1",
-        canonicalHost(host),
-        method.toUpperCase(),
-        target,
-        timestamp,
-      ].join("\n"),
-    )
+    .update(fields.join("\n"))
     .digest("hex");
 }
 export async function resolveRequestHost(
@@ -90,16 +96,19 @@ export async function resolveRequestHost(
   };
   const h = read(HOST_HEADERS.host),
     ts = read(HOST_HEADERS.time),
-    signature = read(HOST_HEADERS.signature);
+    signature = read(HOST_HEADERS.signature),
+    clientIp = read(HOST_HEADERS.clientIp);
   let verifiedProxy = false,
     host = canonicalHost(read("host") ?? configured);
-  if (h || ts || signature) {
+  if (h || ts || signature || clientIp !== undefined) {
     if (
       !h ||
       !ts ||
       !signature ||
       !/^\d{10,16}$/.test(ts) ||
       !/^[a-f0-9]{64}$/.test(signature) ||
+      (clientIp !== undefined &&
+        (clientIp.length > 45 || clientIp.includes("%") || !isIP(clientIp))) ||
       Math.abs((options.now ?? Date.now()) - Number(ts)) > 30000
     )
       throw fail(
@@ -113,6 +122,7 @@ export async function resolveRequestHost(
       request.url,
       ts,
       options.secret,
+      clientIp,
     );
     if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected)))
       throw fail(
@@ -124,7 +134,8 @@ export async function resolveRequestHost(
     verifiedProxy = true;
   }
   const production =
-    options.production ?? process.env.NODE_ENV === "production";
+      options.production ?? process.env.NODE_ENV === "production",
+    client = verifiedProxy && clientIp ? { clientIp } : {};
   if (
     host === configured ||
     (!production &&
@@ -138,6 +149,7 @@ export async function resolveRequestHost(
       tenantSlug: null,
       custom: false,
       verifiedProxy,
+      ...client,
     };
   if (!verifiedProxy)
     throw fail(
@@ -164,6 +176,7 @@ export async function resolveRequestHost(
     tenantSlug: mapping.slug,
     custom: true,
     verifiedProxy,
+    ...client,
   };
 }
 export function enforceHostTenant(
