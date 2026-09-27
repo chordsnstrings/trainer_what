@@ -3,6 +3,17 @@ import { randomUUID } from "node:crypto";
 import type { Actor, Database } from "@trainer/db";
 import type { ModelAccounting } from "@trainer/providers";
 
+// Subscriber-initiated nutrition calls (weekly plans and meal photos) have their own
+// daily allowance and cannot use the workspace's final fifth, which stays available
+// for the coach's teaching, evaluation and other members.
+const SUBSCRIBER_CAPPED_TASKS = ["nutrition_week", "meal_photo_estimate"];
+const dailyLimit = (key: string, value: string) => {
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000)
+    throw new Error(key + " must be an integer from 1 to 10000");
+  return limit;
+};
+
 export function modelAccounting(
   db: Database,
   actor: Actor,
@@ -13,24 +24,43 @@ export function modelAccounting(
   const a = { ...actor, role: "owner" };
   return {
     async reserve(model) {
-      const limit = Number(runtimeConfig().MODEL_MAX_DAILY_CALLS ?? "100");
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000)
-        throw new Error(
-          "MODEL_MAX_DAILY_CALLS must be an integer from 1 to 10000",
-        );
+      const config = runtimeConfig(),
+        limit = dailyLimit(
+          "MODEL_MAX_DAILY_CALLS",
+          config.MODEL_MAX_DAILY_CALLS ?? "100",
+        ),
+        capped =
+          actor.role === "subscriber" && SUBSCRIBER_CAPPED_TASKS.includes(task),
+        personal = capped
+          ? dailyLimit(
+              "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER",
+              config.MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER?.trim() || "20",
+            )
+          : 0;
       await db.tenant(a, async (tx) => {
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId,
         ]);
         const [used] = await tx.query(
-          "SELECT count(*)::int AS n FROM cost_events WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Dubai') AT TIME ZONE 'Asia/Dubai'",
+          "SELECT count(*)::int AS n,count(*) FILTER (WHERE task=ANY($1::text[]))::int AS subscribers,count(*) FILTER (WHERE user_id=$2 AND task=ANY($1::text[]))::int AS mine FROM cost_events WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Dubai') AT TIME ZONE 'Asia/Dubai'",
+          [SUBSCRIBER_CAPPED_TASKS, a.userId],
         );
-        if (used.n >= limit)
+        if (
+          used.n >= limit ||
+          (capped && used.subscribers >= Math.ceil(limit * 0.8))
+        )
           throw Object.assign(
             new Error(
               "This workspace has reached its daily AI request limit. Trainer-authored coaching remains available.",
             ),
             { statusCode: 429, code: "MODEL_DAILY_LIMIT" },
+          );
+        if (capped && used.mine >= personal)
+          throw Object.assign(
+            new Error(
+              "You have reached today's limit for AI nutrition requests. Your current plan and manual meal entry remain available; try again tomorrow.",
+            ),
+            { statusCode: 429, code: "MODEL_USER_LIMIT" },
           );
         await tx.query(
           "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,input_tokens,output_tokens,cost_usd,status) VALUES($1,$2,$3,$4,'configured-model',$5,NULL,NULL,NULL,'reserved')",

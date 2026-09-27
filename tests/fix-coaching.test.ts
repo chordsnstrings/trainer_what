@@ -49,6 +49,7 @@ async function join(coach: any, email: string, subscription?: string) {
     name: "Fix Client",
     email,
     password: "TrainingClient2026!",
+    accepted: true,
   });
   assert.equal(joined.statusCode, 200, joined.body);
   const cookie = String(joined.headers["set-cookie"]).split(";")[0];
