@@ -172,7 +172,12 @@ test("a suspended workspace is offline, its team sees a clear status and payouts
   // Payouts cannot be prepared or sent while suspended.
   await assert.rejects(
     f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
-      createPayout(tx, f.scoped(owner.tenantId, "finance"), "2026-08", "fixture-destination"),
+      createPayout(
+        tx,
+        f.scoped(owner.tenantId, "finance"),
+        "2026-08",
+        "fixture-destination",
+      ),
     ),
     (e: any) => e.code === "PAYOUT_HELD",
   );
@@ -196,13 +201,15 @@ test("a suspended workspace is offline, its team sees a clear status and payouts
     ),
   );
   assert.equal(audit.length, 1);
-  assert.equal(audit[0].data.reason, "Synthetic chargeback investigation fixture");
+  assert.equal(
+    audit[0].data.reason,
+    "Synthetic chargeback investigation fixture",
+  );
 
   // Operators see the state and history.
-  const list = await f.call(
-    "/admin/governance/workspaces?state=suspended",
-    { cookie: admin.cookie },
-  );
+  const list = await f.call("/admin/governance/workspaces?state=suspended", {
+    cookie: admin.cookie,
+  });
   assert.equal(list.statusCode, 200, list.body);
   const row = list.json().workspaces.find((w: any) => w.id === owner.tenantId);
   assert.equal(row.lifecycle_state, "suspended");
@@ -291,7 +298,10 @@ test("an operator who follows or staffs a trainer does not make it a platform wo
   assert.equal(row.platform_workspace, false);
   const suspended = await f.call(
     `/admin/governance/workspaces/${owner.tenantId}/suspend`,
-    { body: { reason: "Synthetic operator follower fixture" }, cookie: admin.cookie },
+    {
+      body: { reason: "Synthetic operator follower fixture" },
+      cookie: admin.cookie,
+    },
   );
   assert.equal(suspended.statusCode, 200, suspended.body);
   // Member routes are refused in the suspended workspace, but the operator's
@@ -308,7 +318,10 @@ test("an operator who follows or staffs a trainer does not make it a platform wo
   });
   assert.equal(forbidden.statusCode, 403, forbidden.body);
   // A non-operator member of the workspace gets the suspension, not the route.
-  const member = await f.person({ tenantId: owner.tenantId, role: "subscriber" });
+  const member = await f.person({
+    tenantId: owner.tenantId,
+    role: "subscriber",
+  });
   const refused = await f.call("/admin/governance/workspaces", {
     cookie: member.cookie,
   });
@@ -357,7 +370,10 @@ test("a follower of a suspended workspace can stop renewal, ask for a refund and
   });
   const r = await f.call(
     `/admin/governance/workspaces/${owner.tenantId}/suspend`,
-    { body: { reason: "Synthetic billing access fixture" }, cookie: admin.cookie },
+    {
+      body: { reason: "Synthetic billing access fixture" },
+      cookie: admin.cookie,
+    },
   );
   assert.equal(r.statusCode, 200, r.body);
   const cookie = follower.cookie;
@@ -382,7 +398,10 @@ test("a follower of a suspended workspace can stop renewal, ask for a refund and
   });
   assert.equal(reconcile.statusCode, 200, reconcile.body);
   // Restarting renewal waits for reinstatement.
-  const reactivate = await f.call("/membership/reactivate", { body: {}, cookie });
+  const reactivate = await f.call("/membership/reactivate", {
+    body: {},
+    cookie,
+  });
   assert.equal(reactivate.statusCode, 423, reactivate.body);
 
   const refund = await f.call("/refund-requests", {
@@ -415,10 +434,13 @@ test("a follower of a suspended workspace can stop renewal, ask for a refund and
   assert.equal(grant.json().code, "WORKSPACE_SUSPENDED");
 
   // The trainer's refund decision and other workspace routes stay refused.
-  const decision = await f.call(`/refund-requests/${refund.json().id}/decision`, {
-    body: { approve: true, reason: "Synthetic approval" },
-    cookie: owner.cookie,
-  });
+  const decision = await f.call(
+    `/refund-requests/${refund.json().id}/decision`,
+    {
+      body: { approve: true, reason: "Synthetic approval" },
+      cookie: owner.cookie,
+    },
+  );
   assert.equal(decision.statusCode, 423, decision.body);
   const records = await f.db.tenant(f.scoped(owner.tenantId), (tx) =>
     tx.query(
@@ -445,14 +467,22 @@ test("a follower of a suspended workspace can stop renewal, ask for a refund and
 
 test("the suspension gate decides from the matched route, so encoded paths get the same answer", async () => {
   const owner = await f.person();
-  const follower = await f.person({ tenantId: owner.tenantId, role: "subscriber" });
+  const follower = await f.person({
+    tenantId: owner.tenantId,
+    role: "subscriber",
+  });
   const admin = await f.operator("admin");
   const r = await f.call(
     `/admin/governance/workspaces/${owner.tenantId}/suspend`,
-    { body: { reason: "Synthetic encoded path fixture" }, cookie: admin.cookie },
+    {
+      body: { reason: "Synthetic encoded path fixture" },
+      cookie: admin.cookie,
+    },
   );
   assert.equal(r.statusCode, 200, r.body);
-  const status = await f.call("/workspace/%73tatus", { cookie: follower.cookie });
+  const status = await f.call("/workspace/%73tatus", {
+    cookie: follower.cookie,
+  });
   assert.equal(status.statusCode, 200, status.body);
   assert.equal(status.json().state, "suspended");
   const boot = await f.call("/%62ootstrap", { cookie: follower.cookie });
@@ -475,7 +505,10 @@ test("sign-in prefers an active workspace and still lands on a suspended one wit
   });
   const r = await f.call(
     `/admin/governance/workspaces/${suspendedOwner.tenantId}/suspend`,
-    { body: { reason: "Synthetic policy review fixture" }, cookie: admin.cookie },
+    {
+      body: { reason: "Synthetic policy review fixture" },
+      cookie: admin.cookie,
+    },
   );
   assert.equal(r.statusCode, 200, r.body);
   const preferred = await f.call("/auth/login", {
@@ -519,7 +552,11 @@ test("the worker skips automated work for a suspended workspace and sends only c
           owner.tenantId,
           kind,
           "fixture:" + id,
-          JSON.stringify({ category, to: "fixture@example.test", text: "Fixture" }),
+          JSON.stringify({
+            category,
+            to: "fixture@example.test",
+            text: "Fixture",
+          }),
         ],
       );
       return id;
@@ -527,28 +564,34 @@ test("the worker skips automated work for a suspended workspace and sends only c
   const reminder = await insertJob("email", "workout");
   const nutrition = await insertJob("nutrition_week", null);
   const bookingReminder = await insertJob("email", "booking");
-  const refundNotice = await f.db.tenant(f.scoped(owner.tenantId), async (tx) => {
-    const id = randomUUID();
-    await tx.query(
-      "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4)",
-      [
-        id,
-        owner.tenantId,
-        "fixture:" + id,
-        JSON.stringify({
-          category: "booking",
-          transactional: true,
-          to: "fixture@example.test",
-          text: "Fixture refund confirmation",
-        }),
-      ],
-    );
-    return id;
-  });
+  const refundNotice = await f.db.tenant(
+    f.scoped(owner.tenantId),
+    async (tx) => {
+      const id = randomUUID();
+      await tx.query(
+        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4)",
+        [
+          id,
+          owner.tenantId,
+          "fixture:" + id,
+          JSON.stringify({
+            category: "booking",
+            transactional: true,
+            to: "fixture@example.test",
+            text: "Fixture refund confirmation",
+          }),
+        ],
+      );
+      return id;
+    },
+  );
   const push = await insertJob("push", null);
   const r = await f.call(
     `/admin/governance/workspaces/${owner.tenantId}/suspend`,
-    { body: { reason: "Synthetic worker review fixture" }, cookie: admin.cookie },
+    {
+      body: { reason: "Synthetic worker review fixture" },
+      cookie: admin.cookie,
+    },
   );
   assert.equal(r.statusCode, 200, r.body);
   const called: string[] = [];
@@ -563,14 +606,16 @@ test("the worker skips automated work for a suspended workspace and sends only c
     lifecycleMessages: step("lifecycleMessages"),
     retentionAlerts: step("retentionAlerts"),
     coachingFollowups: step("coachingFollowups"),
+    safetyEscalations: step("safetyEscalations"),
   };
   const handled: Array<{ kind: string; category: string }> = [];
   const complete = async (_db: any, tenantId: string, job: any) => {
     handled.push({ kind: job.kind, category: job.data.category });
     await f.db.tenant(f.scoped(tenantId), (tx) =>
-      tx.query("UPDATE jobs SET status='completed',leased_until=NULL WHERE id=$1", [
-        job.id,
-      ]),
+      tx.query(
+        "UPDATE jobs SET status='completed',leased_until=NULL WHERE id=$1",
+        [job.id],
+      ),
     );
   };
   const handlers = {
@@ -584,11 +629,18 @@ test("the worker skips automated work for a suspended workspace and sends only c
   // confirmation (transactional refund email) are sent.
   for (let i = 0; i < 4; i++)
     await runTenantCycle(f.db, tenant, {}, schedulers, handlers);
-  assert.deepEqual(called, []);
-  assert.deepEqual(
-    handled.map((h) => h.kind + ":" + h.category).sort(),
-    ["email:account", "email:booking"],
-  );
+  // Only overdue safety-review escalation keeps running while suspended.
+  assert.deepEqual(called, [
+    "safetyEscalations",
+    "safetyEscalations",
+    "safetyEscalations",
+    "safetyEscalations",
+  ]);
+  called.length = 0;
+  assert.deepEqual(handled.map((h) => h.kind + ":" + h.category).sort(), [
+    "email:account",
+    "email:booking",
+  ]);
   const pending = await f.db.tenant(f.scoped(owner.tenantId), (tx) =>
     tx.query("SELECT id FROM jobs WHERE status='pending' ORDER BY id"),
   );
@@ -616,6 +668,7 @@ test("the worker skips automated work for a suspended workspace and sends only c
     "lifecycleMessages",
     "retentionAlerts",
     "coachingFollowups",
+    "safetyEscalations",
   ]);
   assert.ok(ran.some((x) => x.startsWith("job:")));
 });

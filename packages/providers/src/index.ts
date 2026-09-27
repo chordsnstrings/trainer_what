@@ -290,7 +290,13 @@ export class LeanGateway {
     );
   }
 }
-export async function sendEmail(to: string, subject: string, text: string) {
+/** `html`, when given, is already escaped by its producer (message templates). */
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+) {
   const config = runtimeConfig();
   if (!config.EMAIL_API_URL || !config.EMAIL_API_KEY || !config.EMAIL_FROM)
     throw new ProviderUnavailable("email");
@@ -300,7 +306,13 @@ export async function sendEmail(to: string, subject: string, text: string) {
       Authorization: `Bearer ${config.EMAIL_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: config.EMAIL_FROM, to, subject, text }),
+    body: JSON.stringify({
+      from: config.EMAIL_FROM,
+      to,
+      subject,
+      text,
+      ...(html ? { html } : {}),
+    }),
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`Email provider ${r.status}`);

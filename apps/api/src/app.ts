@@ -60,6 +60,8 @@ import {
 import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
+import { screenForSafety } from "./safety-policy.ts";
+import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
@@ -165,7 +167,6 @@ import {
 import {
   programSchema,
   ruleSchema,
-  safetySignal,
   validUaeIban,
   refundEligible,
 } from "@trainer/domain";
@@ -592,6 +593,7 @@ export async function buildApp(
   registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
   registerInfrastructureObserver(app, db, identity, {
     startCollector: !options.testing,
@@ -1666,8 +1668,12 @@ export async function buildApp(
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      const safety = a.role === "subscriber" && safetySignal(b.text);
-      if (safety) await openTrainingHold(tx, a, target, b.text);
+      // Code floor plus the published policy's tightening terms.
+      const screen =
+        a.role === "subscriber" ? await screenForSafety(tx, b.text) : null;
+      const safety = !!screen?.hold;
+      if (safety)
+        await openTrainingHold(tx, a, target, b.text, undefined, screen!);
       const message = await putRecord(
         tx,
         a,

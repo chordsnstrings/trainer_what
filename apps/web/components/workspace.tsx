@@ -10,6 +10,7 @@ import {
 import { Affiliates } from "./affiliates";
 import { InfrastructureActions } from "./infrastructure-actions";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
+import { SafetyReviewDue } from "./safety-review-due";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
 import { KnowledgeImportReview } from "./ingestion-review";
@@ -2714,6 +2715,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
               </span>
             </div>
             <h3>{e.data.description}</h3>
+            <SafetyReviewDue record={e} />
             {e.data.decisionId && (
               <blockquote>
                 {

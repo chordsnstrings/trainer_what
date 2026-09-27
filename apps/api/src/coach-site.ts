@@ -11,6 +11,11 @@ import {
   type Tx,
 } from "@trainer/db";
 import { brandSchema, resolveBrandDesign } from "@trainer/contracts";
+import { notifyUser } from "./notifications.ts";
+import { inquiryAttribution, recordLeadAcquisition } from "./acquisition.ts";
+
+/** At most this many inquiry emails/device alerts per workspace per hour; in-app always. */
+export const INQUIRY_ALERTS_PER_HOUR = 10;
 
 const id = z.string().uuid();
 const fail = (statusCode: number, code: string, message: string) =>
@@ -651,11 +656,24 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
   });
   app.get("/api/v1/tenant/site/inquiries", async (req) => {
     const a = owner(req);
-    return ownerTransaction(db, a, async (tx, tenant) => ({
-      items: await tx.query(
+    const items = await ownerTransaction(db, a, async (tx, tenant) =>
+      tx.query(
         "SELECT * FROM records WHERE kind='website_inquiry' ORDER BY created_at DESC LIMIT 200",
       ),
-    }));
+    );
+    // Campaign/referral attribution exists only for visitors who allowed
+    // optional analytics, and disappears with that permission.
+    const attribution = await inquiryAttribution(
+      db,
+      a.tenantId,
+      items.map((r) => r.id),
+    );
+    return {
+      items: items.map((r) => ({
+        ...r,
+        attribution: attribution.get(r.id) ?? null,
+      })),
+    };
   });
   app.post("/api/v1/tenant/site/inquiries/:id", async (req) => {
     const a = owner(req),
@@ -822,25 +840,52 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           )[0],
       );
       if (!a) throw fail(404, "NOT_FOUND", "Coach unavailable");
-      await ownerTransaction(
-        db,
-        { tenantId: tenant.id, userId: a.user_id, role: "owner" },
-        (tx) =>
-          putRecord(
-            tx,
-            { tenantId: tenant.id, userId: a.user_id, role: "owner" },
-            "website_inquiry",
-            {
-              name: b.name,
-              email: b.email,
-              message: b.message,
-              consent: true,
-              consentVersion: contactVersion,
-              submittedAt: new Date().toISOString(),
-            },
-            { status: "open" },
-          ),
-      );
+      const actor = { tenantId: tenant.id, userId: a.user_id, role: "owner" };
+      const inquiry = await ownerTransaction(db, actor, async (tx) => {
+        const r = await putRecord(
+          tx,
+          actor,
+          "website_inquiry",
+          {
+            name: b.name,
+            email: b.email,
+            message: b.message,
+            consent: true,
+            consentVersion: contactVersion,
+            submittedAt: new Date().toISOString(),
+          },
+          { status: "open" },
+        );
+        // The owner is told about every inquiry in-app. Email and device
+        // alerts follow the owner's preferences and an hourly workspace cap,
+        // so a flood of form posts cannot become a flood of emails.
+        const [recent] = await tx.query(
+          "SELECT count(*)::int AS n FROM notifications WHERE user_id=$1 AND dedupe_key LIKE 'website-inquiry:%' AND created_at>now()-interval '1 hour'",
+          [a.user_id],
+        );
+        const alert = recent.n < INQUIRY_ALERTS_PER_HOUR;
+        await notifyUser(tx, actor, {
+          userId: a.user_id,
+          category: "coaching",
+          topic: "inquiry",
+          dedupeKey: `website-inquiry:${r.id}`,
+          title: "New website inquiry",
+          body: "Someone contacted you through your coaching website. Open your website inquiries to read the message and reply.",
+          href: "/trainer/website",
+          templateKey: "website-inquiry",
+          ...(alert ? {} : { email: false, push: false }),
+          source: { type: "website_inquiry", id: r.id },
+        });
+        await event(tx, actor, "website.inquiry_received", r.id, {
+          alerted: alert,
+        });
+        return r;
+      });
+      try {
+        await recordLeadAcquisition(db, req, tenant.id, inquiry.id);
+      } catch {
+        req.log.warn("Website lead attribution could not be recorded");
+      }
       return { ok: true };
     },
   );

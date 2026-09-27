@@ -51,8 +51,9 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON account_identities,oidc_sign_in_requests,em
 -- writes still use scoped owner transactions. Do not grant table-wide writes.
 GRANT SELECT ON brand_media,coach_galleries,coach_gallery_photos,coach_sites,coach_design_drafts TO trainer_service;
 GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO trainer_service;
--- trainer_brand_tenant(), notification-template and membership proof helpers
--- remain executable only by trainer_app, exactly as their migrations specify.
+-- trainer_brand_tenant(), notification-template, safety-policy, workspace-name
+-- and membership proof helpers remain executable only by trainer_app, exactly
+-- as their migrations specify.
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
