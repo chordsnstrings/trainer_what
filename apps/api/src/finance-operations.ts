@@ -622,14 +622,16 @@ export function financeOperations(
       );
       if (!current) throw fail(404, "NOT_FOUND", "Payout unavailable");
       // Bank outcomes decide whether another payment may follow, so the payee
-      // workspace cannot record them, and the dispatcher cannot confirm a failure.
-      const [dispatch] =
-        b.status === "failed"
-          ? await tx.query(
-              "SELECT actor_id FROM events WHERE name='payout.submitted' AND subject_id=$1 ORDER BY created_at LIMIT 1",
-              [payoutId],
-            )
-          : [];
+      // workspace cannot record them, and the dispatcher (the operator, or the
+      // automation approver, recorded on payout.submitted) cannot record a
+      // failure or a return, either of which permits another instruction.
+      const permitsAnother = b.status === "failed" || b.status === "returned";
+      const [dispatch] = permitsAnother
+        ? await tx.query(
+            "SELECT actor_id FROM events WHERE name='payout.submitted' AND subject_id=$1 ORDER BY created_at LIMIT 1",
+            [payoutId],
+          )
+        : [];
       if (
         dispatch?.actor_id === a.userId ||
         (await payeeWorkspaceMember(tx, current.tenant_id, a.userId))
@@ -637,7 +639,7 @@ export function financeOperations(
         throw fail(
           409,
           "SEPARATION_OF_DUTIES",
-          "A finance operator independent of the payee workspace, and of the dispatch for a failure, must record this outcome",
+          "A finance operator independent of the payee workspace, and of the dispatch for a failure or return, must record this outcome",
         );
       const p = await transitionPayout(
         tx,

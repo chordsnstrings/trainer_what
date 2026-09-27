@@ -161,8 +161,9 @@ test("finance-commerce:G2 a canceled payer's invoice uses its first-paid positio
     ),
   );
   await db.tenant(owner, async (tx) => {
+    // Earlier payers already hold ranks 1-100 from their first positive charges.
     await tx.query(
-      "INSERT INTO subscriptions(id,tenant_id,user_id,status,data) SELECT gen_random_uuid(),$1::uuid,u,'active','{\"firstPaidAt\":\"2025-01-01T00:00:00.000Z\"}'::jsonb FROM unnest($2::uuid[]) u",
+      "INSERT INTO subscriptions(id,tenant_id,user_id,status,data) SELECT gen_random_uuid(),$1::uuid,u,'active',jsonb_build_object('firstPaidAt','2025-01-01T00:00:00.000Z','commissionRank',n) FROM unnest($2::uuid[]) WITH ORDINALITY AS t(u,n)",
       [owner.tenantId, earlier.map((row) => row.id as string)],
     );
     await tx.query(
@@ -184,7 +185,7 @@ test("finance-commerce:G2 a canceled payer's invoice uses its first-paid positio
   assert.equal(j.data.rank, 101);
   assert.equal(j.data.commissionBps, 2000);
   assert.equal(j.data.commissionMinor, 2000);
-  assert.equal(j.data.rankMethod, "stable-first-paid-v1");
+  assert.equal(j.data.rankMethod, "stable-first-paid-v2");
   assert.equal(j.data.firstPaidAt, "2026-01-01T00:00:00.000Z");
   const [s] = await db.tenant(owner, (tx) =>
     tx.query("SELECT status,data FROM subscriptions WHERE user_id=$1", [
@@ -232,7 +233,7 @@ test("product-roadmap:M5 the commission rank is stored once and survives churn a
   await processStripeEvent(db, invoice(second, "in_m5_b0", "sub_m5_b", t0 + 5));
   const late = await charge(owner, "in_m5_b0");
   assert.equal(late.data.rank, 2);
-  assert.equal(late.data.rankMethod, "stable-first-paid-v1");
+  assert.equal(late.data.rankMethod, "stable-first-paid-v2");
   // Stable rank keeps a churned subscriber's slot; recycling it is a pending finance decision.
   await processStripeEvent(db, invoice(later, "in_m5_c", "sub_m5_c", t0 + 40));
   assert.equal((await charge(owner, "in_m5_c")).data.rank, 3);
