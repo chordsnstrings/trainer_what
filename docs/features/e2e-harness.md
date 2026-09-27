@@ -1,9 +1,161 @@
 # Mock provider sandbox and full-stack end-to-end harness
 
 Branch `feat/e2e-harness` (now containing `integrate/round2`). Migration
-`061_tenant_member_join_date.sql` (one column grant, defect 1). Per-feature results of the final
-two runs: [`e2e-harness-coverage.md`](e2e-harness-coverage.md).
+`062_tenant_member_join_date.sql` (one column grant, defect 1, and the follower's takeover flag
+helper, stage 3). Per-feature results of the final runs:
+[`e2e-harness-coverage.md`](e2e-harness-coverage.md).
 How to run and the safety model: `docs/E2E_MOCK_PROVIDERS.md`.
+
+## Stage 3 (2026-09-27): adversarial review fixes
+
+### Follower takeover notice without a staff scope (major finding)
+
+Stage 1's defect-4 fix read the follower's `personalReview` flag by opening a staff tenant scope
+for the follower's own identity (`db.tenant({ ...a, role: "staff" })`), so only a WHERE clause kept
+the follower to its own row, and `hard/isolation`'s scope rule (a subscriber member may act only as a
+subscriber, `ACTOR_ROLE_MISMATCH`) would have broken `GET /api/v1/messages/thread` for every
+follower after both branches merge.
+
+- `apps/api/src/training-programs.ts`: a follower's thread now reads the flag inside its own
+  subscriber transaction with `SELECT member_takeover_active()`; trainers keep the direct query.
+  No staff scope is opened for a follower any more.
+- `packages/db/migrations/062_tenant_member_join_date.sql` (renamed from `061_…`, see below) creates
+  `member_takeover_active()` only when it does not exist: a `SECURITY DEFINER` SQL function that
+  returns one boolean for `app.user_id` in `app.tenant_id`, `EXECUTE` revoked from `PUBLIC` and
+  granted to `trainer_app` only. The body is identical to the function `hard/isolation` creates in
+  `061_tenant_scope_isolation.sql`; that file sorts first, so on a merged branch it creates the
+  function and this file leaves it alone (checked: both file sets migrate on PGlite and the
+  function has the same definition and grant either way).
+- `scripts/verify-runtime-access.mjs` classifies the helper (definer, tenant-only, not `PUBLIC`,
+  not runtime-owned). After merging `hard/isolation` the list names it twice; remove one line.
+- `tests/e2e-harness-takeover-notice.test.ts` also checks that another member of the same
+  workspace never sees someone else's takeover, that the helper answers only for the scope's own
+  user, and that the member's own scope still cannot read takeover rows.
+- The booking regression tests now call `preparePaidBooking` in the follower's own scope (as
+  `hard/isolation` requires) instead of a follower acting as staff.
+- Not changed: `apps/api/src/coaching-completion.ts` still runs the digital-coach turn in the
+  base's staff scope. `hard/isolation` rewrites exactly that function (its own scope,
+  `member_takeover_active()`, `member_material()`); repeating part of that rewrite here would only
+  create overlapping hunks, and the rest of that transaction needs `member_material()`, which only
+  `hard/isolation` has. Merge `hard/isolation` before or with this branch.
+
+### Migration renumbered (minor finding)
+
+`061_tenant_member_join_date.sql` is now `062_tenant_member_join_date.sql` (it records version
+`062_tenant_member_join_date`), so it no longer shares 061 with `hard/isolation` and sorts after it,
+which the helper above relies on. No database outside throwaway test clusters has applied the old
+name. The coordinator still owns the final number; if it changes, keep it after
+`061_tenant_scope_isolation.sql`.
+
+### Stripe double and provider-loss recovery (missing requirement)
+
+- `tests/e2e/mocks/stripe.ts`: `GET /v1/refunds/:id` (the app's `refunds.retrieve` in booking
+  reconciliation); `loseNextResponse(method, path)` applies a request (and caches it for its
+  idempotency key) but answers HTTP 500 with `Stripe-Should-Retry: false`, so the SDK does not
+  retry and the app must reconcile; coupons limited to products are refused for another product's
+  price (`coupon_not_applicable`), expired or used-up coupons are refused, and redemptions are
+  counted; `charge.refunded` no longer embeds the refunds list, matching the stamped API version
+  `2025-09-30.clover` (Stripe dropped it from 2022-11-15); `chargeEventObject(charge, "2022-08-01")`
+  and `sendEvent(..., { apiVersion })` produce the older shape on purpose.
+- New suite `tests/e2e/scenarios/provider-recovery.e2e.ts` (phase "completion: provider-loss
+  recovery"), per audience:
+  - **Follower**: paid session with the checkout and refund webhooks lost: `POST
+    /api/v1/bookings/:id/payment/reconcile` confirms the payment (`checkout.sessions.retrieve`),
+    then after cancelling confirms the refund (`refunds.retrieve`); the booking ends refunded with
+    exactly one `booking-charge:` and one `booking-refund:` journal. Renewal cancellation whose
+    Stripe answer is lost: the app answers 500, holds the instruction (a second change gets
+    `RENEWAL_UNRESOLVED`), `POST /api/v1/membership/renewal/reconcile` confirms it from Stripe's
+    subscription, and reactivation restores the renewal.
+  - **Trainer**: an approved refund whose webhooks are lost: nothing is posted until `POST
+    /api/v1/refund-requests/:id/reconcile`, which posts one `stripe-refund:` journal; a second
+    reconcile and the late webhook change nothing. A promotion whose coupon answer is lost: held
+    as `unknown`, a retry gets `PROMOTION_EXISTS`, `POST /api/v1/finance/promotions/:id/reconcile`
+    publishes it from the coupon, then it is archived.
+  - **Super admin** (Stripe payment events endpoint): the lost webhooks arrive late, including
+    `charge.refunded` in both the current and the pre-2022-11-15 shape; all answer 200 and the
+    ledger is unchanged.
+- `tests/e2e-harness-booking-refund.test.ts` states which API versions each case covers and adds
+  the current shape: a `charge.refunded` without a refunds list is accepted and changes nothing
+  until `refund.created` confirms the refund once. Checked against the pre-fix code (the booking
+  branch disabled): the two pre-2022-11-15 cases fail and the current-shape case passes, so the
+  stage-1 defect 2 affects only webhook endpoints pinned before 2022-11-15, as the review said.
+  The fix stays: it is harmless on current versions and an endpoint's version is set in the
+  Stripe dashboard, not by this code.
+
+### Scenario assertions (minor findings)
+
+- Silent setup failures: `Reporter.prepare()` runs setup that later steps need and records a
+  failure as a failed step; `Reporter.blocked()` and `missingPrerequisite()` record steps that
+  cannot run. Applied to every early return that previously recorded nothing (member-completion
+  joins and seeded-member lookups, extended's seeded followers, deletion/closure dependants,
+  domain sign-in, account lock, unpaid gating). Returns that follow a step which already failed
+  are left as they were: that failure already fails the run.
+- `scripts/e2e/run.mjs` fails a run of every suite when fewer than `FULL_RUN_MIN_STEPS` steps
+  passed or failed (`--min-steps=N` overrides; 0 for a partial `--suites` run).
+- Discount checkout: the step now requires the promotion's coupon on the session and
+  `amount_total = round(unit_amount × 0.8)` with `amount_subtotal = unit_amount`, and no discount
+  without a code; the double refuses a coupon for another product's price, as Stripe does.
+- Month close and payout: the payout must equal `min(eligible at close − later debits − reserved,
+  available, bank cash − reserved)` from the admin finance summary, where the later debits are
+  checked to be exactly the usage charge and the settlement fee the scenario posted; after the bank
+  confirmation the `payout:<id>` journal must exist with `trainer_payable +amount` and
+  `bank_cash −amount`, and the amount owed to the trainer must drop by exactly the payout.
+
+### Stage 3 tests actually run
+
+All on 2026-09-27 with Node 24 in this worktree. Code commit `356b8c2`; this doc and the
+regenerated coverage table are committed on top of it.
+
+- `npx tsc --noEmit`: exit 0 (after the last code change).
+- PGlite, `node --import tsx --test --test-concurrency=1 tests/e2e-harness-*.test.ts`: 7 files,
+  31 tests, 31 pass (27 before this stage; new: two takeover-scope tests, the current-API
+  `charge.refunded` case, the Stripe double's retrieve/lost-response/coupon/API-version test).
+- The pre-fix check of `tests/e2e-harness-booking-refund.test.ts` with the booking
+  `charge.refunded` branch disabled: 2 pass, 2 fail (the two pre-2022-11-15 cases); the file was
+  restored before anything else ran.
+- PGlite related suites: `accounts-self-service, coaching-completion, coaching-followups,
+  coaching-runtime, governance-locks, platform, finance-completion, bookings-completion,
+  fix-ledger, fix-payouts`: 113 tests, 113 pass; `fix2-finance, provider-configuration,
+  integrations-completion, retention, admin-completion`: 46 tests, 46 pass.
+- pg-sandbox (restricted runtime role, port 56118): `/opt/tools/pg-sandbox.sh 56118 <worktree>`
+  with the seven harness files plus `coaching-completion, coaching-runtime, coaching-followups,
+  platform, fix-ledger, finance-completion, bookings-completion, accounts-self-service,
+  governance-locks`: `runtimeAccess: verified` (53 migrations, 52 system tables, 37 scoped tables,
+  14 helpers), 16 files, 137 tests, 137 pass, `PG_SELECTED_FAILED_FILES=0`.
+- Trial merge with `hard/isolation` (`1d3203f`) in a throwaway worktree, removed afterwards:
+  the only conflict was `apps/api/src/membership-exit.ts`, between `hard/isolation` and
+  `integrate/round2`'s `54e575f` (not this branch; `hard/isolation`'s side was taken for the
+  trial). On the merged tree, PGlite: `e2e-harness-takeover-notice, booking-refund,
+  booking-dispute, member-dates, payout-precondition`: 14 tests, 14 pass; pg-sandbox with the
+  same five files: `runtimeAccess: verified` (54 migrations, both 061 and 062), 14 tests, 14 pass
+  as the restricted role, so the thread route works under the isolation scope rule and the two
+  migrations apply together.
+- Full harness, `node scripts/e2e/run.mjs --skip-build --pg-port=56118 --features=<inventory>`
+  (web build from stage 2; no web source changed in this stage):
+  - development run `2026-09-27T23-23-23-656Z` (with `--min-steps=0`): 398 steps, 397 pass, 1 fail. The
+    new discount assertion failed (`23920 !== 29900`): the Stripe double reported
+    `amount_subtotal` after the discount. Fixed in the double (and its unit test). The failed
+    checkout left that follower unpaid, which exposed another silent drop: the extended suite
+    could not schedule its follow-up and logged only a note, so "Scheduled follow-up messages from
+    the trainer" was not exercised and the run still counted as complete. Scheduling now goes
+    through `reporter.prepare()` and the delivery step through `blocked()`. The five
+    provider-loss recovery steps and the payout steps passed in this run.
+  - **final run A `2026-09-27T23-35-07-873Z`** on `356b8c2`: 399 steps, 399 pass, 0 fail,
+    0 skipped, 536 s, exit 0 with the default minimum of 399 steps.
+  - **final run B `2026-09-27T23-44-32-198Z`**, same commit: 399 steps, 399 pass, 0 fail,
+    0 skipped, 542 s, exit 0.
+  - `node scripts/e2e/coverage-table.mjs <A> <B> --out=docs/features/e2e-harness-coverage.md`:
+    exit 0; no step differs in status between the runs and none varies by more than 3x in
+    duration. Inventory: 340 features, 297 exercised by their own steps and 43 through an
+    identical flow of another audience, 0 not exercised, 0 failing; 187 provider-dependent
+    features, none without a scenario or stated limit.
+  - Both final runs: 80 Stripe webhook deliveries, all HTTP 200 (74 in stage 2; the recovery
+    suite adds six, four of them the late redeliveries); 0 automatic step-ups; one request-budget
+    wait (54 s and 56 s). Mock requests in run A: Stripe 80, email 74, Lean 4, model 109, push 1,
+    WHOOP 8, Zepp 4, voice 1, registrar 3, Open Food Facts 2, Google 8, Apple 5, S3 3, DNS 12;
+    model answers rules 104, queue 4 (unchanged, so the AI review below still applies).
+- Not run: the whole `npm test` suite (the coordinator's gate), `next build`, the model replay
+  run (no prompt or model path changed in this stage), live providers, any deployment.
 
 ## Stage 2 (2026-09-27): every provider-dependent feature covered, two runs compared
 
@@ -134,10 +286,9 @@ contact messages counted as leads, analytics consent in the personal export and 
   (`apps/api/src/notifications.ts:203`). Product decision: add a session-date variable or keep the
   built-in date line.
 - **Held-out Brain scenarios** and **meal-photo estimates with no items**: unchanged from stage 1.
-- **Migration number shared**: this branch's `061_tenant_member_join_date.sql` and
-  `hard/isolation`'s `061_tenant_scope_isolation.sql` both start with 061. The migrator keys on the
-  whole file name and sorts lexically, so both apply (mine first) and neither touches the other's
-  grants, but the coordinator may want to renumber one when merging.
+- [Resolved in stage 3: renumbered to 062.] **Migration number shared**: this branch's
+  `061_tenant_member_join_date.sql` and `hard/isolation`'s `061_tenant_scope_isolation.sql` both
+  started with 061.
 
 ### What the sandbox still cannot do (explicit limits, also in the report)
 
@@ -208,7 +359,7 @@ exercised). Each is listed in `LOCAL_LIMITS` and appears as the "Local limit" no
    subscriber list (`GET /api/v1/admin/operations/subscribers`) returned HTTP 500 (`42501 permission
    denied for table users`) as the restricted runtime role: both read `users.created_at`, but the
    tenant role `trainer_app` could select only `users(id,name,email)`. Migration
-   `061_tenant_member_join_date.sql` grants `SELECT(created_at)` on `users` to `trainer_app` only;
+   `062_tenant_member_join_date.sql` (named `061_…` until stage 3) grants `SELECT(created_at)` on `users` to `trainer_app` only;
    password, verification and platform-role columns stay hidden. PGlite tests did not catch it
    because they do not enforce column grants. Regression: `tests/e2e-harness-member-dates.test.ts`
    (run on pg-sandbox as the restricted role).
@@ -227,9 +378,9 @@ exercised). Each is listed in `LOCAL_LIMITS` and appears as the "Local limit" no
    /api/v1/messages/thread` computed `personalReview` from the member's own takeover record, which is
    not a subscriber-visible record kind, so it was always `false` for the member (the web shows "Your
    trainer is handling this conversation personally" only when it is `true`). For a member the flag
-   is now read the way the digital coach already reads it (`coaching-completion.ts`): a staff view
-   limited to that member's own active takeover (`apps/api/src/training-programs.ts`). The member
-   still cannot read the takeover record itself. Regression:
+   is now read through the `member_takeover_active()` definer helper in the member's own scope
+   (stage 3; stage 1 used a staff view limited to that member, which the review rejected). The
+   member still cannot read the takeover record itself. Regression:
    `tests/e2e-harness-takeover-notice.test.ts` (it fails on PGlite without the fix).
 
 ## Stage 1: findings reported, not fixed (status after stage 2 in brackets)

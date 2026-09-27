@@ -1,17 +1,17 @@
 # End-to-end harness: per-feature results
 
-Generated from `2026-09-27T22-22-29-152Z` and `2026-09-27T22-31-36-627Z` by `scripts/e2e/coverage-table.mjs`.
+Generated from `2026-09-27T23-35-07-873Z` and `2026-09-27T23-44-32-198Z` by `scripts/e2e/coverage-table.mjs`.
 
 Inventory status comes from the inventory file given to the run, a snapshot: a feature built after it (for example one marked not_built) keeps its snapshot status here. "pass (same flow)" means another audience's step runs exactly this flow (`EQUIVALENT_FEATURES` in `tests/e2e/harness/report.ts`). A local limit names the part of a feature the sandbox cannot exercise (`LOCAL_LIMITS`).
 
 | Run | Steps | Passed | Failed | Skipped | Duration |
 | --- | --- | --- | --- | --- | --- |
-| 2026-09-27T22-22-29-152Z | 394 | 394 | 0 | 0 | 546 s |
-| 2026-09-27T22-31-36-627Z | 394 | 394 | 0 | 0 | 537 s |
+| 2026-09-27T23-35-07-873Z | 399 | 399 | 0 | 0 | 536 s |
+| 2026-09-27T23-44-32-198Z | 399 | 399 | 0 | 0 | 542 s |
 
 ## Super admin
 
-| Feature | Inventory status | Provider-dependent | 2026-09-27T22-22-29-152Z | 2026-09-27T22-31-36-627Z | Steps | Local limit or equivalent flow |
+| Feature | Inventory status | Provider-dependent | 2026-09-27T23-35-07-873Z | 2026-09-27T23-44-32-198Z | Steps | Local limit or equivalent flow |
 | --- | --- | --- | --- | --- | --- | --- |
 | First Superadmin creation (npm run admin:bootstrap) | live_verified | no | pass | pass | 1/1, 1/1 |  |
 | Sign in with password and authenticator code, sign out | live_verified | no | pass | pass | 1/1, 1/1 |  |
@@ -38,7 +38,7 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 | Turn off or disconnect a connection | ready | no | pass | pass | 1/1, 1/1 |  |
 | Settings change history | live_verified | no | pass | pass | 1/1, 1/1 |  |
 | Settings apply without a restart | ready | no | pass | pass | 1/1, 1/1 |  |
-| Stripe payment events endpoint | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
+| Stripe payment events endpoint | needs_provider | yes | pass | pass | 2/2, 2/2 |  |
 | Draft and publish legal document versions | live_verified | no | pass | pass | 1/1, 1/1 |  |
 | Scheduled effective dates and locked published text | ready | no | pass | pass | 1/1, 1/1 |  |
 | Public legal pages with past versions | ready | no | pass | pass | 1/1, 1/1 |  |
@@ -103,7 +103,7 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 
 ## Trainers
 
-| Feature | Inventory status | Provider-dependent | 2026-09-27T22-22-29-152Z | 2026-09-27T22-31-36-627Z | Steps | Local limit or equivalent flow |
+| Feature | Inventory status | Provider-dependent | 2026-09-27T23-35-07-873Z | 2026-09-27T23-44-32-198Z | Steps | Local limit or equivalent flow |
 | --- | --- | --- | --- | --- | --- | --- |
 | Trainer signup (create a coaching workspace) | needs_approval | yes | pass | pass | 3/3, 3/3 |  |
 | Sign in, sign out and session revocation | live_verified | no | pass | pass | 1/1, 1/1 |  |
@@ -172,8 +172,8 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 | Attendance, no-shows and calendar export | partial | yes | pass | pass | 1/1, 1/1 |  |
 | Draft offers (workout and workout + nutrition tiers) | ready | no | pass | pass | 3/3, 3/3 |  |
 | Activate an offer for sale | needs_approval | yes | pass | pass | 3/3, 3/3 |  |
-| Free trials and promotion codes | needs_provider | yes | pass | pass | 2/2, 2/2 |  |
-| Refund decisions | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
+| Free trials and promotion codes | needs_provider | yes | pass | pass | 3/3, 3/3 |  |
+| Refund decisions | needs_provider | yes | pass | pass | 2/2, 2/2 |  |
 | Subscriber plan switching between tiers | needs_approval | yes | pass (same flow) | pass (same flow) | 0/0, 0/0 | same flow as followers: Switch between workout-only and workout + nutrition |
 | Finance screen with earnings and balances | live_verified | yes | pass | pass | 1/1, 1/1 |  |
 | Ledger CSV export and monthly statements | ready | no | pass | pass | 1/1, 1/1 |  |
@@ -199,7 +199,7 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 
 ## followers
 
-| Feature | Inventory status | Provider-dependent | 2026-09-27T22-22-29-152Z | 2026-09-27T22-31-36-627Z | Steps | Local limit or equivalent flow |
+| Feature | Inventory status | Provider-dependent | 2026-09-27T23-35-07-873Z | 2026-09-27T23-44-32-198Z | Steps | Local limit or equivalent flow |
 | --- | --- | --- | --- | --- | --- | --- |
 | Accept a trainer's invitation link | needs_approval | yes | pass | pass | 11/11, 11/11 |  |
 | Join from a coach's public page | needs_approval | yes | pass (same flow) | pass (same flow) | 0/0, 0/0 | same flow as public-join: Public self-join from a coach website (/join-coach/<name>) |
@@ -254,12 +254,12 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 | Barcode lookup | needs_approval | yes | pass | pass | 1/1, 1/1 |  |
 | See trainer's sessions and my bookings | ready | no | pass | pass | 1/1, 1/1 |  |
 | Reserve or cancel a free session | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
-| Pay for a paid session, with refund on cancellation | needs_approval | yes | pass | pass | 1/1, 1/1 |  |
+| Pay for a paid session, with refund on cancellation | needs_approval | yes | pass | pass | 2/2, 2/2 |  |
 | Add bookings to my calendar | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
 | Choose a plan and pay (with discount codes) | needs_approval | yes | pass | pass | 16/16, 16/16 |  |
 | Check an interrupted checkout | needs_approval | yes | pass | pass | 1/1, 1/1 |  |
 | Switch between workout-only and workout + nutrition | needs_approval | yes | pass | pass | 1/1, 1/1 |  |
-| Cancel or reactivate renewal | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
+| Cancel or reactivate renewal | needs_provider | yes | pass | pass | 2/2, 2/2 |  |
 | Request a refund | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
 | Billing history and invoices | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
 | Grace period after a failed payment | needs_provider | yes | pass | pass | 1/1, 1/1 |  |
@@ -289,7 +289,7 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 
 ## public-join
 
-| Feature | Inventory status | Provider-dependent | 2026-09-27T22-22-29-152Z | 2026-09-27T22-31-36-627Z | Steps | Local limit or equivalent flow |
+| Feature | Inventory status | Provider-dependent | 2026-09-27T23-35-07-873Z | 2026-09-27T23-44-32-198Z | Steps | Local limit or equivalent flow |
 | --- | --- | --- | --- | --- | --- | --- |
 | Home page | live_verified | no | pass | pass | 1/1, 1/1 |  |
 | Home page earnings calculator | live_verified | no | pass | pass | 1/1, 1/1 |  |
@@ -373,8 +373,8 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 
 | Run | pass | pass (same flow) | not local | NOT EXERCISED | FAIL |
 | --- | --- | --- | --- | --- | --- |
-| 2026-09-27T22-22-29-152Z | 297 | 43 | 0 | 0 | 0 |
-| 2026-09-27T22-31-36-627Z | 297 | 43 | 0 | 0 | 0 |
+| 2026-09-27T23-35-07-873Z | 297 | 43 | 0 | 0 | 0 |
+| 2026-09-27T23-44-32-198Z | 297 | 43 | 0 | 0 | 0 |
 
 ## Provider-dependent features without a scenario or a stated limit
 

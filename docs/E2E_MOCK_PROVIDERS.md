@@ -53,7 +53,7 @@ lower `--min-steps` when a suite is knowingly skipped (for example no local Chro
 Requirements: Node 24, PostgreSQL 16+ server binaries (`initdb`, `pg_ctl`), `openssl`, the
 installed dependencies; `python3` for the host-controller cycle; optionally a local Chromium under
 `PLAYWRIGHT_BROWSERS_PATH` for the browser suite; the loopback address `127.77.0.1:443` for the
-coach-domain edge. A full run takes about nine minutes (537 s and 546 s measured for 394 steps) plus a
+coach-domain edge. A full run takes about nine minutes (536 s and 542 s measured for 399 steps) plus a
 web build when one is needed, mostly authenticator waits (each fresh code needs a new 30-second
 window) and worker deliveries the suites wait for. The Superadmin sets the worker cycle to one second
 through the reviewed worker-speed operation. A person's session that proved an authenticator code in
