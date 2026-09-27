@@ -370,7 +370,7 @@ export async function buildApp(
       });
     if (error instanceof ProviderUnavailable)
       return reply.code(503).send({
-        code: "PROVIDER_UNAVAILABLE",
+        code: (error as { code?: string }).code ?? "PROVIDER_UNAVAILABLE",
         message: error.message,
         provider: error.provider,
         requestId: req.id,
@@ -387,7 +387,7 @@ export async function buildApp(
       message:
         e.code === "23505"
           ? "This record already exists"
-          : status < 500
+          : status < 500 || e.expose === true
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,

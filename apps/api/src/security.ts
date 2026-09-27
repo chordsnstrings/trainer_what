@@ -75,11 +75,25 @@ function seal(userId: string, value: string) {
     throw keyUnavailable(error);
   }
 }
+// Fail closed: an unreadable secret never counts as MFA being disabled. The
+// subclass keeps ProviderUnavailable semantics for callers while telling the
+// person how to recover.
+class MfaKeyUnavailable extends ProviderUnavailable {
+  code = "MFA_KEY_UNAVAILABLE";
+  statusCode = 503;
+  expose = true;
+  constructor() {
+    super(
+      "security",
+      "Your authenticator cannot be checked because the server security key is missing or has changed. Sign in with a passkey or use a recovery code, then set up your authenticator again. Without either, ask the platform host operator to reset your authenticator.",
+    );
+  }
+}
 function open(userId: string, value: string) {
   try {
     return openSealedValue(sealContexts.authenticator(userId), value).value;
-  } catch (error) {
-    throw keyUnavailable(error);
+  } catch {
+    throw new MfaKeyUnavailable();
   }
 }
 export function totpAt(secret: string, counter: number) {
@@ -180,8 +194,10 @@ export function securityRoutes(
         "SELECT set_config('app.tenant_id',$1,true),set_config('app.role','owner',true)",
         [tenantId],
       );
+      // The link is a bearer credential: the worker removes the text after a
+      // terminal outcome and never sends it after the link expires.
       await tx.query(
-        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4)",
+        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||jsonb_build_object('expiresAt',now()+interval '30 minutes'))",
         [
           randomUUID(),
           tenantId,
@@ -190,6 +206,7 @@ export function securityRoutes(
             to: user.email,
             category: "account",
             critical: true,
+            sensitive: true,
             userId: user.id,
             subject:
               purpose === "reset" ? "Reset your password" : "Verify your email",

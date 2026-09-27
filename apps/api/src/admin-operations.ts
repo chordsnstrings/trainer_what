@@ -591,7 +591,9 @@ export function registerAdminOperations(
         { ...a, tenantId: p.tenantId, role: "owner" },
         async (tx) => {
           const [r] = await tx.query(
-            "UPDATE jobs SET status=$3,available_at=now(),leased_until=NULL,last_error=NULL,data=data||jsonb_build_object('deliveryState',$4::text) WHERE id=$1 AND kind='email' AND status IN ('blocked','failed') AND attempts=$2 AND (leased_until IS NULL OR leased_until<now()) RETURNING id,status,attempts,data",
+            // Never return message content: account emails carry bearer links.
+            // A confirmed delivery also removes the link from the job.
+            "UPDATE jobs SET status=$3,available_at=now(),leased_until=NULL,last_error=NULL,data=CASE WHEN $4::text='delivered' AND data->>'sensitive'='true' THEN data-'text' ELSE data END||jsonb_build_object('deliveryState',$4::text) WHERE id=$1 AND kind='email' AND status IN ('blocked','failed') AND attempts=$2 AND (leased_until IS NULL OR leased_until<now()) RETURNING id,status,attempts,jsonb_strip_nulls(jsonb_build_object('notificationId',data->'notificationId','deliveryState',data->'deliveryState')) AS data",
             [
               p.id,
               b.attempts,

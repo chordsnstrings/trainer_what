@@ -9,6 +9,7 @@ import {
   validateIntegrationValues,
   integrationCapability,
   type IntegrationDefinition,
+  type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
@@ -120,6 +121,12 @@ function credentialStatus(def: IntegrationDefinition, row?: SettingsRow) {
     return "credentials_unreadable";
   }
 }
+/** A field with a documented default is never blank; older rows may still hold "". */
+function storedValue(field: IntegrationField, value: string | undefined) {
+  return (
+    (field.defaultValue && !value?.trim() ? field.defaultValue : value) ?? ""
+  );
+}
 function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
   return Object.fromEntries(
     def.fields
@@ -127,7 +134,7 @@ function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
       .map((field) => [
         field.key,
         row
-          ? (row.settings_values[field.key] ?? field.defaultValue ?? "")
+          ? storedValue(field, row.settings_values[field.key])
           : (process.env[field.key] ?? field.defaultValue ?? ""),
       ]),
   );
@@ -286,8 +293,9 @@ function validatedFields(
       "SETTINGS_INVALID",
       "Use the declared setting fields and an explicit clear action for credentials.",
     );
+  let result: Record<string, string>;
   try {
-    return validateIntegrationValues(def.id, { ...values, ...secrets });
+    result = validateIntegrationValues(def.id, { ...values, ...secrets });
   } catch {
     throw fail(
       400,
@@ -295,6 +303,21 @@ function validatedFields(
       "One or more settings have an invalid value or URL. Review the field guidance.",
     );
   }
+  // A saved row overrides the environment, so a blank must not silently erase
+  // a documented default or turn a switch into neither on nor off.
+  const blank = def.fields.filter(
+    (field) =>
+      Object.hasOwn(values, field.key) &&
+      !result[field.key] &&
+      (field.type === "boolean" || field.defaultValue),
+  );
+  if (blank.length)
+    throw fail(
+      400,
+      "SETTINGS_INVALID",
+      `${blank.map((field) => field.label).join(", ")} cannot be blank.`,
+    );
+  return result;
 }
 async function findRow(tx: Tx, integrationId: string, lock = false) {
   const [row] = await tx.query<SettingsRow>(
