@@ -255,6 +255,53 @@ class HostDeployment(unittest.TestCase):
         with self.assertRaises(common.DeploymentError):
             dispatch.controller(self.root)
 
+    def admin_request(self, mode=0o600, **overrides):
+        common.atomic_json(self.root / "release-state.json", {"current": SHA})
+        request = {"email": "owner@example.test", "password": "correct-horse-battery-staple", **overrides}
+        path = self.root / host.ADMIN_REQUEST
+        path.write_text(json.dumps(request))
+        path.chmod(mode)
+        return path
+
+    def test_admin_bootstrap_without_request_runs_nothing(self):
+        compose = self.stack.enter_context(patch.object(host, "compose"))
+        host.bootstrap_pending_admin()
+        compose.assert_not_called()
+
+    def test_admin_bootstrap_sends_password_on_stdin_and_removes_request(self):
+        path = self.admin_request()
+        compose = self.stack.enter_context(patch.object(host, "compose"))
+        host.bootstrap_pending_admin()
+        (release, sha, *args), kwargs = compose.call_args
+        self.assertEqual((release, sha), (self.root / "releases" / SHA, SHA))
+        self.assertIn("BOOTSTRAP_ADMIN_EMAIL=owner@example.test", args)
+        self.assertEqual(kwargs["input"], "correct-horse-battery-staple")
+        self.assertFalse(any("correct-horse" in str(arg) for arg in args))
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertFalse(path.exists())
+
+    def test_admin_bootstrap_rejects_shared_or_invalid_requests_before_commands(self):
+        compose = self.stack.enter_context(patch.object(host, "compose"))
+        for mode, overrides in ((0o644, {}), (0o600, {"password": "short"}), (0o600, {"email": "not-an-email"}),
+                                (0o600, {"password": "multi\nline-password-value"}), (0o600, {"name": "$(id)"})):
+            self.admin_request(mode, **overrides)
+            with self.assertRaises(common.DeploymentError):
+                host.bootstrap_pending_admin()
+        compose.assert_not_called()
+
+    def test_admin_bootstrap_failure_keeps_request_but_existing_admin_discards_it(self):
+        path = self.admin_request()
+        failure = subprocess.CalledProcessError(1, ["docker"], stderr="database unavailable")
+        self.stack.enter_context(patch.object(host, "compose", side_effect=failure))
+        with self.assertRaises(common.DeploymentError) as raised:
+            host.bootstrap_pending_admin()
+        self.assertNotIn("correct-horse", str(raised.exception))
+        self.assertTrue(path.exists())
+        existing = subprocess.CalledProcessError(1, ["docker"], stderr="Error: " + host.ADMIN_EXISTS + ".")
+        with patch.object(host, "compose", side_effect=existing):
+            host.bootstrap_pending_admin()
+        self.assertFalse(path.exists())
+
     def test_archive_conflicting_paths_and_private_env_reject_before_writes(self):
         for names in (("parent", "parent/child"), (".env.production",), ("apps/api/.env.local",)):
             output = io.BytesIO()

@@ -4,6 +4,7 @@ import fcntl
 import ipaddress
 import json
 import os
+import re
 import secrets
 import stat
 import subprocess
@@ -226,6 +227,48 @@ def deploy(sha, github):
     print("Deployed checked main commit " + sha)
 
 
+ADMIN_REQUEST = "bootstrap-admin.json"
+ADMIN_EXISTS = "A Superadmin already exists"
+
+
+def bootstrap_pending_admin():
+    """Create the first Superadmin once from a private request written at server creation.
+
+    The password travels to the API container on stdin, never in arguments or logs, and
+    the request is deleted once the administrator exists. Without the file this is a no-op.
+    """
+    path = ROOT / ADMIN_REQUEST
+    if not path.exists():
+        return
+    mode = path.lstat().st_mode
+    if not stat.S_ISREG(mode) or mode & 0o077:
+        raise DeploymentError("The one-time administrator request must be a private regular file")
+    state_path = ROOT / "release-state.json"
+    if not state_path.exists():
+        return
+    sha = valid_sha(json.loads(state_path.read_text()).get("current"))
+    request = json.loads(path.read_text())
+    email, password = request.get("email"), request.get("password")
+    name = request.get("name", "Platform administrator")
+    if (not isinstance(email, str) or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
+            or not isinstance(password, str) or not 16 <= len(password) <= 128 or any(c in password for c in "\r\n")
+            or not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9 .'-]{2,100}", name)):
+        raise DeploymentError("Invalid one-time administrator request")
+    script = ('umask 077; f="$(mktemp)"; cat > "$f"; BOOTSTRAP_ADMIN_PASSWORD_FILE="$f" '
+              'npm run --silent admin:bootstrap; status=$?; rm -f "$f"; exit $status')
+    try:
+        compose(ROOT / "releases" / sha, sha, "exec", "-T", "-e", "BOOTSTRAP_ADMIN_EMAIL=" + email,
+                "-e", "BOOTSTRAP_ADMIN_NAME=" + name, "api", "sh", "-c", script,
+                input=password, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if ADMIN_EXISTS not in (error.stderr or ""):
+            raise DeploymentError("First Superadmin creation failed; the request is kept for the next cycle") from None
+        print("A Superadmin already exists; the one-time request was discarded")
+    else:
+        print("First Superadmin created from the one-time request")
+    path.unlink()
+
+
 def main():
     if os.geteuid() != 0:
         raise DeploymentError("This controller runs only on its dedicated server")
@@ -277,6 +320,7 @@ WantedBy=timers.target
         sha = approved_head(github)
         if sha:
             deploy(sha, github)
+            bootstrap_pending_admin()
         else:
             print("Waiting for current main application checks to succeed")
 
