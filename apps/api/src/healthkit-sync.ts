@@ -69,6 +69,8 @@ type Device = {
   revoked_at: string | null;
   created_at: string;
 };
+/** What a companion token identifies before the member's own scope is entered. */
+type DeviceKey = Pick<Device, "id" | "tenant_id" | "user_id" | "status">;
 const fail = (
   statusCode: number,
   code: string,
@@ -750,16 +752,27 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     const tenantId = TOKEN.exec(token)?.[1];
     const invalid = () => failures.failed(source);
     if (!tenantId) throw invalid();
-    const [tenant] = await db.system((tx) =>
-      tx.query(
-        "SELECT id,name,coalesce(to_jsonb(t)->>'lifecycle_state','active') AS lifecycle_state FROM tenants t WHERE id=$1",
-        [tenantId],
-      ),
+    // The member is unknown until the token matches, so the device is found
+    // by the healthkit_device_for_token() definer (migration 061) in a service
+    // transaction bound to the token's workspace; everything after this runs
+    // in the member's own subscriber scope.
+    const found = await db.system(
+      async (tx) => {
+        const [tenant] = await tx.query(
+          "SELECT id,name,coalesce(to_jsonb(t)->>'lifecycle_state','active') AS lifecycle_state FROM tenants t WHERE id=$1",
+          [tenantId],
+        );
+        if (!tenant) return null;
+        const [device] = (await tx.query(
+          "SELECT id,tenant_id,user_id,status FROM healthkit_device_for_token($1)",
+          [digest],
+        )) as DeviceKey[];
+        return { tenant, device };
+      },
+      { tenantId },
     );
-    if (!tenant) throw invalid();
-    const [device] = (await db.tenant(workerActor(tenantId), (tx) =>
-      tx.query("SELECT * FROM healthkit_devices WHERE token_hash=$1", [digest]),
-    )) as Device[];
+    if (!found) throw invalid();
+    const { tenant, device } = found;
     if (!device) throw invalid();
     if (device.status !== "active")
       throw fail(
@@ -783,7 +796,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     return { device, tenant, digest };
   }
   /** Records why uploads stop, so support can see it; never throws. */
-  async function noteError(device: Device, code: string) {
+  async function noteError(device: DeviceKey, code: string) {
     await db
       .tenant(memberScope(device.tenant_id, device.user_id), (tx) =>
         tx.query(
@@ -803,7 +816,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     "IMPORT_REVIEW_PENDING",
     "APPLE_IMPORTS_DISABLED",
   ]);
-  async function uploadGate(tx: Tx, device: Device) {
+  async function uploadGate(tx: Tx, device: DeviceKey) {
     if (!(await actorIsCurrent(tx, device.tenant_id, device.user_id)))
       throw fail(
         403,

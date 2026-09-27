@@ -569,6 +569,98 @@ test("workspace closure rechecks settlement and ownership, requires independent 
   });
 });
 
+test("workspace closure runs bound to the closing workspace and scrubs only accounts with no other membership", async () => {
+  const a = await tenant(),
+    b = await tenant(),
+    shared = await person(a.tenantId),
+    sole = await person(a.tenantId),
+    adminTenant = await tenant(),
+    admin = await person(adminTenant.tenantId, "staff", "admin");
+  a.platformRole = "admin";
+  // The shared follower also belongs to workspace B, with a session and a
+  // link there.
+  await db.system(async (tx) => {
+    await tx.query(
+      "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber')",
+      [b.tenantId, shared.userId],
+    );
+    for (const [tenantId, userId] of [
+      [a.tenantId, shared.userId],
+      [b.tenantId, shared.userId],
+      [a.tenantId, sole.userId],
+      [b.tenantId, b.userId],
+    ]) {
+      await tx.query(
+        "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
+        [randomUUID(), userId, tenantId],
+      );
+      await tx.query(
+        "INSERT INTO one_time_tokens(token_hash,user_id,tenant_id,purpose,expires_at) VALUES($1,$2,$3,'magic',now()+interval '1 hour')",
+        [randomUUID(), userId, tenantId],
+      );
+    }
+  });
+  const created = await req(a, "/tenant/lifecycle/closure", {
+    password,
+    reason: "Close synthetic workspace after review",
+    confirmClosure: true,
+  });
+  assert.equal(created.statusCode, 200, created.body);
+  const r = created.json();
+  const bindings: unknown[] = [];
+  const service = db.system;
+  db.system = ((fn, options) => {
+    bindings.push(options?.tenantId);
+    return service(fn, options);
+  }) as Database["system"];
+  let closed;
+  try {
+    closed = await req(
+      admin,
+      `/admin/tenants/${a.tenantId}/privacy/lifecycle/${r.id}/close`,
+      proof(r.revision),
+    );
+  } finally {
+    db.system = service;
+  }
+  assert.equal(closed.statusCode, 200, closed.body);
+  assert.deepEqual(bindings, [a.tenantId]);
+  const after = await db.system(async (tx) => ({
+    sessions: await tx.query(
+      "SELECT tenant_id,user_id FROM sessions WHERE user_id=ANY($1::uuid[]) ORDER BY tenant_id,user_id",
+      [[shared.userId, sole.userId, b.userId]],
+    ),
+    tokens: await tx.query(
+      "SELECT tenant_id,user_id FROM one_time_tokens WHERE user_id=ANY($1::uuid[]) ORDER BY tenant_id,user_id",
+      [[shared.userId, sole.userId, b.userId]],
+    ),
+    users: await tx.query(
+      "SELECT id,email FROM users WHERE id=ANY($1::uuid[])",
+      [[shared.userId, sole.userId]],
+    ),
+    memberships: await tx.query(
+      "SELECT tenant_id FROM memberships WHERE user_id=$1",
+      [shared.userId],
+    ),
+  }));
+  const expected = [
+    { tenant_id: b.tenantId, user_id: shared.userId },
+    { tenant_id: b.tenantId, user_id: b.userId },
+  ].sort((x, y) =>
+    (x.tenant_id + x.user_id).localeCompare(y.tenant_id + y.user_id),
+  );
+  // Workspace B's sessions and links survive; A's are gone.
+  assert.deepEqual(after.sessions, expected);
+  assert.deepEqual(after.tokens, expected);
+  assert.deepEqual(after.memberships, [{ tenant_id: b.tenantId }]);
+  const email = (id: string) =>
+    after.users.find((u: any) => u.id === id)?.email;
+  // The account scrub still sees the other membership (the binding is lifted
+  // for it) and scrubs only the account left without one.
+  assert.equal(email(shared.userId), shared.userId + "@example.test");
+  assert.equal(email(sole.userId), sole.userId + "@deleted.invalid");
+});
+
 test("former owners and staff can erase their accounts without removing the workspace or its other members", async () => {
   const a = await tenant(),
     staff = await person(a.tenantId, "staff"),

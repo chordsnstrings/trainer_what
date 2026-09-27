@@ -142,6 +142,7 @@ const workerActor = (tenantId: string): Actor =>
 // non-sensitive workspace directory, then enter an explicit scoped transaction.
 async function scopedAdminRows(
   db: Database,
+  operator: { userId: string },
   table: "trainer_voices" | "domain_orders",
   recordId?: string,
   tenantId?: string,
@@ -156,7 +157,14 @@ async function scopedAdminRows(
   );
   const result: any[] = [];
   for (const tenant of tenants) {
-    const rows = await db.tenant(workerActor(tenant.id), (tx) =>
+    // The Super admin's own listing, after the route's platform-role and
+    // step-up checks: a platform-operator scope, never the worker's.
+    const operatorScope = elevated("platform-operator", {
+      tenantId: tenant.id,
+      userId: operator.userId,
+      role: "owner",
+    });
+    const rows = await db.tenant(operatorScope, (tx) =>
       tx.query(
         table === "trainer_voices"
           ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
@@ -636,18 +644,24 @@ export function registerIntegrationCompletion(
         })
         .parse(req.query);
     const tenantId = id.parse(q.state.split(".")[0]);
-    const [relay] = await db.tenant(workerActor(tenantId), (tx) =>
-      tx.query(
-        "SELECT origin FROM integration_oauth_states WHERE state_hash=$1 AND provider=$2 AND expires_at>now() AND consumed_at IS NULL",
-        [tokenHash(q.state), provider],
-      ),
+    // The provider's redirect carries no session for this site yet: only the
+    // initiating origin is read, by the integration_oauth_relay() definer
+    // (migration 061) in a service transaction bound to the state's workspace.
+    const [found] = await db.system(
+      (tx) =>
+        tx.query<{ origin: string | null }>(
+          "SELECT integration_oauth_relay($1,$2) AS origin",
+          [tokenHash(q.state), provider],
+        ),
+      { tenantId },
     );
-    if (!relay)
+    if (!found?.origin)
       throw fail(
         400,
         "OAUTH_STATE",
         "This authorization link is expired or already used.",
       );
+    const relay = { origin: found.origin };
     reply
       .header("Cache-Control", "no-store")
       .header("Referrer-Policy", "no-referrer");
@@ -980,9 +994,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     });
   });
   app.get("/api/v1/admin/integrations/voices", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       undefined,
       z
@@ -995,9 +1010,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
   app.get(
     "/api/v1/admin/integrations/voices/:id/sample",
     async (req, reply) => {
-      admin(req);
+      const operator = admin(req);
       const [r] = await scopedAdminRows(
         db,
+        operator,
         "trainer_voices",
         id.parse((req.params as any).id),
         undefined,
@@ -1022,6 +1038,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     voiceContract();
     const [row] = await scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       id.parse((req.params as any).id),
     );
@@ -1335,7 +1352,7 @@ function domainEnabled() {
     );
 }
 async function domainActor(db: Database, operator: Identity, orderId: string) {
-  const [row] = await scopedAdminRows(db, "domain_orders", orderId);
+  const [row] = await scopedAdminRows(db, operator, "domain_orders", orderId);
   if (!row)
     throw fail(404, "DOMAIN_NOT_FOUND", "Domain request was not found.");
   return {
@@ -1506,9 +1523,10 @@ function registerDomainRoutes(
     });
   });
   app.get("/api/v1/admin/integrations/domains", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "domain_orders",
       undefined,
       z

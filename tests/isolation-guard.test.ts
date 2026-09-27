@@ -55,6 +55,13 @@ test("a tenant scope refuses every role, setting and transaction change", () => 
     "SAVEPOINT s",
     "ROLLBACK TO SAVEPOINT s",
     "RELEASE SAVEPOINT s",
+    // Unicode escapes spell names the lexer would otherwise not recognise.
+    "SELECT U&\"\\0073et_config\"('app.role','owner',true)",
+    "SELECT u&\"\\0073et_config\"('app.role','owner',true)",
+    'SELECT * FROM U&"records"',
+    "SELECT U&'\\0061pp.role' AS name",
+    "UPDATE pg_settings SET setting='owner' WHERE name='app.role'",
+    "SELECT name FROM pg_catalog.pg_settings",
   ])
     rejected(() => assertScopedSql(sql, false));
   // A db.tenant() transaction is scoped from BEGIN: its savepoints can never
@@ -88,6 +95,8 @@ test("a tenant scope runs ordinary data statements, including text that only men
     "LOCK TABLE records IN SHARE MODE",
     "EXPLAIN SELECT 1",
     "SELECT 1;",
+    "SELECT u&1 AS masked FROM (SELECT 3 AS u) x",
+    "SELECT E'line\\n' AS text",
   ])
     assert.doesNotThrow(() => assertScopedSql(sql, false), sql);
 });
@@ -115,6 +124,13 @@ test("a service transaction cannot build a tenant scope by hand or end the trans
     "DISCARD ALL",
     "DO $$ BEGIN END $$",
     "SELECT 1; COMMIT",
+    // A reserved name must not pass as something else.
+    "SELECT set_config(U&'app.r\\006fle','owner',true)",
+    "SELECT set_config(E'app.r\\x6fle','owner',true)",
+    "SELECT set_config('app.'||'role','owner',true)",
+    "SELECT set_config('app.role'::text,'owner',true)",
+    "SELECT U&\"\\0073et_config\"('app.role','owner',true)",
+    "UPDATE pg_settings SET setting='owner' WHERE name='app.role'",
   ])
     rejected(() => assertServiceSql(sql));
   for (const sql of [

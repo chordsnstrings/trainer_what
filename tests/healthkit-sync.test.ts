@@ -1509,3 +1509,82 @@ test("export, erasure, workspace closure and the support view follow privacy rul
     0,
   );
 });
+
+test("companion device requests run only in the member's own scope, never an elevated one", async () => {
+  // docs/features/isolation.md: the device is found by the
+  // healthkit_device_for_token() definer in a workspace-bound service
+  // transaction; every tenant scope a companion request opens is the member's.
+  const tenantId = await workspace("Scope studio");
+  const owner = await person(tenantId, "owner"),
+    member = await person(tenantId);
+  await setPolicy(owner, "permitted_imports_and_sync");
+  const { deviceToken } = await pairDevice(member);
+  const actors: Actor[] = [];
+  const tenant = db.tenant;
+  db.tenant = ((actor, fn, options) => {
+    actors.push(actor);
+    return tenant(actor, fn, options);
+  }) as Database["tenant"];
+  try {
+    await ok("/healthkit/device/status", { token: deviceToken, origin: null });
+    await ok("/healthkit/device/samples", {
+      body: { batchId: "scope-" + randomUUID(), samples: fullDay(1).samples },
+      token: deviceToken,
+      origin: null,
+    });
+    // An unknown token in a real workspace is refused without any tenant scope.
+    const before = actors.length;
+    await expectCode(
+      "/healthkit/device/status",
+      {
+        token: "hk1." + tenantId + "." + newToken(),
+        origin: null,
+      },
+      401,
+      "DEVICE_TOKEN_INVALID",
+    );
+    assert.equal(actors.length, before);
+  } finally {
+    db.tenant = tenant;
+  }
+  assert.ok(actors.length >= 2, "the companion routes opened tenant scopes");
+  assert.deepEqual(
+    actors.filter(
+      (a) =>
+        a.elevation !== undefined ||
+        a.userId !== member.userId ||
+        a.role !== "subscriber",
+    ),
+    [],
+  );
+  // The lookup answers only inside a service transaction bound to the
+  // token's workspace.
+  const digest = tokenHash(deviceToken);
+  const other = await workspace("Other scope studio");
+  assert.equal(
+    (
+      await db.system(
+        (tx) =>
+          tx.query("SELECT * FROM healthkit_device_for_token($1)", [digest]),
+        { tenantId: other },
+      )
+    ).length,
+    0,
+  );
+  assert.equal(
+    (
+      await db.system(
+        (tx) =>
+          tx.query("SELECT * FROM healthkit_device_for_token($1)", [digest]),
+        { tenantId },
+      )
+    ).length,
+    1,
+  );
+  await assert.rejects(
+    db.system((tx) =>
+      tx.query("SELECT * FROM healthkit_device_for_token($1)", [digest]),
+    ),
+    (error: any) => error.code === "42501",
+  );
+});

@@ -816,6 +816,19 @@ test("one subscriber cannot exhaust the workspace's daily nutrition model allowa
         [randomUUID(), workerCoach.tenantId, randomUUID()],
       );
   });
+  // A current follower of that workspace: model_usage_today() answers the
+  // workspace-wide counts only to members (migration 061).
+  const follower = randomUUID();
+  await db.system(async (tx) => {
+    await tx.query(
+      "INSERT INTO users(id,name,email,password_hash) VALUES($1,'Ops allowance follower',$2,'fixture-unused')",
+      [follower, `ops-allowance-${follower}@example.test`],
+    );
+    await tx.query(
+      "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber')",
+      [workerCoach.tenantId, follower],
+    );
+  });
   process.env.MODEL_MAX_DAILY_CALLS = "10";
   try {
     await assert.rejects(
@@ -823,7 +836,7 @@ test("one subscriber cannot exhaust the workspace's daily nutrition model allowa
         db,
         {
           tenantId: workerCoach.tenantId,
-          userId: randomUUID(),
+          userId: follower,
           role: "subscriber",
         },
         "nutrition_week",

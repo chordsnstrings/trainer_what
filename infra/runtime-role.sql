@@ -76,3 +76,7 @@ ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 -- PUBLIC execute. The workspace-bound service tables (migration 061) need no
 -- new grants: row security narrows the existing ones.
 GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO trainer_service;
+-- Bearer-secret lookups for session-less follower requests (HealthKit device
+-- token, wearable OAuth relay): definer functions the service role calls in a
+-- workspace-bound service transaction instead of an elevated owner scope.
+GRANT EXECUTE ON FUNCTION healthkit_device_for_token(text),integration_oauth_relay(text,text) TO trainer_service;

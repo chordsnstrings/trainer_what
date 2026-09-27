@@ -14,6 +14,10 @@ import {
   type Database,
 } from "@trainer/db";
 import { applyMigrations } from "../packages/db/src/migrations.ts";
+import { privateKinds } from "../apps/api/src/privacy-lifecycle.ts";
+import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let db: Database;
 const A = randomUUID(),
@@ -79,7 +83,7 @@ before(async () => {
     if (!onPostgres) {
       await tx.query(`CREATE ROLE ${fixtureRole} NOLOGIN NOBYPASSRLS`);
       await tx.query(
-        `GRANT SELECT,INSERT,UPDATE,DELETE ON sessions,tenants,memberships,users,account_locks TO ${fixtureRole}`,
+        `GRANT SELECT,INSERT,UPDATE,DELETE ON sessions,one_time_tokens,tenants,memberships,users,account_locks TO ${fixtureRole}`,
       );
       await tx.query(`GRANT trainer_app TO ${fixtureRole}`);
       await tx.query(
@@ -308,6 +312,65 @@ test("the database itself refuses set_config and pg_settings changes to the tena
   }
 });
 
+test("an upgraded database keeps set_config for older releases until the tenant-scope step", async () => {
+  // Migration 061 revokes set_config only when every migration is applied in
+  // the same run (a fresh database). A database an older release has served
+  // keeps PUBLIC execute, because that release sets its scope after SET ROLE,
+  // until infra/tenant-scope.sql runs (host.py runtime_role).
+  const migrations = new URL("../packages/db/migrations/", import.meta.url);
+  const older = await mkdtemp(join(tmpdir(), "isolation-upgrade-"));
+  const pg = new PGlite();
+  const client = {
+    query: (sql: string, values?: any[]) => pg.query(sql, values),
+    exec: (sql: string) => pg.exec(sql),
+  };
+  const publicExecute = async () =>
+    (
+      await pg.query<any>(
+        "SELECT EXISTS(SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE p.oid='pg_catalog.set_config(text,text,boolean)'::regprocedure AND acl.grantee=0 AND acl.privilege_type='EXECUTE') AS e",
+      )
+    ).rows[0].e;
+  try {
+    for (const file of await readdir(migrations))
+      if (file.endsWith(".sql") && file < "061")
+        await cp(new URL(file, migrations), join(older, file));
+    await applyMigrations(client, older);
+    await pg.query(
+      "INSERT INTO tenants(id,slug,name) VALUES($1::uuid,$1::text,'Upgrade fixture')",
+      [randomUUID()],
+    );
+    const { applied } = await applyMigrations(client);
+    assert.deepEqual(
+      applied.filter((v) => v.startsWith("061")),
+      ["061_tenant_scope_isolation"],
+    );
+    assert.equal(await publicExecute(), true, "older releases keep working");
+    await pg.exec("CREATE ROLE trainer_service NOLOGIN");
+    await pg.exec(
+      await readFile(
+        new URL("../infra/tenant-scope.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.equal(await publicExecute(), false);
+  } finally {
+    await pg.close();
+    await rm(older, { recursive: true, force: true });
+  }
+});
+
+test("the personal export's fixed record kinds match the application's list", async () => {
+  const [fn] = await db.system((tx) =>
+    tx.query<{ src: string }>(
+      "SELECT prosrc AS src FROM pg_proc WHERE oid='personal_export_records(uuid)'::regprocedure",
+    ),
+  );
+  const list = /private_kinds text\[\] := ARRAY\[([^\]]*)\]/.exec(fn.src)?.[1];
+  assert.ok(list, "the function holds its own list");
+  const kinds = [...list.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...kinds].sort(), [...privateKinds].sort());
+});
+
 test("a service transaction bound to a workspace reads and writes only that workspace's service rows", async () => {
   const service = async <T>(
     fn: (tx: any) => Promise<T>,
@@ -386,6 +449,57 @@ test("a service transaction bound to a workspace reads and writes only that work
   );
 });
 
+test("a bound service statement without a tenant predicate reaches only its workspace; acrossWorkspaces lifts the binding for one step", async () => {
+  const service = <T>(fn: (tx: any) => Promise<T>, tenantId?: string) =>
+    db.system(
+      async (tx) => {
+        if (!onPostgres) await tx.query(`SET LOCAL ROLE ${fixtureRole}`);
+        return fn(tx);
+      },
+      tenantId ? { tenantId } : undefined,
+    );
+  const probe = { A: randomUUID(), B: randomUUID() };
+  await service((tx) =>
+    tx.query(
+      "INSERT INTO one_time_tokens(token_hash,user_id,tenant_id,purpose,expires_at) VALUES($1,$2,$3,'magic',now()+interval '1 hour'),($4,$5,$6,'magic',now()+interval '1 hour')",
+      [probe.A, ids.followerA, A, probe.B, ids.ownerB, B],
+    ),
+  );
+  const seen = await service(async (tx) => {
+    // A destructive step that forgot its tenant predicate.
+    await tx.query("DELETE FROM one_time_tokens WHERE token_hash=ANY($1)", [
+      [probe.A, probe.B],
+    ]);
+    const count = (t: any) =>
+      t
+        .query("SELECT count(*)::int AS n FROM memberships WHERE user_id=$1", [
+          ids.ownerB,
+        ])
+        .then((r: any[]) => r[0].n);
+    const bound = await count(tx);
+    // An account-level check that must see every workspace.
+    const across = await tx.acrossWorkspaces((t: any) => count(t));
+    const rebound = await count(tx);
+    return { bound, across, rebound };
+  }, A);
+  assert.deepEqual(seen, { bound: 0, across: 1, rebound: 0 });
+  const left = await service((tx) =>
+    tx.query("SELECT tenant_id FROM one_time_tokens WHERE token_hash=ANY($1)", [
+      [probe.A, probe.B],
+    ]),
+  );
+  assert.deepEqual(left, [{ tenant_id: B }]);
+  // Scopes do not mix with a lifted binding.
+  await assert.rejects(
+    service(
+      (tx) =>
+        tx.tenant(ownerA, () => tx.acrossWorkspaces(async () => undefined)),
+      A,
+    ),
+    scopeCode("SCOPE_ACTIVE"),
+  );
+});
+
 test("definer helpers validate the caller: a follower reaches only itself and aggregate counts", async () => {
   const denied = (actor: Actor, sql: string, values: any[] = []) =>
     assert.rejects(
@@ -400,9 +514,8 @@ test("definer helpers validate the caller: a follower reaches only itself and ag
     ["coaching"],
     ids.followerB,
   ]);
-  await denied(followerA, "SELECT * FROM personal_export_records($1,$2)", [
+  await denied(followerA, "SELECT * FROM personal_export_records($1)", [
     ids.followerB,
-    ["decision"],
   ]);
   for (const helper of [
     "personal_export_followups",

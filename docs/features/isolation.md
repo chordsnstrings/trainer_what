@@ -72,7 +72,8 @@ ran as owner/staff/finance:
 | Billing self-service (`finance-billing`) | finance | subscriber; `member_charges()`, `member_charge()` |
 | Model and voice budgets (`model-accounting`, guided voice) | owner | subscriber; `model_usage_today()`, `voice_guidance_spent_today()`, `guided_voice()` |
 | Nutrition, meal capture, leftovers, shopping (`nutrition*`, `meal-capture`) | owner | subscriber; catalog through `member_nutrition_foods/recipes/recipe_options/ingredients()`, confirmed nutrition material and purchase conversions through the subscriber policy |
-| Wearables and HealthKit (`healthkit-sync`, `integrations-completion`) | owner | subscriber; `coach_wearable_policy()`; worker jobs use `worker` |
+| Wearables and HealthKit (`healthkit-sync`, `integrations-completion`) | owner | subscriber; `coach_wearable_policy()`; the companion's device-token check uses `healthkit_device_for_token()` and the provider's OAuth redirect uses `integration_oauth_relay()`, both in a workspace-bound service transaction; only the worker's sync and maintenance jobs use `worker` |
+| Super admin voice and domain listings (`integrations-completion`) | owner (`worker`) | `platform-operator` with the operator's user id |
 | Personal export (`privacy-lifecycle`) | owner | subscriber; `personal_export_records/followups/usage/audit()`, `export_personal_chat_media()` for self |
 | Invitation acceptance (`joining`) | owner | the accepting member; `withdraw_accepted_invitation_emails()` |
 | First-paid acquisition read (`acquisition`) | finance with the payer's id | `provider-callback` (system user) |
@@ -102,9 +103,11 @@ them except `users(id,name,email)`, `memberships` and `domain_mappings` (`SELECT
 ### Database (`packages/db/migrations/061_tenant_scope_isolation.sql`)
 
 1. `set_config` is revoked from PUBLIC (and so from `trainer_app`) and granted to
-   `trainer_service`. On a database that already has workspaces the revoke is deferred to
-   `infra/tenant-scope.sql` (see Rollout), because releases before this one call
-   `set_config` after `SET ROLE`.
+   `trainer_service`, but only on a fresh database: the revoke runs when `001_initial` was
+   recorded in the same migration transaction (`applied_at = now()`; `applyMigrations`
+   applies every pending file in one transaction). On any database an older release has
+   served, the revoke is left to `infra/tenant-scope.sql` (see Rollout), because releases
+   before this one call `set_config` after `SET ROLE`.
 2. Definer helpers (all `SECURITY DEFINER`, `search_path` pinned to `pg_catalog,public`,
    arguments validated against the fixed scope, `EXECUTE` revoked from PUBLIC and granted to
    `trainer_app` only, returning only the columns their callers use): the notification,
@@ -112,12 +115,26 @@ them except `users(id,name,email)`, `memberships` and `domain_mappings` (`SELECT
    export, brand-erasure, nutrition catalog and coaching helpers named above, plus
    `workspace_member_role(uuid)` (a recipient's current role in the active workspace, for
    the outbox worker; a follower may ask only about itself). Each helper fails closed when
-   a scope setting is unset (explicit `NULL` checks or `coalesce`).
+   a scope setting is unset (explicit `NULL` checks or `coalesce`). Every helper that
+   returns workspace material or lets a subscriber address the coaching team
+   (`notification_recipient`, `enqueue_notification`, `notification_team`,
+   `booking_slot_taken`, `booking_fee_policy`, `checkout_promotion`, `model_usage_today`,
+   `voice_guidance_spent_today`, `guided_voice`, `coach_wearable_policy`,
+   `member_nutrition_*`, `member_material`) also requires a subscriber caller's current
+   membership: the db package admits a user without a membership as a subscriber of its own
+   rows, and such a scope gets no row, `NULL` or a 42501 refusal. Helpers about the caller's
+   own rows (charges, exit blockers, export, takeover flag, personal review) do not.
+   `personal_export_records(subject)` holds its fixed list of other-owned record kinds
+   (equal to `privateKinds` in `privacy-lifecycle.ts`, compared by a test) instead of taking
+   the list from the caller.
 3. Subscriber policies. `record_subscriber_scope` adds the follower's own billing intents
    and invoices, guided sessions and nutrition requests/favourites/leftovers/targets/open
-   nutrition exceptions, and the material its bookings and nutrition plans are served from
-   (booking policy, confirmed nutrition setup/policy/cases/sources/releases, active purchase
-   conversions, the product of its own subscription). Internal coaching reviews
+   nutrition exceptions, and, only while the subscriber has a current membership in the
+   workspace, the material its bookings and nutrition plans are served from (the active
+   booking policy, the saved nutrition setup, confirmed nutrition policy/cases/sources,
+   published/paused/needs-recheck releases, active purchase conversions, the product of its
+   own subscription). A subscriber scope without a membership sees published products and
+   its own rows only, as before 061. Internal coaching reviews
    (decisions, exceptions, takeovers), the coaching Brain (releases, actions, teaching,
    program templates) and held-out scenarios stay invisible, so the follower's
    `/bootstrap` and training listings do not show them. Also: a follower may not insert
@@ -127,13 +144,27 @@ them except `users(id,name,email)`, `memberships` and `domain_mappings` (`SELECT
    and its own usage rows are readable; `schema_migrations` is revoked from `trainer_app`.
 4. Service tables: `service_workspace_scope` (RLS enabled and forced) on the 14
    tenant-keyed service tables above and on `tenants`; `membership_scope` and
-   `domain_mapping_scope` gain the same service branch. `trainer_app` gets no row; a service
-   transaction bound with `db.system(fn, { tenantId })` (sets `app.service_tenant_id`) sees
-   and writes only that workspace; an unbound service transaction (a session lookup by token
-   hash, a provider object by external id) is unchanged.
+   `domain_mapping_scope` gain the same service branch. A service transaction bound with
+   `db.system(fn, { tenantId })` (sets `app.service_tenant_id`) sees and writes only that
+   workspace; `tx.acrossWorkspaces(fn)` lifts the binding for one explicitly
+   cross-workspace step in the same transaction. Binding is opt-in: 13 service
+   transactions use it (coach site, coaching follow-up delivery, two governance actions,
+   lifecycle messages, two onboarding steps, push delivery, retention, the HealthKit device
+   lookup, the wearable OAuth relay, workspace closure and member erasure); every other
+   service transaction (about 240 call sites: sign-in, sessions, joining, membership exit,
+   provider callbacks, operator tools and more) is unbound and keeps the pre-061 behaviour,
+   where its own `tenant_id` predicates are the only workspace limit. The `trainer_app`
+   branch of these policies adds nothing today, because `trainer_app` has no grant on the
+   14 tables; it only keeps an accidental future grant from exposing rows.
 5. `balanced_journal()` (the deferred ledger balance trigger) is a trigger-only definer: a
    deferred trigger fires at `COMMIT` as the role that queued it, after the db package has
    left a nested scope and cleared its settings.
+6. Bearer-secret lookups for session-less follower requests, executable by
+   `trainer_service` only (granted in `infra/runtime-role.sql`) and refused (42501) outside
+   a bound service transaction: `healthkit_device_for_token(token_hash)` returns a
+   companion device's id, workspace, member and status; `integration_oauth_relay(state_hash,
+   provider)` returns only the initiating origin of an unexpired, unused wearable OAuth
+   state. They replace the worker-elevated owner scope those two follower requests used.
 
 ### db package (`packages/db/src/index.ts`, `packages/db/src/scope.ts`)
 
@@ -150,10 +181,16 @@ them except `users(id,name,email)`, `memberships` and `domain_mappings` (`SELECT
   `SET`/`RESET`, no transaction control; savepoints only in a `db.tenant` transaction) and
   the extended query protocol. Service statements go through `assertServiceSql` (no
   hand-rolled scope, no reserved setting, no transaction control, no `SET ROLE trainer_app`,
-  no `SESSION AUTHORIZATION`).
+  no `SESSION AUTHORIZATION`; a `set_config` target counts as a literal only when it is one
+  plain string argument, so a parameter, an expression such as `'app.'||'role'`, a cast or
+  an `E''` string with escapes is refused). Both guards refuse any Unicode-escaped
+  identifier or string (`U&"\0073et_config"`) and any reference to `pg_settings`, so they
+  do not depend on the database revocation having been applied.
 - `tx.tenant()` on a service transaction enters and leaves a scope, blocks the service
   handle meanwhile and refuses nesting; `db.system(fn, { tenantId })` binds a service
-  transaction to one workspace and refuses a scope in another.
+  transaction to one workspace and refuses a scope in another; `tx.acrossWorkspaces(fn)`
+  lifts that binding for one explicitly cross-workspace step and restores it (refused
+  inside a tenant scope).
 - `putPrivateRecord()` writes a record without reading it back (follower-filed review
   items); `elevated()` and `actingAs()` build the only elevated actors.
 
@@ -169,11 +206,23 @@ is not the follower's own with the same 400 as before instead of revealing it.
 ### Infrastructure and CI
 
 - `infra/tenant-scope.sql` (new): revokes `set_config` from PUBLIC, grants it to
-  `trainer_service`. `infra/runtime-role.sql` grants it to `trainer_service`.
-- `infra/digitalocean/host.py` `runtime_role`: after the grants and the password step,
-  applies `release/infra/tenant-scope.sql` when the release has it
-  (`tests/test_host_deployment.py` covers the order and that no `set_config` is issued in
-  the role SQL itself).
+  `trainer_service`. `infra/runtime-role.sql` grants it to `trainer_service`, and grants
+  `EXECUTE` on the two bearer-secret lookups to `trainer_service`.
+- `infra/digitalocean/host.py`:
+  - `runtime_role(release, sha, serving)` receives the release that is serving (the one a
+    failed deployment restores). It appends `release/infra/tenant-scope.sql` only when
+    that serving release ships the file too (or nothing serves yet); while an older
+    release serves, for example after an operator rollback, it appends
+    `GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO PUBLIC` instead,
+    so the release that may be restored keeps working.
+  - `switch_release(target)` (operator rollback and return) restores that PUBLIC grant
+    before it starts a target without `infra/tenant-scope.sql`. The next deployment while a
+    scope-compatible release serves hardens the database again.
+  - `tests/test_host_deployment.py` covers the order of the role SQL, a deployment while a
+    pre-061 release serves after a rollback (the new release fails readiness: no revoke,
+    the PUBLIC grant is sent, the older release is restored), a deployment while a
+    compatible release serves (revoke sent) and a switch to a pre-061 release (grant sent
+    before its services start; none for a compatible one).
 - `scripts/prepare-ci-postgres.mjs` and `scripts/compose-smoke.sh` apply it after the
   runtime role, as a scope-compatible controller would.
 - `scripts/verify-runtime-access.mjs` additionally proves: every new helper is a definer,
@@ -185,21 +234,30 @@ is not the follower's own with the same 400 as before instead of revealing it.
   check with seeded rows); inside a real
   tenant scope `set_config('role'|'app.tenant_id'|'app.role', …)` fails with 42501 and the
   scope is unchanged; `schema_migrations`, `tenants`, `provider_objects` and
-  `provider_events` are unreadable by the tenant role.
+  `provider_events` are unreadable by the tenant role; the two bearer-secret lookups are
+  definers executable by `trainer_service` only (not `trainer_app`, not PUBLIC) and refuse
+  an unbound service transaction.
 
 ## Rollout
 
 - Migration 061 runs while the previous release still serves. It changes nothing the
-  previous release depends on: the `set_config` revoke is skipped on a database with
-  workspaces, the new service-table policies admit unbound service transactions (the
-  previous release's only kind), subscriber policies only widen what a subscriber scope may
-  read (except the insert/update guards on `subscriptions`, which the previous release's
-  follower paths did not perform as subscriber), and `balanced_journal()` behaves the same.
+  previous release depends on: the `set_config` revoke is skipped on any database that
+  existed before this migration run, the new service-table policies admit unbound service
+  transactions (the previous release's only kind), subscriber policies only widen what a
+  subscriber scope may read (except the insert/update guards on `subscriptions`, which the
+  previous release's follower paths did not perform as subscriber), and
+  `balanced_journal()` behaves the same.
 - The database-level `set_config` revoke on the live database is applied by the controller's
   `runtime_role` step from `infra/tenant-scope.sql`. The controller that deploys this
   release is the previous release's copy and skips the step; the first deployment after
-  this release is serving applies it. Until then the application-side guard and the
-  extended protocol are the protection. No new secret, manual step or login role is needed.
+  this release is serving applies it, and only while the serving release (the restore
+  target of that deployment) is scope-compatible. After an operator rollback to a pre-061
+  release, `switch_release` restores the PUBLIC grant before that release starts and
+  deployments keep it until a scope-compatible release serves again. Until the revoke
+  applies, the application-side guard (which now also refuses `U&` spellings and
+  `pg_settings`) and the extended protocol are the protection. No new secret, manual step
+  or login role is needed; the bearer-secret lookup grants arrive with the release's own
+  `infra/runtime-role.sql`, which every controller applies before the new services start.
 
 ## Tests actually run
 
@@ -263,6 +321,128 @@ refused at scope entry with `ACTOR_ROLE_MISMATCH` as well as by the route's own
 `WORKSPACE_CHANGED` recheck (`tests/coaching-history-search.test.ts`,
 `tests/source-review-notifications.test.ts` accept either).
 
+## Adversarial review fixes (second pass)
+
+An adversarial review of commit `1d3203f` reported three major and three minor findings.
+What changed for each:
+
+1. **Non-member subscriber scopes reached workspace material (major, regression).** The db
+   package admits a user without a membership as a subscriber of its own rows (former
+   members' account and exit paths), and 061's shared-material branches and member-facing
+   helpers checked only `app.role`. Now every shared-material branch of
+   `record_subscriber_scope` sits under `EXISTS(current membership)`, `booking_policy` is
+   readable only when `active` and `nutrition_setup` only when `saved`/`active` (never a
+   draft), and every material or team-addressing helper requires a subscriber caller's
+   membership (list in "What changed", item 2). The db package still admits the non-member
+   subscriber scope; with the database check that scope reaches its own rows and published
+   products only, as at the base commit. New test in `tests/isolation-follower.test.ts`: a
+   non-member subscriber scope in the coach's workspace reads none of ten shared kinds,
+   gets no team, fee policy, coupon, wearable policy, voice, taken seats, foods or
+   recipient, cannot enqueue a team notice, and `member_material()`/`model_usage_today()`
+   refuse it with 42501; a current follower still gets each answer. The test failed on the
+   previous 061 (checked by running it against `git show HEAD:…/061…sql`).
+2. **Rollout after an operator rollback (major).** `runtime_role` now takes the serving
+   release and applies the revoke only when that release is scope-compatible; otherwise it
+   restores the PUBLIC grant, and `switch_release` restores it before starting a pre-061
+   release (details under "Infrastructure and CI"). Migration 061 itself now revokes only
+   on a fresh database (all migrations in one run) instead of "no workspaces yet", so a
+   live database without workspaces is not hardened while the previous release serves.
+   New Python tests (three in `tests/test_host_deployment.py`) and a PGlite test that an
+   upgraded database keeps the PUBLIC grant until `infra/tenant-scope.sql` runs.
+3. **Follower requests under the `worker` elevation (major).** The HealthKit companion's
+   token check and the wearable OAuth redirect no longer open a tenant scope before the
+   member is known: they call `healthkit_device_for_token()` and
+   `integration_oauth_relay()` in a service transaction bound to the credential's
+   workspace, then continue in the member's own subscriber scope (or, for the relay, only
+   redirect). The Super admin voice and domain listings use `platform-operator` with the
+   operator's user id. Tests spy on `db.tenant`/`db.system` during the companion's
+   status and upload calls (every scope is the member's own subscriber scope, an unknown
+   token opens none) and during the OAuth relay (no tenant scope, the service transaction
+   bound to the state's workspace); the lookup returns nothing when bound to another
+   workspace and refuses an unbound transaction. `ELEVATIONS.worker.usedBy` keeps
+   `healthkit-sync.ts` and `integrations-completion.ts`, because their worker jobs
+   (`maintainHealthKitSync`, `processIntegrationJobs`) still use it; the allowlist test
+   stays file-granular, so the spy tests are what pins the two follower routes.
+4. **`U&` spellings passed the guard (minor).** Both guards refuse Unicode-escaped
+   identifiers and strings and any `pg_settings` reference; the service guard also stops
+   trusting a `set_config` target that is not one plain string literal. New cases in
+   `tests/isolation-guard.test.ts`, including the reviewer's
+   `SELECT U&"\0073et_config"('app.role','owner',true)`.
+5. **Workspace binding opt-in and inaccurate doc (minor).** Workspace closure and member
+   erasure now run bound to their workspace; their account scrub and visitor analytics
+   erasure run inside `tx.acrossWorkspaces()`, because both must see other workspaces (a
+   person's other memberships and sessions; a visitor's rows whose `tenant_id` is another
+   workspace or empty). On PostgreSQL, a negative control (the closure with the scrub left
+   bound, in a scratch copy) failed the new test exactly as expected: the account of a
+   person still following workspace B was scrubbed. New tests: the closure's service
+   transaction is bound to the closing workspace, B's sessions and links survive, only the
+   account left without a membership is scrubbed (`tests/privacy-lifecycle.test.ts`); a
+   bound `DELETE` without a tenant predicate removes only the bound workspace's link, and
+   `acrossWorkspaces` sees and then re-hides another workspace's membership
+   (`tests/isolation-scope.test.ts`). The description of unbound transactions and of the
+   `trainer_app` branch was corrected (item 4 of "What changed").
+6. **`personal_export_records()` took its kinds from the caller (minor).** The function now
+   takes only the subject and holds the fixed list; a test compares it with
+   `privateKinds` in `privacy-lifecycle.ts`.
+
+One existing fixture changed: `tests/fix-nutrition-ops.test.ts` checked the workspace
+model allowance with a random, non-member user id as a subscriber; `model_usage_today()`
+now refuses that scope (42501), so the test uses a real follower of that workspace. The
+production callers reach model accounting only after their own membership checks.
+
+Second-pass runs (all in the worktree, `export PATH=/opt/node24/bin:$PATH`):
+
+- `npx tsc --noEmit`: no errors.
+- `python3 -m unittest tests/test_host_deployment.py`: 38 tests, OK.
+  `python3 -m unittest tests/test_hostops_deployment.py`: 45 tests, OK (1 skipped: Caddy
+  is not installed here).
+- PGlite, targeted: `node --import tsx --test --test-concurrency=2
+  tests/isolation-guard.test.ts tests/isolation-elevation.test.ts
+  tests/isolation-scope.test.ts tests/isolation-follower.test.ts
+  tests/privacy-lifecycle.test.ts tests/healthkit-sync.test.ts
+  tests/integrations-completion.test.ts tests/accounts-membership-exit.test.ts
+  tests/coaching-runtime.test.ts tests/platform.test.ts`: 107 tests, 107 pass, 0 fail.
+- PostgreSQL, targeted: `/opt/tools/pg-sandbox.sh 56121 <worktree>
+  tests/isolation-scope.test.ts tests/isolation-follower.test.ts
+  tests/isolation-guard.test.ts tests/isolation-elevation.test.ts
+  tests/privacy-lifecycle.test.ts tests/healthkit-sync.test.ts
+  tests/integrations-completion.test.ts`: verifier
+  `{"runtimeAccess":"verified","migrations":53,"systemTables":52,"scopedTables":37,"helpers":40,"serviceLookups":2,"workspaceBoundServiceTables":17,"tenantScopeFixed":true}`;
+  7 files, 56 tests, 56 pass, `PG_SELECTED_FAILED_FILES=0`.
+- PostgreSQL negative control (scratch copy of the worktree with the closure's account
+  scrub left bound): `tests/privacy-lifecycle.test.ts` 9 tests, 8 pass, 1 fail (the new
+  closure test: the shared follower's account was scrubbed), as expected. The copy was
+  deleted.
+- PostgreSQL, whole suite once: `/opt/tools/pg-sandbox.sh 56121 <worktree>` (no file
+  arguments), 4 min 38 s: verifier as above; 91 files, 687 tests, 684 pass, 1 fail,
+  0 cancelled, 2 skipped; `PostgreSQL test files failed: 1`. The failure was the
+  `fix-nutrition-ops` fixture above; after the fixture change,
+  `/opt/tools/pg-sandbox.sh 56121 <worktree> tests/fix-nutrition-ops.test.ts`: 8 tests,
+  8 pass, `PG_SELECTED_FAILED_FILES=0`, and on PGlite `node --import tsx --test
+  tests/fix-nutrition-ops.test.ts`: 8 tests, 8 pass. The whole PostgreSQL suite was not run
+  again after that test-only change.
+- PGlite, whole suite once after the fixture change: `npm test` (`node --import tsx --test
+  --test-concurrency=1 tests/*.test.ts`), 8 min 41 s: 687 tests, 686 pass, 0 fail,
+  0 cancelled, 1 skipped (the PostgreSQL-only race test), exit 0.
+
+Declined after checking:
+
+- **Binding the `provider_objects` writes in `stripe-events.ts` and
+  `finance-bookings.ts`.** Both write paths first read the existing mapping for the
+  external id and refuse it when it belongs to another workspace or member
+  (`Conflicting provider object ownership`, `PAYMENT_OWNER_CONFLICT`). A transaction bound
+  to the resolved workspace would hide exactly that conflicting row, and
+  `INSERT … ON CONFLICT DO NOTHING` would then skip silently, turning a refused
+  cross-workspace payment mapping into a quiet no-op. They stay unbound; every statement
+  there carries its external id and workspace explicitly.
+- **Binding membership exit.** It deliberately works across workspaces (it finds the
+  person's next membership and opens a session there), so it stays unbound.
+- **Refusing non-member subscriber scopes in the db package.** The database now enforces
+  the membership rule for every shared read, and several real paths (rejoin checks, account
+  emails and audit for former members, integration revocation, HealthKit error notes) rely
+  on a former member's own-row scope; a package-level refusal would need an allowlist of
+  those paths without adding protection the database does not already give.
+
 ## Remaining limits
 
 - PostgreSQL has no per-role privilege for `SET ROLE`/`RESET ROLE` or for `SET` of a custom
@@ -273,7 +453,13 @@ refused at scope entry with `ACTOR_ROLE_MISMATCH` as well as by the route's own
   the function forms (`set_config`, `UPDATE pg_settings`) that a single injected data
   statement could use.
 - The live database gets the `set_config` revoke only from the deployment after this
-  release is serving (see Rollout).
+  release is serving, and loses it again while an operator rollback serves a pre-061
+  release (see Rollout).
+- Workspace binding covers 13 service transactions; the other service transactions
+  (about 240) rely on their own `tenant_id` predicates as before.
+- The elevation allowlist is file-granular: `healthkit-sync.ts` and
+  `integrations-completion.ts` are listed for `worker` because of their background jobs;
+  spy tests, not the allowlist, pin their follower routes to the member's own scope.
 - Definer helpers and `service_workspace_scope` rely on the migration owner being a
   superuser (as the existing helpers do), because the tables force row security.
 - A follower's scope can read the confirmed nutrition material and purchase conversions its

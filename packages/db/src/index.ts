@@ -88,6 +88,14 @@ export type SystemTx = Tx & {
     fn: (tx: Tx) => Promise<T>,
     options?: ScopeOptions,
   ) => Promise<T>;
+  /**
+   * Runs fn with this transaction's workspace binding lifted, in the same
+   * transaction: only for a step that is cross-workspace by design (an
+   * account-level scrub that must see the person's other memberships, a
+   * visitor's analytics erasure). A no-op wrapper when the transaction is
+   * unbound.
+   */
+  acrossWorkspaces: <T>(fn: (tx: SystemTx) => Promise<T>) => Promise<T>;
 };
 export type SystemOptions = {
   /** Binds service-table row security to one workspace (app.service_tenant_id). */
@@ -178,6 +186,7 @@ export async function createDatabase(
           : client.query(sql, values))
       ).rows as any[];
     const bound = systemOptions.tenantId;
+    let lifted = false;
     let scoped = false;
     let broken: Error | null = null;
     const usable = () => {
@@ -281,6 +290,34 @@ export async function createDatabase(
         } finally {
           scoped = false;
         }
+      },
+      acrossWorkspaces: async (inner) => {
+        usable();
+        if (scoped)
+          throw new ScopeError(
+            "SCOPE_ACTIVE",
+            "Leave the tenant scope before lifting the workspace binding",
+            500,
+          );
+        if (!bound || lifted) return inner(systemTx);
+        const rebind = () =>
+          raw("SELECT set_config('app.service_tenant_id',$1,true)", [bound]);
+        await raw("SELECT set_config('app.service_tenant_id','',true)");
+        lifted = true;
+        let result;
+        try {
+          result = await inner(systemTx);
+        } catch (error) {
+          lifted = false;
+          // An aborted transaction rolls back anyway; nothing else may use it.
+          await rebind().catch(() => {
+            broken = error as Error;
+          });
+          throw error;
+        }
+        lifted = false;
+        await rebind();
+        return result;
       },
     };
     try {

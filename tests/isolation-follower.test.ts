@@ -239,10 +239,10 @@ test("the helpers that replaced elevated follower paths answer for the follower 
   );
   // Personal export: the private kinds are A's own.
   const exported = await ctx.db.tenant(actorA, (tx) =>
-    tx.query("SELECT kind FROM personal_export_records($1,$2)", [
-      a.userId,
-      ["decision", "exception", "takeover"],
-    ]),
+    tx.query(
+      "SELECT kind FROM personal_export_records($1) WHERE kind=ANY($2::text[])",
+      [a.userId, ["decision", "exception", "takeover"]],
+    ),
   );
   assert.deepEqual(exported.map((r: any) => r.kind).sort(), [
     "decision",
@@ -296,4 +296,180 @@ test("follower-facing listings carry no other follower's rows, internal reviews 
   );
   const exit = ok(await ctx.call("/membership/leave", { cookie: a.cookie }));
   assert.deepEqual(exit.blockers, []);
+});
+
+test("a subscriber scope without a membership reads no workspace material and the member helpers refuse it", async () => {
+  // The db package admits a user without a membership as a subscriber of its
+  // own rows (a former member's account and exit paths). Such a scope in the
+  // coach's workspace must not reach the material a current follower's
+  // bookings, nutrition plans, notices and coaching requests are served from.
+  const tenantId = trainer.tenantId;
+  const outsider = await ctx.person({ role: "subscriber" });
+  const stranger: Actor = {
+    tenantId,
+    userId: outsider.userId,
+    role: "subscriber",
+  };
+  const productId = randomUUID();
+  await ctx.db.tenant(
+    elevated("worker", { tenantId, role: "owner" }),
+    async (tx) => {
+      const coach = { tenantId, userId: trainer.userId, role: "owner" };
+      const past = new Date(Date.now() - 86400000).toISOString();
+      const future = new Date(Date.now() + 86400000).toISOString();
+      for (const [kind, status, data] of [
+        ["booking_policy", "active", { cancellationHours: 12 }],
+        ["nutrition_setup", "draft", { enabled: true }],
+        ["nutrition_policy", "confirmed", {}],
+        ["nutrition_case", "confirmed", {}],
+        ["nutrition_source", "confirmed", {}],
+        ["nutrition_release", "published", {}],
+        ["nutrition_purchase_spec", "active", {}],
+        [
+          "onboarding_step",
+          "saved",
+          { step: "wearables", values: { policy: "fixture_policy" } },
+        ],
+        [
+          "finance_policy",
+          "published",
+          { bookingFeeBps: 250, effectiveAt: past },
+        ],
+        [
+          "promotion",
+          "published",
+          {
+            code: "ISOLATION",
+            productId,
+            couponId: "coupon_fixture",
+            expiresAt: future,
+          },
+        ],
+      ] as const)
+        await putRecord(
+          tx,
+          coach,
+          kind,
+          { fixture: true, ...data },
+          { status },
+        );
+      await tx.query(
+        "INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider_voice_id,consent_version) VALUES($1,$2,$3,'verified','voice_fixture','fixture')",
+        [randomUUID(), tenantId, trainer.userId],
+      );
+      await tx.query(
+        "INSERT INTO nutrition_foods(id,tenant_id,name,preparation,nutrients,allergens,ingredient_tags,allergen_review_complete,estimated,source) VALUES($1,$2,'Fixture oats','raw','{}','[]','[]',true,false,'fixture')",
+        [randomUUID(), tenantId],
+      );
+    },
+  );
+  const shared = [
+    "booking_policy",
+    "nutrition_setup",
+    "nutrition_policy",
+    "nutrition_case",
+    "nutrition_source",
+    "nutrition_release",
+    "nutrition_purchase_spec",
+    "onboarding_step",
+    "finance_policy",
+    "promotion",
+  ];
+  const kinds = (actor: Actor) =>
+    ctx.db
+      .tenant(actor, (tx) =>
+        tx.query<{ kind: string }>(
+          "SELECT kind FROM records WHERE kind=ANY($1::text[]) ORDER BY kind",
+          [shared],
+        ),
+      )
+      .then((rows) => rows.map((r) => r.kind));
+  // A current follower reads what its requests are served from (never a draft
+  // setup, the finance policy, promotions or the coach's onboarding steps)...
+  assert.deepEqual(await kinds(actorA), [
+    "booking_policy",
+    "nutrition_case",
+    "nutrition_policy",
+    "nutrition_purchase_spec",
+    "nutrition_release",
+    "nutrition_source",
+  ]);
+  // ...a scope without a membership reads none of it.
+  assert.deepEqual(await kinds(stranger), []);
+
+  const answers = (actor: Actor) =>
+    ctx.db.tenant(actor, async (tx) => {
+      const one = async (sql: string, values: any[] = []) =>
+        (await tx.query(sql, values))[0];
+      return {
+        team: (await tx.query("SELECT * FROM notification_team()")).length,
+        fee: (await tx.query("SELECT * FROM booking_fee_policy()")).length,
+        coupon: (
+          await one("SELECT checkout_promotion($1,$2) AS c", [
+            "ISOLATION",
+            productId,
+          ])
+        ).c,
+        wearable: (await one("SELECT coach_wearable_policy() AS p")).p,
+        voice: (await tx.query("SELECT * FROM guided_voice()")).length,
+        taken: (await one("SELECT booking_slot_taken($1) AS n", [slotId])).n,
+        foods: (await tx.query("SELECT * FROM member_nutrition_foods()"))
+          .length,
+        recipient: (
+          await tx.query(
+            "SELECT permitted FROM notification_recipient($1,'safety',NULL)",
+            [trainer.userId],
+          )
+        ).length,
+      };
+    });
+  assert.deepEqual(await answers(actorA), {
+    team: 1,
+    fee: 1,
+    coupon: "coupon_fixture",
+    wearable: "fixture_policy",
+    voice: 1,
+    taken: 1,
+    foods: 1,
+    recipient: 1,
+  });
+  assert.deepEqual(await answers(stranger), {
+    team: 0,
+    fee: 0,
+    coupon: null,
+    wearable: null,
+    voice: 0,
+    taken: 0,
+    foods: 0,
+    recipient: 0,
+  });
+  // A stranger cannot address the coaching team either.
+  const queued = await ctx.db.tenant(stranger, (tx) =>
+    tx.query(
+      "SELECT enqueue_notification($1,$2,'safety','iso-stranger','Title','Body','','suppressed','{}') AS id",
+      [randomUUID(), trainer.userId],
+    ),
+  );
+  assert.equal(queued[0].id, null);
+  for (const sql of [
+    "SELECT * FROM member_material('brain_release')",
+    "SELECT * FROM member_material('coaching_teaching')",
+    "SELECT * FROM model_usage_today(ARRAY['coaching'],'" +
+      outsider.userId +
+      "')",
+  ])
+    await assert.rejects(
+      ctx.db.tenant(stranger, (tx) => tx.query(sql)),
+      (error: any) => error.code === "42501",
+      sql,
+    );
+  // The material itself is there for a current follower.
+  assert.equal(
+    (
+      await ctx.db.tenant(actorA, (tx) =>
+        tx.query("SELECT id FROM member_material('coaching_teaching')"),
+      )
+    ).length,
+    1,
+  );
 });

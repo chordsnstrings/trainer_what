@@ -4,12 +4,15 @@
 --    a tenant scope can change role, app.tenant_id, app.user_id, app.role or
 --    any other setting (UPDATE pg_settings calls set_config too). The service
 --    role keeps it for scope entry. Releases before this one called set_config
---    after SET ROLE, so a database that already has workspaces keeps PUBLIC
---    execute here; infra/tenant-scope.sql revokes it once the release that runs
---    the deployment is scope-compatible (controller runtime-role step), and CI
---    applies it to its fresh databases.
+--    after SET ROLE, so any database that an older release has run on keeps
+--    PUBLIC execute here: the revoke runs only when every migration, 001
+--    included, is being applied in this same transaction (packages/db
+--    applyMigrations runs all pending files in one transaction). On an
+--    existing database infra/tenant-scope.sql revokes it once the serving
+--    release is scope-compatible (controller runtime-role step); CI applies it
+--    to its fresh databases.
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM tenants) THEN
+  IF (SELECT applied_at FROM schema_migrations WHERE version='001_initial') = now() THEN
     REVOKE EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) FROM PUBLIC;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='trainer_service') THEN
@@ -21,6 +24,12 @@ END $$;
 --    the fixed scope (app.tenant_id/app.user_id/app.role, unchangeable by the
 --    tenant role after step 1), validates its arguments, returns only the
 --    columns its caller needs and is executable by trainer_app only.
+--
+--    The db package admits a user without a membership as a subscriber of its
+--    own rows (a former member's account and exit paths), so every helper that
+--    returns workspace material, or lets a subscriber address the coaching
+--    team, also requires the subscriber caller's current membership; helpers
+--    about the caller's own rows do not.
 
 -- Notifications: a sender addresses a member of its own workspace. A follower
 -- may address themselves, or its coaching team (owner/staff) with a safety or
@@ -36,6 +45,8 @@ DECLARE
 BEGIN
  IF tid IS NULL OR caller_role IS NULL OR caller_role NOT IN ('owner','staff','finance','subscriber') THEN
   RAISE EXCEPTION 'Notification scope required' USING ERRCODE='42501'; END IF;
+ IF caller_role='subscriber' AND NOT EXISTS(SELECT 1 FROM public.memberships c WHERE c.tenant_id=tid AND c.user_id=caller) THEN
+  RETURN; END IF;
  SELECT u.email,u.name,m.role INTO target FROM public.memberships m JOIN public.users u ON u.id=m.user_id
   WHERE m.tenant_id=tid AND m.user_id=recipient;
  IF NOT FOUND THEN RETURN; END IF;
@@ -67,6 +78,8 @@ BEGIN
   RAISE EXCEPTION 'Notification scope required' USING ERRCODE='42501'; END IF;
  IF notice_email_status IS NULL OR notice_email_status NOT IN ('pending','suppressed') THEN
   RAISE EXCEPTION 'Invalid notification email status' USING ERRCODE='22023'; END IF;
+ IF caller_role='subscriber' AND NOT EXISTS(SELECT 1 FROM public.memberships c WHERE c.tenant_id=tid AND c.user_id=caller) THEN
+  RETURN NULL; END IF;
  SELECT m.role INTO target_role FROM public.memberships m WHERE m.tenant_id=tid AND m.user_id=recipient;
  IF target_role IS NULL THEN RETURN NULL; END IF;
  IF caller_role='subscriber' AND recipient IS DISTINCT FROM caller
@@ -83,7 +96,9 @@ CREATE FUNCTION notification_team() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT m.user_id FROM public.memberships m
  WHERE m.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND m.role IN ('owner','staff')
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber')
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)))
  ORDER BY m.user_id;
 $$;
 
@@ -129,14 +144,18 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT count(*)::int FROM public.bookings b
  WHERE b.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND b.slot_id=slot
  AND (b.status='confirmed' OR (b.status='payment_pending' AND b.hold_expires_at>now()))
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber');
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)));
 $$;
 CREATE FUNCTION booking_fee_policy() RETURNS TABLE(policy_id text, booking_fee_bps integer)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT r.id::text,coalesce((r.data->>'bookingFeeBps')::int,0) FROM public.records r
  WHERE r.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND r.kind='finance_policy'
  AND r.status='published' AND (r.data->>'effectiveAt')::timestamptz<=now()
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber')
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)))
  ORDER BY (r.data->>'effectiveAt')::timestamptz DESC,r.created_at DESC LIMIT 1;
 $$;
 
@@ -147,7 +166,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT r.data->>'couponId' FROM public.records r
  WHERE r.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND r.kind='promotion' AND r.status='published'
  AND r.data->>'code'=promotion_code AND r.data->>'productId'=product::text AND (r.data->>'expiresAt')::timestamptz>now()
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber')
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)))
  ORDER BY r.created_at DESC,r.id DESC LIMIT 1;
 $$;
 
@@ -186,7 +207,9 @@ DECLARE
  caller_role text := current_setting('app.role',true);
 BEGIN
  IF tid IS NULL OR caller_role IS NULL OR caller_role NOT IN ('owner','staff','finance','subscriber')
-  OR (caller_role='subscriber' AND member IS DISTINCT FROM nullif(current_setting('app.user_id',true),'')::uuid) THEN
+  OR (caller_role='subscriber' AND (member IS DISTINCT FROM nullif(current_setting('app.user_id',true),'')::uuid
+   OR NOT EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid))) THEN
   RAISE EXCEPTION 'Model usage counts are limited to the caller' USING ERRCODE='42501'; END IF;
  RETURN QUERY SELECT count(*)::int,count(*) FILTER (WHERE c.task=ANY(capped_tasks))::int,
   count(*) FILTER (WHERE c.user_id=member AND c.task=ANY(capped_tasks))::int
@@ -198,7 +221,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT coalesce(sum(coalesce(c.cost_usd,(c.pricing->>'reservedCostUsd')::numeric)),0) FROM public.cost_events c
  WHERE c.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND c.task='voice.guidance'
  AND c.created_at>=date_trunc('day',now())
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber');
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)));
 $$;
 -- Guided sessions: the verified trainer voice's playback facts (never the
 -- sample) and whether the trainer's latest voice consent is granted.
@@ -210,14 +235,18 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
   ORDER BY c.created_at DESC,c.id DESC LIMIT 1),false)
  FROM public.trainer_voices v
  WHERE v.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND v.status='verified'
- AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber');
+ AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)));
 $$;
 -- The coach's saved wearable policy value, for any member of the workspace.
 CREATE FUNCTION coach_wearable_policy() RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT CASE WHEN r.status='saved' THEN r.data->'values'->>'policy' END FROM public.records r
  WHERE r.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND r.kind='onboarding_step'
- AND r.data->>'step'='wearables' AND current_setting('app.role',true) IN ('owner','staff','finance','subscriber')
+ AND r.data->>'step'='wearables' AND (current_setting('app.role',true) IN ('owner','staff','finance') OR (current_setting('app.role',true)='subscriber'
+  AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)))
  ORDER BY r.updated_at DESC,r.id DESC LIMIT 1;
 $$;
 
@@ -242,10 +271,23 @@ END $$;
 -- Privacy: a member's own export reads rows its scope omits (internal
 -- decisions derived from its data, scheduled follow-ups, usage and audit
 -- references), strictly about the requesting member.
-CREATE FUNCTION personal_export_records(subject uuid, private_kinds text[])
+-- The kinds of other-owned records that name the member in data.userId,
+-- data.subscriberId or data.clientId (internal reviews about it, its
+-- scheduled plans): fixed here, equal to privateKinds in
+-- apps/api/src/privacy-lifecycle.ts (tests/isolation-scope.test.ts compares
+-- them), so no caller can widen the export to other kinds.
+CREATE FUNCTION personal_export_records(subject uuid)
 RETURNS TABLE(id uuid, kind text, status text, version integer, data jsonb, created_at timestamptz, updated_at timestamptz)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE tid uuid := nullif(current_setting('app.tenant_id',true),'')::uuid;
+DECLARE
+ tid uuid := nullif(current_setting('app.tenant_id',true),'')::uuid;
+ private_kinds text[] := ARRAY[
+ 'intake','program','workout','message','exception','decision','takeover','preferences','settings','wearable',
+ 'twin_snapshot','support','checkout','training_plan','training_schedule','training_session',
+ 'planned_session','safety_hold','workout_correction','progress_measurement','nutrition_profile',
+ 'nutrition_plan','nutrition_log','nutrition_checkin','nutrition_twin','nutrition_pantry','nutrition_request',
+ 'nutrition_exception','nutrition_target','nutrition_favorite','nutrition_leftover','nutrition_plan_edit',
+ 'nutrition_recovery','guided_session'];
 BEGIN
  IF tid IS NULL OR subject IS NULL OR subject IS DISTINCT FROM nullif(current_setting('app.user_id',true),'')::uuid THEN
   RAISE EXCEPTION 'A personal export covers only the requesting member' USING ERRCODE='42501'; END IF;
@@ -326,13 +368,13 @@ END $$;
 REVOKE ALL ON FUNCTION notification_recipient(uuid,text,text),enqueue_notification(uuid,uuid,text,text,text,text,text,text,jsonb),
  notification_team(),membership_exit_blockers(uuid),booking_slot_taken(uuid),booking_fee_policy(),
  checkout_promotion(text,uuid),member_charges(),member_charge(text),model_usage_today(text[],uuid),voice_guidance_spent_today(),
- guided_voice(),coach_wearable_policy(),withdraw_accepted_invitation_emails(uuid,text),personal_export_records(uuid,text[]),
+ guided_voice(),coach_wearable_policy(),withdraw_accepted_invitation_emails(uuid,text),personal_export_records(uuid),
  personal_export_followups(uuid),personal_export_usage(uuid),personal_export_audit(uuid),export_personal_chat_media(uuid),
  erase_brand_theme_media(text[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION notification_recipient(uuid,text,text),enqueue_notification(uuid,uuid,text,text,text,text,text,text,jsonb),
  notification_team(),membership_exit_blockers(uuid),booking_slot_taken(uuid),booking_fee_policy(),
  checkout_promotion(text,uuid),member_charges(),member_charge(text),model_usage_today(text[],uuid),voice_guidance_spent_today(),
- guided_voice(),coach_wearable_policy(),withdraw_accepted_invitation_emails(uuid,text),personal_export_records(uuid,text[]),
+ guided_voice(),coach_wearable_policy(),withdraw_accepted_invitation_emails(uuid,text),personal_export_records(uuid),
  personal_export_followups(uuid),personal_export_usage(uuid),personal_export_audit(uuid),export_personal_chat_media(uuid),
  erase_brand_theme_media(text[]) TO trainer_app;
 
@@ -359,10 +401,13 @@ REVOKE ALL ON FUNCTION balanced_journal() FROM PUBLIC;
 -- (its billing intents and invoices, guided sessions and nutrition requests,
 -- favourites, leftovers, targets and open nutrition exceptions, which its
 -- nutrition view shows), and the workspace material that its bookings and
--- nutrition plans are served from: published products and the product of its
--- own subscription, the booking policy, and the confirmed nutrition setup,
--- policy, cases, sources, releases and active purchase conversions (no
--- follower listing returns nutrition_* material). Internal coaching reviews
+-- nutrition plans are served from, while it is a current member: the product
+-- of its own subscription, the active booking policy, the saved nutrition
+-- setup, and the confirmed nutrition policy, cases, sources, releases and
+-- active purchase conversions (no follower listing returns nutrition_*
+-- material). A subscriber scope without a membership (the db package admits
+-- one for a former member's own rows) sees published products and its own
+-- rows only, as before this migration. Internal coaching reviews
 -- (decisions, exceptions, takeovers), the coaching Brain (releases, actions,
 -- teaching, program templates), held-out scenarios, drafts and other members'
 -- rows stay invisible; follower coaching requests use the member_* helpers
@@ -378,12 +423,15 @@ ALTER POLICY record_subscriber_scope ON records USING (
    'nutrition_request','nutrition_exception','nutrition_favorite','nutrition_leftover','nutrition_target','nutrition_recovery',
    'nutrition_plan_edit','guided_session') AND
   (kind<>'message' OR status='sent')) OR
- kind IN ('booking_policy','nutrition_setup') OR
- (kind IN ('nutrition_policy','nutrition_case','nutrition_source') AND status='confirmed') OR
- (kind='nutrition_release' AND status IN ('published','paused','needs_recheck')) OR
- (kind='nutrition_purchase_spec' AND status='active') OR
- (kind='product' AND EXISTS (SELECT 1 FROM public.subscriptions s WHERE s.tenant_id=records.tenant_id
-  AND s.user_id=nullif(current_setting('app.user_id',true),'')::uuid AND s.data->>'productId'=records.id::text))
+ (EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+   AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid) AND (
+  (kind='booking_policy' AND status='active') OR
+  (kind='nutrition_setup' AND status IN ('saved','active')) OR
+  (kind IN ('nutrition_policy','nutrition_case','nutrition_source') AND status='confirmed') OR
+  (kind='nutrition_release' AND status IN ('published','paused','needs_recheck')) OR
+  (kind='nutrition_purchase_spec' AND status='active') OR
+  (kind='product' AND EXISTS (SELECT 1 FROM public.subscriptions s WHERE s.tenant_id=records.tenant_id
+   AND s.user_id=nullif(current_setting('app.user_id',true),'')::uuid AND s.data->>'productId'=records.id::text))))
 );
 -- A provider callback's finance scope settles checkout intents.
 ALTER POLICY finance_record_scope ON records USING (current_setting('app.role',true)<>'finance' OR kind IN ('product','beneficiary','refund','statement','reconciliation','close','billing_invoice','subscription_transition','finance_policy','finance_automation','cost_allocation','booking_payment','promotion','checkout') OR (owner_user_id=nullif(current_setting('app.user_id',true),'')::uuid AND kind IN ('preferences','settings','privacy_request')));
@@ -394,6 +442,8 @@ CREATE FUNCTION member_nutrition_foods() RETURNS SETOF public.nutrition_foods
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT f.* FROM public.nutrition_foods f
  WHERE f.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND current_setting('app.role',true)='subscriber'
+ AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)
  AND NOT EXISTS(SELECT 1 FROM public.nutrition_foods n WHERE n.tenant_id=f.tenant_id AND n.supersedes_id=f.id)
  AND NOT EXISTS(SELECT 1 FROM public.records a WHERE a.tenant_id=f.tenant_id AND a.kind='nutrition_catalog_archive'
   AND a.status='active' AND a.data->>'entityId'=f.id::text)
@@ -403,6 +453,8 @@ CREATE FUNCTION member_nutrition_recipes() RETURNS SETOF public.nutrition_recipe
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  SELECT r.* FROM public.nutrition_recipes r
  WHERE r.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND current_setting('app.role',true)='subscriber'
+ AND EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid)
  AND NOT EXISTS(SELECT 1 FROM public.nutrition_recipes n WHERE n.tenant_id=r.tenant_id AND n.supersedes_id=r.id)
  AND NOT EXISTS(SELECT 1 FROM public.records a WHERE a.tenant_id=r.tenant_id AND a.kind='nutrition_catalog_archive'
   AND a.status='active' AND a.data->>'entityId'=r.id::text)
@@ -429,6 +481,9 @@ DECLARE tid uuid := nullif(current_setting('app.tenant_id',true),'')::uuid;
 BEGIN
  IF tid IS NULL OR coalesce(current_setting('app.role',true),'') NOT IN ('owner','staff','finance','subscriber') THEN
   RAISE EXCEPTION 'Workspace material needs a member scope' USING ERRCODE='42501'; END IF;
+ IF current_setting('app.role',true)='subscriber' AND NOT EXISTS(SELECT 1 FROM public.memberships sm WHERE sm.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+  AND sm.user_id=nullif(current_setting('app.user_id',true),'')::uuid) THEN
+  RAISE EXCEPTION 'Workspace material needs a current membership' USING ERRCODE='42501'; END IF;
  IF material IN ('brain_release','coaching_runtime_release') THEN
   RETURN QUERY SELECT r.* FROM public.records r WHERE r.tenant_id=tid AND r.kind=material AND r.status='published'
    ORDER BY r.created_at DESC,r.id DESC LIMIT 1;
@@ -530,6 +585,47 @@ CREATE POLICY record_subscriber_delete ON records AS RESTRICTIVE FOR DELETE USIN
  current_setting('app.role',true)<>'subscriber' OR owner_user_id=nullif(current_setting('app.user_id',true),'')::uuid);
 -- The tenant role has no use for the migration ledger.
 REVOKE ALL ON schema_migrations FROM trainer_app;
+
+-- Lookups by bearer secret for requests that carry no session and whose
+-- member is not known yet (the HealthKit companion's device token, a wearable
+-- provider's OAuth redirect). They replace a worker-elevated owner scope in
+-- those follower-originated requests: each runs in a service transaction
+-- bound to the workspace the credential names (app.service_tenant_id,
+-- db.system(fn, { tenantId })), is executable by trainer_service only
+-- (infra/runtime-role.sql) and returns only what the caller needs before it
+-- continues in the member's own scope.
+CREATE FUNCTION healthkit_device_for_token(device_token_hash text)
+RETURNS TABLE(id uuid, tenant_id uuid, user_id uuid, status text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE tid uuid := nullif(current_setting('app.service_tenant_id',true),'')::uuid;
+BEGIN
+ IF tid IS NULL OR nullif(current_setting('app.tenant_id',true),'') IS NOT NULL THEN
+  RAISE EXCEPTION 'A device lookup needs a workspace-bound service transaction' USING ERRCODE='42501'; END IF;
+ IF device_token_hash IS NULL OR device_token_hash !~ '^[0-9a-f]{64}$' THEN
+  RAISE EXCEPTION 'Invalid device token digest' USING ERRCODE='22023'; END IF;
+ RETURN QUERY SELECT d.id,d.tenant_id,d.user_id,d.status FROM public.healthkit_devices d
+  WHERE d.tenant_id=tid AND d.token_hash=device_token_hash;
+END $$;
+CREATE FUNCTION integration_oauth_relay(oauth_state_hash text, oauth_provider text) RETURNS text
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE
+ tid uuid := nullif(current_setting('app.service_tenant_id',true),'')::uuid;
+ relay text;
+BEGIN
+ IF tid IS NULL OR nullif(current_setting('app.tenant_id',true),'') IS NOT NULL THEN
+  RAISE EXCEPTION 'An authorization relay lookup needs a workspace-bound service transaction' USING ERRCODE='42501'; END IF;
+ IF oauth_state_hash IS NULL OR oauth_state_hash !~ '^[0-9a-f]{64}$' OR oauth_provider IS NULL OR oauth_provider !~ '^[a-z]{2,32}$' THEN
+  RAISE EXCEPTION 'Invalid authorization state' USING ERRCODE='22023'; END IF;
+ SELECT s.origin INTO relay FROM public.integration_oauth_states s WHERE s.tenant_id=tid AND s.state_hash=oauth_state_hash
+  AND s.provider=oauth_provider AND s.expires_at>now() AND s.consumed_at IS NULL;
+ RETURN relay;
+END $$;
+REVOKE ALL ON FUNCTION healthkit_device_for_token(text),integration_oauth_relay(text,text) FROM PUBLIC;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='trainer_service') THEN
+    GRANT EXECUTE ON FUNCTION healthkit_device_for_token(text),integration_oauth_relay(text,text) TO trainer_service;
+  END IF;
+END $$;
 
 -- 4. Service (global) tables that carry a workspace. The tenant role has no
 --    grant on any of them; row security now also denies it every row, so an

@@ -6,20 +6,26 @@
  * `SET LOCAL ROLE`. Three things keep that scope fixed for the rest of the
  * transaction:
  *
- * 1. Migration 061 revokes `set_config` from PUBLIC (and so from
- *    `trainer_app`): no statement in a tenant scope can change `role` or any
+ * 1. `set_config` is revoked from PUBLIC (and so from `trainer_app`) by
+ *    migration 061 on a fresh database and by infra/tenant-scope.sql on an
+ *    upgraded one: no statement in a tenant scope can change `role` or any
  *    `app.*` setting.
  * 2. Tenant-scoped statements use the extended query protocol, so one call is
  *    one statement and a value that reaches SQL text cannot append a utility
  *    statement such as `RESET ROLE`.
  * 3. {@link assertScopedSql} rejects everything except ordinary data statements
- *    before they reach the database, and {@link assertServiceSql} keeps service
- *    transactions from hand-rolling a tenant scope.
+ *    before they reach the database (and any `set_config`, `pg_settings` or
+ *    Unicode-escaped spelling), and {@link assertServiceSql} keeps service
+ *    transactions from hand-rolling a tenant scope. This guard does not depend
+ *    on the database revocation having been applied yet.
  *
  * Who may be scoped as what is decided by {@link scopeDecision}: a member acts
  * with its own role (an owner may also act as staff, finance or subscriber);
  * anything else needs an allowlisted {@link ELEVATIONS} reason, and an elevated
- * scope never carries a follower's user id.
+ * scope never carries a follower's user id. A user without a membership may be
+ * scoped as a subscriber of its own rows only (a former member's account and
+ * exit paths): the database admits workspace material and the member-facing
+ * definer helpers to a subscriber scope only with a current membership.
  */
 
 /** The user id recorded for service work that has no human actor. */
@@ -193,7 +199,14 @@ export function scopeDecision(
 // ---------------------------------------------------------------------------
 // SQL guard
 
-type Token = { t: "word" | "ident" | "string" | "punct" | "other"; v: string };
+type Token = {
+  t: "word" | "ident" | "string" | "punct" | "other";
+  v: string;
+  /** The value is not what the database reads: U& escapes or E'' backslash escapes. */
+  escaped?: boolean;
+  /** A U&"..." identifier or U&'...' string. */
+  unicode?: boolean;
+};
 
 /** Minimal PostgreSQL lexer: words, quoted identifiers, strings and punctuation; comments dropped. */
 export function sqlTokens(sql: string): Token[] {
@@ -228,10 +241,12 @@ export function sqlTokens(sql: string): Token[] {
     if (c === "'" || ((c === "E" || c === "e") && sql[i + 1] === "'")) {
       const escapes = c !== "'";
       i += escapes ? 2 : 1;
-      let v = "";
+      let v = "",
+        escaped = false;
       while (i < n) {
         if (escapes && sql[i] === "\\") {
           v += sql.slice(i, i + 2);
+          escaped = true;
           i += 2;
         } else if (sql[i] === "'" && sql[i + 1] === "'") {
           v += "'";
@@ -241,13 +256,18 @@ export function sqlTokens(sql: string): Token[] {
           break;
         } else v += sql[i++];
       }
-      out.push({ t: "string", v });
+      out.push({ t: "string", v, ...(escaped ? { escaped } : {}) });
       continue;
     }
-    if (c === '"' || ((c === "U" || c === "u") && sql[i + 1] === "&")) {
-      // U&"..." / U&'...' escapes are passed through undecoded; the database
-      // revocation still applies to anything they spell.
-      if (c !== '"') i += 2;
+    const unicode =
+      (c === "U" || c === "u") &&
+      sql[i + 1] === "&" &&
+      (sql[i + 2] === '"' || sql[i + 2] === "'");
+    if (c === '"' || unicode) {
+      // U&"..." / U&'...' escapes are kept undecoded and marked: both guards
+      // refuse them, so no name they spell (set_config, a reserved setting)
+      // can pass as something else.
+      if (unicode) i += 2;
       const quote = sql[i];
       i++;
       let v = "";
@@ -260,7 +280,11 @@ export function sqlTokens(sql: string): Token[] {
           break;
         } else v += sql[i++];
       }
-      out.push({ t: quote === '"' ? "ident" : "string", v });
+      out.push({
+        t: quote === '"' ? "ident" : "string",
+        v,
+        ...(unicode ? { escaped: true, unicode: true } : {}),
+      });
       continue;
     }
     if (c === "$") {
@@ -342,7 +366,11 @@ function reject(code: string, sql: string, why: string): never {
   );
 }
 
-/** set_config calls in a statement, with the literal setting name or null when not a literal. */
+/**
+ * set_config calls in a statement, with the setting name when it is one plain
+ * string literal argument, else null (an expression, a parameter or an
+ * escaped string is never trusted to be what it looks like).
+ */
 function setConfigTargets(tokens: Token[]) {
   const targets: Array<string | null> = [];
   tokens.forEach((token, index) => {
@@ -350,9 +378,28 @@ function setConfigTargets(tokens: Token[]) {
     const open = tokens[index + 1];
     if (!open || open.v !== "(") return targets.push(null);
     const first = tokens[index + 2];
-    targets.push(first?.t === "string" ? first.v.toLowerCase() : null);
+    targets.push(
+      first?.t === "string" && !first.escaped && tokens[index + 3]?.v === ","
+        ? first.v.toLowerCase()
+        : null,
+    );
   });
   return targets;
+}
+/**
+ * Spellings neither guard accepts in any statement: Unicode-escaped
+ * identifiers and strings (U&"\0073et_config"), and pg_settings, whose
+ * UPDATE calls set_config.
+ */
+function assertPlainSpelling(tokens: Token[], sql: string) {
+  if (tokens.some((token) => token.unicode))
+    reject(
+      "SCOPE_SQL_REJECTED",
+      sql,
+      "Unicode-escaped identifiers and strings are refused",
+    );
+  if (tokens.some((token) => name(token) === "pg_settings"))
+    reject("SCOPE_SQL_REJECTED", sql, "pg_settings is not available here");
 }
 
 /**
@@ -362,6 +409,7 @@ function setConfigTargets(tokens: Token[]) {
  */
 export function assertScopedSql(sql: string, savepoints: boolean) {
   const tokens = sqlTokens(sql);
+  assertPlainSpelling(tokens, sql);
   const list = statements(tokens);
   if (list.length > 1)
     reject("SCOPE_SQL_REJECTED", sql, "One statement per tenant-scoped call");
@@ -396,6 +444,7 @@ export function assertScopedSql(sql: string, savepoints: boolean) {
  */
 export function assertServiceSql(sql: string) {
   const tokens = sqlTokens(sql);
+  assertPlainSpelling(tokens, sql);
   for (const statement of statements(tokens)) {
     const words = statement.map(name);
     const [first, second] = words;

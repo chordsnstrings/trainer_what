@@ -228,7 +228,7 @@ export async function verifyRuntimeAccess(client) {
     "guided_voice()",
     "coach_wearable_policy()",
     "withdraw_accepted_invitation_emails(uuid,text)",
-    "personal_export_records(uuid,text[])",
+    "personal_export_records(uuid)",
     "personal_export_followups(uuid)",
     "personal_export_usage(uuid)",
     "personal_export_audit(uuid)",
@@ -282,6 +282,45 @@ export async function verifyRuntimeAccess(client) {
   await query(
     "SELECT public_discovery_tenant('00000000-0000-0000-0000-000000000000')",
   );
+  // Bearer-secret lookups (migration 061): definers only the service role may
+  // execute, in a workspace-bound service transaction; never the tenant role
+  // or PUBLIC.
+  const serviceDefiners = [
+    "healthkit_device_for_token(text)",
+    "integration_oauth_relay(text,text)",
+  ];
+  for (const name of serviceDefiners) {
+    const [r] = await query(
+      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant,prosecdef,pg_get_userbyid(proowner)<>'trainer_service' AS foreign_owner,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid=$1::regprocedure",
+      [name],
+    );
+    assert.deepEqual(
+      r,
+      {
+        service: true,
+        tenant: false,
+        prosecdef: true,
+        foreign_owner: true,
+        public_execute: false,
+      },
+      `${name}: expected a service-only definer lookup`,
+    );
+  }
+  // An unbound service transaction gets no answer from them.
+  for (const statement of [
+    "SELECT * FROM healthkit_device_for_token(repeat('0',64))",
+    "SELECT integration_oauth_relay(repeat('0',64),'whoop')",
+  ]) {
+    await client.query("BEGIN");
+    let refused = false;
+    try {
+      await client.query(statement);
+    } catch (error) {
+      refused = error.code === "42501";
+    }
+    await client.query("ROLLBACK");
+    assert.equal(refused, true, `Unbound lookup must be refused: ${statement}`);
+  }
   // Trigger-only definers (the ledger balance check fires at COMMIT, after the
   // scope settings are cleared): no runtime role may execute them directly.
   const triggerDefiners = ["balanced_journal()"];
@@ -304,7 +343,8 @@ export async function verifyRuntimeAccess(client) {
       .filter(
         ({ signature }) =>
           !functions.includes(signature) &&
-          !triggerDefiners.includes(signature),
+          !triggerDefiners.includes(signature) &&
+          !serviceDefiners.includes(signature),
       )
       .map(({ signature }) => signature),
     [],
@@ -514,6 +554,7 @@ export async function verifyRuntimeAccess(client) {
     systemTables: Object.keys(systemTables).length,
     scopedTables: scopedTables.length,
     helpers: functions.length,
+    serviceLookups: serviceDefiners.length,
     workspaceBoundServiceTables: boundTables.length,
     tenantScopeFixed: true,
   };
