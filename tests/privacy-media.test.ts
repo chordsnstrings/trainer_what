@@ -20,6 +20,7 @@ import {
   registerCoachSite,
   saveCoachBrand,
 } from "../apps/api/src/coach-site.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database, app: ReturnType<typeof Fastify>, hash: string;
 const password = "SyntheticMediaPrivacy2026!";
@@ -450,7 +451,8 @@ test("whole-workspace closure still removes every workspace gallery and media ro
     { ...proof(), expectedRevision: opened.json().revision },
   );
   assert.equal(response.statusCode, 200, response.body);
-  await db.tenant(owner, async (tx) => {
+  // The closed workspace has no members left: inspect it as the worker.
+  await db.tenant(seedScope(owner), async (tx) => {
     for (const table of [
       "brand_media",
       "coach_galleries",

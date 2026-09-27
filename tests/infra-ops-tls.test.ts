@@ -11,6 +11,7 @@ import {
   tlsAskToken,
   tlsIssuancePermitted,
 } from "../apps/api/src/host-operations.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 // Synthetic fixture values only.
 const SECRET = "synthetic-edge-ask-secret-with-more-than-32-bytes";
@@ -196,7 +197,7 @@ test("activation allowances permit one certificate briefly; decisions are cached
   );
   assert.throws(() => askHostname("-bad.example.test"), /Invalid domain/);
   await assert.rejects(
-    db.tenant({ tenantId: active, userId: operator, role: "owner" }, (tx) =>
+    db.tenant(seedScope({ tenantId: active }), (tx) =>
       tx.query("SELECT * FROM tls_issuance_allowances"),
     ),
     /permission denied/,

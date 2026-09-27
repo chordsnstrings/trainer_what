@@ -1,4 +1,4 @@
-import type { Database } from "@trainer/db";
+import { elevated, type Database } from "@trainer/db";
 import { sendEmail } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { notificationDeliveryDecision } from "../../api/src/notifications.ts";
@@ -13,11 +13,8 @@ export async function executeEmailDelivery(
   job: any,
   send = sendEmail,
 ) {
-  const a = {
-      tenantId,
-      userId: job.data.userId ?? "00000000-0000-0000-0000-000000000000",
-      role: "owner",
-    },
+  // The outbox worker is a service identity: never the recipient's own id.
+  const a = elevated("worker", { tenantId, role: "owner" }),
     decision = await notificationDeliveryDecision(db, tenantId, job);
   const finish = async (
     status: string,

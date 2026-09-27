@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import {
@@ -69,7 +75,6 @@ const listSql =
   "SELECT c.*,u.name,u.email,g.name AS granted_by_name FROM complimentary_access c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN users g ON g.id=c.granted_by";
 /** Days before a fixed end date when the follower is reminded. */
 export const COMPLIMENTARY_REMINDER_DAYS = 3;
-const SYSTEM_USER = "00000000-0000-0000-0000-000000000000";
 /** The member's saved time zone (notification preferences), if any. */
 async function memberTimezone(tx: Tx, userId: string) {
   const [pref] = await tx.query(
@@ -298,7 +303,7 @@ export async function closeComplimentaryAccess(
  * reminds the follower a few days before a fixed end date. Bounded per pass.
  */
 export async function sweepComplimentaryAccess(db: Database, tenantId: string) {
-  const a: Actor = { tenantId, userId: SYSTEM_USER, role: "owner" };
+  const a: Actor = elevated("worker", { tenantId, role: "owner" });
   return db.tenant(a, async (tx) => {
     await lockGrants(tx, tenantId);
     const lapsed = await tx.query(
@@ -568,10 +573,16 @@ export function registerComplimentaryAccess(
       byTenant.set(k.tenant_id, [...(byTenant.get(k.tenant_id) ?? []), k]);
     const details = new Map<string, any>();
     for (const [tenantId, rows] of byTenant) {
-      const grants = await db.tenant({ ...a, tenantId, role: "owner" }, (tx) =>
-        tx.query(listSql + " WHERE c.id=ANY($1::uuid[])", [
-          rows.map((r) => r.grant_id),
-        ]),
+      const grants = await db.tenant(
+        elevated("platform-operator", {
+          tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+        (tx) =>
+          tx.query(listSql + " WHERE c.id=ANY($1::uuid[])", [
+            rows.map((r) => r.grant_id),
+          ]),
       );
       for (const g of grants) details.set(g.id, g);
     }
@@ -601,7 +612,14 @@ export function registerComplimentaryAccess(
         throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
       const result = await closeComplimentaryAccess(
         db,
-        { ...a, tenantId: p.tenantId, role: "owner" },
+        {
+          ...a,
+          ...elevated("platform-operator", {
+            tenantId: p.tenantId,
+            userId: a.userId,
+            role: "owner",
+          }),
+        },
         p.id,
         req.body,
         "platform",
@@ -630,18 +648,22 @@ export async function exportComplimentaryAccess(tx: Tx, userId: string) {
     [userId],
   );
 }
+/**
+ * Free text is scrubbed only inside a privacy erasure scope: the db package
+ * sets app.privacy_erasure when the scope is entered (a tenant scope cannot
+ * set it), and the guard trigger accepts the fixed marker only then.
+ */
 async function scrubbing(tx: Tx, run: () => Promise<unknown>) {
-  const [prior] = await tx.query(
-    "SELECT current_setting('app.privacy_erasure',true) AS value",
+  const [flag] = await tx.query(
+    "SELECT current_setting('app.privacy_erasure',true)='true' AS on",
   );
-  await tx.query("SELECT set_config('app.privacy_erasure','true',true)");
-  try {
-    await run();
-  } finally {
-    await tx.query("SELECT set_config('app.privacy_erasure',$1,true)", [
-      prior?.value ?? "",
-    ]);
-  }
+  if (!flag?.on)
+    throw fail(
+      500,
+      "PRIVACY_SCOPE_REQUIRED",
+      "Complimentary access text is scrubbed only during privacy erasure.",
+    );
+  await run();
 }
 /** Member erasure: end open grants and remove free text; history rows remain. */
 export async function eraseComplimentaryAccess(tx: Tx, userId: string) {

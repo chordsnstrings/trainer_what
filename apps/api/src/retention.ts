@@ -102,32 +102,31 @@ async function scoped<T>(
   fn: (c: Context) => Promise<T>,
 ): Promise<T | undefined> {
   if (!Number.isFinite(now.getTime())) return;
-  return db.system(async (tx) => {
-    await workspaceLock(tx, tenantId);
-    const [tenant] = await tx.query(
-      "SELECT lifecycle_state,created_at FROM tenants WHERE id=$1 FOR SHARE",
-      [tenantId],
-    );
-    if (tenant?.lifecycle_state !== "active") return;
-    const [owner] = await tx.query(
-      "SELECT user_id FROM memberships WHERE tenant_id=$1 AND role='owner' AND ($2::uuid IS NULL OR user_id=$2) ORDER BY user_id LIMIT 1 FOR SHARE",
-      [tenantId, userId ?? null],
-    );
-    if (!owner) {
-      if (userId) throw fail(403, "Current workspace owner access is required");
-      return;
-    }
-    const actor = { tenantId, userId: owner.user_id, role: "owner" };
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-      [tenantId, actor.userId],
-    );
-    const policy = await loadPolicy(tx, tenantId);
-    const period = bounds(policy, now);
-    const candidates = evidence
-      ? await tx.query(
-          `SELECT e.id,e.actor_id,e.name,e.subject_id,e.created_at,e.data,
+  return db.system(
+    async (tx) => {
+      await workspaceLock(tx, tenantId);
+      const [tenant] = await tx.query(
+        "SELECT lifecycle_state,created_at FROM tenants WHERE id=$1 FOR SHARE",
+        [tenantId],
+      );
+      if (tenant?.lifecycle_state !== "active") return;
+      const [owner] = await tx.query(
+        "SELECT user_id FROM memberships WHERE tenant_id=$1 AND role='owner' AND ($2::uuid IS NULL OR user_id=$2) ORDER BY user_id LIMIT 1 FOR SHARE",
+        [tenantId, userId ?? null],
+      );
+      if (!owner) {
+        if (userId)
+          throw fail(403, "Current workspace owner access is required");
+        return;
+      }
+      // The workspace's current owner, verified again by the db package.
+      const actor: Actor = { tenantId, userId: owner.user_id, role: "owner" };
+      const { policy, candidates } = await tx.tenant(actor, async (scoped) => {
+        const policy = await loadPolicy(scoped, tenantId);
+        const period = bounds(policy, now);
+        const candidates = evidence
+          ? await scoped.query(
+              `SELECT e.id,e.actor_id,e.name,e.subject_id,e.created_at,e.data,
              r.id instruction_id,r.status instruction_status,r.data instruction
            FROM events e
            LEFT JOIN records r ON r.tenant_id=e.tenant_id AND r.id::text=e.subject_id
@@ -135,15 +134,21 @@ async function scoped<T>(
            WHERE e.tenant_id=$1 AND e.name IN ('subscription.updated','subscription.cancel_scheduled')
              AND e.created_at>=$2 AND e.created_at<=$3
            ORDER BY e.created_at DESC,e.id DESC LIMIT $4`,
-          [tenantId, period.previous.start, now.toISOString(), EVENT_LIMIT + 1],
-        )
-      : [];
-    // Scoped records never become readable by the service role. Only the bounded
-    // owner-authorized projection crosses into the privileged receipt lookup.
-    await tx.query("RESET ROLE");
-    const raw = candidates.length
-      ? await tx.query(
-          `WITH authorized_events AS (
+              [
+                tenantId,
+                period.previous.start,
+                now.toISOString(),
+                EVENT_LIMIT + 1,
+              ],
+            )
+          : [];
+        return { policy, candidates };
+      });
+      // Scoped records never become readable by the service role. Only the bounded
+      // owner-authorized projection crosses into the privileged receipt lookup.
+      const raw = candidates.length
+        ? await tx.query(
+            `WITH authorized_events AS (
              SELECT * FROM jsonb_to_recordset($1::jsonb) AS candidate(
                id uuid,actor_id uuid,name text,subject_id text,created_at timestamptz,
                data jsonb,instruction_id uuid,instruction_status text,instruction jsonb)
@@ -167,36 +172,35 @@ async function scoped<T>(
       LEFT JOIN provider_objects o ON o.provider='stripe' AND o.external_id=e.subject_id
         AND o.tenant_id=$2 AND o.user_id=e.actor_id AND o.kind='subscription'
       ORDER BY e.created_at DESC,e.id DESC`,
-          [JSON.stringify(candidates), tenantId],
-        )
-      : [];
-    // Membership changes require UPDATE privileges, which trainer_app deliberately
-    // lacks. Take read locks on this bounded candidate set before dropping role.
-    if (raw.length)
-      await tx.query(
-        "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=ANY($2::uuid[]) ORDER BY user_id FOR SHARE",
-        [
-          tenantId,
-          raw
-            .slice(0, EVENT_LIMIT)
-            .map((r) => r.user_id)
-            .filter(Boolean),
-        ],
+            [JSON.stringify(candidates), tenantId],
+          )
+        : [];
+      // Membership changes require UPDATE privileges, which trainer_app deliberately
+      // lacks. Take read locks on this bounded candidate set before dropping role.
+      if (raw.length)
+        await tx.query(
+          "SELECT user_id FROM memberships WHERE tenant_id=$1 AND user_id=ANY($2::uuid[]) ORDER BY user_id FOR SHARE",
+          [
+            tenantId,
+            raw
+              .slice(0, EVENT_LIMIT)
+              .map((r) => r.user_id)
+              .filter(Boolean),
+          ],
+        );
+      return tx.tenant(actor, (scoped) =>
+        fn({
+          tx: scoped,
+          actor,
+          policy,
+          raw,
+          now,
+          workspaceCreatedAt: iso(tenant.created_at)!,
+        }),
       );
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-      [tenantId, actor.userId],
-    );
-    return fn({
-      tx,
-      actor,
-      policy,
-      raw,
-      now,
-      workspaceCreatedAt: iso(tenant.created_at)!,
-    });
-  });
+    },
+    { tenantId: tenantId },
+  );
 }
 
 function signal(r: any): Signal | null | "incomplete" {

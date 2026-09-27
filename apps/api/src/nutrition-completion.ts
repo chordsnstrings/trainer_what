@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  actingAs,
   event,
   putRecord,
   type Actor,
@@ -122,7 +123,8 @@ export function nutritionCompletionRoutes(
       throw fail(403, "SUBSCRIBER_REQUIRED", "Use your own client account");
     return a;
   };
-  const internal = (a: Actor) => ({ ...a, role: "owner" });
+  // Followers keep their own scope; staff use the allowlisted coach workflow.
+  const internal = (a: Actor) => actingAs(a, "owner", "coach-workflow");
   async function clientWrite(tx: Tx, a: Actor) {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       a.tenantId + ":nutrition:" + a.userId,

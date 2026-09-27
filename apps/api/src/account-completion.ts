@@ -1,7 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  event,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import {
   runtimeConfig,
@@ -74,20 +80,15 @@ export async function accountMembership(
     );
   return m;
 }
+/** Records an account event in the member's workspace, scoped as that member. */
 export async function accountAudit(
-  tx: Tx,
+  tx: SystemTx,
   a: Actor,
   name: string,
   subject?: string,
   data: unknown = {},
 ) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, a.role],
-  );
-  await event(tx, a, name, subject, data);
-  await tx.query("RESET ROLE");
+  await tx.tenant(a, (scoped) => event(scoped, a, name, subject, data));
 }
 export async function insertAccountSession(
   tx: Tx,
@@ -107,8 +108,13 @@ export function setAccountCookie(reply: FastifyReply, token: string) {
     maxAge: 604800,
   });
 }
+/**
+ * Queues an account email in the recipient's workspace outbox. Runs as the
+ * recipient with their own membership role (a former member as a subscriber
+ * of their own rows): inserting an outbox job needs no staff role.
+ */
 export async function queueAccountEmail(
-  tx: Tx,
+  tx: SystemTx,
   a: Actor,
   to: string,
   subject: string,
@@ -116,31 +122,27 @@ export async function queueAccountEmail(
   intentKey: string,
   linkMinutes?: number,
 ) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-    [a.tenantId, a.userId],
-  );
   // A message carrying a bearer link is scrubbed after a terminal outcome and
   // is never sent once the link has expired.
-  await tx.query(
-    "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||CASE WHEN $5::int IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('sensitive',true,'expiresAt',now()+make_interval(mins=>$5::int)) END) ON CONFLICT DO NOTHING",
-    [
-      randomUUID(),
-      a.tenantId,
-      intentKey,
-      JSON.stringify({
-        to,
-        subject,
-        text,
-        userId: a.userId,
-        category: "account",
-        critical: true,
-      }),
-      linkMinutes ?? null,
-    ],
+  await tx.tenant(a, (scoped) =>
+    scoped.query(
+      "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||CASE WHEN $5::int IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('sensitive',true,'expiresAt',now()+make_interval(mins=>$5::int)) END) ON CONFLICT DO NOTHING",
+      [
+        randomUUID(),
+        a.tenantId,
+        intentKey,
+        JSON.stringify({
+          to,
+          subject,
+          text,
+          userId: a.userId,
+          category: "account",
+          critical: true,
+        }),
+        linkMinutes ?? null,
+      ],
+    ),
   );
-  await tx.query("RESET ROLE");
 }
 export async function touchAccountSession(db: Database, hash: string) {
   await db.system((tx) =>

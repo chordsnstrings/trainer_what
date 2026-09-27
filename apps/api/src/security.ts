@@ -199,7 +199,7 @@ export function securityRoutes(
     await db.system(async (tx) => {
       await workspaceLock(tx, tenantId);
       await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [user.id]);
-      await accountMembership(tx, user.id, host, tenantId);
+      const membership = await accountMembership(tx, user.id, host, tenantId);
       await tx.query(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL",
         [user.id, purpose],
@@ -214,30 +214,32 @@ export function securityRoutes(
           JSON.stringify({ origin: host.origin }),
         ],
       );
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.role','owner',true)",
-        [tenantId],
-      );
       // The link is a bearer credential: the worker removes the text after a
-      // terminal outcome and never sends it after the link expires.
-      await tx.query(
-        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||jsonb_build_object('expiresAt',now()+interval '30 minutes'))",
-        [
-          randomUUID(),
-          tenantId,
-          `${purpose}:${tokenHash(token)}`,
-          JSON.stringify({
-            to: user.email,
-            category: "account",
-            critical: true,
-            sensitive: true,
-            userId: user.id,
-            subject:
-              purpose === "reset" ? "Reset your password" : "Verify your email",
-            text: `${host.origin}/${purpose === "reset" ? "reset-password" : "verify-email"}/${token}\nThis link expires in 30 minutes.`,
-          }),
-        ],
+      // terminal outcome and never sends it after the link expires. Queued in
+      // the recipient's own scope (an outbox insert needs no staff role).
+      await tx.tenant(
+        { tenantId, userId: user.id, role: membership.role },
+        (tx) =>
+          tx.query(
+            "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||jsonb_build_object('expiresAt',now()+interval '30 minutes'))",
+            [
+              randomUUID(),
+              tenantId,
+              `${purpose}:${tokenHash(token)}`,
+              JSON.stringify({
+                to: user.email,
+                category: "account",
+                critical: true,
+                sensitive: true,
+                userId: user.id,
+                subject:
+                  purpose === "reset"
+                    ? "Reset your password"
+                    : "Verify your email",
+                text: `${host.origin}/${purpose === "reset" ? "reset-password" : "verify-email"}/${token}\nThis link expires in 30 minutes.`,
+              }),
+            ],
+          ),
       );
     });
   }

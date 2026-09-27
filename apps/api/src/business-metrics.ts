@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { Actor, Database, Tx } from "@trainer/db";
+import {
+  elevated,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 
@@ -179,7 +184,13 @@ export async function computeBusinessMetrics(
   let pendingCancellations = 0;
   const payoutStatus: Record<string, { count: number; amountMinor: number }> = {};
   for (const w of workspaces) {
-    const f = await db.tenant({ ...a, tenantId: w.id, role: "finance" }, (tx) =>
+    const f = await db.tenant(
+      elevated("platform-operator", {
+        tenantId: w.id,
+        userId: a.userId,
+        role: "finance",
+      }),
+      (tx) =>
       workspaceFigures(tx, since, before),
     );
     for (const row of f.ledger) {

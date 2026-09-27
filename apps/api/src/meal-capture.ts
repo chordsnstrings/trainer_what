@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  actingAs,
   event,
   putRecord,
   type Actor,
@@ -30,7 +31,10 @@ const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
-const internal = (a: Actor) => ({ ...a, role: "owner" });
+// A follower keeps its own subscriber scope (its rows plus the workspace
+// nutrition material RLS shares with members, migration 061); a staff coach
+// uses the allowlisted coach-workflow elevation for owner-only catalog writes.
+const internal = (a: Actor) => actingAs(a, "owner", "coach-workflow");
 async function lock(tx: Tx, a: Actor) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":nutrition:" + a.userId,

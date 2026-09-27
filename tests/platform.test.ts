@@ -22,6 +22,7 @@ import {
   allowedModelEvidence,
   safetySignal,
 } from "@trainer/domain";
+import { seedScope } from "./scope-fixtures.ts";
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
   a: any,
@@ -217,8 +218,7 @@ test("intake is persisted with consent and revocation removes model permission",
   );
   // Invitation acceptance also records the registration consent.
   assert.equal(
-    boot.consents.filter((c: any) => c.document_type !== "registration")
-      .length,
+    boot.consents.filter((c: any) => c.document_type !== "registration").length,
     2,
   );
 });
@@ -954,10 +954,23 @@ test("revoked coaching consent and trainer takeover prevent model generation", a
   // Resolve that separate fixture state before testing consent and takeover.
   const holds = await request("/training/holds", "GET", undefined, a.cookie);
   assert.equal(holds.statusCode, 200, holds.body);
-  for (const hold of holds.json().filter((h: any) => h.owner_user_id === subscriber.userId && h.status === "active")) {
-    const reviewed = await request(`/training/holds/${hold.id}/resolve`, "POST", {
-      version: hold.version, action: "abandon", note: "Fixture trainer reviewed and ended the interrupted workout", reviewed: true,
-    }, a.cookie);
+  for (const hold of holds
+    .json()
+    .filter(
+      (h: any) =>
+        h.owner_user_id === subscriber.userId && h.status === "active",
+    )) {
+    const reviewed = await request(
+      `/training/holds/${hold.id}/resolve`,
+      "POST",
+      {
+        version: hold.version,
+        action: "abandon",
+        note: "Fixture trainer reviewed and ended the interrupted workout",
+        reviewed: true,
+      },
+      a.cookie,
+    );
     assert.equal(reviewed.statusCode, 200, reviewed.body);
   }
   await db.tenant(a, (tx) =>
@@ -1226,7 +1239,8 @@ test("payout execution rechecks current funding before any bank request", async 
 });
 
 test("coaching staff cannot read finance, and finance staff cannot access coaching records", async () => {
-  const staff = { ...a, userId: subscriber.userId, role: "staff" };
+  // Row security by role: the workspace scope with each team role.
+  const staff = seedScope(a, "staff");
   assert.equal(
     (await db.tenant(staff, (tx) => tx.query("SELECT id FROM journals")))
       .length,
@@ -1250,7 +1264,7 @@ test("coaching staff cannot read finance, and finance staff cannot access coachi
     ).length,
     0,
   );
-  const finance = { ...a, userId: subscriber.userId, role: "finance" };
+  const finance = seedScope(a, "finance");
   assert.equal(
     (
       await db.tenant(finance, (tx) =>

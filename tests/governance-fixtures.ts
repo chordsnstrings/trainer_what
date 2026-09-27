@@ -1,7 +1,12 @@
 // Synthetic fixtures for the governance tests. Every account, workspace and
 // amount here is invented test data; no provider is contacted.
 import { randomUUID } from "node:crypto";
-import { createDatabase, type Actor, type Database } from "@trainer/db";
+import {
+  createDatabase,
+  elevated,
+  type Actor,
+  type Database,
+} from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { passwordHash, newToken, tokenHash } from "../apps/api/src/auth.ts";
 
@@ -115,11 +120,9 @@ export async function governanceFixture(
   /** A platform operator in their own administration workspace. */
   const operator = (platformRole: string, fresh = true) =>
     person({ platformRole, fresh, name: "Synthetic " + platformRole });
-  const scoped = (tenantId: string, role = "owner"): Actor => ({
-    tenantId,
-    userId: "00000000-0000-0000-0000-000000000000",
-    role,
-  });
+  /** Seeds and inspects workspace rows the way the worker does. */
+  const scoped = (tenantId: string, role = "owner"): Actor =>
+    elevated("worker", { tenantId, role });
   const cookieOf = (response: any) =>
     ([] as string[])
       .concat(response.headers["set-cookie"] ?? [])

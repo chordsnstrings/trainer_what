@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  elevated,
   event,
+  putPrivateRecord,
   putRecord,
   type Actor,
   type Database,
@@ -23,7 +25,6 @@ import { notifyCoachingTeam } from "./notifications.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const HOUR = 3600_000;
-const SYSTEM_ACTOR = "00000000-0000-0000-0000-000000000000";
 
 /** Reads the published policy inside a tenant transaction (trainer_app helper). */
 export async function activeSafetyPolicy(tx: Tx) {
@@ -95,51 +96,32 @@ export async function openPersonalReview(
   message: string,
   screen: SafetyDecision,
 ) {
-  const [open] = await tx.query(
-    "SELECT id,data FROM records WHERE kind='exception' AND status='open' AND owner_user_id=$1 AND data->>'category'='policy_review' ORDER BY created_at,id LIMIT 1 FOR UPDATE",
-    [userId],
-  );
-  if (open) {
-    const prior: any[] = Array.isArray(open.data.followUps)
-      ? open.data.followUps
-      : [];
-    const categories = [
-      ...new Set([
-        ...(open.data.screening?.reviewCategories ?? []),
-        ...screen.reviewCategories,
-      ]),
-    ];
-    const followUps = [
-      ...prior,
-      {
+  // Runs in the asking follower's own scope, which cannot read its review
+  // items: the open review (if any) takes the follow-up in the database.
+  if (userId !== a.userId)
+    throw new Error("A personal review is opened by the asking member");
+  const [open] = await tx.query<{ id: string | null }>(
+    "SELECT member_policy_review_append($1::jsonb,$2::jsonb,$3) AS id",
+    [
+      JSON.stringify({
         text: message,
         askedAt: new Date().toISOString(),
         categories: screen.reviewCategories,
         policyVersion: screen.policy.pin.version,
-      },
-    ].slice(-PERSONAL_REVIEW_FOLLOW_UPS);
-    await tx.query(
-      "UPDATE records SET data=data||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1",
-      [
-        open.id,
-        JSON.stringify({
-          followUps,
-          questionCount: (Number(open.data.questionCount) || 1) + 1,
-          screening: {
-            ...(open.data.screening ?? {}),
-            reviewCategories: categories,
-          },
-        }),
-      ],
-    );
+      }),
+      JSON.stringify(screen.reviewCategories),
+      PERSONAL_REVIEW_FOLLOW_UPS,
+    ],
+  );
+  if (open?.id) {
     await event(tx, a, "coaching.policy_review_required", open.id, {
       categories: screen.reviewCategories,
       policyVersion: screen.policy.pin.version,
       repeat: true,
     });
-    return { id: open.id as string, created: false };
+    return { id: open.id, created: false };
   }
-  const review = await putRecord(
+  const review = await putPrivateRecord(
     tx,
     a,
     "exception",
@@ -201,7 +183,10 @@ export async function scheduleSafetyEscalations(
   tenantId: string,
   now = new Date(),
 ) {
-  const a: Actor = { tenantId, userId: SYSTEM_ACTOR, role: "owner" };
+  const a: Actor = elevated("worker", {
+    tenantId,
+    role: "owner",
+  });
   return db.tenant(a, async (tx) => {
     const policy = await activeSafetyPolicy(tx);
     const rows = await tx.query(

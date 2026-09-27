@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   event,
+  putPrivateRecord,
   putRecord,
   type Actor,
   type Database,
@@ -179,20 +180,27 @@ export async function coachingFacts(
     assignedProgramCount: programs.length,
   });
 }
+/**
+ * The published Brain material, read by name through member_material() so a
+ * follower's own coaching request never lists the coach's material (its
+ * scope cannot read those records). Coaching team scopes get the same rows.
+ */
 async function runtimeMaterial(tx: Tx) {
   const [brain] = await tx.query(
-    "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+    "SELECT * FROM member_material('brain_release')",
   );
   const actions = await tx.query(
-    "SELECT * FROM records WHERE kind='coaching_action' AND status='confirmed' ORDER BY id LIMIT 31",
+    "SELECT * FROM member_material('coaching_action')",
   );
   const examples = await tx.query(
-    "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' ORDER BY id LIMIT 101",
+    "SELECT * FROM member_material('coaching_teaching')",
   );
-  const templates = await tx.query(
-    "SELECT * FROM records WHERE kind='program' AND status='template' AND id=ANY($1::uuid[]) ORDER BY id",
-    [actions.map((a) => a.data.templateId).filter(Boolean)],
+  const templateIds = new Set(
+    actions.map((a) => a.data.templateId).filter(Boolean),
   );
+  const templates = (
+    await tx.query("SELECT * FROM member_material('program_template')")
+  ).filter((t) => templateIds.has(t.id));
   if (actions.length > 30 || examples.length > 100)
     throw fail(
       409,
@@ -1099,11 +1107,11 @@ export async function tryQualifiedCoaching(
   request: string,
   original: { release: any; twin: any },
 ) {
-  const initial = await db.tenant({ ...a, role: "staff" }, async (tx) => {
+  const initial = await db.tenant(a, async (tx) => {
     await lockTraining(tx, a);
     const material = await runtimeMaterial(tx);
     const [runtime] = await tx.query(
-      "SELECT * FROM records WHERE kind='coaching_runtime_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
+      "SELECT * FROM member_material('coaching_runtime_release')",
     );
     if (
       !runtime ||
@@ -1128,7 +1136,7 @@ export async function tryQualifiedCoaching(
     },
     modelAccounting(db, a, "coaching"),
   );
-  return db.tenant({ ...a, role: "staff" }, async (tx) => {
+  return db.tenant(a, async (tx) => {
     await lockRuntime(tx, a);
     await assertTrainingOpen(tx, a.userId);
     if (!(await hasMemberAccess(tx, a.userId)))
@@ -1147,7 +1155,7 @@ export async function tryQualifiedCoaching(
       );
     const material = await runtimeMaterial(tx),
       [runtime] = await tx.query(
-        "SELECT * FROM records WHERE kind='coaching_runtime_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM member_material('coaching_runtime_release')",
       ),
       facts = await coachingFacts(tx, a.userId);
     if (
@@ -1162,39 +1170,39 @@ export async function tryQualifiedCoaching(
     const action = candidates(material, request, facts).find(
       (r) => r.id === generated.selection.actionId,
     );
-    const [takeover] = await tx.query(
-      "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
-      [a.userId],
+    // The follower's scope cannot read takeovers, decisions or exceptions:
+    // it asks whether a takeover is active and files its review items
+    // without reading them back.
+    const [{ takeover }] = await tx.query(
+      "SELECT member_takeover_active() AS takeover",
     );
     const automatic =
       groundedSelection(generated.selection, action) &&
       !takeover &&
       runtime.data.mode === "automatic";
-    const decision = await putRecord(
-      tx,
-      a,
-      "decision",
-      {
-        type: action?.data.type ?? "escalation",
-        request,
-        message:
-          action?.data.response ??
-          "This request needs your trainer's personal judgment.",
-        reason: generated.selection.reason,
-        evidenceIds: generated.selection.evidenceIds,
-        requiresHumanReview: !automatic,
-        actionId: action?.id ?? null,
-        brainVersionId: original.release.id,
-        clientSnapshotId: original.twin.id,
-        runtimeReleaseId: runtime.id,
-        modelPin: generated.pin,
-        retrieval: generated.retrieval,
-        factsDigest: initial.factsDigest,
-      },
-      { ownerId: a.userId, status: automatic ? "prepared" : "pending_review" },
-    );
+    const proposal = {
+      type: action?.data.type ?? "escalation",
+      request,
+      message:
+        action?.data.response ??
+        "This request needs your trainer's personal judgment.",
+      reason: generated.selection.reason,
+      evidenceIds: generated.selection.evidenceIds,
+      requiresHumanReview: !automatic,
+      actionId: action?.id ?? null,
+      brainVersionId: original.release.id,
+      clientSnapshotId: original.twin.id,
+      runtimeReleaseId: runtime.id,
+      modelPin: generated.pin,
+      retrieval: generated.retrieval,
+      factsDigest: initial.factsDigest,
+    };
     if (!automatic) {
-      await putRecord(
+      const decision = await putPrivateRecord(tx, a, "decision", proposal, {
+        ownerId: a.userId,
+        status: "pending_review",
+      });
+      await putPrivateRecord(
         tx,
         a,
         "exception",
@@ -1213,10 +1221,16 @@ export async function tryQualifiedCoaching(
         message: "Your trainer will review this coaching request.",
       };
     }
+    // The automatic decision is stored once, already delivered, with the
+    // result of the action it applied.
+    const decision = { id: randomUUID(), owner_user_id: a.userId };
     const result = await applyAction(tx, a, decision, action!, facts, material);
-    await tx.query(
-      "UPDATE records SET status='delivered',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-      [decision.id, JSON.stringify(result)],
+    await putPrivateRecord(
+      tx,
+      a,
+      "decision",
+      { ...proposal, ...result },
+      { id: decision.id, ownerId: a.userId, status: "delivered" },
     );
     await putRecord(
       tx,

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  elevated,
   event,
   putRecord,
   type Database,
@@ -73,11 +74,7 @@ async function recoverUnsentWeeks(tx: Tx, a: Actor) {
 // before the current week ends. Daily views come from the delivered weekly version.
 // Durable per-profile/date jobs and leases bound retries across worker processes.
 export async function scheduleNutrition(db: Database, tenantId: string) {
-  const a: Actor = {
-    tenantId,
-    userId: "00000000-0000-0000-0000-000000000000",
-    role: "owner",
-  };
+  const a: Actor = elevated("worker", { tenantId, role: "owner" });
   return db.tenant(a, async (tx) => {
     await tx.query(
       "UPDATE jobs SET status='blocked',leased_until=NULL,last_error='Generation interrupted; inspect provider state before retry' WHERE kind='nutrition_week' AND status='running' AND data->>'origin'='manual' AND leased_until<now()",
@@ -157,7 +154,8 @@ export async function executeNutritionJob(
   job: any,
 ) {
   const a = { tenantId, userId: job.data.userId, role: "subscriber" };
-  const [profile] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  // The job runs as the follower itself (its own profile and plans).
+  const [profile] = await db.tenant(a, (tx) =>
     tx.query(
       "SELECT id FROM records WHERE kind='nutrition_profile' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
       [a.userId],

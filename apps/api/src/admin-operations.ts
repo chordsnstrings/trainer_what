@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Actor, type Database, type Tx, event } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { assertNotificationDocument } from "./message-templates.ts";
 import {
@@ -398,7 +398,14 @@ export function registerAdminOperations(
     } else {
       for (const t of selected) {
         const result = await db.tenant(
-          { ...a, tenantId: t.id, role: "owner" },
+          {
+            ...a,
+            ...elevated("platform-operator", {
+              tenantId: t.id,
+              userId: a.userId,
+              role: "owner",
+            }),
+          },
           async (tx) => {
             if (view === "trainers") {
               const [r] = await tx.query(
@@ -607,7 +614,14 @@ export function registerAdminOperations(
       .strict()
       .parse(req.body);
     const result = await db.tenant(
-      { ...a, tenantId: p.tenantId, role: "owner" },
+      {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
       async (tx) => {
         const [r] = await tx.query(
           "SELECT * FROM records WHERE id=$1 AND kind='support' FOR UPDATE",
@@ -663,7 +677,14 @@ export function registerAdminOperations(
       .strict()
       .parse(req.body);
     return db.tenant(
-      { ...a, tenantId: p.tenantId, role: "owner" },
+      {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
       async (tx) => {
         const [r] = await tx.query(
           "UPDATE records SET data=data||jsonb_build_object('operatorReview',$3::jsonb),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND kind IN ('exception','nutrition_exception') RETURNING id,version,status",
@@ -705,7 +726,14 @@ export function registerAdminOperations(
         .strict()
         .parse(req.body);
       return db.tenant(
-        { ...a, tenantId: p.tenantId, role: "owner" },
+        {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
         async (tx) => {
           const [r] = await tx.query(
             // Never return message content: account emails carry bearer links.

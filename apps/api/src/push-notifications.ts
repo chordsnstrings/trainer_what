@@ -34,23 +34,23 @@ async function subscriptionTransaction<T>(
   a: Actor,
   fn: (tx: Tx, session: any) => Promise<T>,
 ) {
-  return db.system(async (tx) => {
-    await workspaceLock(tx, a.tenantId);
-    const [session] = await tx.query(
-      "SELECT s.session_id,s.expires_at FROM sessions s JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.user_id=$2 AND s.tenant_id=$3 AND s.expires_at>clock_timestamp() AND t.lifecycle_state='active' AND m.role=$4 FOR SHARE OF s",
-      [tokenHash(req.cookies.session ?? ""), a.userId, a.tenantId, a.role],
-    );
-    if (!session) throw fail(401, "AUTH_REQUIRED", "Please sign in again.");
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-      [a.tenantId, a.userId, a.role],
-    );
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `${a.tenantId}:push:${a.userId}`,
-    ]);
-    return fn(tx, session);
-  });
+  return db.system(
+    async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [session] = await tx.query(
+        "SELECT s.session_id,s.expires_at FROM sessions s JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.user_id=$2 AND s.tenant_id=$3 AND s.expires_at>clock_timestamp() AND t.lifecycle_state='active' AND m.role=$4 FOR SHARE OF s",
+        [tokenHash(req.cookies.session ?? ""), a.userId, a.tenantId, a.role],
+      );
+      if (!session) throw fail(401, "AUTH_REQUIRED", "Please sign in again.");
+      return tx.tenant(a, async (scoped) => {
+        await scoped.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          `${a.tenantId}:push:${a.userId}`,
+        ]);
+        return fn(scoped, session);
+      });
+    },
+    { tenantId: a.tenantId },
+  );
 }
 export function registerPushNotifications(
   app: FastifyInstance,

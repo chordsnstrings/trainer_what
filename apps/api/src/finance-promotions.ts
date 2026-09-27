@@ -146,16 +146,18 @@ export async function checkoutOfferTerms(
       : 0;
   let couponId: string | undefined;
   if (code) {
+    // Only the coupon of a published, unexpired code for this offer; the
+    // buyer's scope never lists promotions (checkout_promotion(), migration 061).
     const [promotion] = await tx.query(
-      "SELECT * FROM records WHERE kind='promotion' AND status='published' AND data->>'code'=$1 AND data->>'productId'=$2 AND (data->>'expiresAt')::timestamptz>now()",
+      "SELECT checkout_promotion($1,$2) AS coupon_id",
       [code.trim().toUpperCase(), product.id],
     );
-    if (!promotion?.data.couponId)
+    if (!promotion?.coupon_id)
       throw fail(
         "PROMOTION_UNAVAILABLE",
         "That code is unavailable for this offer",
       );
-    couponId = promotion.data.couponId;
+    couponId = promotion.coupon_id;
   }
   if (!Number.isSafeInteger(trialDays))
     throw fail("OFFER_INVALID", "Trial settings need review");

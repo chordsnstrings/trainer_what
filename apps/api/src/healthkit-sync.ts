@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -84,19 +85,18 @@ const fail = (
 const uuid = z.string().uuid();
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
-const workerActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "owner",
-});
+const workerActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "owner" });
 /**
- * Scoped owner access for one member's own sync work: reading the coach's
- * wearable policy and writing the member's own records, like wearable sync.
+ * One member's own sync work, in that member's subscriber scope (any member
+ * may act on its own rows as a subscriber). The coach's wearable policy is
+ * read through coach_wearable_policy() (migration 061), never by raising the
+ * member to the owner role.
  */
 const memberScope = (tenantId: string, userId: string): Actor => ({
   tenantId,
   userId,
-  role: "owner",
+  role: "subscriber",
 });
 
 export type Availability = {
@@ -144,10 +144,9 @@ function requireAvailable() {
 
 /** The coach's saved wearable policy; needs a transaction that may read it. */
 export async function coachWearablePolicy(tx: Tx) {
-  const [row] = await tx.query(
-    "SELECT status,data->'values'->>'policy' AS policy FROM records WHERE kind='onboarding_step' AND data->>'step'='wearables'",
-  );
-  return row?.status === "saved" ? (row.policy as string | null) : null;
+  // Only the saved policy value, for any member of the workspace.
+  const [row] = await tx.query("SELECT coach_wearable_policy() AS policy");
+  return (row?.policy as string | null) ?? null;
 }
 /** Reads the policy for a member of any role in a separate scoped read. */
 export function readCoachWearablePolicy(db: Database, a: Actor) {

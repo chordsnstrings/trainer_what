@@ -18,6 +18,7 @@ import { recordCharge } from "../apps/api/src/finance.ts";
 import { notificationDeliveryDecision } from "../apps/api/src/notifications.ts";
 import { buildApp } from "../apps/api/src/app.ts";
 import { tokenHash } from "../apps/api/src/auth.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database, app: ReturnType<typeof Fastify>;
 const actors = new Map<string, Actor>();
@@ -207,7 +208,7 @@ async function signed(
         [m.providerId, m.tenantId, m.userId],
       );
   });
-  await db.tenant({ ...m, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(m), async (tx) => {
     await tx.query(
       "INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data,created_at) VALUES($1,$2,$3,'subscription.updated',$4,$5,$6)",
       [
@@ -227,7 +228,7 @@ async function signed(
 }
 async function command(m: Member, at = currentAt, status = "succeeded") {
   const eventId = randomUUID();
-  await db.tenant({ ...m, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(m), async (tx) => {
     const r = await putRecord(
       tx,
       m,

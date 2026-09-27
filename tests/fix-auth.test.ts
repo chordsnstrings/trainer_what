@@ -20,6 +20,7 @@ import {
   assertSecurityModeBinding,
 } from "../packages/providers/src/configuration.ts";
 import { assertLocalSyntheticTarget } from "../scripts/synthetic-guard.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const password = "SyntheticAuthOnly2026!",
@@ -181,7 +182,7 @@ async function extraSession(p: Person) {
   return "session=" + token;
 }
 async function emailJobs(p: Person, prefix: string) {
-  return db.tenant({ ...p, role: "owner" }, (tx) =>
+  return db.tenant(seedScope(p), (tx) =>
     tx.query(
       "SELECT data FROM jobs WHERE intent_key LIKE $1 AND data->>'to'=$2 ORDER BY created_at DESC",
       [prefix + ":%", p.email],
@@ -740,7 +741,7 @@ test("unverified accounts cannot bind an authenticator and first mailbox proof c
     codes: 0,
     passkeys: 0,
   });
-  const [cleared] = await db.tenant({ ...preclaimed, role: "owner" }, (tx) =>
+  const [cleared] = await db.tenant(seedScope(preclaimed), (tx) =>
     tx.query(
       "SELECT count(*)::int AS n FROM events WHERE name='security.unverified_factors_cleared' AND subject_id=$1",
       [preclaimed.userId],
@@ -772,7 +773,7 @@ test("health imports require the platform import approval outside development", 
   };
   const stored = async () =>
     (
-      await db.tenant({ ...member, role: "owner" }, (tx) =>
+      await db.tenant(seedScope(member), (tx) =>
         tx.query(
           "SELECT (SELECT count(*)::int FROM consent_records WHERE user_id=$1 AND document_type LIKE 'wearable:%') AS consents,(SELECT count(*)::int FROM records WHERE kind='wearable' AND owner_user_id=$1) AS imports",
           [member.userId],
@@ -841,7 +842,7 @@ test("invitation acceptance records explicit registration consent behind the leg
   const joined = (
     await call("/bootstrap", { cookie: sessionCookie(accepted) })
   ).json().user;
-  const consents = await db.tenant({ ...joined, role: "owner" }, (tx) =>
+  const consents = await db.tenant(seedScope(joined), (tx) =>
     tx.query(
       "SELECT document_version,granted FROM consent_records WHERE user_id=$1 AND document_type='registration'",
       [joined.userId],

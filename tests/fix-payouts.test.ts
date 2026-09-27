@@ -733,7 +733,12 @@ test("unattended dispatch requires an automation approver independent of the pay
   );
   assert.equal(payments().length, before);
   assert.equal((await payout(owner, prepared.id)).status, "ready");
-  const operator = { ...actor(op1, "finance"), tenantId: owner.tenantId };
+  // A platform finance operator, as the automation admin route builds it.
+  const operator = {
+    ...actor(op1, "finance"),
+    tenantId: owner.tenantId,
+    elevation: "platform-operator" as const,
+  };
   const independent = await db.tenant(operator, (tx) =>
     configureFinanceAutomation(tx, operator, {
       ...settings,

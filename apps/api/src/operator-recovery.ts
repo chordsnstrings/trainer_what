@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { Actor, Database, Tx } from "@trainer/db";
+import type { Actor, Database, SystemTx, Tx } from "@trainer/db";
 import { newToken, passwordHash, tokenHash } from "./auth.ts";
 import {
   accountAudit,
@@ -50,7 +50,7 @@ async function adminAudit(
   );
 }
 async function notifyByEmail(
-  tx: Tx,
+  tx: SystemTx,
   userId: string,
   email: string,
   subject: string,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  elevated,
   type Actor,
   type Database,
   type Tx,
@@ -18,6 +19,16 @@ const fail = (statusCode: number, code: string, message: string) =>
 const uuid = z.string().uuid();
 const lock = (tx: Tx, a: Actor) =>
   tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+/**
+ * A member's own billing self-service runs in its own scope (a follower sees
+ * only its subscription and billing records; its charges come from the
+ * member_charges()/member_charge() definer helpers, migration 061). The
+ * workspace owner and platform finance operators act with the finance role.
+ */
+const financeScope = (a: Actor): Actor =>
+  a.elevation || a.role === "owner" || a.role === "finance"
+    ? { ...a, role: "finance" }
+    : a;
 export function subscriptionHasAccess(s: any, now = Date.now()): boolean {
   if (!s) return false;
   if (["active", "trialing"].includes(s.status))
@@ -43,7 +54,7 @@ export async function changeRenewal(
   /** Someone acting for the member (an owner ending the membership). */
   initiatedBy?: Actor,
 ) {
-  const intent: any = await db.tenant({ ...a, role: "finance" }, async (tx) => {
+  const intent: any = await db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
     const [s] = await tx.query(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
@@ -121,7 +132,7 @@ export async function changeRenewal(
       );
     await confirmRenewal(db, a, intent.id, remote);
   } catch (error) {
-    await db.tenant({ ...a, role: "finance" }, (tx) =>
+    await db.tenant(financeScope(a), (tx) =>
       tx.query(
         "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND kind='subscription_transition' AND status='submitting'",
         [intent.id],
@@ -137,7 +148,7 @@ async function confirmRenewal(
   intentId: string,
   remote: any,
 ) {
-  return db.tenant({ ...a, role: "finance" }, async (tx) => {
+  return db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
     const [r] = await tx.query(
       "SELECT * FROM records WHERE id=$1 AND kind='subscription_transition' AND owner_user_id=$2 FOR UPDATE",
@@ -176,7 +187,7 @@ export async function reconcileRenewal(
   a: Actor,
   stripe = stripeClient(),
 ) {
-  const [r] = await db.tenant({ ...a, role: "finance" }, (tx) =>
+  const [r] = await db.tenant(financeScope(a), (tx) =>
     tx.query(
       "SELECT * FROM records WHERE kind='subscription_transition' AND owner_user_id=$1 AND status IN ('submitting','unknown') ORDER BY created_at DESC LIMIT 1",
       [a.userId],
@@ -188,10 +199,10 @@ export async function reconcileRenewal(
   return { status: "resolved" };
 }
 export async function billingHistory(db: Database, a: Actor) {
-  return db.tenant({ ...a, role: "finance" }, async (tx) => {
+  return db.tenant(financeScope(a), async (tx) => {
+    // The member's own charges only (journals stay finance-scoped).
     const charges = await tx.query(
-      "SELECT j.*,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.data->>'userId'=$1 AND j.source_key LIKE 'stripe-invoice:%' ORDER BY j.created_at DESC LIMIT 100",
-      [a.userId],
+      "SELECT id,data,created_at,refunded_minor::text AS refunded_minor FROM member_charges()",
     );
     const invoices = await tx.query(
       "SELECT id,status,data,created_at FROM records WHERE kind='billing_invoice' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 100",
@@ -242,13 +253,20 @@ export async function requestRefund(
   input: { chargeId: string; reason: string; userId?: string },
   override = false,
 ) {
-  return db.tenant({ ...a, role: "finance" }, async (tx) => {
+  return db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
     const userId = override ? uuid.parse(input.userId) : a.userId;
-    const [charge] = await tx.query(
-      "SELECT * FROM journals WHERE data->>'userId'=$1 AND data->>'chargeId'=$2 AND source_key LIKE 'stripe-invoice:%'",
-      [userId, input.chargeId],
-    );
+    // Self-service reads only the member's own charge (member_charge(),
+    // migration 061); an operator override reads the journal directly.
+    const [charge] = override
+      ? await tx.query(
+          "SELECT j.*,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.data->>'userId'=$1 AND j.data->>'chargeId'=$2 AND j.source_key LIKE 'stripe-invoice:%'",
+          [userId, input.chargeId],
+        )
+      : await tx.query(
+          "SELECT id,data,created_at,refunded_minor::text AS refunded_minor FROM member_charge($1)",
+          [input.chargeId],
+        );
     if (
       !charge ||
       (!override && !refundEligible(charge.data.chargedAt ?? charge.created_at))
@@ -268,11 +286,7 @@ export async function requestRefund(
         "ALREADY_REQUESTED",
         "A refund instruction already exists; reconcile it before any new request",
       );
-    const [prior] = await tx.query(
-      "SELECT coalesce(sum((data->>'refundAmountMinor')::bigint),0)::text AS amount FROM journals WHERE data->>'originalJournalId'=$1",
-      [charge.id],
-    );
-    const amountMinor = charge.data.grossMinor - Number(prior.amount);
+    const amountMinor = charge.data.grossMinor - Number(charge.refunded_minor);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
       throw fail(
         409,
@@ -313,7 +327,7 @@ export async function decideRefund(
 ) {
   // Stripe credentials remain usable for obligations when new sales are paused.
   const client = input.approve ? (stripe ?? stripeClient()) : null;
-  const r = await db.tenant({ ...a, role: "finance" }, async (tx) => {
+  const r = await db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
     const [r] = await tx.query(
       "SELECT * FROM records WHERE id=$1 AND kind='refund' FOR UPDATE",
@@ -399,14 +413,14 @@ export async function decideRefund(
         { idempotencyKey: `refund:${r.id}` },
       );
       if (!remote.id) throw new Error("Provider omitted refund identity");
-      await db.tenant({ ...a, role: "finance" }, (tx) =>
+      await db.tenant(financeScope(a), (tx) =>
         tx.query(
           "UPDATE records SET status='submitted',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('submitting','unknown')",
           [r.id, JSON.stringify({ providerRefundId: remote.id })],
         ),
       );
     } catch (e) {
-      await db.tenant({ ...a, role: "finance" }, (tx) =>
+      await db.tenant(financeScope(a), (tx) =>
         tx.query(
           "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='submitting'",
           [r.id],
@@ -423,7 +437,7 @@ export async function reconcileRefund(
   refundId: string,
   stripe = stripeClient(),
 ) {
-  const [r] = await db.tenant({ ...a, role: "finance" }, (tx) =>
+  const [r] = await db.tenant(financeScope(a), (tx) =>
     tx.query("SELECT * FROM records WHERE id=$1 AND kind='refund'", [
       uuid.parse(refundId),
     ]),
@@ -456,7 +470,7 @@ export async function reconcileRefund(
     },
     { stripe },
   );
-  await db.tenant({ ...a, role: "finance" }, (tx) =>
+  await db.tenant(financeScope(a), (tx) =>
     event(tx, a, "refund.provider_reconciled", r.id, {
       providerRefundId: remote.id,
       status: remote.status,
@@ -469,7 +483,7 @@ export async function adminRefundReview(
   a: Actor,
   chargeId?: string,
 ) {
-  const result = await db.tenant({ ...a, role: "finance" }, async (tx) => ({
+  const result = await db.tenant(financeScope(a), async (tx) => ({
     requests: await tx.query(
       "SELECT id,owner_user_id,status,version,data,created_at FROM records WHERE kind='refund' AND ($1::text IS NULL OR data->>'chargeId'=$1) ORDER BY created_at DESC LIMIT 200",
       [chargeId ?? null],
@@ -583,8 +597,11 @@ export function registerFinanceBilling(
     requireRecentMfa(a, true);
     return {
       ...a,
-      tenantId: uuid.parse((req.params as any).tenantId),
-      role: "finance",
+      ...elevated("platform-operator", {
+        tenantId: uuid.parse((req.params as any).tenantId),
+        userId: a.userId,
+        role: "finance",
+      }),
     };
   }
   app.get("/api/v1/admin/tenants/:tenantId/finance/refunds", (req) => {

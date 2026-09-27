@@ -69,3 +69,10 @@ GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+
+-- Tenant scope entry (packages/db) sets app.tenant_id/app.user_id/app.role as
+-- the service role before SET ROLE; trainer_app itself may not call set_config
+-- once infra/tenant-scope.sql (or migration 061 on a fresh database) revokes
+-- PUBLIC execute. The workspace-bound service tables (migration 061) need no
+-- new grants: row security narrows the existing ones.
+GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO trainer_service;

@@ -212,6 +212,35 @@ export async function verifyRuntimeAccess(client) {
     // Trigger-only: writes the operator directory's keys and dates.
     "complimentary_access_directory_sync()",
     "current_workspace_state()",
+    // Migration 061: narrow helpers that replace in-transaction elevation of
+    // follower requests (docs/features/isolation.md).
+    "notification_recipient(uuid,text,text)",
+    "enqueue_notification(uuid,uuid,text,text,text,text,text,text,jsonb)",
+    "notification_team()",
+    "membership_exit_blockers(uuid)",
+    "booking_slot_taken(uuid)",
+    "booking_fee_policy()",
+    "checkout_promotion(text,uuid)",
+    "member_charges()",
+    "member_charge(text)",
+    "model_usage_today(text[],uuid)",
+    "voice_guidance_spent_today()",
+    "guided_voice()",
+    "coach_wearable_policy()",
+    "withdraw_accepted_invitation_emails(uuid,text)",
+    "personal_export_records(uuid,text[])",
+    "personal_export_followups(uuid)",
+    "personal_export_usage(uuid)",
+    "personal_export_audit(uuid)",
+    "erase_brand_theme_media(text[])",
+    "member_nutrition_foods()",
+    "member_nutrition_recipes()",
+    "member_nutrition_recipe_options()",
+    "member_nutrition_ingredients()",
+    "member_material(text)",
+    "member_takeover_active()",
+    "workspace_member_role(uuid)",
+    "member_policy_review_append(jsonb,jsonb,integer)",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -253,20 +282,142 @@ export async function verifyRuntimeAccess(client) {
   await query(
     "SELECT public_discovery_tenant('00000000-0000-0000-0000-000000000000')",
   );
+  // Trigger-only definers (the ledger balance check fires at COMMIT, after the
+  // scope settings are cleared): no runtime role may execute them directly.
+  const triggerDefiners = ["balanced_journal()"];
+  for (const name of triggerDefiners) {
+    const [r] = await query(
+      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant,prosecdef,prorettype='trigger'::regtype AS trigger FROM pg_proc WHERE oid=$1::regprocedure",
+      [name],
+    );
+    assert.deepEqual(
+      r,
+      { service: false, tenant: false, prosecdef: true, trigger: true },
+      `${name}: expected a trigger-only definer`,
+    );
+  }
   const definerFunctions = await query(
     "SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef",
   );
   assert.deepEqual(
     definerFunctions
-      .filter(({ signature }) => !functions.includes(signature))
+      .filter(
+        ({ signature }) =>
+          !functions.includes(signature) &&
+          !triggerDefiners.includes(signature),
+      )
       .map(({ signature }) => signature),
     [],
     "Classify new privileged helpers in the runtime permission gate",
   );
+  // Tenant scope is fixed once a transaction becomes trainer_app: only the
+  // service role (scope entry, before SET ROLE) may call set_config.
+  const [setConfig] = await query(
+    "SELECT has_function_privilege('trainer_app','pg_catalog.set_config(text,text,boolean)','EXECUTE') AS tenant,has_function_privilege('trainer_service','pg_catalog.set_config(text,text,boolean)','EXECUTE') AS service,EXISTS(SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE p.oid='pg_catalog.set_config(text,text,boolean)'::regprocedure AND acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute",
+  );
+  assert.deepEqual(
+    setConfig,
+    { tenant: false, service: true, public_execute: false },
+    "Only the service role may set scope settings (infra/tenant-scope.sql)",
+  );
+  // Service tables that carry a workspace deny the tenant role every row and
+  // honour a service transaction's workspace binding (app.service_tenant_id).
+  const boundTables = [
+    "sessions",
+    "one_time_tokens",
+    "provider_objects",
+    "acquisition_consents",
+    "acquisition_events",
+    "auth_passkey_challenges",
+    "complimentary_access_directory",
+    "email_change_requests",
+    "oidc_sign_in_requests",
+    "privacy_erasure_registry",
+    "support_preview_grants",
+    "tls_issuance_allowances",
+    "workspace_lifecycle_requests",
+    "workspace_suspensions",
+    "tenants",
+    "memberships",
+    "domain_mappings",
+  ];
+  for (const table of boundTables) {
+    const [r] = await query(
+      "SELECT c.relrowsecurity,c.relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=$1 AND p.permissive='PERMISSIVE' AND p.qual LIKE '%app.service_tenant_id%' AND p.qual LIKE '%trainer_app%') AS bound FROM pg_class c WHERE c.oid=$1::regclass",
+      [table],
+    );
+    assert.deepEqual(
+      r,
+      { relrowsecurity: true, relforcerowsecurity: true, bound: true },
+      `${table}: service rows must be workspace-bindable and hidden from the tenant role`,
+    );
+  }
+  // A bound service transaction sees only its own workspace.
+  await client.query("BEGIN");
+  try {
+    await client.query("SELECT set_config('app.service_tenant_id',$1,true)", [
+      "00000000-0000-0000-0000-000000000000",
+    ]);
+    for (const table of boundTables) {
+      const key = table === "tenants" ? "id" : "tenant_id";
+      const [r] = await query(
+        `SELECT count(*)::int AS n FROM public.${table} WHERE ${key}<>'00000000-0000-0000-0000-000000000000'`,
+      );
+      assert.equal(
+        r.n,
+        0,
+        `${table}: a bound transaction saw another workspace`,
+      );
+    }
+    await client.query("ROLLBACK");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+  await client.query("BEGIN");
+  try {
+    await client.query(
+      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$1,true),set_config('app.role','subscriber',true)",
+      ["00000000-0000-0000-0000-000000000000"],
+    );
+    await client.query("SET LOCAL ROLE trainer_app");
+    // Neither the role nor any scope setting can change from a tenant scope.
+    for (const statement of [
+      "SELECT set_config('role','none',true)",
+      "SELECT set_config('app.tenant_id','00000000-0000-0000-0000-000000000001',true)",
+      "SELECT set_config('app.role','owner',true)",
+    ]) {
+      await client.query("SAVEPOINT scope_probe");
+      let refused = false;
+      try {
+        await client.query(statement);
+      } catch (error) {
+        refused = error.code === "42501";
+      }
+      await client.query("ROLLBACK TO SAVEPOINT scope_probe");
+      assert.equal(refused, true, `Tenant scope must refuse: ${statement}`);
+    }
+    const [scope] = await query(
+      "SELECT current_user AS role,current_setting('app.role',true) AS app_role",
+    );
+    assert.deepEqual(
+      scope,
+      { role: "trainer_app", app_role: "subscriber" },
+      "Tenant scope changed during the probes",
+    );
+    await client.query("ROLLBACK");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
   await client.query("BEGIN");
   try {
     await client.query("SET LOCAL ROLE trainer_app");
     for (const table of [
+      "schema_migrations",
+      "tenants",
+      "provider_objects",
+      "provider_events",
       "sessions",
       "one_time_tokens",
       "user_security",
@@ -363,6 +514,8 @@ export async function verifyRuntimeAccess(client) {
     systemTables: Object.keys(systemTables).length,
     scopedTables: scopedTables.length,
     helpers: functions.length,
+    workspaceBoundServiceTables: boundTables.length,
+    tenantScopeFixed: true,
   };
 }
 if (

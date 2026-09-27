@@ -201,6 +201,19 @@ class HostDeployment(unittest.TestCase):
         self.assertIn("fixture_password", kwargs["input"])
         self.assertEqual(kwargs["stderr"], subprocess.PIPE)
         self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertNotIn("set_config", kwargs["input"])
+
+    def test_scope_compatible_controller_applies_tenant_scope_after_grants(self):
+        release = self.root / "release"
+        (release / "infra").mkdir(parents=True)
+        (release / "infra/runtime-role.sql").write_text("GRANT trainer_app TO trainer_service;\n")
+        (release / "infra/tenant-scope.sql").write_text(
+            "REVOKE EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) FROM PUBLIC;\n")
+        with patch.object(host, "compose", return_value=SimpleNamespace(stdout=json.dumps(RENDERED))) as compose:
+            host.runtime_role(release, SHA)
+        sql = compose.call_args[1]["input"]
+        self.assertLess(sql.index("PASSWORD"), sql.index("REVOKE EXECUTE ON FUNCTION pg_catalog.set_config"))
+        self.assertLess(sql.index("GRANT trainer_app"), sql.index("REVOKE EXECUTE"))
 
     def test_host_network_cannot_bypass_port_boundary(self):
         rendered = copy.deepcopy(RENDERED)

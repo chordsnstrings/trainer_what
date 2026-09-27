@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Actor, Database, Tx } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { newToken, tokenHash } from "./auth.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { recordAcquisition } from "./admin-operations.ts";
@@ -482,8 +482,10 @@ export async function recordFirstPaidAcquisition(
   tenantId: string,
   userId: string,
 ) {
+  // Runs after a verified provider payment for a member; the member's own
+  // session never reads the workspace ledger.
   const evidence = await db.tenant(
-    { tenantId, userId, role: "finance" },
+    elevated("provider-callback", { tenantId, role: "finance" }),
     async (tx) => {
       const [paid] = await tx.query(
         `SELECT id FROM journals WHERE ${paidJournal} AND data->>'userId'=$1 LIMIT 1`,

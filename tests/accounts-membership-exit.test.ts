@@ -11,6 +11,7 @@ import {
 import { buildApp } from "../apps/api/src/app.ts";
 import { processStripeEvent } from "../apps/api/src/stripe-events.ts";
 import { eraseMember } from "../apps/api/src/privacy-lifecycle.ts";
+import { elevated } from "@trainer/db";
 
 const renewals: Array<{ id: string; body: any; key: string }> = [];
 let stripeFails = false;
@@ -41,7 +42,7 @@ async function subscribe(
   options: { cancel?: boolean; providerId?: string } = {},
 ) {
   const providerId = options.providerId ?? "sub_exit_" + randomUUID();
-  await ctx.db.tenant({ tenantId, userId: f.userId, role: "owner" }, (tx) =>
+  await ctx.db.tenant(elevated("worker", { tenantId, role: "owner" }), (tx) =>
     tx.query(
       "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,cancel_at_period_end,period_end,price_minor) VALUES($1,$2,$3,$4,'active',$5,now()+interval '20 days',19900)",
       [randomUUID(), tenantId, f.userId, providerId, options.cancel ?? false],
@@ -83,7 +84,7 @@ test("a follower leaves: renewal stops through the existing cancellation flow, a
       ),
   );
   await ctx.db.tenant(
-    { tenantId: trainerA.tenantId, userId: follower.userId, role: "owner" },
+    elevated("worker", { tenantId: trainerA.tenantId, role: "owner" }),
     (tx) =>
       tx.query(
         "INSERT INTO integration_connections(id,tenant_id,user_id,provider,status) VALUES($1,$2,$3,'whoop','active')",
@@ -461,11 +462,11 @@ const erasureProof = (expectedRevision: number) => ({
 test("a deletion request filed before leaving, or pending when the owner removes the follower, is still processed afterwards", async () => {
   const admin = await ctx.person({ platformRole: "admin" });
   const trainer = await ctx.person({ mfa: true, mfaFresh: true });
-  const operator = {
+  const operator = elevated("platform-operator", {
     tenantId: trainer.tenantId,
     userId: admin.userId,
     role: "owner",
-  };
+  });
   const request = async (p: Person) =>
     ok(
       await ctx.call("/privacy/delete-request", { body: {}, cookie: p.cookie }),

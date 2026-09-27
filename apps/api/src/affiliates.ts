@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { journal } from "./finance.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
@@ -91,7 +97,8 @@ export function registerAffiliates(
         .string()
         .uuid()
         .parse((req.params as any).tenantId);
-    // Validate workspace and operator in the same locked system transaction before SET ROLE.
+    // Validate workspace and operator in the same locked system transaction
+    // before entering the tenant scope.
     return db.system(async (tx) => {
       await workspaceLock(tx, tenantId);
       const [row] = await tx.query(
@@ -108,13 +115,14 @@ export function registerAffiliates(
           "Active workspace and finance access required",
           403,
         );
-      const a = { tenantId, userId: user.userId, role: "finance" };
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','finance',true)",
-        [tenantId, a.userId],
-      );
-      return fn(tx, a);
+      // A platform finance operator acts in the workspace as an allowlisted
+      // elevation; the db package verifies and fixes the scope.
+      const a = elevated("platform-operator", {
+        tenantId,
+        userId: user.userId,
+        role: "finance",
+      });
+      return tx.tenant(a, (scoped) => fn(scoped, a));
     });
   }
   app.get("/api/v1/admin/affiliates", async (req) => {

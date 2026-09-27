@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  event,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { newToken, tokenHash } from "./auth.ts";
 import { lockActiveInvitation } from "./team.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
@@ -123,12 +129,9 @@ async function currentOwner(tx: Tx, a: Actor): Promise<string> {
     );
   return current.name;
 }
-async function asTenant(tx: Tx, a: Actor, role = "owner") {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, role],
-  );
+/** The verified owner scope inside the joining service transaction. */
+function asOwner<T>(tx: SystemTx, a: Actor, fn: (tx: Tx) => Promise<T>) {
+  return tx.tenant({ ...a, role: "owner" }, fn);
 }
 /** Derived status for owners and the invitee. */
 export function invitationStatus(row: any, now = Date.now()) {
@@ -335,50 +338,51 @@ export async function createFollowerInvitation(
       b.sendEmail && emailReady && verified
         ? await emailBudget(tx, a.tenantId, b.email)
         : null;
-    await asTenant(tx, a);
-    for (const old of replaced)
-      await suppressInvitationEmails(
-        tx,
-        old.id,
-        "Replaced by a newer invitation before delivery",
-      );
-    let email: { status: string; message: string } = {
-      status: "not_requested",
-      message: "",
-    };
-    if (b.sendEmail) {
-      if (!emailReady)
-        email = {
-          status: "unavailable",
-          message:
-            "Email delivery is not configured. Copy the link and share it yourself.",
-        };
-      else if (!verified)
-        email = { status: "verify_email_first", message: VERIFY_FIRST };
-      else if (!budget!.ok)
-        email = { status: "rate_limited", message: budget!.message };
-      else {
-        await queueInvitationEmail(tx, {
-          tenantId: a.tenantId,
-          coach,
-          invitationId: row.id,
-          send: 1,
-          to: b.email,
-          url,
-          expiresAt,
-        });
-        email = {
-          status: "queued",
-          message: "The invitation email is queued.",
-        };
+    const email = await asOwner(tx, a, async (tx) => {
+      for (const old of replaced)
+        await suppressInvitationEmails(
+          tx,
+          old.id,
+          "Replaced by a newer invitation before delivery",
+        );
+      let email: { status: string; message: string } = {
+        status: "not_requested",
+        message: "",
+      };
+      if (b.sendEmail) {
+        if (!emailReady)
+          email = {
+            status: "unavailable",
+            message:
+              "Email delivery is not configured. Copy the link and share it yourself.",
+          };
+        else if (!verified)
+          email = { status: "verify_email_first", message: VERIFY_FIRST };
+        else if (!budget!.ok)
+          email = { status: "rate_limited", message: budget!.message };
+        else {
+          await queueInvitationEmail(tx, {
+            tenantId: a.tenantId,
+            coach,
+            invitationId: row.id,
+            send: 1,
+            to: b.email,
+            url,
+            expiresAt,
+          });
+          email = {
+            status: "queued",
+            message: "The invitation email is queued.",
+          };
+        }
       }
-    }
-    await event(tx, a, "follower.invited", row.id, {
-      emailRequested: b.sendEmail,
-      emailStatus: email.status,
-      replaced: replaced.length,
+      await event(tx, a, "follower.invited", row.id, {
+        emailRequested: b.sendEmail,
+        emailStatus: email.status,
+        replaced: replaced.length,
+      });
+      return email;
     });
-    await tx.query("RESET ROLE");
     const sentAt = new Date().toISOString();
     await tx.query(
       "UPDATE one_time_tokens SET payload=payload||$2::jsonb WHERE id=$1",
@@ -403,7 +407,7 @@ export async function createFollowerInvitation(
 
 /** Records acceptance and alerts the coaching team. Call after lockActiveInvitation. */
 export async function completeInvitationAcceptance(
-  tx: Tx,
+  tx: SystemTx,
   input: { invite: any; userId: string; registrationVersion: string },
 ) {
   const { invite, userId } = input;
@@ -421,23 +425,28 @@ export async function completeInvitationAcceptance(
       userId,
       role: invite.payload.role,
     };
-    await asTenant(tx, a, a.role);
-    await tx.query(
-      "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-      [randomUUID(), invite.tenant_id, userId, input.registrationVersion],
-    );
-    if (invite.payload.role === "subscriber") {
-      // Unsent copies of this link are withdrawn (jobs are staff-scoped).
-      await tx.query("SELECT set_config('app.role','owner',true)");
-      await suppressInvitationEmails(tx, invite.id, "Accepted before delivery");
-      await tx.query("SELECT set_config('app.role',$1,true)", [a.role]);
-      await event(tx, a, "follower.joined", userId, {
-        source: "invitation",
-        invitationId: invite.id,
-      });
-      await announceFollowerJoined(tx, a, "invitation", invite.id);
-    }
-    await tx.query("RESET ROLE");
+    // The new member acts as itself (its membership was inserted above).
+    await tx.tenant(a, async (tx) => {
+      await tx.query(
+        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+        [randomUUID(), invite.tenant_id, userId, input.registrationVersion],
+      );
+      if (invite.payload.role === "subscriber") {
+        // Unsent copies of this link are withdrawn. Outbox jobs are
+        // staff-scoped: the accepting member withdraws only this
+        // invitation's emails (withdraw_accepted_invitation_emails(),
+        // migration 061) and is never raised to the owner role.
+        await tx.query("SELECT withdraw_accepted_invitation_emails($1,$2)", [
+          invite.id,
+          "Accepted before delivery",
+        ]);
+        await event(tx, a, "follower.joined", userId, {
+          source: "invitation",
+          invitationId: invite.id,
+        });
+        await announceFollowerJoined(tx, a, "invitation", invite.id);
+      }
+    });
   }
   return !!membership;
 }
@@ -574,14 +583,14 @@ export function registerJoiningRoutes(
             "INVITE_CHANGED",
             "This invitation was already accepted or cancelled.",
           );
-        await asTenant(tx, a);
-        await suppressInvitationEmails(
-          tx,
-          id,
-          "Invitation cancelled before delivery",
-        );
-        await event(tx, a, "follower.invitation_cancelled", id);
-        await tx.query("RESET ROLE");
+        await asOwner(tx, a, async (tx) => {
+          await suppressInvitationEmails(
+            tx,
+            id,
+            "Invitation cancelled before delivery",
+          );
+          await event(tx, a, "follower.invitation_cancelled", id);
+        });
         return { id, status: invitationStatus(r) };
       });
     },
@@ -651,24 +660,24 @@ export function registerJoiningRoutes(
           ],
         );
         const expiresAt = new Date(updated.expires_at).toISOString();
-        await asTenant(tx, a);
-        await suppressInvitationEmails(
-          tx,
-          id,
-          "Superseded by a newer invitation email",
-          send,
-        );
-        await queueInvitationEmail(tx, {
-          tenantId: a.tenantId,
-          coach,
-          invitationId: id,
-          send,
-          to: row.payload.email,
-          url,
-          expiresAt,
+        await asOwner(tx, a, async (tx) => {
+          await suppressInvitationEmails(
+            tx,
+            id,
+            "Superseded by a newer invitation email",
+            send,
+          );
+          await queueInvitationEmail(tx, {
+            tenantId: a.tenantId,
+            coach,
+            invitationId: id,
+            send,
+            to: row.payload.email,
+            url,
+            expiresAt,
+          });
+          await event(tx, a, "follower.invitation_resent", id, { send });
         });
-        await event(tx, a, "follower.invitation_resent", id, { send });
-        await tx.query("RESET ROLE");
         return {
           id,
           url,

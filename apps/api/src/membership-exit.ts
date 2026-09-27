@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  event,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { ProviderUnavailable, stripeClient } from "@trainer/providers";
 import { tokenHash } from "./auth.ts";
 import { changeRenewal, subscriptionHasAccess } from "./finance-billing.ts";
@@ -45,21 +51,15 @@ const optionalText = (max: number) =>
     )
     .optional();
 
-async function asTenant(tx: Tx, a: Actor) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, a.role],
-  );
-}
 /**
  * A follower the owner removed comes back only through a new invitation from
  * the workspace; public join pages (password, Apple, Google) refuse them.
- * Leaving by choice does not prevent rejoining. Runs as the service
- * connection inside the join transaction, after the sign-in proof.
+ * Leaving by choice does not prevent rejoining. Runs inside the join
+ * transaction, after the sign-in proof, as the joining person reading only
+ * their own exit history (migration 061 membership_exit_self_read).
  */
 export async function assertMayRejoin(
-  tx: Tx,
+  tx: SystemTx,
   tenantId: string,
   userId: string,
 ) {
@@ -68,12 +68,14 @@ export async function assertMayRejoin(
     [tenantId, userId],
   );
   if (member) return;
-  await asTenant(tx, { tenantId, userId, role: "owner" });
-  const [latest] = await tx.query(
-    "SELECT kind FROM membership_exits WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
-    [userId],
+  const [latest] = await tx.tenant(
+    { tenantId, userId, role: "subscriber" },
+    (scoped) =>
+      scoped.query(
+        "SELECT kind FROM membership_exits WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
+        [userId],
+      ),
   );
-  await tx.query("RESET ROLE");
   if (latest?.kind === "removed")
     throw fail(
       403,
@@ -84,64 +86,68 @@ export async function assertMayRejoin(
 export type ExitBlocker = { kind: string; count: number; message: string };
 /**
  * In-flight money and booking instructions that must settle before a
- * membership ends. Runs in the caller's transaction as the workspace owner,
- * both for the preview and again under the workspace lock before the exit.
+ * membership ends, counted for the preview and again under the workspace lock
+ * before the exit. The counts come from membership_exit_blockers() (migration
+ * 061), which the follower may call for themselves and the owner for any
+ * follower, so a leaving follower never runs as the workspace owner.
  */
-async function exitBlockers(tx: Tx, followerId: string) {
+async function exitCounts(tx: Tx, followerId: string) {
+  const [row] = await tx.query(
+    "SELECT renewal,checkout,payment,booking,open_privacy FROM membership_exit_blockers($1)",
+    [followerId],
+  );
   const blockers: ExitBlocker[] = [];
-  const check = async (kind: string, message: string, sql: string) => {
-    const [row] = await tx.query(sql, [followerId]);
-    if (Number(row.n) > 0)
-      blockers.push({ kind, count: Number(row.n), message });
+  const check = (kind: string, n: number, message: string) => {
+    if (Number(n) > 0) blockers.push({ kind, count: Number(n), message });
   };
-  await check(
+  check(
     "renewal",
+    row.renewal,
     "A membership renewal change is still being confirmed with the payment provider.",
-    "SELECT count(*)::int n FROM records WHERE kind='subscription_transition' AND owner_user_id=$1 AND status IN ('submitting','unknown')",
   );
-  await check(
+  check(
     "checkout",
+    row.checkout,
     "A checkout is still open. Finish it or wait for it to expire.",
-    "SELECT count(*)::int n FROM records WHERE kind IN ('checkout','booking_payment') AND owner_user_id=$1 AND status IN ('creating','open','unknown')",
   );
-  await check(
+  check(
     "payment",
+    row.payment,
     "A payment or refund instruction is still being confirmed.",
-    "SELECT count(*)::int n FROM records WHERE (owner_user_id=$1 OR data->>'userId'=$1::text) AND ((kind IN ('refund','booking_refund') AND status IN ('submitting','unknown','refund_submitting','refund_unknown','refunding')) OR (kind IN ('financial_intent','finance_intent','billing_intent','subscription_intent') AND status IN ('creating','submitting','unknown')))",
   );
-  await check(
-    "booking",
-    "Upcoming bookings must be cancelled first.",
-    "SELECT count(*)::int n FROM bookings b JOIN booking_slots s ON s.tenant_id=b.tenant_id AND s.id=b.slot_id WHERE b.user_id=$1 AND b.status IN ('confirmed','payment_pending') AND s.ends_at>now()",
-  );
-  return blockers;
+  check("booking", row.booking, "Upcoming bookings must be cancelled first.");
+  return { blockers, openPrivacy: Number(row.open_privacy ?? 0) };
 }
 const blocked = (blockers: ExitBlocker[]) =>
   Object.assign(
     fail(409, "EXIT_BLOCKED", blockers.map((b) => b.message).join(" ")),
     { blockers },
   );
-/** What ending this membership would do, read as the workspace owner. */
+/**
+ * What ending this membership would do. `viewer` is the follower themselves
+ * (as a subscriber) or the workspace owner.
+ */
 export async function exitPreview(
   db: Database,
-  tenantId: string,
+  viewer: Actor,
   followerId: string,
 ) {
   return db.tenant(
-    { tenantId, userId: followerId, role: "owner" },
+    {
+      tenantId: viewer.tenantId,
+      userId: viewer.userId,
+      role: viewer.role,
+      ...(viewer.elevation ? { elevation: viewer.elevation } : {}),
+    },
     async (tx) => {
       const [s] = await tx.query(
         "SELECT provider_id,status,cancel_at_period_end,period_end,data FROM subscriptions WHERE user_id=$1",
         [followerId],
       );
-      const blockers = await exitBlockers(tx, followerId);
       // An open deletion request does not block an exit: the privacy team can
       // still process it for a former member (eraseMember accepts a recorded
       // exit), so the screens only say that it stays open.
-      const [privacy] = await tx.query(
-        "SELECT count(*)::int n FROM records WHERE kind='privacy_request' AND owner_user_id=$1 AND status='pending_review'",
-        [followerId],
-      );
+      const { blockers, openPrivacy } = await exitCounts(tx, followerId);
       const renewing =
         !!s?.provider_id &&
         renewable.includes(s.status) &&
@@ -162,7 +168,7 @@ export async function exitPreview(
             ? "already_cancelled"
             : "none") as "renewal_cancelled" | "already_cancelled" | "none",
         blockers,
-        openDeletionRequests: Number(privacy?.n ?? 0),
+        openDeletionRequests: openPrivacy,
       };
     },
   );
@@ -197,7 +203,19 @@ export async function endFollowerMembership(
       "FOLLOWER_NOT_FOUND",
       "This person is not a follower in this workspace.",
     );
-  const preview = await exitPreview(db, input.tenantId, input.followerId);
+  // A follower leaving acts as themselves (a subscriber); only an owner
+  // removal acts with the owner's role.
+  const actor: Actor =
+    input.kind === "left"
+      ? {
+          tenantId: input.tenantId,
+          userId: input.followerId,
+          role: "subscriber",
+        }
+      : { tenantId: input.tenantId, userId: input.actorId, role: "owner" };
+  if (input.kind === "left" && input.actorId !== input.followerId)
+    throw fail(403, "FOLLOWERS_ONLY", "Only the follower can leave.");
+  const preview = await exitPreview(db, actor, input.followerId);
   if (preview.blockers.length) throw blocked(preview.blockers);
   if (preview.action === "renewal_cancelled") {
     // The existing cancellation flow: renewal stops at the end of the paid
@@ -256,74 +274,70 @@ export async function endFollowerMembership(
     const [tenant] = await tx.query("SELECT name FROM tenants WHERE id=$1", [
       input.tenantId,
     ]);
-    const actor = {
-      tenantId: input.tenantId,
-      userId: input.actorId,
-      role: "owner",
-    };
-    await asTenant(tx, actor);
-    const [s] = await tx.query(
-      "SELECT provider_id,status,cancel_at_period_end,period_end,data FROM subscriptions WHERE user_id=$1",
-      [input.followerId],
-    );
-    // A renewal switched back on between the preview and this lock would
-    // restart billing for someone without access; stop instead.
-    if (
-      s?.provider_id &&
-      renewable.includes(s.status) &&
-      !s.cancel_at_period_end
-    )
-      throw fail(
-        409,
-        "RENEWAL_ACTIVE",
-        "The membership renewal is active again. Review it and try again.",
+    const reason = input.reason?.trim() || null;
+    const { accessUntil, exitId } = await tx.tenant(actor, async (scoped) => {
+      const [s] = await scoped.query(
+        "SELECT provider_id,status,cancel_at_period_end,period_end,data FROM subscriptions WHERE user_id=$1",
+        [input.followerId],
       );
-    // A checkout, payment or booking started after the preview must not
-    // survive for someone who is no longer a member: check again under the
-    // workspace lock (checkout creation takes it and locks the membership
-    // row) and the member's booking lock (reservation takes it and re-reads
-    // the membership).
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      input.tenantId + ":booking-subscriber:" + input.followerId,
-    ]);
-    const lateBlockers = await exitBlockers(tx, input.followerId);
-    if (lateBlockers.length) throw blocked(lateBlockers);
-    const accessUntil = subscriptionHasAccess(s) ? s.period_end : null,
-      exitId = randomUUID(),
-      reason = input.reason?.trim() || null;
-    await tx.query(
-      "INSERT INTO membership_exits(id,tenant_id,user_id,kind,actor_id,reason,subscription_action,access_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [
-        exitId,
-        input.tenantId,
+      // A renewal switched back on between the preview and this lock would
+      // restart billing for someone without access; stop instead.
+      if (
+        s?.provider_id &&
+        renewable.includes(s.status) &&
+        !s.cancel_at_period_end
+      )
+        throw fail(
+          409,
+          "RENEWAL_ACTIVE",
+          "The membership renewal is active again. Review it and try again.",
+        );
+      // A checkout, payment or booking started after the preview must not
+      // survive for someone who is no longer a member: check again under the
+      // workspace lock (checkout creation takes it and locks the membership
+      // row) and the member's booking lock (reservation takes it and re-reads
+      // the membership).
+      await scoped.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        input.tenantId + ":booking-subscriber:" + input.followerId,
+      ]);
+      const late = await exitCounts(scoped, input.followerId);
+      if (late.blockers.length) throw blocked(late.blockers);
+      const accessUntil = subscriptionHasAccess(s) ? s.period_end : null,
+        exitId = randomUUID();
+      await scoped.query(
+        "INSERT INTO membership_exits(id,tenant_id,user_id,kind,actor_id,reason,subscription_action,access_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        [
+          exitId,
+          input.tenantId,
+          input.followerId,
+          input.kind,
+          input.actorId,
+          reason,
+          preview.action,
+          accessUntil,
+        ],
+      );
+      await disableUserIntegrations(scoped, input.followerId, "wearable");
+      await event(
+        scoped,
+        actor,
+        input.kind === "left" ? "membership.left" : "membership.removed",
         input.followerId,
-        input.kind,
-        input.actorId,
-        reason,
-        preview.action,
-        accessUntil,
-      ],
-    );
-    await disableUserIntegrations(tx, input.followerId, "wearable");
-    await event(
-      tx,
-      actor,
-      input.kind === "left" ? "membership.left" : "membership.removed",
-      input.followerId,
-      { exitId, subscription: preview.action, reasonGiven: !!reason },
-    );
-    if (input.kind === "left")
-      await notifyCoachingTeam(tx, actor, {
-        category: "coaching",
-        dedupeKey: "membership-exit:" + exitId,
-        title: "A subscriber left",
-        body: `${follower.name} ended their membership.${reason ? ` Their note: “${reason}”` : ""}`,
-        href: "/trainer/subscribers",
-        templateKey: "membership-exit-team",
-        email: false,
-        push: false,
-      });
-    await tx.query("RESET ROLE");
+        { exitId, subscription: preview.action, reasonGiven: !!reason },
+      );
+      if (input.kind === "left")
+        await notifyCoachingTeam(scoped, actor, {
+          category: "coaching",
+          dedupeKey: "membership-exit:" + exitId,
+          title: "A subscriber left",
+          body: `${follower.name} ended their membership.${reason ? ` Their note: “${reason}”` : ""}`,
+          href: "/trainer/subscribers",
+          templateKey: "membership-exit-team",
+          email: false,
+          push: false,
+        });
+      return { accessUntil, exitId };
+    });
     // The follow-on session carries the leaving session's sign-in time.
     const carriedSignIn =
       input.kind === "left" && input.followerSession
@@ -371,9 +385,14 @@ export async function endFollowerMembership(
       input.tenantId,
     );
     if (input.kind === "removed" && emailDeliveryConfigured())
+      // The former follower is no longer a member: queued as themselves.
       await queueAccountEmail(
         tx,
-        { tenantId: input.tenantId, userId: input.followerId, role: "owner" },
+        {
+          tenantId: input.tenantId,
+          userId: input.followerId,
+          role: "subscriber",
+        },
         follower.email,
         "Your coaching membership ended",
         `${tenant.name} ended your coaching membership.${reason ? ` Reason given: ${reason}.` : ""}${until} Your account and any other coaches are unaffected.`,
@@ -441,7 +460,7 @@ export function registerMembershipExit(
   app.get("/api/v1/membership/leave", async (req) => {
     const a = follower(req);
     const [preview, name, others] = await Promise.all([
-      exitPreview(db, a.tenantId, a.userId),
+      exitPreview(db, a, a.userId),
       workspaceName(a.tenantId),
       db.system((tx) =>
         tx.query(
@@ -505,7 +524,7 @@ export function registerMembershipExit(
         "This person is not a follower in this workspace.",
       );
     return {
-      ...(await exitPreview(db, a.tenantId, userId)),
+      ...(await exitPreview(db, a, userId)),
       follower: { name: m.name },
     };
   });

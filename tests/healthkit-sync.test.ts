@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createDatabase,
+  elevated,
   putRecord,
   type Actor,
   type Database,
@@ -16,6 +17,7 @@ import {
   maintainHealthKitSync,
 } from "../apps/api/src/healthkit-sync.ts";
 import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 // Synthetic fixtures only: no companion app, Apple service or provider is contacted.
 const proofKey = "synthetic-healthkit-host-proof-key-32-bytes";
@@ -148,7 +150,7 @@ async function person(
   return { tenantId, userId, role, cookie: "session=" + token };
 }
 async function setPolicy(owner: Person, policy: string | null) {
-  await db.tenant({ ...owner, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(owner), async (tx) => {
     await tx.query(
       "DELETE FROM records WHERE kind='onboarding_step' AND data->>'step'='wearables'",
     );
@@ -301,7 +303,7 @@ function totalEndingSoon(
 }
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function records(p: Actor) {
-  return db.tenant({ ...p, role: "owner" }, (tx) =>
+  return db.tenant(seedScope(p), (tx) =>
     tx.query(
       "SELECT id,status,version,data FROM records WHERE kind='wearable' AND owner_user_id=$1 AND data->>'origin'='apple_healthkit' ORDER BY data->>'day'",
       [p.userId],
@@ -310,7 +312,7 @@ async function records(p: Actor) {
 }
 async function device(p: Actor, id: string) {
   return (
-    await db.tenant({ ...p, role: "owner" }, (tx) =>
+    await db.tenant(seedScope(p), (tx) =>
       tx.query("SELECT * FROM healthkit_devices WHERE id=$1", [id]),
     )
   )[0];
@@ -527,7 +529,7 @@ test("a one-time pairing code becomes a hashed device token scoped to the member
     ),
   );
   assert.ok(stored[0].consumed_at);
-  const consents = await db.tenant({ ...member, role: "owner" }, (tx) =>
+  const consents = await db.tenant(seedScope(member), (tx) =>
     tx.query(
       "SELECT granted,document_version FROM consent_records WHERE user_id=$1 AND document_type='wearable:apple_health'",
       [member.userId],
@@ -621,7 +623,7 @@ test("a one-time pairing code becomes a hashed device token scoped to the member
     "VALIDATION",
   );
   // The member is told about the new device, and the list omits credentials.
-  const notices = await db.tenant({ ...member, role: "owner" }, (tx) =>
+  const notices = await db.tenant(seedScope(member), (tx) =>
     tx.query(
       "SELECT category,title,body,href FROM notifications WHERE user_id=$1",
       [member.userId],
@@ -751,7 +753,7 @@ test("batch uploads are validated, idempotent and mapped into the Client Twin an
     "workout_minutes",
   ]);
   // Audit events carry counts only, never health values.
-  const events = await db.tenant({ ...owner, role: "owner" }, (tx) =>
+  const events = await db.tenant(seedScope(owner), (tx) =>
     tx.query(
       "SELECT data FROM events WHERE name='healthkit.batch_received' AND subject_id=$1",
       [paired.id],
@@ -1170,7 +1172,7 @@ test("only the workspace's clients pair devices and sync", async () => {
     true,
   );
   // No consent or code was recorded for the refused team accounts.
-  const consents = await db.tenant({ ...owner, role: "owner" }, (tx) =>
+  const consents = await db.tenant(seedScope(owner), (tx) =>
     tx.query(
       "SELECT user_id FROM consent_records WHERE document_type='wearable:apple_health' AND user_id=ANY($1::uuid[])",
       [[owner.userId, staff.userId, finance.userId]],
@@ -1367,7 +1369,7 @@ test("device credentials are checked, rate limited and bound to their workspace 
   assert.ok(Number(limited[0].headers["retry-after"]) > 0);
   // Per-device daily quota stored with the device.
   const second = await pairDevice(member, "Quota phone");
-  await db.tenant({ ...member, role: "owner" }, (tx) =>
+  await db.tenant(seedScope(member), (tx) =>
     tx.query(
       "UPDATE healthkit_devices SET quota_day=(now() AT TIME ZONE 'UTC')::date,quota_batches=1000 WHERE id=$1",
       [second.device.id],
@@ -1453,12 +1455,20 @@ test("export, erasure, workspace closure and the support view follow privacy rul
     false,
   );
   // Member erasure removes devices and receipts (records are erased by the lifecycle).
-  await db.tenant({ ...member, role: "owner" }, (tx) =>
-    privacyHooks.eraseAdditional!(tx, member.userId),
+  // Erasure runs in the privacy operator's erasure scope, as eraseMember does.
+  const privacyScope = elevated("platform-operator", {
+    tenantId,
+    userId: operator.userId,
+    role: "owner",
+  });
+  await db.tenant(
+    privacyScope,
+    (tx) => privacyHooks.eraseAdditional!(tx, member.userId),
+    { privacyErasure: true },
   );
   assert.equal(
     (
-      await db.tenant({ ...owner, role: "owner" }, (tx) =>
+      await db.tenant(seedScope(owner), (tx) =>
         tx.query("SELECT id FROM healthkit_devices WHERE user_id=$1", [
           member.userId,
         ]),
@@ -1468,7 +1478,7 @@ test("export, erasure, workspace closure and the support view follow privacy rul
   );
   assert.equal(
     (
-      await db.tenant({ ...owner, role: "owner" }, (tx) =>
+      await db.tenant(seedScope(owner), (tx) =>
         tx.query(
           "SELECT batch_id FROM healthkit_sync_batches WHERE user_id=$1",
           [member.userId],
@@ -1487,12 +1497,12 @@ test("export, erasure, workspace closure and the support view follow privacy rul
   const again = await person(tenantId);
   await pairDevice(again);
   // Closure runs under a privacy operator, as in the workspace lifecycle.
-  await db.tenant({ ...operator, role: "owner" }, (tx) =>
-    privacyHooks.closeAdditional!(tx),
-  );
+  await db.tenant(privacyScope, (tx) => privacyHooks.closeAdditional!(tx), {
+    privacyErasure: true,
+  });
   assert.equal(
     (
-      await db.tenant({ ...owner, role: "owner" }, (tx) =>
+      await db.tenant(seedScope(owner), (tx) =>
         tx.query("SELECT id FROM healthkit_devices"),
       )
     ).length,

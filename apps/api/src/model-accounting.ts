@@ -20,8 +20,10 @@ export function modelAccounting(
   task: string,
 ): ModelAccounting {
   const id = randomUUID();
-  // Internal accounting retains the authenticated tenant/user. It grants no financial reads to the caller.
-  const a = { ...actor, role: "owner" };
+  // Accounting runs in the caller's own scope: the workspace-wide daily counts
+  // come from model_usage_today() (migration 061), and a member reads and
+  // finalizes only its own usage rows. Nobody is raised to the owner role.
+  const a = actor;
   return {
     async reserve(model) {
       const config = runtimeConfig(),
@@ -42,7 +44,7 @@ export function modelAccounting(
           a.tenantId,
         ]);
         const [used] = await tx.query(
-          "SELECT count(*)::int AS n,count(*) FILTER (WHERE task=ANY($1::text[]))::int AS subscribers,count(*) FILTER (WHERE user_id=$2 AND task=ANY($1::text[]))::int AS mine FROM cost_events WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Asia/Dubai') AT TIME ZONE 'Asia/Dubai'",
+          "SELECT n,subscribers,mine FROM model_usage_today($1::text[],$2)",
           [SUBSCRIBER_CAPPED_TASKS, a.userId],
         );
         if (

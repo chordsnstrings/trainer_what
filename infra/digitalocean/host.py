@@ -303,6 +303,13 @@ def runtime_role(release, sha):
     grants = (release / "infra/runtime-role.sql").read_text()
     grants = "\n".join(line for line in grants.splitlines() if not line.startswith("CREATE ROLE"))
     sql += grants + "\nALTER ROLE trainer_service WITH LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '" + quoted + "';\n"
+    # This controller comes from the release that is serving now, and that
+    # release sets tenant scope before SET ROLE, so the tenant role may lose
+    # set_config (docs/features/isolation.md). An older controller deploying
+    # this release skips the step; the next deployment applies it.
+    scope = release / "infra/tenant-scope.sql"
+    if scope.is_file():
+        sql += scope.read_text()
     compose(release, sha, "exec", "-T", "database", "psql", "-q", "-v", "ON_ERROR_STOP=1",
             "-U", "trainer_migrations", "-d", "trainer", input=sql, text=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

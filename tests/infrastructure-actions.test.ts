@@ -8,6 +8,7 @@ import {
   registerInfrastructureActions,
   workerDispatchControl,
 } from "../apps/api/src/infrastructure-actions.ts";
+import { seedScope } from "./scope-fixtures.ts";
 let db: Database;
 const app = Fastify(),
   operator = {
@@ -94,7 +95,7 @@ test("disabled defaults, role, MFA and fixed action/resource scope fail closed",
   ])
     assert.equal((await req("", undefined, headers)).statusCode, 403);
   await assert.rejects(
-    db.tenant(operator, (tx) =>
+    db.tenant(seedScope(operator), (tx) =>
       tx.query("SELECT * FROM infrastructure_actions"),
     ),
     /permission denied/,

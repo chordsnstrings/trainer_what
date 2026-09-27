@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Actor, Database, Tx } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 
@@ -608,11 +608,7 @@ async function databaseMeasurements(
       failed = 0;
     for (const tenant of tenants) {
       const [q] = await db.tenant(
-        {
-          tenantId: tenant.id,
-          userId: "00000000-0000-0000-0000-000000000000",
-          role: "staff",
-        },
+        elevated("worker", { tenantId: tenant.id, role: "staff" }),
         (tx) =>
           tx.query(
             "SELECT count(*) FILTER(WHERE status='pending')::int AS pending,count(*) FILTER(WHERE status='pending' AND leased_until>now())::int AS leased,count(*) FILTER(WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<=now()))::int AS ready,coalesce(max(extract(epoch FROM(now()-available_at))) FILTER(WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<=now())),0)::float8 AS oldest,count(*) FILTER(WHERE status IN ('blocked','failed'))::int AS failed FROM jobs",

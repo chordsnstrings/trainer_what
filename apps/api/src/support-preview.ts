@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { Actor, Database, Tx } from "@trainer/db";
+import {
+  elevated,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { tokenHash } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import { notificationPreferencesSchema } from "./notifications.ts";
@@ -157,15 +163,9 @@ async function audit(
     ],
   );
 }
-async function scoped<T>(tx: Tx, a: Actor, fn: () => Promise<T>) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, a.role],
-  );
-  const result = await fn();
-  await tx.query("RESET ROLE");
-  return result;
+/** A verified tenant scope inside the service transaction (db package). */
+async function scoped<T>(tx: SystemTx, a: Actor, fn: (tx: Tx) => Promise<T>) {
+  return tx.tenant(a, fn);
 }
 async function operator(
   tx: Tx,
@@ -201,7 +201,12 @@ async function operator(
   ]);
   return session;
 }
-async function context(tx: Tx, a: Operator, tenantId: string, caseId: string) {
+async function context(
+  tx: SystemTx,
+  a: Operator,
+  tenantId: string,
+  caseId: string,
+) {
   // Uses the same first lock as workspace closure and team membership changes.
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     tenantId + ":workspace",
@@ -211,11 +216,20 @@ async function context(tx: Tx, a: Operator, tenantId: string, caseId: string) {
     [tenantId],
   );
   if (!workspace || workspace.lifecycle_state !== "active") return null;
-  const [support] = await scoped(tx, { ...a, tenantId, role: "owner" }, () =>
-    tx.query(
-      "SELECT id,owner_user_id,status,version,data->>'category' AS category FROM records WHERE id=$1 AND kind='support' FOR SHARE",
-      [caseId],
-    ),
+  // The operator reads the one support case as an allowlisted platform
+  // operator; the preview itself then runs as the case owner's own role.
+  const [support] = await scoped(
+    tx,
+    elevated("platform-operator", {
+      tenantId,
+      userId: a.userId,
+      role: "owner",
+    }),
+    (tx) =>
+      tx.query(
+        "SELECT id,owner_user_id,status,version,data->>'category' AS category FROM records WHERE id=$1 AND kind='support' FOR SHARE",
+        [caseId],
+      ),
   );
   if (!support || support.status !== "open" || !support.owner_user_id)
     return null;
@@ -275,7 +289,7 @@ async function endElevation(
   return updated ?? e;
 }
 async function liveGrant(
-  tx: Tx,
+  tx: SystemTx,
   req: FastifyRequest,
   a: Operator,
   grantId: string,
@@ -335,7 +349,7 @@ async function healthAllowed(tx: Tx, g: Grant, type: string) {
   return c?.granted === true;
 }
 async function project(
-  tx: Tx,
+  tx: SystemTx,
   a: Operator,
   g: Grant,
   c: NonNullable<Awaited<ReturnType<typeof context>>>,
@@ -350,7 +364,7 @@ async function project(
   await scoped(
     tx,
     { tenantId: g.tenant_id, userId: g.target_user_id, role: g.target_role },
-    async () => {
+    async (tx) => {
       if (g.scopes.includes("access")) {
         const [subscription] = await tx.query(
           "SELECT status,period_end,cancel_at_period_end FROM subscriptions WHERE user_id=$1 ORDER BY period_end DESC NULLS LAST LIMIT 1",
@@ -618,7 +632,7 @@ export function registerSupportPreview(
           userId: g.target_user_id,
           role: g.target_role,
         },
-        async () => {
+        async (tx) => {
           await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
             g.tenant_id + ":notifications:" + g.target_user_id,
           ]);
@@ -742,7 +756,7 @@ export function registerSupportPreview(
             userId: g.target_user_id,
             role: g.target_role,
           },
-          async () => {
+          async (tx) => {
             const current = await preferences(tx, g);
             if (current.version !== e.expected_version) return null;
             const [row] = await tx.query(

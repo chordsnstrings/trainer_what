@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Actor, type Database, type Tx, event } from "@trainer/db";
+import {
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+  event,
+} from "@trainer/db";
 import { newToken, tokenHash } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 type TeamActor = Actor & { mfaAt?: string | null };
@@ -51,20 +57,17 @@ async function currentOwner(tx: Tx, a: TeamActor) {
   if (m?.role !== "owner")
     throw fail(403, "OWNER_REQUIRED", "Ownership changed. Sign in again.");
 }
+/** Audits a team change as the verified owner (the caller checked ownership). */
 async function teamEvent(
-  tx: Tx,
+  tx: SystemTx,
   a: Actor,
   name: string,
   subject: string,
   data: unknown,
 ) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-    [a.tenantId, a.userId],
+  await tx.tenant({ ...a, role: "owner" }, (scoped) =>
+    event(scoped, a, name, subject, data),
   );
-  await event(tx, a, name, subject, data);
-  await tx.query("RESET ROLE");
 }
 /** Read token tenant first, then lock workspace/team before token; avoids acceptance/revocation deadlock. */
 export async function lockActiveInvitation(tx: Tx, hash: string) {

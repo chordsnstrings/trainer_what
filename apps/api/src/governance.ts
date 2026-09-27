@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import { transitionPayout } from "./finance.ts";
@@ -49,15 +56,12 @@ async function audit(
   );
 }
 /** Runs scoped writes inside a system transaction, then returns to the service role. */
-async function asTenant<T>(tx: Tx, a: Actor, fn: () => Promise<T>) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, a.role],
-  );
-  const result = await fn();
-  await tx.query("RESET ROLE");
-  return result;
+async function asTenant<T>(
+  tx: SystemTx,
+  a: Actor,
+  fn: (scoped: Tx) => Promise<T>,
+) {
+  return tx.tenant(a, fn);
 }
 /** The acting Super admin must still hold the role and must not be locked. */
 async function currentSuperAdmin(tx: Tx, userId: string) {
@@ -88,127 +92,135 @@ export async function suspendWorkspace(
   tenantId: string,
   input: { reason: string; notice?: string },
 ) {
-  return db.system(async (tx) => {
-    // The workspace lock also serializes payout preparation and dispatch.
-    await workspaceLock(tx, tenantId);
-    await currentSuperAdmin(tx, a.userId);
-    const [t] = await tx.query(
-      "SELECT id,name,lifecycle_state FROM tenants WHERE id=$1 FOR UPDATE",
-      [tenantId],
-    );
-    if (!t) throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
-    if (t.lifecycle_state !== "active")
-      throw fail(
-        409,
-        "WORKSPACE_STATE",
-        t.lifecycle_state === "suspended"
-          ? "This workspace is already suspended."
-          : "Only an active workspace can be suspended.",
+  return db.system(
+    async (tx) => {
+      // The workspace lock also serializes payout preparation and dispatch.
+      await workspaceLock(tx, tenantId);
+      await currentSuperAdmin(tx, a.userId);
+      const [t] = await tx.query(
+        "SELECT id,name,lifecycle_state FROM tenants WHERE id=$1 FOR UPDATE",
+        [tenantId],
       );
-    // Only a platform administration workspace (its owner is an operator) is
-    // exempt. Operators who follow or staff this trainer keep their operator
-    // access through /api/v1/admin/* and can switch workspace.
-    const [platform] = await tx.query(
-      `SELECT ${platformWorkspaceSql("$1::uuid")} AS platform`,
-      [tenantId],
-    );
-    if (platform?.platform)
-      throw fail(
-        409,
-        "PLATFORM_WORKSPACE",
-        "This is a platform administration workspace: its owner holds a platform role. Remove that platform role before suspending it.",
+      if (!t) throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+      if (t.lifecycle_state !== "active")
+        throw fail(
+          409,
+          "WORKSPACE_STATE",
+          t.lifecycle_state === "suspended"
+            ? "This workspace is already suspended."
+            : "Only an active workspace can be suspended.",
+        );
+      // Only a platform administration workspace (its owner is an operator) is
+      // exempt. Operators who follow or staff this trainer keep their operator
+      // access through /api/v1/admin/* and can switch workspace.
+      const [platform] = await tx.query(
+        `SELECT ${platformWorkspaceSql("$1::uuid")} AS platform`,
+        [tenantId],
       );
-    await tx.query(
-      "UPDATE tenants SET lifecycle_state='suspended' WHERE id=$1",
-      [tenantId],
-    );
-    const suspensionId = randomUUID(),
-      followupId = randomUUID(),
-      notice = input.notice?.trim() ?? "",
-      owner = await workspaceOwner(tx, tenantId);
-    const scoped = { tenantId, userId: a.userId, role: "finance" };
-    const held = await asTenant(tx, scoped, async () => {
-      // Instructions not yet sent to the bank are held; in-flight ones are
-      // listed for reconciliation because they cannot be recalled here.
-      const ready = await tx.query(
-        "SELECT id,amount_minor FROM payouts WHERE status='ready' ORDER BY created_at,id",
-      );
-      for (const p of ready) await transitionPayout(tx, scoped, p.id, "held");
-      const inFlight = await tx.query(
-        "SELECT id,status,amount_minor FROM payouts WHERE status IN ('submitted','processing','unknown') ORDER BY created_at,id",
-      );
-      const heldMinor = ready.reduce((n, p) => n + Number(p.amount_minor), 0);
+      if (platform?.platform)
+        throw fail(
+          409,
+          "PLATFORM_WORKSPACE",
+          "This is a platform administration workspace: its owner holds a platform role. Remove that platform role before suspending it.",
+        );
       await tx.query(
-        "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) VALUES($1,$2,'reconciliation',$3,'open',$4)",
+        "UPDATE tenants SET lifecycle_state='suspended' WHERE id=$1",
+        [tenantId],
+      );
+      const suspensionId = randomUUID(),
+        followupId = randomUUID(),
+        notice = input.notice?.trim() ?? "",
+        owner = await workspaceOwner(tx, tenantId);
+      // The Super admin acts in the workspace as an allowlisted platform operator.
+      const scoped = elevated("platform-operator", {
+        tenantId,
+        userId: a.userId,
+        role: "finance",
+      });
+      const held = await asTenant(tx, scoped, async (tx) => {
+        // Instructions not yet sent to the bank are held; in-flight ones are
+        // listed for reconciliation because they cannot be recalled here.
+        const ready = await tx.query(
+          "SELECT id,amount_minor FROM payouts WHERE status='ready' ORDER BY created_at,id",
+        );
+        for (const p of ready) await transitionPayout(tx, scoped, p.id, "held");
+        const inFlight = await tx.query(
+          "SELECT id,status,amount_minor FROM payouts WHERE status IN ('submitted','processing','unknown') ORDER BY created_at,id",
+        );
+        const heldMinor = ready.reduce((n, p) => n + Number(p.amount_minor), 0);
+        await tx.query(
+          "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) VALUES($1,$2,'reconciliation',$3,'open',$4)",
+          [
+            followupId,
+            tenantId,
+            a.userId,
+            JSON.stringify({
+              description: `Workspace suspended by the platform. Billing continues and was not cancelled: review active memberships, refunds and any cancellation with the owner. ${ready.length} payout instruction(s) held (${money(heldMinor)}); ${inFlight.length} already sent to the bank need reconciliation.`,
+              externalReference: "workspace-suspension:" + suspensionId,
+              source: "workspace_suspension",
+              suspensionId,
+              heldPayoutIds: ready.map((p) => p.id),
+              inFlightPayouts: inFlight.map((p) => ({
+                id: p.id,
+                status: p.status,
+                amountMinor: Number(p.amount_minor),
+              })),
+            }),
+          ],
+        );
+        await event(tx, scoped, "workspace.suspended", tenantId, {
+          suspensionId,
+          heldPayouts: ready.length,
+          financeFollowupId: followupId,
+        });
+        if (owner)
+          await notifyUser(tx, scoped, {
+            userId: owner,
+            category: "account",
+            dedupeKey: "workspace-suspension:" + suspensionId,
+            title: "Your coaching workspace is suspended",
+            body:
+              (notice ? notice + "\n\n" : "") +
+              "The platform team suspended this workspace. Members cannot use coaching, plans or bookings, the public website and joining are offline, and payouts are held. Billing is not cancelled. " +
+              (runtimeConfig().SUPPORT_EMAIL
+                ? `Contact ${runtimeConfig().SUPPORT_EMAIL} to resolve this.`
+                : "Contact platform support to resolve this."),
+            href: "/trainer",
+            templateKey: "workspace-suspended",
+            source: { kind: "workspace_suspension", suspensionId },
+            // Device notifications only reach members of active workspaces, so a
+            // push would wait and arrive stale after reinstatement. The in-app
+            // notice and the critical email carry it.
+            push: false,
+          });
+        return ready.map((p) => p.id as string);
+      });
+      const [row] = await tx.query(
+        "INSERT INTO workspace_suspensions(id,tenant_id,reason,notice,suspended_by,held_payouts,finance_followup_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
         [
-          followupId,
+          suspensionId,
           tenantId,
+          input.reason,
+          notice,
           a.userId,
-          JSON.stringify({
-            description: `Workspace suspended by the platform. Billing continues and was not cancelled: review active memberships, refunds and any cancellation with the owner. ${ready.length} payout instruction(s) held (${money(heldMinor)}); ${inFlight.length} already sent to the bank need reconciliation.`,
-            externalReference: "workspace-suspension:" + suspensionId,
-            source: "workspace_suspension",
-            suspensionId,
-            heldPayoutIds: ready.map((p) => p.id),
-            inFlightPayouts: inFlight.map((p) => ({
-              id: p.id,
-              status: p.status,
-              amountMinor: Number(p.amount_minor),
-            })),
-          }),
+          JSON.stringify(held),
+          followupId,
         ],
       );
-      await event(tx, scoped, "workspace.suspended", tenantId, {
-        suspensionId,
-        heldPayouts: ready.length,
+      await audit(tx, a.userId, "workspace.suspended", tenantId, suspensionId, {
+        reason: input.reason,
+        heldPayouts: held.length,
         financeFollowupId: followupId,
+        ownerNotified: !!owner,
       });
-      if (owner)
-        await notifyUser(tx, scoped, {
-          userId: owner,
-          category: "account",
-          dedupeKey: "workspace-suspension:" + suspensionId,
-          title: "Your coaching workspace is suspended",
-          body:
-            (notice ? notice + "\n\n" : "") +
-            "The platform team suspended this workspace. Members cannot use coaching, plans or bookings, the public website and joining are offline, and payouts are held. Billing is not cancelled. " +
-            (runtimeConfig().SUPPORT_EMAIL
-              ? `Contact ${runtimeConfig().SUPPORT_EMAIL} to resolve this.`
-              : "Contact platform support to resolve this."),
-          href: "/trainer",
-          templateKey: "workspace-suspended",
-          source: { kind: "workspace_suspension", suspensionId },
-          // Device notifications only reach members of active workspaces, so a
-          // push would wait and arrive stale after reinstatement. The in-app
-          // notice and the critical email carry it.
-          push: false,
-        });
-      return ready.map((p) => p.id as string);
-    });
-    const [row] = await tx.query(
-      "INSERT INTO workspace_suspensions(id,tenant_id,reason,notice,suspended_by,held_payouts,finance_followup_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-      [
-        suspensionId,
-        tenantId,
-        input.reason,
-        notice,
-        a.userId,
-        JSON.stringify(held),
-        followupId,
-      ],
-    );
-    await audit(tx, a.userId, "workspace.suspended", tenantId, suspensionId, {
-      reason: input.reason,
-      heldPayouts: held.length,
-      financeFollowupId: followupId,
-      ownerNotified: !!owner,
-    });
-    return {
-      suspension: row,
-      heldPayouts: held,
-      financeFollowupId: followupId,
-    };
-  });
+      return {
+        suspension: row,
+        heldPayouts: held,
+        financeFollowupId: followupId,
+      };
+    },
+    { tenantId: tenantId },
+  );
 }
 
 export async function reinstateWorkspace(
@@ -217,76 +229,89 @@ export async function reinstateWorkspace(
   tenantId: string,
   input: { suspensionId: string; revision: number; reason: string },
 ) {
-  return db.system(async (tx) => {
-    await workspaceLock(tx, tenantId);
-    await currentSuperAdmin(tx, a.userId);
-    const [t] = await tx.query(
-      "SELECT id,lifecycle_state FROM tenants WHERE id=$1 FOR UPDATE",
-      [tenantId],
-    );
-    if (!t) throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
-    const [s] = await tx.query(
-      "SELECT * FROM workspace_suspensions WHERE id=$1 AND tenant_id=$2 FOR UPDATE",
-      [input.suspensionId, tenantId],
-    );
-    if (!s || s.status !== "active" || s.revision !== input.revision)
-      throw conflict();
-    if (t.lifecycle_state !== "suspended")
-      throw fail(409, "WORKSPACE_STATE", "This workspace is not suspended.");
-    await tx.query("UPDATE tenants SET lifecycle_state='active' WHERE id=$1", [
-      tenantId,
-    ]);
-    const scoped = { tenantId, userId: a.userId, role: "finance" };
-    const owner = await workspaceOwner(tx, tenantId);
-    const released = await asTenant(tx, scoped, async () => {
-      const ids = (s.held_payouts as string[]) ?? [];
-      const still = ids.length
-        ? await tx.query(
-            "SELECT id FROM payouts WHERE id=ANY($1::uuid[]) AND status='held' ORDER BY created_at,id",
-            [ids],
-          )
-        : [];
-      for (const p of still) await transitionPayout(tx, scoped, p.id, "ready");
-      await event(tx, scoped, "workspace.reinstated", tenantId, {
-        suspensionId: s.id,
-        releasedPayouts: still.length,
+  return db.system(
+    async (tx) => {
+      await workspaceLock(tx, tenantId);
+      await currentSuperAdmin(tx, a.userId);
+      const [t] = await tx.query(
+        "SELECT id,lifecycle_state FROM tenants WHERE id=$1 FOR UPDATE",
+        [tenantId],
+      );
+      if (!t) throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+      const [s] = await tx.query(
+        "SELECT * FROM workspace_suspensions WHERE id=$1 AND tenant_id=$2 FOR UPDATE",
+        [input.suspensionId, tenantId],
+      );
+      if (!s || s.status !== "active" || s.revision !== input.revision)
+        throw conflict();
+      if (t.lifecycle_state !== "suspended")
+        throw fail(409, "WORKSPACE_STATE", "This workspace is not suspended.");
+      await tx.query(
+        "UPDATE tenants SET lifecycle_state='active' WHERE id=$1",
+        [tenantId],
+      );
+      const scoped = elevated("platform-operator", {
+        tenantId,
+        userId: a.userId,
+        role: "finance",
       });
-      if (owner)
-        await notifyUser(tx, scoped, {
-          userId: owner,
-          category: "account",
-          dedupeKey: "workspace-reinstated:" + s.id,
-          title: "Your coaching workspace is active again",
-          body: "The platform team reinstated this workspace. Coaching, bookings, the public website and joining are available again, and held payouts return to finance review.",
-          href: "/trainer",
-          templateKey: "workspace-reinstated",
-          source: { kind: "workspace_reinstatement", suspensionId: s.id },
+      const owner = await workspaceOwner(tx, tenantId);
+      const released = await asTenant(tx, scoped, async (tx) => {
+        const ids = (s.held_payouts as string[]) ?? [];
+        const still = ids.length
+          ? await tx.query(
+              "SELECT id FROM payouts WHERE id=ANY($1::uuid[]) AND status='held' ORDER BY created_at,id",
+              [ids],
+            )
+          : [];
+        for (const p of still)
+          await transitionPayout(tx, scoped, p.id, "ready");
+        await event(tx, scoped, "workspace.reinstated", tenantId, {
+          suspensionId: s.id,
+          releasedPayouts: still.length,
         });
-      return still.map((p) => p.id as string);
-    });
-    // The suspension notice is now misleading: undelivered email or device
-    // jobs for it are closed (the in-app record stays as history). The owner
-    // role is needed to see another member's notification.
-    const superseded = await asTenant(
-      tx,
-      { tenantId, userId: a.userId, role: "owner" },
-      () =>
-        tx.query(
-          "UPDATE jobs SET status='completed',leased_until=NULL,last_error='Superseded by workspace reinstatement' WHERE status='pending' AND kind IN ('email','push') AND data->>'notificationId' IN (SELECT id::text FROM notifications WHERE dedupe_key=$1) RETURNING id",
-          ["workspace-suspension:" + s.id],
-        ),
-    );
-    const [row] = await tx.query(
-      "UPDATE workspace_suspensions SET status='lifted',lifted_by=$2,lifted_at=now(),lift_reason=$3,released_payouts=$4,revision=revision+1 WHERE id=$1 RETURNING *",
-      [s.id, a.userId, input.reason, JSON.stringify(released)],
-    );
-    await audit(tx, a.userId, "workspace.reinstated", tenantId, s.id, {
-      reason: input.reason,
-      releasedPayouts: released.length,
-      supersededNoticeJobs: superseded.length,
-    });
-    return { suspension: row, releasedPayouts: released };
-  });
+        if (owner)
+          await notifyUser(tx, scoped, {
+            userId: owner,
+            category: "account",
+            dedupeKey: "workspace-reinstated:" + s.id,
+            title: "Your coaching workspace is active again",
+            body: "The platform team reinstated this workspace. Coaching, bookings, the public website and joining are available again, and held payouts return to finance review.",
+            href: "/trainer",
+            templateKey: "workspace-reinstated",
+            source: { kind: "workspace_reinstatement", suspensionId: s.id },
+          });
+        return still.map((p) => p.id as string);
+      });
+      // The suspension notice is now misleading: undelivered email or device
+      // jobs for it are closed (the in-app record stays as history). The owner
+      // role is needed to see another member's notification.
+      const superseded = await asTenant(
+        tx,
+        elevated("platform-operator", {
+          tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+        (tx) =>
+          tx.query(
+            "UPDATE jobs SET status='completed',leased_until=NULL,last_error='Superseded by workspace reinstatement' WHERE status='pending' AND kind IN ('email','push') AND data->>'notificationId' IN (SELECT id::text FROM notifications WHERE dedupe_key=$1) RETURNING id",
+            ["workspace-suspension:" + s.id],
+          ),
+      );
+      const [row] = await tx.query(
+        "UPDATE workspace_suspensions SET status='lifted',lifted_by=$2,lifted_at=now(),lift_reason=$3,released_payouts=$4,revision=revision+1 WHERE id=$1 RETURNING *",
+        [s.id, a.userId, input.reason, JSON.stringify(released)],
+      );
+      await audit(tx, a.userId, "workspace.reinstated", tenantId, s.id, {
+        reason: input.reason,
+        releasedPayouts: released.length,
+        supersededNoticeJobs: superseded.length,
+      });
+      return { suspension: row, releasedPayouts: released };
+    },
+    { tenantId: tenantId },
+  );
 }
 
 export async function lockAccount(

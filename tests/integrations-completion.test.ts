@@ -38,6 +38,7 @@ import {
   enforceHostTenant,
   allowedRequestOrigin,
 } from "../apps/api/src/host-routing.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database,
   app: ReturnType<typeof Fastify>,
@@ -689,7 +690,7 @@ async function seedConnection(
   a: Actor,
   options: { expired?: boolean; status?: string } = {},
 ) {
-  await db.tenant({ ...a, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(a), async (tx) => {
     await tx.query(
       "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'wearable:whoop','fixture',true)",
       [randomUUID(), a.tenantId, a.userId],
@@ -915,7 +916,7 @@ test("closed workspaces and removed members cannot synchronize but queued revoca
   );
   await fixture(() => processIntegrationJobs(db));
   assert.equal(tokenCalls, calls);
-  await db.tenant({ ...a, role: "owner" }, (tx) =>
+  await db.tenant(seedScope(a), (tx) =>
     disableUserIntegrations(tx, a.userId, "wearable"),
   );
   await db.system((tx) =>
@@ -927,7 +928,7 @@ test("closed workspaces and removed members cannot synchronize but queued revoca
   const before = revokeCalls;
   await fixture(() => processIntegrationJobs(db));
   assert.equal(revokeCalls, before + 1);
-  const [r] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  const [r] = await db.tenant(seedScope(a), (tx) =>
     tx.query(
       "SELECT status,credentials FROM integration_connections WHERE user_id=$1",
       [a.userId],

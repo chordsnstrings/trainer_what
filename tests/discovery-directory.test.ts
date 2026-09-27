@@ -15,6 +15,7 @@ import {
   PLATFORM,
   type Harness,
 } from "./discovery-fixtures.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let h: Harness;
 before(async () => {
@@ -210,7 +211,7 @@ test("search filters by specialty, language and text, treats wildcards literally
         [tenantId, slug, `Pager Coach ${String(i).padStart(2, "0")}`],
       ),
     );
-    await h.db.tenant({ tenantId, userId: randomUUID(), role: "owner" }, (tx) =>
+    await h.db.tenant(seedScope({ tenantId: tenantId }), (tx) =>
       tx.query(
         "INSERT INTO coach_directory_profiles(tenant_id,listed,specialties,languages,listed_at) VALUES($1,true,$2::text[],$3::text[],now())",
         [

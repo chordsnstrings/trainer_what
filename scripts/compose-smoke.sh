@@ -78,6 +78,7 @@ compose run --rm --no-deps migrate
 {
   cat "$repo/infra/runtime-role.sql"
   printf "\nALTER ROLE trainer_service WITH LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '%s';\n" "$runtime_password"
+  cat "$repo/infra/tenant-scope.sql"
 } | psql_admin >/dev/null
 compose up -d --no-deps --force-recreate --wait --wait-timeout 180 api web worker edge
 

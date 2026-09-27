@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { hasMemberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
@@ -148,33 +154,25 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
     !["safety", "coaching"].includes(input.category)
   )
     throw fail(403, "NOTIFICATION_SCOPE", "This notification is not permitted");
-  const [priorRole] = await tx.query(
-    "SELECT current_setting('app.role',true) role",
+  // The recipient's contact, preferences, consent and devices come from
+  // notification_recipient() (migration 061) with the sender's own scope: a
+  // follower may address themselves or, for safety and coaching notices, their
+  // coaching team. No sender is raised to the owner role.
+  const push = pushAvailable();
+  const [target] = await tx.query(
+    "SELECT permitted,email,name,role,preferences,marketing,devices FROM notification_recipient($1,$2,$3)",
+    [input.userId, input.category, push?.keyId ?? null],
   );
-  await tx.query("SELECT set_config('app.role','owner',true)");
-  try {
-    const [target] = await tx.query(
-      "SELECT u.email,u.name,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.user_id=$2",
-      [a.tenantId, input.userId],
+  if (!target) return null;
+  if (!target.permitted)
+    throw fail(
+      403,
+      "NOTIFICATION_SCOPE",
+      "A safety alert must go to your trainer",
     );
-    if (!target) return null;
-    if (
-      a.role === "subscriber" &&
-      input.userId !== a.userId &&
-      !["owner", "staff"].includes(target.role)
-    )
-      throw fail(
-        403,
-        "NOTIFICATION_SCOPE",
-        "A safety alert must go to your trainer",
-      );
-    const [pref] = await tx.query(
-        "SELECT data FROM notification_preferences WHERE user_id=$1",
-        [input.userId],
-      ),
-      p = notificationPreferencesSchema.parse(pref?.data ?? {});
-    if (input.category === "marketing")
-      p.marketing = await marketingConsent(tx, input.userId);
+  {
+    const p = notificationPreferencesSchema.parse(target.preferences ?? {});
+    if (input.category === "marketing") p.marketing = target.marketing === true;
     const href = /^\/(app|trainer|admin)(\/|$)/.test(input.href ?? "")
       ? (input.href ?? "")
       : "";
@@ -212,11 +210,10 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         input.email !== false &&
         enabled(p, input.category, "email", input.topic),
       notificationId = randomUUID();
-    const [row] = await tx.query(
-      "INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body,href,email_status,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING id",
+    const [inserted] = await tx.query(
+      "SELECT enqueue_notification($1,$2,$3,$4,$5,$6,$7,$8,$9) AS id",
       [
         notificationId,
-        a.tenantId,
         input.userId,
         input.category,
         input.dedupeKey,
@@ -231,7 +228,8 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         }),
       ],
     );
-    if (!row) return null;
+    if (!inserted?.id) return null;
+    const row = { id: inserted.id as string };
     if (canEmail) {
       const due = critical(input.category)
         ? new Date()
@@ -258,16 +256,14 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
       );
     }
     // Explicit per-device consent; inbox-only lifecycle events remain inbox-only.
-    const push = pushAvailable();
     if (
       push &&
       (input.push ?? input.email !== false) &&
       enabled(p, input.category, "push", input.topic)
     ) {
-      const devices = await tx.query(
-        "SELECT id FROM push_subscriptions WHERE user_id=$1 AND expires_at>clock_timestamp() AND vapid_key_id=$2 ORDER BY created_at LIMIT 8",
-        [input.userId, push.keyId],
-      );
+      const devices = ((target.devices ?? []) as string[]).map((id) => ({
+        id,
+      }));
       const due = critical(input.category)
         ? new Date()
         : nextNotificationTime(p);
@@ -288,10 +284,6 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         );
     }
     return row;
-  } finally {
-    await tx.query("SELECT set_config('app.role',$1,true)", [
-      priorRole?.role ?? a.role,
-    ]);
   }
 }
 export async function notifyCoachingTeam(
@@ -299,21 +291,10 @@ export async function notifyCoachingTeam(
   a: Actor,
   input: Omit<NotificationInput, "userId">,
 ) {
-  const [priorRole] = await tx.query(
-    "SELECT current_setting('app.role',true) role",
+  // Only the owner and staff user ids of the current workspace (migration 061).
+  const trainers = await tx.query(
+    "SELECT user_id FROM notification_team() AS t(user_id)",
   );
-  let trainers: any[] = [];
-  await tx.query("SELECT set_config('app.role','owner',true)");
-  try {
-    trainers = await tx.query(
-      "SELECT user_id FROM memberships WHERE tenant_id=$1 AND role IN ('owner','staff')",
-      [a.tenantId],
-    );
-  } finally {
-    await tx.query("SELECT set_config('app.role',$1,true)", [
-      priorRole?.role ?? a.role,
-    ]);
-  }
   for (const trainer of trainers)
     await notifyUser(tx, a, { ...input, userId: trainer.user_id });
 }
@@ -331,7 +312,7 @@ export async function notificationDeliveryDecision(
   }
   if (!job.data.notificationId) return { allowed: true };
   const decision = await db.tenant(
-    { tenantId, userId: job.data.userId, role: "owner" },
+    elevated("worker", { tenantId, role: "owner" }),
     async (tx) => {
       const [n] = await tx.query(
         "SELECT * FROM notifications WHERE id=$1 AND user_id=$2",
@@ -462,11 +443,7 @@ export async function notificationDeliveryDecision(
   };
 }
 export async function scheduleNotifications(db: Database, tenantId: string) {
-  const a = {
-    tenantId,
-    userId: "00000000-0000-0000-0000-000000000000",
-    role: "owner",
-  };
+  const a = elevated("worker", { tenantId, role: "owner" });
   await db.tenant(a, async (tx) => {
     const bookings = await tx.query(
       "SELECT b.id,b.user_id,s.title,s.starts_at FROM bookings b JOIN booking_slots s ON s.id=b.slot_id AND s.tenant_id=b.tenant_id WHERE b.status='confirmed' AND s.status='open' AND s.starts_at>now() AND s.starts_at<=now()+interval '24 hours'",

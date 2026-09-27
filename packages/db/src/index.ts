@@ -9,6 +9,15 @@ import {
   assertRuntimeRoles,
   verifyMigrations,
 } from "./migrations.ts";
+import {
+  ScopeError,
+  SYSTEM_USER_ID,
+  assertActorShape,
+  assertScopedSql,
+  assertServiceSql,
+  scopeDecision,
+  type Elevation,
+} from "./scope.ts";
 export {
   applyMigrations,
   assertRuntimeRoles,
@@ -16,15 +25,87 @@ export {
   readMigrations,
   verifyMigrations,
 } from "./migrations.ts";
-export type Actor = { tenantId: string; userId: string; role: string };
+export {
+  ELEVATIONS,
+  ScopeError,
+  SYSTEM_USER_ID,
+  assertScopedSql,
+  assertServiceSql,
+  scopeDecision,
+  sqlTokens,
+  type Elevation,
+} from "./scope.ts";
+/**
+ * A tenant actor. `role` must be the member's own role (an owner may also act
+ * as staff, finance or subscriber). Service identities that are not members
+ * carry an allowlisted `elevation` reason instead (see scope.ts).
+ */
+export type Actor = {
+  tenantId: string;
+  userId: string;
+  role: string;
+  elevation?: Elevation;
+};
+/** A service identity acting in one workspace for an allowlisted reason. */
+export function elevated(
+  reason: Elevation,
+  scope: { tenantId: string; role: string; userId?: string },
+): Actor {
+  return {
+    tenantId: scope.tenantId,
+    userId: scope.userId ?? SYSTEM_USER_ID,
+    role: scope.role,
+    elevation: reason,
+  };
+}
+/**
+ * The actor for work that row security reserves for `role`. A follower keeps
+ * its own subscriber scope (its rows only; never raised); an owner, or an
+ * identity that is already elevated, switches role directly; a staff or
+ * finance member needs the allowlisted `reason`.
+ */
+export function actingAs(a: Actor, role: string, reason: Elevation): Actor {
+  if (a.role === "subscriber" && !a.elevation) return a;
+  if (a.elevation || a.role === "owner" || a.role === role)
+    return { ...a, role };
+  return { ...a, role, elevation: reason };
+}
 export type Tx = {
   query: <T = Record<string, any>>(sql: string, values?: any[]) => Promise<T[]>;
 };
+export type ScopeOptions = {
+  /** Lets the erasure triggers accept this scope's deletes and scrubs. */
+  privacyErasure?: boolean;
+};
+/** A service transaction; tenant work inside it goes through tenant(). */
+export type SystemTx = Tx & {
+  /**
+   * Runs fn in a verified tenant scope inside this service transaction, then
+   * returns to the service role. The outer handle is unusable meanwhile.
+   */
+  tenant: <T>(
+    actor: Actor,
+    fn: (tx: Tx) => Promise<T>,
+    options?: ScopeOptions,
+  ) => Promise<T>;
+};
+export type SystemOptions = {
+  /** Binds service-table row security to one workspace (app.service_tenant_id). */
+  tenantId?: string;
+};
 export type Database = {
-  system: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
-  tenant: <T>(actor: Actor, fn: (tx: Tx) => Promise<T>) => Promise<T>;
+  system: <T>(
+    fn: (tx: SystemTx) => Promise<T>,
+    options?: SystemOptions,
+  ) => Promise<T>;
+  tenant: <T>(
+    actor: Actor,
+    fn: (tx: Tx) => Promise<T>,
+    options?: ScopeOptions,
+  ) => Promise<T>;
   close: () => Promise<void>;
 };
+const quoteIdent = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 export async function createDatabase(
   options: {
     memory?: boolean;
@@ -74,7 +155,9 @@ export async function createDatabase(
   let tail = Promise.resolve();
   async function transaction<T>(
     actor: Actor | null,
-    fn: (tx: Tx) => Promise<T>,
+    fn: (tx: any) => Promise<T>,
+    scopeOptions: ScopeOptions = {},
+    systemOptions: SystemOptions = {},
   ): Promise<T> {
     let release = () => {};
     if (embedded) {
@@ -85,26 +168,140 @@ export async function createDatabase(
       await prior;
     }
     const client: any = pool ? await pool.connect() : embedded!;
-    const tx: Tx = {
+    // Package statements (scope entry and exit) bypass the guard. Tenant
+    // statements use the extended protocol: one statement per call (PGlite's
+    // query() is always extended).
+    const raw = async (sql: string, values: any[] = [], extended = false) =>
+      (
+        await (pool && extended
+          ? client.query({ text: sql, values, queryMode: "extended" })
+          : client.query(sql, values))
+      ).rows as any[];
+    const bound = systemOptions.tenantId;
+    let scoped = false;
+    let broken: Error | null = null;
+    const usable = () => {
+      if (broken) throw broken;
+    };
+    /** Verifies the actor against its membership, sets the scope and becomes trainer_app. */
+    async function enter(scope: Actor, opts: ScopeOptions) {
+      assertActorShape(scope);
+      if (bound && scope.tenantId !== bound)
+        throw new ScopeError(
+          "SCOPE_TENANT_MISMATCH",
+          "This service transaction is bound to another workspace",
+          500,
+        );
+      // Decided in this transaction, as the service role, before any scope
+      // setting changes.
+      const [row] = await raw(
+        "SELECT (SELECT m.role FROM memberships m WHERE m.tenant_id=$1::uuid AND m.user_id=$2::uuid) AS member_role,current_user AS previous_role,session_user AS session_role,coalesce(current_setting('app.privacy_erasure',true),'') AS prior_erasure",
+        [scope.tenantId, scope.userId],
+      );
+      scopeDecision(scope, row.member_role ?? null);
+      // Still the service role: trainer_app cannot call set_config at all
+      // (migration 061), so the scope is fixed once SET ROLE runs. The
+      // erasure flag is always set explicitly: only the privacyErasure
+      // option turns it on inside a scope.
+      await raw(
+        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true),set_config('app.elevation',$4,true),set_config('app.privacy_erasure',$5,true)",
+        [
+          scope.tenantId,
+          scope.userId,
+          scope.role,
+          scope.elevation ?? "",
+          opts.privacyErasure ? "true" : "",
+        ],
+      );
+      await raw("SET LOCAL ROLE trainer_app");
+      return row as {
+        previous_role: string;
+        session_role: string;
+        prior_erasure: string;
+      };
+    }
+    async function leave(prior: {
+      previous_role: string;
+      session_role: string;
+      prior_erasure: string;
+    }) {
+      await raw("RESET ROLE");
+      await raw(
+        "SELECT set_config('app.tenant_id','',true),set_config('app.user_id','',true),set_config('app.role','',true),set_config('app.elevation','',true),set_config('app.privacy_erasure',$1,true)",
+        [prior.prior_erasure],
+      );
+      // A test may run the service transaction as a non-bypassing fixture role.
+      if (prior.previous_role !== prior.session_role)
+        await raw("SET LOCAL ROLE " + quoteIdent(prior.previous_role));
+    }
+    const scopedTx = (savepoints: boolean): Tx => ({
       query: async <T>(sql: string, values: any[] = []) => {
-        const result = await client.query(sql, values);
-        return result.rows as T[];
+        usable();
+        assertScopedSql(sql, savepoints);
+        return (await raw(sql, values, true)) as T[];
+      },
+    });
+    const systemTx: SystemTx = {
+      query: async <T>(sql: string, values: any[] = []) => {
+        usable();
+        if (scoped)
+          throw new ScopeError(
+            "SCOPE_ACTIVE",
+            "Use the tenant handle inside tx.tenant()",
+            500,
+          );
+        assertServiceSql(sql);
+        return (await raw(sql, values)) as T[];
+      },
+      tenant: async (scope, inner, opts = {}) => {
+        usable();
+        if (scoped)
+          throw new ScopeError(
+            "SCOPE_ACTIVE",
+            "Tenant scopes do not nest",
+            500,
+          );
+        scoped = true;
+        let prior: Awaited<ReturnType<typeof enter>> | null = null;
+        try {
+          prior = await enter(scope, opts);
+          const result = await inner(scopedTx(false));
+          await leave(prior);
+          return result;
+        } catch (error) {
+          // Leave the scope when the transaction can still run statements (an
+          // application error); otherwise nothing else may use it.
+          if (prior)
+            try {
+              await leave(prior);
+            } catch {
+              broken = error as Error;
+            }
+          throw error;
+        } finally {
+          scoped = false;
+        }
       },
     };
     try {
-      await tx.query("BEGIN");
-      if (actor) {
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-          [actor.tenantId, actor.userId, actor.role],
-        );
+      await raw("BEGIN");
+      if (bound) {
+        assertActorShape({
+          tenantId: bound,
+          userId: SYSTEM_USER_ID,
+          role: "owner",
+        });
+        await raw("SELECT set_config('app.service_tenant_id',$1,true)", [
+          bound,
+        ]);
       }
-      const result = await fn(tx);
-      await tx.query("COMMIT");
+      if (actor) await enter(actor, scopeOptions);
+      const result = await fn(actor ? scopedTx(true) : systemTx);
+      if (broken) throw broken;
+      await raw("COMMIT");
       return result;
     } catch (error) {
-      await tx.query("ROLLBACK");
+      await raw("ROLLBACK");
       throw error;
     } finally {
       if (pool) (client as pg.PoolClient).release();
@@ -146,8 +343,8 @@ export async function createDatabase(
     if (pool) (client as pg.PoolClient).release();
   }
   return {
-    system: (fn) => transaction(null, fn),
-    tenant: (actor, fn) => transaction(actor, fn),
+    system: (fn, systemOptions) => transaction(null, fn, {}, systemOptions),
+    tenant: (actor, fn, scopeOptions) => transaction(actor, fn, scopeOptions),
     close,
   };
 }
@@ -186,6 +383,41 @@ export async function putRecord(
       kind,
       options.ownerId ?? actor.userId,
       options.status ?? "draft",
+      JSON.stringify(data),
+    ],
+  );
+  return record;
+}
+/**
+ * Inserts a record the actor's scope may write but not read back: a
+ * follower's own request files internal review items about itself (coaching
+ * decisions and exceptions) that only the coaching team reads. Returns the
+ * stored values without RETURNING, which would need read access.
+ */
+export async function putPrivateRecord(
+  tx: Tx,
+  actor: Actor,
+  kind: string,
+  data: unknown,
+  options: { id?: string; ownerId?: string; status?: string } = {},
+) {
+  const record = {
+    id: options.id ?? randomUUID(),
+    tenant_id: actor.tenantId,
+    kind,
+    owner_user_id: options.ownerId ?? actor.userId,
+    status: options.status ?? "draft",
+    version: 1,
+    data: data as any,
+  };
+  await tx.query(
+    "INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data) VALUES($1,$2,$3,$4,$5,$6)",
+    [
+      record.id,
+      record.tenant_id,
+      kind,
+      record.owner_user_id,
+      record.status,
       JSON.stringify(data),
     ],
   );

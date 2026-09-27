@@ -18,6 +18,7 @@ import {
 import { privacyOperations } from "../apps/api/src/privacy-operations.ts";
 import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
 import { journal } from "../apps/api/src/finance.ts";
+import { seedScope } from "./scope-fixtures.ts";
 let db: Database, app: ReturnType<typeof Fastify>;
 const password = "FixturePrivacyOnly2026!",
   origin = "http://localhost:3000";
@@ -558,7 +559,8 @@ test("workspace closure rechecks settlement and ownership, requires independent 
     ).length,
     0,
   );
-  await db.tenant(a, async (tx) => {
+  // The closed workspace has no members left: inspect it as the worker.
+  await db.tenant(seedScope(a), async (tx) => {
     assert.equal(
       (await tx.query("SELECT * FROM records WHERE kind='source'")).length,
       0,
