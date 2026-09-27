@@ -277,6 +277,7 @@ async function prepareClient() {
       name: "Synthetic client",
       email: "nutrition-personal@example.test",
       password: "CompletionFixture2026!",
+      accepted: true,
     },
     {},
   );

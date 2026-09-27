@@ -2,7 +2,12 @@ import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
 import { registerAffiliates } from "./affiliates.ts";
 import { registerInfrastructureActions } from "./infrastructure-actions.ts";
-import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
+import {
+  marketingConsentVersion,
+  notifyCoachingTeam,
+  notifyUser,
+  recordMarketingChoice,
+} from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
 import { registerRetention } from "./retention.ts";
 import {
@@ -25,6 +30,7 @@ import {
 } from "./chat-attachments.ts";
 import {
   registerAccountCompletion,
+  recentWorkspaceOrder,
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
@@ -34,9 +40,11 @@ import {
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import {
+  resolveProbeHost,
   resolveRequestHost,
   enforceHostTenant,
   allowedRequestOrigin,
+  HOST_HEADERS,
   type HostContext,
 } from "./host-routing.ts";
 import {
@@ -63,6 +71,7 @@ import {
   runtimeConfig,
   withRuntimeConfig,
   ConfigurationError,
+  strictSecurity,
 } from "../../../packages/providers/src/configuration.ts";
 import {
   loadRuntimeSettings,
@@ -98,7 +107,7 @@ import { processStripeEvent } from "./stripe-events.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
-import rateLimit, { normalizeIP } from "@fastify/rate-limit";
+import rateLimit from "@fastify/rate-limit";
 import { randomUUID, createHash } from "node:crypto";
 import { z, ZodError } from "zod";
 import {
@@ -128,12 +137,20 @@ import {
   ProviderUnavailable,
   integrationStatus,
   modelDecision,
+  MODEL_EVIDENCE_LIMIT,
   compileTrainerRules,
   requireCommerce,
   stripeClient,
   LeanGateway,
 } from "@trainer/providers";
-import { passwordHash, passwordMatches, tokenHash, newToken } from "./auth.ts";
+import {
+  accountAttempts,
+  clientSource,
+  passwordHash,
+  passwordMatches,
+  tokenHash,
+  newToken,
+} from "./auth.ts";
 import {
   financeSummary,
   recordCharge,
@@ -184,6 +201,30 @@ async function findRecord(tx: Tx, recordId: string, kind?: string) {
   if (!r) throw fail(404, "NOT_FOUND", "This item is unavailable");
   return r;
 }
+/** Rules may cite trainer teaching material only, never scenarios or client records. */
+async function assertTeachingSources(tx: Tx, ids: string[]) {
+  for (const ref of ids) {
+    const source = await findRecord(tx, ref);
+    if (!["source", "interview"].includes(source.kind))
+      throw fail(
+        400,
+        "INVALID_SOURCE",
+        "Rules can cite trainer teaching sources only",
+      );
+  }
+}
+// A published release must fit in one model request beside the client's
+// profile and Client Twin, so no confirmed rule is silently left unseen.
+const RELEASE_RULE_LIMIT = MODEL_EVIDENCE_LIMIT - 2;
+const HELD_OUT_SCENARIO_LIMIT = 30;
+function assertReleaseRuleLimit(count: number) {
+  if (count > RELEASE_RULE_LIMIT)
+    throw fail(
+      409,
+      "RULE_LIMIT",
+      `A Brain release can include at most ${RELEASE_RULE_LIMIT} confirmed rules; return extra rules to draft before evaluating`,
+    );
+}
 async function putException(
   tx: Tx,
   a: Actor,
@@ -211,8 +252,21 @@ async function activeMembership(tx: Tx, a: Actor) {
 }
 
 export async function buildApp(
-  options: { db?: Database; testing?: boolean } = {},
+  options: {
+    db?: Database;
+    testing?: boolean;
+    /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
+    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+  } = {},
 ) {
+  const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
+  const commerceProvider = () => {
+    const fixture = options.providers?.stripe;
+    if (!fixture) return requireCommerce();
+    // The approval gate throws its canonical error before any client is built.
+    if (runtimeConfig().COMMERCE_APPROVED !== "true") requireCommerce();
+    return fixture();
+  };
   const db = options.db ?? (await createDatabase());
   const app = Fastify({
     logger: options.testing
@@ -242,10 +296,13 @@ export async function buildApp(
     // Session verification runs in onRequest. A reverse proxy's loopback address
     // must not give every signed-in member one shared request budget.
     hook: "preHandler",
+    // Behind the edge, request.ip is the web container. Anonymous budgets use
+    // the client address carried inside the verified proxy proof instead, and
+    // fall back to the socket address when no signed address is present.
     keyGenerator: (request) =>
       request.identity
         ? `user:${request.identity.userId}`
-        : `ip:${normalizeIP(request.ip)}`,
+        : `ip:${clientSource(request)}`,
   });
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser(
@@ -281,6 +338,14 @@ export async function buildApp(
     );
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
+    // Probes relayed by the web proxy carry a proof; verify it so the signed
+    // client address, not the web container, keys their budget. Host mapping
+    // never decides a probe: the deploy controller probes web at 127.0.0.1:3000.
+    if (
+      probe &&
+      Object.values(HOST_HEADERS).some((name) => req.headers[name] != null)
+    )
+      req.hostContext = resolveProbeHost(req);
     if (!probe) {
       req.hostContext = await resolveRequestHost(db, req);
       if (req.hostContext.custom) {
@@ -344,10 +409,23 @@ export async function buildApp(
               req.identity = undefined;
             else throw error;
           }
-        if (req.identity && !probe)
-          await touchAccountSession(db, tokenHash(token)).catch(() => {});
       }
     }
+    // A device queue replays only under the member who saved it (web
+    // offline-queue.ts). A tab left open after another person signs in must
+    // not write into their record; the queue stays on the device instead.
+    const queueOwner = req.headers["x-queue-owner"];
+    if (queueOwner !== undefined) {
+      if (!req.identity) throw fail(401, "AUTH_REQUIRED", "Please sign in");
+      if (queueOwner !== `${req.identity.tenantId}:${req.identity.userId}`)
+        throw fail(
+          409,
+          "SESSION_OWNER_MISMATCH",
+          "These entries were saved by another member. Sign in as that member to sync them.",
+        );
+    }
+    if (token && req.identity && !probe)
+      await touchAccountSession(db, tokenHash(token)).catch(() => {});
   });
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof ConfigurationError)
@@ -370,7 +448,7 @@ export async function buildApp(
       });
     if (error instanceof ProviderUnavailable)
       return reply.code(503).send({
-        code: "PROVIDER_UNAVAILABLE",
+        code: (error as { code?: string }).code ?? "PROVIDER_UNAVAILABLE",
         message: error.message,
         provider: error.provider,
         requestId: req.id,
@@ -387,7 +465,7 @@ export async function buildApp(
       message:
         e.code === "23505"
           ? "This record already exists"
-          : status < 500
+          : status < 500 || e.expose === true
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
@@ -418,7 +496,7 @@ export async function buildApp(
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: strictSecurity(),
       maxAge: 604800,
     });
   }
@@ -430,7 +508,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
-  registerFinanceBilling(app, db);
+  registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
   registerAffiliates(app, db, identity);
@@ -459,7 +537,10 @@ export async function buildApp(
   registerTeamRoutes(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
-  app.get("/api/v1/public/host", async (req) => req.hostContext);
+  app.get("/api/v1/public/host", async (req) => {
+    const { clientIp: _clientIp, ...context } = req.hostContext!;
+    return context;
+  });
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
     return { status: "ready" };
@@ -491,10 +572,7 @@ export async function buildApp(
         ].includes(b.slug)
       )
         throw fail(400, "RESERVED_SLUG", "Please choose another address");
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().LEGAL_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
@@ -506,7 +584,7 @@ export async function buildApp(
       await db.system(async (tx) => {
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
-          [uid, b.email, b.name, hash, process.env.NODE_ENV !== "production"],
+          [uid, b.email, b.name, hash, !strictSecurity()],
         );
         await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,$3)", [
           tid,
@@ -574,10 +652,7 @@ export async function buildApp(
         db,
         "registration",
       );
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().LEGAL_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
@@ -677,11 +752,13 @@ export async function buildApp(
       return reply.code(201).send({ ok: true });
     },
   );
+  const loginAttempts = accountAttempts();
   app.post(
     "/api/v1/auth/login",
     { config: { rateLimit: { max: 15, timeWindow: "10 minutes" } } },
     async (req, reply) => {
       const b = loginSchema.parse(req.body);
+      loginAttempts(reply, b.email, clientSource(req));
       const [u] = await db.system((tx) =>
         tx.query("SELECT * FROM users WHERE email=$1", [b.email]),
       );
@@ -693,10 +770,13 @@ export async function buildApp(
           "PLATFORM_HOST_REQUIRED",
           "Platform accounts sign in at the platform address.",
         );
+      // A chosen workspace must also be the host's workspace on a custom host.
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY m.tenant_id LIMIT 1",
-          [u.id, req.hostContext?.tenantId ?? null],
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY " +
+            recentWorkspaceOrder +
+            " LIMIT 1",
+          [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
         ),
       );
       if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
@@ -714,6 +794,26 @@ export async function buildApp(
       );
     reply.clearCookie("session", { path: "/" });
     return { ok: true };
+  });
+  app.get("/api/v1/auth/workspaces", async (req) => {
+    const a = identity(req);
+    // A custom host serves only its own workspace; the platform lists them all.
+    const workspaces = await db.system((tx) =>
+      tx.query(
+        "SELECT m.tenant_id,t.name,t.slug,m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
+        [a.userId, req.hostContext?.custom ? req.hostContext.tenantId : null],
+      ),
+    );
+    return {
+      current: a.tenantId,
+      workspaces: workspaces.map((w) => ({
+        tenantId: w.tenant_id,
+        name: w.name,
+        slug: w.slug,
+        role: w.role,
+        current: w.tenant_id === a.tenantId,
+      })),
+    };
   });
   app.post("/api/v1/auth/workspace", async (req, reply) => {
     const a = identity(req);
@@ -745,8 +845,7 @@ export async function buildApp(
       tx.query("SELECT * FROM tenants WHERE id=$1", [a.tenantId]),
     );
     return db.tenant(a, async (tx) => ({
-      environment:
-        process.env.NODE_ENV === "production" ? "production" : "development",
+      environment: strictSecurity() ? "production" : "development",
       user: a,
       platform: {
         name: runtimeConfig().APP_NAME || "Trainer Brain",
@@ -877,12 +976,23 @@ export async function buildApp(
         name: z.string().min(2).max(100),
         email: z.email(),
         password: z.string().min(12).max(128),
+        accepted: z.literal(true),
         code: z
           .string()
           .regex(/^\d{6}$/)
           .optional(),
       })
       .parse(req.body);
+    if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
+      throw fail(
+        503,
+        "LEGAL_PENDING",
+        "Invitations are waiting for the published legal documents",
+      );
+    const registrationVersion = await legalAcceptanceVersion(
+      db,
+      "registration",
+    );
     const hash = await passwordHash(b.password);
     const result = await db.system(async (tx) => {
       const invite = await lockActiveInvitation(tx, tokenHash(b.token));
@@ -939,6 +1049,18 @@ export async function buildApp(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
         [tokenHash(b.token)],
       );
+      if (membership) {
+        await tx.query("SET LOCAL ROLE trainer_app");
+        await tx.query(
+          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
+          [invite.tenant_id, uid, invite.payload.role],
+        );
+        await tx.query(
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+          [randomUUID(), invite.tenant_id, uid, registrationVersion],
+        );
+        await tx.query("RESET ROLE");
+      }
       return {
         uid,
         tid: invite.tenant_id,
@@ -1136,7 +1258,7 @@ export async function buildApp(
           "VERSION_CONFLICT",
           "This rule changed; reload it before editing",
         );
-      for (const ref of b.rule.sourceIds) await findRecord(tx, ref);
+      await assertTeachingSources(tx, b.rule.sourceIds);
       await putRecord(
         tx,
         a,
@@ -1188,15 +1310,7 @@ export async function buildApp(
     const a = trainer(req),
       b = ruleSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
-      for (const ref of b.sourceIds) {
-        const source = await findRecord(tx, ref);
-        if (!["source", "interview"].includes(source.kind))
-          throw fail(
-            400,
-            "INVALID_SOURCE",
-            "Rules can cite trainer teaching sources only",
-          );
-      }
+      await assertTeachingSources(tx, b.sourceIds);
       const r = await putRecord(tx, a, "rule", {
         ...b,
         allowedUses: ["render", "model_prompt", "trainer_specific_learning"],
@@ -1235,7 +1349,19 @@ export async function buildApp(
       })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brain",
+      ]);
       await findRecord(tx, b.expectedEvidenceId, "rule");
+      const [held] = await tx.query(
+        "SELECT count(*)::int AS n FROM records WHERE kind='scenario' AND status='held_out'",
+      );
+      if (held.n >= HELD_OUT_SCENARIO_LIMIT)
+        throw fail(
+          409,
+          "SCENARIO_LIMIT",
+          `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios`,
+        );
       return putRecord(tx, a, "scenario", b, { status: "held_out" });
     });
   });
@@ -1246,9 +1372,18 @@ export async function buildApp(
         "SELECT * FROM records WHERE kind='rule' AND status='confirmed' ORDER BY id",
       ),
       cases: await tx.query(
-        "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT 30",
+        "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT $1",
+        [HELD_OUT_SCENARIO_LIMIT + 1],
       ),
     }));
+    // Every held-out scenario is evaluated; none is silently dropped.
+    if (material.cases.length > HELD_OUT_SCENARIO_LIMIT)
+      throw fail(
+        409,
+        "EVAL_SCOPE",
+        `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios; nothing has been evaluated`,
+      );
+    assertReleaseRuleLimit(material.rules.length);
     if (material.cases.length < 20)
       throw fail(
         409,
@@ -1327,6 +1462,7 @@ export async function buildApp(
           ),
         )
         .digest("hex");
+      assertReleaseRuleLimit(rules.length);
       if (
         evaluation.status !== "passed" ||
         evaluation.data.rulesDigest !== digest
@@ -1512,10 +1648,13 @@ export async function buildApp(
   });
   app.post("/api/v1/products/:id/activate", async (req) => {
     const a = owner(req),
-      stripe = requireCommerce();
+      stripe = commerceProvider();
     const product = await db.tenant(a, (tx) =>
       findRecord(tx, (req.params as any).id, "product"),
     );
+    // Stripe idempotency keys expire, so a repeated activation must not mint a second product/price.
+    if (product.status === "published" && product.data.stripePriceId)
+      return { ok: true };
     if (product.data.tier === "workout_nutrition")
       await db.tenant(a, requireNutritionReady);
     const remote = await stripe.products.create(
@@ -1561,7 +1700,7 @@ export async function buildApp(
         "PLAN_CHANGES_PENDING",
         "Plan changes await activation of the reviewed billing policy.",
       );
-    const stripe = stripeClient();
+    const stripe = stripeProvider();
     const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
@@ -1850,14 +1989,26 @@ export async function buildApp(
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":nutrition:" + a.userId,
         ]);
+      if (b.type === "marketing")
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":notifications:" + a.userId,
+        ]);
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
         [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
+      // The consent history decides marketing; keep the settings toggle in step.
+      if (b.type === "marketing")
+        await tx.query(
+          "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+          [a.tenantId, a.userId, JSON.stringify({ marketing: b.granted })],
+        );
       if (!b.granted && b.type === "coaching") {
         await revokeCoachingFeedbackLearning(tx, a.userId);
+        // Remove only model use. Wearable rows are governed by wearable consent
+        // and never reach the model-facing coaching object.
         await tx.query(
-          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
+          "UPDATE records SET data=jsonb_set(data,'{allowedUses}',coalesce(data->'allowedUses','[\"render\"]'::jsonb)-'model_prompt'),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','twin_snapshot')",
           [a.userId],
         );
       }
@@ -1900,6 +2051,12 @@ export async function buildApp(
       throw new ProviderUnavailable(
         "apple",
         "Health imports are disabled by the platform administrator",
+      );
+    if (strictSecurity() && runtimeConfig().FILE_IMPORTS_APPROVED !== "true")
+      throw fail(
+        503,
+        "IMPORT_REVIEW_PENDING",
+        "Health imports are waiting for the platform import approval.",
       );
     const b = z
       .object({
@@ -1984,11 +2141,22 @@ export async function buildApp(
         marketing: z.boolean(),
       })
       .parse(req.body);
+    const marketingVersion = await marketingConsentVersion(db);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":notifications:" + a.userId,
+      ]);
+      await recordMarketingChoice(
+        tx,
+        a,
+        b.marketing,
+        marketingVersion,
+        "legacy_settings",
+      );
       // Older clients still use this endpoint. Keep their explicit opt-outs
       // effective without resetting newer quiet-hour or booking preferences.
-      await tx.query(
-        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now()",
+      const [saved] = await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now() RETURNING data,version",
         [
           a.tenantId,
           a.userId,
@@ -1999,7 +2167,7 @@ export async function buildApp(
           }),
         ],
       );
-      return putRecord(tx, a, "preferences", b, { status: "active" });
+      return saved;
     });
   });
   app.get("/api/v1/admin/overview", async (req) => {
@@ -2043,12 +2211,18 @@ export async function buildApp(
     return { tenants: results, integrations: integrationStatus() };
   });
 
-  app.post("/api/v1/webhooks/stripe", async (req, reply) => {
+  // Signed provider deliveries have their own per-source budget, separate from
+  // the anonymous public budget, so storefront traffic cannot starve them.
+  const webhookRate = {
+    config: { rateLimit: { max: 600, timeWindow: "1 minute" } },
+  };
+  app.post("/api/v1/webhooks/stripe", webhookRate, async (req, reply) => {
     const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) throw new ProviderUnavailable("stripe");
-    let stripeEvent: any;
+    let stripeEvent: any, stripe: ReturnType<typeof stripeClient>;
     try {
-      stripeEvent = stripeClient().webhooks.constructEvent(
+      stripe = stripeClient();
+      stripeEvent = stripe.webhooks.constructEvent(
         req.rawBody ?? "",
         String(req.headers["stripe-signature"] ?? ""),
         webhookSecret,
@@ -2076,7 +2250,7 @@ export async function buildApp(
       if (existing.status === "processed")
         return { received: true, duplicate: true };
     }
-    await processStripeEvent(db, stripeEvent);
+    await processStripeEvent(db, stripeEvent, { stripe });
     await db.system((tx) =>
       tx.query(
         "UPDATE provider_events SET status='processed' WHERE provider='stripe' AND external_id=$1",

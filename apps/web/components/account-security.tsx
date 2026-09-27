@@ -13,6 +13,7 @@ async function request(path: string, body?: unknown) {
 export function AccountSecurity() {
   const [status, setStatus] = useState<any>(null),
     [secret, setSecret] = useState(""),
+    [codes, setCodes] = useState<string[]>([]),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   const load = () => request("security").then(setStatus);
@@ -24,10 +25,11 @@ export function AccountSecurity() {
     setNotice("");
     try {
       const data = await request(path, body);
+      setCodes(data.recoveryCodes ?? []);
       if (data.secret) setSecret(data.secret);
       else {
         setSecret("");
-        setNotice("Account security updated.");
+        setNotice(data.message ?? "Account security updated.");
       }
       await load();
       window.dispatchEvent(new Event("account-security-updated"));
@@ -47,6 +49,18 @@ export function AccountSecurity() {
         <p className="notice" role="status">
           {notice}
         </p>
+      )}
+      {codes.length > 0 && (
+        <div className="notice">
+          <strong>Recovery codes — shown once</strong>
+          <textarea
+            readOnly
+            rows={codes.length}
+            value={codes.join("\n")}
+            aria-label="Authenticator recovery codes"
+            style={{ width: "100%", fontFamily: "monospace" }}
+          />
+        </div>
       )}
       <p>Email: {status?.emailVerified ? "verified" : "verification needed"}</p>
       {status && !status.emailVerified && (

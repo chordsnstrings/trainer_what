@@ -17,7 +17,8 @@ For the handoff, use the existing container/migration instructions below and the
 ## Secrets and configuration
 
 - Set provider credentials through Superadmin, where values are encrypted and never read back. Initial environment configuration remains supported until the integration is saved. `.env` and database files are ignored by Git.
-- Generate `SECURITY_ENCRYPTION_KEY` as 32 cryptographically random bytes, base64 encoded. Back up this key separately from the database: it encrypts authenticator secrets and Superadmin credentials. Changing it without migration breaks existing authenticators and disables saved provider connections.
+- Generate `SECURITY_ENCRYPTION_KEY` as 32 cryptographically random bytes, base64 encoded. Back up this key separately from the database: it encrypts authenticator secrets, Superadmin credentials, wearable tokens and push endpoints. Change it only as a rotation (keep the old value in `SECURITY_ENCRYPTION_PREVIOUS_KEYS`, then run `npm run secrets:reseal`; see `docs/SUPERADMIN_AND_CUSTOMISATION.md`). If it is lost, saved provider connections must be re-entered, and authenticator users recover with a passkey, a recovery code or the host `operator:role -- reset-mfa` command.
+- Set `NODE_ENV=production` (or `development` only on a loopback machine). Security controls relax only for `development` and `test`; an unset value enforces them.
 - Set the exact `PUBLIC_APP_URL`. Browser mutations are origin-checked. Production requires HTTPS and secure cookies.
 - Use `LEGAL_APPROVED`, `COMMERCE_APPROVED`, `PAYOUTS_APPROVED` and `LEAN_CONTRACT_VERIFIED` only after the corresponding reviewed evidence exists. Flags express operator decisions and cannot prove them.
 - Model costs are recorded from provider usage and supplied prices. Missing pricing remains unknown, never free.

@@ -110,6 +110,7 @@ before(async () => {
       name: "Nutrition Client",
       email: "nutrition-client@example.test",
       password: "NutritionFixture2026!",
+      accepted: true,
     },
     {},
   );

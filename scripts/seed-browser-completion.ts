@@ -1,19 +1,10 @@
 import { createDatabase } from "@trainer/db";
 import { randomUUID } from "node:crypto";
+import { assertLocalSyntheticTarget } from "./synthetic-guard.ts";
 
 // This fixture enables browser testing of website draft/publication. It does not
 // qualify a Brain, configure providers, create charges, or bypass the launch API.
-if (process.env.NODE_ENV === "production")
-  throw new Error("Browser launch fixtures are forbidden in production");
-const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const appUrl = new URL(process.env.PUBLIC_APP_URL ?? "http://localhost:3000");
-if (!localHosts.has(appUrl.hostname))
-  throw new Error("Browser fixtures require a local PUBLIC_APP_URL");
-if (
-  process.env.DATABASE_URL &&
-  !localHosts.has(new URL(process.env.DATABASE_URL).hostname)
-)
-  throw new Error("Browser fixtures require a local database");
+assertLocalSyntheticTarget("Browser launch fixture");
 const db = await createDatabase();
 try {
   const client = await db.system(async (tx) => {

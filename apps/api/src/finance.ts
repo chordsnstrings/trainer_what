@@ -86,6 +86,33 @@ export async function financeSummary(tx: Tx) {
     commissionMinor: 0 - (balance.platform_commission ?? 0),
   };
 }
+const conflict = (code: string, message: string) =>
+  Object.assign(new Error(message), { statusCode: 409, code });
+/** Owners, coaches and workspace finance members of the payee may not authorize its payment. */
+export async function payeeWorkspaceMember(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+) {
+  const [member] = await tx.query(
+    "SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND role IN ('owner','staff','finance')",
+    [tenantId, userId],
+  );
+  return !!member;
+}
+/**
+ * A dispatched instruction marked failed may still have settled. Only an
+ * independent provider-confirmed failure permits a new provider identity.
+ * Payout eligibility is cumulative across periods, so the check covers the
+ * whole workspace, not only the failed instruction's period.
+ */
+export async function unconfirmedPayoutFailure(tx: Tx, tenantId: string) {
+  const [row] = await tx.query(
+    "SELECT p.id FROM payouts p WHERE p.tenant_id=$1 AND p.status='failed' AND NOT EXISTS(SELECT 1 FROM events e WHERE e.tenant_id=p.tenant_id AND e.name='payout.failure_confirmed' AND e.subject_id=p.id::text) LIMIT 1",
+    [tenantId],
+  );
+  return (row?.id as string | undefined) ?? null;
+}
 export async function createPayout(
   tx: Tx,
   actor: Actor,
@@ -99,8 +126,22 @@ export async function createPayout(
     "SELECT * FROM payouts WHERE tenant_id=$1 AND period=$2 ORDER BY revision DESC LIMIT 1",
     [actor.tenantId, period],
   );
+  if (
+    existing &&
+    ["ready", "held"].includes(existing.status) &&
+    existing.beneficiary_id !== beneficiaryId
+  )
+    throw conflict(
+      "PAYOUT_DESTINATION_CHANGED",
+      "The prepared instruction targets a different destination; a finance operator must cancel it before another revision is prepared",
+    );
   if (existing && !["failed", "returned", "canceled"].includes(existing.status))
     return existing;
+  if (await unconfirmedPayoutFailure(tx, actor.tenantId))
+    throw conflict(
+      "PAYOUT_RECONCILIATION_REQUIRED",
+      "A dispatched instruction in this workspace is marked failed without independent provider confirmation; reconcile it before another bank instruction",
+    );
   const [closed] = await tx.query(
     "SELECT * FROM records WHERE kind='close' AND status='closed' AND data->>'period'=$1",
     [period],
@@ -110,8 +151,11 @@ export async function createPayout(
       "A reconciled monthly close is required before payout preparation",
     );
   const totals = await financeSummary(tx);
+  // Debits posted after the cutoff (the period's usage charge, buffer-week refunds and disputes,
+  // settlement fees) reduce what this close can release; later earnings wait for the next close.
+  // A refund or dispute of a charge that itself posted after the cutoff belongs to that later close.
   const [laterPayments] = await tx.query(
-    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%') AND j.created_at >= $1",
+    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND j.created_at >= $1 AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%' OR (l.amount_minor > 0 AND NOT EXISTS (SELECT 1 FROM journals c WHERE c.source_key LIKE 'stripe-invoice:%' AND c.created_at >= $1 AND (c.id::text=j.data->>'originalJournalId' OR (j.source_key LIKE 'dispute-reserve:%' AND c.data->>'chargeId'=j.data->>'chargeId')))))",
     [closed.data.cutoff],
   );
   const eligible = Math.max(
@@ -130,7 +174,7 @@ export async function createPayout(
       "No reconciled, funded earnings are available for this period",
     );
   const [payout] = await tx.query(
-    "INSERT INTO payouts(id,tenant_id,period,amount_minor,beneficiary_id,revision) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+    "INSERT INTO payouts(id,tenant_id,period,amount_minor,beneficiary_id,revision,prepared_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
     [
       randomUUID(),
       actor.tenantId,
@@ -138,6 +182,7 @@ export async function createPayout(
       amount,
       beneficiaryId,
       (existing?.revision ?? 0) + 1,
+      actor.userId,
     ],
   );
   await event(tx, actor, "payout.prepared", payout.id, {
@@ -156,9 +201,20 @@ export async function transitionPayout(
   const [p] = await tx.query("SELECT * FROM payouts WHERE id=$1 FOR UPDATE", [
     id,
   ]);
-  if (!p) throw new Error("Payout not found");
+  if (!p)
+    throw Object.assign(new Error("Payout not found"), {
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
   if (p.status === status) return p;
-  assertPayoutTransition(p.status, status);
+  try {
+    assertPayoutTransition(p.status, status);
+  } catch (error) {
+    throw Object.assign(error as Error, {
+      statusCode: 409,
+      code: "PAYOUT_STATE",
+    });
+  }
   if (["paid", "returned"].includes(status) && !reference)
     throw new Error("Confirmed bank evidence is required");
   if (status === "paid")

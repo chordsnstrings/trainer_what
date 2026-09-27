@@ -18,6 +18,7 @@ GRANT SELECT,INSERT ON platform_settings_audit TO trainer_service;
 
 GRANT SELECT,INSERT,UPDATE ON admin_documents,admin_experiments TO trainer_service;
 GRANT SELECT,INSERT ON admin_operations_audit,acquisition_events TO trainer_service;
+GRANT SELECT,INSERT ON platform_role_changes TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON support_preview_grants TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON support_preview_elevations TO trainer_service;
 GRANT SELECT,INSERT ON infrastructure_observations,infrastructure_policies TO trainer_service;
@@ -41,3 +42,6 @@ GRANT SELECT ON brand_media,coach_galleries,coach_gallery_photos,coach_sites,coa
 GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO trainer_service;
 -- trainer_brand_tenant(), notification-template and membership proof helpers
 -- remain executable only by trainer_app, exactly as their migrations specify.
+
+-- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
+ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

@@ -4,6 +4,7 @@ import {
   runtimeConfig,
   providerRequest,
   integrationCapability,
+  strictSecurity,
 } from "./configuration.ts";
 export * from "./configuration.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
@@ -37,13 +38,10 @@ export function integrationStatus() {
       id: "lean",
       name: "Lean",
       purpose: "Monthly payments to trainer bank accounts",
-      configured:
-        !!config.LEAN_BASE_URL &&
-        !!config.LEAN_ACCESS_TOKEN &&
-        !!config.LEAN_SOURCE_ACCOUNT_ID,
+      configured: integrationCapability("lean", config)!.configured,
       approved:
-        config.PAYOUTS_APPROVED === "true" &&
-        config.LEAN_CONTRACT_VERIFIED === "true",
+        integrationCapability("lean", config)!.approved &&
+        config.PAYOUTS_APPROVED === "true",
     },
     {
       id: "model",
@@ -91,7 +89,10 @@ export function integrationStatus() {
       name: "Apple Health",
       purpose: "Import workout and health observations",
       configured: true,
-      approved: config.APPLE_IMPORTS_ENABLED !== "false",
+      // Mirrors the import route: the platform import approval also applies.
+      approved:
+        config.APPLE_IMPORTS_ENABLED !== "false" &&
+        (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
     },
     {
       id: "zepp",
@@ -129,6 +130,8 @@ export function requireCommerce() {
     );
   return stripeClient();
 }
+/** Every evidence item is sent; larger inputs fail closed instead of being truncated. */
+export const MODEL_EVIDENCE_LIMIT = 40;
 export async function modelDecision(
   task: string,
   prompt: string,
@@ -136,6 +139,13 @@ export async function modelDecision(
   accounting: ModelAccounting,
 ) {
   allowedModelEvidence(evidence);
+  if (evidence.length > MODEL_EVIDENCE_LIMIT)
+    throw Object.assign(
+      new Error(
+        `Model input is limited to ${MODEL_EVIDENCE_LIMIT} evidence items; nothing has been sent. Reduce the confirmed rules in the release.`,
+      ),
+      { statusCode: 409, code: "EVIDENCE_LIMIT" },
+    );
   const {
     MODEL_BASE_URL: base,
     MODEL_API_KEY: key,
@@ -161,9 +171,7 @@ export async function modelDecision(
           content: JSON.stringify({
             task,
             request: prompt,
-            evidence: evidence
-              .slice(0, 20)
-              .map((e) => ({ id: e.id, data: e.data })),
+            evidence: evidence.map((e) => ({ id: e.id, data: e.data })),
           }),
         },
       ],

@@ -3,6 +3,9 @@ import {
   checkNutritionSample,
   rationaleMatches,
   principleForCategory,
+  heldOutOverlaps,
+  heldOutDuplicate,
+  staleHeldOut,
 } from "../../../packages/domain/src/nutrition-learning.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
@@ -21,7 +24,10 @@ import {
   nutritionCompletionRoutes,
   clientNutritionTarget,
 } from "./nutrition-completion.ts";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 import { eraseMealCaptures } from "./meal-capture.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -36,6 +42,7 @@ import {
 import {
   nutritionModel,
   nutritionModelIdentity,
+  NUTRITION_CONTEXT_LIMIT,
 } from "../../../packages/providers/src/nutrition.ts";
 import {
   foodSchema,
@@ -53,6 +60,8 @@ import {
   nutritionSummary,
   localDate,
   dateOffset,
+  allergenKey,
+  recipeCompatibility,
   type Food,
   type Recipe,
   type NutritionPolicy,
@@ -70,9 +79,24 @@ const fail = (statusCode: number, code: string, message: string) =>
 const hash = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
 const internal = (a: Actor) => ({ ...a, role: "owner" });
+// Every active held-out check is evaluated; the model output schema allows 50 decisions.
+const maxHeldOut = 40;
 async function lock(tx: Tx, a: Actor, suffix = "setup") {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":nutrition:" + suffix,
+  ]);
+}
+/**
+ * Shared hold on the tenant's nutrition setup lock for a transaction that delivers
+ * a week from the catalog it reads. Retirement (invalidatePlansUsing) holds the
+ * same key exclusively, so it either commits before the catalog read or sees the
+ * delivered week afterwards. Take it after the per-user lock and before any
+ * catalog read; setup-lock holders never take a per-user lock, so this cannot
+ * deadlock, and deliveries do not block each other.
+ */
+export async function catalogReadLock(tx: Tx, a: Actor) {
+  await tx.query("SELECT pg_advisory_xact_lock_shared(hashtext($1))", [
+    a.tenantId + ":nutrition:setup",
   ]);
 }
 async function find(tx: Tx, recordId: string, kind: string) {
@@ -254,12 +278,29 @@ export async function nutritionReadiness(tx: Tx) {
     );
   if (!material.foods.length || !material.recipes.length)
     gaps.push("Add ingredient facts and recipes with cooking options.");
-  if (
-    !release ||
-    release.data.qualificationVersion !== 2 ||
-    release.data.digest !== material.digest
-  )
-    gaps.push("Evaluate and activate the current nutrition knowledge.");
+  const promptSize = JSON.stringify(evidence(material, "policy")).length;
+  if (promptSize > NUTRITION_CONTEXT_LIMIT)
+    gaps.push(
+      `Teaching and in-scope recipes need ${promptSize} characters, above the ${NUTRITION_CONTEXT_LIMIT}-character model request bound. Archive unused recipes or ingredient versions, or consolidate cases.`,
+    );
+  if (!release || release.data.qualificationVersion !== 2) {
+    const [held] = await tx.query(
+      "SELECT status FROM records WHERE kind='nutrition_release' AND status IN ('paused','needs_recheck') ORDER BY created_at DESC LIMIT 1",
+    );
+    gaps.push(
+      held?.status === "paused"
+        ? "Automatic nutrition is paused. Evaluate and activate the current knowledge to resume new weeks and swaps."
+        : held?.status === "needs_recheck"
+          ? "Held-out checks changed after activation. Evaluate and activate again to resume new weeks and swaps."
+          : "Evaluate and activate the current nutrition knowledge.",
+    );
+  } else if (release.data.digest !== material.digest)
+    // The release stays pinned to its evaluated digest; delivery waits for requalification.
+    gaps.push(
+      hash(release.data.model) !== hash(nutritionModelIdentity())
+        ? "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available."
+        : "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available.",
+    );
   const configured =
     !!runtimeConfig().MODEL_API_KEY &&
     !!runtimeConfig().MODEL_BASE_URL &&
@@ -269,7 +310,7 @@ export async function nutritionReadiness(tx: Tx) {
       "A model connection is needed for evaluation and automatic delivery.",
     );
   if (
-    process.env.NODE_ENV === "production" &&
+    strictSecurity() &&
     (runtimeConfig().NUTRITION_ENABLED !== "true" ||
       runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true" ||
       release?.data.verificationMode !== "provider")
@@ -304,6 +345,7 @@ async function generate(
   a: Actor,
   db: Database,
   requestId?: string,
+  requestVersion?: number,
 ) {
   const accounting = modelAccounting(db, a, "nutrition_week");
   const tracked = {
@@ -317,9 +359,11 @@ async function generate(
             await entitled(tx, a.userId);
             await permission(tx, a.userId, true);
             const profile = await latest(tx, "nutrition_profile", a.userId),
+              // A later attempt of the same intent increments the version; only the
+              // attempt that still owns the request may dispatch it.
               [request] = await tx.query(
-                "SELECT * FROM records WHERE id=$1 AND kind='nutrition_request' AND status='running'",
-                [requestId],
+                "SELECT * FROM records WHERE id=$1 AND kind='nutrition_request' AND status='running' AND version=$2",
+                [requestId, requestVersion],
               );
             if (!request || request.data.profileId !== profile?.id)
               throw fail(
@@ -373,13 +417,51 @@ async function generate(
     tracked,
   );
 }
-function evidence(material: Awaited<ReturnType<typeof nutritionMaterial>>) {
+type Material = Awaited<ReturnType<typeof nutritionMaterial>>;
+// Prompts carry only recipes and cooking options the validator could accept for the
+// supplied profiles (or, without profiles, for the policy's diets and meal slots) and
+// the ingredient facts they use. Validation still uses the complete current catalog.
+function promptCatalog(material: Material, profiles?: NutritionProfile[]) {
+  const policy = material.policy?.data.policy as NutritionPolicy | undefined;
+  if (!policy) return { foods: material.foods, recipes: material.recipes };
+  const facts = new Map(material.foods.map((f) => [f.id, f]));
+  const recipes = material.recipes.flatMap((r) => {
+    if (!r.slots.some((slot) => policy.slots.includes(slot))) return [];
+    const variants = r.variants.filter((v) =>
+      profiles
+        ? profiles.some((p) => !recipeCompatibility(r, v, facts, p, policy))
+        : r.dietTags.some((d) => policy.supportedDiets.includes(d)),
+    );
+    return variants.length ? [{ ...r, variants }] : [];
+  });
+  const used = new Set(
+    recipes.flatMap((r) =>
+      r.variants.flatMap((v) => v.ingredients.map((i) => i.foodId)),
+    ),
+  );
+  return { foods: material.foods.filter((f) => used.has(f.id)), recipes };
+}
+function evidence(
+  material: Material,
+  selection?: "policy" | NutritionProfile[],
+) {
+  const catalog = selection
+    ? promptCatalog(material, selection === "policy" ? undefined : selection)
+    : material;
   return {
     cases: material.snapshot.cases,
     policy: material.policy?.data.policy,
-    foods: material.foods,
-    recipes: material.recipes,
+    foods: catalog.foods,
+    recipes: catalog.recipes,
   };
+}
+// Intake context reaches the model as dated counts and totals; record IDs stay local.
+function promptIntakeContext(context: unknown) {
+  return JSON.parse(
+    JSON.stringify(context, (key, value) =>
+      key === "sourceIds" || key === "sourceId" ? undefined : value,
+    ),
+  );
 }
 async function exception(
   tx: Tx,
@@ -412,9 +494,86 @@ async function exception(
   });
   return e;
 }
+/**
+ * A retired (superseded or archived) food or recipe must not stay silently in a
+ * current or future delivered week. Such weeks move to needs_recheck (the event
+ * records which entity caused it) and each affected client gets one open
+ * CATALOG_RETIRED exception, shown to the client and routed to the coach.
+ * Call under the tenant's nutrition setup lock.
+ */
+export async function invalidatePlansUsing(
+  tx: Tx,
+  a: Actor,
+  retired: { kind: "food" | "recipe"; id: string },
+) {
+  // Prefilter with the earliest current date on Earth; exact per-client dates follow.
+  const plans = await tx.query(
+    "SELECT p.*,(SELECT pr.data->'profile'->>'timezone' FROM records pr WHERE pr.kind='nutrition_profile' AND pr.owner_user_id=p.owner_user_id ORDER BY pr.created_at DESC,pr.id DESC LIMIT 1) AS profile_timezone FROM records p WHERE p.kind='nutrition_plan' AND p.status='delivered' AND p.data->>'weekStart'>=$1 ORDER BY p.id",
+    [dateOffset(localDate("Etc/GMT+12"), -6)],
+  );
+  const users = new Set<string>();
+  for (const p of plans) {
+    const view = p.data.view ?? {},
+      meals = (view.days ?? []).flatMap((d: any) => d.meals ?? []);
+    let today: string;
+    try {
+      today = localDate(p.profile_timezone ?? "Asia/Dubai");
+    } catch {
+      today = localDate("Asia/Dubai");
+    }
+    const uses =
+      retired.kind === "food"
+        ? (view.groceries ?? []).some((g: any) => g.food?.id === retired.id) ||
+          meals.some((m: any) =>
+            (m.ingredients ?? []).some((i: any) => i.food?.id === retired.id),
+          )
+        : meals.some((m: any) => m.recipeId === retired.id) ||
+          (p.data.choices?.days ?? []).some((d: any) =>
+            (d.meals ?? []).some((m: any) => m.recipeId === retired.id),
+          );
+    if (!uses || dateOffset(p.data.weekStart, 6) < today) continue;
+    // Plan snapshots are immutable (migration 010); only status and version change.
+    const changed = await tx.query(
+      "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE id=$1 AND status='delivered' RETURNING id",
+      [p.id],
+    );
+    if (!changed.length) continue;
+    await event(tx, a, "nutrition.plan_invalidated", p.id, {
+      reason: "catalog_retired",
+      entityKind: retired.kind,
+      entityId: retired.id,
+    });
+    users.add(p.owner_user_id);
+  }
+  for (const userId of users)
+    await exception(
+      tx,
+      a,
+      userId,
+      "CATALOG_RETIRED",
+      "A food or recipe in your current meal week was withdrawn by your coach for review. That week is paused for a recheck; do not follow it or shop from it until a new week is prepared.",
+    );
+  return users.size;
+}
+const TEMPORARY_UNSENT_CODES = [
+  "MODEL_DAILY_LIMIT",
+  "MODEL_USER_LIMIT",
+  "GENERATION_STALE",
+];
+const COACH_ACTION_CODES = [
+  "TARGET_REVIEW",
+  "TARGET_LIMIT",
+  "NUTRITION_CONTEXT_TOO_LARGE",
+];
 function availabilityError(error: unknown) {
-  if (error instanceof NutritionBlocked)
-    return { code: error.code, message: error.message };
+  if (
+    error instanceof NutritionBlocked ||
+    COACH_ACTION_CODES.includes((error as any)?.code)
+  )
+    return {
+      code: (error as any).code as string,
+      message: (error as Error).message,
+    };
   return {
     code: "GENERATION_UNAVAILABLE",
     message:
@@ -428,11 +587,17 @@ async function deliver(
   data: any,
   previous?: Row,
 ) {
-  if (previous)
-    await tx.query(
-      "UPDATE records SET status='archived',updated_at=now() WHERE id=$1",
-      [previous.id],
-    );
+  // A week flagged for recheck in the meantime is never replaced silently.
+  if (
+    previous &&
+    !(
+      await tx.query(
+        "UPDATE records SET status='archived',updated_at=now() WHERE id=$1 AND status='delivered' RETURNING id",
+        [previous.id],
+      )
+    ).length
+  )
+    throw fail(409, "PLAN_CHANGED", "The meal plan changed; reload it.");
   const plan = await putRecord(
     tx,
     a,
@@ -536,6 +701,14 @@ export function nutritionRoutes(
         cases: m.cases,
         scenarios,
         policy: m.policy,
+        staleScenarios: m.policy
+          ? staleHeldOut(
+              scenarios as any,
+              m.cases as any,
+              m.policy.data.policy,
+              m,
+            )
+          : [],
       };
     });
   });
@@ -558,6 +731,17 @@ export function nutritionRoutes(
           "SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name",
           [a.tenantId],
         ),
+        heldOutLimit: maxHeldOut,
+        staleScenarios: r.material.policy
+          ? staleHeldOut(
+              (await tx.query(
+                "SELECT id,data FROM records WHERE kind='nutrition_scenario' AND status='held_out'",
+              )) as any,
+              r.material.cases as any,
+              r.material.policy.data.policy,
+              r.material,
+            )
+          : [],
       };
     });
   });
@@ -686,10 +870,7 @@ export function nutritionRoutes(
           })
           .strict()
           .parse(req.body);
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().FILE_IMPORTS_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().FILE_IMPORTS_APPROVED !== "true")
         throw fail(
           503,
           "IMPORT_REVIEW_PENDING",
@@ -733,6 +914,13 @@ export function nutritionRoutes(
         .object({ food: foodSchema, supersedesId: id.optional() })
         .strict()
         .parse(req.body);
+    const unknownTag = b.food.allergens.find((t) => !allergenKey(t));
+    if (unknownTag !== undefined)
+      throw fail(
+        400,
+        "ALLERGEN_TAG",
+        `Use a recognised allergen name instead of "${unknownTag}" (for example milk, egg, peanut, tree nut, soy, wheat, gluten, fish, shellfish or sesame).`,
+      );
     return db.tenant(a, async (tx) => {
       await lock(tx, a);
       if (b.supersedesId) {
@@ -762,6 +950,8 @@ export function nutritionRoutes(
         ],
       );
       await event(tx, a, "nutrition.food_version_created", fid);
+      if (b.supersedesId)
+        await invalidatePlansUsing(tx, a, { kind: "food", id: b.supersedesId });
       return { id: fid, ...b.food };
     });
   });
@@ -839,6 +1029,11 @@ export function nutritionRoutes(
           );
       }
       await event(tx, a, "nutrition.recipe_version_created", rid);
+      if (b.supersedesId)
+        await invalidatePlansUsing(tx, a, {
+          kind: "recipe",
+          id: b.supersedesId,
+        });
       return { id: rid, ...r };
     });
   });
@@ -972,15 +1167,34 @@ export function nutritionRoutes(
     const a = owner(req),
       b = nutritionScenarioSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
-      const c = await find(tx, b.expectedCaseId, "nutrition_case");
+      await lock(tx, a);
+      const c = await find(tx, b.expectedCaseId, "nutrition_case"),
+        confirmed = await tx.query(
+          "SELECT id,data FROM records WHERE kind='nutrition_case' AND status='confirmed'",
+        ),
+        heldOut = await tx.query(
+          "SELECT id,data FROM records WHERE kind='nutrition_scenario' AND status='held_out'",
+        );
+      if (heldOut.length >= maxHeldOut)
+        throw fail(
+          409,
+          "HELD_OUT_LIMIT",
+          `Keep at most ${maxHeldOut} active held-out checks so every check is evaluated. Archive a check first.`,
+        );
       if (
         c.status !== "confirmed" ||
-        c.data.scenario.trim() === b.prompt.trim()
+        heldOutOverlaps(b.prompt, confirmed as any).length
       )
         throw fail(
           400,
           "HELD_OUT_REQUIRED",
-          "Use a different scenario from the teaching case.",
+          "Use a scenario that differs from every confirmed teaching case, not a reworded copy.",
+        );
+      if (heldOutDuplicate(b, heldOut as any))
+        throw fail(
+          400,
+          "HELD_OUT_DUPLICATE",
+          "An equivalent held-out check with this client profile already exists.",
         );
       if (b.expectedMeal) {
         const catalog = await nutritionCatalog(tx);
@@ -999,7 +1213,6 @@ export function nutritionRoutes(
             "Select current recipes suitable for the expected meal slot",
           );
       }
-      await lock(tx, a);
       await tx.query(
         "UPDATE records SET status='needs_recheck' WHERE kind='nutrition_release' AND status='published'",
       );
@@ -1042,8 +1255,15 @@ export function nutritionRoutes(
       m = await db.tenant(a, nutritionMaterial),
       scenarios = await db.tenant(a, (tx) =>
         tx.query(
-          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT 40",
+          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT $1",
+          [maxHeldOut + 1],
         ),
+      );
+    if (scenarios.length > maxHeldOut)
+      throw fail(
+        409,
+        "HELD_OUT_LIMIT",
+        `More than ${maxHeldOut} held-out checks are active; archive checks so that every one is evaluated.`,
       );
     if (
       !m.policy ||
@@ -1067,6 +1287,24 @@ export function nutritionRoutes(
         409,
         "EVALUATION_COVERAGE",
         "Confirm all teaching categories and policy, resolve contradictions, and add at least twenty held-out cases including eight worked meal expectations spanning portions, substitutions, cooking and budget.",
+      );
+    const stale = staleHeldOut(
+      scenarios as any,
+      m.cases as any,
+      m.policy.data.policy,
+      {
+        foods: m.foods,
+        recipes: m.recipes,
+      },
+    );
+    if (stale.length)
+      throw fail(
+        409,
+        "HELD_OUT_STALE",
+        "These held-out checks can no longer pass after teaching, policy or catalog changes; archive or replace them before evaluation. " +
+          stale
+            .map((s) => `${s.scenarioId}: ${s.reasons.join(" ")}`)
+            .join("; "),
       );
     const expectedDigest = hash(
       scenarios.map((s) => ({ id: s.id, data: s.data, version: s.version })),
@@ -1121,7 +1359,10 @@ export function nutritionRoutes(
       "nutrition_evaluation",
       "For each unseen scenario return {decisions:[{scenarioId,action:plan|exception,targetKcal:number or null,caseIds:[relevant teaching IDs],reason,principle:diet_match|goal_target|portion_arithmetic|allergen_limit|equipment_time|budget_limit|adjustment_limit|scope_referral,rationaleEvidence:{caseId,quote:exact supporting words from that teaching case},sampleMeal:null or {slot,recipeId,variantKey,servings,ingredients:[{foodId,grams}],nutrients:{kcal,protein,carbohydrate,fat}}}]}. For a plan, provide a worked meal for requestedMealSlot with independently calculated ingredient quantities and nutrients; combine repeated ingredients. For exceptions withhold the sample meal. Apply coach policy and cases; unknown allergy, specialist needs or unsupported age/diet/goal require exception. For system safety cases use scope_referral. Category principle mapping is supplied, but held-out expected recipes and portions are withheld. Cite real teaching evidence and explain its application. Never invent food facts.",
       {
-        ...evidence(m),
+        ...evidence(
+          m,
+          allScenarios.map((s) => s.data.profile),
+        ),
         categoryPrinciples: principleForCategory,
         scenarios: allScenarios.map((s) => ({
           id: s.id,
@@ -1222,7 +1463,7 @@ export function nutritionRoutes(
       throw fail(409, "POLICY_REQUIRED", "Confirm the nutrition policy first.");
     const targetKcal = nutritionTarget(m.policy.data.policy, b.profile),
       week = await generate(
-        { ...evidence(m), profile: b.profile, targetKcal },
+        { ...evidence(m, [b.profile]), profile: b.profile, targetKcal },
         a,
         db,
       );
@@ -1266,7 +1507,8 @@ export function nutritionRoutes(
         evaluation = await find(tx, b.evaluationId, "nutrition_evaluation"),
         preview = await find(tx, b.previewId, "nutrition_preview"),
         scenarios = await tx.query(
-          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT 40",
+          "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT $1",
+          [maxHeldOut + 1],
         );
       if (
         evaluation.status !== "passed" ||
@@ -1289,7 +1531,7 @@ export function nutritionRoutes(
           "A passing evaluation including worked meals, rationale and safety boundaries, plus a reviewed current sample week, is required.",
         );
       if (
-        process.env.NODE_ENV === "production" &&
+        strictSecurity() &&
         (evaluation.data.verificationMode !== "provider" ||
           preview.data.verificationMode !== "provider" ||
           runtimeConfig().NUTRITION_SCOPE_APPROVED !== "true")
@@ -1325,7 +1567,16 @@ export function nutritionRoutes(
     return db.tenant(a, async (tx) => {
       await lock(tx, a);
       const r = await find(tx, (req.params as any).id, "nutrition_release");
-      await tx.query("UPDATE records SET status='paused' WHERE id=$1", [r.id]);
+      const paused = await tx.query(
+        "UPDATE records SET status='paused',version=version+1,updated_at=now() WHERE id=$1 AND status='published' RETURNING id",
+        [r.id],
+      );
+      if (!paused.length)
+        throw fail(
+          409,
+          "RELEASE_CHANGED",
+          "Only the active nutrition release can be paused. Reload the release status.",
+        );
       await event(tx, a, "nutrition.release_paused", r.id);
       return { ok: true };
     });
@@ -1341,13 +1592,20 @@ export function nutritionRoutes(
         .parse(req.body);
     return db.tenant(a, async (tx) => {
       const r = await find(tx, (req.params as any).id, "nutrition_exception");
-      await tx.query(
-        "UPDATE records SET status='resolved',data=data||$2::jsonb WHERE id=$1",
+      // Resolution is single-use: a repeated submission cannot append duplicate teaching.
+      const resolved = await tx.query(
+        "UPDATE records SET status='resolved',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1 AND status='open' RETURNING id",
         [
           r.id,
           JSON.stringify({ resolution: b.resolution, resolvedBy: a.userId }),
         ],
       );
+      if (!resolved.length)
+        throw fail(
+          409,
+          "EXCEPTION_CHANGED",
+          "This exception has already been resolved. Reload the exception list.",
+        );
       if (b.teaching)
         await putRecord(
           tx,
@@ -1499,15 +1757,18 @@ function subscriberRoutes(
       return { ...r, version: (old?.version ?? 0) + 1 };
     });
   });
-  app.post(prefix + "/generate", async (req) =>
-    prepareNutritionWeek(
-      db,
-      auth.client(req),
-      z
-        .object({ requestKey: id, weekStart: z.iso.date() })
-        .strict()
-        .parse(req.body),
-    ),
+  app.post(
+    prefix + "/generate",
+    { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } },
+    async (req) =>
+      prepareNutritionWeek(
+        db,
+        auth.client(req),
+        z
+          .object({ requestKey: id, weekStart: z.iso.date() })
+          .strict()
+          .parse(req.body),
+      ),
   );
   app.get(prefix + "/plans/:id/options", async (req) => {
     const a = auth.client(req);
@@ -1517,13 +1778,11 @@ function subscriberRoutes(
       const plan = await find(tx, (req.params as any).id, "nutrition_plan");
       if (plan.owner_user_id !== a.userId)
         throw fail(404, "NOT_FOUND", "Plan unavailable");
+      // Any current delivered week, including coach-assigned weeks and weeks from an
+      // earlier release, takes options from the active release it will be validated against.
       const ready = await requireNutritionReady(tx),
         profile = await latest(tx, "nutrition_profile", a.userId);
-      if (
-        plan.status !== "delivered" ||
-        profile?.id !== plan.data.profileId ||
-        ready.release!.id !== plan.data.releaseId
-      )
+      if (plan.status !== "delivered" || profile?.id !== plan.data.profileId)
         throw fail(
           409,
           "PLAN_CHANGED",
@@ -1550,6 +1809,7 @@ function subscriberRoutes(
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await catalogReadLock(tx, a);
       await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       await permission(tx, a.userId);
@@ -1561,8 +1821,7 @@ function subscriberRoutes(
       if (
         old.status !== "delivered" ||
         old.version !== b.expectedVersion ||
-        old.data.profileId !== profile?.id ||
-        ready.release!.id !== old.data.releaseId
+        old.data.profileId !== profile?.id
       )
         throw fail(
           409,
@@ -1611,7 +1870,11 @@ function subscriberRoutes(
           policy,
           profile: profile!.data.profile,
           ...{ foods: ready.material.foods, recipes: ready.material.recipes },
-          caseIds: ready.material.cases.map((c) => c.id),
+          // The week's recorded rationale was validated when it was delivered.
+          caseIds: [
+            ...ready.material.cases.map((c) => c.id),
+            ...(old.data.choices.caseIds ?? []),
+          ],
           weekStart: old.data.weekStart,
           targetKcal: old.data.view.targetKcal,
         });
@@ -1646,6 +1909,12 @@ function subscriberRoutes(
             view,
             origin: "automatic_swap",
             groceryChanges: delta,
+            releaseId: ready.release!.id,
+            digest: ready.material.digest,
+            // A swapped coach-assigned week stays coach-authored; /generate reuses it.
+            coachAssignedId:
+              old.data.coachAssignedId ??
+              (old.data.origin === "coach_assigned" ? old.id : undefined),
           },
           old,
         ),
@@ -1923,7 +2192,7 @@ export async function prepareNutritionWeek(
         "Start a new plan today or within the next four weeks.",
       );
     const [prior] = await tx.query(
-      "SELECT * FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2",
+      "SELECT *,updated_at<now()-interval '2 minutes' AS lease_expired FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2",
       [a.userId, b.requestKey],
     );
     if (prior) {
@@ -1935,7 +2204,13 @@ export async function prepareNutritionWeek(
         );
       if (prior.status === "completed")
         return { done: await find(tx, prior.data.planId, "nutrition_plan") };
-      if (prior.status !== "retryable")
+      // An attempt interrupted before dispatch left a known not-sent state; its lease has
+      // lapsed and the version check before dispatch fences off the earlier attempt.
+      const interrupted =
+        prior.status === "running" &&
+        prior.data.providerState === "not_sent" &&
+        prior.lease_expired === true;
+      if (prior.status !== "retryable" && !interrupted)
         return {
           blocked: {
             code: prior.data.code ?? "GENERATION_PENDING",
@@ -1961,10 +2236,18 @@ export async function prepareNutritionWeek(
       "SELECT * FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' AND data->>'weekStart'=$2",
       [a.userId, b.weekStart],
     );
-    if (existing && existing.data.profileId === profile.id)
+    // Coach-authored weeks and weeks from the active release are reused. A week from an
+    // earlier release is replaced only by a validated week from the active release.
+    if (
+      existing &&
+      existing.data.profileId === profile.id &&
+      (existing.data.releaseId === r.release!.id ||
+        existing.data.origin === "coach_assigned" ||
+        existing.data.coachAssignedId)
+    )
       return { done: existing };
     const [running] = await tx.query(
-      "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND created_at>now()-interval '2 minutes'",
+      "SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND updated_at>now()-interval '2 minutes'",
       [a.userId],
     );
     if (running)
@@ -2069,6 +2352,7 @@ export async function prepareNutritionWeek(
       providerState: "not_sent",
       recoveryJobId: recoveryJob.id,
       attempt: (prior?.data.attempt ?? 0) + 1,
+      targetId: individualTarget.id,
     };
     const request = prior
       ? (
@@ -2091,6 +2375,7 @@ export async function prepareNutritionWeek(
       adjustmentEvidence,
       individualTarget,
       nutritionContext: await nutritionTwin(tx, a, a.userId),
+      replaceId: (existing?.id ?? null) as string | null,
     };
   });
   if (initial.done) return { plan: initial.done, reused: true };
@@ -2107,20 +2392,22 @@ export async function prepareNutritionWeek(
       | "adjustmentEvidence"
       | "individualTarget"
       | "nutritionContext"
+      | "replaceId"
     >
   >;
   try {
     const week = await generate(
       {
-        ...evidence(s.material),
+        ...evidence(s.material, [s.profile.data.profile]),
         profile: s.profile.data.profile,
         targetKcal: s.targetKcal,
         individualTarget: s.individualTarget.details,
-        recordedIntakeContext: s.nutritionContext,
+        recordedIntakeContext: promptIntakeContext(s.nutritionContext),
       },
       a,
       db,
       s.request.id,
+      s.request.version,
     );
     const view = validateNutritionWeek({
       week,
@@ -2135,6 +2422,7 @@ export async function prepareNutritionWeek(
     validateClientTargets(view, s.individualTarget.details);
     return await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await catalogReadLock(tx, a);
       await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       const now = await permission(tx, a.userId, true),
@@ -2164,25 +2452,32 @@ export async function prepareNutritionWeek(
         "SELECT id FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered' AND data->>'weekStart'=$2",
         [a.userId, b.weekStart],
       );
-      if (other)
+      if (other && other.id !== s.replaceId)
         throw fail(
           409,
           "PLAN_CHANGED",
           "Another plan has already been delivered for this week.",
         );
-      const plan = await deliver(tx, a, a.userId, {
-        weekStart: b.weekStart,
-        profileId: s.profile.id,
-        releaseId: s.release.id,
-        digest: s.material.digest,
-        choices: week,
-        view,
-        origin: "automatic",
-        targetId: s.individualTarget.id,
-        target: s.individualTarget.details,
-        adjustmentEvidence: s.adjustmentEvidence,
-        model: nutritionModelIdentity(),
-      });
+      const plan = await deliver(
+        tx,
+        a,
+        a.userId,
+        {
+          weekStart: b.weekStart,
+          profileId: s.profile.id,
+          releaseId: s.release.id,
+          digest: s.material.digest,
+          // The client-readable record keeps only the checked explanation.
+          choices: { ...week, explanation: view.explanation },
+          view,
+          origin: "automatic",
+          targetId: s.individualTarget.id,
+          target: s.individualTarget.details,
+          adjustmentEvidence: s.adjustmentEvidence,
+          model: nutritionModelIdentity(),
+        },
+        other,
+      );
       await tx.query(
         "UPDATE records SET status='completed',data=data||$2::jsonb WHERE id=$1",
         [s.request.id, JSON.stringify({ planId: plan.id })],
@@ -2194,7 +2489,8 @@ export async function prepareNutritionWeek(
       return { plan, reused: false };
     });
   } catch (error) {
-    const issue = availabilityError(error);
+    const issue = availabilityError(error),
+      code = (error as any)?.code;
     await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
       const [stillMember] = await tx.query(
@@ -2202,15 +2498,40 @@ export async function prepareNutritionWeek(
         [a.tenantId, a.userId],
       );
       if (!stillMember) return;
+      // Only the attempt that still owns the request records its outcome.
+      const [owned] = await tx.query(
+        "SELECT data->>'providerState' AS state FROM records WHERE id=$1 AND status='running' AND version=$2",
+        [s.request.id, s.request.version],
+      );
+      if (!owned) return;
+      // A known not-sent outcome never reached the provider, so the same intent may be
+      // attempted again without a second charge. Temporary refusals need no coach review.
+      const unsent = owned.state === "not_sent",
+        temporary = unsent && TEMPORARY_UNSENT_CODES.includes(code),
+        recorded = temporary
+          ? { code, message: (error as Error).message }
+          : issue;
       await tx.query(
         "UPDATE jobs SET status='blocked',leased_until=NULL,last_error=$2 WHERE id=$1 AND data->>'origin'='manual'",
-        [s.request.data.recoveryJobId, issue.code],
+        [s.request.data.recoveryJobId, recorded.code],
       );
       await tx.query(
-        "UPDATE records SET status='failed',data=data||$2::jsonb WHERE id=$1 AND status='running'",
-        [s.request.id, JSON.stringify(issue)],
+        "UPDATE records SET status=$3,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
+        [
+          s.request.id,
+          JSON.stringify(recorded),
+          unsent ? "retryable" : "failed",
+        ],
       );
-      await exception(tx, a, a.userId, issue.code, issue.message, s.request.id);
+      if (!temporary)
+        await exception(
+          tx,
+          a,
+          a.userId,
+          issue.code,
+          issue.message,
+          s.request.id,
+        );
     });
     if ((error as any).statusCode) throw error;
     return { status: "exception", ...issue };

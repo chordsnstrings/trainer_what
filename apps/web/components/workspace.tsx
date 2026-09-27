@@ -64,7 +64,19 @@ import {
   CoachStory,
   ClientHomeSections,
 } from "./trainer-design";
-import { resolveBrandDesign } from "@trainer/contracts";
+import { resolveBrandDesign, setSchema } from "@trainer/contracts";
+import { adminRoute } from "./app-routes";
+import {
+  clearLocalData,
+  discardRejected,
+  drainWorkoutQueue,
+  leaveSession,
+  offlineQueueKeys,
+  readList,
+  retryRejected,
+  type RejectedEntry,
+  type WorkoutQueueItem,
+} from "./offline-queue";
 import {
   useState,
   useEffect,
@@ -195,11 +207,18 @@ const questions = [
   "How much explanation do your clients need?",
   "What distinguishes your method from generic coaching?",
 ];
-async function api(path: string, method = "GET", body?: unknown) {
+async function api(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  headers?: Record<string, string>,
+) {
   const r = await fetch("/api/v1" + path, {
     method,
     headers:
-      body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body !== undefined
+        ? { "Content-Type": "application/json", ...headers }
+        : headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });
@@ -207,6 +226,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!r.ok)
     throw Object.assign(new Error(data.message ?? "Request failed"), {
       status: r.status,
+      code: data.code,
     });
   return data;
 }
@@ -295,6 +315,88 @@ function Heading({
   );
 }
 
+type WorkspaceChoice = {
+  tenantId: string;
+  name: string;
+  role: string;
+  current: boolean;
+};
+const roleNames: Record<string, string> = {
+  owner: "Owner",
+  staff: "Coach",
+  finance: "Finance",
+  subscriber: "Member",
+};
+/** Lists this account's workspaces and switches the signed-in session. */
+function WorkspaceSwitcher({
+  current,
+  userId,
+}: {
+  current: string;
+  userId: string;
+}) {
+  const [choices, setChoices] = useState<WorkspaceChoice[]>([]),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api("/auth/workspaces").then(
+      (r) => active && setChoices(r.workspaces),
+      () => active && setChoices([]),
+    );
+    return () => {
+      active = false;
+    };
+  }, [current]);
+  if (choices.length < 2) return null;
+  return (
+    <label className="workspace-switcher">
+      <span>Switch workspace</span>
+      <select
+        value={current}
+        disabled={busy}
+        onChange={async (e) => {
+          const next = choices.find((c) => c.tenantId === e.target.value);
+          if (!next || next.tenantId === current) return;
+          setBusy(true);
+          setError("");
+          try {
+            // Replay before the switch replaces this session. Unsynced entries
+            // stay scoped to this workspace and member; only caches are cleared.
+            const left = await leaveSession(localStorage, current, userId, {
+              online: navigator.onLine,
+              post: (p, b, h) => api(p, "POST", b, h),
+              confirm: (n) =>
+                window.confirm(
+                  `${n} workout or meal ${n === 1 ? "entry has" : "entries have"} not synced. ${n === 1 ? "It stays" : "They stay"} on this device and will sync when you return to this workspace. Switch anyway?`,
+                ),
+              leave: () =>
+                api("/auth/workspace", "POST", { tenantId: next.tenantId }),
+            });
+            if (!left) {
+              setBusy(false);
+              return;
+            }
+            window.location.assign(
+              next.role === "subscriber" ? "/app" : "/trainer",
+            );
+          } catch (err) {
+            setError((err as Error).message);
+            setBusy(false);
+          }
+        }}
+      >
+        {choices.map((c) => (
+          <option key={c.tenantId} value={c.tenantId}>
+            {c.name} · {roleNames[c.role] ?? c.role}
+          </option>
+        ))}
+      </select>
+      {error && <small role="alert">{error}</small>}
+    </label>
+  );
+}
+
 function PlainShell({
   children,
   className,
@@ -362,8 +464,9 @@ export default function Workspace() {
         );
     } catch (e) {
       if ((e as any).status === 401) {
-        for (const k of Object.keys(localStorage))
-          if (k.startsWith("trainer:")) localStorage.removeItem(k);
+        // Unsynced set logs and diary entries stay scoped to their member and
+        // replay after that person signs in again; caches are removed.
+        clearLocalData(localStorage, { keepQueues: true });
         setState(null);
         setBootstrapError("");
         if (!publicPath) router.replace("/login");
@@ -551,6 +654,10 @@ export default function Workspace() {
             </span>
           </div>
         </div>
+        <WorkspaceSwitcher
+          current={state.user.tenantId}
+          userId={state.user.userId}
+        />
         <nav aria-label="Main navigation">
           {items.map(([label, url, Icon]) => (
             <Link
@@ -600,10 +707,17 @@ export default function Workspace() {
           <button
             className="text-button"
             onClick={async () => {
-              await api("/auth/logout", "POST", {});
-              for (const k of Object.keys(localStorage))
-                if (k.startsWith("trainer:")) localStorage.removeItem(k);
-              router.push("/login");
+              const { tenantId, userId } = state.user;
+              const left = await leaveSession(localStorage, tenantId, userId, {
+                online: navigator.onLine,
+                post: (p, b, h) => api(p, "POST", b, h),
+                confirm: (unsynced) =>
+                  window.confirm(
+                    `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
+                  ),
+                leave: () => api("/auth/logout", "POST", {}),
+              });
+              if (left) router.push("/login");
             }}
           >
             <LogOut size={15} /> Sign out
@@ -722,9 +836,7 @@ export default function Workspace() {
               platformRole={state.user.platformRole}
               onSettingsChanged={load}
             />
-          ) : /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/.test(
-              path,
-            ) ? (
+          ) : adminRoute(path) === "operations" ? (
             <>
               {path === "/admin/acquisition" &&
                 ["admin", "finance"].includes(state.user.platformRole) && (
@@ -751,7 +863,13 @@ export default function Workspace() {
               />
             </>
           ) : path.startsWith("/admin") ? (
-            <Admin {...props} />
+            adminRoute(path) === "overview" ? (
+              <Admin {...props} />
+            ) : adminRoute(path) === "finance" ? (
+              <Admin {...props} finance />
+            ) : (
+              <AdminNotFound />
+            )
           ) : path.includes("/onboarding") ? (
             <OnboardingView {...props} />
           ) : path.startsWith("/trainer/nutrition/clients/") ? (
@@ -2009,48 +2127,46 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     (w) => w.id === path.split("/").pop(),
   );
   const [queued, setQueued] = useState(0),
-    [notice, setNotice] = useState("");
-  const key = `trainer:queue:${state.user.tenantId}:${state.user.userId}`;
-  const syncing = useRef(false);
+    [notice, setNotice] = useState(""),
+    [rejected, setRejected] = useState<RejectedEntry<WorkoutQueueItem>[]>([]);
+  const { tenantId, userId } = state.user,
+    keys = offlineQueueKeys("workout", tenantId, userId),
+    key = keys.pending,
+    receiptKey = keys.receipts,
+    rejectedKey = keys.rejected;
   const [localDone, setLocalDone] = useState<string[]>([]);
-  const receiptKey = key + ":receipts";
+  const refreshQueue = useCallback(() => {
+    setQueued(readList(localStorage, key).length);
+    setLocalDone(readList<string>(localStorage, receiptKey));
+    setRejected(readList(localStorage, rejectedKey));
+  }, [key, receiptKey, rejectedKey]);
   const sync = useCallback(async () => {
-    if (syncing.current || !navigator.onLine) return;
-    syncing.current = true;
-    try {
-      const pending = JSON.parse(localStorage.getItem(key) ?? "[]");
-      for (const item of pending) {
-        try {
-          await api(item.path, "POST", item.body);
-          const latest = JSON.parse(localStorage.getItem(key) ?? "[]").filter(
-            (p: any) => p.body.eventKey !== item.body.eventKey,
-          );
-          localStorage.setItem(key, JSON.stringify(latest));
-          const receipts = [
-            ...new Set<string>([
-              ...JSON.parse(localStorage.getItem(receiptKey) ?? "[]"),
-              item.logicalKey,
-            ]),
-          ];
-          localStorage.setItem(receiptKey, JSON.stringify(receipts));
-          setLocalDone(receipts);
-          setQueued(latest.length);
-        } catch (e) {
-          setNotice("Saved on this device. " + (e as Error).message);
-          break;
-        }
-      }
-    } finally {
-      syncing.current = false;
-    }
-  }, [key, receiptKey]);
+    if (!navigator.onLine) return;
+    const result = await drainWorkoutQueue(
+      localStorage,
+      tenantId,
+      userId,
+      (p, b, h) => api(p, "POST", b, h),
+    );
+    refreshQueue();
+    if (result.stopped?.reason === "session")
+      setNotice(
+        "Your session ended. Sign in again; set logs saved on this device sync after you sign in.",
+      );
+    else if (result.stopped)
+      setNotice("Saved on this device. " + result.stopped.failure.message);
+    else if (result.rejected.length)
+      setNotice(
+        "A set log could not be saved. Review it below; later sets kept syncing.",
+      );
+  }, [tenantId, userId, refreshQueue]);
   useEffect(() => {
-    setQueued(JSON.parse(localStorage.getItem(key) ?? "[]").length);
-    setLocalDone(JSON.parse(localStorage.getItem(receiptKey) ?? "[]"));
-    window.addEventListener("online", sync);
+    refreshQueue();
+    const online = () => void sync();
+    window.addEventListener("online", online);
     void sync();
-    return () => window.removeEventListener("online", sync);
-  }, [sync, key, receiptKey]);
+    return () => window.removeEventListener("online", online);
+  }, [sync, refreshQueue]);
   useEffect(() => {
     if (!workout || !navigator.onLine || !("caches" in window)) return;
     let active = true;
@@ -2117,6 +2233,63 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
+      {rejected.length > 0 && (
+        <div className="notice error" role="alert">
+          <strong>
+            {rejected.length} set{" "}
+            {rejected.length === 1 ? "log needs" : "logs need"} your attention.
+          </strong>{" "}
+          The workspace did not accept{" "}
+          {rejected.length === 1 ? "this entry" : "these entries"}. Try again,
+          or discard one to log that set again with corrected values.
+          <ul>
+            {rejected.map((entry) => (
+              <li key={entry.item.body.eventKey}>
+                {entry.item.body.exercise} · set {entry.item.body.set} ·{" "}
+                {entry.item.body.reps} reps · {entry.item.body.loadKg} kg —{" "}
+                {entry.failure.message}{" "}
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => {
+                    retryRejected<WorkoutQueueItem>(
+                      localStorage,
+                      keys,
+                      entry.item.body.eventKey,
+                      (item) => item.body.eventKey,
+                    );
+                    refreshQueue();
+                    void sync();
+                  }}
+                >
+                  Try again
+                </button>{" "}
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Discard this set log from this device? It has not been saved.",
+                      )
+                    )
+                      return;
+                    discardRejected<WorkoutQueueItem>(
+                      localStorage,
+                      keys,
+                      entry.item.body.eventKey,
+                      (item) => item.body.eventKey,
+                    );
+                    refreshQueue();
+                  }}
+                >
+                  Discard
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {workout.data.program.exercises.map((ex: any, i: number) => (
         <Card key={i}>
           <div className="card-heading">
@@ -2131,9 +2304,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           <p className="muted">{ex.cue}</p>
           {Array.from({ length: ex.sets }, (_, set) => {
             const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
-            const pendingHere = JSON.parse(
-              localStorage.getItem(key) ?? "[]",
-            ).some((p: any) => p.logicalKey === logicalKey);
+            const pendingHere = readList<WorkoutQueueItem>(
+                localStorage,
+                key,
+              ).some((p) => p.logicalKey === logicalKey),
+              needsAttention = rejected.some(
+                (r) => r.item.logicalKey === logicalKey,
+              );
             const done =
               pendingHere ||
               localDone.includes(logicalKey) ||
@@ -2160,9 +2337,24 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                       loadKg: Number(f.get("load")),
                     };
                   const endpoint = `/workouts/${workout.id}/sets`;
-                  const pending = JSON.parse(localStorage.getItem(key) ?? "[]");
+                  const { notes: _notes, ...setLog } = body,
+                    checked = setSchema.safeParse(setLog);
+                  if (!checked.success) {
+                    setNotice(
+                      "Check this set before logging it: " +
+                        checked.error.issues
+                          .map((x) => `${x.path.join(".")} ${x.message}`)
+                          .join("; "),
+                    );
+                    return;
+                  }
+                  const pending = readList<WorkoutQueueItem>(localStorage, key);
                   if (
-                    pending.some((p: any) => p.logicalKey === logicalKey) ||
+                    pending.some((p) => p.logicalKey === logicalKey) ||
+                    readList<RejectedEntry<WorkoutQueueItem>>(
+                      localStorage,
+                      rejectedKey,
+                    ).some((r) => r.item.logicalKey === logicalKey) ||
                     localDone.includes(logicalKey)
                   )
                     return;
@@ -2183,6 +2375,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     aria-label={`${ex.name} set ${set + 1} load`}
                     defaultValue={ex.loadKg}
                     min={0}
+                    max={500}
                     step={0.5}
                   />
                   <small>kg</small>
@@ -2194,6 +2387,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     aria-label={`${ex.name} set ${set + 1} reps`}
                     defaultValue={ex.reps}
                     min={0}
+                    max={200}
+                    step={1}
                   />
                   <small>reps</small>
                 </label>
@@ -2220,9 +2415,16 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 <Button
                   type="submit"
                   secondary
-                  disabled={busy || done || workout.status !== "active"}
+                  disabled={
+                    busy ||
+                    done ||
+                    needsAttention ||
+                    workout.status !== "active"
+                  }
                 >
-                  {done ? (
+                  {needsAttention ? (
+                    "Needs attention"
+                  ) : done ? (
                     <>
                       <Check size={16} />
                       {pendingHere ? "Saved offline" : "Logged"}
@@ -2238,7 +2440,14 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       ))}
       <div className="button-row">
         <Button
-          disabled={busy || queued > 0 || workout.status !== "active"}
+          disabled={
+            busy ||
+            queued > 0 ||
+            rejected.some(
+              (r) => r.item.path === `/workouts/${workout.id}/sets`,
+            ) ||
+            workout.status !== "active"
+          }
           onClick={() =>
             void action(
               () => api(`/workouts/${workout.id}/finish`, "POST", {}),
@@ -3472,24 +3681,55 @@ function Analytics({ state, records }: ViewProps) {
   );
 }
 
-function Admin({ state, path }: ViewProps) {
+function AdminNotFound() {
+  return (
+    <Card>
+      <h1>Choose an operations screen</h1>
+      <p className="muted">
+        This address does not identify a platform operations screen.
+      </p>
+      <Link className="text-link" href="/admin">
+        Open platform operations
+      </Link>
+    </Card>
+  );
+}
+function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
+  const financeRole = ["admin", "finance"].includes(state.user.platformRole);
   useEffect(() => {
     api("/admin/overview")
       .then(setData)
       .catch((e) => setError(e.message));
   }, []);
-  return (
-    <>
-      {path === "/admin/finance/controls" &&
-        data &&
-        ["admin", "finance"].includes(state.user.platformRole) && (
+  if (finance)
+    return (
+      <>
+        <Heading
+          eyebrow="PLATFORM FINANCE"
+          title="Payments and payouts."
+          detail="Charges, refunds, trainer balances, payouts and reconciliation. Every workspace inspection is audited."
+        />
+        {!financeRole ? (
+          <div className="notice error" role="alert">
+            Platform finance access is required for this screen.
+          </div>
+        ) : error ? (
+          <div className="notice error">{error}</div>
+        ) : data ? (
           <>
             <FinancePolicyConsole tenants={data.tenants} />
             <FinanceAutomationConsole tenants={data.tenants} />
+            <FinanceOperations tenants={data.tenants} />
           </>
+        ) : (
+          <p>Loading platform finance…</p>
         )}
+      </>
+    );
+  return (
+    <>
       <Heading
         eyebrow="PLATFORM OPERATIONS"
         title="An accountable view of the platform."
@@ -3749,6 +3989,7 @@ function Public({
                             email: f.get("email"),
                             password: f.get("password"),
                             token: path.split("/").pop(),
+                            accepted: true,
                             ...(f.get("code") ? { code: f.get("code") } : {}),
                           }
                         : signup
@@ -3837,7 +4078,7 @@ function Public({
                   </p>
                 </>
               )}
-              {(signup || enroll) && (
+              {(signup || join || enroll) && (
                 <label className="check-field">
                   <input type="checkbox" required />I accept the published terms
                   and understand the digital coaching disclosure.

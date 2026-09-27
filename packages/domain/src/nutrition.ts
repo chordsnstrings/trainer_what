@@ -291,14 +291,114 @@ export class NutritionBlocked extends Error {
 const block = (code: string, message: string): never => {
   throw new NutritionBlocked(code, message);
 };
+// Arabic letter variants written interchangeably (alef/hamza carriers, waw and yeh
+// hamza, alef maqsura, Persian yeh and keheh, ta marbuta). Letters only, so it is
+// also safe on regex sources: escapes such as \s and \w are left untouched.
+const foldArabicLetters = (s: string) =>
+  s
+    .replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627")
+    .replace(/\u0624/g, "\u0648")
+    .replace(/[\u0626\u0649\u06CC]/g, "\u064A")
+    .replace(/\u06A9/g, "\u0643")
+    .replace(/\u0629/g, "\u0647");
+// Case, width, Arabic diacritic/tatweel and letter-variant folding for deterministic matching.
+export function foldNutritionText(s: string) {
+  return foldArabicLetters(
+    s
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, ""),
+  )
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/\u066C/g, ",");
+}
+const lettersBefore = "(?<![\\p{L}\\p{N}])",
+  lettersAfter = "(?![\\p{L}\\p{N}])",
+  // Optional attached Arabic conjunction/preposition and article (و، ف، ب، ك، ل، ال).
+  arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك]))?";
+// Terms are folded like the text they are matched against, so every spelling of
+// a term (for example مرضعة/مرضعه or حبلى/حبلي) matches.
+const termPattern = (terms: string[]) =>
+  new RegExp(
+    lettersBefore +
+      arabicClitic +
+      "(?:" +
+      terms.map(foldArabicLetters).join("|") +
+      ")" +
+      lettersAfter,
+    "iu",
+  );
+// Clinical, medication and life-stage signals that take a request outside automatic
+// general-wellness guidance. Terms are word-bounded so ordinary words such as
+// "sugar", "kidney beans", "سكر" or "حمل الأثقال" do not match.
+const clinicalTerms = [
+  "(?:pre-?)?diabet(?:es|ic|ics)?",
+  "t[12]dm?",
+  "insulin",
+  "metformin",
+  "glp-?1s?",
+  "semaglutide|ozempic|wegovy|mounjaro|tirzepatide|zepbound|liraglutide|saxenda|victoza",
+  "hypertension|hypertensive|antihypertensives?",
+  "high blood pressure",
+  "blood pressure (?:medications?|medicines?|pills?|tablets?)",
+  "kidney (?:disease|failure|stones?|problems?|transplant|conditions?)",
+  "renal|ckd|dialysis|nephropathy",
+  "liver (?:disease|failure|conditions?)|fatty liver|cirrhosis|hepatitis",
+  "cancer|chemo(?:therapy)?|oncology|radiotherapy",
+  "pregnan(?:t|cy|cies)",
+  "breast[- ]?(?:feeding|feeds?|fed)|lactating|lactation|postpartum|trimester",
+  "anorexi(?:a|c)|bulimi(?:a|c)|binge[- ]eating|purging|starvation|eating disorders?|arfid",
+  "coeliac|celiac",
+  "crohn'?s?|colitis|ibs|ibd|gastroparesis|fodmap",
+  "gout",
+  "pcos|polycystic ovar(?:y|ies|ian)",
+  "bariatric|gastric (?:bypass|sleeve|band)",
+  "heart (?:disease|failure|conditions?|attack)|cardiac",
+  "thyroid|hypothyroid(?:ism)?|hyperthyroid(?:ism)?|levothyroxine",
+  "warfarin|statins?|blood thinners?|anticoagulants?",
+  "epilep(?:sy|tic)",
+  "phenylketonuria|pku",
+  "medications?|prescription",
+  // Arabic (folded): diabetes, insulin, GLP-1 brands, blood pressure, kidney, liver,
+  // cancer/chemotherapy, pregnancy/breastfeeding, eating disorders, gut, gout, PCOS,
+  // bariatric surgery, heart, thyroid, epilepsy and medicines.
+  "سكري|مرض (?:ال)?سكر|انسولين|ميتفورمين|[جغ]لوكوفاج",
+  "اوزمبيك|اوزيمبك|مونجارو|ساكسندا|ويغوفي|سيماجلوتايد",
+  "ضغط (?:ال)?دم|ارتفاع (?:ال)?ضغط",
+  // Folded, "كلى" (kidneys) reads as "كلي" (all/whole), so the bare word needs the
+  // article or a kidney-condition noun.
+  "(?:[وف]?(?:[بك]?ال|لل))كلى|(?:مشاكل|مشكلة|مرض|امراض|فشل|قصور|حصوة|حصى|حصوات|التهاب|زراعة|غسيل) كلى|كلوي|كلوية|غسيل كلوي",
+  "(?:امراض|مرض|تليف|تشمع) (?:ال)?كبد|كبد (?:ال)?دهني",
+  "سرطان(?!\\s*(?:ال)?بحر)|كيماوي|علاج (?:ال)?كيميائي",
+  "حامل|حبلى|مرضع|مرضعة|رضاعة|ترضع|ارضع",
+  "فقدان (?:ال)?شهية|شره (?:ال)?مرضي|اضطرابا?ت? (?:ال)?اكل",
+  "سيلياك|داء (?:ال)?بطني|داء (?:ال)?زلاقي|كرون|قولون (?:ال)?(?:تقرحي|عصبي)",
+  "نقرس|تكيس (?:ال)?مبايض|(?:تكميم|ربط|قص) (?:ال)?معدة|تحويل (?:ال)?مسار",
+  "(?:امراض|مرض|قصور) (?:ال)?قلب|جلطة|غدة (?:ال)?درقية|صرع|دواء|ادوية",
+];
+const clinicalPattern = termPattern(clinicalTerms);
+/** Clinical, medication or life-stage terms found in free text (English and Arabic). */
+export function nutritionScopeSignals(texts: string[]) {
+  const found: string[] = [];
+  for (const t of texts) {
+    const m = foldNutritionText(t).match(new RegExp(clinicalPattern, "giu"));
+    if (m) found.push(...m.map((x) => x.trim()));
+  }
+  return [...new Set(found)];
+}
 export function nutritionTarget(
   policy: NutritionPolicy,
   profile: NutritionProfile,
 ) {
   if (
-    /\b(purging|starvation|insulin dose|dialysis|chemotherapy|pregnan(?:t|cy)|eating disorder|kidney disease)\b/i.test(
+    nutritionScopeSignals([
       profile.notes,
-    )
+      profile.goal,
+      profile.diet,
+      ...profile.exclusions,
+      ...profile.allergens,
+    ]).length
   )
     block(
       "SCOPE_REVIEW",
@@ -367,13 +467,72 @@ export function scaledNutrients(
   }
   return result;
 }
-const norm = (s: string) => s.toLowerCase().trim();
-// Conservative matching aliases; unfamiliar restrictions require clarification.
-// This is not certification of packaged food or cross-contact safety.
+const norm = (s: string) => foldNutritionText(s).trim();
+// Conservative matching aliases and derived ingredient terms (English and folded
+// Arabic); unfamiliar restrictions require clarification. This is not
+// certification of packaged food or cross-contact safety.
 const allergenGroups: Record<string, string[]> = {
-  milk: ["milk", "dairy", "lactose"],
-  egg: ["egg", "eggs"],
-  peanut: ["peanut", "peanuts", "groundnut", "groundnuts"],
+  milk: [
+    "milk",
+    "dairy",
+    "lactose",
+    "whey",
+    "casein",
+    "caseinate",
+    "butter",
+    "buttermilk",
+    "ghee",
+    "cheese",
+    "yogurt",
+    "yoghurt",
+    "labneh",
+    "labnah",
+    "laban",
+    "cream",
+    "paneer",
+    "kefir",
+    "curd",
+    "halloumi",
+    "feta",
+    "mozzarella",
+    "ricotta",
+    "parmesan",
+    "cheddar",
+    "حليب",
+    "لبن",
+    "لبنة",
+    "جبن",
+    "جبنة",
+    "زبدة",
+    "زبد",
+    "سمن",
+    "قشطة",
+    "قشدة",
+    "زبادي",
+    "روب",
+  ],
+  egg: [
+    "egg",
+    "eggs",
+    "albumin",
+    "albumen",
+    "mayonnaise",
+    "mayo",
+    "meringue",
+    "بيض",
+    "بيضة",
+    "مايونيز",
+  ],
+  peanut: [
+    "peanut",
+    "peanuts",
+    "groundnut",
+    "groundnuts",
+    "arachis",
+    "فول سوداني",
+    "فول سودانى",
+    "فستق عبيد",
+  ],
   tree_nut: [
     "tree nut",
     "tree nuts",
@@ -391,11 +550,81 @@ const allergenGroups: Record<string, string[]> = {
     "pecans",
     "brazil nut",
     "macadamia",
+    "praline",
+    "marzipan",
+    "لوز",
+    "كاجو",
+    "جوز",
+    "بندق",
+    "فستق",
+    "فستق حلبي",
+    "بيكان",
+    "مكاديميا",
   ],
-  soy: ["soy", "soya", "soybean", "soybeans"],
-  wheat: ["wheat"],
-  gluten: ["gluten", "barley", "rye"],
-  fish: ["fish"],
+  soy: [
+    "soy",
+    "soya",
+    "soybean",
+    "soybeans",
+    "tofu",
+    "tempeh",
+    "edamame",
+    "miso",
+    "natto",
+    "tamari",
+    "shoyu",
+    "صويا",
+    "توفو",
+  ],
+  wheat: [
+    "wheat",
+    "semolina",
+    "couscous",
+    "bulgur",
+    "bulghur",
+    "burghul",
+    "durum",
+    "spelt",
+    "farro",
+    "freekeh",
+    "seitan",
+    "kamut",
+    "einkorn",
+    "emmer",
+    "triticale",
+    "flour",
+    "bread",
+    "breadcrumbs",
+    "pasta",
+    "قمح",
+    "سميد",
+    "برغل",
+    "فريكة",
+    "كسكس",
+    "كسكسي",
+    "طحين",
+    "خبز",
+    "معكرونة",
+  ],
+  gluten: ["gluten", "barley", "rye", "malt", "جلوتين", "غلوتين", "شعير"],
+  fish: [
+    "fish",
+    "anchovy",
+    "anchovies",
+    "tuna",
+    "salmon",
+    "sardine",
+    "sardines",
+    "cod",
+    "mackerel",
+    "tilapia",
+    "سمك",
+    "اسماك",
+    "تونة",
+    "سلمون",
+    "سردين",
+    "هامور",
+  ],
   shellfish: [
     "shellfish",
     "crustacean",
@@ -409,18 +638,59 @@ const allergenGroups: Record<string, string[]> = {
     "molluscs",
     "mollusk",
     "mollusks",
+    "mussel",
+    "mussels",
+    "oyster",
+    "oysters",
+    "clam",
+    "clams",
+    "scallop",
+    "scallops",
+    "squid",
+    "calamari",
+    "octopus",
+    "روبيان",
+    "ربيان",
+    "جمبري",
+    "سلطعون",
+    "كابوريا",
+    "سرطان البحر",
+    "محار",
+    "كركند",
   ],
-  sesame: ["sesame", "sesame seed", "sesame seeds"],
-  mustard: ["mustard"],
-  celery: ["celery"],
-  lupin: ["lupin", "lupine"],
+  sesame: [
+    "sesame",
+    "sesame seed",
+    "sesame seeds",
+    "tahini",
+    "tahina",
+    "tahineh",
+    "halva",
+    "halwa",
+    "halawa",
+    "benne",
+    "zaatar",
+    "za'atar",
+    "سمسم",
+    "طحينة",
+    "طحينه",
+    "حلاوة",
+    "حلاوه",
+    "زعتر",
+  ],
+  mustard: ["mustard", "خردل"],
+  celery: ["celery", "celeriac", "كرفس"],
+  lupin: ["lupin", "lupine", "ترمس"],
   sulphite: ["sulphite", "sulphites", "sulfite", "sulfites"],
-  nuts: ["nuts", "nut"],
+  nuts: ["nuts", "nut", "مكسرات"],
 };
-function allergenKey(s: string) {
-  const n = norm(s);
+export function allergenKey(s: string) {
+  const n = norm(s),
+    bare = n.replace(/^(?:[وف]?(?:[بك]?ال|لل))(?=\p{L}{2})/u, "");
   return (
-    Object.entries(allergenGroups).find(([, v]) => v.includes(n))?.[0] ?? null
+    Object.entries(allergenGroups).find(([, v]) =>
+      v.some((x) => norm(x) === n || norm(x) === bare),
+    )?.[0] ?? null
   );
 }
 function allergenConflict(a: string, b: string) {
@@ -433,6 +703,44 @@ function allergenConflict(a: string, b: string) {
       [x, y].some((k) => k === "tree_nut" || k === "peanut")) ||
     ([x, y].includes("gluten") && [x, y].includes("wheat"))
   );
+}
+const relatedAllergens: Record<string, string[]> = {
+  nuts: ["nuts", "tree_nut", "peanut"],
+  tree_nut: ["tree_nut", "nuts"],
+  peanut: ["peanut", "nuts"],
+  gluten: ["gluten", "wheat"],
+  wheat: ["wheat", "gluten"],
+};
+const escapeTerm = (t: string) =>
+  norm(t)
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+const namedAllergenPatterns = new Map<string, RegExp>();
+// Word-bounded search of a reported allergen, its alias group and derived terms
+// (for example peanut butter, tahini, whey or semolina) in food names and tags.
+function allergenNamed(reported: string, words: string[]) {
+  const key = allergenKey(reported);
+  let pattern = key ? namedAllergenPatterns.get(key) : undefined;
+  if (!pattern) {
+    const terms = [
+      norm(reported),
+      ...(key ? (relatedAllergens[key] ?? [key]) : []).flatMap(
+        (k) => allergenGroups[k],
+      ),
+    ];
+    pattern = new RegExp(
+      lettersBefore +
+        arabicClitic +
+        "(?:" +
+        [...new Set(terms.map(escapeTerm))].join("|") +
+        ")(?:e?s)?" +
+        lettersAfter,
+      "iu",
+    );
+    // Known groups are cached; the group already covers the reported alias.
+    if (key) namedAllergenPatterns.set(key, pattern);
+  }
+  return words.some((w) => pattern!.test(norm(w)));
 }
 export function recipeCompatibility(
   recipe: Recipe,
@@ -463,6 +771,9 @@ export function recipeCompatibility(
     if (
       f.allergens.some((a) =>
         profile.allergens.some((b) => allergenConflict(a, b)),
+      ) ||
+      profile.allergens.some((b) =>
+        allergenNamed(b, [f.name, ...f.ingredientTags, ...f.allergens]),
       )
     )
       return "Reported allergen conflict";
@@ -626,9 +937,120 @@ export function validateNutritionWeek(input: {
       a.food.name.localeCompare(b.food.name),
     ),
     caseIds: week.caseIds,
-    explanation: week.explanation,
+    ...nutritionExplanation({
+      text: week.explanation,
+      targetKcal: target,
+      days,
+      slots: policy.slots.length,
+      batches: batches.size,
+      recipes: input.recipes,
+    }),
     calculationVersion: "nutrition-decimal-v1",
     estimated: true,
+  };
+}
+const explanationPattern = termPattern([
+  "supplements?|supplementation|(?:multi)?vitamins?|capsules?|tablets?|pills?",
+  "doses?|dosage|dosing|medicines?|drugs?|injections?|laxatives?|diuretics?",
+  "diagnos(?:is|es|e|ed)|treatment|therapy|therapeutic|clinical(?:ly)?|medical(?:ly)?",
+  "detox\\w*|creatine|fat burners?|probiotics?|doctor|physician",
+  "مكملا?ت?|مكمل|فيتامينا?ت?|كبسولة|كبسولا?ت?|جرعة|جرعا?ت?|علاج|تشخيص|حقنة|حقن|طبيب",
+]);
+// Matched against folded text, so Arabic ta marbuta is written as ه.
+const dosePattern =
+  /\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|μg|iu|units?|ملغ|ملجم|مجم|ميكروغرام|وحده|وحدات)(?![\p{L}\p{N}])/iu;
+const contactPattern =
+  /(?:https?:\/\/|www\.)|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+\.\p{L}{2,}|(?<![\p{L}\p{N}])[a-z0-9-]+\.(?:com|net|org|io|ae|co|info|app|health|me|ly|link)(?![\p{L}\p{N}])|\+\d[\d\s().-]{6,}\d|(?<!\d)0\d(?:[\s.-]?\d){7,}/iu;
+const calorieUnit =
+  "k?cal(?:orie)?s?|kilocalories?|سعره|سعرات|سعر حراري|كالوري|كيلو ?كالوري";
+const caloriePatterns = [
+  new RegExp(
+    "(\\d[\\d,]*(?:\\.\\d+)?)\\s*-?\\s*(?:" +
+      calorieUnit +
+      ")(?![\\p{L}\\p{N}])",
+    "giu",
+  ),
+  new RegExp(
+    "(?<![\\p{L}\\p{N}])(?:" +
+      calorieUnit +
+      ")\\s*(?:of|:|=|around|about|approximately|approx\\.?|~)?\\s*(\\d[\\d,]*(?:\\.\\d+)?)",
+    "giu",
+  ),
+];
+const phrase = (s: string) =>
+  " " +
+  foldNutritionText(s)
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim() +
+  " ";
+/**
+ * Free text reaches the subscriber only after deterministic checks: no clinical,
+ * medication or supplement terms, dosages, links or contact details, calorie
+ * numbers that disagree with the validated week, or catalog recipes outside the
+ * week. Otherwise a neutral explanation is generated from the validated data.
+ */
+export function nutritionExplanation(input: {
+  text: string;
+  targetKcal: number;
+  days: Array<{
+    totals: Record<string, number | null>;
+    meals: Array<{ recipeId: string; nutrients: { kcal: number | null } }>;
+  }>;
+  slots: number;
+  batches: number;
+  recipes: Array<{ id: string; name: string }>;
+}) {
+  const text = foldNutritionText(input.text),
+    issues: string[] = [];
+  if (clinicalPattern.test(text) || explanationPattern.test(text))
+    issues.push("clinical_or_supplement_advice");
+  if (dosePattern.test(text)) issues.push("dosage");
+  if (contactPattern.test(text)) issues.push("link_or_contact");
+  const allowed = [
+    input.targetKcal,
+    ...input.days.flatMap((d) => [
+      d.totals.kcal,
+      ...d.meals.map((m) => m.nutrients.kcal),
+    ]),
+  ].filter((n): n is number => typeof n === "number");
+  for (const pattern of caloriePatterns)
+    for (const m of text.matchAll(pattern))
+      if (
+        !allowed.some((k) => Math.abs(k - Number(m[1].replace(/,/g, ""))) <= 1)
+      )
+        issues.push("calorie_mismatch");
+  const used = new Set(
+      input.days.flatMap((d) => d.meals.map((m) => m.recipeId)),
+    ),
+    planned = [
+      ...new Set(
+        input.recipes.filter((r) => used.has(r.id)).map((r) => phrase(r.name)),
+      ),
+    ].sort((a, b) => b.length - a.length);
+  let remaining = phrase(input.text);
+  for (const name of planned)
+    if (name.trim()) remaining = remaining.split(name).join("  ");
+  if (
+    input.recipes.some(
+      (r) =>
+        !used.has(r.id) &&
+        phrase(r.name).trim() !== "" &&
+        remaining.includes(phrase(r.name)),
+    )
+  )
+    issues.push("recipe_outside_plan");
+  if (!issues.length)
+    return {
+      explanation: input.text,
+      explanationCheck: { accepted: true, issues },
+    };
+  const recipes = used.size,
+    batch = input.batches
+      ? ` and ${input.batches} shared preparation batch${input.batches === 1 ? "" : "es"}`
+      : "";
+  return {
+    explanation: `This week follows your coach's approved meal rules: about ${input.targetKcal} kcal a day across ${input.slots} daily meal${input.slots === 1 ? "" : "s"}, using ${recipes} coach-reviewed recipe${recipes === 1 ? "" : "s"}${batch}. Quantities and nutrients are estimates from the recorded ingredients; check product labels for allergens.`,
+    explanationCheck: { accepted: false, issues: [...new Set(issues)] },
   };
 }
 export function nutritionCoverage(

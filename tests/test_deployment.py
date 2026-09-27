@@ -157,7 +157,8 @@ class DeploymentBoundaries(unittest.TestCase):
 
     def test_database_and_api_cannot_be_published(self):
         good = {"services": {"database": {"image": "postgres:17.6-alpine"}, "api": {}, "worker": {},
-                              "web": {"ports": [{"host_ip": "127.0.0.1", "published": "3000"}]}}}
+                              "web": {"ports": [{"host_ip": "127.0.0.1", "published": "3000"}]},
+                              "migrate": {}, "edge": {"image": "caddy:2.11.4-alpine"}}}
         host.validate_exposure(good)
         for service in ("database", "api", "worker", "web"):
             bad = copy.deepcopy(good)

@@ -30,11 +30,11 @@ Saved configuration overrides inherited environment values, including explicit b
 
 Temporary API failures keep the current workspace route and offer Retry; only an expired or invalid session redirects to login. Verified users have separate request budgets even when sharing the application proxy; anonymous and stricter security-route limits remain enforced.
 
-Secrets are encrypted with authenticated encryption and never returned by the settings API. The immutable audit lists actor, operation, revision, changed field names and sanitized test outcome. It contains no credential values. A missing or changed encryption key disables only the affected connection; the administrator can still sign in and replace its credentials. Recovery of older authenticator secrets still requires the original host key.
+Secrets are encrypted with authenticated encryption and never returned by the settings API. The immutable audit lists actor, operation, revision, changed field names and sanitized test outcome. It contains no credential values. A missing or changed encryption key disables only the affected connection. Plan key changes as a rotation (below) so nothing becomes unreadable. If a key is lost anyway, an authenticator that can no longer be read returns `MFA_KEY_UNAVAILABLE` instead of failing silently: sign in with a passkey or a recovery code, then set up the authenticator again. Without either, the host operator can run `OPERATOR_EMAIL=<account> npm run operator:role -- reset-mfa` inside the API container. It needs no stored secret, revokes the account's sessions and recovery codes, is audited and emails the account holder.
 
 | Connection | Implemented behavior | Test boundary |
 | --- | --- | --- |
-| Application | Name, support email, legal version, reviewed feature controls, meal photos and food lookup | Local validation; a flag records an operator decision |
+| Application | Name, support email, reviewed feature controls, meal photos and food lookup. Blank values for switches and defaulted fields are rejected. Legal document versions come from the published documents registry, not from this page | Local validation; a flag records an operator decision |
 | Stripe | Existing Checkout, subscription, refund and signed webhook adapters use saved credentials | Read-only account access; no charge/refund and no proof of webhook delivery |
 | Lean | Existing gated company-bank instruction adapter uses saved credentials | Configuration and public endpoint validation only; account-specific transport, recipient eligibility and bank finality remain unverified |
 | AI model | Configurable compatible endpoint, model, usage prices, daily request cap and image capability | Read-only model-list request; no generated answer or proof of nutrition quality |
@@ -44,7 +44,26 @@ Secrets are encrypted with authenticated encryption and never returned by the se
 
 Endpoint-based integrations require public HTTPS. Requests reject local/private destinations, DNS answers and redirects. The application base URL stays in host configuration because it controls request origins and server routing.
 
-Disabling Stripe stops new commerce while preserving its credentials for signed lifecycle events already owed to existing subscribers. Disconnect explicitly removes its credentials and therefore requires coordination with webhook operations. Neither action rewrites ledger history. Failed/blocked jobs are not automatically replayed merely because settings change; inspect their existing state before retrying.
+Disabling Stripe stops new commerce while preserving its credentials for signed lifecycle events already owed to existing subscribers. Disconnect explicitly removes its credentials and therefore requires coordination with webhook operations. Neither action rewrites ledger history. While an email integration is being edited and not yet re-tested, due email jobs wait and are retried every five minutes without using an attempt. After 24 hours they fail unsent, and account links are never sent after they expire. Reset, verification and magic-link text is removed from the job once it is delivered, suppressed or finally fails. Other failed or blocked jobs are not replayed merely because settings change; inspect their state before retrying.
+
+## Host operator commands
+
+Run these inside the API container on the host; they are never exposed as routes.
+
+- **Platform roles.** `OPERATOR_ACTOR_EMAIL=<Superadmin> OPERATOR_ACTOR_CODE=<current authenticator code> OPERATOR_EMAIL=<target> OPERATOR_ROLE=<admin|finance|support|safety|none> OPERATOR_REASON="<at least 10 characters>" npm run operator:role`. The actor must be a verified Superadmin; the target must be verified and use an authenticator. The last Superadmin cannot be removed. When no Superadmin remains, a verified account can restore itself by naming itself as actor and target. Every change is recorded in `platform_role_changes` and the operations audit.
+- **Authenticator reset for a member.** `node --import tsx --env-file-if-exists=.env scripts/reset-mfa.ts` (attributed to a Superadmin who enters a current code), or the emergency `npm run operator:role -- reset-mfa` described above when the encryption key itself is lost.
+- **First Superadmin.** `npm run admin:bootstrap` with `BOOTSTRAP_ADMIN_EMAIL` and a mode-600 `BOOTSTRAP_ADMIN_PASSWORD_FILE`. On the DigitalOcean host the controller can do this once from a private request written at server creation (see `docs/DIGITALOCEAN_DEPLOYMENT.md`).
+- **Environment.** Security controls relax only when `NODE_ENV` is `development` or `test`. An unset or staging value enforces them, and the API refuses to start relaxed unless both its host and `PUBLIC_APP_URL` are loopback. Set `NODE_ENV` explicitly on any shared deployment.
+
+## Encryption key rotation
+
+Saved provider credentials, authenticator secrets, wearable tokens and verifiers, and push endpoints are sealed with `SECURITY_ENCRYPTION_KEY`. New values record the key's public identifier (`v2.<key id>.…`). Values written before identifiers existed stay readable with the key that wrote them; no data migration is required. `SECURITY_ENCRYPTION_PREVIOUS_KEYS` (comma-separated base64 keys) is decrypt-only and never seals new values. To rotate, working only in the host's private runtime environment (`runtime.env` on the DigitalOcean host, which keeps an existing key and never generates a replacement):
+
+1. Generate a new 32-byte base64 key. Move the current value to `SECURITY_ENCRYPTION_PREVIOUS_KEYS` and set the new value as `SECURITY_ENCRYPTION_KEY`.
+2. Recreate the API and worker so both read the same keys. Existing values remain readable.
+3. Run `npm run secrets:reseal` with the runtime `DATABASE_URL`, e.g. inside the API container. It re-encrypts every readable value under the active key in locked, paged transactions without changing revisions, test results or connection versions. It prints counts only. A repeat run rewrites nothing. It exits non-zero if any value cannot be opened; those values stay unchanged until their credentials are replaced or cleared.
+4. Run `npm run readiness`. It reports finding counts for values that still need a previous key or that no configured key can open.
+5. When readiness reports no previous-key values, remove `SECURITY_ENCRYPTION_PREVIOUS_KEYS`, recreate the API and worker, then destroy the retired key through the host secret process. Never paste keys into tickets, logs or chat.
 
 ## Trainer Design Studio
 

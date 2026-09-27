@@ -423,12 +423,16 @@ export async function reconcileRefund(
       "REFUND_UNRESOLVED",
       "No matching provider refund is confirmed; the existing instruction remains held",
     );
-  await processStripeEvent(db, {
-    id: `reconcile-refund:${remote.id}:${remote.status}`,
-    created: Math.floor(Date.now() / 1000),
-    type: "refund.updated",
-    data: { object: remote },
-  });
+  await processStripeEvent(
+    db,
+    {
+      id: `reconcile-refund:${remote.id}:${remote.status}`,
+      created: Math.floor(Date.now() / 1000),
+      type: "refund.updated",
+      data: { object: remote },
+    },
+    { stripe },
+  );
   await db.tenant({ ...a, role: "finance" }, (tx) =>
     event(tx, a, "refund.provider_reconciled", r.id, {
       providerRefundId: remote.id,
@@ -500,7 +504,11 @@ function owner(req: FastifyRequest) {
   requireRecentMfa(a);
   return a;
 }
-export function registerFinanceBilling(app: FastifyInstance, db: Database) {
+export function registerFinanceBilling(
+  app: FastifyInstance,
+  db: Database,
+  providers: { stripe?: () => ReturnType<typeof stripeClient> } = {},
+) {
   app.get("/api/v1/membership/billing", (req) =>
     billingHistory(db, identity(req)),
   );
@@ -531,10 +539,17 @@ export function registerFinanceBilling(app: FastifyInstance, db: Database) {
       owner(req),
       (req.params as any).id,
       decisionSchema.parse(req.body),
+      false,
+      providers.stripe?.(),
     ),
   );
   app.post("/api/v1/refund-requests/:id/reconcile", (req) =>
-    reconcileRefund(db, owner(req), (req.params as any).id),
+    reconcileRefund(
+      db,
+      owner(req),
+      (req.params as any).id,
+      providers.stripe?.(),
+    ),
   );
   function finance(req: FastifyRequest) {
     const a = identity(req);
@@ -573,10 +588,17 @@ export function registerFinanceBilling(app: FastifyInstance, db: Database) {
           .extend({ revision: z.number().int().positive() })
           .parse(req.body),
         true,
+        providers.stripe?.(),
       ),
   );
   app.post(
     "/api/v1/admin/tenants/:tenantId/finance/refunds/:id/reconcile",
-    (req) => reconcileRefund(db, finance(req), (req.params as any).id),
+    (req) =>
+      reconcileRefund(
+        db,
+        finance(req),
+        (req.params as any).id,
+        providers.stripe?.(),
+      ),
   );
 }

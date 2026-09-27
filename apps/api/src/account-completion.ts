@@ -3,8 +3,17 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
-import { newToken, passwordMatches, tokenHash } from "./auth.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
+import {
+  accountAttempts,
+  clientSource,
+  newToken,
+  passwordMatches,
+  tokenHash,
+} from "./auth.ts";
 import { consumeMfa, requireRecentMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
@@ -30,7 +39,7 @@ export function accountHost(req: FastifyRequest): HostContext {
 }
 export function requireEmailConfiguration() {
   if (
-    process.env.NODE_ENV === "production" &&
+    strictSecurity() &&
     (!runtimeConfig().EMAIL_API_KEY || !runtimeConfig().EMAIL_API_URL)
   )
     throw new ProviderUnavailable(
@@ -38,6 +47,9 @@ export function requireEmailConfiguration() {
       "Email delivery must be configured before sending access links",
     );
 }
+// Default workspace: the one this account used most recently, then a stable id.
+export const recentWorkspaceOrder =
+  "(SELECT max(rs.last_seen_at) FROM sessions rs WHERE rs.user_id=m.user_id AND rs.tenant_id=m.tenant_id) DESC NULLS LAST,m.tenant_id";
 export async function accountMembership(
   tx: Tx,
   userId: string,
@@ -45,7 +57,9 @@ export async function accountMembership(
   tenantId?: string,
 ) {
   const [m] = await tx.query(
-    "SELECT m.tenant_id,m.role,u.platform_role FROM memberships m JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) AND ($4::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY m.tenant_id LIMIT 1",
+    "SELECT m.tenant_id,m.role,u.platform_role FROM memberships m JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) AND ($4::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+      recentWorkspaceOrder +
+      " LIMIT 1",
     [userId, host.tenantId, tenantId ?? null, host.custom],
   );
   if (!m)
@@ -89,25 +103,28 @@ export function setAccountCookie(reply: FastifyReply, token: string) {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: strictSecurity(),
     maxAge: 604800,
   });
 }
-async function queueAccountEmail(
+export async function queueAccountEmail(
   tx: Tx,
   a: Actor,
   to: string,
   subject: string,
   text: string,
   intentKey: string,
+  linkMinutes?: number,
 ) {
   await tx.query("SET LOCAL ROLE trainer_app");
   await tx.query(
     "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
     [a.tenantId, a.userId],
   );
+  // A message carrying a bearer link is scrubbed after a terminal outcome and
+  // is never sent once the link has expired.
   await tx.query(
-    "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4) ON CONFLICT DO NOTHING",
+    "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4::jsonb||CASE WHEN $5::int IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('sensitive',true,'expiresAt',now()+make_interval(mins=>$5::int)) END) ON CONFLICT DO NOTHING",
     [
       randomUUID(),
       a.tenantId,
@@ -120,6 +137,7 @@ async function queueAccountEmail(
         category: "account",
         critical: true,
       }),
+      linkMinutes ?? null,
     ],
   );
   await tx.query("RESET ROLE");
@@ -132,16 +150,74 @@ export async function touchAccountSession(db: Database, hash: string) {
     ),
   );
 }
+/**
+ * Host-only recovery (scripts/operator.ts) for an account whose authenticator
+ * can no longer be read, for example after a security key change, and that has
+ * no passkey or recovery code. Mirrors /auth/mfa/recover; never mounted as a route.
+ */
+export async function resetAccountMfa(db: Database, email: string) {
+  const address = z.email().parse(email).toLowerCase();
+  return db.system(async (tx) => {
+    const [m] = await tx.query(
+      "SELECT u.id AS user_id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' ORDER BY m.tenant_id LIMIT 1",
+      [address],
+    );
+    if (!m)
+      throw new Error("No account with an active workspace uses this email");
+    await workspaceLock(tx, m.tenant_id);
+    await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [m.user_id]);
+    const [s] = await tx.query(
+      "UPDATE user_security SET enabled=false,totp_secret=NULL,pending_secret=NULL,pending_until=NULL,last_counter=-1 WHERE user_id=$1 RETURNING user_id",
+      [m.user_id],
+    );
+    await tx.query("DELETE FROM mfa_recovery_codes WHERE user_id=$1", [
+      m.user_id,
+    ]);
+    await tx.query("DELETE FROM sessions WHERE user_id=$1", [m.user_id]);
+    await tx.query(
+      "UPDATE one_time_tokens SET consumed_at=now() WHERE user_id=$1 AND purpose IN ('magic','reset') AND consumed_at IS NULL",
+      [m.user_id],
+    );
+    const a = { tenantId: m.tenant_id, userId: m.user_id, role: m.role };
+    await accountAudit(tx, a, "security.authenticator_reset", m.user_id, {
+      by: "host_operator",
+    });
+    await queueAccountEmail(
+      tx,
+      a,
+      m.email,
+      "Your authenticator was reset",
+      "A platform operator reset your authenticator. All sessions and recovery codes were revoked. Sign in and set up a new authenticator. If you did not request this, reset your password and contact support.",
+      "auth-reset:" + randomUUID(),
+    );
+    return { userId: m.user_id as string, authenticatorWasSet: !!s };
+  });
+}
 const recoveryHash = (userId: string, code: string) =>
   tokenHash(
     userId + ":" + code.replaceAll("-", "").replaceAll(" ", "").toLowerCase(),
   );
+/** Replaces every stored recovery code; the caller holds user_security FOR UPDATE. */
+export async function replaceRecoveryCodes(tx: Tx, userId: string) {
+  const codes = Array.from({ length: 10 }, () =>
+    randomBytes(16).toString("hex").match(/.{8}/g)!.join("-"),
+  );
+  await tx.query("DELETE FROM mfa_recovery_codes WHERE user_id=$1", [userId]);
+  for (const code of codes)
+    await tx.query(
+      "INSERT INTO mfa_recovery_codes(user_id,code_hash) VALUES($1,$2)",
+      [userId, recoveryHash(userId, code)],
+    );
+  return codes;
+}
 export function registerAccountCompletion(
   app: FastifyInstance,
   db: Database,
   identity: (r: FastifyRequest) => AccountIdentity,
 ) {
   const rate = { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } };
+  const recoveryAttempts = accountAttempts(),
+    magicLinkAttempts = accountAttempts();
   app.get("/api/v1/auth/account", async (req) => {
     const a = identity(req),
       current = tokenHash(req.cookies.session ?? "");
@@ -191,10 +267,7 @@ export function registerAccountCompletion(
       .object({ password: z.string().max(128) })
       .strict()
       .parse(req.body);
-    const codes = Array.from({ length: 10 }, () =>
-      randomBytes(16).toString("hex").match(/.{8}/g)!.join("-"),
-    );
-    await db.system(async (tx) => {
+    const codes = await db.system(async (tx) => {
       await workspaceLock(tx, a.tenantId);
       await accountMembership(tx, a.userId, accountHost(req), a.tenantId);
       const [u] = await tx.query(
@@ -213,15 +286,9 @@ export function registerAccountCompletion(
           "MFA_NOT_ENABLED",
           "Enable your authenticator before generating recovery codes",
         );
-      await tx.query("DELETE FROM mfa_recovery_codes WHERE user_id=$1", [
-        a.userId,
-      ]);
-      for (const code of codes)
-        await tx.query(
-          "INSERT INTO mfa_recovery_codes(user_id,code_hash) VALUES($1,$2)",
-          [a.userId, recoveryHash(a.userId, code)],
-        );
+      const replaced = await replaceRecoveryCodes(tx, a.userId);
       await accountAudit(tx, a, "security.recovery_codes_replaced", a.userId);
+      return replaced;
     });
     return {
       codes,
@@ -239,6 +306,7 @@ export function registerAccountCompletion(
         .strict()
         .parse(req.body),
       host = accountHost(req);
+    recoveryAttempts(reply, b.email, clientSource(req));
     const result = await db.system(async (tx) => {
       const [initial] = await tx.query("SELECT id FROM users WHERE email=$1", [
         b.email,
@@ -312,18 +380,21 @@ export function registerAccountCompletion(
       requiresAuthenticatorSetup: true,
     };
   });
-  app.post("/api/v1/auth/magic-link", rate, async (req) => {
+  app.post("/api/v1/auth/magic-link", rate, async (req, reply) => {
     const b = z
         .object({ email: z.email().transform((v) => v.toLowerCase()) })
         .strict()
         .parse(req.body),
       host = accountHost(req);
+    magicLinkAttempts(reply, b.email, clientSource(req));
     // Apply unavailable-service behavior before lookup so it cannot disclose the
     // existence of an account when production email is not configured.
     requireEmailConfiguration();
     await db.system(async (tx) => {
       const [u] = await tx.query(
-        "SELECT u.id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY m.tenant_id LIMIT 1",
+        "SELECT u.id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+          recentWorkspaceOrder +
+          " LIMIT 1",
         [b.email, host.tenantId, host.custom],
       );
       if (!u) return;
@@ -351,6 +422,7 @@ export function registerAccountCompletion(
         "Your secure sign-in link",
         `${host.origin}/magic-link/${token}\nThis link expires in 15 minutes. Your authenticator is still required if enabled.`,
         "magic:" + tokenHash(token),
+        15,
       );
     });
     return {

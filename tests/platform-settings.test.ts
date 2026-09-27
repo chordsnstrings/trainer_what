@@ -236,7 +236,7 @@ test("credentials are authenticated ciphertext, never returned or included in au
   const [row] = await db.system((tx) =>
     tx.query("SELECT * FROM platform_settings WHERE integration_id='model'"),
   );
-  assert.match(row.encrypted_secrets.MODEL_API_KEY, /^v1\./);
+  assert.match(row.encrypted_secrets.MODEL_API_KEY, /^v2\./);
   assert.ok(!JSON.stringify(row).includes(modelSecret));
   const response = await req("");
   assert.ok(!response.body.includes(modelSecret));

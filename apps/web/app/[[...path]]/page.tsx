@@ -22,6 +22,9 @@ const website = cache(async (slug: string) => {
         "GET",
         target,
         process.env.INTERNAL_PROXY_SECRET,
+        Date.now(),
+        // Set by proxy.ts from the edge address after removing client copies.
+        incoming.get("x-trainer-client-ip"),
       ),
       cache: "no-store",
       redirect: "error",

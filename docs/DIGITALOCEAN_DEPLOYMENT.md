@@ -37,12 +37,47 @@ Failed migrations leave the current application running. If a new application re
 
 The controller takes a private local SQL dump before updating an existing deployment. This is a local recovery aid, not off-host backup or demonstrated restore evidence. Provider backups, retention, external monitoring and measured recovery remain operational work.
 
+## Host safeguards
+
+- **Retention.** After a deployment is recorded, the controller keeps only the current and previous release trees and `trainer-brain:<sha>` images. It removes other release trees and leftover `.unpack-*` directories. Image removal is never forced, so an image still used by a container remains. Build cache older than seven days is pruned. The seven newest complete `backups/<time>.sql` dumps are kept, and dumps are pruned only at this point. A dump that fails part-way is deleted, so it cannot displace a complete one. A failed or retried deployment prunes nothing, dumps included, so the dump taken before its migration survives every retry. Retention problems are logged and retried after the next successful deployment.
+- **Missing runtime secrets.** New secrets are generated only on a new host. If `runtime.env` is missing but `release-state.json`, `runtime.fingerprint`, a release, a backup or the `gymmembership_postgres_data` volume exists, every cycle stops with a restore error. It does not create credentials that cannot open the existing database or the encrypted records. To recover, restore the original `runtime.env` with mode 600 from its private copy. `runtime.fingerprint` holds only a SHA-256 of the encryption key, for comparing a restored file. Keep a private off-host copy of `runtime.env`; the host does not create one.
+- **Compose allowlist.** Before building, the controller checks the rendered Compose configuration:
+  - Services must be exactly database, migrate, api, web, worker and edge.
+  - Services must not use privileged mode, added capabilities, devices, host or shared namespaces, `network_mode`, the engine socket, security options, secrets/configs or env files.
+  - Mounts are limited to the `postgres_data`, `caddy_data` and `caddy_config` volumes and the read-only edge Caddyfile.
+  - Only migrate may build, only from its own release directory, and without host access.
+  - The database and edge images stay pinned.
+  - Networks must be private bridge networks.
+
+  Adding a service or volume, or upgrading a pinned image, takes two `main` commits: the first extends the allowlist in `host.py` and deploys, and the second changes Compose.
+- **Residual risk.** Write access to `main` still controls the server. Once a commit passes `check.yml`, its Dockerfile is built and its `host.py` becomes the root controller on the next cycle. The allowlist stops obvious Compose escalation, not a deliberate controller change. Branch protection and review on `main` remain the real control. Root SSH is key-only.
+- **CI topology smoke.** The `compose-topology` job in `check.yml` builds the image and starts database, migrate, api, web, worker and a loopback HTTP Caddy edge with throwaway secrets, following the controller's order. It checks the following through the edge:
+  - readiness and a web-signed host context;
+  - the home page;
+  - an anonymous 401;
+  - a cross-origin 403;
+  - a worker cycle that succeeded;
+  - that no service restarted.
+
+  Deployment therefore waits for the topology smoke as well.
+
 On the owned host, inspect `cloud-init status --long`, `journalctl -u gymmembership-deploy.service` and `systemctl status gymmembership-deploy.timer`. Do not print runtime environment files or rendered Compose configuration, which contain credentials. Retain the new project/server IDs, selected quote, exact release SHA, migration/runtime-role evidence, HTTPS response and a subsequent Git-triggered update before declaring automatic deployment operational.
 
-## Current evidence and activation boundary
+## Live deployment — 27 September 2026
 
-Authenticated DigitalOcean app account/region/size reads succeeded at 13:11 Asia/Dubai. The app lacks project creation/assignment and cloud-init parameters. The owner requires direct DigitalOcean API access and explicitly prohibits cloud-browser use. The final direct request to `https://api.digitalocean.com/v2/account`, using the supplied token, returned HTTP 200 with `Content-Type: text/html` and a 195-byte Site Unavailable page instead of account JSON. Token validity is therefore unverified; no create request was made. The prepared GitHub Actions workflow uses the official API for setup, but its `DO_PROVISION_TOKEN` repository secret is not configured and the GitHub connector has no secret-setting operation. That route needs one-time operator secret entry; do not request browser sign-in or repeat network/admin setting requests.
+The owner supplied a DigitalOcean token in the working session on 27 September and asked for a new project with everything deployed under it. The token was used only from the coordinating session, from a private scratch file, and was never written to Git, documentation, cloud-init or logs. Existing projects and resources were only listed, never changed.
 
-**No real cloud resources have been created.** [Setup run 36121575880](https://github.com/chordsnstrings/trainer_what/actions/runs/36121575880) passed all 37 deployment checks, then skipped creation because DO_PROVISION_TOKEN was empty. [Application run 36121575906](https://github.com/chordsnstrings/trainer_what/actions/runs/36121575906) passed both jobs on the same source commit 224b893. Actual cloud-init, HTTPS, restore and automatic-update evidence remain pending. The supplied DigitalOcean token has not received a valid API response from the workspace. Full evidence is in VERIFICATION_2026-09-25_DEPLOYMENT.md.
+| Resource | Created ID |
+| --- | --- |
+| Project `GymMembership` (Development, Web Application) | `0edd5213-c97c-4d27-9429-ddc878854ddc` |
+| SSH key `gymmembership-8fc22b34edcc` (the committed public key) | `59625985` |
+| Droplet `gymmembership-8fc22b34edcc` (blr1, `s-2vcpu-4gb`, Ubuntu 24.04, quoted USD 24/month) | `604067976` |
 
-Infrastructure setup does not enable registration, nutrition, imports, live commerce or payouts automatically. Existing legal/provider/feature flags remain disabled until their respective evidence exists. Real customer health-data placement and model qualification remain separate decisions. Required meal-photo and barcode work remains open under 043; running a server does not complete those integrations.
+- **Provisioning route.** This session has no raw GitHub token and cannot set the `DO_PROVISION_TOKEN` Actions secret, so the create-only provisioner in `infra/digitalocean/provision.py` was driven locally. Every cloud call, collision check, budget check and project assignment used the repository code unchanged. Only the ownership checkpoint was kept in a private local file instead of the deployment branch; the IDs above are the durable record.
+- **Address.** `https://gymmembership.64.227.151.196.sslip.io`. Caddy obtained a certificate; plain HTTP redirects to HTTPS.
+- **First deployment.** Cloud-init installed Docker and the five-minute timer. The controller deployed the checked `main` commit `2708f21`, served readiness with the matching `X-GymMembership-Release` header about five minutes after the Droplet became active, and created the first Superadmin from a one-time private request (see below).
+- **No SSH from the automation environment.** Outbound SSH is blocked there. The one-time Superadmin request in `host.py` (`bootstrap_pending_admin`) exists for this reason. Its password was rotated immediately through the application, so the first-boot value in instance metadata is no longer valid. The committed public key is registered on the Droplet; the DigitalOcean web console also works without it.
+- **Live checks.** The results are in `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`. Registration was opened only for the test window, using clearly labelled placeholder legal documents, and is closed again (`LEGAL_PENDING`).
+- **Updates.** The server keeps deploying `main` automatically. Fixes merged into `main` reach it on the next cycle after `check.yml` passes for that commit; from then on the controller in the new release runs the host.
+
+Infrastructure setup does not enable live commerce, payouts, nutrition, imports or real provider integrations. Existing legal/provider/feature flags stay disabled until their respective evidence exists. Real customer health-data placement and model qualification remain separate decisions.

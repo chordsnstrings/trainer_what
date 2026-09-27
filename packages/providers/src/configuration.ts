@@ -14,6 +14,34 @@ export function withRuntimeConfig<T>(
 ): T {
   return runtime.run({ ...runtime.getStore(), ...overrides }, callback);
 }
+/**
+ * Security controls (MFA step-up, legal and import approvals, Secure cookies,
+ * email verification, second reviewers) relax only for a process explicitly
+ * declared as local development or test, or the isolated Node test runner. An
+ * unset or unrecognised NODE_ENV (staging, a manual start, an overridden
+ * environment) enforces the production controls.
+ */
+export function strictSecurity(env: RuntimeConfig = process.env): boolean {
+  if (env.NODE_ENV === "production") return true;
+  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") return false;
+  return !env.NODE_TEST_CONTEXT;
+}
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+/** Relaxed controls may only serve a loopback address and a loopback app URL. */
+export function assertSecurityModeBinding(env: RuntimeConfig = process.env) {
+  if (strictSecurity(env)) return;
+  let appHost = "";
+  try {
+    appHost = new URL(env.PUBLIC_APP_URL ?? "http://localhost:3000").hostname;
+  } catch {}
+  if (
+    !loopbackHosts.has(env.API_HOST ?? "127.0.0.1") ||
+    !loopbackHosts.has(appHost)
+  )
+    throw new ConfigurationError(
+      "Development security mode serves loopback addresses only. Set NODE_ENV=production for any shared or public deployment.",
+    );
+}
 
 /** Account approval never follows from saving a key or a successful probe. */
 export function integrationCapability(
@@ -91,6 +119,20 @@ export function integrationCapability(
         Number(config.VOICE_DAILY_USD_LIMIT) > 0,
     };
   }
+  if (id === "lean") {
+    // The connection check validates only the public endpoint; no read-only
+    // account request exists in the verified contract. Activation therefore
+    // requires the recorded account-contract verification, never a URL check.
+    const configured = has(
+      "LEAN_BASE_URL",
+      "LEAN_ACCESS_TOKEN",
+      "LEAN_SOURCE_ACCOUNT_ID",
+    );
+    return {
+      configured,
+      approved: configured && config.LEAN_CONTRACT_VERIFIED === "true",
+    };
+  }
   if (id === "domains") {
     const configured =
       has("DOMAIN_CNAME_TARGET") &&
@@ -144,15 +186,12 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     implemented: true,
     description: "Platform identity, reviewed policies and feature controls.",
     setupNotes:
-      "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Infrastructure secrets stay outside this page.",
+      "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Legal document versions come from the published documents registry, not from this page. Infrastructure secrets stay outside this page.",
     fields: [
       field("APP_NAME", "Platform name", "text", {
         defaultValue: "Trainer Brain",
       }),
       field("SUPPORT_EMAIL", "Support email", "text"),
-      field("LEGAL_VERSION", "Published legal document version", "text", {
-        defaultValue: "draft-2026-09",
-      }),
       field("LEGAL_APPROVED", "Legal documents approved", "boolean", {
         defaultValue: "false",
       }),
@@ -215,7 +254,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Company-bank payout instructions for eligible verified trainer bank accounts.",
     setupNotes:
-      "The adapter requires your account-specific API contract. Validation does not move money, verify bank permissions or establish recipient eligibility. Reconciliation is required before retrying an unknown payout.",
+      "The adapter requires your account-specific API contract. The connection check validates the public endpoint only and sends no authenticated request, so Lean stays inactive until the account API contract verification is recorded. Validation does not move money, verify bank permissions or establish recipient eligibility. Reconciliation is required before retrying an unknown payout.",
     fields: [
       field("LEAN_BASE_URL", "Account API base URL", "url", { required: true }),
       field("LEAN_ACCESS_TOKEN", "Access token", "secret", { required: true }),
@@ -278,6 +317,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Maximum daily calls per workspace",
         "number",
         { required: true, defaultValue: "100" },
+      ),
+      field(
+        "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER",
+        "Maximum daily nutrition calls per subscriber",
+        "number",
+        {
+          defaultValue: "20",
+          help: "Weekly plans and meal-photo analyses one subscriber can start each day. Subscriber requests together also leave the final fifth of the workspace limit for coach work.",
+        },
       ),
     ],
   },
@@ -582,7 +630,8 @@ export function validateIntegrationValues(
           `${entry.label} must be a nonnegative number up to 1000000`,
         );
       if (
-        key === "MODEL_MAX_DAILY_CALLS" &&
+        (key === "MODEL_MAX_DAILY_CALLS" ||
+          key === "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER") &&
         (!Number.isInteger(Number(text)) ||
           Number(text) < 1 ||
           Number(text) > 10000)

@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { Database, Actor } from "@trainer/db";
-import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -11,11 +15,17 @@ export type HostContext = {
   tenantSlug: string | null;
   custom: boolean;
   verifiedProxy: boolean;
+  // Edge-observed client address, present only inside a verified proxy proof.
+  clientIp?: string;
+  /** Development only: loopback spellings of the configured local address. */
+  localOrigins?: string[];
 };
+const loopback = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 export const HOST_HEADERS = {
   host: "x-trainer-host",
   time: "x-trainer-host-time",
   signature: "x-trainer-host-signature",
+  clientIp: "x-trainer-client-ip",
 } as const;
 export function canonicalHost(value: string): string {
   if (!value || /[\s,@/\\#?]/.test(value) || value.length > 260)
@@ -45,33 +55,34 @@ export function signHostRequest(
   target: string,
   timestamp: string,
   secret?: string,
+  clientIp?: string,
 ) {
+  // v2 binds the edge-observed client address into the same proof.
+  const fields = [
+    clientIp ? "trainer-host-v2" : "trainer-host-v1",
+    canonicalHost(host),
+    method.toUpperCase(),
+    target,
+    timestamp,
+  ];
+  if (clientIp) fields.push(clientIp);
   return createHmac("sha256", proxyKey(secret))
-    .update(
-      [
-        "trainer-host-v1",
-        canonicalHost(host),
-        method.toUpperCase(),
-        target,
-        timestamp,
-      ].join("\n"),
-    )
+    .update(fields.join("\n"))
     .digest("hex");
 }
-export async function resolveRequestHost(
-  db: Database,
-  request: {
-    headers: Record<string, string | string[] | undefined>;
-    method: string;
-    url: string;
-  },
-  options: {
-    now?: number;
-    secret?: string;
-    publicUrl?: string;
-    production?: boolean;
-  } = {},
-): Promise<HostContext> {
+type HostRequest = {
+  headers: Record<string, string | string[] | undefined>;
+  method: string;
+  url: string;
+};
+type HostOptions = {
+  now?: number;
+  secret?: string;
+  publicUrl?: string;
+  production?: boolean;
+};
+// Verify the request's host proof, if any. Host mapping is a separate step.
+function verifyHostProof(request: HostRequest, options: HostOptions) {
   const publicUrl = new URL(
       options.publicUrl ??
         runtimeConfig().PUBLIC_APP_URL ??
@@ -90,16 +101,19 @@ export async function resolveRequestHost(
   };
   const h = read(HOST_HEADERS.host),
     ts = read(HOST_HEADERS.time),
-    signature = read(HOST_HEADERS.signature);
+    signature = read(HOST_HEADERS.signature),
+    clientIp = read(HOST_HEADERS.clientIp);
   let verifiedProxy = false,
     host = canonicalHost(read("host") ?? configured);
-  if (h || ts || signature) {
+  if (h || ts || signature || clientIp !== undefined) {
     if (
       !h ||
       !ts ||
       !signature ||
       !/^\d{10,16}$/.test(ts) ||
       !/^[a-f0-9]{64}$/.test(signature) ||
+      (clientIp !== undefined &&
+        (clientIp.length > 45 || clientIp.includes("%") || !isIP(clientIp))) ||
       Math.abs((options.now ?? Date.now()) - Number(ts)) > 30000
     )
       throw fail(
@@ -113,6 +127,7 @@ export async function resolveRequestHost(
       request.url,
       ts,
       options.secret,
+      clientIp,
     );
     if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected)))
       throw fail(
@@ -123,13 +138,44 @@ export async function resolveRequestHost(
     host = canonicalHost(h);
     verifiedProxy = true;
   }
-  const production =
-    options.production ?? process.env.NODE_ENV === "production";
+  const client = verifiedProxy && clientIp ? { clientIp } : {};
+  return { publicUrl, configured, host, verifiedProxy, client };
+}
+/**
+ * Health and readiness probes never depend on host mapping: the host
+ * controller probes web on its loopback port, which no tenant maps. A supplied
+ * proof must still be valid, so a verified client address keeps keying the
+ * probe's rate budget. The context is the platform's and never selects a tenant.
+ */
+export function resolveProbeHost(
+  request: HostRequest,
+  options: HostOptions = {},
+): HostContext {
+  const { publicUrl, configured, verifiedProxy, client } = verifyHostProof(
+    request,
+    options,
+  );
+  return {
+    host: configured,
+    origin: publicUrl.origin,
+    tenantId: null,
+    tenantSlug: null,
+    custom: false,
+    verifiedProxy,
+    ...client,
+  };
+}
+export async function resolveRequestHost(
+  db: Database,
+  request: HostRequest,
+  options: HostOptions = {},
+): Promise<HostContext> {
+  const { publicUrl, configured, host, verifiedProxy, client } =
+    verifyHostProof(request, options);
+  const production = options.production ?? strictSecurity();
   if (
     host === configured ||
-    (!production &&
-      !verifiedProxy &&
-      /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host))
+    (!production && !verifiedProxy && loopback.test(host))
   )
     return {
       host: configured,
@@ -138,6 +184,17 @@ export async function resolveRequestHost(
       tenantSlug: null,
       custom: false,
       verifiedProxy,
+      ...client,
+      // The router treats localhost and 127.0.0.1 as one local address outside
+      // production, so the origin gate accepts both on the configured port.
+      ...(!production && loopback.test(configured)
+        ? {
+            localOrigins: ["localhost", "127.0.0.1"].map(
+              (name) =>
+                `${publicUrl.protocol}//${name}${publicUrl.port ? ":" + publicUrl.port : ""}`,
+            ),
+          }
+        : {}),
     };
   if (!verifiedProxy)
     throw fail(
@@ -164,6 +221,7 @@ export async function resolveRequestHost(
     tenantSlug: mapping.slug,
     custom: true,
     verifiedProxy,
+    ...client,
   };
 }
 export function enforceHostTenant(
@@ -189,7 +247,11 @@ export function allowedRequestOrigin(
   if (!origin) return false;
   try {
     const parsed = new URL(origin);
-    return parsed.origin === context.origin && origin === parsed.origin;
+    return (
+      origin === parsed.origin &&
+      (parsed.origin === context.origin ||
+        (!context.custom && !!context.localOrigins?.includes(parsed.origin)))
+    );
   } catch {
     return false;
   }

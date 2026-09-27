@@ -4,7 +4,12 @@ import {
   integrationStatus,
   ProviderUnavailable,
 } from "@trainer/providers";
-import { financeSummary, transitionPayout } from "./finance.ts";
+import {
+  financeSummary,
+  payeeWorkspaceMember,
+  transitionPayout,
+  unconfirmedPayoutFailure,
+} from "./finance.ts";
 import { pendingAffiliateClawbacks } from "./affiliates.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
@@ -35,6 +40,12 @@ export async function executePayout(
         "PAYOUT_STATE",
         "Only a prepared, unsubmitted instruction may execute",
       );
+    if (await unconfirmedPayoutFailure(tx, p.tenant_id))
+      throw fail(
+        "PAYOUT_RECONCILIATION_REQUIRED",
+        "An earlier instruction in this workspace is marked failed without independent provider confirmation",
+      );
+    let approver: string | null = null;
     if (approval) {
       const [configuration] = await tx.query(
         "SELECT version,data FROM records WHERE id=$1 AND kind='finance_automation' FOR UPDATE",
@@ -52,6 +63,7 @@ export async function executePayout(
           "AUTOMATION_APPROVAL_CHANGED",
           "Payment execution approval or cap changed before dispatch",
         );
+      approver = configuration.data.approvedBy ?? null;
     }
     const [beneficiary] = await tx.query(
       "SELECT id FROM records WHERE kind='beneficiary' AND status='verified' AND data->>'providerId'=$1 AND (data->>'holdUntil')::timestamptz<now()",
@@ -76,7 +88,32 @@ export async function executePayout(
         "FUNDING_CHANGED",
         "Earnings or recorded funding changed after preparation; reconcile before sending",
       );
-    return transitionPayout(tx, a, p.id, "submitted");
+    // Separation of duties: whoever prepared the instruction, or works in the
+    // payee workspace, cannot authorize its dispatch. Unattended dispatch acts
+    // on the reviewed automation approval, whose approver must be independent.
+    const [prepared] = await tx.query(
+      "SELECT coalesce($2::uuid,(SELECT actor_id FROM events WHERE name='payout.prepared' AND subject_id=$1 ORDER BY created_at LIMIT 1)) AS preparer",
+      [p.id, p.prepared_by ?? null],
+    );
+    const independent = approval
+      ? !!approver && !(await payeeWorkspaceMember(tx, p.tenant_id, approver))
+      : !!prepared?.preparer &&
+        prepared.preparer !== a.userId &&
+        !(await payeeWorkspaceMember(tx, p.tenant_id, a.userId));
+    if (!independent)
+      throw fail(
+        "SEPARATION_OF_DUTIES",
+        "A finance operator independent of the payee workspace and of the preparer must authorize this payment",
+      );
+    // The dispatch is attributed to whoever authorized it: for unattended
+    // dispatch, the automation approver, so outcome checks treat the approver
+    // as the dispatcher.
+    return transitionPayout(
+      tx,
+      approval && approver ? { ...a, userId: approver } : a,
+      p.id,
+      "submitted",
+    );
   });
   try {
     const result = await new LeanGateway().sendPayout({

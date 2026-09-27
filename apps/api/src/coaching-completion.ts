@@ -428,6 +428,21 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           );
         return { id: prior.id, duplicate: true };
       }
+      // A red-flag note is escalated even when paid access has lapsed; the set
+      // itself is not logged without an active membership.
+      if (
+        b.notes &&
+        safetySignal(b.notes) &&
+        a.role === "subscriber" &&
+        !(await currentPaidSubscription(tx, a.userId))
+      ) {
+        const [reported] = await tx.query(
+          "SELECT id FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
+          [id.parse((req.params as any).id), a.userId],
+        );
+        await openTrainingHold(tx, a, a.userId, b.notes, reported?.id);
+        return { trainingHeld: true, logged: false };
+      }
       await activeMembership(tx, a);
       await assertTrainingOpen(tx, a.userId);
       const w = await record(tx, (req.params as any).id, "workout");
@@ -647,7 +662,15 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       );
     const material = await db.tenant({ ...a, role: "staff" }, async (tx) => {
       await lockTraining(tx, a);
-      await activeMembership(tx, a);
+      // Safety screening precedes the paid gate: a lapsed or past-due member's
+      // red-flag report is still held and escalated. The reply is the fixed
+      // safety notice, never paid coaching content.
+      const safety = safetySignal(b.message);
+      const [hold] = await tx.query(
+        "SELECT id FROM records WHERE kind='training_hold' AND owner_user_id=$1 AND status='active'",
+        [a.userId],
+      );
+      if (!safety && !hold) await activeMembership(tx, a);
       await putRecord(
         tx,
         a,
@@ -659,14 +682,9 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
         [a.userId],
       );
-      const [hold] = await tx.query(
-        "SELECT id FROM records WHERE kind='training_hold' AND owner_user_id=$1 AND status='active'",
-        [a.userId],
-      );
-      if (safetySignal(b.message))
-        await openTrainingHold(tx, a, a.userId, b.message);
-      if (safetySignal(b.message) || hold || takeover) {
-        if (!safetySignal(b.message) && !hold)
+      if (safety) await openTrainingHold(tx, a, a.userId, b.message);
+      if (safety || hold || takeover) {
+        if (!safety && !hold)
           await putRecord(
             tx,
             a,
@@ -684,7 +702,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "message",
           {
             text:
-              safetySignal(b.message) || hold
+              safety || hold
                 ? "Training is paused for your trainer's review. Seek urgent local medical help for severe or urgent symptoms."
                 : "Your trainer is handling this conversation personally. Your message is ready for their review.",
             author: "system",
@@ -722,6 +740,14 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           409,
           "INTAKE_REQUIRED",
           "Complete your coaching profile before using digital coaching",
+        );
+      // Withdrawing coaching consent removes model use from the stored profile.
+      // Re-granting does not silently restore it; the member re-confirms it.
+      if (!intake.data.allowedUses?.includes("model_prompt"))
+        throw fail(
+          409,
+          "INTAKE_REQUIRED",
+          "Update your coaching profile to re-enable digital coaching",
         );
       const twin = await currentClientTwin(tx, a, a.userId);
       return { release, intake, twin };

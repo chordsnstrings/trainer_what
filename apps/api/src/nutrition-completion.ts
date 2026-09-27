@@ -12,6 +12,8 @@ import {
   nutritionCatalog,
   nutritionEntitlement,
   nutritionMaterial,
+  invalidatePlansUsing,
+  catalogReadLock,
 } from "./nutrition.ts";
 import {
   nutritionMethodSchema,
@@ -619,6 +621,7 @@ export function nutritionCompletionRoutes(
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":nutrition:" + uid,
       ]);
+      await catalogReadLock(tx, a);
       const profile = await clientContext(tx, a, uid),
         m = await nutritionMaterial(tx);
       if (!(await nutritionEntitlement(tx, uid)))
@@ -680,10 +683,20 @@ export function nutritionCompletionRoutes(
         targetKcal: target.kcal,
       });
       validateClientTargets(view, target.details);
-      if (prior)
-        await tx.query("UPDATE records SET status='archived' WHERE id=$1", [
-          prior.id,
-        ]);
+      if (
+        prior &&
+        !(
+          await tx.query(
+            "UPDATE records SET status='archived' WHERE id=$1 AND status='delivered' RETURNING id",
+            [prior.id],
+          )
+        ).length
+      )
+        throw fail(
+          409,
+          "PLAN_CHANGED",
+          "The delivered week changed. Reload before amending it.",
+        );
       const plan = await putRecord(
         tx,
         a,
@@ -805,6 +818,8 @@ export function nutritionCompletionRoutes(
         archived: b.archived,
         reason: b.reason,
       });
+      if (b.archived)
+        await invalidatePlansUsing(tx, a, { kind: p.kind, id: p.id });
       return record;
     });
   });

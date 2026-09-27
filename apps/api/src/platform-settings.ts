@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  randomUUID,
-} from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { integrationStatus } from "@trainer/providers";
@@ -14,8 +9,15 @@ import {
   validateIntegrationValues,
   integrationCapability,
   type IntegrationDefinition,
+  type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
+import {
+  encryptionReady,
+  openSealedValue,
+  sealContexts,
+  sealValue,
+} from "./sealing.ts";
 
 type AdminIdentity = Actor & { platformRole: string; mfaAt?: string | null };
 type TestResult = {
@@ -48,47 +50,19 @@ const missingKey = () =>
     "The server encryption key is unavailable. Configure SECURITY_ENCRYPTION_KEY before storing or using credentials.",
   );
 
-function encryptionKey() {
-  const key = Buffer.from(process.env.SECURITY_ENCRYPTION_KEY ?? "", "base64");
-  if (key.length !== 32) throw missingKey();
-  return key;
-}
-function encryptionReady() {
-  try {
-    encryptionKey();
-    return true;
-  } catch {
-    return false;
-  }
-}
 function seal(integrationId: string, key: string, value: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAAD(Buffer.from(`platform-settings:v1:${integrationId}:${key}`));
-  const body = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  return [
-    "v1",
-    iv.toString("base64url"),
-    cipher.getAuthTag().toString("base64url"),
-    body.toString("base64url"),
-  ].join(".");
+  try {
+    return sealValue(sealContexts.platformSetting(integrationId, key), value);
+  } catch {
+    throw missingKey();
+  }
 }
 function open(integrationId: string, key: string, value: string) {
   try {
-    const parts = value.split(".");
-    if (parts.length !== 4 || parts[0] !== "v1") throw missingKey();
-    const [, iv, tag, body] = parts;
-    const cipher = createDecipheriv(
-      "aes-256-gcm",
-      encryptionKey(),
-      Buffer.from(iv, "base64url"),
-    );
-    cipher.setAAD(Buffer.from(`platform-settings:v1:${integrationId}:${key}`));
-    cipher.setAuthTag(Buffer.from(tag, "base64url"));
-    return Buffer.concat([
-      cipher.update(Buffer.from(body, "base64url")),
-      cipher.final(),
-    ]).toString("utf8");
+    return openSealedValue(
+      sealContexts.platformSetting(integrationId, key),
+      value,
+    ).value;
   } catch {
     throw missingKey();
   }
@@ -147,6 +121,12 @@ function credentialStatus(def: IntegrationDefinition, row?: SettingsRow) {
     return "credentials_unreadable";
   }
 }
+/** A field with a documented default is never blank; older rows may still hold "". */
+function storedValue(field: IntegrationField, value: string | undefined) {
+  return (
+    (field.defaultValue && !value?.trim() ? field.defaultValue : value) ?? ""
+  );
+}
 function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
   return Object.fromEntries(
     def.fields
@@ -154,7 +134,7 @@ function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
       .map((field) => [
         field.key,
         row
-          ? (row.settings_values[field.key] ?? field.defaultValue ?? "")
+          ? storedValue(field, row.settings_values[field.key])
           : (process.env[field.key] ?? field.defaultValue ?? ""),
       ]),
   );
@@ -313,8 +293,9 @@ function validatedFields(
       "SETTINGS_INVALID",
       "Use the declared setting fields and an explicit clear action for credentials.",
     );
+  let result: Record<string, string>;
   try {
-    return validateIntegrationValues(def.id, { ...values, ...secrets });
+    result = validateIntegrationValues(def.id, { ...values, ...secrets });
   } catch {
     throw fail(
       400,
@@ -322,6 +303,21 @@ function validatedFields(
       "One or more settings have an invalid value or URL. Review the field guidance.",
     );
   }
+  // A saved row overrides the environment, so a blank must not silently erase
+  // a documented default or turn a switch into neither on nor off.
+  const blank = def.fields.filter(
+    (field) =>
+      Object.hasOwn(values, field.key) &&
+      !result[field.key] &&
+      (field.type === "boolean" || field.defaultValue),
+  );
+  if (blank.length)
+    throw fail(
+      400,
+      "SETTINGS_INVALID",
+      `${blank.map((field) => field.label).join(", ")} cannot be blank.`,
+    );
+  return result;
 }
 async function findRow(tx: Tx, integrationId: string, lock = false) {
   const [row] = await tx.query<SettingsRow>(

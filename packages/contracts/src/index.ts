@@ -18,6 +18,8 @@ export const loginSchema = z
       .string()
       .regex(/^\d{6}$/)
       .optional(),
+    // Optional workspace choice; it must be one of the account's memberships.
+    tenantId: z.string().uuid().optional(),
   })
   .strict();
 export const brandSchema = z
