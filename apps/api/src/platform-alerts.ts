@@ -64,7 +64,10 @@ const severityRank: Record<AlertSeverity, number> = {
 };
 const roles: PlatformRole[] = ["admin", "finance", "support", "safety"];
 export const fingerprintOf = (values: unknown) =>
-  createHash("sha256").update(JSON.stringify(values)).digest("hex").slice(0, 40);
+  createHash("sha256")
+    .update(JSON.stringify(values))
+    .digest("hex")
+    .slice(0, 40);
 const hours = (from: string | Date, now: Date) =>
   Math.max(0, (now.getTime() - new Date(from).getTime()) / 3600000);
 
@@ -85,7 +88,10 @@ export function platformAlertRules() {
 
 function normalize(candidate: AlertCandidate): AlertCandidate {
   const scope = [
-    ...new Set<PlatformRole>(["admin", ...candidate.scope.filter((r) => roles.includes(r))]),
+    ...new Set<PlatformRole>([
+      "admin",
+      ...candidate.scope.filter((r) => roles.includes(r)),
+    ]),
   ];
   return {
     ...candidate,
@@ -174,7 +180,11 @@ registerPlatformAlertRule({
         r.rule === "stale"
           ? `The ${r.service} service has not reported a fresh observation.`
           : `The ${r.service} service measured ${Number(r.measured_value).toFixed(2)} against a threshold of ${Number(r.threshold_value).toFixed(2)}. Review it in Infrastructure status.`,
-      data: { recommendationId: r.id, status: r.status, href: "/admin/infrastructure/observer" },
+      data: {
+        recommendationId: r.id,
+        status: r.status,
+        href: "/admin/infrastructure/observer",
+      },
     }));
   },
 });
@@ -190,19 +200,25 @@ registerPlatformAlertRule({
         return {
           dedupeKey: `safety.escalation_waiting:${t.tenantId}`,
           fingerprint: fingerprintOf(t.safetyWaiting.map((x) => x.id)),
-          severity: oldest >= Math.max(24, (wait / 60) * 4) ? "critical" : "warning",
+          severity:
+            oldest >= Math.max(24, (wait / 60) * 4) ? "critical" : "warning",
           scope: ["safety"],
           tenantId: t.tenantId,
           title: `Safety escalations waiting in ${t.name}`,
           detail: `${count(t.safetyWaiting.length)} open safety escalation(s) have waited longer than ${wait} minutes; the oldest has waited ${oldest.toFixed(1)} hours.${t.state === "suspended" ? " This workspace is suspended, so its coaches cannot respond in the app." : ""}`,
-          data: { waiting: t.safetyWaiting.length, oldestHours: Math.round(oldest * 10) / 10, href: "/admin/safety" },
+          data: {
+            waiting: t.safetyWaiting.length,
+            oldestHours: Math.round(oldest * 10) / 10,
+            href: "/admin/safety",
+          },
         } satisfies AlertCandidate;
       });
   },
 });
 registerPlatformAlertRule({
   id: "jobs.failed",
-  description: "Background jobs that failed permanently or are blocked for review (last 7 days).",
+  description:
+    "Background jobs that failed permanently or are blocked for review (last 7 days).",
   async evaluate({ tenantSignals }) {
     return (await tenantSignals())
       .filter((t) => t.deadJobs.length)
@@ -211,13 +227,19 @@ registerPlatformAlertRule({
         const kinds = [...new Set(t.deadJobs.map((j) => j.kind))].sort();
         return {
           dedupeKey: `jobs.failed:${t.tenantId}`,
-          fingerprint: fingerprintOf(t.deadJobs.map((j) => j.id + ":" + j.status)),
+          fingerprint: fingerprintOf(
+            t.deadJobs.map((j) => j.id + ":" + j.status),
+          ),
           severity: "warning",
           scope: finance ? ["finance"] : [],
           tenantId: t.tenantId,
           title: `Failed or blocked jobs in ${t.name}`,
           detail: `${count(t.deadJobs.length)} job(s) failed or are blocked for review (${kinds.join(", ")}). Review them in the jobs view before any retry.`,
-          data: { jobs: t.deadJobs.length, kinds, href: "/admin/infrastructure" },
+          data: {
+            jobs: t.deadJobs.length,
+            kinds,
+            href: "/admin/infrastructure",
+          },
         } satisfies AlertCandidate;
       });
   },
@@ -245,37 +267,48 @@ registerPlatformAlertRule({
 });
 registerPlatformAlertRule({
   id: "email.delivery_uncertain",
-  description: "Emails whose provider outcome is unknown and need reconciliation.",
+  description:
+    "Emails whose provider outcome is unknown and need reconciliation.",
   async evaluate({ tenantSignals, now }) {
     return (await tenantSignals())
       .filter((t) => t.uncertainEmails.length)
-      .map((t) => ({
-        dedupeKey: `email.delivery_uncertain:${t.tenantId}`,
-        fingerprint: fingerprintOf(t.uncertainEmails.map((x) => x.id)),
-        severity: "warning",
-        scope: [],
-        tenantId: t.tenantId,
-        title: `Email delivery outcome unknown in ${t.name}`,
-        detail: `${count(t.uncertainEmails.length)} email(s) were handed to the provider without a confirmed outcome (oldest ${hours(t.uncertainEmails[0].created_at, now).toFixed(1)} hours). Reconcile provider evidence before any resend.`,
-        data: { uncertain: t.uncertainEmails.length, href: "/admin/infrastructure" },
-      } satisfies AlertCandidate));
+      .map(
+        (t) =>
+          ({
+            dedupeKey: `email.delivery_uncertain:${t.tenantId}`,
+            fingerprint: fingerprintOf(t.uncertainEmails.map((x) => x.id)),
+            severity: "warning",
+            scope: [],
+            tenantId: t.tenantId,
+            title: `Email delivery outcome unknown in ${t.name}`,
+            detail: `${count(t.uncertainEmails.length)} email(s) were handed to the provider without a confirmed outcome (oldest ${hours(t.uncertainEmails[0].created_at, now).toFixed(1)} hours). Reconcile provider evidence before any resend.`,
+            data: {
+              uncertain: t.uncertainEmails.length,
+              href: "/admin/infrastructure",
+            },
+          }) satisfies AlertCandidate,
+      );
   },
 });
 registerPlatformAlertRule({
   id: "finance.payout_failure",
-  description: "Trainer payouts that failed, were returned or have an unknown outcome (last 30 days).",
+  description:
+    "Trainer payouts that failed, were returned or have an unknown outcome (last 30 days).",
   async evaluate({ tenantSignals }) {
     return (await tenantSignals()).flatMap((t) =>
-      t.payoutProblems.map((p) => ({
-        dedupeKey: `finance.payout_failure:${p.id}`,
-        fingerprint: p.status,
-        severity: p.status === "returned" ? "warning" : "critical",
-        scope: ["finance"],
-        tenantId: t.tenantId,
-        title: `Payout ${p.status} for ${t.name}`,
-        detail: `A trainer payout of AED ${(Number(p.amount_minor) / 100).toFixed(2)} is ${p.status}. ${p.status === "unknown" ? "Reconcile the bank outcome before any new instruction." : "Record bank evidence and prepare a corrected revision after review."}`,
-        data: { payoutId: p.id, status: p.status, href: "/admin/finance" },
-      } satisfies AlertCandidate)),
+      t.payoutProblems.map(
+        (p) =>
+          ({
+            dedupeKey: `finance.payout_failure:${p.id}`,
+            fingerprint: p.status,
+            severity: p.status === "returned" ? "warning" : "critical",
+            scope: ["finance"],
+            tenantId: t.tenantId,
+            title: `Payout ${p.status} for ${t.name}`,
+            detail: `A trainer payout of AED ${(Number(p.amount_minor) / 100).toFixed(2)} is ${p.status}. ${p.status === "unknown" ? "Reconcile the bank outcome before any new instruction." : "Record bank evidence and prepare a corrected revision after review."}`,
+            data: { payoutId: p.id, status: p.status, href: "/admin/finance" },
+          }) satisfies AlertCandidate,
+      ),
     );
   },
 });
@@ -366,7 +399,13 @@ export async function evaluatePlatformAlerts(
   }
   const summary = await db.system(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('platform-alerts'))");
-    const counts = { opened: 0, escalated: 0, updated: 0, resolved: 0, suppressed: 0 };
+    const counts = {
+      opened: 0,
+      escalated: 0,
+      updated: 0,
+      resolved: 0,
+      suppressed: 0,
+    };
     for (const { rule, candidates } of evaluated) {
       for (const c of candidates) {
         const outcome = await upsertAlert(tx, rule, c, now);
@@ -469,6 +508,7 @@ export async function deliverPlatformAlerts(db: Database, limit = 200) {
           title: `${p.severity === "critical" ? "Critical" : p.severity === "warning" ? "Warning" : "Notice"}: ${p.title}`,
           body: `${p.detail}\n\nReview it in the operator alert inbox.`,
           href: "/admin/alerts",
+          templateKey: "platform-alert",
           email,
           push,
           source: { kind: "platform_alert", alertId: p.id },
@@ -511,12 +551,22 @@ export function registerPlatformAlerts(
   const operator = (req: FastifyRequest) => {
     const a = identity(req);
     if (!roles.includes(a.platformRole as PlatformRole))
-      throw fail(403, "OPERATOR_SCOPE", "Platform operator access is required.");
+      throw fail(
+        403,
+        "OPERATOR_SCOPE",
+        "Platform operator access is required.",
+      );
     requireRecentMfa(a, true);
     return a;
   };
   const visible = "($1='admin' OR $1=ANY(a.scope))";
-  const audit = (tx: Tx, a: Actor, action: string, subject: string | null, data: unknown = {}) =>
+  const audit = (
+    tx: Tx,
+    a: Actor,
+    action: string,
+    subject: string | null,
+    data: unknown = {},
+  ) =>
     tx.query(
       "INSERT INTO admin_operations_audit(id,actor_id,action,tenant_id,subject_id,data) VALUES($1,$2,$3,NULL,$4,$5)",
       [randomUUID(), a.userId, action, subject, JSON.stringify(data)],
@@ -602,8 +652,14 @@ export function registerPlatformAlerts(
   app.post("/api/v1/admin/alerts/evaluate", async (req) => {
     const a = operator(req);
     if (a.platformRole !== "admin")
-      throw fail(403, "SUPERADMIN_REQUIRED", "Only a Super admin can run alert checks.");
-    z.object({}).strict().parse(req.body ?? {});
+      throw fail(
+        403,
+        "SUPERADMIN_REQUIRED",
+        "Only a Super admin can run alert checks.",
+      );
+    z.object({})
+      .strict()
+      .parse(req.body ?? {});
     const result = await evaluatePlatformAlerts(db);
     await db.system((tx) => audit(tx, a, "alert.evaluated", null, result));
     return result;

@@ -22,7 +22,8 @@ export type TemplateLocale = (typeof TEMPLATE_LOCALES)[number];
 export type MessageKind = {
   kind: string;
   templateKey: string;
-  audience: "trainer" | "member" | "trainer or member";
+  /** `operator` is platform staff, notified in their administration workspace. */
+  audience: "trainer" | "member" | "trainer or member" | "operator";
   category: "safety" | "account" | "booking" | "workout" | "coaching";
   /**
    * Critical copy always keeps the built-in text after the template text.
@@ -318,6 +319,127 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       title: "Your draft coaching rules are ready",
       body: "Compilation produced 3 draft rules and 1 potential conflict. Review the proposals and resolve conflicts before publishing.",
       href: "/trainer/brain/knowledge",
+    },
+  ),
+  kind(
+    "follower-joined",
+    "trainer",
+    "coaching",
+    "A new follower joined through an invitation or the coaching website",
+    {
+      title: "A new follower joined",
+      body: "Layla joined your coaching space through your invitation. Open their profile to welcome them and assign a program.",
+      href: "/trainer/subscribers",
+    },
+  ),
+  kind(
+    "membership-exit-team",
+    "trainer",
+    "coaching",
+    "A subscriber ended their membership",
+    {
+      title: "A subscriber left",
+      body: "Layla ended their membership. Their note: “Taking a break over the summer.”",
+      href: "/trainer/subscribers",
+    },
+  ),
+  kind(
+    "complimentary-granted",
+    "member",
+    "coaching",
+    "The coach gave a follower complimentary access",
+    {
+      title: "Your coach gave you complimentary access",
+      body: "Workout + nutrition coaching is included until 1 November 2026. No payment is needed for this access.",
+      href: "/app/membership",
+    },
+  ),
+  kind(
+    "complimentary-ending",
+    "member",
+    "coaching",
+    "A follower's complimentary access ends in a few days",
+    {
+      title: "Your complimentary access ends soon",
+      body: "The complimentary coaching access from your coach ends on 1 November 2026. Your membership page shows your options to continue.",
+      href: "/app/membership",
+    },
+  ),
+  kind(
+    "complimentary-ended",
+    "member",
+    "coaching",
+    "A follower's complimentary access was ended or reached its end date",
+    {
+      title: "Your complimentary access has ended",
+      body: "The complimentary coaching access from your coach ended on 1 November 2026. Your membership page shows your current options.",
+      href: "/app/membership",
+    },
+  ),
+  kind(
+    "complimentary-team-ended",
+    "trainer",
+    "coaching",
+    "A follower's complimentary access reached its end date",
+    {
+      title: "Complimentary access ended",
+      body: "Layla's complimentary access reached its end date. Grant it again or invite them to a paid plan from Subscribers.",
+      href: "/trainer/subscribers",
+    },
+  ),
+  kind(
+    "complimentary-platform-ended",
+    "trainer",
+    "coaching",
+    "Platform operations ended a complimentary grant in the workspace",
+    {
+      title: "Platform operations ended a complimentary grant",
+      body: "A complimentary access grant in your workspace was ended by platform operations. Open your subscribers to review current access.",
+      href: "/trainer/subscribers",
+    },
+  ),
+  kind(
+    "healthkit-paired",
+    "member",
+    "account",
+    "A device was paired for Apple Health sync",
+    {
+      title: "Apple Health sync connected",
+      body: "“Layla's iPhone” can now send Apple Health data to your coaching workspace. If you did not pair this device, disconnect it in Connections.",
+      href: "/app/wearables",
+    },
+  ),
+  kind(
+    "workspace-suspended",
+    "trainer",
+    "account",
+    "The platform team suspended the coaching workspace",
+    {
+      title: "Your coaching workspace is suspended",
+      body: "The platform team suspended this workspace. Members cannot use coaching, plans or bookings, the public website and joining are offline, and payouts are held. Billing is not cancelled. Contact platform support to resolve this.",
+      href: "/trainer",
+    },
+  ),
+  kind(
+    "workspace-reinstated",
+    "trainer",
+    "account",
+    "The platform team reinstated a suspended coaching workspace",
+    {
+      title: "Your coaching workspace is active again",
+      body: "The platform team reinstated this workspace. Coaching, bookings, the public website and joining are available again, and held payouts return to finance review.",
+      href: "/trainer",
+    },
+  ),
+  kind(
+    "platform-alert",
+    "operator",
+    "account",
+    "An open platform alert for operators in their scope",
+    {
+      title: "Warning: Failed or blocked jobs in Coach Omar & Co",
+      body: "2 job(s) failed or are blocked for review (email). Review them in the jobs view before any retry.\n\nReview it in the operator alert inbox.",
+      href: "/admin/alerts",
     },
   ),
   lifecycle(

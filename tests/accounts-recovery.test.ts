@@ -62,7 +62,11 @@ test("only a Superadmin or support operator with a fresh authenticator can issue
     body: { email: follower.email, reason, code: "123456" },
     cookie: noMfaAdmin.cookie,
   });
-  assert.equal(unenrolled.json().code, "OPERATOR_MFA_REQUIRED");
+  // An operator without an enrolled authenticator cannot issue a recovery
+  // link. The central operator step-up guard (operator-step-up.ts) refuses the
+  // request before the route's own OPERATOR_MFA_REQUIRED check runs.
+  assert.equal(unenrolled.statusCode, 403);
+  assert.equal(unenrolled.json().code, "MFA_STEP_UP");
   assert.equal((await issue(admin, admin.email)).json().code, "SELF_RECOVERY");
   assert.equal((await issue(admin, "nobody@example.test")).statusCode, 404);
   const support = await operator("support");

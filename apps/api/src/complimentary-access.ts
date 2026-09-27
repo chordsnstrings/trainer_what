@@ -213,6 +213,7 @@ export async function grantComplimentaryAccess(
       title: "Your coach gave you complimentary access",
       body: `${tierLabel(b.tier)} coaching is included ${grant.ends_at ? `until ${messageDate(grant.ends_at, timezone)}` : "until your coach ends it"}. No payment is needed for this access.`,
       href: "/app/membership",
+      templateKey: "complimentary-granted",
       source: { type: "complimentary", id },
     });
     return view({ ...grant, name: member.name });
@@ -275,6 +276,7 @@ export async function closeComplimentaryAccess(
       title: "Your complimentary access has ended",
       body: "Complimentary coaching access has ended. Your membership page shows your current options.",
       href: "/app/membership",
+      templateKey: "complimentary-ended",
       source: { type: "complimentary", id: grant.id },
     });
     if (by === "platform")
@@ -284,6 +286,7 @@ export async function closeComplimentaryAccess(
         title: "Platform operations ended a complimentary grant",
         body: "A complimentary access grant in your workspace was ended by platform operations. Open your subscribers to review current access.",
         href: "/trainer/subscribers",
+        templateKey: "complimentary-platform-ended",
       });
     return view(grant);
   });
@@ -314,6 +317,7 @@ export async function sweepComplimentaryAccess(db: Database, tenantId: string) {
         title: "Your complimentary access has ended",
         body: `The complimentary coaching access from your coach ended on ${messageDate(g.ends_at, timezone)}. Your membership page shows your current options.`,
         href: "/app/membership",
+        templateKey: "complimentary-ended",
         source: { type: "complimentary", id: g.id },
       });
       const [person] = await tx.query("SELECT name FROM users WHERE id=$1", [
@@ -325,6 +329,7 @@ export async function sweepComplimentaryAccess(db: Database, tenantId: string) {
         title: "Complimentary access ended",
         body: `${person?.name ?? "A follower"}'s complimentary access reached its end date. Grant it again or invite them to a paid plan from Subscribers.`,
         href: "/trainer/subscribers",
+        templateKey: "complimentary-team-ended",
       });
     }
     const ending = await tx.query(
@@ -340,6 +345,7 @@ export async function sweepComplimentaryAccess(db: Database, tenantId: string) {
         title: "Your complimentary access ends soon",
         body: `The complimentary coaching access from your coach ends on ${messageDate(g.ends_at, timezone)}. Your membership page shows your options to continue.`,
         href: "/app/membership",
+        templateKey: "complimentary-ending",
         source: { type: "complimentary", id: g.id },
       });
     }
@@ -562,12 +568,10 @@ export function registerComplimentaryAccess(
       byTenant.set(k.tenant_id, [...(byTenant.get(k.tenant_id) ?? []), k]);
     const details = new Map<string, any>();
     for (const [tenantId, rows] of byTenant) {
-      const grants = await db.tenant(
-        { ...a, tenantId, role: "owner" },
-        (tx) =>
-          tx.query(listSql + " WHERE c.id=ANY($1::uuid[])", [
-            rows.map((r) => r.grant_id),
-          ]),
+      const grants = await db.tenant({ ...a, tenantId, role: "owner" }, (tx) =>
+        tx.query(listSql + " WHERE c.id=ANY($1::uuid[])", [
+          rows.map((r) => r.grant_id),
+        ]),
       );
       for (const g of grants) details.set(g.id, g);
     }

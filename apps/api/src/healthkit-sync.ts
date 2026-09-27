@@ -924,6 +924,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
           title: "Apple Health sync connected",
           body: `“${b.deviceName}” can now send Apple Health data to your coaching workspace. If you did not pair this device, disconnect it in Connections.`,
           href: "/app/wearables",
+          templateKey: "healthkit-paired",
         });
         return device as Device;
       });

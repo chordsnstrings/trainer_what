@@ -24,7 +24,11 @@ export type GovernanceIdentity = Actor & {
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const conflict = () =>
-  fail(409, "REVISION_CONFLICT", "This item changed. Reload before continuing.");
+  fail(
+    409,
+    "REVISION_CONFLICT",
+    "This item changed. Reload before continuing.",
+  );
 const uuid = z.string().uuid();
 const reason = z.string().trim().min(10).max(1000);
 const platformLock = (tx: Tx) =>
@@ -129,8 +133,7 @@ export async function suspendWorkspace(
       const ready = await tx.query(
         "SELECT id,amount_minor FROM payouts WHERE status='ready' ORDER BY created_at,id",
       );
-      for (const p of ready)
-        await transitionPayout(tx, scoped, p.id, "held");
+      for (const p of ready) await transitionPayout(tx, scoped, p.id, "held");
       const inFlight = await tx.query(
         "SELECT id,status,amount_minor FROM payouts WHERE status IN ('submitted','processing','unknown') ORDER BY created_at,id",
       );
@@ -173,6 +176,7 @@ export async function suspendWorkspace(
               ? `Contact ${runtimeConfig().SUPPORT_EMAIL} to resolve this.`
               : "Contact platform support to resolve this."),
           href: "/trainer",
+          templateKey: "workspace-suspended",
           source: { kind: "workspace_suspension", suspensionId },
           // Device notifications only reach members of active workspaces, so a
           // push would wait and arrive stale after reinstatement. The in-app
@@ -199,7 +203,11 @@ export async function suspendWorkspace(
       financeFollowupId: followupId,
       ownerNotified: !!owner,
     });
-    return { suspension: row, heldPayouts: held, financeFollowupId: followupId };
+    return {
+      suspension: row,
+      heldPayouts: held,
+      financeFollowupId: followupId,
+    };
   });
 }
 
@@ -251,6 +259,7 @@ export async function reinstateWorkspace(
           title: "Your coaching workspace is active again",
           body: "The platform team reinstated this workspace. Coaching, bookings, the public website and joining are available again, and held payouts return to finance review.",
           href: "/trainer",
+          templateKey: "workspace-reinstated",
           source: { kind: "workspace_reinstatement", suspensionId: s.id },
         });
       return still.map((p) => p.id as string);
@@ -297,7 +306,11 @@ export async function lockAccount(
     );
     if (!target) throw fail(404, "ACCOUNT_NOT_FOUND", "Account unavailable.");
     if (await accountLocked(tx, userId))
-      throw fail(409, "ACCOUNT_ALREADY_LOCKED", "This account is already locked.");
+      throw fail(
+        409,
+        "ACCOUNT_ALREADY_LOCKED",
+        "This account is already locked.",
+      );
     if (target.platform_role === "admin") {
       const [{ n }] = await tx.query(
         "SELECT count(*)::int AS n FROM users u WHERE u.platform_role='admin' AND u.id<>$1 AND NOT EXISTS(SELECT 1 FROM account_locks l WHERE l.user_id=u.id AND l.status='active')",
@@ -442,30 +455,42 @@ export function registerGovernance(
       };
     });
   });
-  app.get("/api/v1/admin/governance/workspaces/:tenantId/history", async (req) => {
-    const a = operator(req, ["admin", "support"]),
-      tenantId = tenantParam(req);
-    return db.system(async (tx) => {
-      const rows = await tx.query(
-        "SELECT s.id,s.status,s.reason,s.notice,s.suspended_at,su.name AS suspended_by,s.lifted_at,lu.name AS lifted_by,s.lift_reason,jsonb_array_length(s.held_payouts) AS held_payouts,jsonb_array_length(s.released_payouts) AS released_payouts,s.revision FROM workspace_suspensions s JOIN users su ON su.id=s.suspended_by LEFT JOIN users lu ON lu.id=s.lifted_by WHERE s.tenant_id=$1 ORDER BY s.suspended_at DESC LIMIT 50",
-        [tenantId],
-      );
-      await audit(tx, a.userId, "governance.workspace_history.read", tenantId, null);
-      return { history: rows };
-    });
-  });
-  app.post("/api/v1/admin/governance/workspaces/:tenantId/suspend", async (req) => {
-    const a = superAdmin(req),
-      tenantId = tenantParam(req),
-      b = z
-        .object({
-          reason,
-          notice: z.string().trim().max(500).optional(),
-        })
-        .strict()
-        .parse(req.body);
-    return suspendWorkspace(db, a, tenantId, b);
-  });
+  app.get(
+    "/api/v1/admin/governance/workspaces/:tenantId/history",
+    async (req) => {
+      const a = operator(req, ["admin", "support"]),
+        tenantId = tenantParam(req);
+      return db.system(async (tx) => {
+        const rows = await tx.query(
+          "SELECT s.id,s.status,s.reason,s.notice,s.suspended_at,su.name AS suspended_by,s.lifted_at,lu.name AS lifted_by,s.lift_reason,jsonb_array_length(s.held_payouts) AS held_payouts,jsonb_array_length(s.released_payouts) AS released_payouts,s.revision FROM workspace_suspensions s JOIN users su ON su.id=s.suspended_by LEFT JOIN users lu ON lu.id=s.lifted_by WHERE s.tenant_id=$1 ORDER BY s.suspended_at DESC LIMIT 50",
+          [tenantId],
+        );
+        await audit(
+          tx,
+          a.userId,
+          "governance.workspace_history.read",
+          tenantId,
+          null,
+        );
+        return { history: rows };
+      });
+    },
+  );
+  app.post(
+    "/api/v1/admin/governance/workspaces/:tenantId/suspend",
+    async (req) => {
+      const a = superAdmin(req),
+        tenantId = tenantParam(req),
+        b = z
+          .object({
+            reason,
+            notice: z.string().trim().max(500).optional(),
+          })
+          .strict()
+          .parse(req.body);
+      return suspendWorkspace(db, a, tenantId, b);
+    },
+  );
   app.post(
     "/api/v1/admin/governance/workspaces/:tenantId/reinstate",
     async (req) => {
@@ -522,9 +547,16 @@ export function registerGovernance(
             ),
             self: u.id === a.userId,
           };
-        await audit(tx, a.userId, "governance.account.read", null, u?.id ?? null, {
-          found: !!u,
-        });
+        await audit(
+          tx,
+          a.userId,
+          "governance.account.read",
+          null,
+          u?.id ?? null,
+          {
+            found: !!u,
+          },
+        );
       }
       return { locked, account };
     });

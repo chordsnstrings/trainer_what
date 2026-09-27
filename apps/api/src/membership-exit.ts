@@ -319,6 +319,7 @@ export async function endFollowerMembership(
         title: "A subscriber left",
         body: `${follower.name} ended their membership.${reason ? ` Their note: “${reason}”` : ""}`,
         href: "/trainer/subscribers",
+        templateKey: "membership-exit-team",
         email: false,
         push: false,
       });
