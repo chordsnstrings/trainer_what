@@ -622,6 +622,7 @@ test("platform role changes require verified authenticated targets and are audit
 
 test("the last Superadmin stays and a lone verified account can recover the role", async () => {
   const isolated = await createDatabase({ memory: true });
+  let restoreAdmins: string[] = [];
   try {
     const make = async (role = "none") => {
       const id = randomUUID(),
@@ -645,6 +646,15 @@ test("the last Superadmin stays and a lone verified account can recover the role
         ]),
       );
     const only = await make("admin");
+    // On PostgreSQL this is the file's shared database, where earlier tests
+    // created other Superadmins; set them aside so this account is the last one.
+    const others = await isolated.system((tx) =>
+      tx.query(
+        "UPDATE users SET platform_role='none' WHERE platform_role='admin' AND id<>$1 RETURNING id",
+        [only.id],
+      ),
+    );
+    restoreAdmins = others.map((row) => row.id as string);
     await reset(only.id);
     await assert.rejects(
       assignPlatformRole(isolated, {
@@ -669,6 +679,13 @@ test("the last Superadmin stays and a lone verified account can recover the role
     });
     assert.equal(restored.changed, true);
   } finally {
+    if (restoreAdmins.length)
+      await isolated.system((tx) =>
+        tx.query(
+          "UPDATE users SET platform_role='admin' WHERE id=ANY($1::uuid[])",
+          [restoreAdmins],
+        ),
+      );
     await isolated.close();
   }
 });
