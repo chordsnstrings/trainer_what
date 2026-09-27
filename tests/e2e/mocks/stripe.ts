@@ -81,8 +81,24 @@ export class StripeMock {
   private invoiceNumber = 0;
   /** Where signed webhooks go (the platform URL of /api/v1/webhooks/stripe). */
   webhookUrl = "";
-  /** When false, the harness sends events explicitly instead of automatically. */
+  /** When false, the harness sends events explicitly instead of automatically (lost webhooks). */
   autoWebhooks = true;
+  /**
+   * API version stamped on events. From 2022-11-15 Stripe no longer embeds a
+   * charge's refunds in charge.* events; an older endpoint version gets them.
+   */
+  webhookApiVersion = "2025-09-30.clover";
+  /** Requests that are applied but answered with an error: the response is lost on the way back. */
+  private lostResponses: Array<{ method: string; path: RegExp; remaining: number }> = [];
+  /**
+   * The next `times` matching requests are applied (and cached for their
+   * idempotency key) as usual, but the caller receives HTTP 500 with
+   * Stripe-Should-Retry: false, so the SDK does not retry and the app has to
+   * reconcile against the provider state.
+   */
+  loseNextResponse(method: string, path: RegExp, times = 1) {
+    this.lostResponses.push({ method: method.toUpperCase(), path, remaining: times });
+  }
 
   constructor(
     tlsMaterial: { key: string; cert: string },
@@ -113,11 +129,23 @@ export class StripeMock {
           r.method === "POST" && typeof key === "string"
             ? `${r.path}|${key}`
             : undefined;
-        if (cacheKey && this.idempotent.has(cacheKey))
-          return this.idempotent.get(cacheKey)!;
-        const response = await handler(r);
+        const response =
+          cacheKey && this.idempotent.has(cacheKey)
+            ? this.idempotent.get(cacheKey)!
+            : await handler(r);
         if (cacheKey && (response.status ?? 200) < 500)
           this.idempotent.set(cacheKey, response);
+        const lost = this.lostResponses.find(
+          (f) => f.remaining > 0 && f.method === r.method && f.path.test(r.path),
+        );
+        if (lost) {
+          lost.remaining--;
+          return {
+            status: 500,
+            headers: { "request-id": randomId("req"), "stripe-should-retry": "false" },
+            body: { error: { type: "api_error", message: "Mock: the request was applied but its response was lost" } },
+          };
+        }
         return response;
       };
     const ok = (body: unknown): MockResponse => ({
@@ -310,6 +338,7 @@ export class StripeMock {
         return ok(list(rows, "/v1/refunds"));
       }),
     );
+    s.route("GET", "/v1/refunds/:id", guard((r) => found(this.refunds, r.params.id, "refund")));
     s.route(
       "POST",
       "/v1/refunds",
@@ -339,7 +368,7 @@ export class StripeMock {
         charge.refunds.data.unshift(refund);
         this.later(async () => {
           await this.sendEvent("refund.created", refund);
-          await this.sendEvent("charge.refunded", charge);
+          await this.sendEvent("charge.refunded", this.chargeEventObject(charge));
         });
         return ok(refund);
       }),
@@ -399,7 +428,8 @@ export class StripeMock {
     });
   }
 
-  private publicSession(x: Obj) {
+  /** A checkout session as the API and events show it (without the mock's own bookkeeping). */
+  publicSession(x: Obj) {
     const { subscription_data: _data, line_items: _items, ...rest } = x;
     return rest;
   }
@@ -413,10 +443,18 @@ export class StripeMock {
       priceId = price.id;
       amount = price.unit_amount;
     } else if (item.price_data) amount = num(item.price_data.unit_amount) ?? 0;
+    // Stripe's amount_subtotal is before discounts; amount_total after them.
+    const subtotal = amount;
     const couponId = f.discounts?.[0]?.coupon;
     if (couponId) {
       const coupon = this.coupons.get(couponId);
       if (!coupon) return stripeError(400, "No such coupon", "resource_missing");
+      // As Stripe does: a coupon limited to products applies only to a price of one of them.
+      const product = priceId ? this.prices.get(priceId)?.product : undefined;
+      if (coupon.applies_to?.products && (!product || !coupon.applies_to.products.includes(product)))
+        return stripeError(400, `The coupon ${couponId} cannot be applied to any of the items in this checkout`, "coupon_not_applicable");
+      if (!coupon.valid || (coupon.redeem_by && coupon.redeem_by <= now()) || (coupon.max_redemptions && coupon.times_redeemed >= coupon.max_redemptions))
+        return stripeError(400, `The coupon ${couponId} has expired or reached its redemption limit`, "coupon_expired");
       amount = Math.round(amount * (1 - (coupon.percent_off ?? 0) / 100));
     }
     const trialDays = num(f.subscription_data?.trial_period_days);
@@ -434,7 +472,7 @@ export class StripeMock {
       metadata: f.metadata ?? {},
       currency: f.line_items?.[0]?.price_data?.currency ?? "aed",
       amount_total: trialDays ? 0 : amount,
-      amount_subtotal: amount,
+      amount_subtotal: subtotal,
       expires_at: num(f.expires_at) ?? now() + 3600,
       created: now(),
       subscription: null as string | null,
@@ -464,12 +502,21 @@ export class StripeMock {
     }, 25);
   }
 
+  /**
+   * A charge as a charge.* event carries it for the event's API version: the
+   * refunds list only before 2022-11-15.
+   */
+  chargeEventObject(charge: Obj, apiVersion = this.webhookApiVersion) {
+    if (apiVersion < "2022-11-15") return charge;
+    const { refunds: _refunds, ...rest } = charge;
+    return rest;
+  }
   /** Posts a signed event to the application webhook and records the outcome. */
-  async sendEvent(type: string, object: Obj, options: { created?: number } = {}) {
+  async sendEvent(type: string, object: Obj, options: { created?: number; apiVersion?: string } = {}) {
     const event = {
       id: randomId("evt"),
       object: "event",
-      api_version: "2025-09-30.clover",
+      api_version: options.apiVersion ?? this.webhookApiVersion,
       created: options.created ?? now(),
       livemode: false,
       pending_webhooks: 1,
@@ -638,6 +685,10 @@ export class StripeMock {
     x.customer = customer.id;
     x.status = "complete";
     x.payment_status = "paid";
+    for (const discount of x.discounts ?? []) {
+      const coupon = this.coupons.get(discount.coupon);
+      if (coupon) coupon.times_redeemed++;
+    }
     const result: Obj = { session: x };
     if (x.mode === "subscription") {
       const price = this.prices.get(x.subscription_data.priceId)!;

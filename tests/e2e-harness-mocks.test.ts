@@ -115,6 +115,68 @@ test("the Stripe mock serves the real SDK over TLS and sends verifiable webhooks
   }
 });
 
+test("the Stripe mock retrieves refunds, loses applied responses on request, checks coupon products and shapes charge events by API version", async () => {
+  const events: any[] = [];
+  const receiver = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      events.push(JSON.parse(body));
+      res.writeHead(200).end("{}");
+    });
+  });
+  await new Promise<void>((r) => receiver.listen(0, "127.0.0.1", () => r()));
+  const mock = new StripeMock({ key: tls.key, cert: tls.cert }, "sk_test_mock_fixture", "whsec_test_fixture");
+  await mock.start();
+  mock.webhookUrl = `http://127.0.0.1:${(receiver.address() as any).port}/hook`;
+  process.env.STRIPE_API_BASE_URL = mock.url;
+  try {
+    const stripe = withRuntimeConfig({ STRIPE_SECRET_KEY: "sk_test_mock_fixture" }, () => stripeClient());
+    const product = await stripe.products.create({ name: "Offer" });
+    const other = await stripe.products.create({ name: "Other offer" });
+    const price = await stripe.prices.create({ product: product.id, currency: "aed", unit_amount: 20000, recurring: { interval: "month" } });
+    // A lost response: the coupon exists, the SDK saw one 500 and did not retry.
+    mock.loseNextResponse("POST", /^\/v1\/coupons$/);
+    const before = mock.server.requests("POST", "/v1/coupons").length;
+    const couponBody = { id: "trainer_fixture", percent_off: 20, duration: "once" as const, applies_to: { products: [product.id] } };
+    await assert.rejects(stripe.coupons.create(couponBody, { idempotencyKey: "promotion:fixture" }), /response was lost/);
+    assert.equal(mock.server.requests("POST", "/v1/coupons").length - before, 1, "Stripe-Should-Retry: false stops SDK retries");
+    assert.equal((await stripe.coupons.retrieve("trainer_fixture")).percent_off, 20, "the request was applied");
+    const replay = await stripe.coupons.create(couponBody, { idempotencyKey: "promotion:fixture" });
+    assert.equal(replay.id, "trainer_fixture", "the idempotency key replays the original answer");
+    // Coupon products are enforced like Stripe.
+    const base = { mode: "subscription" as const, success_url: "https://localhost:8443/ok", cancel_url: "https://localhost:8443/cancel" };
+    const discounted = await stripe.checkout.sessions.create({ ...base, line_items: [{ price: price.id, quantity: 1 }], discounts: [{ coupon: "trainer_fixture" }] });
+    assert.equal(discounted.amount_total, 16000);
+    assert.equal(discounted.amount_subtotal, 20000, "the subtotal is before the discount");
+    const otherPrice = await stripe.prices.create({ product: other.id, currency: "aed", unit_amount: 20000, recurring: { interval: "month" } });
+    await assert.rejects(
+      stripe.checkout.sessions.create({ ...base, line_items: [{ price: otherPrice.id, quantity: 1 }], discounts: [{ coupon: "trainer_fixture" }] }),
+      /cannot be applied/,
+    );
+    // refunds.retrieve and the charge.refunded shape.
+    const paid = await mock.completeCheckout(discounted.id);
+    events.length = 0;
+    const refund = await stripe.refunds.create({ charge: paid.charge.id, amount: 1000 });
+    assert.equal((await stripe.refunds.retrieve(refund.id)).amount, 1000);
+    await assert.rejects(stripe.refunds.retrieve("re_missing"), /No such refund/);
+    const charged = await (async () => {
+      for (let i = 0; i < 100 && !events.some((e) => e.type === "charge.refunded"); i++) await new Promise((r) => setTimeout(r, 20));
+      return events.find((e) => e.type === "charge.refunded");
+    })();
+    assert.equal(charged.api_version, "2025-09-30.clover");
+    assert.equal(charged.data.object.refunds, undefined, "no embedded refunds from 2022-11-15");
+    await mock.sendEvent("charge.refunded", mock.chargeEventObject(paid.charge, "2022-08-01"), { apiVersion: "2022-08-01" });
+    const legacy = events.at(-1);
+    assert.equal(legacy.api_version, "2022-08-01");
+    assert.equal(legacy.data.object.refunds.data[0].id, refund.id, "older endpoint versions embed the refunds");
+  } finally {
+    delete process.env.STRIPE_API_BASE_URL;
+    await mock.stop();
+    receiver.close();
+  }
+});
+
 test("email, Lean and push mocks receive the adapters' real requests over TLS", async () => {
   const email = new EmailMock({ key: tls.key, cert: tls.cert }, "em_fixture");
   const lean = new LeanMock({ key: tls.key, cert: tls.cert }, "lean_fixture", "src_fixture");

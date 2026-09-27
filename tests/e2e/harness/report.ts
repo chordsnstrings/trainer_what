@@ -210,6 +210,52 @@ export class Reporter {
     });
     this.log(`  skip  [${audience}] ${feature} — ${title}: ${reason}`);
   }
+  /**
+   * Setup that later steps need (a new person, a seeded member): a failure is
+   * recorded as a failed step and `undefined` is returned, so a broken
+   * prerequisite fails the run instead of silently dropping steps.
+   */
+  async prepare<T>(audience: Audience, feature: string, title: string, fn: () => Promise<T>): Promise<T | undefined> {
+    const started = Date.now();
+    try {
+      return await fn();
+    } catch (error) {
+      const message = (error as Error)?.stack ?? String(error);
+      this.results.push({
+        id: `${audience}:${feature}:setup: ${title}`,
+        audience,
+        feature,
+        title: `setup: ${title}`,
+        status: "fail",
+        durationMs: Date.now() - started,
+        error: message.slice(0, 4000),
+      });
+      this.log(`  FAIL  [${audience}] ${feature} — setup: ${title}: ${(error as Error)?.message?.slice(0, 400)}`);
+      return undefined;
+    }
+  }
+  /**
+   * A seeded person or record that scenarios expect is missing: recorded once
+   * as a failed harness step, so the steps that needed it are not lost silently.
+   */
+  missingPrerequisite(what: string) {
+    const id = `Super admin:Harness prerequisites:${what}`;
+    if (this.results.some((r) => r.id === id)) return;
+    this.results.push({
+      id,
+      audience: "Super admin",
+      feature: "Harness prerequisites",
+      title: what,
+      status: "fail",
+      durationMs: 0,
+      error: `${what} is missing; the steps that need it did not run`,
+    });
+    this.log(`  FAIL  [Super admin] Harness prerequisites — ${what} is missing`);
+  }
+  /** Records each step that cannot run because a prerequisite is missing (never a silent return). */
+  blocked(reason: string, steps: ReadonlyArray<readonly [Audience, string, string]>) {
+    for (const [audience, feature, title] of steps) this.skip(audience, feature, title, reason);
+  }
   summary(featuresPath?: string) {
     const count = (status: StepStatus) => this.results.filter((r) => r.status === status).length;
     const byFeature: Record<string, { audience: Audience; feature: string; status: StepStatus; steps: number }> = {};

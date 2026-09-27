@@ -126,7 +126,10 @@ export async function domainLifecycle(ctx: E2EContext, trainer: TrainerSeed, own
     return "home, about and join pages served; operator and trainer pages closed";
   });
   const member = ctx.followers.find((f) => f.trainer.slug === trainer.slug && f.paid && f.client.email);
-  if (!member) return;
+  if (!member) {
+    r.blocked(`${trainer.slug} has no paid follower`, [[F, "Sign in at a trainer's own web address", hostname]]);
+    return;
+  }
   await r.step(F, "Sign in at a trainer's own web address", `${member.client.label}: password sign-in at https://${hostname}/ opens ${trainer.slug}'s workspace`, async () => {
     const device = ctx.domainClient(hostname, member.client.label + "-coach-domain", member.client.email, member.client.password || PASSWORD);
     device.mfaSecret = member.client.mfaSecret;

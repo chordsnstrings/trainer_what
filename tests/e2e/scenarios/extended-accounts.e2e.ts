@@ -332,7 +332,8 @@ export async function memberExperience(
       await unpaid.client.post("/api/v1/messages", { text: "Hi coach, what should I expect in the first week?" });
       await unpaid.client.fails(402, "POST", "/api/v1/workouts/start", { programId: crypto.randomUUID() }, "MEMBERSHIP_REQUIRED");
     });
-  if (followup)
+  if (!followup) r.blocked("no follow-up was scheduled", [[F, "Scheduled follow-up messages from the trainer", "delivery when due"]]);
+  else
     await r.step(F, "Scheduled follow-up messages from the trainer", `${followup.member.client.label}: the trainer's scheduled follow-up arrives when due`, async () => {
       await ctx.waitUntil("follow-up delivery", async () => {
         const thread = await followup.member.client.get("/api/v1/messages/thread");

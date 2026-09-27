@@ -23,6 +23,8 @@
  *   --pg-port=N                  PostgreSQL port (default: a free port)
  *   --features=FILE              feature inventory JSON to check names against
  *   --report=FILE                report path (default tests/e2e/report.json)
+ *   --min-steps=N                fail when fewer than N steps ran (passed + failed);
+ *                                default FULL_RUN_MIN_STEPS for a run of every suite, 0 otherwise
  *
  * The sandbox is local only: TRAINER_PROVIDER_SANDBOX=mock is honoured solely
  * for a loopback PUBLIC_APP_URL and API_HOST, and startup refuses it otherwise.
@@ -52,6 +54,13 @@ import { fileURLToPath } from "node:url";
 import { register } from "tsx/esm/api";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+/**
+ * Steps a run of every suite executes (passed + failed). A setup failure or an
+ * early return that drops steps must fail the run, not shorten it; raise this
+ * when scenarios are added. Skipped steps (for example no local Chromium) do
+ * not count, so such a run needs an explicit, lower --min-steps.
+ */
+const FULL_RUN_MIN_STEPS = 399;
 const args = Object.fromEntries(
   process.argv.slice(2).map((arg) => {
     const [key, ...value] = arg.replace(/^--/, "").split("=");
@@ -471,7 +480,13 @@ try {
       `inventory: ${table.length} features — pass ${count("pass")}, same flow ${count("equivalent")}, not local ${count("not-local")}, not exercised ${count("not-exercised")}, fail ${count("fail")}; provider-dependent without a scenario or stated limit: ${report.inventory.providerDependentUnaccounted.length}`,
     );
   }
-  exitCode = report.summary.failed ? 1 : 0;
+  const minSteps = args["min-steps"] !== undefined ? Number(args["min-steps"]) : args.suites ? 0 : FULL_RUN_MIN_STEPS;
+  const executed = report.summary.passed + report.summary.failed;
+  report.summary.minimumSteps = minSteps;
+  if (executed < minSteps)
+    say(`FAIL: ${executed} steps ran, fewer than the expected minimum of ${minSteps}; steps were lost (see skipped steps and harness phases)`);
+  writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
+  exitCode = report.summary.failed || executed < minSteps ? 1 : 0;
   if (args.keep) {
     say(`--keep: stack stays up at ${publicUrl}; Ctrl-C to stop`);
     await new Promise((resolve) => {

@@ -7,7 +7,7 @@ import { totpAt } from "../apps/api/src/security.ts";
 
 // Found by the end-to-end harness as the restricted runtime role: trainer
 // analytics cohorts and the Superadmin subscriber list read users.created_at,
-// which the tenant role could not select (migration 061 grants that column).
+// which the tenant role could not select (migration 062 grants that column).
 let db: Database, app: Awaited<ReturnType<typeof buildApp>>;
 const origin = "http://localhost:3000";
 const cookieOf = (r: any) => String(r.headers["set-cookie"]).split(";")[0];

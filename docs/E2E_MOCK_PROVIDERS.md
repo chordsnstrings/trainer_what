@@ -43,7 +43,12 @@ provider, never uses a cloud resource and must never run on a server.
 
 Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,extended`, `--keep` (leave the stack up),
 `--pg-port=N`, `--rebuild`/`--skip-build`, `--features=<inventory.json>` (checks feature names and
-adds per-audience coverage), `--report=<file>`, and the model options below.
+adds per-audience coverage), `--report=<file>`, `--min-steps=N`, and the model options below.
+A run of every suite fails when fewer than `FULL_RUN_MIN_STEPS` (in `scripts/e2e/run.mjs`) steps
+passed or failed, so a broken setup cannot shorten the run and still report success; setup that
+later steps need goes through `reporter.prepare()` (a failure is a failed step) and a missing
+prerequisite through `reporter.blocked()`/`missingPrerequisite()` (a skipped or failed step). Pass a
+lower `--min-steps` when a suite is knowingly skipped (for example no local Chromium).
 
 Requirements: Node 24, PostgreSQL 16+ server binaries (`initdb`, `pg_ctl`), `openssl`, the
 installed dependencies; `python3` for the host-controller cycle; optionally a local Chromium under
@@ -91,7 +96,7 @@ warning at startup and `npm run readiness` reports a finding.
 
 | Mock | Covers |
 | --- | --- |
-| `stripe.ts` | account, products, prices, coupons, Checkout sessions (create/list/retrieve/expire), subscriptions retrieve/update, invoices list, invoice payments list, payment intents, refunds create/list, billing portal configuration/session, idempotency keys; signed webhooks for checkout completion/expiry, subscription created/updated/deleted, invoice paid/failed, refund created, charge refunded and disputes; helpers for renewals, failed payments, disputes and portal plan changes |
+| `stripe.ts` | account, products, prices, coupons, Checkout sessions (create/list/retrieve/expire), subscriptions retrieve/update, invoices list, invoice payments list, payment intents, refunds create/list/retrieve, billing portal configuration/session, idempotency keys; coupons limited to products and redemption limits enforced at checkout; signed webhooks for checkout completion/expiry, subscription created/updated/deleted, invoice paid/failed, refund created, charge refunded (no embedded refunds list from API version 2022-11-15, as Stripe sends it; `chargeEventObject(charge, "2022-08-01")` gives the older shape) and disputes; `autoWebhooks = false` loses webhooks and `loseNextResponse()` applies a request but answers HTTP 500 with `Stripe-Should-Retry: false`, for the reconcile routes; helpers for renewals, failed payments, disputes and portal plan changes |
 | `lean.ts` | payment destinations and payments with idempotency keys |
 | `email.ts` | the Bearer JSON send contract; an inbox with `waitFor` and link extraction |
 | `model.ts` | OpenAI-compatible `/v1/models` and `/v1/chat/completions` with JSON output and token usage |

@@ -146,6 +146,17 @@ async function payMembership(ctx: E2EContext, f: FollowerSeed, i: number) {
     assert.ok(session, "checkout session exists in the Stripe mock");
     assert.equal(session.client_reference_id, checkout.intentId);
     assert.equal(session.success_url, ctx.publicUrl + "/app/membership?checkout=complete");
+    const price = ctx.mocks.stripe.prices.get(session.subscription_data?.priceId);
+    assert.ok(price, "the checkout uses the offer's Stripe price");
+    if (promotionCode) {
+      // The discount must come from the app sending the promotion's coupon, not from the mock.
+      const coupon = [...ctx.mocks.stripe.coupons.values()].find((x) => x.name === promotionCode);
+      assert.ok(coupon, "the promotion's coupon exists in Stripe");
+      assert.equal(coupon.percent_off, 20);
+      assert.deepEqual(session.discounts, [{ coupon: coupon.id }], "the promotion's coupon is on the checkout");
+      assert.equal(session.amount_subtotal, price.unit_amount);
+      assert.equal(session.amount_total, Math.round((price.unit_amount * 80) / 100), "20% off the offer price");
+    } else assert.deepEqual(session.discounts, [], "no discount without a code");
     const result = await ctx.mocks.stripe.completeCheckout(sessionId);
     for (const d of result.deliveries ?? []) assert.equal(d.status, 200, `${d.type} webhook: ${d.body}`);
     const boot = await c.get("/api/v1/bootstrap");

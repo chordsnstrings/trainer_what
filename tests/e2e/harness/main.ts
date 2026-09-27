@@ -14,6 +14,7 @@ import { extendedScenarios } from "../scenarios/extended.e2e.ts";
 import { operatorCompletionScenarios } from "../scenarios/operator-completion.e2e.ts";
 import { memberCompletionScenarios } from "../scenarios/member-completion.e2e.ts";
 import { browserScenarios } from "../scenarios/browser.e2e.ts";
+import { providerRecoveryScenarios } from "../scenarios/provider-recovery.e2e.ts";
 
 export const SUITES = ["super-admin", "trainer", "follower", "public-join", "completion", "browser", "extended"] as const;
 
@@ -67,6 +68,8 @@ export async function runHarness(input: {
     if (suites.has("completion")) {
       await phase("completion: members, trainers and public", () => memberCompletionScenarios(ctx));
       await phase("completion: operators", () => operatorCompletionScenarios(ctx));
+      // Lost Stripe webhooks and lost Stripe answers, recovered through the reconcile routes.
+      await phase("completion: provider-loss recovery", () => providerRecoveryScenarios(ctx));
     }
     // Browser-only behaviour with the local headless Chromium (offline sync, screens).
     if (suites.has("browser")) await phase("browser (local headless Chromium)", () => browserScenarios(ctx));

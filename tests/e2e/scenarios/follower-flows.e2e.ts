@@ -641,7 +641,10 @@ async function privacy(ctx: E2EContext, f: FollowerSeed) {
 
 async function unpaidGating(ctx: E2EContext) {
   const unpaid = ctx.followers.find((f) => !f.paid);
-  if (!unpaid) return;
+  if (!unpaid) {
+    ctx.reporter.missingPrerequisite("a seeded follower without a paid membership");
+    return;
+  }
   await ctx.reporter.step(F, "Only your own data is visible", `${unpaid.client.label}: unpaid member cannot use paid coaching and sees only own records`, async () => {
     await unpaid.client.fails(402, "POST", "/api/v1/coaching/ask", { message: "What should I do today?" }, "MEMBERSHIP_REQUIRED");
     const boot = await unpaid.client.get("/api/v1/bootstrap");

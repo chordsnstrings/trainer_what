@@ -44,15 +44,21 @@ export async function extendedScenarios(ctx: E2EContext) {
     ctx.reporter.skip(A, "Platform screens refuse non-operators", "extended coverage", "a seeded trainer did not launch");
     return;
   }
-  const follower = (slug: string, index: number) => ctx.followers.find((f) => f.client.label === `${slug}-follower-${index}`);
+  // A seeded follower that is missing is a recorded failure, never a silently shorter run.
+  const follower = (slug: string, index: number) => {
+    const label = `${slug}-follower-${index}`;
+    const found = ctx.followers.find((f) => f.client.label === label);
+    if (!found) ctx.reporter.missingPrerequisite(`seeded follower ${label}`);
+    return found;
+  };
   // Operator writes need an authenticator check from the last ten minutes.
   const fresh = () => ctx.admin.stepUp();
 
-  // Due in a little over a minute; its delivery is checked near the end.
-  const followup = await scheduleFollowup(layla, follower("layla-strength", 5)).catch((error) => {
-    ctx.log("  note  follow-up could not be scheduled: " + (error as Error).message);
-    return undefined;
-  });
+  // Due in a little over a minute; its delivery is checked near the end. A failure to schedule
+  // is a failed step of that feature, not a silently missing check.
+  const followup = await ctx.reporter.prepare(F, "Scheduled follow-up messages from the trainer", "the trainer schedules a follow-up due in a minute", () =>
+    scheduleFollowup(layla, follower("layla-strength", 5)),
+  );
   await operatorAccess(ctx, layla, follower("layla-strength", 0));
   await stripeEndpoint(ctx);
   await fresh();
@@ -370,7 +376,15 @@ async function privacyOperations(ctx: E2EContext, omar: TrainerSeed, sara: Train
       assert.ok(open, "the paying member's deletion request");
       await admin.fails(409, "POST", `/api/v1/admin/tenants/${sara.tenantId}/privacy/${open.id}/erase`, erasureEvidence(open.version), "SUBSCRIPTION_OPEN");
     });
-  if (!request) return;
+  if (!request) {
+    r.blocked("the deletion request did not reach the operator queue", [
+      [A, "Erase a member's personal data", `${leaver.client.label}: unpaid member erased after provider review`],
+      [F, "Deletion carried out by the Superadmin", `${leaver.client.label}: the erased account can no longer sign in`],
+      [A, "Privacy follow-ups", `${omar.slug}: backup purge and provider follow-ups are scheduled`],
+      [A, "Lifecycle requests and erasure registry", `${omar.slug}: the erasure is in the registry without personal data`],
+    ]);
+    return;
+  }
   await r.step(A, "Erase a member's personal data", `${leaver.client.label}: unpaid member erased after provider review`, async () => {
     const result = await admin.post(`/api/v1/admin/tenants/${omar.tenantId}/privacy/${request.id}/erase`, erasureEvidence(request.version));
     assert.ok(JSON.stringify(result).includes("erasure"), JSON.stringify(result).slice(0, 200));
@@ -596,7 +610,14 @@ async function workspaceClosure(ctx: E2EContext) {
     assert.ok(state.gates.length > 0 && state.gates.every((g: any) => g.reason), JSON.stringify(state.gates).slice(0, 300));
     return state.gates.map((g: any) => g.reason).join(" | ").slice(0, 200);
   });
-  if (!tenantId) return;
+  if (!tenantId) {
+    r.blocked("the unfinished trainer could not sign in", [
+      [T, "In-app setup reminders to the trainer", "yasmin-pilates: setup reminder"],
+      [T, "Workspace closure and ownership transfer", "yasmin-pilates: ownership transfer and closure request"],
+      [A, "Complete a workspace closure", "yasmin-pilates: operator completes the closure"],
+    ]);
+    return;
+  }
   await r.step(T, "In-app setup reminders to the trainer", "yasmin-pilates: the worker nudges the unfinished trainer toward the next step", async () => {
     const items = await ctx.waitUntil("setup reminder", async () => {
       const list = await owner.get("/api/v1/notifications");
@@ -623,7 +644,10 @@ async function workspaceClosure(ctx: E2EContext) {
     assert.equal((await owner.login()).user.role, "staff");
     closure = await successor.post("/api/v1/tenant/lifecycle/closure", { password: successor.password, reason: "The studio will not launch on the platform", confirmClosure: true });
   });
-  if (!closure) return;
+  if (!closure) {
+    r.blocked("the owner's closure request was not created", [[A, "Complete a workspace closure", "yasmin-pilates: operator completes the closure"]]);
+    return;
+  }
   await r.step(A, "Complete a workspace closure", "yasmin-pilates: an administrator completes the owner's closure request", async () => {
     const lifecycle = await admin.get(`/api/v1/admin/tenants/${tenantId}/privacy/lifecycle`);
     const pending = lifecycle.requests.find((x: any) => x.id === closure.id);

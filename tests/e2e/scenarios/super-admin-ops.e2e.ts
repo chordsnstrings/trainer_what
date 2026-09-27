@@ -111,6 +111,10 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
   );
   await admin.stepUp();
   let costs: any[] = [];
+  // Debits the harness itself posts after the closed month's cutoff; the payout must net them out.
+  let postedUsageMinor = 0,
+    settlementFeeMinor = 0,
+    closed: any;
   await r.step(A, "AI usage cost reconciliation", `${trainer.slug}: every model call is priced from recorded token usage`, async () => {
     const finance = await admin.get(base);
     assert.equal(finance.unresolvedUsage.length, 0, "no reserved or unknown usage");
@@ -128,6 +132,7 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
       evidenceReference: "Mock provider usage export reviewed by the Superadmin",
     });
     assert.equal(Number(statement.charge_minor ?? statement.chargeMinor ?? chargeMinor), chargeMinor);
+    postedUsageMinor = chargeMinor;
     return `${chargeMinor} AED minor`;
   });
   await r.step(A, "Record Stripe bank settlements", `${trainer.slug}: Stripe payout settled to the bank`, async () => {
@@ -143,12 +148,14 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
       netMinor: receivable - fee,
       evidenceReference: "Mock Stripe payout report matched to bank statement",
     });
+    settlementFeeMinor = fee;
     return `${receivable} settled`;
   });
   await r.step(A, "Month close", `${trainer.slug}: ${period} closed after the refund buffer`, async () => {
     const close = await admin.post(`${base}/close`, { period, evidenceReference: "Sandbox month-end review completed" });
     assert.equal(close.status, "closed");
     assert.ok(close.data.eligibleMinor > 0, JSON.stringify(close.data).slice(0, 300));
+    closed = close;
     return `eligible ${close.data.eligibleMinor}`;
   });
   await r.step(T, "Ledger CSV export and monthly statements", `${trainer.slug}: statement for ${period} and ledger CSV`, async () => {
@@ -159,14 +166,35 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
     assert.ok(csv.text.split("\n").length > 2);
   });
   let payout: any;
-  await r.step(T, "Monthly payout runs", `${trainer.slug}: payout prepared from the closed month`, async () => {
+  await r.step(T, "Monthly payout runs", `${trainer.slug}: payout prepared from the closed month, net of later debits and bounded by available and funded money`, async () => {
+    assert.ok(closed, "the month was closed");
+    const before = (await admin.get(base)).summary;
+    // The only trainer_payable debits after the cutoff are the usage charge and the settlement fee posted above.
+    const [later] = await ctx.sqlRead<{ total: string }>(
+      "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.tenant_id=$1 AND l.account='trainer_payable' AND l.amount_minor>0 AND j.created_at>=$2",
+      [trainer.tenantId, closed.data.cutoff],
+    );
+    assert.equal(Number(later.total), postedUsageMinor + settlementFeeMinor, "later debits are the usage charge and the settlement fee");
+    const reserved = Number(before.reservedMinor);
+    const eligible = Math.max(0, Number(closed.data.eligibleMinor) - postedUsageMinor - settlementFeeMinor - reserved);
+    const funded = Math.max(0, Number(before.accounts.bank_cash ?? 0) - reserved);
+    const expected = Math.min(eligible, Number(before.availableMinor), funded);
     payout = await trainer.client.post("/api/v1/payout-runs/prepare", { period });
     assert.equal(payout.status, "ready");
     assert.ok(Number(payout.amount_minor) > 0);
-    return `${payout.amount_minor} AED minor`;
+    assert.equal(Number(payout.amount_minor), expected, `min(eligible ${eligible}, available ${before.availableMinor}, funded ${funded})`);
+    return `${payout.amount_minor} AED minor = min(eligible ${eligible}, available ${before.availableMinor}, funded ${funded})`;
   });
-  if (!payout) return;
+  if (!payout) {
+    r.blocked("no payout was prepared", [
+      [A, "Payout execution to trainer banks", `${trainer.slug}: payout execution`],
+      [A, "Payout cancellation and bank outcome recording", `${trainer.slug}: bank outcome`],
+    ]);
+    return;
+  }
+  let payableBefore = 0;
   await r.step(A, "Payout execution to trainer banks", `${trainer.slug}: independent operator sends the payout to the Lean mock`, async () => {
+    payableBefore = Number((await admin.get(base)).summary.accounts.trainer_payable ?? 0);
     const before = ctx.mocks.lean.payments.size;
     const result = await admin.post(`${base}/payouts/${payout.id}/execute`, {});
     assert.equal(result.status, "processing");
@@ -183,6 +211,20 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
       evidenceReference: "Mock bank statement shows the credit",
     });
     assert.equal(paid.status, "paid");
+    // The confirmed payment is posted once, balanced, and reduces what the platform owes the trainer by exactly its amount.
+    const lines = await ctx.sqlRead<{ account: string; amount: string }>(
+      "SELECT l.account,l.amount_minor::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.tenant_id=$1 AND j.source_key=$2 ORDER BY l.account",
+      [trainer.tenantId, "payout:" + payout.id],
+    );
+    const amount = Number(payout.amount_minor);
+    assert.deepEqual(
+      lines.map((l) => [l.account, Number(l.amount)]),
+      [["bank_cash", -amount], ["trainer_payable", amount]],
+      "payout journal posted and balanced",
+    );
+    const payableAfter = Number((await admin.get(base)).summary.accounts.trainer_payable ?? 0);
+    assert.equal(payableAfter - payableBefore, amount, "trainer_payable owed dropped by exactly the payout");
+    return `payout:${payout.id} posted; owed to the trainer ${-payableBefore} → ${-payableAfter}`;
   });
 }
 

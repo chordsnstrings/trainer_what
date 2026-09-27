@@ -109,7 +109,10 @@ async function suspensionLocksAndAlerts(ctx: E2EContext) {
   });
   // An account lock: a dedicated follower of Omar, so other scenarios keep their members.
   const locked = ctx.followers.find((f) => f.trainer === omar && f !== member && f.client.userId);
-  if (!locked) return;
+  if (!locked) {
+    r.blocked("omar-conditioning has no second follower to lock", [[A, "Suspend a workspace or lock an account", "account lock and unlock"]]);
+    return;
+  }
   await r.step(A, "Suspend a workspace or lock an account", `${locked.client.label}: locked (sessions end, sign-in refused after the password), then unlocked`, async () => {
     const found = await admin.get(`/api/v1/admin/governance/accounts?email=${encodeURIComponent(locked.client.email)}`);
     assert.equal(found.account?.id, locked.client.userId);

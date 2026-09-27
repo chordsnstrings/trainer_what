@@ -140,7 +140,9 @@ async function accessWithoutPayment(ctx: E2EContext, layla: TrainerSeed, omar: T
     assert.notEqual(start.status, 402, "the membership gate opens immediately after the checkout webhook");
     return `after checkout: access ${after.sources?.join("+")}, workout start with an unknown program → HTTP ${start.status}`;
   });
-  const unpaid = await publicJoin(ctx, layla, "comp-member", "Salma Complimentary").catch(() => undefined);
+  const unpaid = await r.prepare(F, "Free or trainer-granted access without payment", "a new follower joins layla-strength", () =>
+    publicJoin(ctx, layla, "comp-member", "Salma Complimentary"),
+  );
   if (!unpaid) return;
   let grant: any;
   await r.step(F, "Free or trainer-granted access without payment", `${layla.slug}: the owner grants 30 days of workout access with a fresh code; the follower trains without a Stripe payment; the owner ends it`, async () => {
@@ -172,7 +174,10 @@ async function accessWithoutPayment(ctx: E2EContext, layla: TrainerSeed, omar: T
 /** A card dispute on a paid coaching session (this failed the webhook with HTTP 500 before the fix). */
 async function sessionDispute(ctx: E2EContext, layla: TrainerSeed) {
   const member = ctx.followers.find((f) => f.trainer === layla && f.paid && f.tier === "workout" && f.client.userId);
-  if (!member) return;
+  if (!member) {
+    ctx.reporter.blocked("no paid workout member of layla-strength", [["Super admin", "Reconciliation exceptions", "a dispute on a paid coaching session"]]);
+    return;
+  }
   await ctx.reporter.step("Super admin", "Reconciliation exceptions", `${member.client.label}: a dispute on a paid coaching session is reserved, then lost; both webhooks are accepted`, async () => {
     // Six days ahead at half past: the follower suite books this trainer three days ahead on the hour,
     // and a trainer's sessions may not overlap.
@@ -204,8 +209,11 @@ async function sessionDispute(ctx: E2EContext, layla: TrainerSeed) {
 
 async function accountChanges(ctx: E2EContext, sara: TrainerSeed) {
   const { reporter: r, mocks, admin } = ctx;
-  const person = await publicJoin(ctx, sara, "renamer", "Mona Renamer").catch(() => undefined);
-  if (!person) return;
+  const person = await r.prepare(F, "Change name or email address", "a new follower joins sara-mobility", () => publicJoin(ctx, sara, "renamer", "Mona Renamer"));
+  if (!person) {
+    r.blocked("the follower for account changes could not join", [[F, "Account recovery without email (password reset by Superadmin or trainer)", "one-time recovery link"]]);
+    return;
+  }
   await r.step(F, "Change name or email address", `${person.client.label}: new display name, then a confirmed move to a new email address`, async () => {
     await person.client.patch("/api/v1/account/profile", { name: "Mona Al Renamer" });
     const account = await person.client.get("/api/v1/account");
@@ -251,10 +259,10 @@ async function accountChanges(ctx: E2EContext, sara: TrainerSeed) {
 
 async function leaving(ctx: E2EContext, omar: TrainerSeed) {
   const { reporter: r, mocks } = ctx;
-  const leaver = await publicJoin(ctx, omar, "leaver", "Tariq Leaver").catch(() => undefined);
-  const removed = await publicJoin(ctx, omar, "removed-member", "Dina Removed").catch(() => undefined);
-  if (!leaver || !removed) return;
-  await r.step(F, "Leave a trainer (or trainer removes a follower)", `${leaver.client.label}: leaves ${omar.slug}; renewal stops at period end in Stripe; the next sign-in explains the membership ended`, async () => {
+  const leaver = await r.prepare(F, "Leave a trainer (or trainer removes a follower)", "a follower who will leave joins omar-conditioning", () => publicJoin(ctx, omar, "leaver", "Tariq Leaver"));
+  const removed = await r.prepare(F, "Leave a trainer (or trainer removes a follower)", "a follower who will be removed joins omar-conditioning", () => publicJoin(ctx, omar, "removed-member", "Dina Removed"));
+  // Each step needs only its own person; a failed join is already a failed step.
+  if (leaver) await r.step(F, "Leave a trainer (or trainer removes a follower)", `${leaver.client.label}: leaves ${omar.slug}; renewal stops at period end in Stripe; the next sign-in explains the membership ended`, async () => {
     const result = await payWorkout(ctx, omar, leaver.client);
     const preview = await leaver.client.get("/api/v1/membership/leave");
     assert.ok(preview, "leave preview");
@@ -270,7 +278,7 @@ async function leaving(ctx: E2EContext, omar: TrainerSeed) {
     assert.ok(JSON.stringify(exits).includes(leaver.client.userId!), "the trainer sees the former follower");
     return `subscription ${result.subscription?.id ?? "?"}: ${left.subscriptionAction}, access until ${left.accessUntil}`;
   });
-  await r.step(F, "Leave a trainer (or trainer removes a follower)", `${omar.slug}: the owner removes ${removed.client.label} with a reason and a fresh code; the public page no longer lets them back in`, async () => {
+  if (removed) await r.step(F, "Leave a trainer (or trainer removes a follower)", `${omar.slug}: the owner removes ${removed.client.label} with a reason and a fresh code; the public page no longer lets them back in`, async () => {
     await omar.client.stepUp();
     const preview = await omar.client.get(`/api/v1/trainer/followers/${removed.client.userId}/exit`);
     assert.ok(preview.follower);
@@ -297,10 +305,10 @@ async function socialSignIn(ctx: E2EContext, layla: TrainerSeed) {
     assert.equal(back.origin, ctx.publicUrl, "the provider returns to the platform address");
     return client.request("GET", back.pathname + back.search);
   };
-  const member = await publicJoin(ctx, layla, "google-member", "Laila Google").catch(() => undefined);
-  if (!member) return;
+  const member = await r.prepare(P, "Apple or Google sign-in", "a follower who links Google joins layla-strength", () => publicJoin(ctx, layla, "google-member", "Laila Google"));
   const googleSub = "google-" + randomUUID();
-  await r.step(P, "Apple or Google sign-in", `${member.client.label}: links Google from settings (password re-check), then signs in with Google on a new device`, async () => {
+  // The Apple join below does not need this member; only the Google step waits for it.
+  if (member) await r.step(P, "Apple or Google sign-in", `${member.client.label}: links Google from settings (password re-check), then signs in with Google on a new device`, async () => {
     const providers = await ctx.newClient("oidc-providers").get("/api/v1/auth/oidc/providers");
     assert.ok(providers.providers.every((p: any) => p.enabled), JSON.stringify(providers));
     const link = await member.client.post("/api/v1/auth/oidc/google/link", { password: PASSWORD, returnTo: "/app/profile" });
@@ -448,7 +456,10 @@ async function discovery(ctx: E2EContext, layla: TrainerSeed, sara: TrainerSeed)
 async function healthKit(ctx: E2EContext, layla: TrainerSeed) {
   const { reporter: r } = ctx;
   const member = ctx.followers.find((f) => f.trainer === layla && f.paid && f.tier === "workout" && f.client.userId);
-  if (!member) return;
+  if (!member) {
+    r.blocked("no paid workout member of layla-strength", [[F, "Automatic Apple HealthKit sync", "companion pairing and upload"]]);
+    return;
+  }
   await r.step(F, "Automatic Apple HealthKit sync", `${member.client.label}: pairs a companion app with a one-time code, uploads a day of samples, the trainer sees the activity, the device unpairs`, async () => {
     const status = await member.client.get("/api/v1/healthkit/status");
     assert.equal(status.canPair, true, JSON.stringify(status).slice(0, 400));

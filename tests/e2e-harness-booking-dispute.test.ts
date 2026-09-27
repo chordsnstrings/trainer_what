@@ -42,7 +42,8 @@ async function paidBooking(suffix: string) {
     );
     return { slot, booking };
   });
-  const payment = await db.tenant({ ...client, role: "staff" }, (tx) => preparePaidBooking(tx, client, slot, booking));
+  // In the reserving follower's own scope: a follower never acts as staff.
+  const payment = await db.tenant(client, (tx) => preparePaidBooking(tx, client, slot, booking));
   let remote: any;
   const pi = "pi_dispute_" + suffix;
   const stripe = {
