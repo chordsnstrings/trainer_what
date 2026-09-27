@@ -328,9 +328,11 @@ export function Onboarding({
         ) : stepKey === "wearables" ? (
           <>
             <p>
-              Apple export imports are available. WHOOP and Zepp connections
-              need approved adapters and provider access. No connection is
-              implied by this choice.
+              Apple export imports are available. Automatic Apple Health sync
+              needs the companion iPhone app and the platform switch; clients
+              pair their own devices. WHOOP and Zepp connections need approved
+              adapters and provider access. No connection is implied by this
+              choice.
             </p>
             <label className="field">
               <span>My coaching data policy</span>
@@ -341,6 +343,9 @@ export function Onboarding({
                 <option value="none">No wearable imports</option>
                 <option value="permitted_imports">
                   Allow permitted manual imports
+                </option>
+                <option value="permitted_imports_and_sync">
+                  Allow permitted imports and Apple Health sync
                 </option>
               </select>
             </label>

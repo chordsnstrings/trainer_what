@@ -16,6 +16,11 @@ import {
   eraseComplimentaryAccess,
   closeWorkspaceComplimentaryAccess,
 } from "./complimentary-access.ts";
+import {
+  exportHealthKitData,
+  eraseHealthKitData,
+  closeHealthKitData,
+} from "./healthkit-sync.ts";
 async function exists(tx: Tx, table: string) {
   return !!(
     await tx.query("SELECT to_regclass($1) name", ["public." + table])
@@ -110,6 +115,9 @@ export const privacyHooks: PrivacyHooks = {
       coachingFollowups: await exportCoachingFollowups(tx, userId),
       complimentaryAccess: await exportComplimentaryAccess(tx, userId),
       chatAttachments: await exportChatAttachments(tx, userId),
+      healthKitSync: (await exists(tx, "healthkit_devices"))
+        ? await exportHealthKitData(tx, userId)
+        : null,
       connections: await rows(
         tx,
         "integration_connections",
@@ -169,6 +177,8 @@ export const privacyHooks: PrivacyHooks = {
     await eraseCoachingFollowups(tx, userId);
     await eraseChatAttachments(tx, userId);
     await eraseComplimentaryAccess(tx, userId);
+    if (await exists(tx, "healthkit_devices"))
+      await eraseHealthKitData(tx, userId);
     if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);
     // Remove guided audio before workout records because the audio has an FK to
     // its workout. Provider revocation/purge remains an explicit evidence task.
@@ -196,6 +206,7 @@ export const privacyHooks: PrivacyHooks = {
     await eraseCoachingFollowups(tx);
     await closeChatAttachments(tx);
     await closeWorkspaceComplimentaryAccess(tx);
+    if (await exists(tx, "healthkit_devices")) await closeHealthKitData(tx);
     for (const table of [
       "guided_audio",
       "integration_oauth_states",

@@ -357,9 +357,16 @@ export function registerAdminOperations(
                 [t.id],
               );
             if (view === "wearables")
-              return tx.query(
-                "SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider' AS provider,data->>'source' AS source,data->>'lastSyncAt' AS last_sync_at,data->>'errorCode' AS error_code FROM records WHERE kind IN ('wearable','wearable_connection') ORDER BY updated_at DESC LIMIT 100",
-              );
+              return [
+                // Paired HealthKit companion devices: connection health only,
+                // never tokens or health values.
+                ...(await tx.query(
+                  "SELECT id,user_id AS owner_user_id,status,created_at,updated_at,'apple_healthkit' AS provider,'healthkit_device' AS source,last_sync_at,last_error_code AS error_code,platform,revoked_reason,batches_received,samples_received::text AS samples_received FROM healthkit_devices ORDER BY updated_at DESC LIMIT 100",
+                )),
+                ...(await tx.query(
+                  "SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider' AS provider,data->>'source' AS source,data->>'lastSyncAt' AS last_sync_at,data->>'errorCode' AS error_code FROM records WHERE kind IN ('wearable','wearable_connection') ORDER BY updated_at DESC LIMIT 100",
+                )),
+              ];
             if (view === "infrastructure")
               return tx.query(
                 "SELECT id,kind,status,attempts,available_at,leased_until,created_at FROM jobs WHERE status IN ('pending','blocked','failed') ORDER BY created_at LIMIT 100",
