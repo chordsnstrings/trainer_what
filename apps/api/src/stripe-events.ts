@@ -15,8 +15,12 @@ import { stripeClient } from "@trainer/providers";
 import { recordCharge, journal } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
 type StripeLike = ReturnType<typeof stripeClient>;
-/** Stable rank: position by first paid date and user ID among every subscriber who has paid, assigned once. */
-export const COMMISSION_RANK_METHOD = "stable-first-paid-v1";
+/**
+ * Stable rank, assigned once at a subscriber's first positive charge as the next number after
+ * every stored rank; payers ranked together are ordered by first paid date and user ID. v1 ranked
+ * by a first-paid position that could repeat a number; its stored ranks are kept.
+ */
+export const COMMISSION_RANK_METHOD = "stable-first-paid-v2";
 const idOf = (value: any): string | undefined =>
   typeof value === "string" ? value : (value?.id ?? undefined);
 function optionalStripe(): StripeLike | undefined {
@@ -322,11 +326,14 @@ export async function processStripeEvent(
         throw new Error("Unsupported invoice amount/currency");
       const end = object.lines?.data?.[0]?.period?.end ?? object.period_end;
       if (!end) throw new Error("Invoice period end is required");
-      const firstPaidAt =
+      // A $0 invoice (a free trial) is not a payment and never starts the first-paid clock.
+      const firstPaidAt: string | undefined =
         current?.data?.firstPaidAt ??
-        new Date(
-          (object.created ?? e.created ?? Date.now() / 1000) * 1000,
-        ).toISOString();
+        (amount > 0
+          ? new Date(
+              (object.created ?? e.created ?? Date.now() / 1000) * 1000,
+            ).toISOString()
+          : undefined);
       const status =
         newer && current?.status !== "canceled"
           ? "active"
@@ -334,7 +341,7 @@ export async function processStripeEvent(
       const metadata = {
         ...current?.data,
         ...productAccess,
-        firstPaidAt,
+        ...(firstPaidAt ? { firstPaidAt } : {}),
         lastStripeEventAt: Math.max(lastTime, eventTime),
         ...(newer ? { graceUntil: null, pastDueSince: null } : {}),
       };
@@ -354,28 +361,32 @@ export async function processStripeEvent(
           ],
         );
       if (amount > 0) {
-        // The commission rank is assigned once, at the first positive charge, from the first-paid
-        // order of every subscriber who has paid (any current status), and reused for every later
-        // charge, so churn or a late invoice never re-ranks a payer. Treatment of churned and
-        // re-entering subscribers remains a finance-policy decision.
+        // The commission rank is assigned once, at the first positive charge, and reused for every
+        // later charge, so churn or a late invoice never re-ranks a payer. Under the tenant lock held
+        // above, ranks are issued in sequence after every stored rank, so no two payers share one in
+        // any processing order. Payers with an earlier positive charge but no stored rank (charged
+        // before ranks were stored) are ranked in the same step, in first-paid then user-ID order.
+        // A subscriber with no positive charge (a free trial) never takes a slot. Treatment of
+        // churned and re-entering subscribers, and of a first charge processed after later payers
+        // were ranked, remains a finance-policy decision.
         let rank = Number(current?.data?.commissionRank);
         if (!Number.isSafeInteger(rank) || rank < 1) {
-          const [position] = await tx.query(
-            "SELECT 1+count(*)::int AS rank FROM subscriptions WHERE user_id<>$1 AND data ? 'firstPaidAt' AND ((data->>'firstPaidAt')::timestamptz,user_id)<($2::timestamptz,$1::uuid)",
-            [userId, firstPaidAt],
-          );
-          rank = Number(position.rank);
-          await tx.query(
-            "UPDATE subscriptions SET data=$2::jsonb||data WHERE user_id=$1 AND NOT data ? 'commissionRank'",
+          const assigned = await tx.query(
+            "WITH top AS (SELECT coalesce(max((data->>'commissionRank')::int),0) AS n FROM subscriptions WHERE data ? 'commissionRank'), pending AS (SELECT s.id,row_number() OVER (ORDER BY coalesce((s.data->>'firstPaidAt')::timestamptz,$3::timestamptz),s.user_id) AS n FROM subscriptions s WHERE NOT s.data ? 'commissionRank' AND (s.user_id=$1 OR (s.data ? 'firstPaidAt' AND EXISTS(SELECT 1 FROM journals j WHERE j.source_key LIKE 'stripe-invoice:%' AND j.data->>'userId'=s.user_id::text AND (j.data->>'grossMinor')::numeric>0)))) UPDATE subscriptions s SET data=$2::jsonb||jsonb_build_object('commissionRank',top.n+pending.n)||s.data FROM top,pending WHERE s.id=pending.id RETURNING s.user_id=$1 AS payer,(s.data->>'commissionRank')::int AS rank",
             [
               userId,
               JSON.stringify({
                 firstPaidAt,
-                commissionRank: rank,
                 commissionRankMethod: COMMISSION_RANK_METHOD,
               }),
+              firstPaidAt,
             ],
           );
+          rank = Number(assigned.find((row) => row.payer)?.rank);
+          if (!Number.isSafeInteger(rank) || rank < 1)
+            throw new Error(
+              "Subscriber commission rank unavailable; retain receipt for reconciliation",
+            );
         }
         await recordCharge(tx, a, `stripe-invoice:${object.id}`, amount, rank, {
           userId,

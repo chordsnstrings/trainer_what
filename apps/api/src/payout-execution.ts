@@ -40,10 +40,10 @@ export async function executePayout(
         "PAYOUT_STATE",
         "Only a prepared, unsubmitted instruction may execute",
       );
-    if (await unconfirmedPayoutFailure(tx, p.period))
+    if (await unconfirmedPayoutFailure(tx, p.tenant_id))
       throw fail(
         "PAYOUT_RECONCILIATION_REQUIRED",
-        "An earlier instruction for this period is marked failed without independent provider confirmation",
+        "An earlier instruction in this workspace is marked failed without independent provider confirmation",
       );
     let approver: string | null = null;
     if (approval) {
@@ -105,7 +105,15 @@ export async function executePayout(
         "SEPARATION_OF_DUTIES",
         "A finance operator independent of the payee workspace and of the preparer must authorize this payment",
       );
-    return transitionPayout(tx, a, p.id, "submitted");
+    // The dispatch is attributed to whoever authorized it: for unattended
+    // dispatch, the automation approver, so outcome checks treat the approver
+    // as the dispatcher.
+    return transitionPayout(
+      tx,
+      approval && approver ? { ...a, userId: approver } : a,
+      p.id,
+      "submitted",
+    );
   });
   try {
     const result = await new LeanGateway().sendPayout({

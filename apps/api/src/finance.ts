@@ -103,11 +103,13 @@ export async function payeeWorkspaceMember(
 /**
  * A dispatched instruction marked failed may still have settled. Only an
  * independent provider-confirmed failure permits a new provider identity.
+ * Payout eligibility is cumulative across periods, so the check covers the
+ * whole workspace, not only the failed instruction's period.
  */
-export async function unconfirmedPayoutFailure(tx: Tx, period: string) {
+export async function unconfirmedPayoutFailure(tx: Tx, tenantId: string) {
   const [row] = await tx.query(
-    "SELECT p.id FROM payouts p WHERE p.period=$1 AND p.status='failed' AND NOT EXISTS(SELECT 1 FROM events e WHERE e.name='payout.failure_confirmed' AND e.subject_id=p.id::text) LIMIT 1",
-    [period],
+    "SELECT p.id FROM payouts p WHERE p.tenant_id=$1 AND p.status='failed' AND NOT EXISTS(SELECT 1 FROM events e WHERE e.tenant_id=p.tenant_id AND e.name='payout.failure_confirmed' AND e.subject_id=p.id::text) LIMIT 1",
+    [tenantId],
   );
   return (row?.id as string | undefined) ?? null;
 }
@@ -135,10 +137,10 @@ export async function createPayout(
     );
   if (existing && !["failed", "returned", "canceled"].includes(existing.status))
     return existing;
-  if (await unconfirmedPayoutFailure(tx, period))
+  if (await unconfirmedPayoutFailure(tx, actor.tenantId))
     throw conflict(
       "PAYOUT_RECONCILIATION_REQUIRED",
-      "A dispatched instruction for this period is marked failed without independent provider confirmation; reconcile it before another bank instruction",
+      "A dispatched instruction in this workspace is marked failed without independent provider confirmation; reconcile it before another bank instruction",
     );
   const [closed] = await tx.query(
     "SELECT * FROM records WHERE kind='close' AND status='closed' AND data->>'period'=$1",
