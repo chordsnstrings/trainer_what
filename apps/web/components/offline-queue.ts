@@ -44,7 +44,22 @@ export type NutritionQueueItem = {
   correctsId?: string;
   [field: string]: unknown;
 };
-type Post = (path: string, body: unknown) => Promise<unknown>;
+type Post = (
+  path: string,
+  body: unknown,
+  headers: Record<string, string>,
+) => Promise<unknown>;
+
+/**
+ * Every replay names the member who saved the queue. The API refuses it with
+ * QUEUE_OWNER_MISMATCH while another member is signed in, e.g. from a tab left
+ * open after sign-out, so entries never reach someone else's record.
+ */
+export const QUEUE_OWNER_HEADER = "X-Queue-Owner";
+export const QUEUE_OWNER_MISMATCH = "SESSION_OWNER_MISMATCH";
+export function queueOwnerHeaders(tenantId: string, userId: string) {
+  return { [QUEUE_OWNER_HEADER]: `${tenantId}:${userId}` };
+}
 
 /** Keys are scoped to one workspace member, so another account never replays them. */
 export function offlineQueueKeys(
@@ -96,6 +111,8 @@ export function classifyQueueFailure(
   failure: QueueFailure,
   blockedStatuses: number[] = [402, 403],
 ): QueueStop | "rejected" {
+  // Another member's session: stop and keep the queue for its owner.
+  if (failure.code === QUEUE_OWNER_MISMATCH) return "session";
   const status = failure.status;
   if (!status || status >= 500 || [408, 425, 429].includes(status))
     return "retry";
@@ -201,12 +218,13 @@ export function drainWorkoutQueue(
   userId: string,
   post: Post,
 ) {
-  const keys = offlineQueueKeys("workout", tenantId, userId);
+  const keys = offlineQueueKeys("workout", tenantId, userId),
+    owner = queueOwnerHeaders(tenantId, userId);
   return runExclusive(keys.pending, () =>
     drainQueue<WorkoutQueueItem>(
       store,
       keys,
-      (item) => post(item.path, item.body),
+      (item) => post(item.path, item.body, owner),
       { id: (item) => item.body.eventKey, receipt: (item) => item.logicalKey },
     ),
   );
@@ -217,12 +235,13 @@ export function drainNutritionQueue(
   userId: string,
   post: Post,
 ) {
-  const keys = offlineQueueKeys("nutrition", tenantId, userId);
+  const keys = offlineQueueKeys("nutrition", tenantId, userId),
+    owner = queueOwnerHeaders(tenantId, userId);
   return runExclusive(keys.pending, () =>
     drainQueue<NutritionQueueItem>(
       store,
       keys,
-      (item) => post("/nutrition/logs", item),
+      (item) => post("/nutrition/logs", item, owner),
       { id: (item) => item.eventKey },
     ),
   );
@@ -287,6 +306,56 @@ export async function replayOfflineQueues(
 ) {
   await drainWorkoutQueue(store, tenantId, userId, post);
   await drainNutritionQueue(store, tenantId, userId, post);
+}
+/**
+ * Leaves the current session by sign-out or workspace switch. Both queues
+ * replay first, while this session is still valid; unsynced entries need
+ * confirmation and are never removed. Caches are cleared after `leave`.
+ * Returns false when the person chose to stay.
+ */
+export async function leaveSession(
+  store: QueueStore,
+  tenantId: string,
+  userId: string,
+  options: {
+    online: boolean;
+    post: Post;
+    confirm: (unsynced: number) => boolean;
+    leave: () => Promise<unknown>;
+  },
+) {
+  if (options.online)
+    await replayOfflineQueues(store, tenantId, userId, options.post).catch(
+      () => {},
+    );
+  const unsynced = unsyncedCount(store, tenantId, userId);
+  if (unsynced > 0 && !options.confirm(unsynced)) return false;
+  await options.leave();
+  clearLocalData(store, { keepQueues: true });
+  return true;
+}
+/**
+ * The outcome of one entry after a replay. An entry that is neither waiting
+ * nor set aside was accepted, unless the replay stopped because access
+ * changed: the caller then removes the queue, so the entry was discarded.
+ */
+export function entryOutcome<T>(
+  store: QueueStore,
+  keys: QueueKeys,
+  id: string,
+  idOf: (item: T) => string,
+  result: DrainResult<T> | null | undefined,
+): "pending" | "rejected" | "discarded" | "accepted" {
+  if (readList<T>(store, keys.pending).some((x) => idOf(x) === id))
+    return "pending";
+  if (
+    readList<RejectedEntry<T>>(store, keys.rejected).some(
+      (x) => idOf(x.item) === id,
+    )
+  )
+    return "rejected";
+  if (result?.synced.some((x) => idOf(x) === id)) return "accepted";
+  return result?.stopped?.reason === "blocked" ? "discarded" : "accepted";
 }
 /**
  * Clears this app's device data. With `keepQueues`, unsynced member-scoped

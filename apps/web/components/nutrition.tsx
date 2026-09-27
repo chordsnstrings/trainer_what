@@ -21,6 +21,7 @@ import {
 import {
   discardRejected,
   drainNutritionQueue,
+  entryOutcome,
   offlineQueueKeys,
   readList,
   retryRejected,
@@ -28,12 +29,19 @@ import {
   type RejectedEntry,
 } from "./offline-queue";
 
-async function api(path: string, method = "GET", body?: unknown) {
+async function api(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  headers?: Record<string, string>,
+) {
   const r = await fetch("/api/v1" + path, {
     method,
     credentials: "same-origin",
     headers:
-      body === undefined ? undefined : { "Content-Type": "application/json" },
+      body === undefined
+        ? headers
+        : { "Content-Type": "application/json", ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await r.json();
@@ -2182,7 +2190,7 @@ export function NutritionSubscriber({
       localStorage,
       tenantId,
       userId,
-      (path, body) => api(path, "POST", body),
+      (path, body, headers) => api(path, "POST", body, headers),
     );
     refreshQueue();
     const stop = result.stopped?.reason;
@@ -2201,7 +2209,11 @@ export function NutritionSubscriber({
       r.setError(
         "A meal entry could not be saved. Review it below; later entries kept syncing.",
       );
-    if (stop !== "session") await r.load();
+    // A failed reload must not hide what the replay did to the queue.
+    if (stop !== "session")
+      await r.load().catch((e) => {
+        if (!stop) r.setError((e as Error).message);
+      });
     return result;
   }
   useEffect(() => {
@@ -2222,21 +2234,26 @@ export function NutritionSubscriber({
     localStorage.setItem(queueKey, JSON.stringify([...entries, body]));
     refreshQueue();
     r.setMessage("");
-    if (navigator.onLine)
-      await sync().catch((e) => r.setError((e as Error).message));
-    const waiting = readList<NutritionQueueItem>(localStorage, queueKey).some(
-        (e) => e.eventKey === body.eventKey,
-      ),
-      refused = readList<RejectedEntry<NutritionQueueItem>>(
-        localStorage,
-        keys.rejected,
-      ).some((e) => e.item.eventKey === body.eventKey);
-    // Only an accepted entry is reported as recorded.
-    if (waiting)
+    const result = navigator.onLine
+      ? await sync().catch((e) => {
+          r.setError((e as Error).message);
+          return null;
+        })
+      : null;
+    // Only an accepted entry is reported as recorded. An entry removed because
+    // access changed is reported by the error that sync set.
+    const outcome = entryOutcome<NutritionQueueItem>(
+      localStorage,
+      keys,
+      body.eventKey,
+      (e) => e.eventKey,
+      result,
+    );
+    if (outcome === "pending")
       r.setMessage(
         "Saved on this device. It will sync when your connection is available.",
       );
-    else if (!refused) r.setMessage("Meal recorded");
+    else if (outcome === "accepted") r.setMessage("Meal recorded");
   }
   async function syncNow() {
     r.setMessage("");
