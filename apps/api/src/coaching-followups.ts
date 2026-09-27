@@ -9,7 +9,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { canonicalCoaching } from "../../../packages/domain/src/coaching-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { memberAccess } from "./entitlements.ts";
 import { notifyUser } from "./notifications.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 
@@ -91,11 +91,11 @@ function normalizeSchedule(b: z.infer<typeof scheduleSchema>, now: Date) {
 async function context(tx: Tx, a: Actor, target: string) {
   if (!(await targetExists(tx, a, target)))
     return { reason: "The client is no longer a member of this workspace" };
-  const paid = await currentPaidSubscription(tx, target);
-  if (!paid)
+  const access = await memberAccess(tx, target);
+  if (!access.active)
     return {
       reason:
-        "The client no longer has an active paid membership or grace period",
+        "The client no longer has an active paid or complimentary membership or grace period",
     };
   const [consent] = await tx.query(
     "SELECT id,granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -132,9 +132,12 @@ async function context(tx: Tx, a: Actor, target: string) {
     "SELECT id,version,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY id",
     [target],
   );
+  // Paid access pins the subscription exactly as before; complimentary-only
+  // access pins the grant, so ending it invalidates the scheduled follow-up.
   const pinned = {
     consentId: consent.id,
-    subscriptionId: paid.id,
+    subscriptionId: access.subscription?.id ?? null,
+    ...(access.subscription ? {} : { complimentaryId: access.grant?.id }),
     facts,
     programs,
   };

@@ -541,6 +541,11 @@ export async function eraseMember(
       "DELETE FROM one_time_tokens WHERE tenant_id=$1 AND user_id=$2",
       [a.tenantId, r.owner_user_id],
     );
+    // Invitation history names the invited address; remove it with the member.
+    await tx.query(
+      "DELETE FROM one_time_tokens WHERE tenant_id=$1 AND purpose='invite' AND lower(payload->>'email')=lower($2)",
+      [a.tenantId, u.email],
+    );
     await scrubUnusedAccount(tx, r.owner_user_id);
     return {
       status: "local_erasure_completed",

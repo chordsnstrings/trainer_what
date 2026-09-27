@@ -14,6 +14,7 @@ import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
+import { sweepComplimentaryAccess } from "../../api/src/complimentary-access.ts";
 if (!process.env.DATABASE_URL) {
   console.log(
     "Jobs are persisted locally. Delivery requires a PostgreSQL worker and configured providers.",
@@ -82,6 +83,11 @@ if (!process.env.DATABASE_URL) {
         await scheduleNotifications(db, tenant.id);
       } catch {
         console.error("Notification scheduling failed");
+      }
+      try {
+        await sweepComplimentaryAccess(db, tenant.id);
+      } catch {
+        console.error("Complimentary access expiry failed");
       }
       try {
         await scheduleLifecycleMessages(db, tenant.id);

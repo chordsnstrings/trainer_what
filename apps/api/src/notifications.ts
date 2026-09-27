@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 const fail = (statusCode: number, code: string, message: string) =>
@@ -301,6 +301,12 @@ export async function notificationDeliveryDecision(
   job: any,
   now = new Date(),
 ): Promise<{ allowed: boolean; due?: Date }> {
+  // Invitation emails carry a join link: send only while that exact link is
+  // still the invitation's current, pending link (joining.ts).
+  if (job.data.invitationId) {
+    const { invitationEmailCurrent } = await import("./joining.ts");
+    return { allowed: await invitationEmailCurrent(db, tenantId, job, now) };
+  }
   if (!job.data.notificationId) return { allowed: true };
   const decision = await db.tenant(
     { tenantId, userId: job.data.userId, role: "owner" },
@@ -353,7 +359,7 @@ export async function notificationDeliveryDecision(
           !r ||
           r.status !== "planned" ||
           r.data.date !== source.date ||
-          !(await currentPaidSubscription(tx, n.user_id))
+          !(await hasMemberAccess(tx, n.user_id))
         )
           return { allowed: false };
         const today = new Intl.DateTimeFormat("en-CA", {
@@ -454,7 +460,7 @@ export async function scheduleNotifications(db: Database, tenantId: string) {
       "SELECT id,owner_user_id,data FROM records WHERE kind='planned_session' AND status='planned'",
     );
     for (const p of planned) {
-      if (!(await currentPaidSubscription(tx, p.owner_user_id))) continue;
+      if (!(await hasMemberAccess(tx, p.owner_user_id))) continue;
       const timezone = p.data.timezone ?? "Asia/Dubai",
         fmt = new Intl.DateTimeFormat("en-CA", {
           timeZone: timezone,

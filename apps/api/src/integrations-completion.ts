@@ -26,7 +26,7 @@ import {
 import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { memberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -796,8 +796,9 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
       "This workspace or membership is no longer active.",
     );
   await lock(tx, a, "training");
-  const subscription = await currentPaidSubscription(tx, a.userId);
-  if (!subscription)
+  // Paid or complimentary access; premium voice is a paid product capability.
+  const access = await memberAccess(tx, a.userId);
+  if (!access.active)
     throw fail(
       402,
       "MEMBERSHIP_REQUIRED",
@@ -832,9 +833,7 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   return {
     workout,
     segments,
-    premium:
-      subscription.data?.modules?.includes("voice") === true ||
-      subscription.data?.premiumVoice === true,
+    premium: access.premiumVoice,
   };
 }
 function voicePublic(r: any) {
