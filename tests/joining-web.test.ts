@@ -85,3 +85,47 @@ test("the coach switcher replays device queues before leaving, like the sidebar 
       switcher.indexOf("leaveSession(") < switcher.indexOf('"/auth/workspace"'),
   );
 });
+
+test("leaving from the invitation page replays device queues and clears cached data first", async () => {
+  const source = await readFile(
+    new URL("../apps/web/components/joining.tsx", import.meta.url),
+    "utf8",
+  );
+  const join = source.slice(
+    source.indexOf("export function InvitationJoin"),
+    source.indexOf("const statusTone"),
+  );
+  const helper = join.slice(join.indexOf("const leaveCurrent"));
+  assert.match(helper, /leaveSession\(localStorage, v\.tenantId, v\.userId/);
+  // Both ways of leaving the current session go through the shared helper.
+  assert.match(
+    join,
+    /leaveCurrent\(\s*\(\)\s*=>\s*api\("\/invitations\/accept-signed-in"/,
+  );
+  assert.match(join, /leaveCurrent\(\s*\(\)\s*=>\s*api\("\/auth\/logout"/);
+  assert.equal(
+    join.match(/api\("\/auth\/logout"/g)?.length,
+    1,
+    "No direct sign-out outside the helper",
+  );
+});
+
+test("the coaches card names itself whether or not the heading is shown", async () => {
+  const source = await readFile(
+    new URL("../apps/web/components/joining.tsx", import.meta.url),
+    "utf8",
+  );
+  const card = source.slice(source.indexOf("const listed ="));
+  assert.match(
+    card,
+    /listed\s*\?\s*\{ "aria-labelledby": "coach-switcher-title" \}\s*:\s*\{ "aria-label": "Your coaches" \}/,
+  );
+  assert.match(card, /\{listed && \(\s*<>\s*<h2 id="coach-switcher-title">/);
+});
+
+test("the operator list offers workspace, follower and status filters", () => {
+  const admin = html(AdminComplimentaryAccess, { platformRole: "support" });
+  assert.match(admin, /Workspace address/);
+  assert.match(admin, /Follower email/);
+  assert.match(admin, /<option value="ended">Ended<\/option>/);
+});

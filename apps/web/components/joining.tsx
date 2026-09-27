@@ -47,6 +47,8 @@ type Preview = {
   legalOpen: boolean;
   viewer: {
     signedIn: boolean;
+    tenantId?: string;
+    userId?: string;
     name?: string;
     email?: string;
     emailMatches?: boolean;
@@ -159,14 +161,31 @@ export function InvitationJoin({
     setBusy(true);
     setError("");
     try {
-      await fn();
-      return true;
+      return (await fn()) !== false;
     } catch (e) {
       setError((e as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
+  };
+  /**
+   * Leaves the signed-in session the same way as the sidebar sign-out and the
+   * coach switcher: this device's offline entries replay first, unsynced
+   * entries need confirmation, and cached app data is cleared afterwards.
+   */
+  const leaveCurrent = (leave: () => Promise<unknown>, verb: string) => {
+    const v = preview.viewer;
+    if (!v.tenantId || !v.userId) return leave();
+    return leaveSession(localStorage, v.tenantId, v.userId, {
+      online: navigator.onLine,
+      post: (p, b, h) => api(p, "POST", b, h),
+      confirm: (n) =>
+        window.confirm(
+          `${n} workout or meal ${n === 1 ? "entry has" : "entries have"} not synced. ${n === 1 ? "It stays" : "They stay"} on this device and will sync when you return to your current coach. ${verb} anyway?`,
+        ),
+      leave,
+    });
   };
   if (preview.viewer.signedIn) {
     const v = preview.viewer;
@@ -190,10 +209,14 @@ export function InvitationJoin({
           onSubmit={async (e) => {
             e.preventDefault();
             const ok = await run(() =>
-              api("/invitations/accept-signed-in", "POST", {
-                token,
-                accepted: true,
-              }),
+              leaveCurrent(
+                () =>
+                  api("/invitations/accept-signed-in", "POST", {
+                    token,
+                    accepted: true,
+                  }),
+                "Join",
+              ),
             );
             if (ok) window.location.assign("/app?joined=1");
           }}
@@ -239,8 +262,12 @@ export function InvitationJoin({
           disabled={busy}
           onClick={() =>
             void run(async () => {
-              await api("/auth/logout", "POST", {});
-              load();
+              const left = await leaveCurrent(
+                () => api("/auth/logout", "POST", {}),
+                "Sign out",
+              );
+              if (left !== false) load();
+              return left;
             })
           }
         >
@@ -357,6 +384,7 @@ const deliveryText: Record<string, string> = {
   unknown: "Delivery unconfirmed",
   unavailable: "Email not configured",
   rate_limited: "Email limit reached",
+  verify_email_first: "Confirm your email to send",
 };
 /** Owner tools: invite by link or email, see status and delivery, resend or cancel. */
 export function FollowerInvitations({ role }: { role: string }) {
@@ -402,6 +430,7 @@ export function FollowerInvitations({ role }: { role: string }) {
   const rows = (data?.invitations ?? []).filter(
     (i: any) => filter === "all" || i.status === filter,
   );
+  const canEmail = !!data?.emailConfigured && !!data?.ownerEmailVerified;
   return (
     <section className="card follower-invitations">
       <h2>Invite a subscriber</h2>
@@ -433,16 +462,27 @@ export function FollowerInvitations({ role }: { role: string }) {
           <input
             type="checkbox"
             name="sendEmail"
-            defaultChecked={!!data?.emailConfigured}
-            disabled={data && !data.emailConfigured}
+            key={canEmail ? "email" : "link"}
+            defaultChecked={canEmail}
+            disabled={!!data && !canEmail}
           />
           <span>
             Email the invitation link
             {data && !data.emailConfigured
               ? " (email delivery is not configured yet; copy the link instead)"
-              : ""}
+              : data && !data.ownerEmailVerified
+                ? " (confirm your own email address first; copy the link instead)"
+                : ""}
           </span>
         </label>
+        {data && data.emailConfigured && !data.ownerEmailVerified && (
+          <p className="muted">
+            <Link className="text-link" href="/trainer/settings">
+              Confirm your email address in Account security
+            </Link>{" "}
+            to send invitations by email.
+          </p>
+        )}
         <button className="button" type="submit" disabled={busy}>
           Create invitation
         </button>
@@ -519,7 +559,7 @@ export function FollowerInvitations({ role }: { role: string }) {
               </small>
               {i.status === "pending" && (
                 <div className="invitation-actions">
-                  {data.emailConfigured && (
+                  {canEmail && (
                     <button
                       className="text-button"
                       type="button"
@@ -576,8 +616,9 @@ export function FollowerInvitations({ role }: { role: string }) {
       {data && (
         <p className="fine-print muted">
           Links last {data.limits.validDays} days. Up to{" "}
-          {data.limits.emailsPerAddress} invitation emails per address and{" "}
-          {data.limits.emailsPerDay} per workspace are sent each day.
+          {data.limits.emailsPerAddress} invitation emails per address (from
+          any coach) and {data.limits.emailsPerDay} per workspace are sent each
+          day.
         </p>
       )}
     </section>
@@ -672,10 +713,13 @@ export function CoachSwitcher({
   }
   if (coaches.length < 2 && !joined) return null;
   const here = choices.find((c) => c.tenantId === current);
+  const listed = coaches.length > 1;
   return (
     <section
       className="card coach-switcher"
-      aria-labelledby="coach-switcher-title"
+      {...(listed
+        ? { "aria-labelledby": "coach-switcher-title" }
+        : { "aria-label": "Your coaches" })}
     >
       {joined && (
         <p className="notice success" role="status">
@@ -685,7 +729,7 @@ export function CoachSwitcher({
             : ""}
         </p>
       )}
-      {coaches.length > 1 && (
+      {listed && (
         <>
           <h2 id="coach-switcher-title">Your coaches</h2>
           <p className="muted">

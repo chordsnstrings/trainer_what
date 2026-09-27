@@ -64,4 +64,30 @@ END $$;
 CREATE TRIGGER complimentary_access_guarded BEFORE UPDATE OR DELETE ON complimentary_access FOR EACH ROW EXECUTE FUNCTION complimentary_access_guard();
 GRANT SELECT,INSERT,UPDATE ON complimentary_access TO trainer_app;
 REVOKE DELETE ON complimentary_access FROM trainer_app;
+-- Operator directory: keys and dates only (no names, reasons or notes), so
+-- platform operators can page grants across workspaces by grant without a
+-- cross-tenant read of complimentary_access. A definer trigger keeps it in
+-- step with every insert and close; the runtime service role only reads it
+-- (infra/runtime-role.sql) and tenant roles have no access at all.
+CREATE TABLE complimentary_access_directory (
+ grant_id uuid PRIMARY KEY,
+ tenant_id uuid NOT NULL,
+ user_id uuid NOT NULL,
+ created_at timestamptz NOT NULL,
+ ends_at timestamptz,
+ closed_at timestamptz
+);
+CREATE INDEX complimentary_access_directory_page ON complimentary_access_directory(created_at DESC,grant_id DESC);
+CREATE INDEX complimentary_access_directory_tenant ON complimentary_access_directory(tenant_id,created_at DESC);
+CREATE FUNCTION complimentary_access_directory_sync() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ BEGIN
+ INSERT INTO public.complimentary_access_directory(grant_id,tenant_id,user_id,created_at,ends_at,closed_at)
+ VALUES(NEW.id,NEW.tenant_id,NEW.user_id,NEW.created_at,NEW.ends_at,NEW.closed_at)
+ ON CONFLICT (grant_id) DO UPDATE SET closed_at=EXCLUDED.closed_at;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION complimentary_access_directory_sync() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION complimentary_access_directory_sync() TO trainer_app;
+CREATE TRIGGER complimentary_access_directory_synced AFTER INSERT OR UPDATE ON complimentary_access FOR EACH ROW EXECUTE FUNCTION complimentary_access_directory_sync();
+-- Invitation-email caps read recent follower invitations across workspaces.
+CREATE INDEX one_time_tokens_invite_expiry ON one_time_tokens(expires_at) WHERE purpose='invite';
 INSERT INTO schema_migrations(version) VALUES('055_joining_complimentary_access');

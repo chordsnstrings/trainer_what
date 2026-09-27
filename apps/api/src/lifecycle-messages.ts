@@ -9,7 +9,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
-import { hasMemberAccess } from "./entitlements.ts";
+import {
+  activeComplimentaryGrant,
+  hasMemberAccess,
+} from "./entitlements.ts";
 import { trainingAdherence } from "../../../packages/domain/src/client-twin.ts";
 import { addTrainingDays } from "../../../packages/domain/src/coaching-completion.ts";
 import {
@@ -361,6 +364,12 @@ async function current(
   if (s.trigger === "paid-milestone")
     return (await paidMembers(tx)) >= s.milestone;
   if (s.trigger === "review-queue") return (await pendingReviews(tx)) >= 8;
+  if (s.trigger === "intake" && s.complimentaryId) {
+    // Trainer-granted access: the nudge stays relevant while that grant is
+    // the member's open access and no intake is complete.
+    const grant = await activeComplimentaryGrant(tx, userId);
+    return grant?.id === s.complimentaryId && (await needsIntake(tx, userId));
+  }
   if (s.trigger === "intake") {
     const paid = await currentPaidSubscription(tx, userId);
     const [charge] = await tx.query(
@@ -682,6 +691,29 @@ export async function scheduleLifecycleMessages(
             href: "/app/intake",
           },
           { subscriptionId: p.id, chargeId: p.charge_id },
+        );
+      }
+      // Complimentary members need an intake too; paid members already get
+      // the payment-based prompt above.
+      const complimentary = await tx.query(
+        "SELECT c.id,c.user_id,c.created_at FROM complimentary_access c WHERE c.closed_at IS NULL AND c.starts_at<=now() AND (c.ends_at IS NULL OR c.ends_at>now()) AND c.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=c.user_id AND r.status='complete') ORDER BY c.created_at,c.id LIMIT $2",
+        [since, LIMIT],
+      );
+      for (const g of complimentary) {
+        if (await currentPaidSubscription(tx, g.user_id)) continue;
+        const phase =
+          now.getTime() - time(g.created_at) >= 24 * HOUR ? "24h" : "initial";
+        await emit(
+          "intake",
+          `complimentary:${g.id}:${phase}`,
+          g.user_id,
+          {
+            category: "coaching",
+            title: "Complete your coaching intake",
+            body: "Your coach gave you complimentary access. Complete your intake so your coach has the information needed to prepare your program.",
+            href: "/app/intake",
+          },
+          { complimentaryId: g.id },
         );
       }
       const programs = await tx.query(

@@ -230,7 +230,16 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "number",
         {
           defaultValue: "3",
-          help: "Whole number, 1 to 20, counted per workspace over 24 hours.",
+          help: "Whole number, 1 to 20, counted across all workspaces over 24 hours.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY",
+        "Follower invitation emails per day, whole platform",
+        "number",
+        {
+          defaultValue: "1000",
+          help: "Whole number, 0 to 100000. 0 pauses invitation emails; copy-link invitations keep working.",
         },
       ),
       field(
@@ -251,7 +260,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "number",
         {
           defaultValue: "25",
-          help: "Whole number. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
+          help: "Whole number, 0 to 100000. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
         },
       ),
     ],
@@ -630,6 +639,18 @@ function endpointUrl(value: string): URL {
     );
   return url;
 }
+/**
+ * Whole-number settings whose runtime reader only honours this range. Saving
+ * an out-of-range value is refused so the value shown is the value in force.
+ */
+export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
+  {
+    FOLLOWER_INVITE_EMAILS_PER_DAY: [0, 10000],
+    FOLLOWER_INVITE_EMAILS_PER_ADDRESS: [1, 20],
+    FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
+    COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
+    COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+  };
 export function validateIntegrationValues(
   id: string,
   values: Record<string, unknown>,
@@ -667,6 +688,16 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(
           `${entry.label} must be a nonnegative number up to 1000000`,
+        );
+      const range = INTEGER_SETTING_RANGES[key];
+      if (
+        range &&
+        (!Number.isInteger(Number(text)) ||
+          Number(text) < range[0] ||
+          Number(text) > range[1])
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a whole number from ${range[0]} to ${range[1]}`,
         );
       if (
         (key === "MODEL_MAX_DAILY_CALLS" ||

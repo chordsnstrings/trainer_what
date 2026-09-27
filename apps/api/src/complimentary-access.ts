@@ -11,7 +11,7 @@ import {
   tierModules,
   type ComplimentaryTier,
 } from "./entitlements.ts";
-import { joiningLimits } from "./joining.ts";
+import { joiningLimits, messageDate } from "./joining.ts";
 
 /**
  * Trainer-granted complimentary access. The workspace owner (with a fresh
@@ -67,6 +67,17 @@ async function lockGrants(tx: Tx, tenantId: string) {
 }
 const listSql =
   "SELECT c.*,u.name,u.email,g.name AS granted_by_name FROM complimentary_access c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN users g ON g.id=c.granted_by";
+/** Days before a fixed end date when the follower is reminded. */
+export const COMPLIMENTARY_REMINDER_DAYS = 3;
+const SYSTEM_USER = "00000000-0000-0000-0000-000000000000";
+/** The member's saved time zone (notification preferences), if any. */
+async function memberTimezone(tx: Tx, userId: string) {
+  const [pref] = await tx.query(
+    "SELECT data->>'timezone' AS timezone FROM notification_preferences WHERE user_id=$1",
+    [userId],
+  );
+  return pref?.timezone ?? null;
+}
 
 const grantInput = z
   .object({
@@ -193,12 +204,14 @@ export async function grantComplimentaryAccess(
       endsAt: grant.ends_at,
       replaced,
     });
+    // Dates read in the member's own time zone (UAE by default).
+    const timezone = grant.ends_at ? await memberTimezone(tx, b.userId) : null;
     await notifyUser(tx, a, {
       userId: b.userId,
       category: "coaching",
       dedupeKey: `complimentary-granted:${id}`,
       title: "Your coach gave you complimentary access",
-      body: `${tierLabel(b.tier)} coaching is included ${grant.ends_at ? `until ${new Date(grant.ends_at).toISOString().slice(0, 10)}` : "until your coach ends it"}. No payment is needed for this access.`,
+      body: `${tierLabel(b.tier)} coaching is included ${grant.ends_at ? `until ${messageDate(grant.ends_at, timezone)}` : "until your coach ends it"}. No payment is needed for this access.`,
       href: "/app/membership",
       source: { type: "complimentary", id },
     });
@@ -216,6 +229,20 @@ export async function closeComplimentaryAccess(
   const b = revokeInput.parse(input);
   return db.tenant({ ...a, role: "owner" }, async (tx) => {
     await lockGrants(tx, a.tenantId);
+    // A grant whose period already ran out is closed as expired: it is not a
+    // revocation, and the follower is not told a second time that it ended.
+    const [lapsed] = await tx.query(
+      "UPDATE complimentary_access SET closed_at=now(),close_reason='expired',version=version+1 WHERE id=$1 AND closed_at IS NULL AND version=$2 AND ends_at IS NOT NULL AND ends_at<=now() RETURNING *",
+      [grantId, b.version],
+    );
+    if (lapsed) {
+      await event(tx, a, "complimentary.expired", lapsed.id, {
+        userId: lapsed.user_id,
+        tier: lapsed.tier,
+        closedWhile: by === "platform" ? "platform_revoke" : "revoke",
+      });
+      return view(lapsed);
+    }
     const [grant] = await tx.query(
       "UPDATE complimentary_access SET closed_at=now(),closed_by=$2,close_reason=$3,close_note=$4,version=version+1 WHERE id=$1 AND closed_at IS NULL AND version=$5 RETURNING *",
       [
@@ -259,6 +286,64 @@ export async function closeComplimentaryAccess(
         href: "/trainer/subscribers",
       });
     return view(grant);
+  });
+}
+
+/**
+ * Worker pass beside scheduleNotifications: closes grants whose period ran
+ * out as `expired` and tells the follower and the coaching team once, and
+ * reminds the follower a few days before a fixed end date. Bounded per pass.
+ */
+export async function sweepComplimentaryAccess(db: Database, tenantId: string) {
+  const a: Actor = { tenantId, userId: SYSTEM_USER, role: "owner" };
+  return db.tenant(a, async (tx) => {
+    await lockGrants(tx, tenantId);
+    const lapsed = await tx.query(
+      "UPDATE complimentary_access SET closed_at=now(),close_reason='expired',version=version+1 WHERE id IN (SELECT id FROM complimentary_access WHERE closed_at IS NULL AND ends_at IS NOT NULL AND ends_at<=now() ORDER BY ends_at,id LIMIT 100) RETURNING id,user_id,tier,ends_at",
+    );
+    for (const g of lapsed) {
+      await event(tx, a, "complimentary.expired", g.id, {
+        userId: g.user_id,
+        tier: g.tier,
+      });
+      const timezone = await memberTimezone(tx, g.user_id);
+      await notifyUser(tx, a, {
+        userId: g.user_id,
+        category: "coaching",
+        dedupeKey: `complimentary-ended:${g.id}`,
+        title: "Your complimentary access has ended",
+        body: `The complimentary coaching access from your coach ended on ${messageDate(g.ends_at, timezone)}. Your membership page shows your current options.`,
+        href: "/app/membership",
+        source: { type: "complimentary", id: g.id },
+      });
+      const [person] = await tx.query("SELECT name FROM users WHERE id=$1", [
+        g.user_id,
+      ]);
+      await notifyCoachingTeam(tx, a, {
+        category: "coaching",
+        dedupeKey: `complimentary-expired-team:${g.id}`,
+        title: "Complimentary access ended",
+        body: `${person?.name ?? "A follower"}'s complimentary access reached its end date. Grant it again or invite them to a paid plan from Subscribers.`,
+        href: "/trainer/subscribers",
+      });
+    }
+    const ending = await tx.query(
+      "SELECT c.id,c.user_id,c.ends_at FROM complimentary_access c WHERE c.closed_at IS NULL AND c.ends_at>now() AND c.ends_at<=now()+make_interval(days=>$1) AND c.ends_at-c.starts_at>make_interval(days=>$1) AND NOT EXISTS(SELECT 1 FROM notifications n WHERE n.user_id=c.user_id AND n.dedupe_key='complimentary-ending:'||c.id::text) ORDER BY c.ends_at,c.id LIMIT 100",
+      [COMPLIMENTARY_REMINDER_DAYS],
+    );
+    for (const g of ending) {
+      const timezone = await memberTimezone(tx, g.user_id);
+      await notifyUser(tx, a, {
+        userId: g.user_id,
+        category: "coaching",
+        dedupeKey: `complimentary-ending:${g.id}`,
+        title: "Your complimentary access ends soon",
+        body: `The complimentary coaching access from your coach ends on ${messageDate(g.ends_at, timezone)}. Your membership page shows your options to continue.`,
+        href: "/app/membership",
+        source: { type: "complimentary", id: g.id },
+      });
+    }
+    return { expired: lapsed.length, reminded: ending.length };
   });
 }
 
@@ -398,56 +483,105 @@ export function registerComplimentaryAccess(
       ],
     );
   }
+  // Opaque keyset cursor: the exact created_at text and grant id of the last
+  // row, so rows created in the same millisecond are never skipped.
+  const cursorSchema = z
+    .string()
+    .max(200)
+    .transform((value, ctx) => {
+      try {
+        const [createdAt, id] = JSON.parse(
+          Buffer.from(value, "base64url").toString("utf8"),
+        );
+        if (
+          typeof createdAt === "string" &&
+          /^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9:.]+([+-][0-9:]+|Z)?$/.test(
+            createdAt,
+          ) &&
+          uuid.safeParse(id).success
+        )
+          return { createdAt, id: id as string };
+      } catch {}
+      ctx.addIssue({ code: "custom", message: "Invalid page cursor" });
+      return z.NEVER;
+    });
+  const cursorOf = (row: any) =>
+    Buffer.from(JSON.stringify([row.created_text, row.grant_id])).toString(
+      "base64url",
+    );
   app.get("/api/v1/admin/complimentary-access", async (req) => {
     const a = operator(req);
     const q = z
       .object({
         tenantId: uuid.optional(),
-        status: z.enum(["active", "all"]).default("active"),
-        page: z.coerce.number().int().min(0).default(0),
+        workspace: z.string().trim().toLowerCase().max(80).optional(),
+        follower: z.string().trim().toLowerCase().max(320).optional(),
+        status: z.enum(["active", "ended", "all"]).default("active"),
+        cursor: cursorSchema.optional(),
       })
+      .strict()
       .parse(req.query);
-    const tenants = await db.system((tx) =>
+    // Pages by grant across every workspace, newest first, from the
+    // keys-and-dates directory; details come from each workspace's own
+    // tenant-scoped rows.
+    const keys = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name FROM tenants WHERE ($1::uuid IS NULL OR id=$1) ORDER BY created_at DESC,id LIMIT 26 OFFSET $2",
-        [q.tenantId ?? null, q.tenantId ? 0 : q.page * 25],
+        `SELECT d.grant_id,d.tenant_id,d.created_at::text AS created_text,t.name AS workspace,t.slug
+           FROM complimentary_access_directory d JOIN tenants t ON t.id=d.tenant_id
+          WHERE ($1::uuid IS NULL OR d.tenant_id=$1)
+            AND ($2::text IS NULL OR t.slug=$2)
+            AND ($3::text IS NULL OR d.user_id IN (SELECT id FROM users WHERE lower(email)=$3))
+            AND CASE $4::text
+                  WHEN 'active' THEN d.closed_at IS NULL AND (d.ends_at IS NULL OR d.ends_at>now())
+                  WHEN 'ended' THEN d.closed_at IS NOT NULL OR d.ends_at<=now()
+                  ELSE true END
+            AND ($5::timestamptz IS NULL OR (d.created_at,d.grant_id)<($5::timestamptz,$6::uuid))
+          ORDER BY d.created_at DESC,d.grant_id DESC LIMIT 26`,
+        [
+          q.tenantId ?? null,
+          q.workspace || null,
+          q.follower || null,
+          q.status,
+          q.cursor?.createdAt ?? null,
+          q.cursor?.id ?? null,
+        ],
       ),
     );
-    if (q.tenantId && !tenants.length)
-      throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+    // The audit records which filters were used, not the follower's address.
     await db.system((tx) =>
       adminAudit(tx, a, "complimentary.read", q.tenantId ?? null, null, {
         status: q.status,
-        page: q.page,
+        workspace: q.workspace || null,
+        followerFilter: !!q.follower,
+        paged: !!q.cursor,
       }),
     );
-    const rows: any[] = [];
-    for (const t of tenants.slice(0, 25)) {
+    const page = keys.slice(0, 25);
+    const byTenant = new Map<string, any[]>();
+    for (const k of page)
+      byTenant.set(k.tenant_id, [...(byTenant.get(k.tenant_id) ?? []), k]);
+    const details = new Map<string, any>();
+    for (const [tenantId, rows] of byTenant) {
       const grants = await db.tenant(
-        { ...a, tenantId: t.id, role: "owner" },
+        { ...a, tenantId, role: "owner" },
         (tx) =>
-          tx.query(
-            listSql +
-              (q.status === "active"
-                ? " WHERE c.closed_at IS NULL AND (c.ends_at IS NULL OR c.ends_at>now())"
-                : "") +
-              " ORDER BY c.created_at DESC LIMIT 200",
-          ),
+          tx.query(listSql + " WHERE c.id=ANY($1::uuid[])", [
+            rows.map((r) => r.grant_id),
+          ]),
       );
-      rows.push(
-        ...grants.map((g) => ({
-          ...view(g),
-          tenantId: t.id,
-          workspace: t.name,
-          slug: t.slug,
-        })),
-      );
+      for (const g of grants) details.set(g.id, g);
     }
     return {
-      grants: rows,
+      grants: page
+        .filter((k) => details.has(k.grant_id))
+        .map((k) => ({
+          ...view(details.get(k.grant_id)),
+          tenantId: k.tenant_id,
+          workspace: k.workspace,
+          slug: k.slug,
+        })),
       canRevoke: a.platformRole === "admin",
-      page: q.page,
-      hasMore: !q.tenantId && tenants.length > 25,
+      nextCursor: keys.length > 25 ? cursorOf(page[page.length - 1]) : null,
     };
   });
   app.post(
@@ -469,9 +603,16 @@ export function registerComplimentaryAccess(
         "platform",
       );
       await db.system((tx) =>
-        adminAudit(tx, a, "complimentary.revoked", p.tenantId, p.id, {
-          tier: result.tier,
-        }),
+        adminAudit(
+          tx,
+          a,
+          result.closeReason === "expired"
+            ? "complimentary.closed_expired"
+            : "complimentary.revoked",
+          p.tenantId,
+          p.id,
+          { tier: result.tier },
+        ),
       );
       return result;
     },

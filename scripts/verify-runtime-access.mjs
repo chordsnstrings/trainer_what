@@ -98,6 +98,7 @@ export async function verifyRuntimeAccess(client) {
     coach_gallery_photos: ["SELECT"],
     coach_sites: ["SELECT"],
     coach_design_drafts: ["SELECT"],
+    complimentary_access_directory: ["SELECT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -188,6 +189,8 @@ export async function verifyRuntimeAccess(client) {
     "erase_personal_chat_media(uuid)",
     "expire_unattached_chat_media()",
     "erase_workspace_chat_media()",
+    // Trigger-only: writes the operator directory's keys and dates.
+    "complimentary_access_directory_sync()",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -251,6 +254,7 @@ export async function verifyRuntimeAccess(client) {
       "auth_passkey_challenges",
       "privacy_erasure_registry",
       "workspace_lifecycle_requests",
+      "complimentary_access_directory",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

@@ -12,7 +12,15 @@ import {
   closeWorkspaceComplimentaryAccess,
   eraseComplimentaryAccess,
   exportComplimentaryAccess,
+  sweepComplimentaryAccess,
 } from "../apps/api/src/complimentary-access.ts";
+import { messageDate } from "../apps/api/src/joining.ts";
+import { deliverCoachingFollowup } from "../apps/api/src/coaching-followups.ts";
+import {
+  lifecycleMessageCurrent,
+  scheduleLifecycleMessages,
+} from "../apps/api/src/lifecycle-messages.ts";
+import { randomUUID } from "node:crypto";
 import { scheduleNotifications } from "../apps/api/src/notifications.ts";
 import { modelAccounting } from "../apps/api/src/model-accounting.ts";
 
@@ -632,4 +640,352 @@ test("export includes grants; erasure and workspace closure end them and remove 
     tx.query("SELECT current_setting('app.privacy_erasure',true) AS v"),
   );
   assert.notEqual(flag.v, "true");
+});
+
+const insertGrant = (
+  who: any,
+  starts: string,
+  ends: string | null,
+  owner = coach,
+): Promise<any> =>
+  ownerTx(
+    async (tx) =>
+      (
+        await tx.query(
+          "INSERT INTO complimentary_access(id,tenant_id,user_id,tier,reason,starts_at,ends_at,granted_by) VALUES(gen_random_uuid(),$1,$2,'workout','Fixture period',now()+$3::interval,CASE WHEN $4::text IS NULL THEN NULL ELSE now()+$4::interval END,$5) RETURNING *",
+          [owner.tenantId, who.userId, starts, ends, owner.userId],
+        )
+      )[0],
+    owner,
+  );
+const noticeFor = async (userId: string, key: string, owner = coach) =>
+  (
+    await ownerTx(
+      (tx) =>
+        tx.query(
+          "SELECT user_id,title,body FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
+          [userId, key],
+        ),
+      owner,
+    )
+  )[0];
+
+test("ending a grant whose period already ran out closes it as expired without a second notice", async () => {
+  await freshMfa(coach);
+  const lapsed = await insertGrant(c, "-3 days", "-1 day");
+  const r = await request(
+    `/complimentary-access/${lapsed.id}/revoke`,
+    "POST",
+    { version: lapsed.version, reason: "Pilot ended early" },
+    coach,
+  );
+  assert.equal(r.statusCode, 200, r.body);
+  assert.equal(r.json().status, "expired");
+  assert.equal(r.json().closeReason, "expired");
+  assert.equal(r.json().closeNote, null, "Not recorded as a revocation");
+  assert.equal(
+    await noticeFor(c.userId, `complimentary-ended:${lapsed.id}`),
+    undefined,
+  );
+  const [audit] = await ownerTx((tx) =>
+    tx.query(
+      "SELECT name FROM events WHERE subject_id=$1 AND name LIKE 'complimentary.%'",
+      [lapsed.id],
+    ),
+  );
+  assert.equal(audit.name, "complimentary.expired");
+});
+
+test("the worker sweep closes lapsed grants once, tells the follower and team, and reminds before the end", async () => {
+  const tz = "Pacific/Kiritimati";
+  await ownerTx((tx) =>
+    tx.query(
+      "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=excluded.data",
+      [coach.tenantId, c.userId, JSON.stringify({ timezone: tz })],
+    ),
+  );
+  const lapsed = await insertGrant(b, "-10 days", "-1 hour");
+  const ending = await insertGrant(c, "-5 days", "2 days");
+  const short = await insertGrant(a, "-1 hour", "2 days");
+  assert.deepEqual(await sweepComplimentaryAccess(db, coach.tenantId), {
+    expired: 1,
+    reminded: 1,
+  });
+  const [closed] = await ownerTx((tx) =>
+    tx.query(
+      "SELECT closed_at,close_reason,closed_by FROM complimentary_access WHERE id=$1",
+      [lapsed.id],
+    ),
+  );
+  assert.ok(closed.closed_at);
+  assert.equal(closed.close_reason, "expired");
+  assert.equal(closed.closed_by, null);
+  const ended = await noticeFor(b.userId, `complimentary-ended:${lapsed.id}`);
+  assert.equal(ended.title, "Your complimentary access has ended");
+  assert.ok(
+    ended.body.includes(messageDate(lapsed.ends_at, "Asia/Dubai")),
+    "No saved zone: the UAE default",
+  );
+  const team = await noticeFor(
+    coach.userId,
+    `complimentary-expired-team:${lapsed.id}`,
+  );
+  assert.ok(team.body.includes("CompB"));
+  const reminder = await noticeFor(
+    c.userId,
+    `complimentary-ending:${ending.id}`,
+  );
+  assert.equal(reminder.title, "Your complimentary access ends soon");
+  assert.ok(
+    reminder.body.includes(messageDate(ending.ends_at, tz)),
+    "The member's own time zone",
+  );
+  assert.equal(
+    await noticeFor(a.userId, `complimentary-ending:${short.id}`),
+    undefined,
+    "A grant shorter than the reminder window is not reminded at once",
+  );
+  assert.deepEqual(await sweepComplimentaryAccess(db, coach.tenantId), {
+    expired: 0,
+    reminded: 0,
+  });
+  const [directory] = await db.system((tx) =>
+    tx.query(
+      "SELECT closed_at,ends_at,user_id FROM complimentary_access_directory WHERE grant_id=$1",
+      [lapsed.id],
+    ),
+  );
+  assert.ok(directory.closed_at, "The operator directory follows the close");
+  assert.equal(directory.user_id, b.userId);
+  // Tidy up: the remaining open fixtures end so later tests start clean.
+  await freshMfa(coach);
+  for (const g of [ending, short]) {
+    const done = await request(
+      `/complimentary-access/${g.id}/revoke`,
+      "POST",
+      { version: g.version, reason: "Fixture cleanup" },
+      coach,
+    );
+    assert.equal(done.statusCode, 200, done.body);
+  }
+});
+
+test("the grant notice shows the end date in the member's time zone", async () => {
+  await freshMfa(coach);
+  const tz = "Pacific/Kiritimati";
+  const r = await grant({
+    userId: c.userId,
+    tier: "workout",
+    days: 30,
+    reason: "Time zone check",
+  });
+  assert.equal(r.statusCode, 200, r.body);
+  const notice = await noticeFor(c.userId, `complimentary-granted:${r.json().id}`);
+  assert.ok(notice.body.includes(`until ${messageDate(r.json().endsAt, tz)}`));
+  const revoked = await request(
+    `/complimentary-access/${r.json().id}/revoke`,
+    "POST",
+    { version: r.json().version, reason: "Fixture cleanup" },
+    coach,
+  );
+  assert.equal(revoked.statusCode, 200, revoked.body);
+});
+
+test("operators page grants across workspaces by grant, with workspace, follower and status filters", async () => {
+  await freshMfa(other);
+  await freshMfa(operator);
+  const outside = await follower(other, "CompOther");
+  // Grant history in another workspace: 30 closed grants written at the same
+  // instant (the cursor must not skip ties) and one active grant.
+  await ownerTx(
+    (tx) =>
+      tx.query(
+        "INSERT INTO complimentary_access(id,tenant_id,user_id,tier,reason,granted_by,closed_at,close_reason) SELECT gen_random_uuid(),$1,$2,'workout','History row',$3,now(),'revoked' FROM generate_series(1,30)",
+        [other.tenantId, outside.userId, other.userId],
+      ),
+    other,
+  );
+  const active = await insertGrant(outside, "-1 minute", null, other);
+  const coachActive = await insertGrant(c, "-1 minute", "20 days");
+  const list = (query: string, who = operator) =>
+    request(`/admin/complimentary-access?${query}`, "GET", undefined, who);
+  const first = await list("status=active");
+  assert.equal(first.statusCode, 200, first.body);
+  const ids = first.json().grants.map((g: any) => g.id);
+  assert.ok(ids.includes(active.id), "Active grants from every workspace");
+  assert.ok(ids.includes(coachActive.id));
+  assert.ok(first.json().grants.every((g: any) => g.status === "active"));
+  assert.equal(first.json().nextCursor, null);
+  // Paging by grant: every grant exactly once, newest first.
+  const seen: string[] = [];
+  let cursor = "";
+  let pages = 0;
+  do {
+    const page = await list(
+      `status=all&workspace=comp-other${cursor ? `&cursor=${cursor}` : ""}`,
+    );
+    assert.equal(page.statusCode, 200, page.body);
+    assert.ok(page.json().grants.length <= 25);
+    assert.ok(page.json().grants.every((g: any) => g.slug === "comp-other"));
+    seen.push(...page.json().grants.map((g: any) => g.id));
+    cursor = page.json().nextCursor ?? "";
+    pages++;
+  } while (cursor && pages < 5);
+  assert.equal(pages, 2);
+  const [total] = await ownerTx(
+    (tx) => tx.query("SELECT count(*)::int n FROM complimentary_access"),
+    other,
+  );
+  assert.equal(seen.length, total.n);
+  assert.equal(new Set(seen).size, seen.length, "No grant repeats");
+  const ended = await list(`status=ended&follower=${encodeURIComponent("CompOther@Example.test")}`);
+  assert.equal(ended.json().grants.length, 25);
+  assert.ok(
+    ended
+      .json()
+      .grants.every(
+        (g: any) => g.userId === outside.userId && g.status === "revoked",
+      ),
+  );
+  assert.equal(ended.json().canRevoke, false);
+  const bad = await list("status=all&cursor=not-a-cursor");
+  assert.equal(bad.statusCode, 400);
+  const [audit] = await db.system((tx) =>
+    tx.query(
+      "SELECT data FROM admin_operations_audit WHERE action='complimentary.read' AND actor_id=$1 AND data->>'followerFilter'='true' ORDER BY created_at DESC LIMIT 1",
+      [operator.userId],
+    ),
+  );
+  assert.ok(audit, "Every read is audited");
+  assert.equal(
+    JSON.stringify(audit.data).toLowerCase().includes("compother@example.test"),
+    false,
+    "The audit notes a follower filter was used, not the address",
+  );
+  // The directory holds keys and dates only and tenant roles cannot read it.
+  await assert.rejects(
+    ownerTx((tx) => tx.query("SELECT * FROM complimentary_access_directory")),
+  );
+  const [columns] = await db.system((tx) =>
+    tx.query(
+      "SELECT array_agg(column_name::text ORDER BY column_name) AS names FROM information_schema.columns WHERE table_name='complimentary_access_directory'",
+    ),
+  );
+  assert.deepEqual(columns.names, [
+    "closed_at",
+    "created_at",
+    "ends_at",
+    "grant_id",
+    "tenant_id",
+    "user_id",
+  ]);
+});
+
+test("complimentary-only members receive follow-ups, program and intake nudges until the grant ends", async () => {
+  await freshMfa(coach);
+  const d = await follower(coach, "CompD");
+  await ownerTx((tx) =>
+    tx.query(
+      "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching','fixture',true)",
+      [randomUUID(), coach.tenantId, d.userId],
+    ),
+  );
+  const granted = await grant({
+    userId: d.userId,
+    tier: "workout",
+    days: 60,
+    reason: "Follow-up pilot",
+  });
+  assert.equal(granted.statusCode, 200, granted.body);
+  const schedule = async (text: string) => {
+    const r = await request(
+      "/coaching/followups",
+      "POST",
+      {
+        subscriberId: d.userId,
+        requestKey: randomUUID(),
+        text,
+        dueAt: new Date(Date.now() + 120_000).toISOString(),
+        timezone: "Asia/Dubai",
+        reviewed: true,
+      },
+      coach,
+    );
+    assert.equal(r.statusCode, 200, r.body);
+    return r.json();
+  };
+  const first = await schedule("How did the first sessions feel?");
+  assert.equal(first.data.context.subscriptionId, null);
+  assert.equal(first.data.context.complimentaryId, granted.json().id);
+  const later = new Date(Date.now() + 180_000);
+  assert.equal(
+    await deliverCoachingFollowup(db, coach.tenantId, first.id, later),
+    "delivered",
+  );
+  // Program-ready and intake nudges go to the complimentary member.
+  const program = await request(
+    "/programs",
+    "POST",
+    {
+      subscriberId: d.userId,
+      program: {
+        title: "Complimentary start",
+        goal: "Consistent practice",
+        daysPerWeek: 2,
+        exercises: [
+          {
+            name: "Split squat",
+            sets: 2,
+            reps: 8,
+            restSeconds: 90,
+            loadKg: 8,
+            cue: "Steady tempo",
+          },
+        ],
+      },
+    },
+    coach,
+  );
+  assert.equal(program.statusCode, 200, program.body);
+  await scheduleLifecycleMessages(db, coach.tenantId);
+  const ready = await noticeFor(
+    d.userId,
+    `lifecycle:v1:program-ready:${program.json().id}`,
+  );
+  assert.equal(ready?.title, "Your program is ready");
+  const intakeKey = `lifecycle:v1:intake:complimentary:${granted.json().id}:initial`;
+  const intake = await noticeFor(d.userId, intakeKey);
+  assert.equal(intake?.title, "Complete your coaching intake");
+  assert.match(intake.body, /complimentary access/);
+  const [stored] = await ownerTx((tx) =>
+    tx.query(
+      "SELECT data->'source' AS source FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
+      [d.userId, intakeKey],
+    ),
+  );
+  assert.equal(
+    await lifecycleMessageCurrent(db, coach.tenantId, d.userId, stored.source),
+    true,
+  );
+  // Ending the grant makes the scheduled follow-up stale and the nudge obsolete.
+  const second = await schedule("Ready for week two?");
+  const revoked = await request(
+    `/complimentary-access/${granted.json().id}/revoke`,
+    "POST",
+    { version: granted.json().version, reason: "Pilot finished" },
+    coach,
+  );
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(
+    await deliverCoachingFollowup(db, coach.tenantId, second.id, later),
+    "review_required",
+  );
+  const [review] = await ownerTx((tx) =>
+    tx.query("SELECT data FROM records WHERE id=$1", [second.id]),
+  );
+  assert.match(review.data.reviewReason, /paid or complimentary membership/);
+  assert.equal(
+    await lifecycleMessageCurrent(db, coach.tenantId, d.userId, stored.source),
+    false,
+  );
 });

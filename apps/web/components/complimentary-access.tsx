@@ -315,17 +315,22 @@ export function AdminComplimentaryAccess({
 }) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
-    [status, setStatus] = useState<"active" | "all">("active"),
-    [page, setPage] = useState(0),
+    [status, setStatus] = useState<"active" | "ended" | "all">("active"),
+    [filters, setFilters] = useState({ workspace: "", follower: "" }),
+    // Cursors of the pages already visited, so "Newer" can step back.
+    [cursors, setCursors] = useState<string[]>([]),
     [busy, setBusy] = useState(false);
-  const load = useCallback(
-    () =>
-      api(`/admin/complimentary-access?status=${status}&page=${page}`).then(
-        setData,
-        (e) => setError(e.message),
-      ),
-    [status, page],
-  );
+  const cursor = cursors[cursors.length - 1] ?? "";
+  const load = useCallback(() => {
+    const query = new URLSearchParams({ status });
+    if (filters.workspace) query.set("workspace", filters.workspace);
+    if (filters.follower) query.set("follower", filters.follower);
+    if (cursor) query.set("cursor", cursor);
+    setError("");
+    return api(`/admin/complimentary-access?${query}`).then(setData, (e) =>
+      setError(e.message),
+    );
+  }, [status, filters, cursor]);
   useEffect(() => {
     if (["admin", "finance", "support"].includes(platformRole)) void load();
   }, [platformRole, load]);
@@ -335,26 +340,50 @@ export function AdminComplimentaryAccess({
       className="card complimentary-access"
       aria-labelledby="admin-comp-title"
     >
-      <div className="invitation-list-heading">
-        <h2 id="admin-comp-title">Complimentary access</h2>
+      <h2 id="admin-comp-title">Complimentary access</h2>
+      <p className="muted">
+        Trainer-granted access without payment, newest first across every
+        workspace. It creates no revenue or commission; AI usage stays
+        attributed to the trainer.
+      </p>
+      <form
+        className="comp-filters"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          setCursors([]);
+          setFilters({
+            workspace: String(f.get("workspace") ?? "").trim(),
+            follower: String(f.get("follower") ?? "").trim(),
+          });
+        }}
+      >
         <label className="invitation-filter">
           <span>Show</span>
           <select
             value={status}
             onChange={(e) => {
-              setPage(0);
-              setStatus(e.target.value as "active" | "all");
+              setCursors([]);
+              setStatus(e.target.value as "active" | "ended" | "all");
             }}
           >
             <option value="active">Active</option>
+            <option value="ended">Ended</option>
             <option value="all">All</option>
           </select>
         </label>
-      </div>
-      <p className="muted">
-        Trainer-granted access without payment. It creates no revenue or
-        commission; AI usage stays attributed to the trainer.
-      </p>
+        <label className="invitation-filter">
+          <span>Workspace address</span>
+          <input name="workspace" maxLength={80} placeholder="coach-name" />
+        </label>
+        <label className="invitation-filter">
+          <span>Follower email</span>
+          <input name="follower" type="email" maxLength={320} />
+        </label>
+        <button className="button secondary" type="submit">
+          Filter
+        </button>
+      </form>
       {error && (
         <p className="notice error" role="alert">
           {error}
@@ -363,7 +392,11 @@ export function AdminComplimentaryAccess({
       {!data ? (
         <p className="muted">Loading…</p>
       ) : data.grants.length === 0 ? (
-        <p className="muted">No complimentary access on this page.</p>
+        <p className="muted">
+          No {status === "all" ? "" : status} complimentary access
+          {filters.workspace || filters.follower ? " matches these filters" : ""}
+          .
+        </p>
       ) : (
         <ul className="invitation-list">
           {data.grants.map((g: any) => (
@@ -421,23 +454,23 @@ export function AdminComplimentaryAccess({
           ))}
         </ul>
       )}
-      {data && (page > 0 || data.hasMore) && (
+      {data && (cursors.length > 0 || data.nextCursor) && (
         <div className="button-row">
           <button
             className="button secondary"
             type="button"
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={cursors.length === 0}
+            onClick={() => setCursors((c) => c.slice(0, -1))}
           >
-            Previous workspaces
+            Newer
           </button>
           <button
             className="button secondary"
             type="button"
-            disabled={!data.hasMore}
-            onClick={() => setPage((p) => p + 1)}
+            disabled={!data.nextCursor}
+            onClick={() => setCursors((c) => [...c, data.nextCursor])}
           >
-            Next workspaces
+            Older
           </button>
         </div>
       )}

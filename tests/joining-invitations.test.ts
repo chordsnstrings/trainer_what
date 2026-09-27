@@ -4,7 +4,12 @@ import { randomUUID } from "node:crypto";
 import { createDatabase, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { executeEmailDelivery } from "../apps/worker/src/email-delivery.ts";
-import { invitationStatus, joiningLimits } from "../apps/api/src/joining.ts";
+import {
+  invitationStatus,
+  joiningLimits,
+  messageDate,
+} from "../apps/api/src/joining.ts";
+import { validateIntegrationValues } from "../packages/providers/src/configuration.ts";
 
 // Synthetic email settings only: nothing is sent. Delivery below uses an
 // in-memory sender passed to the worker function.
@@ -612,4 +617,200 @@ test("an existing account joins with its password and no name; a new account nee
   });
   assert.equal(missing.statusCode, 400);
   assert.equal(missing.json().code, "NAME_REQUIRED");
+});
+
+async function withEnv<T>(values: Record<string, string>, run: () => Promise<T>) {
+  const saved = Object.fromEntries(
+    Object.keys(values).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, values);
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  }
+}
+const setVerified = (who: any, verified: boolean) =>
+  db.system((tx) =>
+    tx.query("UPDATE users SET email_verified=$2 WHERE id=$1", [
+      who.userId,
+      verified,
+    ]),
+  );
+
+test("an owner with an unconfirmed email address cannot email invitations; the copy link still works", async () => {
+  const fresh = await register("join-unverified");
+  await setVerified(fresh, false);
+  const r = await invite(fresh, "unverified-target@example.test", true);
+  assert.equal(r.statusCode, 200, r.body);
+  assert.equal(r.json().email.status, "verify_email_first");
+  assert.match(r.json().email.message, /Confirm your own email address/);
+  assert.match(r.json().url, /\/join\//);
+  assert.equal((await jobsFor(fresh, r.json().id)).length, 0, "No email job");
+  const listed = await list(fresh);
+  assert.equal(listed.ownerEmailVerified, false);
+  const view = listed.invitations.find((i: any) => i.id === r.json().id);
+  assert.equal(view.delivery.status, "verify_email_first");
+  assert.equal(view.sends, 0);
+  const resend = await request(
+    `/invitations/followers/${r.json().id}/resend`,
+    "POST",
+    {},
+    fresh,
+  );
+  assert.equal(resend.statusCode, 409, resend.body);
+  assert.equal(resend.json().code, "EMAIL_VERIFICATION_REQUIRED");
+  // The link itself is valid: the invitee can still join by copy link.
+  const joined = await accept(
+    tokenOf(r.json().url),
+    "unverified-target@example.test",
+  );
+  assert.equal(joined.statusCode, 200, joined.body);
+  await setVerified(fresh, true);
+  const later = await invite(fresh, "verified-later@example.test", true);
+  assert.equal(later.json().email.status, "queued");
+  assert.equal((await list(fresh)).ownerEmailVerified, true);
+});
+
+test("the per-address cap counts invitation emails from every workspace", async () => {
+  const third = await register("join-third");
+  const address = "shared-address@example.test";
+  // Two emails from the first coach (the second replaces the first link) and
+  // one from the second coach reach the default cap of three.
+  assert.equal((await invite(coach, address, true)).json().email.status, "queued");
+  assert.equal((await invite(coach, address, true)).json().email.status, "queued");
+  assert.equal((await invite(second, address, true)).json().email.status, "queued");
+  const blocked = await invite(third, address, true);
+  assert.equal(blocked.statusCode, 200, blocked.body);
+  assert.equal(blocked.json().email.status, "rate_limited");
+  assert.match(blocked.json().email.message, /already received 3 invitation emails/);
+  assert.equal((await jobsFor(third, blocked.json().id)).length, 0);
+  // Resending from another workspace is refused by the same cap.
+  const pending = (await list(second)).invitations.find(
+    (i: any) => i.email === address && i.status === "pending",
+  );
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE one_time_tokens SET payload=payload||jsonb_build_object('lastSentAt',(now()-interval '1 hour')::text) WHERE id=$1",
+      [pending.id],
+    ),
+  );
+  const resend = await request(
+    `/invitations/followers/${pending.id}/resend`,
+    "POST",
+    {},
+    second,
+  );
+  assert.equal(resend.statusCode, 429, resend.body);
+  assert.equal(resend.json().code, "INVITE_EMAIL_LIMIT");
+  // Sends older than 24 hours no longer count.
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE one_time_tokens SET payload=payload||jsonb_build_object('sentAt',jsonb_build_array((now()-interval '25 hours')::text)) WHERE purpose='invite' AND lower(payload->>'email')=$1",
+      [address],
+    ),
+  );
+  assert.equal((await invite(third, address, true)).json().email.status, "queued");
+});
+
+test("the per-workspace and platform-wide daily caps stop invitation emails but not links", async () => {
+  const small = await register("join-small");
+  await withEnv({ FOLLOWER_INVITE_EMAILS_PER_DAY: "1" }, async () => {
+    assert.equal(
+      (await invite(small, "small-one@example.test", true)).json().email.status,
+      "queued",
+    );
+    const second = await invite(small, "small-two@example.test", true);
+    assert.equal(second.json().email.status, "rate_limited");
+    assert.match(second.json().email.message, /This workspace reached its limit of 1/);
+    assert.match(second.json().url, /\/join\//);
+  });
+  await withEnv({ FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: "0" }, async () => {
+    assert.equal(joiningLimits().invitationEmailsPlatformPerDay, 0);
+    const paused = await invite(small, "small-three@example.test", true);
+    assert.equal(paused.json().email.status, "rate_limited");
+    assert.match(paused.json().email.message, /paused for today across the platform/);
+    assert.equal((await jobsFor(small, paused.json().id)).length, 0);
+  });
+  // Without the override the platform default (1000) applies again.
+  assert.equal(joiningLimits().invitationEmailsPlatformPerDay, 1000);
+});
+
+test("re-inviting an address leaves an expired invitation listed as expired", async () => {
+  const first = await invite(coach, "expired-then-again@example.test");
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE one_time_tokens SET expires_at=now()-interval '1 minute' WHERE id=$1",
+      [first.json().id],
+    ),
+  );
+  const again = await invite(coach, "expired-then-again@example.test");
+  assert.equal(again.statusCode, 200, again.body);
+  const views = (await list(coach)).invitations;
+  const old = views.find((i: any) => i.id === first.json().id);
+  assert.equal(old.status, "expired");
+  assert.equal(old.replaced, false);
+  assert.equal(
+    views.find((i: any) => i.id === again.json().id).status,
+    "pending",
+  );
+});
+
+test("joining limits refuse out-of-range values when saved, so the saved value is the value in force", () => {
+  for (const [key, value] of [
+    ["FOLLOWER_INVITE_EMAILS_PER_ADDRESS", "0"],
+    ["FOLLOWER_INVITE_EMAILS_PER_ADDRESS", "21"],
+    ["FOLLOWER_INVITE_EMAILS_PER_DAY", "10001"],
+    ["FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY", "100001"],
+    ["COMPLIMENTARY_ACCESS_MAX_DAYS", "0"],
+    ["COMPLIMENTARY_ACCESS_MAX_DAYS", "3651"],
+    ["COMPLIMENTARY_ACCESS_MAX_ACTIVE", "2.5"],
+  ])
+    assert.throws(
+      () => validateIntegrationValues("application", { [key]: value }),
+      /must be a whole number from/,
+      `${key}=${value}`,
+    );
+  const saved = validateIntegrationValues("application", {
+    FOLLOWER_INVITE_EMAILS_PER_ADDRESS: "1",
+    FOLLOWER_INVITE_EMAILS_PER_DAY: "0",
+    FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: "250",
+    COMPLIMENTARY_ACCESS_MAX_DAYS: "3650",
+    COMPLIMENTARY_ACCESS_MAX_ACTIVE: "0",
+  });
+  const limits = joiningLimits(saved);
+  assert.equal(limits.invitationEmailsPerAddress, 1);
+  assert.equal(limits.invitationEmailsPerDay, 0);
+  assert.equal(limits.invitationEmailsPlatformPerDay, 250);
+  assert.equal(limits.complimentaryMaxDays, 3650);
+  assert.equal(limits.complimentaryMaxActive, 0);
+  // Blank keeps the default.
+  assert.equal(
+    joiningLimits(
+      validateIntegrationValues("application", {
+        COMPLIMENTARY_ACCESS_MAX_DAYS: "",
+      }),
+    ).complimentaryMaxDays,
+    365,
+  );
+});
+
+test("invitation email dates use the UAE calendar day, not the UTC day", async () => {
+  assert.equal(messageDate("2026-10-04T21:30:00Z"), "5 October 2026");
+  assert.equal(messageDate("2026-10-04T21:30:00Z", "UTC"), "4 October 2026");
+  assert.equal(
+    messageDate("2026-10-04T21:30:00Z", "Not/AZone"),
+    "5 October 2026",
+    "An unknown zone falls back to the platform default",
+  );
+  const r = await invite(coach, "dated@example.test", true);
+  const [job] = await jobsFor(coach, r.json().id);
+  assert.ok(
+    job.data.text.includes(
+      `expires on ${messageDate(r.json().expiresAt, "Asia/Dubai")}.`,
+    ),
+    job.data.text,
+  );
 });

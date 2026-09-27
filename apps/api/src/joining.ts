@@ -7,6 +7,7 @@ import { lockActiveInvitation } from "./team.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
+  INTEGER_SETTING_RANGES,
   runtimeConfig,
   strictSecurity,
   type RuntimeConfig,
@@ -24,6 +25,7 @@ type JoinIdentity = Actor & {
   name?: string;
   email?: string;
   platformRole?: string;
+  emailVerified?: boolean;
   mfaAt?: string | null;
 };
 type StartSession = (
@@ -39,31 +41,51 @@ export const INVITATION_DAYS = 7;
 /** Minimum gap between two emails for the same invitation. */
 export const INVITATION_RESEND_COOLDOWN_MINUTES = 5;
 
-/** Superadmin-configurable joining limits (application settings). */
+/**
+ * Superadmin-configurable joining limits (application settings). Saving a
+ * value outside INTEGER_SETTING_RANGES is refused; a blank value, or an
+ * out-of-range value supplied through the environment, uses the default.
+ */
 export function joiningLimits(config: RuntimeConfig = runtimeConfig()) {
-  const int = (key: string, fallback: number, min: number, max: number) => {
+  const int = (key: string, fallback: number) => {
+    const [min, max] = INTEGER_SETTING_RANGES[key]!;
     const raw = config[key]?.trim();
     const n = raw ? Number(raw) : fallback;
     return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
   };
   return {
-    invitationEmailsPerDay: int("FOLLOWER_INVITE_EMAILS_PER_DAY", 50, 0, 10000),
-    invitationEmailsPerAddress: int(
-      "FOLLOWER_INVITE_EMAILS_PER_ADDRESS",
-      3,
-      1,
-      20,
+    invitationEmailsPerDay: int("FOLLOWER_INVITE_EMAILS_PER_DAY", 50),
+    invitationEmailsPerAddress: int("FOLLOWER_INVITE_EMAILS_PER_ADDRESS", 3),
+    invitationEmailsPlatformPerDay: int(
+      "FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY",
+      1000,
     ),
-    complimentaryMaxDays: int("COMPLIMENTARY_ACCESS_MAX_DAYS", 365, 1, 3650),
-    complimentaryMaxActive: int(
-      "COMPLIMENTARY_ACCESS_MAX_ACTIVE",
-      25,
-      0,
-      100000,
-    ),
+    complimentaryMaxDays: int("COMPLIMENTARY_ACCESS_MAX_DAYS", 365),
+    complimentaryMaxActive: int("COMPLIMENTARY_ACCESS_MAX_ACTIVE", 25),
     complimentaryOpenEnded:
       (config.COMPLIMENTARY_ACCESS_OPEN_ENDED?.trim() || "true") !== "false",
   };
+}
+/** Platform default for dates in messages when no member time zone is known. */
+export const DEFAULT_MESSAGE_TIMEZONE = "Asia/Dubai";
+/** A calendar date as the reader sees it, e.g. "4 October 2026". */
+export function messageDate(value: string | Date, timeZone?: string | null) {
+  const date = new Date(value);
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: timeZone || DEFAULT_MESSAGE_TIMEZONE,
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: DEFAULT_MESSAGE_TIMEZONE,
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(date);
+  }
 }
 export function invitationEmailConfigured(
   config: RuntimeConfig = runtimeConfig(),
@@ -128,12 +150,44 @@ function deliveryStatus(job: any) {
   if (job.status === "failed") return "failed";
   return "unknown";
 }
-async function emailBudget(tx: Tx, to: string) {
+/** Send times (ISO strings) kept on the invitation for the 24-hour caps. */
+function recentSends(payload: any, now = Date.now()) {
+  return (Array.isArray(payload?.sentAt) ? payload.sentAt : []).filter(
+    (at: unknown) =>
+      typeof at === "string" && now - Date.parse(at) < 24 * 3600_000,
+  );
+}
+/**
+ * Invitation-email budget over the last 24 hours, counted from every
+ * workspace's invitation send log (one_time_tokens is a system table, so this
+ * runs on the service connection, never inside a tenant role). A transaction
+ * lock per address keeps concurrent workspaces from overrunning the
+ * per-address cap; the platform cap is a volume brake.
+ */
+async function emailBudget(tx: Tx, tenantId: string, to: string) {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    "invite-email-address:" + to,
+  ]);
+  // A send at time T sets expires_at to at least T + 7 days, so the expiry
+  // filter keeps every invitation that can hold a send from the last 24 hours.
   const [used] = await tx.query(
-    "SELECT count(*)::int AS workspace,count(*) FILTER (WHERE lower(data->>'to')=$1)::int AS address FROM jobs WHERE kind='email' AND intent_key LIKE 'invite-email:%' AND created_at>now()-interval '1 day'",
-    [to],
+    `SELECT coalesce(sum(n),0)::int AS platform,
+            coalesce(sum(n) FILTER (WHERE tenant_id=$1),0)::int AS workspace,
+            coalesce(sum(n) FILTER (WHERE address=$2),0)::int AS address
+       FROM (SELECT o.tenant_id,lower(o.payload->>'email') AS address,
+                    (SELECT count(*) FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(o.payload->'sentAt')='array' THEN o.payload->'sentAt' ELSE '[]'::jsonb END) AS s(at)
+                      WHERE s.at::timestamptz>now()-interval '1 day') AS n
+               FROM one_time_tokens o
+              WHERE o.purpose='invite' AND o.payload->>'role'='subscriber' AND o.expires_at>now()-interval '1 day') recent`,
+    [tenantId, to],
   );
   const limits = joiningLimits();
+  if (used.platform >= limits.invitationEmailsPlatformPerDay)
+    return {
+      ok: false,
+      message:
+        "Invitation emails are paused for today across the platform. Copy the link and share it yourself.",
+    };
   if (used.workspace >= limits.invitationEmailsPerDay)
     return {
       ok: false,
@@ -146,6 +200,8 @@ async function emailBudget(tx: Tx, to: string) {
     };
   return { ok: true, message: "" };
 }
+const VERIFY_FIRST =
+  "Confirm your own email address in Account security before sending invitation emails. Copy the link and share it yourself for now.";
 /** Stops unsent emails for an invitation (all sends, or all but `keep`). */
 async function suppressInvitationEmails(
   tx: Tx,
@@ -172,7 +228,8 @@ async function queueInvitationEmail(
 ) {
   const coach = input.coach || "Your coach";
   const platform = runtimeConfig().APP_NAME || "Trainer Brain";
-  const expires = new Date(input.expiresAt).toISOString().slice(0, 10);
+  // The invitee has no saved time zone yet: use the platform's UAE default.
+  const expires = messageDate(input.expiresAt);
   await tx.query(
     "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'email',$3,$4) ON CONFLICT DO NOTHING",
     [
@@ -228,7 +285,7 @@ const createInput = z
   .strict();
 export async function createFollowerInvitation(
   db: Database,
-  a: Actor,
+  a: Actor & { emailVerified?: boolean },
   input: unknown,
   origin: string,
 ) {
@@ -249,9 +306,10 @@ export async function createFollowerInvitation(
         "ALREADY_MEMBER",
         "This person already belongs to your coaching space.",
       );
-    // One pending invitation per address: a new one replaces the earlier link.
+    // One pending invitation per address: a new one replaces the earlier
+    // link. Expired rows keep their derived "expired" status.
     const replaced = await tx.query(
-      "UPDATE one_time_tokens SET consumed_at=now(),payload=payload||jsonb_build_object('outcome','replaced','outcomeAt',now()) WHERE tenant_id=$1 AND purpose='invite' AND consumed_at IS NULL AND payload->>'role'='subscriber' AND lower(payload->>'email')=$2 RETURNING id",
+      "UPDATE one_time_tokens SET consumed_at=now(),payload=payload||jsonb_build_object('outcome','replaced','outcomeAt',now()) WHERE tenant_id=$1 AND purpose='invite' AND consumed_at IS NULL AND expires_at>now() AND payload->>'role'='subscriber' AND lower(payload->>'email')=$2 RETURNING id",
       [a.tenantId, b.email],
     );
     const [row] = await tx.query(
@@ -270,6 +328,13 @@ export async function createFollowerInvitation(
       ],
     );
     const expiresAt = new Date(row.expires_at).toISOString();
+    // Only an owner with a confirmed address may send from the platform's
+    // sender; the budget reads every workspace's send log (system scope).
+    const verified = a.emailVerified === true;
+    const budget =
+      b.sendEmail && emailReady && verified
+        ? await emailBudget(tx, a.tenantId, b.email)
+        : null;
     await asTenant(tx, a);
     for (const old of replaced)
       await suppressInvitationEmails(
@@ -282,13 +347,14 @@ export async function createFollowerInvitation(
       message: "",
     };
     if (b.sendEmail) {
-      const budget = emailReady ? await emailBudget(tx, b.email) : null;
       if (!emailReady)
         email = {
           status: "unavailable",
           message:
             "Email delivery is not configured. Copy the link and share it yourself.",
         };
+      else if (!verified)
+        email = { status: "verify_email_first", message: VERIFY_FIRST };
       else if (!budget!.ok)
         email = { status: "rate_limited", message: budget!.message };
       else {
@@ -313,13 +379,14 @@ export async function createFollowerInvitation(
       replaced: replaced.length,
     });
     await tx.query("RESET ROLE");
+    const sentAt = new Date().toISOString();
     await tx.query(
       "UPDATE one_time_tokens SET payload=payload||$2::jsonb WHERE id=$1",
       [
         row.id,
         JSON.stringify(
           email.status === "queued"
-            ? { sends: 1, lastSentAt: new Date().toISOString() }
+            ? { sends: 1, lastSentAt: sentAt, sentAt: [sentAt] }
             : { emailNote: email.status },
         ),
       ],
@@ -442,6 +509,7 @@ export function registerJoiningRoutes(
     const now = Date.now();
     return {
       emailConfigured: invitationEmailConfigured(),
+      ownerEmailVerified: a.emailVerified === true,
       limits: {
         emailsPerDay: joiningLimits().invitationEmailsPerDay,
         emailsPerAddress: joiningLimits().invitationEmailsPerAddress,
@@ -533,6 +601,8 @@ export function registerJoiningRoutes(
           "EMAIL_UNAVAILABLE",
           "Email delivery is not configured. Create a new invitation and copy its link instead.",
         );
+      if (a.emailVerified !== true)
+        throw fail(409, "EMAIL_VERIFICATION_REQUIRED", VERIFY_FIRST);
       const token = newToken(),
         url = `${(req.hostContext?.origin ?? options.publicUrl()).replace(/\/$/, "")}/join/${token}`;
       return db.system(async (tx) => {
@@ -555,13 +625,16 @@ export function registerJoiningRoutes(
             "INVITE_RESEND_COOLDOWN",
             `This invitation was emailed in the last ${INVITATION_RESEND_COOLDOWN_MINUTES} minutes. Wait before sending it again.`,
           );
-        await asTenant(tx, a);
-        const budget = await emailBudget(tx, row.payload.email);
+        const budget = await emailBudget(
+          tx,
+          a.tenantId,
+          String(row.payload.email).toLowerCase(),
+        );
         if (!budget.ok) throw fail(429, "INVITE_EMAIL_LIMIT", budget.message);
-        await tx.query("RESET ROLE");
         // The plain link is never stored, so a resend issues a fresh link and
         // retires the previous one; the 7-day window restarts.
         const send = Number(row.payload.sends ?? 0) + 1;
+        const sentAt = new Date().toISOString();
         const [updated] = await tx.query(
           "UPDATE one_time_tokens SET token_hash=$2,expires_at=now()+make_interval(days=>$3),payload=payload||$4::jsonb WHERE id=$1 AND consumed_at IS NULL RETURNING expires_at",
           [
@@ -570,7 +643,8 @@ export function registerJoiningRoutes(
             INVITATION_DAYS,
             JSON.stringify({
               sends: send,
-              lastSentAt: new Date().toISOString(),
+              lastSentAt: sentAt,
+              sentAt: [...recentSends(row.payload), sentAt],
               emailRequested: true,
               emailNote: null,
             }),
@@ -657,6 +731,10 @@ export function registerJoiningRoutes(
         viewer: viewer
           ? {
               signedIn: true,
+              // The viewer's own session, so the page can replay this
+              // device's offline entries before leaving it.
+              tenantId: viewer.tenantId,
+              userId: viewer.userId,
               name: viewer.name ?? "",
               email: viewer.email ?? "",
               emailMatches: matches,

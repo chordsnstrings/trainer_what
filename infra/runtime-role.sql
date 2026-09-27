@@ -30,6 +30,9 @@ GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 
 GRANT SELECT,INSERT ON privacy_erasure_registry TO trainer_service;
+-- Keys and dates of complimentary grants for the operator list; the table is
+-- written only by its definer trigger on complimentary_access.
+GRANT SELECT ON complimentary_access_directory TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON workspace_lifecycle_requests TO trainer_service;
 
 -- Account secrets and WebAuthn are system-only; tenant actors cannot read them.

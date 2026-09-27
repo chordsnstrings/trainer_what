@@ -658,6 +658,85 @@ test("automatic delivery requires independent action coverage and pinned current
     400,
   );
 });
+test("complimentary access passes the digital coach membership gate; ending it during generation withholds the response", async () => {
+  const message =
+    "I missed Monday's planned session while travelling. How can I stay consistent now?";
+  const setPaid = (status: string) =>
+    db.tenant(coach, (tx) =>
+      tx.query("UPDATE subscriptions SET status=$2 WHERE user_id=$1", [
+        client.userId,
+        status,
+      ]),
+    );
+  await setPaid("canceled");
+  try {
+    const unpaid = await req("/coaching/ask", "POST", { message }, client);
+    assert.equal(unpaid.statusCode, 402, unpaid.body);
+    await db.system((tx) =>
+      tx.query("UPDATE sessions SET mfa_at=now() WHERE user_id=$1", [
+        coach.userId,
+      ]),
+    );
+    const granted = await req(
+      "/complimentary-access",
+      "POST",
+      {
+        userId: client.userId,
+        tier: "workout",
+        days: 30,
+        reason: "Digital coach pilot",
+      },
+      coach,
+    );
+    assert.equal(granted.statusCode, 200, granted.body);
+    const before = calls;
+    const answered = await req("/coaching/ask", "POST", { message }, client);
+    assert.equal(answered.statusCode, 200, answered.body);
+    assert.equal(answered.json().automatic, true);
+    assert.equal(calls, before + 1, "One qualified model selection");
+    // The member receives the trainer's approved wording, never model text.
+    const [action] = await db.tenant(coach, (tx) =>
+      tx.query("SELECT data FROM records WHERE id=$1", [actionId]),
+    );
+    assert.equal(answered.json().message, action.data.response);
+    assert.doesNotMatch(answered.json().message, /Model text|model copy/i);
+    afterGeneration = async () => {
+      afterGeneration = undefined;
+      const ended = await req(
+        `/complimentary-access/${granted.json().id}/revoke`,
+        "POST",
+        { version: granted.json().version, reason: "Pilot ended" },
+        coach,
+      );
+      assert.equal(ended.statusCode, 200, ended.body);
+    };
+    const decisions = async () =>
+      (
+        await db.tenant(coach, (tx) =>
+          tx.query(
+            "SELECT count(*)::int n FROM records WHERE kind='decision' AND owner_user_id=$1",
+            [client.userId],
+          ),
+        )
+      )[0].n;
+    const [delivered] = await db.tenant(coach, (tx) =>
+      tx.query("SELECT status FROM records WHERE id=$1", [
+        answered.json().decisionId,
+      ]),
+    );
+    assert.equal(delivered.status, "delivered");
+    const count = await decisions();
+    const withheld = await req("/coaching/ask", "POST", { message }, client);
+    assert.equal(withheld.statusCode, 402, withheld.body);
+    assert.match(withheld.json().message, /membership changed during generation/);
+    assert.equal(await decisions(), count, "Nothing is recorded or delivered");
+    const after = await req("/coaching/ask", "POST", { message }, client);
+    assert.equal(after.statusCode, 402, after.body);
+  } finally {
+    afterGeneration = undefined;
+    await setPaid("active");
+  }
+});
 test("takeover, profile edits and erased membership during generation cannot produce an automatic response", async () => {
   afterGeneration = async () => {
     afterGeneration = undefined;

@@ -183,3 +183,18 @@
     max-width: 8.5rem;
   }
 }
+.comp-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+  margin-block: 8px 12px;
+}
+.comp-filters .invitation-filter {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+.comp-filters input {
+  min-width: 0;
+  inline-size: 100%;
+}
