@@ -7,6 +7,7 @@ import { createDatabase, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import {
   PAGE_SIZES,
+  PINNED_URGENT_EXCEPTIONS,
   RECORD_CATALOG,
   RECORD_COLUMN_NAMES,
   decodeCursor,
@@ -15,16 +16,21 @@ import {
 } from "../apps/api/src/workspace-pages.ts";
 import {
   appendPage,
+  appendRelated,
   canLoadMore,
   mergePages,
+  needsWorkoutSets,
   nextPagePath,
   pageInfo,
+  urgentFirst,
 } from "../apps/web/components/workspace-paging.ts";
 import {
   LARGE,
   largeWorkspace,
   person,
+  session,
   type Person,
+  type Sized,
 } from "./bootstrap-fixtures.ts";
 
 let db: Database,
@@ -130,8 +136,12 @@ test("bootstrap is bounded per role under the large fixture", async (t) => {
       byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
     for (const [kind, n] of byKind) {
       assert.ok(RECORD_CATALOG[kind], `unexpected kind ${kind}`);
-      // Each kind is its page plus the bounded pinned rows (confirmed rules).
-      const cap = RECORD_CATALOG[kind].page + (kind === "rule" ? 100 : 0);
+      // Each kind is its page plus the bounded pinned rows (confirmed rules,
+      // the oldest open safety and personal-review exceptions).
+      const cap =
+        RECORD_CATALOG[kind].page +
+        (kind === "rule" ? 100 : 0) +
+        (kind === "exception" ? PINNED_URGENT_EXCEPTIONS : 0);
       assert.ok(n <= Math.max(cap, 50), `${kind}: ${n}`);
     }
     assert.ok(body.sets.length <= PAGE_SIZES.sets + 500);
@@ -143,7 +153,9 @@ test("bootstrap is bounded per role under the large fixture", async (t) => {
     if (body.members)
       assert.ok(
         body.members.length <=
-          PAGE_SIZES.team + PAGE_SIZES.members + RECORD_CATALOG.exception.page,
+          PAGE_SIZES.team +
+            PAGE_SIZES.members +
+            2 * (RECORD_CATALOG.exception.page + PINNED_URGENT_EXCEPTIONS),
       );
     // Kinds excluded before remain excluded.
     assert.ok(
@@ -855,4 +867,407 @@ test("web paging helpers merge pages without duplicates", () => {
     ),
     ["2026-09-27T10:11:12.123456Z", "00000000-0000-4000-8000-000000000001"],
   );
+});
+
+// ---- review regressions: screens that must not lose rows to paging ---------
+
+/** A workspace with `followers` followers and only the fixture's fixed rows. */
+const small = (followers: number, label: string) =>
+  largeWorkspace(
+    db,
+    {
+      followers,
+      messages: 0,
+      workouts: 0,
+      programs: 0,
+      plannedSessions: 0,
+      exceptions: 0,
+      sets: 0,
+      events: 0,
+      costs: 0,
+      journals: 0,
+      notifications: 0,
+    } satisfies Sized,
+    label,
+  );
+const post = (path: string, cookie: string, payload: unknown) =>
+  app.inject({
+    method: "POST",
+    url: "/api/v1" + path,
+    headers: {
+      origin: "http://localhost:3000",
+      host: "localhost:3000",
+      cookie,
+    },
+    payload: payload as any,
+  });
+/** Records with explicit ids, owners and ages (minutes before now). */
+const insertRecords = (
+  tx: any,
+  tenantId: string,
+  rows: {
+    id: string;
+    kind: string;
+    owner: string;
+    status: string;
+    data: unknown;
+    age: number;
+  }[],
+) =>
+  tx.query(
+    `INSERT INTO records(id,tenant_id,kind,owner_user_id,status,data,created_at,updated_at)
+     SELECT x.id,$1,x.kind,x.owner,x.status,x.data,now()-(x.age*interval '1 minute'),now()-(x.age*interval '1 minute')
+     FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,kind text,owner uuid,status text,data jsonb,age int)`,
+    [tenantId, JSON.stringify(rows)],
+  );
+
+test("every listed workout shows all of its set logs", async () => {
+  const s = await small(3, "Sets");
+  const me = s.follower;
+  const program = {
+    title: "Synthetic block",
+    exercises: Array.from({ length: 6 }, (_, e) => ({
+      name: `Exercise ${e + 1}`,
+      sets: 3,
+      reps: 10,
+      restSeconds: 90,
+      loadKg: 20,
+      rir: 2,
+      cue: "Controlled tempo",
+      alternatives: [],
+    })),
+  };
+  // Ten completed sessions and the newest one active, 18 set logs each:
+  // 198 logs, more than the bootstrap's 100 most recent.
+  await db.tenant(s.scope, async (tx) => {
+    await insertRecords(
+      tx,
+      s.tenantId,
+      Array.from({ length: 11 }, (_, i) => ({
+        id: randomUUID(),
+        kind: "workout",
+        owner: me.userId,
+        status: i === 10 ? "active" : "completed",
+        data: { program },
+        age: (11 - i) * 1440,
+      })),
+    );
+    await tx.query(
+      `INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data,created_at)
+       SELECT gen_random_uuid(),$1,$2,w.id,'sets-'||w.id||'-'||e||'-'||n,jsonb_build_object('exercise','Exercise '||e,'set',n,'reps',10,'loadKg',20,'rir',2),w.created_at+(e*interval '1 minute')+(n*interval '1 second')
+       FROM records w CROSS JOIN generate_series(1,6) AS e CROSS JOIN generate_series(1,3) AS n
+       WHERE w.kind='workout' AND w.owner_user_id=$2`,
+      [s.tenantId, me.userId],
+    );
+  });
+  for (const viewer of [me, s.owner]) {
+    const boot = await ok("/bootstrap", viewer.cookie);
+    assert.equal(boot.pages.sets.hasMore, true);
+    const listed = boot.records.filter((r: any) => r.kind === "workout");
+    assert.equal(listed.length, 11);
+    const fromBootstrap = (id: string) =>
+      new Set(
+        boot.sets.filter((x: any) => x.workout_id === id).map((x: any) => x.id),
+      );
+    // The bound is real: the bootstrap alone leaves older sessions without
+    // their logs (the regression shown as "Log set" on logged sets).
+    assert.ok(listed.some((w: any) => fromBootstrap(w.id).size < 18));
+    for (const workout of listed) {
+      // As the workout screen does: bootstrap logs, plus the workout's own
+      // logs by id when the bootstrap's list is incomplete.
+      const need = needsWorkoutSets(
+        workout,
+        viewer,
+        !boot.pages.sets.hasMore,
+      );
+      const shown = fromBootstrap(workout.id);
+      if (need)
+        for (const x of await walk(viewer.cookie, "sets", {
+          workoutId: workout.id,
+        }))
+          shown.add(x.id);
+      assert.equal(shown.size, 18, `${viewer.role} ${workout.status}`);
+      if (viewer.role === "subscriber" && workout.status === "active")
+        assert.equal(need, false, "an active session works offline");
+    }
+  }
+});
+
+test("a support thread with a new reply comes first", async () => {
+  const s = await small(3, "Support");
+  // The fixture opens 60 threads a minute apart.
+  const [oldest] = await db.tenant(s.scope, (tx) =>
+    tx.query(
+      "SELECT id,owner_user_id FROM records WHERE kind='support' ORDER BY created_at,id LIMIT 1",
+    ),
+  );
+  const supportRows = (boot: any) =>
+    boot.records.filter((r: any) => r.kind === "support");
+  const before = await ok("/bootstrap", s.owner.cookie);
+  assert.equal(supportRows(before).length, 50);
+  assert.ok(!ids(supportRows(before)).includes(oldest.id));
+  const reply = await post(
+    `/support/${oldest.id}/reply`,
+    await session(db, oldest.owner_user_id, s.tenantId),
+    { message: "Thanks, that answered my question." },
+  );
+  assert.equal(reply.statusCode, 200, reply.body);
+  const after = await ok("/bootstrap", s.owner.cookie);
+  assert.equal(supportRows(after)[0].id, oldest.id);
+  assert.equal(after.pages.records.support.hasMore, true);
+  // The rest follows by latest change, each thread once.
+  const rest = await walk(
+    s.owner.cookie,
+    "records",
+    { kind: "support" },
+    after.pages.records.support,
+  );
+  const all = [...ids(supportRows(after)), ...ids(rest)];
+  noDuplicates(all);
+  assert.equal(all.length, 60);
+  const walked = await walk(s.owner.cookie, "records", {
+    kind: "support",
+    limit: "7",
+  });
+  assert.equal(walked[0].id, oldest.id);
+  assert.equal(walked.length, 60);
+  noDuplicates(ids(walked));
+});
+
+test("the attention list keeps old safety reviews, names and decisions", async () => {
+  const s = await small(150, "Attention");
+  // Followers sorted by name: those after the first 100 are not on the
+  // bootstrap's first members page.
+  const late = s.followers.slice(100);
+  const decision = (i: number) => ({
+    id: randomUUID(),
+    kind: "decision",
+    owner: late[i % late.length],
+    status: "pending_review",
+    data: {
+      message: `Draft reply ${i}`,
+      subscriberId: late[i % late.length],
+    },
+    age: 20000 + i,
+  });
+  const decisions = Array.from({ length: 62 }, (_, i) => decision(i));
+  // The ten oldest human reviews (the second page) concern people no newer
+  // item names; every other item names someone else.
+  const who = (i: number) => late[i < 10 ? i : 10 + (i % 40)];
+  const exception = (
+    category: string,
+    i: number,
+    age: number,
+    status = "open",
+    extra: Record<string, unknown> = {},
+  ) => ({
+    id: randomUUID(),
+    kind: "exception",
+    owner: who(i),
+    status,
+    data: {
+      category,
+      description: `${category} item ${i}`,
+      subscriberId: who(i),
+      ...(i < decisions.length ? { decisionId: decisions[i].id } : {}),
+      ...extra,
+    },
+    age,
+  });
+  // 60 newer open human reviews; one open safety review three days old, one
+  // overdue personal review two days old; closed items that stay closed.
+  const human = Array.from({ length: 60 }, (_, i) =>
+    exception("human_review", i, 60 - i),
+  );
+  const safety = exception("safety", 60, 3 * 1440);
+  const policy = exception("policy_review", 61, 2 * 1440, "open", {
+    overdueAt: new Date(Date.now() - 3600_000).toISOString(),
+  });
+  const closedSafety = exception("safety", 99, 4 * 1440, "resolved");
+  const closed = Array.from({ length: 60 }, (_, i) =>
+    exception("human_review", 100 + i, 6000 + i, "resolved"),
+  );
+  await db.tenant(s.scope, (tx) =>
+    insertRecords(tx, s.tenantId, [
+      ...decisions,
+      ...human,
+      safety,
+      policy,
+      closedSafety,
+      ...closed,
+    ]),
+  );
+  const staffUser = await person(db, s.tenantId, "staff", "Attention Coach");
+  for (const viewer of [s.owner, staffUser]) {
+    const boot = await ok("/bootstrap", viewer.cookie);
+    const open = boot.records.filter(
+      (r: any) => r.kind === "exception" && r.status === "open",
+    );
+    assert.equal(boot.totals.openExceptions, 62);
+    // The first page is the 50 newest; the old safety and personal reviews
+    // are pinned, and closed ones are not.
+    assert.equal(open.length, 52);
+    assert.ok(ids(open).includes(safety.id), "old safety review listed");
+    assert.ok(ids(open).includes(policy.id));
+    assert.ok(!ids(boot.records).includes(closedSafety.id));
+    const ordered = urgentFirst(open);
+    assert.deepEqual(ids(ordered.slice(0, 2)), [safety.id, policy.id]);
+    for (const e of open) {
+      assert.ok(
+        boot.records.some((d: any) => d.id === e.data.decisionId),
+        "decision pinned",
+      );
+      assert.ok(
+        boot.members.some((m: any) => m.id === e.data.subscriberId),
+        "name pinned",
+      );
+    }
+    // The older page carries its own decisions and names.
+    const next = await ok(
+      page("records", {
+        kind: "exception",
+        cursor: boot.pages.records.exception.cursor,
+      }),
+      viewer.cookie,
+    );
+    assert.equal(next.hasMore, false);
+    assert.ok(
+      next.items.some(
+        (e: any) =>
+          !boot.members.some((m: any) => m.id === e.data.subscriberId),
+      ),
+      "the older page names people outside the bootstrap",
+    );
+    const merged = mergePages(
+      boot,
+      appendRelated(
+        appendPage({}, "records:exception", next),
+        next.related,
+      ),
+    );
+    const listed = merged.records.filter(
+      (r: any) => r.kind === "exception" && r.status === "open",
+    );
+    assert.equal(listed.length, 62);
+    noDuplicates(ids(listed));
+    for (const e of listed) {
+      assert.ok(
+        merged.records.some(
+          (d: any) => d.kind === "decision" && d.id === e.data.decisionId,
+        ),
+        "every card quotes its decision without a request of its own",
+      );
+      assert.ok(
+        merged.members.some((m: any) => m.id === e.data.subscriberId),
+        "every card names its member",
+      );
+    }
+  }
+  // A follower cannot list members, so their pages carry no names.
+  const own = await ok(page("records", { kind: "exception" }), s.follower.cookie);
+  assert.deepEqual(own.items, []);
+  assert.equal(own.related.members, undefined);
+
+  // Operators page every per-workspace list of one workspace.
+  const admin = await person(db, s.tenantId, "staff", "Ops Admin", "admin");
+  async function walkRows(view: string) {
+    const rows: any[] = [];
+    let cursor: string | null = null,
+      n = 0;
+    do {
+      const q = new URLSearchParams({ tenantId: s.tenantId });
+      if (cursor) q.set("rowsCursor", cursor);
+      const r = await ok(`/admin/operations/${view}?${q}`, admin.cookie);
+      assert.ok(r.rows.length <= 100);
+      assert.deepEqual(r.truncated, []);
+      rows.push(...r.rows);
+      cursor = r.rowsHasMore ? r.rowsCursor : null;
+      if (r.rowsHasMore) assert.ok(r.rowsCursor);
+      assert.ok(++n < 50);
+    } while (cursor);
+    return rows;
+  }
+  const subscribers = await walkRows("subscribers");
+  noDuplicates(ids(subscribers));
+  assert.deepEqual(new Set(ids(subscribers)), new Set(s.followers));
+  const safetyRows = await walkRows("safety");
+  noDuplicates(ids(safetyRows));
+  assert.equal(safetyRows.length, 62 + 1 + 60);
+  assert.equal(safetyRows[0].id, policy.id, "overdue reviews first");
+  const supportRows = await walkRows("support");
+  assert.equal(supportRows.length, 60);
+  for (const view of ["brains", "wearables", "infrastructure"])
+    await walkRows(view);
+  // Across workspaces each lists its first rows and names the truncated.
+  const across = await ok("/admin/operations/safety", admin.cookie);
+  assert.ok(
+    across.truncated.some((t: any) => t.tenantId === s.tenantId),
+    "a workspace with more rows is named",
+  );
+  assert.equal(
+    across.rows.filter((r: any) => r.tenant_id === s.tenantId).length,
+    100,
+  );
+  const unscoped = await call(
+    "/admin/operations/safety?rowsCursor=" + encodeCursor(["x"]),
+    admin.cookie,
+  );
+  assert.equal(unscoped.statusCode, 400);
+  assert.equal(unscoped.json().code, "WORKSPACE_REQUIRED");
+});
+
+test("program pickers list the first followers and search the rest", async () => {
+  const overview = await ok("/training/overview", w.owner.cookie);
+  assert.equal(overview.members.length, 100);
+  assert.equal(overview.membersHasMore, true);
+  const names = overview.members.map((m: any) => m.name);
+  assert.deepEqual(names, [...names].sort());
+  // A selected follower outside the first names is always included.
+  const last = w.followers[w.followers.length - 1];
+  const selected = await ok(
+    "/training/overview?subscriberId=" + last,
+    w.staff.cookie,
+  );
+  assert.ok(selected.members.some((m: any) => m.id === last));
+  assert.equal(
+    (await ok("/training/overview", w.follower.cookie)).members,
+    undefined,
+  );
+});
+
+test("web helpers order urgent items and decide when to read set logs", () => {
+  const at = (days: number) =>
+    new Date(Date.now() - days * 86400_000).toISOString();
+  const list = [
+    { id: "h1", created_at: at(1), data: { category: "human_review" } },
+    { id: "p", created_at: at(2), data: { category: "policy_review" } },
+    { id: "s2", created_at: at(1), data: { category: "safety" } },
+    { id: "h2", created_at: at(9), data: { category: "human_review" } },
+    { id: "s1", created_at: at(5), data: { category: "safety" } },
+  ];
+  assert.deepEqual(ids(urgentFirst(list)), ["s1", "s2", "p", "h1", "h2"]);
+  const follower = { role: "subscriber", userId: "me" };
+  const trainer = { role: "owner", userId: "coach" };
+  const active = { status: "active", owner_user_id: "me" };
+  const done = { status: "completed", owner_user_id: "me" };
+  assert.equal(needsWorkoutSets(active, follower, false), false);
+  assert.equal(needsWorkoutSets(done, follower, false), true);
+  assert.equal(needsWorkoutSets(done, follower, true), false);
+  assert.equal(needsWorkoutSets(active, trainer, false), true);
+  const extra = appendRelated({}, {
+    records: [{ id: "d1" }],
+    members: [{ id: "m1", name: "Named" }],
+    journals: [{ id: "ignored" }],
+  });
+  assert.deepEqual(Object.keys(extra).sort(), [
+    "related:members",
+    "related:records",
+  ]);
+  const merged = mergePages(
+    { records: [{ id: "d1" }], members: [], pages: {} },
+    extra,
+  );
+  assert.deepEqual(ids(merged.records), ["d1"]);
+  assert.deepEqual(ids(merged.members), ["m1"]);
+  assert.equal(pageInfo({}, extra, "members"), undefined);
 });

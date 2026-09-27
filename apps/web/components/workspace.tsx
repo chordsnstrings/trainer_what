@@ -82,8 +82,11 @@ import { PlatformAlerts } from "./platform-alerts";
 import { WorkspaceSuspended } from "./workspace-suspended";
 import {
   appendPage,
+  appendRelated,
   canLoadMore,
   mergePages,
+  needsWorkoutSets,
+  urgentFirst,
   nextPagePath,
   pageInfo,
   pageKey,
@@ -725,7 +728,9 @@ export default function Workspace() {
       try {
         const page = await api(nextPagePath(collection, info, kind));
         if (started === generation.current)
-          setExtra((current) => appendPage(current, key, page));
+          setExtra((current) =>
+            appendRelated(appendPage(current, key, page), page.related),
+          );
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -1239,7 +1244,9 @@ const openExceptionCount = (state: State, records: ViewProps["records"]) =>
 function Overview({ state, records }: ViewProps) {
   const sub = state.user.role === "subscriber";
   const rules = records("rule").filter((x) => x.status === "confirmed"),
-    exceptions = records("exception").filter((x) => x.status === "open"),
+    exceptions = urgentFirst(
+      records("exception").filter((x) => x.status === "open"),
+    ),
     programs = records("program"),
     workouts = records("workout");
   const confirmedRules = total(state, "confirmedRules", rules.length),
@@ -2470,51 +2477,74 @@ function Programs({ state, records, action, busy }: ViewProps) {
   );
 }
 
+/** Every set log of one workout (at most 500), newest first. */
+async function workoutSets(workoutId: string) {
+  const sets: any[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 5; page++) {
+    const params = new URLSearchParams({ workoutId });
+    if (cursor) params.set("cursor", cursor);
+    const r = await api(`/workspace/pages/sets?${params}`);
+    sets.push(...r.items);
+    if (!r.hasMore) break;
+    cursor = r.cursor;
+  }
+  return sets;
+}
 /**
  * An older workout outside the bootstrap's first page is fetched by address,
- * with its set logs, so every session in the history can still be opened.
+ * with its set logs, so every session in the history can still be opened; a
+ * listed workout gets its set logs the same way when the bootstrap's recent
+ * set logs do not cover it.
  */
-function useListedOrFetchedWorkout(listed: Row | undefined, workoutId: string) {
-  const [fetched, setFetched] = useState<{ workout: Row; sets: any[] } | null>(
-    null,
-  );
+function useListedOrFetchedWorkout(
+  listed: Row | undefined,
+  workoutId: string,
+  fetchListedSets: boolean,
+) {
+  const [fetched, setFetched] = useState<{
+    id: string;
+    workout?: Row;
+    sets: any[];
+  } | null>(null);
+  const isListed = !!listed;
   useEffect(() => {
-    if (listed || !workoutId || !navigator.onLine) return;
+    if (!workoutId || !navigator.onLine) return;
+    if (isListed && !fetchListedSets) return;
     let active = true;
     void (async () => {
       try {
-        const workout = await api(`/workspace/records/${workoutId}`);
-        if (workout.kind !== "workout") return;
-        const sets: any[] = [];
-        let cursor: string | null = null;
-        for (let page = 0; page < 5; page++) {
-          const params = new URLSearchParams({ workoutId });
-          if (cursor) params.set("cursor", cursor);
-          const r = await api(`/workspace/pages/sets?${params}`);
-          sets.push(...r.items);
-          if (!r.hasMore) break;
-          cursor = r.cursor;
-        }
-        if (active) setFetched({ workout, sets });
+        const workout = isListed
+          ? undefined
+          : await api(`/workspace/records/${workoutId}`);
+        if (workout && workout.kind !== "workout") return;
+        const sets = await workoutSets(workoutId);
+        if (active) setFetched({ id: workoutId, workout, sets });
       } catch {
-        // The empty state below explains that the workout is unavailable.
+        // The empty state below explains that the workout is unavailable;
+        // a listed workout keeps the set logs the bootstrap carried.
       }
     })();
     return () => {
       active = false;
     };
-  }, [listed, workoutId]);
+    // Set logs are append-only, so a bootstrap reload does not refetch them.
+  }, [isListed, fetchListedSets, workoutId]);
+  const mine = fetched?.id === workoutId ? fetched : null;
   return listed
-    ? { workout: listed, sets: [] as any[] }
-    : fetched?.workout.id === workoutId
-      ? fetched
+    ? { workout: listed, sets: mine?.sets ?? ([] as any[]) }
+    : mine?.workout
+      ? { workout: mine.workout, sets: mine.sets }
       : { workout: undefined, sets: [] as any[] };
 }
 function Workout({ state, records, action, busy, path }: ViewProps) {
   const workoutId = path.split("/").pop() ?? "";
+  const listedWorkout = records("workout").find((w) => w.id === workoutId);
   const found = useListedOrFetchedWorkout(
-    records("workout").find((w) => w.id === workoutId),
+    listedWorkout,
     workoutId,
+    !!listedWorkout &&
+      needsWorkoutSets(listedWorkout, state.user, !state.pages?.sets?.hasMore),
   );
   const workout = found.workout,
     loggedSets = found.sets.length
@@ -3021,29 +3051,19 @@ function Messages({ state, records, action, busy }: ViewProps) {
   );
 }
 
-/** A decision outside the bootstrap's pinned set is read by its id. */
-function DecisionQuote({ id, known }: { id: string; known?: Row }) {
-  const [message, setMessage] = useState<string | undefined>(
-    known?.data?.message,
-  );
-  useEffect(() => {
-    if (known) {
-      setMessage(known.data?.message);
-      return;
-    }
-    let active = true;
-    api(`/workspace/records/${id}`).then(
-      (r) => active && setMessage(r.data?.message),
-      () => {},
-    );
-    return () => {
-      active = false;
-    };
-  }, [id, known]);
+/**
+ * The decision an exception quotes. The bootstrap pins the decisions of the
+ * exceptions it sends and every older attention-list page carries its own, so
+ * no card needs a request of its own.
+ */
+function DecisionQuote({ known }: { known?: Row }) {
+  const message = known?.data?.message;
   return message ? <blockquote>{message}</blockquote> : null;
 }
 function Exceptions({ records, state, action, busy, more }: ViewProps) {
-  const exceptions = records("exception").filter((e) => e.status === "open");
+  const exceptions = urgentFirst(
+    records("exception").filter((e) => e.status === "open"),
+  );
   return (
     <>
       <TrainingHoldReview
@@ -3070,7 +3090,6 @@ function Exceptions({ records, state, action, busy, more }: ViewProps) {
             <SafetyReviewDue record={e} />
             {e.data.decisionId && (
               <DecisionQuote
-                id={e.data.decisionId}
                 known={records("decision").find(
                   (d) => d.id === e.data.decisionId,
                 )}

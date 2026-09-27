@@ -21,13 +21,31 @@ type Identity = Actor & { platformRole?: string };
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 
-type Page<T = any> = { items: T[]; hasMore: boolean; cursor: string | null };
+type Page<T = any> = {
+  items: T[];
+  hasMore: boolean;
+  cursor: string | null;
+  /** Rows the page's items refer to, by the bootstrap collection they join. */
+  related?: Record<string, any[]>;
+};
 type KeyType = "ts" | "uuid" | "text";
 
 /** Record kinds the web shell reads from the bootstrap, with their page size. */
 export const RECORD_CATALOG: Record<
   string,
-  { page: number; statuses?: readonly string[] }
+  {
+    page: number;
+    statuses?: readonly string[];
+    /**
+     * `updated`: pages follow the latest change (updated_at) instead of
+     * creation, for request queues that change in place (a reply on a support
+     * thread, a refund's provider status), so recent activity comes first as
+     * it did before paging. Such a row that changes while a client walks the
+     * list moves to the first page: it is never repeated, and it appears when
+     * the list next reloads.
+     */
+    order?: "updated";
+  }
 > = {
   beneficiary: { page: 50 },
   brain_release: { page: 50 },
@@ -42,11 +60,11 @@ export const RECORD_CATALOG: Record<
   message: { page: 20 },
   product: { page: 50 },
   program: { page: 50 },
-  refund: { page: 50 },
+  refund: { page: 50, order: "updated" },
   rule: { page: 100 },
   scenario: { page: 50 },
   source: { page: 50 },
-  support: { page: 50 },
+  support: { page: 50, order: "updated" },
   training_hold: { page: 20, statuses: ["active"] },
   workout: { page: 50 },
 };
@@ -70,6 +88,11 @@ const MAX_LIMIT = 100;
 const PINNED_ACTIVE_WORKOUTS = 5;
 const PINNED_ACTIVE_SETS = 500;
 const PINNED_CONFIRMED_RULES = 100;
+// Open safety and personal-review exceptions are the most urgent items on
+// the attention list, and the oldest of them are the most overdue: they are
+// always sent, oldest first, however many newer exceptions exist.
+export const URGENT_EXCEPTION_CATEGORIES = ["safety", "policy_review"] as const;
+export const PINNED_URGENT_EXCEPTIONS = 100;
 
 const tsKey = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
@@ -179,14 +202,19 @@ function finishPage(rows: any[], limit: number, keys: number): Page {
   for (const row of items) for (let i = 0; i < keys; i++) delete row["_k" + i];
   return { items, hasMore, cursor };
 }
-export const createdKey = (alias = "") => [
+const timeKey = (column: string) => (alias = "") => [
   {
-    sql: alias + "created_at",
-    cursorSql: tsKey(alias + "created_at"),
+    sql: alias + column,
+    cursorSql: tsKey(alias + column),
     type: "ts" as const,
   },
   { sql: alias + "id", cursorSql: alias + "id::text", type: "uuid" as const },
 ];
+export const createdKey = timeKey("created_at");
+/** Latest change first; see RECORD_CATALOG `order`. */
+export const updatedKey = timeKey("updated_at");
+const recordKey = (kind: string) =>
+  RECORD_CATALOG[kind]?.order === "updated" ? updatedKey() : createdKey();
 
 /**
  * Planner hints for a follower. Row-level security already limits a follower
@@ -232,7 +260,7 @@ export function recordPage(
     from: "records",
     where,
     params,
-    key: createdKey(),
+    key: recordKey(q.kind),
     descending: true,
     cursor: q.cursor,
     limit: q.limit ?? (RECORD_CATALOG[q.kind].page || 50),
@@ -241,18 +269,21 @@ export function recordPage(
 /** First page of every catalog kind in one statement. */
 async function recordFirstPages(tx: Tx, a: Actor) {
   const kinds = RECORD_KINDS.filter((k) => RECORD_CATALOG[k].page > 0);
-  const own = followerRecords(a, 4);
+  const own = followerRecords(a, 5);
+  // Each kind orders by its own key (recordKey), matching recordPage.
+  const orderTs = "(CASE WHEN k.ord='updated' THEN updated_at ELSE created_at END)";
   const rows = await tx.query(
-    `SELECT r.* FROM unnest($1::text[],$2::int[],$3::text[]) AS k(kind,lim,statuses)
+    `SELECT r.* FROM unnest($1::text[],$2::int[],$3::text[],$4::text[]) AS k(kind,lim,statuses,ord)
      CROSS JOIN LATERAL (
-       SELECT ${RECORD_COLUMNS},${tsKey("created_at")} AS "_k0",id::text AS "_k1" FROM records
+       SELECT ${RECORD_COLUMNS},${tsKey(orderTs)} AS "_k0",id::text AS "_k1" FROM records
        WHERE kind=k.kind AND (k.statuses IS NULL OR status=ANY(string_to_array(k.statuses,',')))${own ? " AND " + own : ""}
-       ORDER BY created_at DESC,id DESC LIMIT k.lim+1
+       ORDER BY ${orderTs} DESC,id DESC LIMIT k.lim+1
      ) r`,
     [
       kinds,
       kinds.map((k) => RECORD_CATALOG[k].page),
       kinds.map((k) => RECORD_CATALOG[k].statuses?.join(",") ?? null),
+      kinds.map((k) => RECORD_CATALOG[k].order ?? "created"),
       ...(own ? [a.userId] : []),
     ],
   );
@@ -278,6 +309,42 @@ async function recordFirstPages(tx: Tx, a: Actor) {
     records.push(...page.items);
   }
   return { records, pages };
+}
+
+const isUuid = (v: unknown): v is string =>
+  typeof v === "string" && cursorPatterns.uuid.test(v);
+
+/**
+ * What an exception card shows besides the exception itself: the coaching
+ * decision it quotes and, for the team, the names of the people it concerns.
+ * Read in the caller's transaction, so row-level security scopes both; a
+ * follower (who cannot list members) gets no names.
+ */
+async function exceptionContext(tx: Tx, a: Actor, exceptions: any[]) {
+  const decisionIds = [
+    ...new Set(exceptions.map((e) => e.data?.decisionId).filter(isUuid)),
+  ];
+  const decisions = decisionIds.length
+    ? await tx.query(
+        `SELECT ${RECORD_COLUMNS} FROM records WHERE kind='decision' AND id=ANY($1::uuid[])`,
+        [decisionIds],
+      )
+    : [];
+  if (a.role === "subscriber") return { decisions, members: null };
+  const memberIds = [
+    ...new Set(
+      exceptions
+        .flatMap((e) => [e.data?.subscriberId, e.owner_user_id])
+        .filter(isUuid),
+    ),
+  ];
+  const members = memberIds.length
+    ? await tx.query(
+        "SELECT u.id,u.name,u.email,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND u.id=ANY($2::uuid[])",
+        [a.tenantId, memberIds],
+      )
+    : [];
+  return { decisions, members };
 }
 
 // ---- members ---------------------------------------------------------------
@@ -378,13 +445,25 @@ const simple =
 const FINANCE = ["owner", "finance"] as const;
 export const COLLECTIONS: Record<string, Collection> = {
   records: {
-    page: (tx, a, q) =>
-      recordPage(tx, a, {
+    page: async (tx, a, q) => {
+      const page = await recordPage(tx, a, {
         kind: q.kind ?? "",
         status: q.status,
         cursor: q.cursor,
         limit: q.limit,
-      }),
+      });
+      if (q.kind !== "exception") return page;
+      // An older page of the attention list carries its decisions and names,
+      // so the cards need no request each (the rate limit is per user).
+      const context = await exceptionContext(tx, a, page.items);
+      return {
+        ...page,
+        related: {
+          records: context.decisions,
+          ...(context.members ? { members: context.members } : {}),
+        },
+      };
+    },
   },
   sets: {
     page: (tx, a, q) => {
@@ -534,26 +613,21 @@ export async function bootstrapCollections(
         records.push(row);
       }
   };
+  // The oldest open safety and personal-review items, however many newer
+  // exceptions fill the first page (the attention list is the team's).
+  if (a.role !== "subscriber")
+    pin(
+      await tx.query(
+        `SELECT ${RECORD_COLUMNS} FROM records WHERE kind='exception' AND status='open' AND data->>'category'=ANY($1::text[]) ORDER BY created_at,id LIMIT ${PINNED_URGENT_EXCEPTIONS}`,
+        [URGENT_EXCEPTION_CATEGORIES],
+      ),
+    );
   const openExceptions = records.filter(
     (r) => r.kind === "exception" && r.status === "open",
   );
-  const decisionIds = [
-    ...new Set(
-      openExceptions
-        .map((e) => e.data?.decisionId)
-        .filter(
-          (v): v is string =>
-            typeof v === "string" && cursorPatterns.uuid.test(v),
-        ),
-    ),
-  ];
-  if (decisionIds.length)
-    pin(
-      await tx.query(
-        `SELECT ${RECORD_COLUMNS} FROM records WHERE kind='decision' AND id=ANY($1::uuid[])`,
-        [decisionIds],
-      ),
-    );
+  // Their decisions (quoted on the card) and the people they concern.
+  const context = await exceptionContext(tx, a, openExceptions);
+  pin(context.decisions);
   // Confirmed rules feed the scenario form and release readiness, however
   // many drafts are newer.
   pin(
@@ -623,24 +697,7 @@ export async function bootstrapCollections(
       [...team.items, ...subscribers.items].map((m) => m.id),
     );
     // Names for the people on the included attention list.
-    const referenced = [
-      ...new Set(
-        openExceptions
-          .flatMap((e) => [e.data?.subscriberId, e.owner_user_id])
-          .filter(
-            (v): v is string =>
-              typeof v === "string" &&
-              cursorPatterns.uuid.test(v) &&
-              !listed.has(v),
-          ),
-      ),
-    ];
-    const extra = referenced.length
-      ? await tx.query(
-          "SELECT u.id,u.name,u.email,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND u.id=ANY($2::uuid[])",
-          [a.tenantId, referenced],
-        )
-      : [];
+    const extra = (context.members ?? []).filter((m) => !listed.has(m.id));
     result.members = [...team.items, ...subscribers.items, ...extra].sort(
       (x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0),
     );

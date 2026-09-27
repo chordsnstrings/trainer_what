@@ -163,7 +163,8 @@ function AdminOperationsWorkbench({
     setData(null);
     void load().catch((e) => setNotice(e.message));
   }, [view, tenant, cursor]);
-  // The security audit list pages by its own cursor.
+  // The security audit list, and every per-workspace list of a selected
+  // workspace, pages by its own cursor.
   async function loadMoreRows() {
     if (!data?.rowsCursor) return;
     setLoadingRows(true);
@@ -199,6 +200,50 @@ function AdminOperationsWorkbench({
       setBusy(false);
     }
   }
+  const rowsMore = data?.rowsHasMore ? (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loadingRows}
+        onClick={() => void loadMoreRows()}
+      >
+        {loadingRows
+          ? "Loading…"
+          : view === "security"
+            ? "Load older audit entries"
+            : "Load more rows"}
+      </button>
+    </div>
+  ) : null;
+  // Across a page of workspaces each lists only its first rows; say so and
+  // offer the workspace view, which pages through all of them.
+  const truncatedNotice = data?.truncated?.length ? (
+    <div className="notice" role="status">
+      <p>
+        Only the first rows of{" "}
+        {data.truncated.length === 1
+          ? "this workspace are"
+          : `${data.truncated.length} workspaces are`}{" "}
+        shown. Choose a workspace to page through all of its rows.
+      </p>
+      <div className="button-row">
+        {data.truncated.map((t: { tenantId: string; workspace: string }) => (
+          <button
+            type="button"
+            className="button secondary"
+            key={t.tenantId}
+            onClick={() => {
+              setTenant(t.tenantId);
+              setCursors([""]);
+            }}
+          >
+            Open {t.workspace}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
   if (!titles[view])
     return (
       <section className="card">
@@ -418,6 +463,7 @@ function AdminOperationsWorkbench({
           ) : view === "support" ? (
             <section className="card">
               <h2>Conversations</h2>
+              {truncatedNotice}
               {!data.rows.length && <p className="muted">No conversations.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
@@ -457,6 +503,7 @@ function AdminOperationsWorkbench({
                   />
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "safety" ? (
             <section className="card">
@@ -464,6 +511,7 @@ function AdminOperationsWorkbench({
                 Operator review records triage. The coach must resolve any
                 training or nutrition hold through its governed workflow.
               </p>
+              {truncatedNotice}
               {!data.rows.length && <p>No safety cases.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
@@ -511,6 +559,7 @@ function AdminOperationsWorkbench({
                   </form>
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "experiments" ? (
             <>
@@ -660,19 +709,9 @@ function AdminOperationsWorkbench({
                   {data.summary.period} · {data.summary.attribution}
                 </p>
               )}
+              {truncatedNotice}
               <Table rows={data.rows} />
-              {data.rowsHasMore && (
-                <div className="button-row load-more">
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={loadingRows}
-                    onClick={() => void loadMoreRows()}
-                  >
-                    {loadingRows ? "Loading…" : "Load older audit entries"}
-                  </button>
-                </div>
-              )}
+              {rowsMore}
               {view === "security" && (
                 <>
                   <h2>Operator access</h2>

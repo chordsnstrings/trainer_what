@@ -75,7 +75,7 @@ Deviation found during implementation: the plan named the operator audit paramet
   - Counts use `totals`: the overview, analytics, the exceptions nav badge, readiness, interview progress and scenario count.
   - The Subscribers screen reads `/workspace/pages/members`, with server search, "Showing N of M" and "Load more subscribers".
   - The workout screen fetches a workout that is not in the bootstrap, and its set logs, by id.
-  - An exception's decision quote is fetched when it was not pinned.
+  - An exception's decision quote was fetched per card when it was not pinned. The review stage replaced this (see "Review fixes"): pages now carry their decisions.
   - The subscriber detail page looks up a follower's name by id.
   - Admin overview: "Load more workspaces"; totals labelled when only some workspaces are loaded.
 - `member-finder.tsx` adds a server search to the client pickers in `training-workspace.tsx` (coaching messages, training progress) when more followers exist than the first page.
@@ -116,6 +116,64 @@ Same fixture, five timed requests after a warm-up:
 - After adding 300 followers and 2,000 older messages, the owner payload was byte-for-byte the same size: 449,943 bytes before and after, in the test run where earlier tests had added rows.
 - Latency is roughly unchanged. The new exact totals are aggregate queries. The size reduction, not speed, is the gain.
 
+## Review fixes (second stage)
+
+An adversarial review of `2f3c441` found three screens that lost rows to paging, two minor defects and two unfinished parts of the requirement. All seven now have tests (below). Only the support-order and attention-list tests were run against the `2f3c441` code, by swapping the old `workspace-pages.ts` back in: both failed there, and both pass now. The workout test checks the web's new rule (`needsWorkoutSets`), which did not exist before, so it was not run against the old code.
+
+### What changed
+
+- **Logged sets on listed workouts** (major). The bootstrap carries the 100 most recent set logs, plus every log of a follower's own active sessions. A recent completed workout could therefore be listed without its logs, and its logged sets showed as "Log set". The workout screen now reads the workout's own logs through `/workspace/pages/sets?workoutId=` when the bootstrap's set list is incomplete (`pages.sets.hasMore`). The exception is a follower's own active session, which is already complete in the bootstrap and works offline. The decision is `needsWorkoutSets` in `workspace-paging.ts`. The fetch is keyed on the workout id, not on the bootstrap object, because set logs are append-only. So a bootstrap reload after an action does not repeat it.
+- **Old open safety reviews** (major). The bootstrap now pins up to 100 open exceptions in the `safety` and `policy_review` categories, oldest first, for the team (not for followers). Pinned rows never move a cursor. Their decisions and the names of the people they concern are pinned as well. The attention list and the overview preview order items with `urgentFirst`: safety first, then personal reviews, each oldest (most overdue) first, then every other item in its previous order.
+- **Activity order for request queues** (major). `RECORD_CATALOG` has an `order: "updated"` option. `support` and `refund` use it, so their first page and later pages follow `updated_at, id` (the `(tenant_id, kind, updated_at)` index), as the old bootstrap did. A support thread that gets a new reply comes first again. Every other kind still pages by `created_at, id`.
+- **Names on older attention-list pages** (minor). A records page of `kind=exception` returns `related.members`: the names of the people its items refer to. It is read in the same tenant transaction, and followers never receive it, which matches the members collection rule. The web merges these into `members`.
+- **Request fan-out from decision quotes** (minor). The same page returns `related.records` with the decisions its items quote. The web merges these into `records` (`appendRelated`). `DecisionQuote` no longer sends one `GET /workspace/records/:id` per card. Loading an older page is now one request, so it cannot use up the 120 requests a minute that each user is allowed in production.
+- **Per-workspace admin operations lists** (missing requirement). The subscribers, brains, safety, support, wearables and job lists now page by keyset:
+  - With one workspace selected, rows come 100 at a time through `rowsCursor`, with `rowsHasMore`. The UI shows "Load more rows" on every view, including the support and safety workbenches.
+  - Across a page of workspaces, each workspace still lists its first rows, capped as before (200 subscribers, 100 of the others). `truncated` names every workspace that has more rows. The UI says so and offers "Open <workspace>".
+  - `rowsCursor` without a workspace is refused with 400 `WORKSPACE_REQUIRED`, except for the security audit list.
+  - Keys: subscribers by `(name, id)`; brains by `(created_at, id)`, newest first; safety by overdue first, then `(created_at, id)`, newest first; support by `(updated_at, id)`, most recently active first; wearables by `(updated_at, id)` over one `UNION ALL` of HealthKit devices and wearable records; jobs by `(created_at, id)`, oldest first.
+  - Pre-existing defect found and fixed: the subscribers view ordered by `users.created_at`, which the runtime role may not read (it has `SELECT(id,name,email)` on users). Selecting a workspace therefore failed with 42501 (HTTP 500). It now orders by name.
+- **`/training/overview` followers** (missing requirement). It returns the first 100 followers by name and `membersHasMore`, and always includes a selected follower. The program screen's three client pickers add a `MemberFinder` server search when more followers exist.
+
+### Tests added (`tests/bounded-bootstrap.test.ts`, now 16 tests)
+
+- "every listed workout shows all of its set logs": 10 completed and 1 active workouts with 18 logs each, for a follower and for the owner. The test asserts that the bootstrap alone leaves older sessions incomplete, and that the workout screen's rule yields all 18 logs for every listed workout. A follower's active session needs no fetch.
+- "a support thread with a new reply comes first": the follower who owns the oldest of 60 threads replies through `POST /support/:id/reply`. The thread becomes the owner's first support row. Walks from the bootstrap cursor, and from scratch with `limit=7`, give all 60 threads once.
+- "the attention list keeps old safety reviews, names and decisions": 150 followers, 60 newer open human reviews, one open safety review 3 days old, one overdue personal review, and closed items. For owner and staff:
+  - 52 of 62 open items are in the bootstrap, including both urgent ones, and `urgentFirst` puts them first;
+  - page 2 names people absent from the bootstrap;
+  - after merging page 2 (`appendRelated`), all 62 open items have their decision and member name.
+  - A follower's exception page has no `related.members`.
+  - Admin operations: subscribers (150), safety (123) and support (60) walk with no duplicates, and the overdue review comes first. Brains, wearables and jobs page. The all-workspaces safety view lists 100 rows and names the workspace in `truncated`. `rowsCursor` without a workspace gives 400.
+- "program pickers list the first followers and search the rest": `/training/overview` returns 100 members, sorted, with `membersHasMore`. A selected follower outside them is included. A follower receives no members.
+- "web helpers order urgent items and decide when to read set logs": `urgentFirst`, `needsWorkoutSets` and `appendRelated` merging.
+- The first test's caps now allow the pinned urgent exceptions (and up to two names each).
+
+### Checks run for the review stage
+
+All commands were run with `PATH=/opt/node24/bin:$PATH` from the worktree, after the last code change.
+
+| Command | Result |
+| --- | --- |
+| `npx tsc --noEmit` | Passed (exit 0) |
+| `node --import tsx --test tests/bounded-bootstrap.test.ts` | 16 passed, 0 failed |
+| Same file with the `2f3c441` `workspace-pages.ts` swapped back in, `--test-name-pattern="attention\|support thread"` | Both new tests failed, as expected. The file was then restored. |
+| `node --import tsx --test --test-concurrency=1` on 16 files: bounded-bootstrap, acquisition, admin-completion, coaching-completion, coaching-runtime, fix-coaching, governance-step-up, governance-suspension, healthkit-sync, messaging-inquiries, messaging-safety-policy, platform, support-preview, notifications, fix-web, fix2-web | 165 passed, 0 failed, 0 skipped |
+| `/opt/tools/pg-sandbox.sh 56122 "$PWD"` on 10 files: bounded-bootstrap, admin-completion, healthkit-sync, messaging-safety-policy, fix-coaching, coaching-completion, support-preview, notifications, platform, governance-step-up | Migrations (52), runtime role and `verify-runtime-access` passed. 120 tests: 120 passed, 0 failed, 0 skipped. `PG_SELECTED_FAILED_FILES=0` |
+| `npx next build` in `apps/web` | Passed (exit 0), no warnings |
+| Full embedded suite: `node --import tsx --test --test-concurrency=1 tests/*.test.ts` (88 files) | 680 tests: 679 passed, 0 failed, 1 skipped (the existing PostgreSQL-only retirement race test). 511 s |
+
+Bootstrap sizes in these runs (large fixture, same as above):
+
+| Role | PGlite bytes | PostgreSQL 16 restricted role bytes |
+| --- | --- | --- |
+| Owner | 436,500 | 436,892 |
+| Staff | 369,850 | 370,042 |
+| Finance | 154,892 | 155,284 |
+| Follower | 16,800 | 16,802 |
+
+The fixture has no open safety reviews, so these sizes do not include pinned urgent exceptions. A workspace with 100 of them adds at most 100 exception rows, their decisions and their members' names.
+
 ## Checks actually run
 
 The tool path was `PATH=/opt/node24/bin:$PATH`.
@@ -146,21 +204,24 @@ The Playwright checks covered:
 - a subscriber detail page naming a follower outside the first page;
 - the follower overview and offline cache.
 
-The only console error in the browser run was the existing 403 from `/clients/:id/context` for a follower without shared context. The full PostgreSQL suite was not run: the change adds no migration and the database-facing files ran on PostgreSQL above.
+The only console error in the browser run was the existing 403 from `/clients/:id/context` for a follower without shared context. The full PostgreSQL suite was not run, either at the first stage or at the review stage. The change adds no migration, and the database-facing files ran on PostgreSQL above.
 
 ## Remaining limits and findings
 
 - **Existing proxy defect: spaces in query values are rejected.** `apps/web/proxy.ts` signs `nextUrl.search`, which Next writes with `+` for a space. The rewrite forwards `%20` for a space. So any proxied request with a space in a query value fails the API's host proof with 400 `HOST_SIGNATURE`. This was observed locally with the signing secret set, which production requires. It already affects the coaching feedback history search for multi-word text. It was not fixed here because it is signed-provenance code outside this package. The member search avoids it: the client sends one `q` value per word, and every word must match. A fix should make the API verify against a canonical `URLSearchParams` form of the query, or make the proxy sign exactly the target it forwards.
 - Pages loaded with "Load more" are cleared whenever the bootstrap reloads, which happens after every action. The list then returns to its first page. This is deliberate, so a row changed by the action is never shown stale.
-- `totals` are exact aggregate queries on every bootstrap (per-kind record counts and set count and volume). At fixture scale this cost is small. Very large workspaces may need maintained counters. No index was added (no migration): first pages sort each catalog kind by `created_at`, using the existing `(tenant_id, kind, updated_at)` index only to find the kind.
+- `totals` are exact aggregate queries on every bootstrap (per-kind record counts and set count and volume). At fixture scale this cost is small. Very large workspaces may need maintained counters. No index was added (no migration): first pages sort each catalog kind by `created_at` (by `updated_at` for `support` and `refund`), using the existing `(tenant_id, kind, updated_at)` index to find the kind.
+- `support` and `refund` page by their latest change. A row that changes while someone walks the list moves above the walk's position. It is never repeated, but it is missed by that walk until the list reloads, which happens after every action. The per-workspace admin lists keyed on a changing value behave the same way: support and wearables (by `updated_at`), safety (by the overdue flag) and jobs (by status). The web merge drops a repeated id.
+- A completed workout's set logs are read online when the workout is opened. The offline cache still holds only the bootstrap's recent logs and a follower's active sessions. An older completed workout opened offline can therefore show fewer logged sets until the device reconnects. It cannot be logged into anyway.
+- At most 100 open safety and personal-review exceptions are pinned, oldest first. A workspace with more has the newest of them on the first page, and the rest behind "Load older open items". The exact count stays in `totals.openExceptions`.
 - Cursor guarantees cover rows that existed when a walk started, and inserts made afterwards with the normal `now()` timestamp. A row whose transaction started before the walk passed its position but committed later carries an older timestamp. It is not shown until the list is refreshed.
 - The bootstrap no longer carries record kinds outside the catalog (for example `planned_session`, `workout_correction`, `booking`, `settings`, `onboarding_step`). No web screen read them from the bootstrap; the screens that use them have their own endpoints. Bootstrap messages are a 20-row sample; conversations use `/messages/thread`.
-- The first page of subscriptions for non-followers is now ordered by id rather than `period_end`; a follower still receives their single subscription. The combined `records` array is still sorted by `updated_at`, as before; paging within a kind uses `created_at`.
+- The first page of subscriptions for non-followers is now ordered by id rather than `period_end`; a follower still receives their single subscription. The combined `records` array is still sorted by `updated_at`, as before; paging within a kind uses `created_at`, except `support` and `refund`, which use `updated_at` (review stage).
 - Admin overview "Open exceptions" and "Trainer liabilities" add up only the loaded workspaces. They are labelled when more workspaces exist.
-- Lists outside the bootstrap keep their existing caps without cursors:
-  - `/training/overview` returns every follower's id and name for the program assignment picker;
+- Lists outside the bootstrap that still keep their existing caps without cursors:
   - the invitation, former-follower and complimentary-grant screens;
-  - per-workspace admin operations lists of 100–200 rows;
-  - the admin workspace picker of 500.
-- Admin screens were exercised through the API tests only, not the browser check.
+  - `/training/overview` records (1,500) and set logs (5,000), which already report `partial`;
+  - the admin workspace picker of 500. Older workspaces are reachable through the cursor-paged "All workspaces" pages and their links, and through "Open <workspace>" on a truncated list.
+  - The per-workspace admin lists and the `/training/overview` followers are now paged (see "Review fixes").
+- Admin screens were exercised through the API tests only, not the browser check. The review-stage web changes were not run in a browser. They were checked by `tsc`, by the web helper tests above and by `next build` (see below).
 - Deployment: no migration, no new setting or secret, no host step. An older web client still works against the new API: bootstrap keys and types are unchanged and notifications `offset` remains. An older admin screen during rollout would list only the first 50 workspaces on the overview.

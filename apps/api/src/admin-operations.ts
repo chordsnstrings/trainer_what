@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { assertNotificationDocument } from "./message-templates.ts";
-import { createdKey, keysetPage } from "./workspace-pages.ts";
+import { createdKey, keysetPage, updatedKey } from "./workspace-pages.ts";
 import {
   EFFECTIVE_DUE_SQL,
   PINNED_DUE_SQL,
@@ -57,6 +57,101 @@ const scopes: Record<string, readonly string[]> = {
   support: ["trainers", "subscribers", "support", "wearables", "domains"],
   safety: ["trainers", "subscribers", "brains", "safety"],
 };
+/**
+ * Per-workspace lists page by keyset. With one workspace selected they page
+ * ROWS_PAGE rows at a time through `rowsCursor`; across a page of workspaces
+ * each shows its first rows (the previous caps) and `truncated` names every
+ * workspace with more, so nothing is silently cut off.
+ */
+const ROWS_PAGE = 100;
+const ROWS_PER_WORKSPACE: Record<string, number> = {
+  subscribers: 200,
+  brains: 100,
+  safety: 100,
+  support: 100,
+  wearables: 100,
+  infrastructure: 100,
+};
+const OVERDUE_FIRST =
+  "(CASE WHEN status='open' AND data ? 'overdueAt' THEN '1' ELSE '0' END)";
+type RowsSpec = Omit<Parameters<typeof keysetPage>[1], "cursor" | "limit">;
+function workspaceRows(
+  view: string,
+  t: { id: string },
+  q: { userId?: string },
+  policy: { holdReviewHours: number; personalReviewHours: number },
+): RowsSpec | null {
+  if (view === "subscribers")
+    return {
+      select:
+        "u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end",
+      from: "memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id",
+      where: [
+        "m.tenant_id=$1",
+        "m.role='subscriber'",
+        "($2::uuid IS NULL OR u.id=$2)",
+      ],
+      params: [t.id, q.userId ?? null],
+      // By name: the runtime role may read only a user's id, name and email
+      // (ordering by users.created_at was refused with 42501).
+      key: [
+        { sql: "u.name", cursorSql: "u.name", type: "text" },
+        { sql: "u.id", cursorSql: "u.id::text", type: "uuid" },
+      ],
+      descending: false,
+    };
+  if (view === "brains")
+    return {
+      select:
+        "id,kind,status,version,created_at,data->>'score' AS score,data->>'releaseId' AS release_id",
+      from: "records",
+      where: ["kind IN ('brain_release','evaluation','coaching_evaluation')"],
+      key: createdKey(),
+      descending: true,
+    };
+  if (view === "safety")
+    // The due time shown is the one that escalates: the earlier of the
+    // pinned deadline and the current policy's. Overdue reviews come first.
+    return {
+      select: `id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,CASE WHEN kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') THEN ${EFFECTIVE_DUE_SQL} ELSE ${PINNED_DUE_SQL} END AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version`,
+      from: "records",
+      where: ["kind IN ('exception','nutrition_exception')"],
+      params: [policy.holdReviewHours, policy.personalReviewHours],
+      key: [
+        { sql: OVERDUE_FIRST, cursorSql: OVERDUE_FIRST, type: "text" },
+        ...createdKey(),
+      ],
+      descending: true,
+    };
+  if (view === "support")
+    return {
+      select:
+        "r.id,r.owner_user_id,r.status,r.version,r.created_at,r.updated_at,u.name,r.data->>'subject' AS subject,r.data->>'category' AS category,r.data->'messages' AS messages,extract(epoch FROM(now()-r.created_at))/3600 AS age_hours",
+      from: "records r LEFT JOIN users u ON u.id=r.owner_user_id",
+      where: ["r.kind='support'"],
+      key: updatedKey("r."),
+      descending: true,
+    };
+  if (view === "wearables")
+    // Paired HealthKit companion devices and wearable records in one list:
+    // connection health only, never tokens or health values.
+    return {
+      select: "*",
+      from: `(SELECT id,user_id AS owner_user_id,status,created_at,updated_at,'apple_healthkit'::text AS provider,'healthkit_device'::text AS source,to_json(last_sync_at)#>>'{}' AS last_sync_at,last_error_code AS error_code,platform,revoked_reason,batches_received,samples_received::text AS samples_received FROM healthkit_devices
+        UNION ALL SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider',data->>'source',data->>'lastSyncAt',data->>'errorCode',NULL,NULL,NULL,NULL FROM records WHERE kind IN ('wearable','wearable_connection')) w`,
+      key: updatedKey(),
+      descending: true,
+    };
+  if (view === "infrastructure")
+    return {
+      select: "id,kind,status,attempts,available_at,leased_until,created_at",
+      from: "jobs",
+      where: ["status IN ('pending','blocked','failed')"],
+      key: createdKey(),
+      descending: false,
+    };
+  return null;
+}
 async function audit(
   tx: Tx,
   a: Identity,
@@ -394,11 +489,18 @@ export function registerAdminOperations(
     await db.system((tx) =>
       audit(tx, a, "operations." + view + ".read", q.tenantId, q.userId),
     );
+    if (q.rowsCursor !== undefined && !q.tenantId && view !== "security")
+      throw fail(
+        400,
+        "WORKSPACE_REQUIRED",
+        "Choose a workspace to page through its rows.",
+      );
     let rows: any[] = [],
       summary: any = {},
       documents: any[] = [],
       rowsCursor: string | null = null,
       rowsHasMore = false;
+    const truncated: { tenantId: string; workspace: string }[] = [];
     if (view === "configuration")
       documents = await db.system((tx) =>
         tx.query(
@@ -474,57 +576,35 @@ export function registerAdminOperations(
                 },
               ];
             }
-            if (view === "subscribers") {
-              const people = await tx.query(
-                "SELECT u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.tenant_id=$1 AND m.role='subscriber' AND ($2::uuid IS NULL OR u.id=$2) ORDER BY u.created_at DESC LIMIT 200",
-                [t.id, q.userId ?? null],
-              );
-              return people;
-            }
-            if (view === "brains")
-              return tx.query(
-                "SELECT id,kind,status,version,created_at,data->>'score' AS score,data->>'releaseId' AS release_id FROM records WHERE kind IN ('brain_release','evaluation','coaching_evaluation') ORDER BY created_at DESC LIMIT 100",
-              );
-            if (view === "safety") {
-              // The due time shown is the one that escalates: the earlier of
-              // the pinned deadline and the current policy's.
-              const [published] = await tx.query(
-                "SELECT published_safety_policy() AS value",
-              );
-              const policy = effectiveSafetyPolicy(published?.value ?? null);
-              return tx.query(
-                `SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,CASE WHEN kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') THEN ${EFFECTIVE_DUE_SQL} ELSE ${PINNED_DUE_SQL} END AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY (status='open' AND data ? 'overdueAt') DESC,created_at DESC LIMIT 100`,
-                [policy.holdReviewHours, policy.personalReviewHours],
-              );
-            }
             if (view === "finops")
               return tx.query(
                 "SELECT task,provider,model,status,count(*)::int AS requests,sum(input_tokens)::text AS input_tokens,sum(output_tokens)::text AS output_tokens,sum(cost_usd)::text AS cost_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unresolved FROM cost_events WHERE created_at>now()-interval '30 days' GROUP BY task,provider,model,status ORDER BY task,provider",
-              );
-            if (view === "support")
-              return tx.query(
-                "SELECT r.id,r.owner_user_id,r.status,r.version,r.created_at,r.updated_at,u.name,r.data->>'subject' AS subject,r.data->>'category' AS category,r.data->'messages' AS messages,extract(epoch FROM(now()-r.created_at))/3600 AS age_hours FROM records r LEFT JOIN users u ON u.id=r.owner_user_id WHERE kind='support' ORDER BY r.updated_at DESC LIMIT 100",
               );
             if (view === "domains")
               return tx.query(
                 "SELECT hostname,active,verified_at FROM domain_mappings WHERE tenant_id=$1",
                 [t.id],
               );
-            if (view === "wearables")
-              return [
-                // Paired HealthKit companion devices: connection health only,
-                // never tokens or health values.
-                ...(await tx.query(
-                  "SELECT id,user_id AS owner_user_id,status,created_at,updated_at,'apple_healthkit' AS provider,'healthkit_device' AS source,last_sync_at,last_error_code AS error_code,platform,revoked_reason,batches_received,samples_received::text AS samples_received FROM healthkit_devices ORDER BY updated_at DESC LIMIT 100",
-                )),
-                ...(await tx.query(
-                  "SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider' AS provider,data->>'source' AS source,data->>'lastSyncAt' AS last_sync_at,data->>'errorCode' AS error_code FROM records WHERE kind IN ('wearable','wearable_connection') ORDER BY updated_at DESC LIMIT 100",
-                )),
-              ];
-            if (view === "infrastructure")
-              return tx.query(
-                "SELECT id,kind,status,attempts,available_at,leased_until,created_at FROM jobs WHERE status IN ('pending','blocked','failed') ORDER BY created_at LIMIT 100",
+            let policy = { holdReviewHours: 0, personalReviewHours: 0 };
+            if (view === "safety") {
+              const [published] = await tx.query(
+                "SELECT published_safety_policy() AS value",
               );
+              policy = effectiveSafetyPolicy(published?.value ?? null);
+            }
+            const spec = workspaceRows(view, t, q, policy);
+            if (!spec) return [];
+            const page = await keysetPage(tx, {
+              ...spec,
+              cursor: q.tenantId ? q.rowsCursor : undefined,
+              limit: q.tenantId ? ROWS_PAGE : ROWS_PER_WORKSPACE[view],
+            });
+            if (q.tenantId) {
+              rowsCursor = page.cursor;
+              rowsHasMore = page.hasMore;
+            } else if (page.hasMore)
+              truncated.push({ tenantId: t.id, workspace: t.name });
+            return page.items;
             return [];
           },
         );
@@ -555,6 +635,7 @@ export function registerAdminOperations(
       nextCursor: q.tenantId ? null : nextCursor,
       rowsHasMore,
       rowsCursor,
+      truncated,
     };
   });
   app.post("/api/v1/admin/documents", async (req) => {
