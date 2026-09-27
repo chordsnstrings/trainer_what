@@ -647,15 +647,17 @@ test("a stuck ready instruction is canceled with an audited reason, releasing it
   assert.equal(r.json().status, "canceled");
   const history = await db.tenant(a, (tx) =>
     tx.query(
-      "SELECT name,data FROM events WHERE subject_id=$1 AND name IN ('payout.canceled','payout.cancel_recorded') ORDER BY created_at",
+      // Both events are written in one transaction and share created_at, so
+      // their relative order is undefined; compare them as a set by name.
+      "SELECT name,data FROM events WHERE subject_id=$1 AND name IN ('payout.canceled','payout.cancel_recorded') ORDER BY name",
       [stuck.id],
     ),
   );
   assert.deepEqual(
     history.map((e) => e.name),
-    ["payout.canceled", "payout.cancel_recorded"],
+    ["payout.cancel_recorded", "payout.canceled"],
   );
-  assert.equal(history[1].data.reason, "Destination replaced");
+  assert.equal(history[0].data.reason, "Destination replaced");
   const summary = await db.tenant(a, financeSummary);
   assert.equal(summary.reservedMinor, 0);
   const blockers = await db.tenant(a, (tx) => settlementBlockers(tx));
