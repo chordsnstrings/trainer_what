@@ -2,6 +2,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
+import {
+  isLoopbackHostname,
+  sandboxAllowsEndpoint,
+  sandboxOverride,
+} from "./sandbox.ts";
 
 export type RuntimeConfig = Record<string, string | undefined>;
 const runtime = new AsyncLocalStorage<RuntimeConfig>();
@@ -572,6 +577,8 @@ function endpointUrl(value: string): URL {
   } catch {
     throw new ConfigurationError("Use a valid HTTPS endpoint");
   }
+  // Local mock-provider sandbox only (see sandbox.ts): HTTPS loopback mocks.
+  if (sandboxAllowsEndpoint(url)) return url;
   const host = url.hostname
     .toLowerCase()
     .replace(/^\[|\]$/g, "")
@@ -672,6 +679,16 @@ export async function validatePublicEndpoint(
 ): Promise<{ url: URL; addresses: ResolvedAddress[] }> {
   const url = endpointUrl(value),
     hostname = url.hostname.replace(/^\[|\]$/g, "");
+  // Sandbox mocks listen on loopback; this is unreachable outside the sandbox.
+  if (sandboxAllowsEndpoint(url) && isLoopbackHostname(hostname))
+    return {
+      url,
+      addresses: [
+        hostname === "::1"
+          ? { address: "::1", family: 6 }
+          : { address: "127.0.0.1", family: 4 },
+      ],
+    };
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const addresses = isIP(hostname)
@@ -884,7 +901,10 @@ export async function testIntegration(
     }
     if (id === "stripe") {
       const response = await providerRequest(
-        "https://api.stripe.com/v1/account",
+        new URL(
+          "/v1/account",
+          sandboxOverride("STRIPE_API_BASE_URL") ?? "https://api.stripe.com",
+        ).toString(),
         {
           headers: { Authorization: `Bearer ${fields.STRIPE_SECRET_KEY}` },
           signal: AbortSignal.timeout(15000),

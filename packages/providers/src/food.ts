@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProviderUnavailable } from "./index.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { runtimeConfig } from "./configuration.ts";
+import { sandboxOverride } from "./sandbox.ts";
 
 const nutrient = z.number().finite().min(0).max(10000).nullable();
 export const capturedFoodSchema = z
@@ -97,8 +98,12 @@ export async function lookupBarcode(
     "code,product_name,product_name_en,brands,serving_size,ingredients_text,allergens_tags,nutriments,rev";
   let response: Response;
   try {
+    // Only the local mock-provider sandbox (sandbox.ts) can replace this host.
+    const origin =
+      sandboxOverride("FOOD_LOOKUP_BASE_URL")?.origin ??
+      "https://world.openfoodfacts.org";
     response = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${fields}`,
+      `${origin}/api/v2/product/${code}.json?fields=${fields}`,
       {
         headers: {
           "User-Agent":

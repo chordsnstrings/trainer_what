@@ -5,11 +5,14 @@ import {
   runtimeConfig,
   type RuntimeConfig,
 } from "./configuration.ts";
+import { sandboxAllowsEndpoint } from "./sandbox.ts";
 
 /** Restricted supported services, not a claim to cover every browser vendor. */
 export function pushEndpoint(value: string): URL {
   const url = new URL(value);
   const host = url.hostname;
+  // The local mock-provider sandbox (sandbox.ts) captures pushes on loopback.
+  if (value.length <= 4096 && sandboxAllowsEndpoint(url)) return url;
   if (
     value.length > 4096 ||
     url.protocol !== "https:" ||

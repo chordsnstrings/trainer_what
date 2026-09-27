@@ -54,6 +54,7 @@ import {
   ClientCoachManifest,
 } from "./coach-site";
 import { PlatformSettings } from "./platform-settings";
+import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
 import {
   TrainerDesign,
@@ -145,6 +146,7 @@ type State = {
   usageStatements?: any[];
   consents: any[];
   environment?: string;
+  providerSandbox?: string | null;
   platform?: { name?: string; supportEmail?: string };
 };
 const nav = [
@@ -747,6 +749,7 @@ export default function Workspace() {
           </div>
         </header>
         <div className="content">
+          <ProviderSandboxBanner mode={state.providerSandbox} />
           {state.environment === "development" && (
             <div className="dev-banner">
               Development environment · payment connections are gated · demo

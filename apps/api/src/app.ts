@@ -142,6 +142,7 @@ import {
   requireCommerce,
   stripeClient,
   LeanGateway,
+  providerSandboxStatus,
 } from "@trainer/providers";
 import {
   accountAttempts,
@@ -543,7 +544,11 @@ export async function buildApp(
   });
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
-    return { status: "ready" };
+    const sandbox = providerSandboxStatus();
+    // The local mock-provider sandbox announces itself on every readiness probe.
+    return sandbox.providerSandbox
+      ? { status: "ready", ...sandbox }
+      : { status: "ready" };
   });
   app.post(
     "/api/v1/auth/register",
@@ -846,6 +851,7 @@ export async function buildApp(
     );
     return db.tenant(a, async (tx) => ({
       environment: strictSecurity() ? "production" : "development",
+      providerSandbox: providerSandboxStatus().providerSandbox,
       user: a,
       platform: {
         name: runtimeConfig().APP_NAME || "Trainer Brain",

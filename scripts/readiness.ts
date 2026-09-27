@@ -3,6 +3,9 @@ import {
   integrationStatus,
   runtimeConfig,
   withRuntimeConfig,
+  providerSandbox,
+  PROVIDER_SANDBOX_OVERRIDES,
+  PROVIDER_SANDBOX_VARIABLE,
 } from "@trainer/providers";
 import { loadRuntimeSettings } from "../apps/api/src/platform-settings.ts";
 import { encryptionKeyring } from "../apps/api/src/sealing.ts";
@@ -59,6 +62,18 @@ if (
   Buffer.from(process.env.SECURITY_ENCRYPTION_KEY, "base64").length !== 32
 )
   findings.push("Security encryption key must decode to 32 bytes");
+// The mock-provider sandbox is a local test harness; flag it loudly anywhere.
+if (providerSandbox() === "mock")
+  findings.push(
+    "MOCK PROVIDERS: TRAINER_PROVIDER_SANDBOX=mock is set. This process talks to local test doubles and is not a real deployment",
+  );
+else if (
+  process.env[PROVIDER_SANDBOX_VARIABLE] !== undefined ||
+  PROVIDER_SANDBOX_OVERRIDES.some((key) => process.env[key]?.trim())
+)
+  findings.push(
+    "Remove TRAINER_PROVIDER_SANDBOX and sandbox endpoint overrides: they are refused outside a loopback-only harness",
+  );
 const keyring = encryptionKeyring();
 if (keyring.invalidPrevious)
   findings.push("Each previous encryption key must decode to 32 bytes");
