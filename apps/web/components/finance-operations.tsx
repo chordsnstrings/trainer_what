@@ -270,44 +270,52 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
             <summary>Review bank destinations</summary>
             {data.records
               .filter((r: any) => r.kind === "beneficiary")
-              .map((r: any) => (
-                <form
-                  key={r.id}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    void act("/beneficiaries/" + r.id + "/review", {
-                      providerId: f.get("providerId"),
-                      evidenceReference: f.get("evidenceReference"),
-                      verified: f.get("verified") === "on",
-                    });
-                  }}
-                >
-                  <h3>
-                    {r.data.name} · {r.data.maskedIban}
-                  </h3>
-                  <p>{r.status}</p>
-                  <label className="field">
-                    <span>Verified provider destination ID</span>
-                    <input
-                      name="providerId"
-                      defaultValue={r.data.providerId}
-                      required
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Identity and account ownership evidence</span>
-                    <input name="evidenceReference" minLength={10} required />
-                  </label>
-                  <label className="check-field">
-                    <input name="verified" type="checkbox" />
-                    Provider verification and account ownership are confirmed
-                  </label>
-                  <button className="button secondary" disabled={busy}>
-                    Record review and bank-change hold
-                  </button>
-                </form>
-              ))}
+              .map((r: any) =>
+                ["validating", "verified", "unknown"].includes(r.status) ? (
+                  <form
+                    key={r.id}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const f = new FormData(e.currentTarget);
+                      void act("/beneficiaries/" + r.id + "/review", {
+                        ...(r.data.providerId
+                          ? { providerId: r.data.providerId }
+                          : {}),
+                        evidenceReference: f.get("evidenceReference"),
+                        verified: f.get("verified") === "on",
+                      });
+                    }}
+                  >
+                    <h3>
+                      {r.data.name} · {r.data.maskedIban}
+                    </h3>
+                    <p>
+                      {r.status} · Provider destination{" "}
+                      {r.data.providerId ?? "not returned"}
+                    </p>
+                    <label className="field">
+                      <span>Identity and account ownership evidence</span>
+                      <input name="evidenceReference" minLength={10} required />
+                    </label>
+                    {r.status === "validating" && (
+                      <label className="check-field">
+                        <input name="verified" type="checkbox" />
+                        Provider verification and account ownership are
+                        confirmed
+                      </label>
+                    )}
+                    <button className="button secondary" disabled={busy}>
+                      {r.status === "validating"
+                        ? "Record review and bank-change hold"
+                        : "Reject destination"}
+                    </button>
+                  </form>
+                ) : (
+                  <p key={r.id}>
+                    {r.data.name} · {r.data.maskedIban} · {r.status}
+                  </p>
+                ),
+              )}
           </details>
           <details>
             <summary>Reconcile payout outcomes</summary>
@@ -316,10 +324,13 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                 key={p.id}
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void act(
-                    "/payouts/" + p.id + "/reconcile",
-                    Object.fromEntries(new FormData(e.currentTarget)),
+                  const { providerStatus, ...body } = Object.fromEntries(
+                    new FormData(e.currentTarget),
                   );
+                  void act("/payouts/" + p.id + "/reconcile", {
+                    ...body,
+                    ...(providerStatus ? { providerStatus } : {}),
+                  });
                 }}
               >
                 <h3>
@@ -340,12 +351,39 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                     Submit {money(Number(p.amount_minor))} bank payment
                   </button>
                 )}
+                {["ready", "held"].includes(p.status) && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      const reason = window.prompt(
+                        "Reason for canceling this unsent instruction (at least 10 characters)",
+                      );
+                      if (reason)
+                        void act("/payouts/" + p.id + "/cancel", { reason });
+                    }}
+                  >
+                    Cancel unsent instruction
+                  </button>
+                )}
                 <label className="field">
                   <span>Verified outcome</span>
                   <select name="status">
                     {["processing", "paid", "failed", "returned"].map((s) => (
                       <option key={s}>{s}</option>
                     ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Provider-reported status (required for failed)</span>
+                  <select name="providerStatus" defaultValue="">
+                    <option value="">Not applicable</option>
+                    <option value="failed">Failed at provider</option>
+                    <option value="rejected">Rejected by provider</option>
+                    <option value="not_found">
+                      No instruction at provider
+                    </option>
                   </select>
                 </label>
                 <label className="field">

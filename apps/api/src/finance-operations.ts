@@ -9,7 +9,12 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
-import { journal, financeSummary, transitionPayout } from "./finance.ts";
+import {
+  journal,
+  financeSummary,
+  payeeWorkspaceMember,
+  transitionPayout,
+} from "./finance.ts";
 import { requireRecentMfa } from "./security.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
@@ -259,7 +264,7 @@ export function financeOperations(
         "FINANCE_REQUIRED",
         "Platform finance access is required",
       );
-    requireRecentMfa(a);
+    requireRecentMfa(a, true);
     const tenantId = z
       .string()
       .uuid()
@@ -389,39 +394,88 @@ export function financeOperations(
   });
   app.post(prefix + "/beneficiaries/:id/review", async (req) => {
     const a = finance(req);
+    const recordId = z
+      .string()
+      .uuid()
+      .parse((req.params as any).id);
     const b = z
       .object({
         verified: z.boolean(),
-        providerId: z.string().min(3).max(200),
+        // Optional confirmation only. The destination is always the id the
+        // provider returned for the owner's submission; a reviewer cannot set it.
+        providerId: z.string().min(3).max(200).optional(),
         evidenceReference: z.string().min(10).max(500),
       })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
         "SELECT * FROM records WHERE id=$1 AND kind='beneficiary' FOR UPDATE",
-        [(req.params as any).id],
+        [recordId],
       );
       if (!r) throw fail(404, "NOT_FOUND", "Destination unavailable");
-      if (process.env.NODE_ENV === "production" && r.owner_user_id === a.userId)
+      if (
+        r.owner_user_id === a.userId ||
+        (await payeeWorkspaceMember(tx, a.tenantId, a.userId))
+      )
         throw fail(
           403,
           "SECOND_REVIEWER_REQUIRED",
-          "A different finance operator must review destination ownership",
+          "A finance operator independent of this workspace must review destination ownership",
         );
-      await tx.query(
-        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1",
+      // Verification only follows the provider accepting the owner's submission.
+      // Revocation is always possible for an accepted or unresolved destination.
+      if (
+        !(b.verified
+          ? r.status === "validating"
+          : ["validating", "verified", "unknown"].includes(r.status))
+      )
+        throw fail(
+          409,
+          "BENEFICIARY_STATE",
+          b.verified
+            ? "Only a provider-accepted destination awaiting review can be verified"
+            : "This destination cannot be rejected in its current state",
+        );
+      if (b.verified && !r.data.providerId)
+        throw fail(
+          409,
+          "DESTINATION_UNCONFIRMED",
+          "The provider has not returned a destination reference for this submission",
+        );
+      if (b.providerId !== undefined && b.providerId !== r.data.providerId)
+        throw fail(
+          409,
+          "DESTINATION_MISMATCH",
+          "The confirmed destination differs from the provider-returned destination; nothing was changed",
+        );
+      const [updated] = await tx.query(
+        "UPDATE records SET status=$2,data=data||$3::jsonb,version=version+1,updated_at=now() WHERE id=$1 AND kind='beneficiary' AND status=$4 RETURNING id",
         [
           r.id,
           b.verified ? "verified" : "rejected",
           JSON.stringify({
-            ...b,
+            verified: b.verified,
+            evidenceReference: b.evidenceReference,
             reviewedBy: a.userId,
-            holdUntil: new Date(Date.now() + 72 * 3600000).toISOString(),
+            reviewedAt: new Date().toISOString(),
+            ...(b.verified
+              ? {
+                  holdUntil: new Date(Date.now() + 72 * 3600000).toISOString(),
+                }
+              : {}),
           }),
+          r.status,
         ],
       );
+      if (!updated)
+        throw fail(
+          409,
+          "BENEFICIARY_STATE",
+          "The destination changed during review; reload before reviewing",
+        );
       await event(tx, a, "beneficiary.reviewed", r.id, {
         verified: b.verified,
+        previousStatus: r.status,
       });
       return { ok: true };
     });
@@ -437,30 +491,107 @@ export function financeOperations(
         .parse((req.params as any).id),
     );
   });
+  app.post(prefix + "/payouts/:id/cancel", async (req) => {
+    const a = finance(req);
+    const payoutId = z
+      .string()
+      .uuid()
+      .parse((req.params as any).id);
+    const b = z
+      .object({ reason: z.string().trim().min(10).max(500) })
+      .strict()
+      .parse(req.body);
+    return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId,
+      ]);
+      const [p] = await tx.query(
+        "SELECT * FROM payouts WHERE id=$1 FOR UPDATE",
+        [payoutId],
+      );
+      if (!p) throw fail(404, "NOT_FOUND", "Payout unavailable");
+      if (p.status === "canceled") return p;
+      // A canceled instruction keeps its row and history; the reservation is
+      // released and the owner may prepare a new revision for the period.
+      if (!["ready", "held"].includes(p.status))
+        throw fail(
+          409,
+          "PAYOUT_STATE",
+          "Only an instruction that was never sent to the bank can be canceled; reconcile dispatched instructions instead",
+        );
+      const canceled = await transitionPayout(tx, a, p.id, "canceled");
+      await event(tx, a, "payout.cancel_recorded", p.id, {
+        reason: b.reason,
+        previousStatus: p.status,
+        amountMinor: Number(p.amount_minor),
+        beneficiaryId: p.beneficiary_id,
+      });
+      return canceled;
+    });
+  });
   app.post(prefix + "/payouts/:id/reconcile", async (req) => {
     const a = finance(req);
+    const payoutId = z
+      .string()
+      .uuid()
+      .parse((req.params as any).id);
     const b = z
       .object({
         status: z.enum(["processing", "paid", "failed", "returned"]),
         bankReference: z.string().min(5).max(200),
         evidenceReference: z.string().min(10).max(500),
+        // The provider-reported outcome showing a dispatched instruction did not settle.
+        providerStatus: z.enum(["failed", "rejected", "not_found"]).optional(),
       })
       .parse(req.body);
+    if (b.status === "failed" && !b.providerStatus)
+      throw fail(
+        400,
+        "PROVIDER_CONFIRMATION_REQUIRED",
+        "Record the provider-reported outcome that shows this instruction did not settle",
+      );
     return db.tenant(a, async (tx) => {
+      const [current] = await tx.query(
+        "SELECT id,tenant_id FROM payouts WHERE id=$1 FOR UPDATE",
+        [payoutId],
+      );
+      if (!current) throw fail(404, "NOT_FOUND", "Payout unavailable");
+      // Bank outcomes decide whether another payment may follow, so the payee
+      // workspace cannot record them, and the dispatcher cannot confirm a failure.
+      const [dispatch] =
+        b.status === "failed"
+          ? await tx.query(
+              "SELECT actor_id FROM events WHERE name='payout.submitted' AND subject_id=$1 ORDER BY created_at LIMIT 1",
+              [payoutId],
+            )
+          : [];
+      if (
+        dispatch?.actor_id === a.userId ||
+        (await payeeWorkspaceMember(tx, current.tenant_id, a.userId))
+      )
+        throw fail(
+          409,
+          "SEPARATION_OF_DUTIES",
+          "A finance operator independent of the payee workspace, and of the dispatch for a failure, must record this outcome",
+        );
       const p = await transitionPayout(
         tx,
         a,
-        z
-          .string()
-          .uuid()
-          .parse((req.params as any).id),
+        payoutId,
         b.status,
         b.bankReference,
       );
       await event(tx, a, "payout.evidence_recorded", p.id, {
         evidenceReference: b.evidenceReference,
         status: b.status,
+        ...(b.providerStatus ? { providerStatus: b.providerStatus } : {}),
       });
+      if (b.status === "failed")
+        await event(tx, a, "payout.failure_confirmed", p.id, {
+          providerStatus: b.providerStatus,
+          bankReference: b.bankReference,
+          evidenceReference: b.evidenceReference,
+        });
       return p;
     });
   });
@@ -478,18 +609,31 @@ export function financeOperations(
   });
   app.post(prefix + "/exceptions/:id/resolve", async (req) => {
     const a = finance(req);
+    const exceptionId = z
+      .string()
+      .uuid()
+      .parse((req.params as any).id);
     const b = z
       .object({ evidenceReference: z.string().min(10).max(500) })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
-        "UPDATE records SET status='resolved',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND kind='reconciliation' RETURNING id",
-        [
-          (req.params as any).id,
-          JSON.stringify({ ...b, resolvedBy: a.userId }),
-        ],
+        "UPDATE records SET status='resolved',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND kind='reconciliation' AND status<>'resolved' RETURNING id",
+        [exceptionId, JSON.stringify({ ...b, resolvedBy: a.userId })],
       );
-      if (!r) throw fail(404, "NOT_FOUND", "Exception unavailable");
+      if (!r) {
+        const [resolved] = await tx.query(
+          "SELECT id FROM records WHERE id=$1 AND kind='reconciliation'",
+          [exceptionId],
+        );
+        throw resolved
+          ? fail(
+              409,
+              "EXCEPTION_RESOLVED",
+              "This exception is already resolved; its evidence is retained",
+            )
+          : fail(404, "NOT_FOUND", "Exception unavailable");
+      }
       await event(tx, a, "reconciliation.resolved", r.id, b);
       return r;
     });
