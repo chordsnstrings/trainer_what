@@ -163,7 +163,7 @@ test("finance-commerce:G2 a canceled payer's invoice uses its first-paid positio
   await db.tenant(owner, async (tx) => {
     await tx.query(
       "INSERT INTO subscriptions(id,tenant_id,user_id,status,data) SELECT gen_random_uuid(),$1::uuid,u,'active','{\"firstPaidAt\":\"2025-01-01T00:00:00.000Z\"}'::jsonb FROM unnest($2::uuid[]) u",
-      [owner.tenantId, earlier.map((row: { id: string }) => row.id)],
+      [owner.tenantId, earlier.map((row) => row.id as string)],
     );
     await tx.query(
       "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,data) VALUES($1,$2,$3,$4,'canceled',$5)",
