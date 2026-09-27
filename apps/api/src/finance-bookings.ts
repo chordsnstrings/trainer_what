@@ -511,6 +511,7 @@ export async function processBookingStripeEvent(
           ? "Your payment is confirmed and your coaching session is reserved. Open your bookings for its current details."
           : "The original session could not be reserved after payment. A refund review has been opened; check your booking for the latest status.",
         href: "/app/bookings",
+        transactional: true,
       });
     } else {
       if (
@@ -585,6 +586,7 @@ export async function processBookingStripeEvent(
         title: "Your session refund is confirmed",
         body: "The payment provider confirmed the refund for your canceled coaching session. Open your booking for the details.",
         href: "/app/bookings",
+        transactional: true,
       });
     }
   });

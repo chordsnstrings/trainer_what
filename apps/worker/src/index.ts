@@ -1,21 +1,14 @@
-import { scheduleFinance } from "../../api/src/finance-automation.ts";
 import { createDatabase } from "@trainer/db";
-import { claimJob, runClaimedJob } from "./dispatch.ts";
-import { scheduleNotifications } from "../../api/src/notifications.ts";
-import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
-import { scheduleRetentionAlerts } from "../../api/src/retention.ts";
-import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
+import { runTenantCycle, workerTenants } from "./tenant-cycle.ts";
 import { createInfrastructureObserver } from "../../api/src/infrastructure-observer.ts";
 import { workerDispatchControl } from "../../api/src/infrastructure-actions.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
-import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
-import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
-import { sweepComplimentaryAccess } from "../../api/src/complimentary-access.ts";
+import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
 if (!process.env.DATABASE_URL) {
   console.log(
     "Jobs are persisted locally. Delivery requires a PostgreSQL worker and configured providers.",
@@ -29,6 +22,7 @@ if (!process.env.DATABASE_URL) {
   let lastAcquisitionPurge = 0;
   let lastHealthKitMaintenance = 0;
   let lastIntegrationTick = 0;
+  let lastAlertEvaluation = 0;
   let integrationTask: Promise<void> | undefined;
   async function tick() {
     if (!integrationTask && Date.now() - lastIntegrationTick >= 60000) {
@@ -67,56 +61,16 @@ if (!process.env.DATABASE_URL) {
         console.error("HealthKit device maintenance needs review"),
       );
     }
-    const tenants = await db.system((tx) =>
-      tx.query("SELECT id FROM tenants WHERE lifecycle_state='active'"),
-    );
-    for (const tenant of tenants) {
-      if (purgeMedia) {
-        try {
-          await expireChatAttachments(db, tenant.id);
-        } catch {
-          console.error("Chat attachment expiry failed");
-        }
-      }
+    if (Date.now() - lastAlertEvaluation >= 60000) {
+      lastAlertEvaluation = Date.now();
       try {
-        await scheduleNutrition(db, tenant.id);
+        await evaluatePlatformAlerts(db);
       } catch {
-        console.error("Nutrition scheduling failed");
+        console.error("Platform alert evaluation failed");
       }
-      try {
-        await scheduleFinance(db, tenant.id);
-      } catch {
-        console.error("Finance scheduling failed");
-      }
-      try {
-        await scheduleNotifications(db, tenant.id);
-      } catch {
-        console.error("Notification scheduling failed");
-      }
-      try {
-        await sweepComplimentaryAccess(db, tenant.id);
-      } catch {
-        console.error("Complimentary access expiry failed");
-      }
-      try {
-        await scheduleLifecycleMessages(db, tenant.id);
-      } catch {
-        console.error("Lifecycle message scheduling failed");
-      }
-      try {
-        await scheduleRetentionAlerts(db, tenant.id);
-      } catch {
-        console.error("Retention alert scheduling failed");
-      }
-      try {
-        await processCoachingFollowups(db, tenant.id);
-      } catch {
-        console.error("Scheduled coaching follow-up delivery failed");
-      }
-      const job = await claimJob(db, tenant.id);
-      if (!job) continue;
-      await runClaimedJob(db, tenant.id, job);
     }
+    for (const tenant of await workerTenants(db))
+      await runTenantCycle(db, tenant, { purgeMedia });
   }
   async function loop() {
     while (running) {

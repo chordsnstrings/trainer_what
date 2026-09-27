@@ -8,6 +8,7 @@ import "./meal-capture.css";
 import "./coach-site.css";
 import "./account-settings.css";
 import "./joining.css";
+import "./governance.css";
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },

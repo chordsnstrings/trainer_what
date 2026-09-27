@@ -122,6 +122,24 @@ import { registerOperatorRecovery } from "./operator-recovery.ts";
 import { assertMayRejoin, registerMembershipExit } from "./membership-exit.ts";
 import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import { registerGovernance } from "./governance.ts";
+import { registerBusinessMetrics } from "./business-metrics.ts";
+import { registerPlatformAlerts } from "./platform-alerts.ts";
+import {
+  ACCOUNT_LOCKED_SQLSTATE,
+  accountLockedError,
+  assertSignInAllowed,
+} from "./account-governance.ts";
+import {
+  enforceWorkspaceGate,
+  lockSuspendedMember,
+  workspaceSuspendedMessage,
+} from "./workspace-state.ts";
+import {
+  adminRouteRequested,
+  enforceOperatorStepUp,
+  trackOperatorRoutes,
+} from "./operator-step-up.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
@@ -183,6 +201,8 @@ type Identity = Actor & {
   platformRole: string;
   emailVerified: boolean;
   mfaAt?: string | null;
+  /** "active", or "suspended" while a Super admin suspension is in force. */
+  workspaceState?: string;
 };
 declare module "fastify" {
   interface FastifyRequest {
@@ -307,6 +327,8 @@ export async function buildApp(
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
   });
+  // Before any route: records operator routes for the step-up coverage test.
+  trackOperatorRoutes(app);
   await app.register(cookie);
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
@@ -402,7 +424,9 @@ export async function buildApp(
     if (token) {
       const rows = await db.system((tx) =>
         tx.query(
-          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state='active'",
+          // A suspended workspace keeps its sessions so members see why it is
+          // unavailable; a locked account never resolves a session.
+          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role,t.lifecycle_state FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state IN ('active','suspended') AND NOT EXISTS(SELECT 1 FROM account_locks l WHERE l.user_id=s.user_id AND l.status='active')",
           [tokenHash(token)],
         ),
       );
@@ -417,6 +441,7 @@ export async function buildApp(
           platformRole: s.platform_role,
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
+          workspaceState: s.lifecycle_state,
         };
         if (!probe)
           try {
@@ -445,6 +470,21 @@ export async function buildApp(
           "SESSION_OWNER_MISMATCH",
           "These entries were saved by another member. Sign in as that member to sync them.",
         );
+    }
+    if (!probe) {
+      // Routing already ran: decide from the matched route pattern as well as
+      // the raw path, so an encoded spelling cannot skip either guard.
+      const routePattern = req.routeOptions.url;
+      enforceWorkspaceGate(req.identity, req.method, requestPath, {
+        routePattern,
+        operatorRoute: adminRouteRequested(requestPath, routePattern),
+      });
+      enforceOperatorStepUp(
+        req.identity,
+        req.method,
+        requestPath,
+        routePattern,
+      );
     }
     if (token && req.identity && !probe)
       await touchAccountSession(db, tokenHash(token)).catch(() => {});
@@ -475,6 +515,12 @@ export async function buildApp(
         provider: error.provider,
         requestId: req.id,
       });
+    if ((error as any).code === ACCOUNT_LOCKED_SQLSTATE) {
+      const locked = accountLockedError();
+      return reply
+        .code(423)
+        .send({ code: locked.code, message: locked.message, requestId: req.id });
+    }
     const e = error as any;
     const status = e.code === "23505" ? 409 : (e.statusCode ?? 500);
     if (status >= 500)
@@ -578,6 +624,9 @@ export async function buildApp(
       recordSignupAcquisition(db, req, actor, "enroll"),
   });
   registerComplimentaryAccess(app, db, identity);
+  registerGovernance(app, db, identity);
+  registerBusinessMetrics(app, db, identity);
+  registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/public/host", async (req) => {
@@ -750,6 +799,8 @@ export async function buildApp(
         const mfa = existing
           ? await consumeMfa(tx, existing.id, b.code)
           : false;
+        // Shared sign-in check once the existing account is fully proven.
+        if (existing) await assertSignInAllowed(tx, existing.id);
         if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
         if (!existing)
@@ -823,7 +874,7 @@ export async function buildApp(
       // A chosen workspace must also be the host's workspace on a custom host.
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY " +
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY (t.lifecycle_state='active') DESC," +
             recentWorkspaceOrder +
             " LIMIT 1",
           [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
@@ -863,7 +914,7 @@ export async function buildApp(
     // A custom host serves only its own workspace; the platform lists them all.
     const workspaces = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id,t.name,t.slug,m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
+        "SELECT m.tenant_id,t.name,t.slug,m.role,t.lifecycle_state FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
         [a.userId, req.hostContext?.custom ? req.hostContext.tenantId : null],
       ),
     );
@@ -874,6 +925,7 @@ export async function buildApp(
         name: w.name,
         slug: w.slug,
         role: w.role,
+        state: w.lifecycle_state,
         current: w.tenant_id === a.tenantId,
       })),
     };
@@ -889,7 +941,7 @@ export async function buildApp(
       );
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state IN ('active','suspended')",
         [a.userId, b.tenantId],
       ),
     );
@@ -1089,6 +1141,7 @@ export async function buildApp(
           "Use the password for your existing account",
         );
       const mfa = existing ? await consumeMfa(tx, existing.id, b.code) : false;
+      if (existing) await assertSignInAllowed(tx, existing.id);
       const uid = existing?.id ?? randomUUID();
       if (!existing && !b.name)
         throw fail(
@@ -1954,7 +2007,8 @@ export async function buildApp(
   });
   app.post("/api/v1/payout-runs/:id/execute", async (req) => {
     const a = owner(req);
-    requireRecentMfa(a);
+    // Operator authority: a fresh authenticator in every environment.
+    requireRecentMfa(a, true);
     if (a.platformRole !== "finance" && a.platformRole !== "admin")
       throw fail(
         403,
@@ -2007,6 +2061,10 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    // While a workspace is suspended a member can only withdraw permission.
+    const suspended = a.workspaceState === "suspended";
+    if (suspended && b.granted)
+      throw fail(423, "WORKSPACE_SUSPENDED", workspaceSuspendedMessage());
     const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
       if (b.type === "voice" || b.type === "wearable") {
@@ -2023,7 +2081,8 @@ export async function buildApp(
             a.userId,
         ]);
       }
-      if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await (suspended ? lockSuspendedMember(tx, a) : lockTraining(tx, a));
       if (b.type === "coaching")
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":training:" + a.userId,
@@ -2226,7 +2285,7 @@ export async function buildApp(
     const a = identity(req);
     if (!["admin", "finance", "support", "safety"].includes(a.platformRole))
       throw fail(403, "ADMIN_REQUIRED", "Platform access is required");
-    requireRecentMfa(a);
+    requireRecentMfa(a, true);
     const tenants = await db.system((tx) =>
       tx.query(
         "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC",

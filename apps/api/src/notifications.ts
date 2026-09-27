@@ -43,6 +43,9 @@ export type NotificationInput = {
   // Some lifecycle confirmations belong in the private inbox only.
   email?: boolean;
   push?: boolean;
+  // A confirmation about the member's own money (payment or refund). Its email
+  // is still sent while the workspace is suspended (worker claimJob).
+  transactional?: boolean;
   source?: Record<string, unknown>;
 };
 const critical = (category: string) => ["safety", "account"].includes(category);
@@ -152,7 +155,7 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
     if (input.category === "marketing")
       p.marketing = await marketingConsent(tx, input.userId);
     const body = input.body.slice(0, 4000),
-      href = /^\/(app|trainer)(\/|$)/.test(input.href ?? "")
+      href = /^\/(app|trainer|admin)(\/|$)/.test(input.href ?? "")
         ? (input.href ?? "")
         : "";
     let title = input.title.slice(0, 160),
@@ -223,6 +226,7 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
             notificationId,
             userId: input.userId,
             category: input.category,
+            ...(input.transactional ? { transactional: true } : {}),
             to: target.email,
             subject: title,
             text:

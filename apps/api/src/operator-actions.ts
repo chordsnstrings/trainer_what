@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Database, Tx } from "@trainer/db";
 import { consumeMfa } from "./security.ts";
 import { queueAccountEmail } from "./account-completion.ts";
+import { accountLocked } from "./account-governance.ts";
 
 // Host-only operator commands. Never mounted as public routes. Each change is
 // attributed to a verified Superadmin who proves a current authenticator code.
@@ -44,9 +45,20 @@ async function verifiedOperator(tx: Tx, address: string, code: string) {
     throw refuse(
       "The acting operator must be a verified Superadmin with an enabled authenticator.",
     );
+  // A locked Super admin keeps no platform authority, on the host either.
+  if (await accountLocked(tx, actor.id))
+    throw refuse("The acting operator's account is locked.");
   if (!(await consumeMfa(tx, actor.id, code)))
     throw refuse("The acting operator's authenticator could not be verified.");
   return actor;
+}
+/** Super admins who can still act: locked accounts are not counted. */
+async function activeSuperAdmins(tx: Tx, except?: string) {
+  const [{ n }] = await tx.query(
+    "SELECT count(*)::int AS n FROM users u WHERE u.platform_role='admin' AND ($1::uuid IS NULL OR u.id<>$1) AND NOT EXISTS(SELECT 1 FROM account_locks l WHERE l.user_id=u.id AND l.status='active')",
+    [except ?? null],
+  );
+  return n as number;
 }
 async function audit(
   tx: Tx,
@@ -84,13 +96,15 @@ export async function assignPlatformRole(db: Database, input: unknown) {
       throw refuse(
         "The account must enable an authenticator before receiving platform authority.",
       );
-    const [{ n: admins }] = await tx.query(
-      "SELECT count(*)::int AS n FROM users WHERE platform_role='admin'",
-    );
+    // Locked Super admins cannot act, so they do not count as remaining.
+    const admins = await activeSuperAdmins(tx);
     let actorId: string;
     if (!admins && v.role === "admin" && v.actorEmail === v.targetEmail) {
-      // Recovery when no Superadmin remains: the verified account proves its
-      // own authenticator (checked above) instead of another administrator's.
+      // Recovery when no usable Superadmin remains: the verified account
+      // proves its own authenticator (checked above) instead of another
+      // administrator's. A locked account cannot recover itself.
+      if (await accountLocked(tx, target.id))
+        throw refuse("A locked account cannot receive platform authority.");
       if (!(await consumeMfa(tx, target.id, v.actorCode)))
         throw refuse("The account's authenticator could not be verified.");
       actorId = target.id;
@@ -98,8 +112,10 @@ export async function assignPlatformRole(db: Database, input: unknown) {
     const from = target.platform_role as string;
     if (from === v.role)
       return { changed: false, userId: target.id, from, to: v.role };
-    if (from === "admin" && admins <= 1)
-      throw refuse("Grant another Superadmin before removing the last one.");
+    if (from === "admin" && (await activeSuperAdmins(tx, target.id)) < 1)
+      throw refuse(
+        "Grant another Superadmin before removing the last one (locked Superadmins do not count).",
+      );
     await tx.query(
       "SELECT set_config('app.operator_id',$1,true),set_config('app.operator_reason',$2,true),set_config('app.operator_source','host-cli',true)",
       [actorId, v.reason],

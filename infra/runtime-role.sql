@@ -35,6 +35,11 @@ GRANT SELECT,INSERT ON privacy_erasure_registry TO trainer_service;
 GRANT SELECT ON complimentary_access_directory TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON workspace_lifecycle_requests TO trainer_service;
 
+-- Governance history and operator alerts are platform records (no tenant actor
+-- access). History rows are only lifted, never deleted; deliveries are append-only.
+GRANT SELECT,INSERT,UPDATE ON workspace_suspensions,account_locks,platform_alerts TO trainer_service;
+GRANT SELECT,INSERT ON platform_alert_deliveries TO trainer_service;
+
 -- Account secrets and WebAuthn are system-only; tenant actors cannot read them.
 GRANT SELECT,INSERT,DELETE ON mfa_recovery_codes TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON auth_passkeys,auth_passkey_challenges TO trainer_service;

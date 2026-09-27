@@ -18,6 +18,7 @@ import { consumeMfa, requireRecentMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
 import { openSignInSession, type SignInMethod } from "./sign-in.ts";
+import { accountLocked, assertSignInAllowed } from "./account-governance.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -58,7 +59,9 @@ export async function accountMembership(
   tenantId?: string,
 ) {
   const [m] = await tx.query(
-    "SELECT m.tenant_id,m.role,u.platform_role FROM memberships m JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) AND ($4::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+    // Account security keeps working for a member of a suspended workspace; an
+    // active workspace is always preferred when choosing where to sign in.
+    "SELECT m.tenant_id,m.role,u.platform_role FROM memberships m JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) AND ($4::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY (t.lifecycle_state='active') DESC," +
       recentWorkspaceOrder +
       " LIMIT 1",
     [userId, host.tenantId, tenantId ?? null, host.custom],
@@ -395,12 +398,13 @@ export function registerAccountCompletion(
     requireEmailConfiguration();
     await db.system(async (tx) => {
       const [u] = await tx.query(
-        "SELECT u.id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+        "SELECT u.id,u.email,m.tenant_id,m.role FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY (t.lifecycle_state='active') DESC," +
           recentWorkspaceOrder +
           " LIMIT 1",
         [b.email, host.tenantId, host.custom],
       );
-      if (!u) return;
+      // A locked account receives no sign-in link; the reply stays identical.
+      if (!u || (await accountLocked(tx, u.id))) return;
       await workspaceLock(tx, u.tenant_id);
       await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [u.id]);
       await accountMembership(tx, u.id, host, u.tenant_id);

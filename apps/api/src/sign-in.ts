@@ -1,5 +1,6 @@
 import type { Tx } from "@trainer/db";
 import { newToken, tokenHash } from "./auth.ts";
+import { assertSignInAllowed } from "./account-governance.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -29,8 +30,8 @@ export type SignInMethod =
  * sign-in), oidc-sign-in.ts (Apple and Google) and membership-exit.ts (the
  * follow-on workspace after leaving a trainer).
  *
- * A future account-lock or suspension check belongs in this function, before
- * the insert, so no sign-in path can bypass it. The caller runs it inside the
+ * The account-lock check runs in this function, before the insert, so no
+ * sign-in path can bypass it. The caller runs it inside the
  * transaction that already holds the workspace and user locks.
  *
  * sessions.authenticated_at records when the person last proved who they are.
@@ -56,8 +57,12 @@ export async function openSignInSession(
   const carried = carriedMethods.has(input.method);
   if (carried && !input.authenticatedAt)
     throw fail(401, "AUTH_REQUIRED", "Please sign in");
+  // Account locks apply to every sign-in path through this one check.
+  await assertSignInAllowed(tx, input.userId);
+  // A suspended workspace still opens a session so its members see the notice;
+  // the request gate (workspace-state.ts) then limits what they can do.
   const [membership] = await tx.query(
-    "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+    "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state IN ('active','suspended')",
     [input.userId, input.tenantId],
   );
   if (!membership)
