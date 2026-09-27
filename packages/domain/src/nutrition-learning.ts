@@ -1,6 +1,8 @@
 import {
+  foldNutritionText,
   nutritionCategories,
   nutritionQuestions,
+  nutritionTarget,
   recipeCompatibility,
   scaledNutrients,
   type Food,
@@ -246,6 +248,129 @@ export function checkNutritionSample(input: {
     reason:
       "Recipe, preparation, portion, ingredient and nutrient arithmetic passed",
   };
+}
+const heldOutText = (s: string) =>
+  foldNutritionText(s)
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+/**
+ * Token Jaccard similarity (0..1) after case, punctuation and Arabic folding;
+ * a contained passage of at least four words counts as a copy (1).
+ */
+export function heldOutSimilarity(a: string, b: string) {
+  const x = heldOutText(a),
+    y = heldOutText(b);
+  if (!x || !y) return 0;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (
+    short.split(" ").length >= 4 &&
+    (" " + long + " ").includes(" " + short + " ")
+  )
+    return 1;
+  const tx = new Set(x.split(" ")),
+    ty = new Set(y.split(" "));
+  let shared = 0;
+  for (const t of tx) if (ty.has(t)) shared++;
+  return shared / (tx.size + ty.size - shared);
+}
+export const heldOutSimilarityLimit = 0.6;
+/** Confirmed teaching cases whose scenario or recommendation a held-out prompt copies. */
+export function heldOutOverlaps(
+  prompt: string,
+  cases: Array<{ id: string; data: any }>,
+) {
+  return cases
+    .filter((c) =>
+      [c.data.scenario, c.data.recommendation].some(
+        (t) =>
+          typeof t === "string" &&
+          heldOutSimilarity(prompt, t) >= heldOutSimilarityLimit,
+      ),
+    )
+    .map((c) => c.id);
+}
+const canonical = (v: any): string =>
+  Array.isArray(v)
+    ? "[" + v.map(canonical).join(",") + "]"
+    : v && typeof v === "object"
+      ? "{" +
+        Object.keys(v)
+          .sort()
+          .map((k) => JSON.stringify(k) + ":" + canonical(v[k]))
+          .join(",") +
+        "}"
+      : JSON.stringify(v);
+/** Whether an equivalent prompt and client profile is already held out. */
+export function heldOutDuplicate(
+  scenario: { prompt: string; profile: unknown },
+  existing: Array<{ data: any }>,
+) {
+  const prompt = heldOutText(scenario.prompt),
+    profile = canonical(scenario.profile);
+  return existing.some(
+    (s) =>
+      heldOutText(String(s.data.prompt ?? "")) === prompt &&
+      canonical(s.data.profile) === profile,
+  );
+}
+/**
+ * Held-out checks that can no longer pass against current teaching, policy and
+ * catalog, so the coach can archive or replace them before a paid evaluation.
+ */
+export function staleHeldOut(
+  scenarios: Array<{ id: string; data: any }>,
+  cases: Array<{ id: string }>,
+  policy: NutritionPolicy,
+  catalog: { foods: Food[]; recipes: Recipe[] },
+) {
+  const foods = new Map(catalog.foods.map((f) => [f.id, f])),
+    stale: Array<{ scenarioId: string; reasons: string[] }> = [];
+  for (const s of scenarios) {
+    const d = s.data,
+      reasons: string[] = [];
+    if (!cases.some((c) => c.id === d.expectedCaseId))
+      reasons.push("Its teaching case was changed or retired.");
+    let target: number | null = null;
+    try {
+      target = nutritionTarget(policy, d.profile);
+    } catch {}
+    if ((target === null ? "exception" : "plan") !== d.expect)
+      reasons.push(
+        target === null
+          ? "The current policy now routes this profile to an exception."
+          : "The current policy now plans for this profile.",
+      );
+    else if ((d.expectedTargetKcal ?? null) !== target)
+      reasons.push(
+        `The expected calorie target differs from the current policy (${target ?? "no target"}).`,
+      );
+    const meal = d.expectedMeal;
+    if (d.expect === "plan" && meal && target !== null) {
+      if (
+        Math.max(meal.minServings, policy.minServings) >
+        Math.min(meal.maxServings, policy.maxServings)
+      )
+        reasons.push(
+          "The expected portions are outside the current serving limits.",
+        );
+      if (
+        !catalog.recipes.some(
+          (r) =>
+            meal.recipeIds.includes(r.id) &&
+            r.slots.includes(meal.slot) &&
+            policy.slots.includes(meal.slot) &&
+            r.variants.some(
+              (v) => !recipeCompatibility(r, v, foods, d.profile, policy),
+            ),
+        )
+      )
+        reasons.push(
+          "No expected recipe is still available and compatible with this profile.",
+        );
+    }
+    if (reasons.length) stale.push({ scenarioId: s.id, reasons });
+  }
+  return stale;
 }
 export function rationaleMatches(
   decision: any,

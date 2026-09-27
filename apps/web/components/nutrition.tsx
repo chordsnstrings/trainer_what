@@ -479,8 +479,16 @@ export function NutritionCoach({
                       x.status === "held_out",
                   ).length
                 }{" "}
-                cases saved.
+                of {d.heldOutLimit ?? 40} cases saved. Every saved case is
+                evaluated.
               </p>
+              {d.staleScenarios?.length > 0 && (
+                <p className="notice error" role="alert">
+                  {d.staleScenarios.length} case(s) can no longer pass after
+                  teaching, policy or recipe changes. Archive or replace them
+                  before running the checks.
+                </p>
+              )}
               {d.records
                 .filter(
                   (x: any) =>
@@ -506,6 +514,13 @@ export function NutritionCoach({
                         ? `${x.data.expectedMeal.slot}, ${x.data.expectedMeal.minServings}–${x.data.expectedMeal.maxServings} servings; ${x.data.expectedMeal.recipeIds.length} acceptable recipe(s).`
                         : "No worked meal expectation saved."}
                     </p>
+                    {d.staleScenarios
+                      ?.find((s: any) => s.scenarioId === x.id)
+                      ?.reasons.map((reason: string) => (
+                        <p key={reason} className="notice error">
+                          Needs replacing: {reason}
+                        </p>
+                      ))}
                     <form
                       onSubmit={(e) => {
                         e.preventDefault();
@@ -550,6 +565,22 @@ export function NutritionCoach({
                   evaluation
                 </p>
               )}
+              {evaluation?.data.outcomes
+                ?.filter((o: any) => !o.passed)
+                .map((o: any) => (
+                  <p key={o.scenarioId} className="muted">
+                    {o.system
+                      ? "Safety check"
+                      : (d.records
+                          .find((x: any) => x.id === o.scenarioId)
+                          ?.data.prompt.slice(0, 80) ?? o.scenarioId)}
+                    : {o.meal?.passed ? "" : o.meal?.reason + ". "}
+                    {o.rationale ? "" : "Cited rationale did not match. "}
+                    {o.meal?.passed && o.rationale
+                      ? "Action, calorie target or cited cases did not match."
+                      : ""}
+                  </p>
+                ))}
             </Card>
           </>
         )}
@@ -2154,6 +2185,10 @@ export function NutritionSubscriber({
       ) ??
       d.records.find((x: any) => x.kind === "nutrition_plan"),
     profile = d.profile?.data.profile;
+  // A withdrawn food or recipe pauses current weeks until they are rechecked.
+  const catalogRecheck =
+    plan?.status === "needs_recheck" &&
+    d.exceptions.some((e: any) => e.code === "CATALOG_RETIRED");
   const permitted = d.entitled && d.processingConsent && !coachView && !offline;
   const addMeal = (day: any, m: any) =>
     void queue({
@@ -2340,7 +2375,9 @@ export function NutritionSubscriber({
                     ? "Demonstration plan with synthetic food and coach data. It has not been qualified for personal use."
                     : plan.status === "delivered"
                       ? "This plan follows your coach's qualified nutrition rules."
-                      : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
+                      : catalogRecheck
+                        ? "Being rechecked — your coach withdrew a food or recipe in this week. Do not follow it or shop from it until a new week is prepared."
+                        : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
                 </Notice>
                 <WeekView
                   key={plan.id}
@@ -2479,6 +2516,13 @@ export function NutritionSubscriber({
           <Card title="One list for the week">
             {plan ? (
               <>
+                {plan.status !== "delivered" && (
+                  <Notice>
+                    {catalogRecheck
+                      ? "This week is being rechecked because your coach withdrew a food or recipe in it. Do not shop from this list until a new week is prepared."
+                      : "This list belongs to a week that is no longer current. Prepare a new week before shopping."}
+                  </Notice>
+                )}
                 <p>
                   {plan.data.view.weekStart} — {plan.data.view.weekEnd}.
                   Quantities are the ingredients used by the planned portions;
