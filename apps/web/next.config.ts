@@ -15,6 +15,13 @@ const config: NextConfig = {
         ],
       },
       {
+        // Private app and sign-in routes are never search results. The same
+        // list is disallowed in robots.txt (packages/contracts discovery.ts).
+        source:
+          "/:section(app|trainer|admin|login|signup|join|join-coach|forgot-password|reset-password|verify-email|magic-link|recover-authenticator)/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+      {
         source: "/:path*",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },

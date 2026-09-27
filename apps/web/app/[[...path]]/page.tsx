@@ -5,6 +5,48 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { verifiedProxyHeaders } from "../../host-proxy";
+import { DIRECTORY_PATH, isIndexablePlatformPath } from "@trainer/contracts";
+import {
+  CoachDirectory,
+  type DirectoryData,
+} from "../../components/coach-directory";
+import { requestOrigin, signedApiGet } from "../../components/discovery-server";
+type SearchParams = Record<string, string | string[] | undefined>;
+// Only known single-valued filters reach the API; anything else is dropped.
+function directoryQuery(search: SearchParams) {
+  const params = new URLSearchParams();
+  for (const key of ["q", "specialty", "language", "offset"]) {
+    const value = search[key];
+    if (typeof value === "string" && value) params.set(key, value);
+  }
+  return params.toString();
+}
+const directory = cache(
+  async (
+    query: string,
+  ): Promise<(DirectoryData & { platformName: string }) | null> => {
+    const response = await signedApiGet(
+      "/api/v1/public/directory" + (query ? "?" + query : ""),
+    );
+    if (response.status === 404 || response.status === 421) return null;
+    if (response.status === 400) {
+      // An edited address with an unknown filter shows the unfiltered form.
+      const fallback = await directory("");
+      return (
+        fallback && {
+          ...fallback,
+          coaches: [],
+          nextOffset: null,
+          error:
+            "That search could not be read. Clear the filters and try again.",
+        }
+      );
+    }
+    if (!response.ok)
+      throw new Error("The coach directory is temporarily unavailable.");
+    return response.json();
+  },
+);
 const website = cache(async (slug: string) => {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) return null;
   const incoming = await headers(),
@@ -38,11 +80,36 @@ const website = cache(async (slug: string) => {
 });
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ path?: string[] }>;
+  searchParams: Promise<SearchParams>;
 }): Promise<Metadata> {
   const { path = [] } = await params;
-  if (path[0] !== "coach" || !path[1]) return {};
+  const { origin, coachHost } = await requestOrigin();
+  if (!coachHost && path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {
+    const query = directoryQuery(await searchParams);
+    const data = await directory(query);
+    if (!data)
+      return {
+        title: "Coach directory unavailable",
+        robots: { index: false, follow: false },
+      };
+    return {
+      title: `Find a coach — ${data.platformName}`,
+      description:
+        "Browse independent coaches who chose to be listed, by specialty and language, and visit their websites.",
+      alternates: { canonical: origin + DIRECTORY_PATH },
+      // Filtered and paged results are reachable but not separate entries.
+      ...(query ? { robots: { index: false, follow: true } } : {}),
+    };
+  }
+  if (path[0] !== "coach" || !path[1])
+    // Only marketing pages and the directory on the platform address are
+    // indexed; app, sign-in and unknown addresses are not.
+    return coachHost || !isIndexablePlatformPath("/" + path.join("/"))
+      ? { robots: { index: false, follow: false } }
+      : {};
   const data = await website(path[1]);
   if (!data)
     return {
@@ -66,10 +133,19 @@ export async function generateMetadata({
 }
 export default async function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ path?: string[] }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { path = [] } = await params;
+  if (path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {
+    // The directory belongs to the platform address; coach domains never
+    // reach this branch because the proxy maps their paths under /coach/.
+    const data = await directory(directoryQuery(await searchParams));
+    if (!data) notFound();
+    return <CoachDirectory data={data} platformName={data.platformName} />;
+  }
   if (path[0] === "coach" && path[1]) {
     const data = await website(path[1]);
     if (!data) notFound();

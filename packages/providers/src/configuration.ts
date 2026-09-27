@@ -215,6 +215,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         defaultValue: "false",
         help: "Looks up products in Open Food Facts. Food labels and portions require subscriber confirmation; coverage varies.",
       }),
+      field(
+        "COACH_DIRECTORY_ENABLED",
+        "Open the public coach directory",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Lists only published coaches who opted in from their website settings. Turning this off hides /coaches and its sitemap entry; coaches keep their choice.",
+        },
+      ),
     ],
   },
   {

@@ -35,6 +35,7 @@ import {
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import { registerDiscovery } from "./discovery.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -329,7 +330,9 @@ export async function buildApp(
     reply
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin")
-      .header("Cache-Control", "no-store");
+      .header("Cache-Control", "no-store")
+      // API responses are never search results; pages are indexed by the web app.
+      .header("X-Robots-Tag", "noindex, nofollow");
     const requestPath = req.url.split("?")[0];
     // Readiness is intentionally reachable by the local container probe; it
     // exposes no workspace data and cannot select a tenant.
@@ -524,6 +527,7 @@ export async function buildApp(
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
   registerCoachSite(app, db);
+  registerDiscovery(app, db);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
