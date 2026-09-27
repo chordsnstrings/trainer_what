@@ -291,13 +291,24 @@ export class NutritionBlocked extends Error {
 const block = (code: string, message: string): never => {
   throw new NutritionBlocked(code, message);
 };
-// Case, width, Arabic diacritic/tatweel and hamza-carrier folding for deterministic matching.
-export function foldNutritionText(s: string) {
-  return s
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+// Arabic letter variants written interchangeably (alef/hamza carriers, waw and yeh
+// hamza, alef maqsura, Persian yeh and keheh, ta marbuta). Letters only, so it is
+// also safe on regex sources: escapes such as \s and \w are left untouched.
+const foldArabicLetters = (s: string) =>
+  s
     .replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627")
+    .replace(/\u0624/g, "\u0648")
+    .replace(/[\u0626\u0649\u06CC]/g, "\u064A")
+    .replace(/\u06A9/g, "\u0643")
+    .replace(/\u0629/g, "\u0647");
+// Case, width, Arabic diacritic/tatweel and letter-variant folding for deterministic matching.
+export function foldNutritionText(s: string) {
+  return foldArabicLetters(
+    s
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, ""),
+  )
     .replace(/[\u2018\u2019`]/g, "'")
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/\u066C/g, ",");
@@ -306,9 +317,16 @@ const lettersBefore = "(?<![\\p{L}\\p{N}])",
   lettersAfter = "(?![\\p{L}\\p{N}])",
   // Optional attached Arabic conjunction/preposition and article (و، ف، ب، ك، ل، ال).
   arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك]))?";
+// Terms are folded like the text they are matched against, so every spelling of
+// a term (for example مرضعة/مرضعه or حبلى/حبلي) matches.
 const termPattern = (terms: string[]) =>
   new RegExp(
-    lettersBefore + arabicClitic + "(?:" + terms.join("|") + ")" + lettersAfter,
+    lettersBefore +
+      arabicClitic +
+      "(?:" +
+      terms.map(foldArabicLetters).join("|") +
+      ")" +
+      lettersAfter,
     "iu",
   );
 // Clinical, medication and life-stage signals that take a request outside automatic
@@ -345,17 +363,19 @@ const clinicalTerms = [
   // Arabic (folded): diabetes, insulin, GLP-1 brands, blood pressure, kidney, liver,
   // cancer/chemotherapy, pregnancy/breastfeeding, eating disorders, gut, gout, PCOS,
   // bariatric surgery, heart, thyroid, epilepsy and medicines.
-  "سكري|مرض ال?سكر|انسولين|ميتفورمين|[جغ]لوكوفاج",
+  "سكري|مرض (?:ال)?سكر|انسولين|ميتفورمين|[جغ]لوكوفاج",
   "اوزمبيك|اوزيمبك|مونجارو|ساكسندا|ويغوفي|سيماجلوتايد",
-  "ضغط ال?دم|ارتفاع ال?ضغط",
-  "كلى|كلوي|كلوية|غسيل كلوي",
-  "(?:امراض|مرض|تليف|تشمع) ال?كبد|كبد ال?دهني",
-  "سرطان(?!\\s*ال?بحر)|كيماوي|علاج ال?كيميائي",
+  "ضغط (?:ال)?دم|ارتفاع (?:ال)?ضغط",
+  // Folded, "كلى" (kidneys) reads as "كلي" (all/whole), so the bare word needs the
+  // article or a kidney-condition noun.
+  "(?:[وف]?(?:[بك]?ال|لل))كلى|(?:مشاكل|مشكلة|مرض|امراض|فشل|قصور|حصوة|حصى|حصوات|التهاب|زراعة|غسيل) كلى|كلوي|كلوية|غسيل كلوي",
+  "(?:امراض|مرض|تليف|تشمع) (?:ال)?كبد|كبد (?:ال)?دهني",
+  "سرطان(?!\\s*(?:ال)?بحر)|كيماوي|علاج (?:ال)?كيميائي",
   "حامل|حبلى|مرضع|مرضعة|رضاعة|ترضع|ارضع",
-  "فقدان ال?شهية|شره ال?مرضي|اضطرابا?ت? ال?اكل",
-  "سيلياك|داء ال?بطني|داء ال?زلاقي|كرون|قولون ال?(?:تقرحي|عصبي)",
-  "نقرس|تكيس ال?مبايض|(?:تكميم|ربط|قص) ال?معدة|تحويل ال?مسار",
-  "(?:امراض|مرض|قصور) ال?قلب|جلطة|غدة ال?درقية|صرع|دواء|ادوية",
+  "فقدان (?:ال)?شهية|شره (?:ال)?مرضي|اضطرابا?ت? (?:ال)?اكل",
+  "سيلياك|داء (?:ال)?بطني|داء (?:ال)?زلاقي|كرون|قولون (?:ال)?(?:تقرحي|عصبي)",
+  "نقرس|تكيس (?:ال)?مبايض|(?:تكميم|ربط|قص) (?:ال)?معدة|تحويل (?:ال)?مسار",
+  "(?:امراض|مرض|قصور) (?:ال)?قلب|جلطة|غدة (?:ال)?درقية|صرع|دواء|ادوية",
 ];
 const clinicalPattern = termPattern(clinicalTerms);
 /** Clinical, medication or life-stage terms found in free text (English and Arabic). */
@@ -668,8 +688,8 @@ export function allergenKey(s: string) {
   const n = norm(s),
     bare = n.replace(/^(?:[وف]?(?:[بك]?ال|لل))(?=\p{L}{2})/u, "");
   return (
-    Object.entries(allergenGroups).find(
-      ([, v]) => v.includes(n) || v.includes(bare),
+    Object.entries(allergenGroups).find(([, v]) =>
+      v.some((x) => norm(x) === n || norm(x) === bare),
     )?.[0] ?? null
   );
 }
@@ -936,12 +956,13 @@ const explanationPattern = termPattern([
   "detox\\w*|creatine|fat burners?|probiotics?|doctor|physician",
   "مكملا?ت?|مكمل|فيتامينا?ت?|كبسولة|كبسولا?ت?|جرعة|جرعا?ت?|علاج|تشخيص|حقنة|حقن|طبيب",
 ]);
+// Matched against folded text, so Arabic ta marbuta is written as ه.
 const dosePattern =
-  /\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|μg|iu|units?|ملغ|ملجم|مجم|ميكروغرام|وحدة|وحدات)(?![\p{L}\p{N}])/iu;
+  /\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|μg|iu|units?|ملغ|ملجم|مجم|ميكروغرام|وحده|وحدات)(?![\p{L}\p{N}])/iu;
 const contactPattern =
   /(?:https?:\/\/|www\.)|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+\.\p{L}{2,}|(?<![\p{L}\p{N}])[a-z0-9-]+\.(?:com|net|org|io|ae|co|info|app|health|me|ly|link)(?![\p{L}\p{N}])|\+\d[\d\s().-]{6,}\d|(?<!\d)0\d(?:[\s.-]?\d){7,}/iu;
 const calorieUnit =
-  "k?cal(?:orie)?s?|kilocalories?|سعرة|سعرات|سعر حراري|كالوري|كيلو ?كالوري";
+  "k?cal(?:orie)?s?|kilocalories?|سعره|سعرات|سعر حراري|كالوري|كيلو ?كالوري";
 const caloriePatterns = [
   new RegExp(
     "(\\d[\\d,]*(?:\\.\\d+)?)\\s*-?\\s*(?:" +

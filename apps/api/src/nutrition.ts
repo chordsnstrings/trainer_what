@@ -86,6 +86,19 @@ async function lock(tx: Tx, a: Actor, suffix = "setup") {
     a.tenantId + ":nutrition:" + suffix,
   ]);
 }
+/**
+ * Shared hold on the tenant's nutrition setup lock for a transaction that delivers
+ * a week from the catalog it reads. Retirement (invalidatePlansUsing) holds the
+ * same key exclusively, so it either commits before the catalog read or sees the
+ * delivered week afterwards. Take it after the per-user lock and before any
+ * catalog read; setup-lock holders never take a per-user lock, so this cannot
+ * deadlock, and deliveries do not block each other.
+ */
+export async function catalogReadLock(tx: Tx, a: Actor) {
+  await tx.query("SELECT pg_advisory_xact_lock_shared(hashtext($1))", [
+    a.tenantId + ":nutrition:setup",
+  ]);
+}
 async function find(tx: Tx, recordId: string, kind: string) {
   const [r] = await tx.query("SELECT * FROM records WHERE id=$1 AND kind=$2", [
     id.parse(recordId),
@@ -574,11 +587,17 @@ async function deliver(
   data: any,
   previous?: Row,
 ) {
-  if (previous)
-    await tx.query(
-      "UPDATE records SET status='archived',updated_at=now() WHERE id=$1",
-      [previous.id],
-    );
+  // A week flagged for recheck in the meantime is never replaced silently.
+  if (
+    previous &&
+    !(
+      await tx.query(
+        "UPDATE records SET status='archived',updated_at=now() WHERE id=$1 AND status='delivered' RETURNING id",
+        [previous.id],
+      )
+    ).length
+  )
+    throw fail(409, "PLAN_CHANGED", "The meal plan changed; reload it.");
   const plan = await putRecord(
     tx,
     a,
@@ -1790,6 +1809,7 @@ function subscriberRoutes(
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await catalogReadLock(tx, a);
       await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       await permission(tx, a.userId);
@@ -2402,6 +2422,7 @@ export async function prepareNutritionWeek(
     validateClientTargets(view, s.individualTarget.details);
     return await db.tenant(internal(a), async (tx) => {
       await lock(tx, a, a.userId);
+      await catalogReadLock(tx, a);
       await member(tx, a, a.userId);
       await entitled(tx, a.userId);
       const now = await permission(tx, a.userId, true),
