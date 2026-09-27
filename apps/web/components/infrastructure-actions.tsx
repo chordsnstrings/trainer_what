@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-const prefix = "/api/v1/admin/infrastructure/actions";
+const prefix = "/api/v1/admin/infrastructure/operations";
 export function InfrastructureActions() {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),

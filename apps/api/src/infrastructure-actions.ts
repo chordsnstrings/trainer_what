@@ -88,7 +88,7 @@ export function registerInfrastructureActions(
       return fn(tx, a);
     });
   }
-  const prefix = "/api/v1/admin/infrastructure/actions";
+  const prefix = "/api/v1/admin/infrastructure/operations";
   app.get(prefix, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     return run(req, async (tx) => ({

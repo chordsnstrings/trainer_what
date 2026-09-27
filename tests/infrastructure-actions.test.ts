@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { createDatabase, type Database } from "@trainer/db";
+import { buildApp } from "../apps/api/src/app.ts";
 import {
   registerInfrastructureActions,
   workerDispatchControl,
@@ -38,9 +39,13 @@ after(async () => {
   await app.close();
   await db.close();
 });
-const req = (path = "", body?: any, headers: Record<string, string> = {}) =>
+const req = (
+  path = "",
+  body?: any,
+  headers: Record<string, string | undefined> = {},
+) =>
   app.inject({
-    url: "/api/v1/admin/infrastructure/actions" + path,
+    url: "/api/v1/admin/infrastructure/operations" + path,
     method: body ? "POST" : "GET",
     payload: body,
     headers,
@@ -209,4 +214,31 @@ test("hourly limits, expiry and current operator authority remain enforced", asy
     ]),
   );
   assert.equal((await req()).statusCode, 403);
+});
+
+test("assembled application registers the broker beside the observe-only endpoints", async () => {
+  const assembled = await buildApp({ db, testing: true });
+  try {
+    await assembled.ready();
+    assert.equal(
+      assembled.hasRoute({
+        method: "POST",
+        url: "/api/v1/admin/infrastructure/operations",
+      }),
+      true,
+    );
+    assert.equal(
+      assembled.hasRoute({
+        method: "POST",
+        url: "/api/v1/admin/infrastructure/actions",
+      }),
+      true,
+    );
+    assert.equal(
+      assembled.hasRoute({ method: "GET", url: "/api/v1/admin/affiliates" }),
+      true,
+    );
+  } finally {
+    await assembled.close();
+  }
 });

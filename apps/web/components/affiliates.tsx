@@ -302,7 +302,10 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                   const c = data.contracts.find(
                     (c: any) => c.id === f.get("contractId"),
                   );
-                  if (!c) { setError("Enable an approved agreement first."); return; }
+                  if (!c) {
+                    setError("Enable an approved agreement first.");
+                    return;
+                  }
                   await act("/receipts", {
                     requestId: crypto.randomUUID(),
                     contractId: c.id,

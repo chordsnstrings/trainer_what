@@ -65,7 +65,7 @@ export function MarketingPage({ path }: { path: string }) {
               ],
               [
                 "03 · Coach Runtime",
-                "Digital guidance follows the released Brain and current client context. Proposed responses and programs stay in a trainer review queue. Safety holds interrupt normal workouts.",
+                "Digital guidance follows your evaluated coaching rules and current client context. Qualified routine actions can run automatically; unfamiliar or unsafe requests go to trainer review. Safety holds interrupt normal workouts.",
               ],
             ].map(([title, text]) => (
               <section className="card" key={title}>

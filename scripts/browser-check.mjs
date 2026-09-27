@@ -69,9 +69,12 @@ try {
     "/trainer/subscribers",
     "/trainer/programs",
     "/trainer/finance",
+    "/trainer/affiliates",
     "/trainer/integrations",
     "/trainer/settings",
     "/admin",
+    "/admin/affiliates",
+    "/admin/infrastructure/actions",
   ]) {
     await page.goto(base + route);
     await page.getByRole("heading", { level: 1 }).first().waitFor();
@@ -242,6 +245,43 @@ try {
       exact: true,
     })
     .waitFor();
+  await subscriber
+    .getByLabel("Communication preferences", { exact: true })
+    .fill("Please explain the next step clearly.");
+  const contextSaved = subscriber.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname.endsWith("/context") &&
+      r.request().method() === "PUT",
+  );
+  await subscriber
+    .getByRole("button", { name: "Save preferences", exact: true })
+    .click();
+  const contextResponse = await contextSaved;
+  if (!contextResponse.ok())
+    throw new Error(
+      "Client context save failed: " + (await contextResponse.text()),
+    );
+  const savedContext = await contextResponse.json();
+  await subscriber.reload();
+  await subscriber
+    .getByLabel("Communication preferences", { exact: true })
+    .waitFor();
+  if (
+    (await subscriber
+      .getByLabel("Communication preferences", { exact: true })
+      .inputValue()) !== "Please explain the next step clearly."
+  )
+    throw new Error("Client context did not persist");
+  await page.goto(
+    base + `/trainer/subscribers/${savedContext.provenance.userId}`,
+  );
+  await page.getByLabel("Communication preferences", { exact: true }).waitFor();
+  if (
+    !(await page
+      .getByLabel("Communication preferences", { exact: true })
+      .isDisabled())
+  )
+    throw new Error("Trainer must not overwrite client-owned preferences");
   if (
     await subscriber.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,

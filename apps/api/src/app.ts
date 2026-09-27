@@ -276,35 +276,40 @@ export async function buildApp(
     const requestPath = req.url.split("?")[0];
     // Readiness is intentionally reachable by the local container probe; it
     // exposes no workspace data and cannot select a tenant.
-    if (["/health", "/api/v1/health", "/api/v1/ready"].includes(requestPath))
-      return;
-    req.hostContext = await resolveRequestHost(db, req);
-    if (req.hostContext.custom) {
-      const publicSlug = requestPath.match(
-        /^\/api\/v1\/public\/(?:trainers|sites|coach)\/([^/]+)/,
-      )?.[1];
+    const probe = ["/health", "/api/v1/health", "/api/v1/ready"].includes(
+      requestPath,
+    );
+    // Probes do not need a verified host, but a supplied session still needs to
+    // be verified for the per-user rate budget. Never trust a raw cookie key.
+    if (!probe) {
+      req.hostContext = await resolveRequestHost(db, req);
+      if (req.hostContext.custom) {
+        const publicSlug = requestPath.match(
+          /^\/api\/v1\/public\/(?:trainers|sites|coach)\/([^/]+)/,
+        )?.[1];
+        if (
+          publicSlug &&
+          decodeURIComponent(publicSlug) !== req.hostContext.tenantSlug
+        )
+          throw fail(
+            403,
+            "HOST_TENANT_MISMATCH",
+            "This page belongs to a different coaching website.",
+          );
+        if (requestPath.startsWith("/api/v1/webhooks/"))
+          throw fail(
+            403,
+            "PLATFORM_HOST_REQUIRED",
+            "Provider callbacks use the platform address.",
+          );
+      }
       if (
-        publicSlug &&
-        decodeURIComponent(publicSlug) !== req.hostContext.tenantSlug
-      )
-        throw fail(
-          403,
-          "HOST_TENANT_MISMATCH",
-          "This page belongs to a different coaching website.",
-        );
-      if (requestPath.startsWith("/api/v1/webhooks/"))
-        throw fail(
-          403,
-          "PLATFORM_HOST_REQUIRED",
-          "Provider callbacks use the platform address.",
-        );
-    }
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-      !req.url.startsWith("/api/v1/webhooks/")
-    ) {
-      if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
-        throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
+        !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+        !req.url.startsWith("/api/v1/webhooks/")
+      ) {
+        if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
+          throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
+      }
     }
     const token = req.cookies.session;
     if (token) {
@@ -326,19 +331,20 @@ export async function buildApp(
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
         };
-        try {
-          enforceHostTenant(req.hostContext, req.identity);
-        } catch (error) {
-          // A stale cookie from a reassigned domain must not prevent sign-out,
-          // a new login, or viewing that domain's public website.
-          if (
-            requestPath.startsWith("/api/v1/auth/") ||
-            requestPath.startsWith("/api/v1/public/")
-          )
-            req.identity = undefined;
-          else throw error;
-        }
-        if (req.identity)
+        if (!probe)
+          try {
+            enforceHostTenant(req.hostContext!, req.identity);
+          } catch (error) {
+            // A stale cookie from a reassigned domain must not prevent sign-out,
+            // a new login, or viewing that domain's public website.
+            if (
+              requestPath.startsWith("/api/v1/auth/") ||
+              requestPath.startsWith("/api/v1/public/")
+            )
+              req.identity = undefined;
+            else throw error;
+          }
+        if (req.identity && !probe)
           await touchAccountSession(db, tokenHash(token)).catch(() => {});
       }
     }

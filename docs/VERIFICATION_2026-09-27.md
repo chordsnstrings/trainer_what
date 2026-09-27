@@ -1,0 +1,27 @@
+# Application completion verification — 27 September 2026
+
+The owner authorized finishing application work, auditing it and merging to main. Real-service connections, payments and deployment are deferred. Screenshots remain waived. This record supersedes September 25 feature-gap lists; historical observations remain in their original files.
+
+## Completed application scope
+
+- Voluntary client communication/exercise/travel context, with current membership, consent, revision, privacy and display-only boundaries.
+- Affiliate agreements, pinned aggregate provider receipts, immutable corrections/statements, exact bank-evidence posting to the existing ledger, trainer visibility and Superadmin controls. Unresolved clawbacks block payment execution; pending obligations block workspace closure. No consumer affiliate tracking or invented provider contract.
+- Guarded primary-worker pause/resume/cycle-interval operations. Disabled-by-default policy, explicit proposal and approval, current role/MFA, resource/policy revisions, expiry, cost/action limits, atomic retry safety and revision-safe rollback. No arbitrary command, infrastructure purchase or remote cloud operation is permitted.
+- Earlier completion-branch work remains connected: onboarding, trainer teaching and qualified coaching, nutrition, subscriptions/finance, websites/galleries, attachments, notifications/push, privacy/accounts, supported integration adapters, scoped support and operational observations.
+
+## Checks and corrections observed locally
+
+- Four client-context checks passed.
+- Six affiliate/MFA checks and sixteen finance regressions passed together: 22 tests.
+- Infrastructure action and observer checks passed. An additional assembled-application regression was added after detecting an overlap with the legacy observe-only rejection endpoint.
+- The first combined run reported 366 tests: 353 passed and 13 failed. Ten failures were consequences of the route collision; three concerned the health endpoint's per-user request budget.
+- After corrections, the affected account/acquisition/branding/attachment/infrastructure suites passed all 40 tests. Host routing and rate-limit suites passed all nine tests. These counts overlap other runs and are not a new combined-suite total.
+- Health/readiness probes retain their host-independent response, but supplied sessions are verified for rate-limit identity; invalid cookies remain in the anonymous IP budget. Probes do not extend session activity.
+- Shared MFA verification now rejects invalid, stale and future timestamps. Production behavior and explicit sensitive development checks preserve the existing step-up requirement.
+- Whole-tree TypeScript passed. The production web build passed after replacing a corrupt restored Turbopack cache. Browser-script syntax passed.
+- Deployment boundary suite ran 37 tests: 36 passed, one Docker-only case skipped because Docker is unavailable locally. Provider and infrastructure calls in these tests are synthetic.
+- Local browser installation failed because the Playwright CDN returned invalid archives. No local browser success is claimed. GitHub must run the full suite, non-owner PostgreSQL permission gate, container build/readiness and functional browser journeys before merge.
+
+## External phase
+
+Real Stripe/Lean contracts and bank finality, actual provider/model quality, real device push/camera/wearables/voice, registrar/DNS/TLS, live email, reviewed legal/retention/residency policy, hosted backup/restore and operational load/canary qualification require the next real-services phase. Native HealthKit/BLE is separate platform scope, not provided by the PWA. Actual cloud telemetry/scaling adapters remain disabled pending real account/resource qualification; the shipped infrastructure executor controls only the application worker. No production release or live transaction is claimed.
