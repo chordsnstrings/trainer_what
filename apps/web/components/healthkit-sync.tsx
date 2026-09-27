@@ -45,10 +45,20 @@ export type Status = {
   code: string | null;
   message: string;
   coachAllowsSync: boolean;
+  /** False when the coach chose "No wearable imports". */
+  coachAllowsImports?: boolean;
+  /** Only the workspace's clients pair devices. */
+  canPair?: boolean;
   consent: boolean;
   wearablePermissionWithdrawn: boolean;
   devices: Device[];
-  synced: { days: number; observations: number; last_sync_at: string | null };
+  /** Every stored synced day, including display-only days after a revocation. */
+  synced: {
+    days: number;
+    restrictedDays?: number;
+    observations: number;
+    last_sync_at: string | null;
+  };
   pendingCodeExpiresAt: string | null;
   server: string;
 };
@@ -61,6 +71,7 @@ const reasons: Record<string, string> = {
 };
 const errors: Record<string, string> = {
   HEALTHKIT_POLICY: "Paused: your coach has turned automatic sync off.",
+  HEALTHKIT_CLIENTS_ONLY: "Paused: only client accounts can sync.",
   CONSENT_REQUIRED: "Paused: permission was withdrawn.",
   MEMBERSHIP_ENDED: "Paused: membership is not active.",
   DAILY_QUOTA: "Paused until tomorrow: daily upload allowance reached.",
@@ -193,18 +204,27 @@ export function HealthKitSyncView({
         <p>
           <span className="badge amber">Not available</span> {status.message}
         </p>
+      ) : role === "owner" && !status.coachAllowsSync ? (
+        <p>
+          <span className="badge amber">Not enabled</span> Choose “Allow
+          permitted imports and Apple Health sync” in your{" "}
+          <a href="/trainer/onboarding/wearables">wearable policy</a> to let
+          clients connect.
+        </p>
+      ) : role === "owner" || status.canPair === false ? (
+        <p>
+          <span className="badge">For clients</span>{" "}
+          {role === "owner"
+            ? "Automatic sync is on for your clients. Each client pairs their own iPhone from their Connections page; team accounts do not pair devices."
+            : "Automatic Apple Health sync is for clients of this workspace. Team accounts do not pair devices."}
+        </p>
       ) : !status.coachAllowsSync ? (
         <p>
-          <span className="badge amber">Not enabled</span>{" "}
-          {role === "owner" ? (
-            <>
-              Choose “Allow permitted imports and Apple Health sync” in your{" "}
-              <a href="/trainer/onboarding/wearables">wearable policy</a> to let
-              clients connect.
-            </>
-          ) : (
-            "Your coach has not enabled automatic Apple Health sync. You can still import an Apple Health export file."
-          )}
+          <span className="badge amber">Not enabled</span> Your coach has not
+          enabled automatic Apple Health sync.
+          {status.coachAllowsImports === false
+            ? ""
+            : " You can still import an Apple Health export file."}
         </p>
       ) : status.wearablePermissionWithdrawn ? (
         <p>
@@ -315,6 +335,18 @@ export function HealthKitSyncView({
               {status.synced.days} days · {status.synced.observations} derived
               observations · Updated {when(status.synced.last_sync_at)}
             </p>
+            {(status.synced.restrictedDays ?? 0) > 0 && (
+              <p className="muted">
+                {status.synced.restrictedDays === status.synced.days
+                  ? "All synced days are"
+                  : status.synced.restrictedDays === 1
+                    ? "1 of these days is"
+                    : `${status.synced.restrictedDays} of these days are`}{" "}
+                kept for display only because Apple Health use or wearable
+                permission was revoked. They are no longer used for coaching
+                indicators. Delete them here at any time.
+              </p>
+            )}
           </div>
           <button
             type="button"

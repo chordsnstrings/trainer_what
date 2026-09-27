@@ -6,6 +6,7 @@ import { clientTwin } from "../../../packages/domain/src/client-twin.ts";
 import { nutritionTwin } from "./nutrition.ts";
 import { effectiveWorkoutSets } from "../../../packages/domain/src/coaching-completion.ts";
 import { addTrainingDays } from "../../../packages/domain/src/coaching-completion.ts";
+import { currentDayObservations } from "../../../packages/domain/src/healthkit.ts";
 export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
   const now = new Date(),
     utcDate = now.toISOString().slice(0, 10);
@@ -35,7 +36,19 @@ export async function currentClientTwin(tx: Tx, a: Actor, userId: string) {
     [userId],
   );
   const workouts = workoutRows.slice(0, 1000),
-    wearables = wearableRows.slice(0, 1000),
+    // Apple Health sync days are derived as of now, so a daily total or an
+    // hourly heart rate whose period ended after the last upload is included.
+    wearables = wearableRows.slice(0, 1000).map((row) =>
+      row.data?.origin === "apple_healthkit"
+        ? {
+            ...row,
+            data: {
+              ...row.data,
+              observations: currentDayObservations(row.data, now),
+            },
+          }
+        : row,
+    ),
     sets = setRows.slice(0, 5000).reverse();
   const corrections = sets.length
     ? await tx.query(

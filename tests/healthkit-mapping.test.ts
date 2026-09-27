@@ -4,10 +4,14 @@ import {
   HEALTHKIT_LIMITS,
   applyHealthKitBatch,
   bucketDay,
+  bucketFromData,
+  currentDayObservations,
   daySummary,
   deriveObservations,
   healthKitBatchSchema,
   mergedMinutes,
+  nextPeriodEnd,
+  sameObservations,
   sleepDay,
   type DayBucket,
 } from "../packages/domain/src/healthkit.ts";
@@ -583,5 +587,90 @@ test("the Client Twin reads synchronized daily totals and HealthKit identifiers"
   assert.equal(
     denied.wearables.metrics.find((m: any) => m.key === "daily_steps")!.state,
     "permission_denied",
+  );
+});
+
+test("totals and hourly averages sent before their period ends complete later without new values", () => {
+  // Last sync at 22:30 local time on 26 September; the phone then stays quiet.
+  const lastSync = new Date("2026-09-26T18:30:00Z");
+  const buckets = new Map<string, DayBucket>();
+  const upload = [
+    {
+      type: "step_count",
+      start: "2026-09-26T00:00:00+04:00",
+      end: "2026-09-27T00:00:00+04:00",
+      value: 8400,
+      unit: "count",
+    },
+    {
+      type: "active_energy",
+      start: "2026-09-26T00:00:00+04:00",
+      end: "2026-09-27T00:00:00+04:00",
+      value: 530,
+      unit: "kcal",
+    },
+    {
+      type: "heart_rate",
+      start: "2026-09-26T22:00:00+04:00",
+      end: "2026-09-26T23:00:00+04:00",
+      unit: "count/min",
+      average: 64,
+      minimum: 58,
+      maximum: 80,
+    },
+  ];
+  applyHealthKitBatch(buckets, batch(upload), "device-a", lastSync);
+  const bucket = buckets.get("2026-09-26")!;
+  const types = (o: Array<{ type: string }>) => o.map((x) => x.type).sort();
+  // Nothing whose period is still running is used yet.
+  assert.deepEqual(deriveObservations(bucket, lastSync), []);
+  // The earliest running period says when the day next changes.
+  assert.equal(nextPeriodEnd(bucket, lastSync), "2026-09-26T19:00:00.000Z");
+  const afterHour = new Date("2026-09-26T19:00:01Z");
+  assert.deepEqual(types(deriveObservations(bucket, afterHour)), [
+    "HKQuantityTypeIdentifierHeartRate",
+  ]);
+  assert.equal(nextPeriodEnd(bucket, afterHour), "2026-09-26T20:00:00.000Z");
+  // After local midnight the unchanged totals complete the day.
+  const nextMorning = new Date("2026-09-27T03:00:00Z");
+  assert.equal(nextPeriodEnd(bucket, nextMorning), null);
+  // The usual unchanged re-send is a duplicate and changes no stored input...
+  const resend = applyHealthKitBatch(
+    buckets,
+    batch(upload),
+    "device-a",
+    nextMorning,
+  );
+  assert.equal(resend.duplicates, 3);
+  assert.equal(resend.changedDays.size, 0);
+  // ...but the stored day, read again, now carries the completed totals.
+  const stored = JSON.parse(
+    JSON.stringify({
+      day: bucket.day,
+      samples: bucket.samples,
+      statistics: bucket.statistics,
+      deviceIds: bucket.deviceIds,
+      observations: deriveObservations(bucket, lastSync),
+    }),
+  );
+  const current = currentDayObservations(stored, nextMorning);
+  assert.deepEqual(types(current), [
+    "HKQuantityTypeIdentifierHeartRate",
+    "daily_active_energy",
+    "daily_steps",
+  ]);
+  assert.equal(sameObservations(current, stored.observations), false);
+  const summary = daySummary("2026-09-26", current);
+  assert.equal(summary.steps, 8400);
+  assert.equal(summary.activeEnergyKcal, 530);
+  // Stored key order does not make identical observations look different.
+  const reordered = current.map((o) =>
+    Object.fromEntries(Object.entries(o).reverse()),
+  );
+  assert.equal(sameObservations(current, reordered), true);
+  // Malformed stored data yields an empty day rather than an error.
+  assert.deepEqual(
+    bucketFromData({ day: "2026-09-26", samples: [], statistics: null }),
+    { day: "2026-09-26", samples: {}, statistics: {}, deviceIds: [] },
   );
 });

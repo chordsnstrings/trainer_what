@@ -668,6 +668,62 @@ export function deriveObservations(
   }
   return observations;
 }
+/**
+ * The earliest end of a stored statistic period (daily total or hourly heart
+ * rate) that has not ended at `now`. The day's observations change at that
+ * time even if no device syncs again, so the record is re-derived then.
+ */
+export function nextPeriodEnd(bucket: DayBucket, now = new Date()) {
+  const pending = Object.values(bucket.statistics)
+    .map((s) => Date.parse(s.end))
+    .filter((end) => end > now.getTime());
+  return pending.length ? iso(Math.min(...pending)) : null;
+}
+/** Rebuilds the day bucket kept inside a synchronized-day record. */
+export function bucketFromData(data: {
+  day?: unknown;
+  samples?: unknown;
+  statistics?: unknown;
+  deviceIds?: unknown;
+}): DayBucket {
+  const object = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, any>)
+      : {};
+  return {
+    day: String(data.day ?? ""),
+    samples: object(data.samples),
+    statistics: object(data.statistics),
+    deviceIds: Array.isArray(data.deviceIds) ? data.deviceIds.map(String) : [],
+  };
+}
+/**
+ * Observations of a stored synchronized day as of `now`. Read paths use this
+ * so a total whose period ended after the last upload appears without waiting
+ * for another sync or the worker.
+ */
+export function currentDayObservations(
+  data: Parameters<typeof bucketFromData>[0],
+  now = new Date(),
+) {
+  return deriveObservations(bucketFromData(data), now);
+}
+const canonical = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(canonical)
+    : value && typeof value === "object"
+      ? Object.fromEntries(
+          Object.keys(value as object)
+            .sort()
+            .map((k) => [k, canonical((value as Record<string, unknown>)[k])]),
+        )
+      : value;
+/** Compares observation lists independently of stored key order. */
+export function sameObservations(a: unknown, b: unknown) {
+  return (
+    JSON.stringify(canonical(a ?? [])) === JSON.stringify(canonical(b ?? []))
+  );
+}
 export function bucketEmpty(bucket: DayBucket) {
   return (
     !Object.keys(bucket.samples).length &&

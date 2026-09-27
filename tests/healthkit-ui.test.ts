@@ -8,6 +8,7 @@ import {
   dayLine,
   type Status,
 } from "../apps/web/components/healthkit-sync.tsx";
+import { ImportRefusedNotice } from "../apps/web/components/integration-center.tsx";
 
 const noop = () => {};
 const base: Status = {
@@ -144,6 +145,72 @@ test("device rows show last sync, pause reasons, revocation and data deletion", 
   assert.match(html, /Delete synced data/);
   // New layout rules use logical properties only.
   assert.doesNotMatch(html, /(margin|padding)-(left|right)/);
+});
+
+test("team accounts see who pairs devices and never get pairing controls", () => {
+  const ownerOn = render({ ...base, canPair: false }, { role: "owner" });
+  assert.match(ownerOn, /For clients/);
+  assert.match(ownerOn, /Each client pairs their own iPhone/);
+  assert.doesNotMatch(ownerOn, /Create pairing code/);
+  const ownerOff = render(
+    { ...base, coachAllowsSync: false, canPair: false },
+    { role: "owner" },
+  );
+  assert.match(ownerOff, /href="\/trainer\/onboarding\/wearables"/);
+  assert.doesNotMatch(ownerOff, /Create pairing code/);
+  for (const role of ["staff", "finance"]) {
+    const html = render({ ...base, canPair: false }, { role });
+    assert.match(html, /Team accounts do not pair devices/);
+    assert.doesNotMatch(html, /Create pairing code/);
+    assert.doesNotMatch(html, /type="checkbox"/);
+  }
+});
+
+test("stored synced days can be deleted after use was revoked or the platform switch is off", () => {
+  const synced = {
+    days: 3,
+    restrictedDays: 3,
+    observations: 21,
+    last_sync_at: "2026-09-27T06:00:00.000Z",
+  };
+  const withdrawn = render({
+    ...base,
+    wearablePermissionWithdrawn: true,
+    synced,
+  });
+  assert.match(withdrawn, /Permission withdrawn/);
+  assert.match(withdrawn, /All synced days are kept for display only/);
+  assert.match(withdrawn, /Delete synced data/);
+  const unavailable = render({
+    ...base,
+    available: false,
+    code: "HEALTHKIT_SYNC_DISABLED",
+    message: "Automatic Apple Health sync is not enabled on this platform yet.",
+    synced: { ...synced, restrictedDays: 1 },
+  });
+  assert.match(unavailable, /1 of these days is kept for display only/);
+  assert.match(unavailable, /Delete synced data/);
+  assert.doesNotMatch(render(base), /Delete synced data/);
+});
+
+test("members learn before choosing a file that their coach refuses imports", () => {
+  const offered = render({ ...base, coachAllowsSync: false });
+  assert.match(offered, /You can still import an Apple Health export file/);
+  const refused = render({
+    ...base,
+    coachAllowsSync: false,
+    coachAllowsImports: false,
+  });
+  assert.doesNotMatch(refused, /You can still import/);
+  const member = renderToStaticMarkup(
+    createElement(ImportRefusedNotice, { trainer: false }),
+  );
+  assert.match(member, /Your coach does not accept health imports/);
+  const trainer = renderToStaticMarkup(
+    createElement(ImportRefusedNotice, { trainer: true }),
+  );
+  assert.match(trainer, /No wearable imports/);
+  assert.match(trainer, /href="\/trainer\/onboarding\/wearables"/);
 });
 
 test("the progress card lists synchronized days in plain language", () => {

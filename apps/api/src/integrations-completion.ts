@@ -27,7 +27,10 @@ import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
-import { revokeHealthKitDevices } from "./healthkit-sync.ts";
+import {
+  readCoachWearablePolicy,
+  revokeHealthKitDevices,
+} from "./healthkit-sync.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -530,7 +533,11 @@ export function registerIntegrationCompletion(
 ) {
   app.get("/api/v1/integrations/connections", async (req) => {
     const a = identity(req);
+    // The coach's policy "none" (No wearable imports) refuses the Apple
+    // export import, so the import panel can explain that before a file is chosen.
+    const policy = await readCoachWearablePolicy(db, a);
     return db.tenant(a, async (tx) => ({
+      coachAllowsImports: policy !== "none",
       connections: (
         await tx.query(
           "SELECT id,provider,status,version,scopes,summary,last_synced_at,next_sync_at FROM integration_connections WHERE user_id=$1",

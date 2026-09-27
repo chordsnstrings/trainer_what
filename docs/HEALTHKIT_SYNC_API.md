@@ -19,13 +19,16 @@ Every pairing and upload checks, in this order:
 | `FILE_IMPORTS_APPROVED` is `true` (production security mode) | Super admin → Application settings | 503 `IMPORT_REVIEW_PENDING` |
 | `HEALTHKIT_SYNC_ENABLED` is `true` (default `false`) | Super admin → Integrations → Apple Health | 503 `HEALTHKIT_SYNC_DISABLED` |
 | The trainer's wearable policy is `permitted_imports_and_sync` | Trainer onboarding → Wearable policy | 403 `HEALTHKIT_POLICY` |
+| The member is a client (`subscriber`) of the workspace; owner, staff and finance accounts never pair or sync | Membership role | 403 `HEALTHKIT_CLIENTS_ONLY` |
 | The member's latest `wearable:apple_health` consent is granted and general `wearable` permission is not withdrawn | Member, when creating a pairing code; Privacy settings | 403 `CONSENT_REQUIRED` (upload), 409 `WEARABLE_PERMISSION_WITHDRAWN` (code) |
 | The member still belongs to an active workspace | Membership / workspace lifecycle | 403 `MEMBERSHIP_ENDED` / `WORKSPACE_CLOSED` |
 | The device is paired and not revoked | Pairing / Connections page | 401 `DEVICE_TOKEN_INVALID` / `DEVICE_REVOKED` |
 
 These are the same platform gates as the Apple Health export import
 (`POST /api/v1/wearables/import`), which now also refuses imports with 403
-`WEARABLE_POLICY` when the trainer's policy is `none`.
+`WEARABLE_POLICY` when the trainer's policy is `none` ("No wearable imports").
+`GET /api/v1/integrations/connections` and `GET /api/v1/healthkit/status` return
+`coachAllowsImports` so the web import panel explains this before a file is chosen.
 
 ## 2. Base address and transport
 
@@ -41,7 +44,7 @@ These are the same platform gates as the Apple Health export import
 
 ## 3. Pairing
 
-1. The member opens **Connections** (`/app/wearables`, trainers: `/trainer/integrations`),
+1. The member (a client of the workspace) opens **Connections** (`/app/wearables`),
    ticks the permission box and selects **Create pairing code**. The web app calls
    `POST /api/v1/healthkit/pairing-codes` with `{ "consent": true }` (session + same-origin
    only). This records `wearable:apple_health` consent with version
@@ -84,7 +87,8 @@ an account notification (in-app and email) naming the device.
 Errors: 400 `PAIRING_CODE_INVALID` (unknown, expired, used or malformed code), 400
 `VALIDATION`, 403 `HOST_TENANT_MISMATCH` (code created for another workspace's website; the
 code stays usable on the right address), 403 `HEALTHKIT_POLICY`, 403 `CONSENT_REQUIRED`, 403
-`MEMBERSHIP_ENDED`, 409 `DEVICE_LIMIT`, 503 gate codes, 429 `RATE_LIMITED`
+`MEMBERSHIP_ENDED`, 403 `HEALTHKIT_CLIENTS_ONLY` (the account is no longer a client of the
+workspace), 409 `DEVICE_LIMIT`, 503 gate codes, 429 `RATE_LIMITED`
 (10 attempts per 10 minutes per client address). A failed pairing after the code was
 accepted uses up the code; create a new one.
 
@@ -100,7 +104,13 @@ Authorization: Bearer hk1.<workspace-id>.<43-character secret>
 | 401 `DEVICE_TOKEN_INVALID` | Unknown token (never paired, erased, or wrong server) | Delete the token, stop HealthKit queries, ask the member to pair again |
 | 401 `DEVICE_REVOKED` | Disconnected by the member, by the app, by revoked permission or ended membership | Same as above |
 | 403 `WORKSPACE_CLOSED` | The workspace closed | Delete the token |
-| 429 `TOO_MANY_ATTEMPTS` | More than 20 invalid tokens from one client address in 10 minutes | Back off 10 minutes |
+| 429 `TOO_MANY_ATTEMPTS` | An unknown token after more than 20 unknown tokens from one client address in 10 minutes | Back off 10 minutes |
+
+Only unknown tokens count toward that budget, and a token that is found is never refused
+by it, so stale tokens from other apps behind the same address (for example a mobile
+carrier NAT) cannot block a paired device. After 200 unknown tokens from one address in
+10 minutes the server stops looking unknown tokens up for that address; tokens it issued or
+authenticated in the last day are still accepted then. Both counters are per API process.
 
 ## 5. Endpoints
 
@@ -122,7 +132,8 @@ Call before each sync. Updates `lastSeenAt`.
 ```
 
 When `uploadsAllowed` is `false`, `reason` is `{ "code", "message" }` with one of the gate
-codes from section 1 (`HEALTHKIT_POLICY`, `CONSENT_REQUIRED`, `MEMBERSHIP_ENDED`, 503 codes).
+codes from section 1 (`HEALTHKIT_POLICY`, `CONSENT_REQUIRED`, `MEMBERSHIP_ENDED`,
+`HEALTHKIT_CLIENTS_ONLY`, 503 codes).
 The device stays paired: stop reading HealthKit and check again later (for example once a
 day). Budget: 30 requests per minute per device.
 
@@ -159,6 +170,9 @@ Response `200`:
 
 `duplicates` are samples already stored (same HealthKit UUID, or an unchanged statistic);
 `updated` are statistics whose value changed (for example today's step total);
+`days` is the number of day records written or removed, including days whose total or
+hourly average ended since it was stored (an unchanged re-send after midnight completes
+the day, so it counts even when every entry is a duplicate);
 `skipped.outsideWindow` are samples ending more than 90 days ago or starting more than
 10 minutes in the future; `skipped.dayLimit` are samples over the per-day cap. Skipped
 samples should not be re-sent. Budget: 30 uploads per minute per device, plus 1,000
@@ -188,7 +202,11 @@ Budget: 10 per minute per device.
 Use statistics queries for heart rate, steps and active energy: HealthKit then removes
 overlap between iPhone and Apple Watch sources. Re-send the last two days of statistics on
 every sync so completed days carry their final totals; the server keeps the latest report
-per device and period.
+per device and period. A statistic sent while its period is still running is kept and
+becomes an observation as soon as the period ends, whether or not the app re-sends it:
+an unchanged re-send completes the day at once, read paths (Client Twin, Progress) derive
+it at read time, and the hourly worker completes the stored record if the device never
+syncs again.
 
 ## 7. How uploads are stored and used
 
@@ -203,7 +221,9 @@ per device and period.
   activity and optional energy/distance/heart rate), `workout_minutes` (merged workout time
   per day), `sleep_minutes` (merged asleep intervals, excluding in-bed and awake),
   `in_bed_minutes`, `daily_steps` and `daily_active_energy` (maximum across devices).
-  Period values (hourly heart rate, daily totals) appear only after the period ends.
+  Period values (hourly heart rate, daily totals) appear only after the period ends. The
+  record's `totalsDueAt` holds the earliest end of a stored period that had not ended when
+  it was written; the worker re-derives the record after that time.
 - Sleep belongs to the local date on which it ends; a segment ending at or after 18:00
   counts toward the next night.
 - The Client Twin (member "Coaching context", trainer client profile) reads these
@@ -217,7 +237,7 @@ per device and period.
 
 | Action | Route (web session) | Effect |
 | --- | --- | --- |
-| See status, devices and synced days | `GET /api/v1/healthkit/status`, `GET /api/v1/healthkit/devices` | No credentials or hashes are returned |
+| See status, devices and synced days | `GET /api/v1/healthkit/status`, `GET /api/v1/healthkit/devices` | No credentials or hashes are returned. `synced.days` counts every stored synced day, including days kept display-only after a revocation (`synced.restrictedDays`), so **Delete synced data** stays available in every state |
 | Cancel an outstanding code | `POST /api/v1/healthkit/pairing-codes/cancel` | Code can no longer be exchanged |
 | Disconnect a device | `POST /api/v1/healthkit/devices/:id/revoke` | Uploads from it stop immediately; synced data stays |
 | Revoke Apple Health use | `POST /api/v1/integrations/apple_health/revoke` (existing) | Withdraws consent, revokes every device, restricts all Apple Health rows (file and sync) to display only |
@@ -226,8 +246,9 @@ per device and period.
 | Export | `GET /api/v1/privacy/export` (existing) | Includes synced day rows, `healthKitSync.devices` (no token hashes) and upload receipts |
 | Account erasure / workspace closure | Existing privacy lifecycle | Deletes devices, receipts and synced rows |
 
-The worker revokes devices whose membership ended or whose consent was withdrawn, deletes
-receipts older than 30 days and spent pairing codes (hourly). Super admin support
+The worker (hourly) revokes devices whose client membership ended (including a change to a
+team role) or whose consent was withdrawn, completes stored days whose totals have ended,
+and deletes receipts older than 30 days and spent pairing codes. Super admin support
 (`/admin/wearables`) lists devices with status, last sync, last error code and counts only.
 
 ## 9. Error format

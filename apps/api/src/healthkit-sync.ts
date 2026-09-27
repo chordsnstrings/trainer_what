@@ -18,10 +18,14 @@ import {
   applyHealthKitBatch,
   bucketDay,
   bucketEmpty,
+  bucketFromData,
+  currentDayObservations,
   daySummary,
   deriveObservations,
   emptyBucket,
   healthKitBatchSchema,
+  nextPeriodEnd,
+  sameObservations,
   type DayBucket,
 } from "../../../packages/domain/src/healthkit.ts";
 import { clientSource, newToken, tokenHash } from "./auth.ts";
@@ -175,6 +179,20 @@ async function requireConsent(tx: Tx, userId: string) {
       "Apple Health permission was withdrawn. Pair the app again after giving permission.",
     );
 }
+/** Automatic sync is for the workspace's clients (followers) only. */
+const clientsOnly = () =>
+  fail(
+    403,
+    "HEALTHKIT_CLIENTS_ONLY",
+    "Automatic Apple Health sync is for clients of this coaching workspace. Team accounts cannot pair devices.",
+  );
+async function memberRole(tx: Tx, tenantId: string, userId: string) {
+  const [row] = await tx.query(
+    "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
+    [tenantId, userId],
+  );
+  return (row?.role as string | undefined) ?? null;
+}
 async function actorIsCurrent(tx: Tx, tenantId: string, userId: string) {
   const [row] = await tx.query(
     "SELECT integration_actor_is_current($1,$2) AS active",
@@ -255,11 +273,13 @@ export async function maintainHealthKitSync(db: Database) {
   const tenants = await db.system((tx) =>
     tx.query("SELECT id FROM tenants ORDER BY id"),
   );
-  let revoked = 0;
+  let revoked = 0,
+    finalized = 0;
   for (const tenant of tenants)
     revoked += await db.tenant(workerActor(tenant.id), async (tx) => {
+      finalized += await finalizeHealthKitDays(tx);
       const ended = await tx.query(
-        "UPDATE healthkit_devices d SET status='revoked',revoked_reason='membership_ended',revoked_at=now(),version=version+1,updated_at=now() WHERE d.status='active' AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=d.tenant_id AND m.user_id=d.user_id) RETURNING id",
+        "UPDATE healthkit_devices d SET status='revoked',revoked_reason='membership_ended',revoked_at=now(),version=version+1,updated_at=now() WHERE d.status='active' AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=d.tenant_id AND m.user_id=d.user_id AND m.role='subscriber') RETURNING id",
       );
       const withdrawn = await tx.query(
         "UPDATE healthkit_devices d SET status='revoked',revoked_reason='consent',revoked_at=now(),version=version+1,updated_at=now() WHERE d.status='active' AND ((SELECT c.granted FROM consent_records c WHERE c.user_id=d.user_id AND c.document_type=$1 ORDER BY c.created_at DESC,c.id DESC LIMIT 1) IS DISTINCT FROM true OR (SELECT c.granted FROM consent_records c WHERE c.user_id=d.user_id AND c.document_type='wearable' ORDER BY c.created_at DESC,c.id DESC LIMIT 1)=false) RETURNING id",
@@ -275,7 +295,24 @@ export async function maintainHealthKitSync(db: Database) {
       "DELETE FROM one_time_tokens WHERE purpose='healthkit_pair' AND coalesce(consumed_at,expires_at)<now()-interval '1 day'",
     ),
   );
-  return { revoked };
+  return { revoked, finalized };
+}
+/**
+ * Re-derives synchronized days whose daily total or hourly heart rate has
+ * ended since the last upload, so a day completes even if its device never
+ * syncs again. Rows locked by a concurrent upload are left to that upload.
+ */
+export async function finalizeHealthKitDays(tx: Tx, now = new Date()) {
+  const rows = (await tx.query(
+    "SELECT id,version,data FROM records WHERE kind='wearable' AND status='imported' AND data->>'origin'=$1 AND (data->>'totalsDueAt') COLLATE \"C\"<=$2 ORDER BY (data->>'totalsDueAt') COLLATE \"C\" LIMIT 1000 FOR UPDATE SKIP LOCKED",
+    [ORIGIN, now.toISOString()],
+  )) as DayRow[];
+  for (const row of rows)
+    await tx.query(
+      "UPDATE records SET data=$2,version=version+1,updated_at=now() WHERE id=$1",
+      [row.id, JSON.stringify(refreshedDayData(row.data, now))],
+    );
+  return rows.length;
 }
 
 // Pairing codes: 12 Crockford base32 characters (60 bits), one use, 10 minutes.
@@ -323,21 +360,44 @@ const deviceRateKey = (req: FastifyRequest) => {
     ? "healthkit-device:" + tokenHash(token)
     : "healthkit-ip:" + clientSource(req);
 };
-/** Failed device authentications per client address, in memory like the route limiter. */
-function failureBudget(max = 20, windowMs = 10 * 60 * 1000) {
+/**
+ * Unknown device credentials per client address, in memory like the route
+ * limiter. Only failed token lookups count and a token that is found is never
+ * refused here, so stale tokens from other apps behind the same address (a
+ * mobile carrier NAT) cannot block a paired device. After `max` failures in the
+ * window an unknown token gets 429 instead of 401. After `floodMax` failures
+ * unknown tokens from that address are no longer looked up at all, which
+ * bounds database work under a flood of random tokens; tokens this server
+ * issued or authenticated in the last day are still looked up then.
+ */
+export function failureBudget(
+  max = 20,
+  floodMax = 200,
+  windowMs = 10 * 60 * 1000,
+) {
   const entries = new Map<string, { count: number; resetAt: number }>();
+  const known = new Map<string, number>();
+  const tooMany = () =>
+    fail(
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many invalid device credentials. Wait a few minutes, then try again.",
+    );
+  const failures = (source: string) => {
+    const entry = entries.get(source);
+    return entry && entry.resetAt > Date.now() ? entry.count : 0;
+  };
   return {
-    check(source: string) {
-      const now = Date.now(),
-        entry = entries.get(source);
-      if (entry && entry.resetAt > now && entry.count >= max)
-        throw fail(
-          429,
-          "TOO_MANY_ATTEMPTS",
-          "Too many invalid device credentials. Wait a few minutes, then try again.",
-        );
+    /** Before the lookup: refuses only unknown tokens from a flooding address. */
+    admit(source: string, digest: string) {
+      if (
+        failures(source) >= floodMax &&
+        !((known.get(digest) ?? 0) > Date.now())
+      )
+        throw tooMany();
     },
-    record(source: string) {
+    /** After a failed lookup: counts it and returns the error to send. */
+    failed(source: string) {
       const now = Date.now();
       let entry = entries.get(source);
       if (!entry || entry.resetAt <= now) {
@@ -351,6 +411,20 @@ function failureBudget(max = 20, windowMs = 10 * 60 * 1000) {
         entries.set(source, entry);
       }
       entry.count++;
+      return entry.count > max
+        ? tooMany()
+        : fail(401, "DEVICE_TOKEN_INVALID", "This device is not paired.");
+    },
+    /** A token issued or authenticated here stays admissible for a day. */
+    trust(digest: string) {
+      known.delete(digest);
+      if (known.size >= 100000) {
+        const now = Date.now();
+        for (const [key, expiresAt] of known)
+          if (expiresAt <= now || known.size >= 100000) known.delete(key);
+          else break;
+      }
+      known.set(digest, Date.now() + 86400000);
     },
   };
 }
@@ -381,14 +455,7 @@ function serverOrigin(req: FastifyRequest) {
   );
 }
 type DayRow = { id: string; version: number; data: Record<string, any> };
-function bucketOf(row: DayRow): DayBucket {
-  return {
-    day: row.data.day,
-    samples: row.data.samples ?? {},
-    statistics: row.data.statistics ?? {},
-    deviceIds: row.data.deviceIds ?? [],
-  };
-}
+const bucketOf = (row: DayRow): DayBucket => bucketFromData(row.data);
 function dayData(bucket: DayBucket, consentVersion: string, now: Date) {
   const observations = deriveObservations(bucket, now);
   return {
@@ -404,7 +471,20 @@ function dayData(bucket: DayBucket, consentVersion: string, now: Date) {
     consentVersion,
     allowedUses: ["render", "deterministic_feature"],
     restrictions: ["no_model_prompt", "no_marketing"],
+    // When a stored total or hourly average completes; see finalizeHealthKitDays.
+    totalsDueAt: nextPeriodEnd(bucket, now),
     lastSyncedAt: now.toISOString(),
+  };
+}
+/** The stored day with observations derived again as of `now`; inputs unchanged. */
+function refreshedDayData(data: Record<string, any>, now: Date) {
+  const bucket = bucketFromData(data),
+    observations = deriveObservations(bucket, now);
+  return {
+    ...data,
+    observations,
+    count: observations.length,
+    totalsDueAt: nextPeriodEnd(bucket, now),
   };
 }
 
@@ -439,8 +519,11 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     const policy = await readCoachWearablePolicy(db, a);
     const state = await db.tenant(a, async (tx) => {
       const consent = await consentState(tx, a.userId);
+      // Every stored synced day counts, including days kept display-only
+      // after Apple Health use or wearable permission was revoked, so the
+      // member can always find and delete them.
       const [synced] = await tx.query(
-        "SELECT count(*)::int AS days,coalesce(sum(coalesce((data->>'count')::int,0)),0)::int AS observations,max(updated_at) AS last_sync_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'origin'=$2",
+        "SELECT count(*)::int AS days,(count(*) FILTER (WHERE status<>'imported'))::int AS \"restrictedDays\",coalesce(sum(coalesce((data->>'count')::int,0)),0)::int AS observations,max(updated_at) AS last_sync_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND data->>'origin'=$2",
         [a.userId, ORIGIN],
       );
       return { consent, devices: await devicesOf(tx, a.userId), synced };
@@ -450,6 +533,8 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
       code: availability.code,
       message: availability.message,
       coachAllowsSync: policy === SYNC_POLICY,
+      coachAllowsImports: policy !== "none",
+      canPair: a.role === "subscriber",
       consent: state.consent.apple === true && state.consent.general !== false,
       wearablePermissionWithdrawn: state.consent.general === false,
       devices: state.devices,
@@ -474,6 +559,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
       z.object({ consent: z.literal(true) })
         .strict()
         .parse(req.body);
+      if (a.role !== "subscriber") throw clientsOnly();
       requireAvailable();
       requireSyncPolicy(await readCoachWearablePolicy(db, a));
       const consentVersion =
@@ -487,6 +573,8 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
             "WORKSPACE_CLOSED",
             "This workspace or membership is no longer active.",
           );
+        if ((await memberRole(tx, a.tenantId, a.userId)) !== "subscriber")
+          throw clientsOnly();
         const consent = await consentState(tx, a.userId);
         if (consent.general === false)
           throw fail(
@@ -626,19 +714,22 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
         .toISOString()
         .slice(0, 10);
       const rows = await tx.query(
-        "SELECT data->>'day' AS day,data->'observations' AS observations,updated_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'origin'=$2 AND data->>'day'>=$3 AND data->'allowedUses' ? 'deterministic_feature' ORDER BY data->>'day' DESC LIMIT 90",
+        "SELECT data->>'day' AS day,data->'samples' AS samples,data->'statistics' AS statistics,data->>'lastSyncedAt' AS synced_at,updated_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'origin'=$2 AND data->>'day'>=$3 AND data->'allowedUses' ? 'deterministic_feature' ORDER BY data->>'day' DESC LIMIT 90",
         [subject, ORIGIN, since],
       );
+      const now = new Date();
       return {
         permission: "granted",
-        days: rows.map((r) => daySummary(r.day, r.observations ?? [])),
-        lastSyncAt: rows.reduce<string | null>(
-          (latest, r) =>
-            !latest || new Date(r.updated_at) > new Date(latest)
-              ? new Date(r.updated_at).toISOString()
-              : latest,
-          null,
+        // Derived as of now: a total whose day ended after the last upload
+        // shows without waiting for another sync.
+        days: rows.map((r) =>
+          daySummary(r.day, currentDayObservations(r, now)),
         ),
+        // The last device upload, not a later worker re-derivation.
+        lastSyncAt: rows.reduce<string | null>((latest, r) => {
+          const synced = new Date(r.synced_at ?? r.updated_at).toISOString();
+          return !latest || synced > latest ? synced : latest;
+        }, null),
         notice:
           "Descriptive records from Apple Health, not medical advice. Totals appear once each day has ended.",
       };
@@ -648,7 +739,6 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
   // ---- Companion app routes (device bearer token, no cookies) ---------------
   async function authenticate(req: FastifyRequest) {
     const source = clientSource(req);
-    failures.check(source);
     const token = bearer(req);
     if (!token)
       throw fail(
@@ -656,11 +746,10 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
         "DEVICE_TOKEN_REQUIRED",
         "Send the device token as an Authorization: Bearer credential.",
       );
+    const digest = tokenHash(token);
+    failures.admit(source, digest);
     const tenantId = TOKEN.exec(token)?.[1];
-    const invalid = () => {
-      failures.record(source);
-      return fail(401, "DEVICE_TOKEN_INVALID", "This device is not paired.");
-    };
+    const invalid = () => failures.failed(source);
     if (!tenantId) throw invalid();
     const [tenant] = await db.system((tx) =>
       tx.query(
@@ -669,7 +758,6 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
       ),
     );
     if (!tenant) throw invalid();
-    const digest = tokenHash(token);
     const [device] = (await db.tenant(workerActor(tenantId), (tx) =>
       tx.query("SELECT * FROM healthkit_devices WHERE token_hash=$1", [digest]),
     )) as Device[];
@@ -680,6 +768,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
         "DEVICE_REVOKED",
         "This device was disconnected. Pair it again from the coaching app.",
       );
+    failures.trust(digest);
     if (req.hostContext?.custom && req.hostContext.tenantId !== tenantId)
       throw fail(
         403,
@@ -707,6 +796,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
   }
   const noted = new Set([
     "MEMBERSHIP_ENDED",
+    "HEALTHKIT_CLIENTS_ONLY",
     "HEALTHKIT_POLICY",
     "CONSENT_REQUIRED",
     "DAILY_QUOTA",
@@ -721,6 +811,10 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
         "MEMBERSHIP_ENDED",
         "This membership is no longer active.",
       );
+    if (
+      (await memberRole(tx, device.tenant_id, device.user_id)) !== "subscriber"
+    )
+      throw clientsOnly();
     requireSyncPolicy(await coachWearablePolicy(tx));
     await requireConsent(tx, device.user_id);
   }
@@ -782,8 +876,10 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
       const actor = memberScope(claim.tenant_id, claim.user_id);
       const created = await db.tenant(actor, async (tx) => {
         await lockMember(tx, claim.tenant_id, claim.user_id);
+        const role = await memberRole(tx, claim.tenant_id, claim.user_id);
         if (
           !claim.role ||
+          !role ||
           !(await actorIsCurrent(tx, claim.tenant_id, claim.user_id))
         )
           throw fail(
@@ -791,6 +887,8 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
             "MEMBERSHIP_ENDED",
             "This membership is no longer active.",
           );
+        if (claim.role !== "subscriber" || role !== "subscriber")
+          throw clientsOnly();
         requireSyncPolicy(await coachWearablePolicy(tx));
         await requireConsent(tx, claim.user_id);
         const [{ n }] = await tx.query(
@@ -825,13 +923,11 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
           dedupeKey: "healthkit-paired:" + device.id,
           title: "Apple Health sync connected",
           body: `“${b.deviceName}” can now send Apple Health data to your coaching workspace. If you did not pair this device, disconnect it in Connections.`,
-          href:
-            claim.role === "subscriber"
-              ? "/app/wearables"
-              : "/trainer/integrations",
+          href: "/app/wearables",
         });
         return device as Device;
       });
+      failures.trust(tokenHash(token));
       const [workspace] = await db.system((tx) =>
         tx.query("SELECT name FROM tenants WHERE id=$1", [claim.tenant_id]),
       );
@@ -997,14 +1093,40 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
             rows.map((r) => [r.data.day as string, bucketOf(r)]),
           );
           const applied = applyHealthKitBatch(buckets, batch, device.id, now);
-          for (const day of applied.changedDays) {
+          let daysWritten = 0;
+          for (const day of new Set([
+            ...applied.changedDays,
+            ...byDay.keys(),
+          ])) {
             const bucket = buckets.get(day) ?? emptyBucket(day);
             const row = byDay.get(day);
-            if (bucketEmpty(bucket)) {
-              if (row)
-                await tx.query("DELETE FROM records WHERE id=$1", [row.id]);
+            if (!applied.changedDays.has(day)) {
+              // Nothing new for this day, but a total or hourly average stored
+              // before its period ended may have ended since: the usual final
+              // re-send of an unchanged total then completes the day.
+              if (
+                row &&
+                !sameObservations(
+                  deriveObservations(bucket, now),
+                  row.data.observations,
+                )
+              ) {
+                await tx.query(
+                  "UPDATE records SET data=$2,version=version+1,updated_at=now() WHERE id=$1",
+                  [row.id, JSON.stringify(refreshedDayData(row.data, now))],
+                );
+                daysWritten++;
+              }
               continue;
             }
+            if (bucketEmpty(bucket)) {
+              if (row) {
+                await tx.query("DELETE FROM records WHERE id=$1", [row.id]);
+                daysWritten++;
+              }
+              continue;
+            }
+            daysWritten++;
             const data = dayData(bucket, current.consent_version, now);
             if (row)
               await tx.query(
@@ -1017,11 +1139,12 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
                 status: "imported",
               });
           }
-          const { changedDays, ...counts } = applied;
+          const { changedDays: _changed, ...counts } = applied;
           const result = {
             batchId: batch.batchId,
             ...counts,
-            days: changedDays.size,
+            // Day records written or removed, including completed totals.
+            days: daysWritten,
             replayed: false,
             serverTime: now.toISOString(),
           };

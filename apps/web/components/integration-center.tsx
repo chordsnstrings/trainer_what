@@ -102,7 +102,7 @@ export function IntegrationCenter({
         <DomainCenter />
       ) : (
         <>
-          <HealthConnections integrations={integrations} />
+          <HealthConnections integrations={integrations} trainer={trainer} />
           <HealthKitSyncPanel role={role} />
         </>
       )}
@@ -110,11 +110,37 @@ export function IntegrationCenter({
   );
 }
 
-function HealthConnections({ integrations }: { integrations: any[] }) {
+/** Shown when the coach's wearable policy is "No wearable imports". */
+export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
+  return (
+    <p>
+      <span className="badge amber">Not accepted</span>{" "}
+      {trainer ? (
+        <>
+          Your coaching data policy is “No wearable imports”. Change your{" "}
+          <a href="/trainer/onboarding/wearables">wearable policy</a> to accept
+          Apple Health exports.
+        </>
+      ) : (
+        "Your coach does not accept health imports, so an Apple Health export cannot be imported."
+      )}
+    </p>
+  );
+}
+
+function HealthConnections({
+  integrations,
+  trainer = false,
+}: {
+  integrations: any[];
+  trainer?: boolean;
+}) {
   const [data, setData] = useState<any>({ connections: [], imports: [] }),
     [observations, setObservations] = useState<any[]>([]),
     [consent, setConsent] = useState(false),
     [fileName, setFileName] = useState("");
+  // The coach's policy "No wearable imports" refuses export imports.
+  const importsRefused = data.coachAllowsImports === false;
   const refresh = useCallback(
       async () => setData(await api("/integrations/connections")),
       [],
@@ -273,11 +299,12 @@ function HealthConnections({ integrations }: { integrations: any[] }) {
           Supported numeric observations retain their source, unit and
           measurement time.
         </p>
+        {importsRefused && <ImportRefusedNotice trainer={trainer} />}
         <input
           type="file"
           accept=".xml"
           aria-label="Apple Health export XML"
-          disabled={action.busy}
+          disabled={action.busy || importsRefused}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file)
@@ -286,7 +313,7 @@ function HealthConnections({ integrations }: { integrations: any[] }) {
               );
           }}
         />
-        {observations.length > 0 && (
+        {observations.length > 0 && !importsRefused && (
           <div>
             <p>
               {fileName} · {observations.length.toLocaleString()} observations ·{" "}

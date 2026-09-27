@@ -11,7 +11,10 @@ import { integrationStatus } from "@trainer/providers";
 import { buildApp } from "../apps/api/src/app.ts";
 import { newToken, tokenHash } from "../apps/api/src/auth.ts";
 import { signHostRequest, HOST_HEADERS } from "../apps/api/src/host-routing.ts";
-import { maintainHealthKitSync } from "../apps/api/src/healthkit-sync.ts";
+import {
+  failureBudget,
+  maintainHealthKitSync,
+} from "../apps/api/src/healthkit-sync.ts";
 import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
 
 // Synthetic fixtures only: no companion app, Apple service or provider is contacted.
@@ -260,10 +263,47 @@ function fullDay(daysAgo: number) {
     ],
   };
 }
+/**
+ * A daily total whose local day ends `ms` from now. A whole-hour UTC offset is
+ * chosen so that local midnight lies 23-25 hours before the end, as a device
+ * in that time zone would report its current day.
+ */
+function totalEndingSoon(
+  type: "step_count" | "active_energy",
+  value: number,
+  ms = 2500,
+) {
+  const end = Date.now() + ms,
+    HOUR = 3600000;
+  for (let offset = -12; offset <= 14; offset++) {
+    const midnight =
+      Math.round((end - DAY + offset * HOUR) / DAY) * DAY - offset * HOUR;
+    const span = end - midnight;
+    if (span < 23 * HOUR + 60000 || span > 25 * HOUR - 60000) continue;
+    const zone =
+      (offset < 0 ? "-" : "+") +
+      String(Math.abs(offset)).padStart(2, "0") +
+      ":00";
+    const wall = (instant: number) =>
+      new Date(instant + offset * HOUR).toISOString().slice(0, 23) + zone;
+    return {
+      end,
+      sample: {
+        type,
+        start: wall(midnight),
+        end: wall(end),
+        value,
+        unit: type === "step_count" ? "count" : "kcal",
+      },
+    };
+  }
+  throw new Error("no offset gives a day ending now");
+}
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function records(p: Actor) {
   return db.tenant({ ...p, role: "owner" }, (tx) =>
     tx.query(
-      "SELECT id,status,data FROM records WHERE kind='wearable' AND owner_user_id=$1 AND data->>'origin'='apple_healthkit' ORDER BY data->>'day'",
+      "SELECT id,status,version,data FROM records WHERE kind='wearable' AND owner_user_id=$1 AND data->>'origin'='apple_healthkit' ORDER BY data->>'day'",
       [p.userId],
     ),
   );
@@ -382,8 +422,22 @@ test("platform switches, import approval and the coach policy gate pairing", asy
     403,
     "ORIGIN_REJECTED",
   );
-  // A coach who refuses wearable imports also blocks the export file import.
+  // A coach who refuses wearable imports also blocks the export file import;
+  // members learn this before choosing a file.
+  assert.equal(
+    (await ok("/integrations/connections", { cookie: member.cookie }))
+      .coachAllowsImports,
+    true,
+  );
   await setPolicy(owner, "none");
+  assert.equal(
+    (await ok("/integrations/connections", { cookie: member.cookie }))
+      .coachAllowsImports,
+    false,
+  );
+  const refused = await ok("/healthkit/status", { cookie: member.cookie });
+  assert.equal(refused.coachAllowsImports, false);
+  assert.equal(refused.coachAllowsSync, false);
   await expectCode(
     "/wearables/import",
     {
@@ -605,12 +659,13 @@ test("a one-time pairing code becomes a hashed device token scoped to the member
     409,
     "DEVICE_LIMIT",
   );
-  // A trainer's own device receives the trainer link.
-  await pairDevice(owner, "Coach phone");
-  const ownerNotice = await db.tenant({ ...owner, role: "owner" }, (tx) =>
-    tx.query("SELECT href FROM notifications WHERE user_id=$1", [owner.userId]),
+  // Trainers do not pair their own devices; see the roles test.
+  await expectCode(
+    "/healthkit/pairing-codes",
+    { body: { consent: true }, cookie: owner.cookie },
+    403,
+    "HEALTHKIT_CLIENTS_ONLY",
   );
-  assert.equal(ownerNotice[0].href, "/trainer/integrations");
 });
 
 test("batch uploads are validated, idempotent and mapped into the Client Twin and progress", async () => {
@@ -878,6 +933,88 @@ test("batch uploads are validated, idempotent and mapped into the Client Twin an
   );
 });
 
+test("a daily total sent before its day ends completes after an unchanged re-send or by the worker", async () => {
+  const tenantId = await workspace("Late totals studio");
+  const owner = await person(tenantId, "owner"),
+    resender = await person(tenantId),
+    quiet = await person(tenantId);
+  await setPolicy(owner, "permitted_imports_and_sync");
+  const a = await pairDevice(resender, "Resending phone"),
+    b = await pairDevice(quiet, "Quiet phone");
+  const steps = totalEndingSoon("step_count", 4321),
+    energy = totalEndingSoon("active_energy", 275),
+    quietSteps = totalEndingSoon("step_count", 6789);
+  const upload = (token: string, samples: unknown[]) =>
+    ok("/healthkit/device/samples", {
+      body: { batchId: "sync-" + randomUUID(), samples },
+      token,
+      origin: null,
+    });
+  // The last upload before local midnight: the day's totals are still running.
+  const early = await upload(a.deviceToken, [steps.sample, energy.sample]);
+  assert.equal(early.stored, 2);
+  assert.equal(early.days, 1);
+  await upload(b.deviceToken, [quietSteps.sample]);
+  const [pending] = await records(resender);
+  assert.deepEqual(pending.data.observations, []);
+  assert.equal(pending.data.totalsDueAt, new Date(steps.end).toISOString());
+  const before = await ok("/healthkit/activity", { cookie: resender.cookie });
+  assert.equal(before.days[0].steps, null);
+  await pause(
+    Math.max(steps.end, energy.end, quietSteps.end) - Date.now() + 300,
+  );
+  // The app re-sends the ended day unchanged: duplicates, yet the day completes.
+  const final = await upload(a.deviceToken, [steps.sample, energy.sample]);
+  assert.equal(final.duplicates, 2);
+  assert.equal(final.stored + final.updated, 0);
+  assert.equal(final.days, 1);
+  const [completed] = await records(resender);
+  const types = completed.data.observations.map((o: any) => o.type).sort();
+  assert.deepEqual(types, ["daily_active_energy", "daily_steps"]);
+  assert.equal(completed.data.count, 2);
+  assert.equal(completed.data.totalsDueAt, null);
+  // A later unchanged re-send writes nothing.
+  const again = await upload(a.deviceToken, [steps.sample, energy.sample]);
+  assert.equal(again.days, 0);
+  assert.equal((await records(resender))[0].version, completed.version);
+  const twin = await ok(`/clients/${resender.userId}/twin`, {
+    cookie: resender.cookie,
+  });
+  const metric = (t: any, key: string) =>
+    t.data.wearables.metrics.find((m: any) => m.key === key);
+  assert.equal(metric(twin, "daily_steps").latest, 4321);
+  assert.equal(metric(twin, "daily_active_energy").latest, 275);
+  const activity = await ok("/healthkit/activity", {
+    cookie: resender.cookie,
+  });
+  assert.equal(activity.days[0].steps, 4321);
+  assert.equal(activity.days[0].activeEnergyKcal, 275);
+  // The quiet phone never syncs again. Read paths derive the ended total at
+  // once; the hourly worker then completes the stored day as well.
+  const [quietBefore] = await records(quiet);
+  assert.deepEqual(quietBefore.data.observations, []);
+  const quietTwin = await ok(`/clients/${quiet.userId}/twin`, {
+    cookie: owner.cookie,
+  });
+  assert.equal(metric(quietTwin, "daily_steps").latest, 6789);
+  const coachView = await ok(`/healthkit/activity?userId=${quiet.userId}`, {
+    cookie: owner.cookie,
+  });
+  assert.equal(coachView.days[0].steps, 6789);
+  const maintained = await maintainHealthKitSync(db);
+  assert.ok(maintained.finalized >= 1, JSON.stringify(maintained));
+  const [quietAfter] = await records(quiet);
+  assert.deepEqual(
+    quietAfter.data.observations.map((o: any) => [o.type, o.value]),
+    [["daily_steps", 6789]],
+  );
+  assert.equal(quietAfter.data.totalsDueAt, null);
+  // The worker keeps the time of the last device sync.
+  assert.equal(quietAfter.data.lastSyncedAt, quietBefore.data.lastSyncedAt);
+  const status = await ok("/healthkit/status", { cookie: quiet.cookie });
+  assert.equal(status.synced.observations, 1);
+});
+
 test("revocation, withdrawn consent, coach policy and ended membership stop uploads", async () => {
   const tenantId = await workspace("Revocation studio");
   const owner = await person(tenantId, "owner"),
@@ -951,6 +1088,16 @@ test("revocation, withdrawn consent, coach policy and ended membership stop uplo
     (await records(member)).map((r) => [r.status, r.data.allowedUses]),
     [["permission_revoked", ["render"]]],
   );
+  // The revoked days stay stored, so the member can still find and delete them.
+  const afterRevoke = await ok("/healthkit/status", { cookie: member.cookie });
+  assert.equal(afterRevoke.synced.days, 1);
+  assert.equal(afterRevoke.synced.restrictedDays, 1);
+  assert.ok(afterRevoke.synced.observations > 0);
+  // The Progress card uses permitted days only.
+  assert.deepEqual(
+    (await ok("/healthkit/activity", { cookie: member.cookie })).days,
+    [],
+  );
   // Re-pairing records consent again; a new day row starts beside the revoked one.
   const d = await pairDevice(member, "Phone D");
   assert.equal((await upload(d.deviceToken)).statusCode, 200);
@@ -964,6 +1111,12 @@ test("revocation, withdrawn consent, coach policy and ended membership stop uplo
     cookie: member.cookie,
   });
   assert.equal((await device(member, d.device.id)).revoked_reason, "consent");
+  const withdrawnStatus = await ok("/healthkit/status", {
+    cookie: member.cookie,
+  });
+  assert.equal(withdrawnStatus.wearablePermissionWithdrawn, true);
+  assert.equal(withdrawnStatus.synced.days, 2);
+  assert.equal(withdrawnStatus.synced.restrictedDays, 2);
   await expectCode(
     "/healthkit/pairing-codes",
     { body: { consent: true }, cookie: member.cookie },
@@ -989,6 +1142,85 @@ test("revocation, withdrawn consent, coach policy and ended membership stop uplo
   assert.ok(maintained.revoked >= 1);
   assert.equal(
     (await device(member, e.device.id)).revoked_reason,
+    "membership_ended",
+  );
+});
+
+test("only the workspace's clients pair devices and sync", async () => {
+  const tenantId = await workspace("Roles studio");
+  const owner = await person(tenantId, "owner"),
+    staff = await person(tenantId, "staff"),
+    finance = await person(tenantId, "finance"),
+    member = await person(tenantId),
+    changing = await person(tenantId);
+  await setPolicy(owner, "permitted_imports_and_sync");
+  for (const p of [owner, staff, finance]) {
+    await expectCode(
+      "/healthkit/pairing-codes",
+      { body: { consent: true }, cookie: p.cookie },
+      403,
+      "HEALTHKIT_CLIENTS_ONLY",
+    );
+    const status = await ok("/healthkit/status", { cookie: p.cookie });
+    assert.equal(status.canPair, false);
+    assert.equal(status.coachAllowsSync, true);
+  }
+  assert.equal(
+    (await ok("/healthkit/status", { cookie: member.cookie })).canPair,
+    true,
+  );
+  // No consent or code was recorded for the refused team accounts.
+  const consents = await db.tenant({ ...owner, role: "owner" }, (tx) =>
+    tx.query(
+      "SELECT user_id FROM consent_records WHERE document_type='wearable:apple_health' AND user_id=ANY($1::uuid[])",
+      [[owner.userId, staff.userId, finance.userId]],
+    ),
+  );
+  assert.equal(consents.length, 0);
+  // A code created as a client cannot be redeemed after the role changed.
+  const code = await ok("/healthkit/pairing-codes", {
+    body: { consent: true },
+    cookie: changing.cookie,
+  });
+  const setRole = (p: Person, role: string) =>
+    db.system((tx) =>
+      tx.query(
+        "UPDATE memberships SET role=$3 WHERE tenant_id=$1 AND user_id=$2",
+        [tenantId, p.userId, role],
+      ),
+    );
+  await setRole(changing, "staff");
+  await expectCode(
+    "/healthkit/device/pair",
+    {
+      body: { code: code.code, deviceName: "Team phone", platform: "ios" },
+      origin: null,
+    },
+    403,
+    "HEALTHKIT_CLIENTS_ONLY",
+  );
+  // A paired client who becomes a team member can no longer upload, and the
+  // worker revokes the device because the client membership ended.
+  const paired = await pairDevice(member);
+  await setRole(member, "finance");
+  await expectCode(
+    "/healthkit/device/samples",
+    {
+      body: { batchId: "sync-" + randomUUID(), samples: fullDay(1).samples },
+      token: paired.deviceToken,
+      origin: null,
+    },
+    403,
+    "HEALTHKIT_CLIENTS_ONLY",
+  );
+  assert.equal((await records(member)).length, 0);
+  assert.equal(
+    (await device(member, paired.device.id)).last_error_code,
+    "HEALTHKIT_CLIENTS_ONLY",
+  );
+  await maintainHealthKitSync(db);
+  assert.equal(
+    (await device(member, paired.device.id)).revoked_reason,
     "membership_ended",
   );
 });
@@ -1095,7 +1327,8 @@ test("device credentials are checked, rate limited and bound to their workspace 
     404,
     "NOT_FOUND",
   );
-  // Repeated invalid credentials from one address are refused.
+  // Repeated invalid credentials from one address are refused, but a paired
+  // device behind the same address (a carrier NAT) keeps working.
   const remote = "10.99.0.7";
   for (let i = 0; i < 20; i++)
     await expectCode(
@@ -1106,10 +1339,23 @@ test("device credentials are checked, rate limited and bound to their workspace 
     );
   await expectCode(
     "/healthkit/device/status",
-    { token, remote },
+    { token: `hk1.${tenantA}.${newToken()}`, remote },
     429,
     "TOO_MANY_ATTEMPTS",
   );
+  await expectCode(
+    "/healthkit/device/status",
+    { token: "not-a-device-token", remote },
+    429,
+    "TOO_MANY_ATTEMPTS",
+  );
+  await ok("/healthkit/device/status", { token, remote });
+  await ok("/healthkit/device/samples", {
+    body: { batchId: "sync-" + randomUUID(), samples: fullDay(1).samples },
+    token,
+    remote,
+    origin: null,
+  });
   // Per-device route budget.
   const limited: any[] = [];
   for (let i = 0; i < 31; i++) {
@@ -1141,6 +1387,33 @@ test("device credentials are checked, rate limited and bound to their workspace 
     (await device(member, second.device.id)).last_error_code,
     "DAILY_QUOTA",
   );
+});
+
+test("the invalid-token budget never refuses a known device, even under a flood", () => {
+  const budget = failureBudget(2, 4, 60000);
+  const nat = "100.64.0.9",
+    elsewhere = "192.0.2.1";
+  const code = (error: any) => [error.statusCode, error.code];
+  assert.deepEqual(code(budget.failed(nat)), [401, "DEVICE_TOKEN_INVALID"]);
+  assert.deepEqual(code(budget.failed(nat)), [401, "DEVICE_TOKEN_INVALID"]);
+  // Past the soft limit an unknown token gets 429, but tokens are still looked up.
+  assert.deepEqual(code(budget.failed(nat)), [429, "TOO_MANY_ATTEMPTS"]);
+  budget.admit(nat, "unknown-digest");
+  budget.failed(nat);
+  // Past the flood limit unknown tokens are refused before any lookup...
+  assert.throws(
+    () => budget.admit(nat, "unknown-digest"),
+    (e: any) => e.statusCode === 429 && e.code === "TOO_MANY_ATTEMPTS",
+  );
+  // ...while tokens this server issued or authenticated are still admitted.
+  budget.trust("paired-digest");
+  budget.admit(nat, "paired-digest");
+  // Other addresses are unaffected.
+  budget.admit(elsewhere, "unknown-digest");
+  assert.deepEqual(code(budget.failed(elsewhere)), [
+    401,
+    "DEVICE_TOKEN_INVALID",
+  ]);
 });
 
 test("export, erasure, workspace closure and the support view follow privacy rules", async () => {
