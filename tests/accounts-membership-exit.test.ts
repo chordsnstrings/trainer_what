@@ -90,6 +90,15 @@ test("a follower leaves: renewal stops through the existing cancellation flow, a
         [randomUUID(), trainerA.tenantId, follower.userId],
       ),
   );
+  const grantId = randomUUID();
+  await ctx.db.tenant(
+    { tenantId: trainerA.tenantId, userId: trainerA.userId, role: "owner" },
+    (tx) =>
+      tx.query(
+        "INSERT INTO complimentary_access(id,tenant_id,user_id,tier,reason,granted_by) VALUES($1,$2,$3,'workout','Launch cohort',$4)",
+        [grantId, trainerA.tenantId, follower.userId, trainerA.userId],
+      ),
+  );
   const preview = ok(
     await ctx.call("/membership/leave", { cookie: follower.cookie }),
   );
@@ -119,6 +128,20 @@ test("a follower leaves: renewal stops through the existing cancellation flow, a
   assert.equal(renewals[0].body.cancel_at_period_end, true);
   assert.match(renewals[0].key, /^renewal:/);
   assert.equal(await membership(follower.userId, trainerA.tenantId), null);
+  const [grant] = await ctx.db.tenant(
+    { tenantId: trainerA.tenantId, userId: trainerA.userId, role: "owner" },
+    (tx) =>
+      tx.query(
+        "SELECT close_reason,closed_by FROM complimentary_access WHERE id=$1",
+        [grantId],
+      ),
+  );
+  assert.equal(
+    grant.close_reason,
+    "member_removed",
+    "the grant ends with the membership",
+  );
+  assert.equal(grant.closed_by, follower.userId);
   assert.equal(
     await membership(follower.userId, trainerB.tenantId),
     "subscriber",

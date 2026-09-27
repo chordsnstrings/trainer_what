@@ -305,6 +305,12 @@ export async function endFollowerMembership(
       ],
     );
     await disableUserIntegrations(tx, input.followerId, "wearable");
+    // Complimentary access ends with the membership, so a later invitation
+    // starts without a grant silently carried over from before.
+    await tx.query(
+      "UPDATE complimentary_access SET closed_at=now(),closed_by=$3,close_reason='member_removed',version=version+1 WHERE tenant_id=$1 AND user_id=$2 AND closed_at IS NULL",
+      [input.tenantId, input.followerId, input.actorId],
+    );
     await event(
       tx,
       actor,
