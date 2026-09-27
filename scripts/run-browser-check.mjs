@@ -9,11 +9,12 @@ const log = createWriteStream(root + "test-results/browser-servers.log");
 const children = [];
 const proxySecret =
   process.env.INTERNAL_PROXY_SECRET ?? randomBytes(32).toString("hex");
-function start(args, cwd) {
+function start(args, cwd, extra = {}) {
   const child = spawn(process.execPath, args, {
     cwd,
     env: {
       ...process.env,
+      ...extra,
       NEXT_TELEMETRY_DISABLED: "1",
       PUBLIC_APP_URL: "http://localhost:3000",
       API_INTERNAL_URL: "http://127.0.0.1:4000",
@@ -66,7 +67,11 @@ try {
           ),
     );
   });
-  start(["--import", "tsx", "src/server.ts"], root + "apps/api");
+  // The synthetic loopback fixture explicitly opts into development controls;
+  // an unset NODE_ENV enforces production security.
+  start(["--import", "tsx", "src/server.ts"], root + "apps/api", {
+    NODE_ENV: "development",
+  });
   start(
     [
       root + "node_modules/next/dist/bin/next",

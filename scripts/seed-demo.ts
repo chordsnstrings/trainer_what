@@ -4,8 +4,13 @@ import { buildApp } from "../apps/api/src/app.ts";
 import { passwordHash } from "../apps/api/src/auth.ts";
 import { recordCharge } from "../apps/api/src/finance.ts";
 import { seedNutritionDemo } from "./seed-nutrition-demo.ts";
-if (process.env.NODE_ENV === "production")
-  throw new Error("Synthetic seed is forbidden in production");
+import { assertLocalSyntheticTarget } from "./synthetic-guard.ts";
+assertLocalSyntheticTarget("Synthetic seed");
+// A separate PostgreSQL may outlive this checkout: never give it a documented password.
+if (process.env.DATABASE_URL && !process.env.DEMO_PASSWORD)
+  throw new Error("Set DEMO_PASSWORD when seeding a PostgreSQL DATABASE_URL");
+// The guard above proved a local synthetic target; use development controls.
+Object.assign(process.env, { NODE_ENV: "development" });
 const db = await createDatabase();
 const app = await buildApp({ db, testing: true });
 const email = "coach@example.test",
@@ -44,9 +49,14 @@ if (r.statusCode === 409) {
     headers: { cookie },
   });
   const a = boot.json().user;
-  await db.system((tx) =>
-    tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [a.userId]),
-  );
+  await db.system(async (tx) => {
+    await tx.query(
+      "SELECT set_config('app.operator_reason','Local synthetic demo Superadmin',true),set_config('app.operator_source','synthetic-seed',true)",
+    );
+    await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [
+      a.userId,
+    ]);
+  });
   await db.system((tx) =>
     tx.query("UPDATE tenants SET theme=$2 WHERE id=$1", [
       a.tenantId,

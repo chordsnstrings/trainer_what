@@ -4,6 +4,7 @@ import {
   runtimeConfig,
   providerRequest,
   integrationCapability,
+  strictSecurity,
 } from "./configuration.ts";
 export * from "./configuration.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
@@ -91,7 +92,10 @@ export function integrationStatus() {
       name: "Apple Health",
       purpose: "Import workout and health observations",
       configured: true,
-      approved: config.APPLE_IMPORTS_ENABLED !== "false",
+      // Mirrors the import route: the platform import approval also applies.
+      approved:
+        config.APPLE_IMPORTS_ENABLED !== "false" &&
+        (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
     },
     {
       id: "zepp",

@@ -125,6 +125,7 @@ before(async () => {
     email: "qualified-client@example.test",
     name: "Qualified Client",
     password: "QualifiedClient2026!",
+    accepted: true,
   });
   assert.equal(joined.statusCode, 200, joined.body);
   const cookie = String(joined.headers["set-cookie"]).split(";")[0];

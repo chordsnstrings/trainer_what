@@ -295,6 +295,69 @@ function Heading({
   );
 }
 
+type WorkspaceChoice = {
+  tenantId: string;
+  name: string;
+  role: string;
+  current: boolean;
+};
+const roleNames: Record<string, string> = {
+  owner: "Owner",
+  staff: "Coach",
+  finance: "Finance",
+  subscriber: "Member",
+};
+/** Lists this account's workspaces and switches the signed-in session. */
+function WorkspaceSwitcher({ current }: { current: string }) {
+  const [choices, setChoices] = useState<WorkspaceChoice[]>([]),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api("/auth/workspaces").then(
+      (r) => active && setChoices(r.workspaces),
+      () => active && setChoices([]),
+    );
+    return () => {
+      active = false;
+    };
+  }, [current]);
+  if (choices.length < 2) return null;
+  return (
+    <label className="workspace-switcher">
+      <span>Switch workspace</span>
+      <select
+        value={current}
+        disabled={busy}
+        onChange={async (e) => {
+          const next = choices.find((c) => c.tenantId === e.target.value);
+          if (!next || next.tenantId === current) return;
+          setBusy(true);
+          setError("");
+          try {
+            await api("/auth/workspace", "POST", { tenantId: next.tenantId });
+            for (const k of Object.keys(localStorage))
+              if (k.startsWith("trainer:")) localStorage.removeItem(k);
+            window.location.assign(
+              next.role === "subscriber" ? "/app" : "/trainer",
+            );
+          } catch (err) {
+            setError((err as Error).message);
+            setBusy(false);
+          }
+        }}
+      >
+        {choices.map((c) => (
+          <option key={c.tenantId} value={c.tenantId}>
+            {c.name} · {roleNames[c.role] ?? c.role}
+          </option>
+        ))}
+      </select>
+      {error && <small role="alert">{error}</small>}
+    </label>
+  );
+}
+
 function PlainShell({
   children,
   className,
@@ -551,6 +614,7 @@ export default function Workspace() {
             </span>
           </div>
         </div>
+        <WorkspaceSwitcher current={state.user.tenantId} />
         <nav aria-label="Main navigation">
           {items.map(([label, url, Icon]) => (
             <Link
@@ -3749,6 +3813,7 @@ function Public({
                             email: f.get("email"),
                             password: f.get("password"),
                             token: path.split("/").pop(),
+                            accepted: true,
                             ...(f.get("code") ? { code: f.get("code") } : {}),
                           }
                         : signup
@@ -3837,7 +3902,7 @@ function Public({
                   </p>
                 </>
               )}
-              {(signup || enroll) && (
+              {(signup || join || enroll) && (
                 <label className="check-field">
                   <input type="checkbox" required />I accept the published terms
                   and understand the digital coaching disclosure.

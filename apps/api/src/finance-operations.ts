@@ -1,4 +1,5 @@
 import { executePayout } from "./payout-execution.ts";
+import { strictSecurity } from "../../../packages/providers/src/configuration.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -402,7 +403,7 @@ export function financeOperations(
         [(req.params as any).id],
       );
       if (!r) throw fail(404, "NOT_FOUND", "Destination unavailable");
-      if (process.env.NODE_ENV === "production" && r.owner_user_id === a.userId)
+      if (strictSecurity() && r.owner_user_id === a.userId)
         throw fail(
           403,
           "SECOND_REVIEWER_REQUIRED",

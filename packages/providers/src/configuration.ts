@@ -14,6 +14,34 @@ export function withRuntimeConfig<T>(
 ): T {
   return runtime.run({ ...runtime.getStore(), ...overrides }, callback);
 }
+/**
+ * Security controls (MFA step-up, legal and import approvals, Secure cookies,
+ * email verification, second reviewers) relax only for a process explicitly
+ * declared as local development or test, or the isolated Node test runner. An
+ * unset or unrecognised NODE_ENV (staging, a manual start, an overridden
+ * environment) enforces the production controls.
+ */
+export function strictSecurity(env: RuntimeConfig = process.env): boolean {
+  if (env.NODE_ENV === "production") return true;
+  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") return false;
+  return !env.NODE_TEST_CONTEXT;
+}
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+/** Relaxed controls may only serve a loopback address and a loopback app URL. */
+export function assertSecurityModeBinding(env: RuntimeConfig = process.env) {
+  if (strictSecurity(env)) return;
+  let appHost = "";
+  try {
+    appHost = new URL(env.PUBLIC_APP_URL ?? "http://localhost:3000").hostname;
+  } catch {}
+  if (
+    !loopbackHosts.has(env.API_HOST ?? "127.0.0.1") ||
+    !loopbackHosts.has(appHost)
+  )
+    throw new ConfigurationError(
+      "Development security mode serves loopback addresses only. Set NODE_ENV=production for any shared or public deployment.",
+    );
+}
 
 /** Account approval never follows from saving a key or a successful probe. */
 export function integrationCapability(

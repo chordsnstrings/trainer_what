@@ -294,6 +294,7 @@ test("saved designs survive legacy edits, reject stale updates, and stay tenant-
       name: "Design Client",
       email: "design-client@example.test",
       password: "DesignClient2026!",
+      accepted: true,
     });
     assert.equal(accepted.statusCode, 200, accepted.body);
     const subscriber = String(accepted.headers["set-cookie"]).split(";")[0];

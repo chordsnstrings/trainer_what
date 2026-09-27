@@ -66,6 +66,7 @@ async function member(name: string, role = "subscriber") {
     name,
     email: name + "@example.test",
     password: "AttachmentClient2026!",
+    accepted: true,
   });
   assert.equal(joined.statusCode, 200, joined.body);
   const cookie = String(joined.headers["set-cookie"]).split(";")[0];

@@ -25,6 +25,7 @@ import {
 } from "./chat-attachments.ts";
 import {
   registerAccountCompletion,
+  recentWorkspaceOrder,
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
@@ -63,6 +64,7 @@ import {
   runtimeConfig,
   withRuntimeConfig,
   ConfigurationError,
+  strictSecurity,
 } from "../../../packages/providers/src/configuration.ts";
 import {
   loadRuntimeSettings,
@@ -418,7 +420,7 @@ export async function buildApp(
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: strictSecurity(),
       maxAge: 604800,
     });
   }
@@ -491,10 +493,7 @@ export async function buildApp(
         ].includes(b.slug)
       )
         throw fail(400, "RESERVED_SLUG", "Please choose another address");
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().LEGAL_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
@@ -506,7 +505,7 @@ export async function buildApp(
       await db.system(async (tx) => {
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
-          [uid, b.email, b.name, hash, process.env.NODE_ENV !== "production"],
+          [uid, b.email, b.name, hash, !strictSecurity()],
         );
         await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,$3)", [
           tid,
@@ -574,10 +573,7 @@ export async function buildApp(
         db,
         "registration",
       );
-      if (
-        process.env.NODE_ENV === "production" &&
-        runtimeConfig().LEGAL_APPROVED !== "true"
-      )
+      if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
@@ -693,10 +689,13 @@ export async function buildApp(
           "PLATFORM_HOST_REQUIRED",
           "Platform accounts sign in at the platform address.",
         );
+      // A chosen workspace must also be the host's workspace on a custom host.
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY m.tenant_id LIMIT 1",
-          [u.id, req.hostContext?.tenantId ?? null],
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY " +
+            recentWorkspaceOrder +
+            " LIMIT 1",
+          [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
         ),
       );
       if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
@@ -714,6 +713,26 @@ export async function buildApp(
       );
     reply.clearCookie("session", { path: "/" });
     return { ok: true };
+  });
+  app.get("/api/v1/auth/workspaces", async (req) => {
+    const a = identity(req);
+    // A custom host serves only its own workspace; the platform lists them all.
+    const workspaces = await db.system((tx) =>
+      tx.query(
+        "SELECT m.tenant_id,t.name,t.slug,m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
+        [a.userId, req.hostContext?.custom ? req.hostContext.tenantId : null],
+      ),
+    );
+    return {
+      current: a.tenantId,
+      workspaces: workspaces.map((w) => ({
+        tenantId: w.tenant_id,
+        name: w.name,
+        slug: w.slug,
+        role: w.role,
+        current: w.tenant_id === a.tenantId,
+      })),
+    };
   });
   app.post("/api/v1/auth/workspace", async (req, reply) => {
     const a = identity(req);
@@ -745,8 +764,7 @@ export async function buildApp(
       tx.query("SELECT * FROM tenants WHERE id=$1", [a.tenantId]),
     );
     return db.tenant(a, async (tx) => ({
-      environment:
-        process.env.NODE_ENV === "production" ? "production" : "development",
+      environment: strictSecurity() ? "production" : "development",
       user: a,
       platform: {
         name: runtimeConfig().APP_NAME || "Trainer Brain",
@@ -877,12 +895,23 @@ export async function buildApp(
         name: z.string().min(2).max(100),
         email: z.email(),
         password: z.string().min(12).max(128),
+        accepted: z.literal(true),
         code: z
           .string()
           .regex(/^\d{6}$/)
           .optional(),
       })
       .parse(req.body);
+    if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
+      throw fail(
+        503,
+        "LEGAL_PENDING",
+        "Invitations are waiting for the published legal documents",
+      );
+    const registrationVersion = await legalAcceptanceVersion(
+      db,
+      "registration",
+    );
     const hash = await passwordHash(b.password);
     const result = await db.system(async (tx) => {
       const invite = await lockActiveInvitation(tx, tokenHash(b.token));
@@ -939,6 +968,18 @@ export async function buildApp(
         "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
         [tokenHash(b.token)],
       );
+      if (membership) {
+        await tx.query("SET LOCAL ROLE trainer_app");
+        await tx.query(
+          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
+          [invite.tenant_id, uid, invite.payload.role],
+        );
+        await tx.query(
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+          [randomUUID(), invite.tenant_id, uid, registrationVersion],
+        );
+        await tx.query("RESET ROLE");
+      }
       return {
         uid,
         tid: invite.tenant_id,
@@ -1900,6 +1941,12 @@ export async function buildApp(
       throw new ProviderUnavailable(
         "apple",
         "Health imports are disabled by the platform administrator",
+      );
+    if (strictSecurity() && runtimeConfig().FILE_IMPORTS_APPROVED !== "true")
+      throw fail(
+        503,
+        "IMPORT_REVIEW_PENDING",
+        "Health imports are waiting for the platform import approval.",
       );
     const b = z
       .object({
