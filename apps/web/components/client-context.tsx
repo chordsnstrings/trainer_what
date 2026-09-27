@@ -118,6 +118,7 @@ export function ClientContext({
             <label>
               Communication preferences
               <textarea
+                aria-label="Communication preferences"
                 maxLength={1000}
                 value={draft.communicationNotes}
                 onChange={(e) => change({ communicationNotes: e.target.value })}
@@ -130,6 +131,11 @@ export function ClientContext({
                   : "Exercises you prefer to avoid"}{" "}
                 (one per line)
                 <textarea
+                  aria-label={
+                    key === "exerciseLikes"
+                      ? "Exercises you enjoy (one per line)"
+                      : "Exercises you prefer to avoid (one per line)"
+                  }
                   value={draft[key].join("\n")}
                   onChange={(e) =>
                     change({ [key]: e.target.value.split("\n") })
@@ -215,6 +221,7 @@ export function ClientContext({
                   <label>
                     Availability
                     <textarea
+                      aria-label="Availability"
                       maxLength={500}
                       value={item.availabilityNotes}
                       onChange={(e) =>
@@ -225,6 +232,7 @@ export function ClientContext({
                   <label>
                     Available equipment
                     <textarea
+                      aria-label="Available equipment"
                       maxLength={500}
                       value={item.equipmentNotes}
                       onChange={(e) =>

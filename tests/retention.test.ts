@@ -206,6 +206,8 @@ async function signed(
         "INSERT INTO provider_objects(provider,external_id,tenant_id,user_id,kind) VALUES('stripe',$1,$2,$3,'subscription') ON CONFLICT DO NOTHING",
         [m.providerId, m.tenantId, m.userId],
       );
+  });
+  await db.tenant({ ...m, role: "owner" }, async (tx) => {
     await tx.query(
       "INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data,created_at) VALUES($1,$2,$3,'subscription.updated',$4,$5,$6)",
       [
@@ -627,14 +629,20 @@ test("missing signed proof, unresolved commands and capped scans are explicit pa
   await enable(c);
   const capped = await member(c);
   const capProof = await signed(capped);
-  await db.system((tx) =>
+  const copies = await db.system((tx) =>
     tx.query(
-      "WITH copies AS (INSERT INTO provider_events(provider,external_id,payload,status) SELECT 'stripe',p.external_id||':'||g,p.payload||jsonb_build_object('id',p.external_id||':'||g),'processed' FROM provider_events p CROSS JOIN generate_series(1,501) g WHERE p.provider='stripe' AND p.external_id=$4 RETURNING external_id) INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data,created_at) SELECT gen_random_uuid(),$1,$2,'subscription.updated',$3,jsonb_build_object('status','active','providerEventId',external_id),$5 FROM copies",
+      "INSERT INTO provider_events(provider,external_id,payload,status) SELECT 'stripe',p.external_id||':'||g,p.payload||jsonb_build_object('id',p.external_id||':'||g),'processed' FROM provider_events p CROSS JOIN generate_series(1,501) g WHERE p.provider='stripe' AND p.external_id=$1 RETURNING external_id",
+      [capProof.providerEventId],
+    ),
+  );
+  await db.tenant(c, (tx) =>
+    tx.query(
+      "INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data,created_at) SELECT gen_random_uuid(),$1,$2,'subscription.updated',$3,jsonb_build_object('status','active','providerEventId',external_id),$5 FROM unnest($4::text[]) AS copies(external_id)",
       [
         c.tenantId,
         capped.userId,
         capped.providerId,
-        capProof.providerEventId,
+        copies.map((row) => row.external_id),
         currentAt,
       ],
     ),
