@@ -196,6 +196,7 @@ export function InfrastructureObserver() {
         </button>
       </div>
       <nav className="tabs" aria-label="Infrastructure views">
+        <a href="/admin/infrastructure/actions">Approved operations</a>
         <a href="/admin/infrastructure">Job operations</a>
         <a href="/admin/infrastructure/observer" aria-current="page">
           Infrastructure observations

@@ -22,6 +22,9 @@ GRANT SELECT,INSERT,UPDATE ON support_preview_grants TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON support_preview_elevations TO trainer_service;
 GRANT SELECT,INSERT ON infrastructure_observations,infrastructure_policies TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON infrastructure_recommendations TO trainer_service;
+GRANT SELECT,INSERT ON infrastructure_execution_policies TO trainer_service;
+GRANT SELECT,UPDATE ON infrastructure_worker_control TO trainer_service;
+GRANT SELECT,INSERT,UPDATE ON infrastructure_actions TO trainer_service;
 GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 

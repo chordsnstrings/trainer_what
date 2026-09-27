@@ -1,6 +1,7 @@
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
 import { registerAffiliates } from "./affiliates.ts";
+import { registerInfrastructureActions } from "./infrastructure-actions.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { registerLifecycleMessages } from "./lifecycle-messages.ts";
 import { registerRetention } from "./retention.ts";
@@ -427,6 +428,7 @@ export async function buildApp(
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
   registerAffiliates(app, db, identity);
+  registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
   registerSupportPreview(app, db, identity);

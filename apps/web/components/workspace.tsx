@@ -1,6 +1,7 @@
 "use client";
 import { TeamControls } from "./team-controls";
 import { Affiliates } from "./affiliates";
+import { InfrastructureActions } from "./infrastructure-actions";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
@@ -719,6 +720,8 @@ export default function Workspace() {
             <Affiliates trainer />
           ) : path === "/admin/infrastructure/observer" ? (
             <InfrastructureObserver />
+          ) : path === "/admin/infrastructure/actions" ? (
+            <InfrastructureActions />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings

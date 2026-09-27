@@ -57,3 +57,5 @@ At the end of an implementation slice, replace the current-state bullets with a 
 - 27 September client context stage: connected voluntary client-owned notes and dated changes, trainer consent gating, privacy/export/erasure and four passing focused tests. Remote Git transport now works; continuation starts from the published branch with matching tree. Next: affiliate administration and infrastructure broker.
 
 - 27 September affiliate stage: complete agreement/receipt/statement/bank-evidence administration, owner visibility, ledger integration, payout clawback and workspace-close guards. Six new plus sixteen existing finance tests passed. Shared MFA timestamps now reject invalid/stale/future values. Next: infrastructure completion and full qualification.
+
+- 27 September infrastructure stage: guarded local worker dispatch policy/approvals/idempotent execution/rollback and UI are connected; thirteen action/observer checks pass. Initial operation scope is worker pause/resume/interval only; no cloud adapter, purchase or deployment is enabled. All remaining engineering modules are connected; final combined qualification and audit are next.

@@ -11,6 +11,7 @@ import { scheduleLifecycleMessages } from "../../api/src/lifecycle-messages.ts";
 import { scheduleRetentionAlerts } from "../../api/src/retention.ts";
 import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
 import { createInfrastructureObserver } from "../../api/src/infrastructure-observer.ts";
+import { workerDispatchControl } from "../../api/src/infrastructure-actions.ts";
 import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
@@ -184,8 +185,12 @@ if (!process.env.DATABASE_URL) {
     while (running) {
       const started = performance.now();
       let successful = false;
+      let intervalMs = 5000;
       try {
-        await withRuntimeConfig(await loadRuntimeSettings(db), tick);
+        const control = await workerDispatchControl(db);
+        intervalMs = control.intervalMs;
+        if (!control.paused)
+          await withRuntimeConfig(await loadRuntimeSettings(db), tick);
         successful = true;
       } catch (e) {
         console.error("Worker iteration failed");
@@ -196,7 +201,7 @@ if (!process.env.DATABASE_URL) {
         .catch(() =>
           console.error("Infrastructure observations could not be persisted"),
         );
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
   for (const signal of ["SIGINT", "SIGTERM"] as const)
