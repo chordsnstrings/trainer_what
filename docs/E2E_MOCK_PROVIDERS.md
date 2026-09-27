@@ -36,14 +36,18 @@ provider, never uses a cloud resource and must never run on a server.
    `tests/e2e/report.json` (gitignored). Service logs, the model capture file and a copy of the
    report go to `tests/e2e/artifacts/<run>/` (gitignored). Everything is torn down.
 
-Options: `--suites=super-admin,trainer,follower,public-join`, `--keep` (leave the stack up),
+Options: `--suites=super-admin,trainer,follower,public-join,extended`, `--keep` (leave the stack up),
 `--pg-port=N`, `--rebuild`/`--skip-build`, `--features=<inventory.json>` (checks feature names and
 adds per-audience coverage), `--report=<file>`, and the model options below.
 
 Requirements: Node 24, PostgreSQL 16+ server binaries (`initdb`, `pg_ctl`), `openssl`, the
-installed dependencies. A full run takes about six minutes (343–357 s measured) plus a web build
-when one is needed, mostly authenticator waits (each fresh code needs a new 30-second window). The
-Superadmin sets the worker cycle to one second through the reviewed worker-speed operation.
+installed dependencies. A full run takes about eight minutes (474 s measured for 356 steps) plus a
+web build when one is needed, mostly authenticator waits (each fresh code needs a new 30-second
+window) and worker deliveries the suites wait for. The Superadmin sets the worker cycle to one second
+through the reviewed worker-speed operation. A person's session that proved an authenticator code in
+the last eight minutes is reused for step-up actions, as a person would, because the server allows
+eight code verifications per person every ten minutes; a rate-limited code request is retried with a
+new code after the advertised wait.
 
 ## Safety guard
 
@@ -121,19 +125,32 @@ rule responder and the report's `model.bySource` shows fewer `replay` answers.
 
 Two holds cannot be waited out in a run, so the harness moves specific timestamps in the throwaway
 database with the migration superuser and records each move under `clockShifts` in the report:
-the 72-hour bank-change hold after an operator verifies a payout destination, and (for the month
+the 72-hour bank-change hold after an operator verifies a payout destination, (for the month
 close) one workspace's journals and model-usage timestamps 40 days back so the previous month has
-ended with its seven-day refund buffer. Amounts and every other record are untouched; all other
-data is created through the API.
+ended with its seven-day refund buffer, and (for attendance) one booked class two days back so it has
+finished. Amounts and every other record are untouched; all other data is created through the API.
+
+## Host commands, passkeys and other harness helpers
+
+- Host-only operator scripts run as an operator would on the server, with the API's environment:
+  `scripts/operator.ts` (roles and `reset-mfa`), `scripts/reset-mfa.ts` (member authenticator
+  reset), `scripts/readiness.ts` and `scripts/reseal-secrets.ts`. Their output is asserted, never
+  logged.
+- `tests/e2e/harness/webauthn.ts` is a software platform authenticator (ES256, "none" attestation,
+  user verification) that produces the same JSON a browser returns, so passkey registration and
+  sign-in go through the real `@simplewebauthn/server` checks.
+- Each simulated person has a client with its own cookies and client address; `device()` gives the
+  same person a second device that shares the authenticator counter.
 
 ## Unit tests
 
 `tests/e2e-harness-sandbox.test.ts` (guard, overrides, readiness flag, banner) and
 `tests/e2e-harness-mocks.test.ts` (real Stripe SDK against the mock over TLS with verifiable
-webhooks, email/Lean/push adapters, capture/replay across runs) run in the normal `npm test`, as do
-the regression tests for defects the harness found (`tests/e2e-harness-booking-refund.test.ts`,
-`tests/e2e-harness-member-dates.test.ts`, `tests/e2e-harness-payout-precondition.test.ts`; see
-`docs/features/e2e-harness.md`). The member-dates test needs PostgreSQL with the restricted runtime
+webhooks, email/Lean/push adapters, capture/replay across runs, report coverage, the software
+passkey against `@simplewebauthn/server`) run in the normal `npm test`, as do the regression tests
+for defects the harness found (`tests/e2e-harness-booking-refund.test.ts`,
+`tests/e2e-harness-member-dates.test.ts`, `tests/e2e-harness-payout-precondition.test.ts`,
+`tests/e2e-harness-takeover-notice.test.ts`; see `docs/features/e2e-harness.md`). The member-dates test needs PostgreSQL with the restricted runtime
 role (`/opt/tools/pg-sandbox.sh`) to prove the column grant; PGlite does not enforce column grants.
 
 ## Suite order
@@ -142,4 +159,12 @@ Platform setup, trainer seed and follower seed run first. Then the follower suit
 trainer suite (trainers review what members produced: exceptions from digital coaching, consented
 nutrition captures), then public-join, then the Super admin suite (month close and payout on
 `sara-mobility`, whose members paid full price; `omar-conditioning` members are in a free trial, so
-its payout preparation is expected to be refused with 409).
+its payout preparation is expected to be refused with 409), then the extended suite
+(`tests/e2e/scenarios/extended.e2e.ts` and `extended-accounts.e2e.ts`).
+
+The extended suite changes state on purpose, so it runs last: it erases one unpaid member, closes the
+`yasmin-pilates` workspace after an ownership transfer, grants and revokes an operator role, resets
+two authenticators, changes the Superadmin's password twice, publishes documents and templates,
+disconnects and reconnects the voice provider, and finally re-seals every stored secret with a new
+encryption key (after that step the still-running API holds the retired key, which is why it is the
+last step before teardown).

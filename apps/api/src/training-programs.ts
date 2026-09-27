@@ -144,7 +144,7 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
   app.get("/api/v1/messages/thread", async (req) => {
     const a = actor(req), q = z.object({ subscriberId: id.optional(), before: id.optional() }).parse(req.query), target = a.role === "subscriber" ? a.userId : q.subscriberId;
     if (!target) throw fail(400, "Select a subscriber");
-    return db.tenant(a, async (tx) => {
+    const thread = await db.tenant(a, async (tx) => {
       await member(tx, a, target);
       const cursor = q.before ? await record(tx, q.before, "message") : undefined;
       if (cursor && cursor.owner_user_id !== target) throw fail(404, "Message unavailable");
@@ -152,5 +152,10 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const takeover = await tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'", [target]);
       return { messages: rows.reverse(), hasMore: rows.length === 100, personalReview: takeover.length > 0 };
     });
+    // Takeover records are not a subscriber-visible kind, so the member's own flag is read the way
+    // the digital coach reads it (coaching-completion.ts): a staff view limited to this member.
+    if (a.role === "subscriber")
+      thread.personalReview = (await db.tenant({ ...a, role: "staff" }, (tx) => tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active' LIMIT 1", [a.userId]))).length > 0;
+    return thread;
   });
 }

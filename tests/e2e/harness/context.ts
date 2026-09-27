@@ -6,6 +6,7 @@
  * throwaway database because the harness cannot wait 72 real hours; every
  * use is recorded in the report.
  */
+import { spawn } from "node:child_process";
 import pg from "pg";
 import type { MockSuite } from "../mocks/index.ts";
 import { linkIn } from "../mocks/email.ts";
@@ -48,6 +49,14 @@ export type E2EContext = {
   waitUntil: <T>(what: string, probe: () => Promise<T | undefined | null | false>, timeoutMs?: number) => Promise<T>;
   advanceClock: (what: string, sql: string, params?: unknown[]) => Promise<number>;
   sqlRead: <T = any>(sql: string, params?: unknown[]) => Promise<T[]>;
+  /**
+   * Runs a host-only operator script (npm run operator:role, readiness, ...)
+   * with the same environment as the API process, as an operator would on the
+   * server. Output is returned, never logged: it may name accounts.
+   */
+  hostCommand: (script: string, args?: string[], env?: Record<string, string>) => Promise<{ status: number | null; stdout: string; stderr: string }>;
+  /** One value of the API process environment, only to hand to a host command (never logged). */
+  hostSetting: (name: string) => string | undefined;
   close: () => Promise<void>;
 };
 
@@ -59,6 +68,8 @@ export function createContext(input: {
   admin: { email: string; password: string };
   migrationUrl: string;
   artifacts: string;
+  hostEnv?: Record<string, string | undefined>;
+  root?: string;
 }): E2EContext {
   const pool = new pg.Pool({ connectionString: input.migrationUrl, max: 2 });
   const ctx: E2EContext = {
@@ -128,6 +139,27 @@ export function createContext(input: {
       if (!/^\s*select\b/i.test(sql)) throw new Error("sqlRead is read-only");
       return (await pool.query(sql, params)).rows;
     },
+    hostCommand(script, args = [], env = {}) {
+      if (!input.hostEnv || !input.root) throw new Error("Host commands need the runner's service environment");
+      return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ["--import", "tsx", script, ...args], {
+          cwd: input.root,
+          env: { ...input.hostEnv, ...env } as NodeJS.ProcessEnv,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (d) => (stdout += d));
+        child.stderr.on("data", (d) => (stderr += d));
+        const timer = setTimeout(() => child.kill("SIGTERM"), 120000);
+        child.on("error", reject);
+        child.on("close", (status) => {
+          clearTimeout(timer);
+          resolve({ status, stdout, stderr });
+        });
+      });
+    },
+    hostSetting: (name) => input.hostEnv?.[name],
     close: () => pool.end(),
   };
   return ctx;

@@ -161,6 +161,13 @@ export async function publicJoinScenarios(ctx: E2EContext) {
         assert.equal(r.status, 200);
         if (section === "") assert.match(r.text, /Strength that fits a busy week/);
         if (section === "/memberships") assert.match(r.text, /299|AED/);
+        if (section === "/galleries") assert.match(r.text, /Studio/, "the published gallery is on the page");
+      });
+    await ctx.reporter.step(P, "Custom pages", `GET /coach/${layla.slug}/schedule: the trainer's own page`, async () => {
+      const r = await anon.request("GET", `/coach/${layla.slug}/schedule`);
+      assert.equal(r.status, 200);
+      assert.match(r.text, /Weekly schedule/);
+      assert.match(r.text, /Monday, Wednesday and Friday/);
       });
     await ctx.reporter.step(P, "Search and sharing titles", "SEO title and description in the page head", async () => {
       const r = await anon.request("GET", `/coach/${layla.slug}`);

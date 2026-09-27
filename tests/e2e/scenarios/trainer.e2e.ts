@@ -319,8 +319,12 @@ async function setupWebsite(ctx: E2EContext, t: Client, plan: TrainerPlan) {
       version: gallery.version,
       photos: media.map((m, i) => ({ mediaId: m.id, alt: `Studio photo ${i + 1}`, caption: "Sandbox photo" })),
     });
+    // Show the gallery on the website and in the subscriber app.
+    const current = (await t.get("/api/v1/tenant/galleries")).galleries.find((g: any) => g.id === gallery.id);
+    const shown = await t.okMfa("PATCH", `/api/v1/tenant/galleries/${gallery.id}`, { version: current.version, title: "Studio", description: "Training space", audience: "both" });
+    assert.equal(shown.audience, "both");
     const galleries = await t.get("/api/v1/tenant/galleries");
-    assert.ok(JSON.stringify(galleries).includes(gallery.id));
+    assert.ok(galleries.galleries.some((g: any) => g.id === gallery.id && g.photos.length === media.length));
   });
   await must(ctx, "Website editor and private preview", `${plan.slug}: website draft saved and previewed privately`, async () => {
     const site = await t.get("/api/v1/tenant/site");
@@ -336,7 +340,7 @@ async function setupWebsite(ctx: E2EContext, t: Client, plan: TrainerPlan) {
         cta: "Start coaching",
         seoTitle: `${plan.name} — ${plan.category}`,
         seoDescription: plan.headline,
-        pages: [],
+        pages: [{ slug: "schedule", title: "Weekly schedule", body: "Strength sessions on Monday, Wednesday and Friday at 7am.", visible: true }],
       },
     });
     const preview = await t.get("/api/v1/tenant/site/preview");

@@ -10,8 +10,9 @@ import { setupPlatform, superAdminScenarios } from "../scenarios/super-admin.e2e
 import { setupTrainers, trainerScenarios } from "../scenarios/trainer.e2e.ts";
 import { setupFollowers, followerScenarios } from "../scenarios/follower.e2e.ts";
 import { publicJoinScenarios } from "../scenarios/public-join.e2e.ts";
+import { extendedScenarios } from "../scenarios/extended.e2e.ts";
 
-export const SUITES = ["super-admin", "trainer", "follower", "public-join"] as const;
+export const SUITES = ["super-admin", "trainer", "follower", "public-join", "extended"] as const;
 
 export async function runHarness(input: {
   publicUrl: string;
@@ -22,6 +23,9 @@ export async function runHarness(input: {
   featuresPath?: string;
   artifacts: string;
   log: (message: string) => void;
+  /** The API process environment, for host-only operator scripts. */
+  hostEnv?: Record<string, string | undefined>;
+  root?: string;
 }) {
   const reporter = new Reporter(input.log);
   const ctx = createContext({ ...input, reporter });
@@ -54,6 +58,8 @@ export async function runHarness(input: {
     if (suites.has("trainer")) await phase("trainer scenarios", () => trainerScenarios(ctx));
     if (suites.has("public-join")) await phase("public-join scenarios", () => publicJoinScenarios(ctx));
     if (suites.has("super-admin")) await phase("super admin scenarios", () => superAdminScenarios(ctx));
+    // Runs last: it erases a member, closes a workspace and reconnects a provider.
+    if (suites.has("extended")) await phase("extended coverage", () => extendedScenarios(ctx));
   } finally {
     await ctx.close();
   }

@@ -26,7 +26,7 @@ export async function setupPlatform(ctx: E2EContext) {
     assert.equal(boot.environment, "production");
     assert.equal(boot.providerSandbox, "mock");
   });
-  await r.step(A, "Platform screens refuse non-operators", "settings writes need a fresh authenticator even for the Superadmin", async () => {
+  await r.step(A, "Fresh authenticator check before operator actions", "settings writes need a fresh authenticator even for the Superadmin", async () => {
     await admin.fails(403, "PUT", "/api/v1/admin/settings/application", { revision: 0, enabled: true, values: {} }, "MFA_STEP_UP");
   });
   await r.step(A, "Authenticator app (TOTP) setup", "enrol an authenticator and receive recovery codes", async () => {

@@ -505,7 +505,22 @@ export class StripeMock {
       at: new Date().toISOString(),
     };
     this.deliveries.push(delivery);
+    this.payloads.set(event.id, payload);
     return delivery;
+  }
+  /** Raw payloads of delivered events, for redelivery and signature checks. */
+  readonly payloads = new Map<string, string>();
+  /** Posts a stored event again, optionally signed with another secret (not recorded as a delivery). */
+  async redeliver(eventId: string, secret = this.webhookSecret) {
+    const payload = this.payloads.get(eventId);
+    if (!payload) throw new Error("Unknown delivered event " + eventId);
+    const response = await fetch(this.webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", "stripe-signature": stripeSignature(payload, secret) },
+      body: payload,
+      signal: AbortSignal.timeout(30000),
+    });
+    return { status: response.status, body: (await response.text()).slice(0, 2000) };
   }
 
   private chargeFor(amount: number, customer: string | null, metadata: Obj = {}) {

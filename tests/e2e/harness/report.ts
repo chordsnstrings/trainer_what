@@ -35,10 +35,12 @@ export const EQUIVALENT_FEATURES: Record<string, Array<[Audience, string]>> = {
     ["followers", "Terms, privacy and AI disclosure accepted at joining"],
     ["public-join", "Accept invitation (/join/<link>)"],
     ["public-join", "Terms acceptance recorded when joining"],
+    ["followers", "Verify email address"],
   ],
   "followers:Choose a plan and pay (with discount codes)": [
     ["public-join", "Choose a plan and pay (membership checkout)"],
     ["public-join", "Discount codes at checkout"],
+    ["followers", "Coaching profile questionnaire with consent"],
   ],
   "followers:Log sets (reps, weight, effort, notes)": [["Trainers", "Subscribers train the assigned program"]],
   "followers:Message your trainer": [["Trainers", "Trainer and subscriber messaging"]],
@@ -80,8 +82,12 @@ export const EQUIVALENT_FEATURES: Record<string, Array<[Audience, string]>> = {
   "public-join:Public self-join from a coach website (/join-coach/<name>)": [
     ["followers", "Join from a coach's public page"],
     ["Trainers", "Public coaching page and public subscriber signup"],
+    ["followers", "Verify email address"],
   ],
   "public-join:Switch between coaches": [["followers", "Switch between trainers"]],
+  "public-join:Coach-branded app icon and install manifest": [["followers", "Trainer-branded app icon"]],
+  "followers:Check an interrupted checkout": [["public-join", "Check an interrupted checkout"]],
+  "followers:Passkeys (fingerprint or face sign-in)": [["public-join", "Passkey sign-in"]],
 };
 
 export class Reporter {

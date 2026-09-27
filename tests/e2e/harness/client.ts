@@ -62,7 +62,8 @@ export class Client {
   readonly ip: string;
   mfaSecret?: string;
   recoveryCodes: string[] = [];
-  private lastCounter = -1;
+  /** Last authenticator counter used; shared by every device of the same person. */
+  mfaCounter = { last: -1 };
   userId?: string;
   tenantId?: string;
   constructor(
@@ -163,42 +164,75 @@ export class Client {
     if (!this.mfaSecret) throw new Error(this.label + " has no authenticator");
     for (;;) {
       const counter = Math.floor(Date.now() / 30000);
-      if (counter > this.lastCounter) {
-        this.lastCounter = counter;
+      if (counter > this.mfaCounter.last) {
+        this.mfaCounter.last = counter;
         return totp(this.mfaSecret, counter);
       }
       await new Promise((r) => setTimeout(r, 30000 - (Date.now() % 30000) + 200));
     }
   }
+  /** When this session last proved a fresh authenticator code (the server honours ten minutes). */
+  private mfaFreshAt = 0;
+  /**
+   * Sends a request that carries a one-time authenticator code. A rate-limited
+   * attempt is retried with a new code after the advertised wait, because a
+   * code computed before the wait would be stale.
+   */
+  private async withCode(path: string, body: (code?: string) => Record<string, unknown>) {
+    for (let attempt = 0; ; attempt++) {
+      const code = this.mfaSecret ? await this.freshCode() : undefined;
+      const r = await this.request("POST", path, body(code), { noRetry: true });
+      if (r.status === 429 && attempt < 4) {
+        const seconds = Number(r.headers.get("retry-after") ?? /retry in (\d+) seconds/.exec(r.text)?.[1] ?? 30);
+        Client.rateLimitWaits.push({ who: this.label, path, seconds });
+        await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(seconds, 1), 300) * 1000 + 250));
+        continue;
+      }
+      if (r.status >= 300) throw new HttpError(r.status, r.body, "POST", path);
+      if (code) this.mfaFreshAt = Date.now();
+      return r.body;
+    }
+  }
   async login(extra: Record<string, unknown> = {}) {
-    const code = this.mfaSecret ? await this.freshCode() : undefined;
-    await this.post("/api/v1/auth/login", {
+    await this.withCode("/api/v1/auth/login", (code) => ({
       email: this.email,
       password: this.password,
       ...(code ? { code } : {}),
       ...extra,
-    });
+    }));
     const boot = await this.get("/api/v1/bootstrap");
     this.userId = boot.user.userId;
     this.tenantId = boot.user.tenantId;
     return boot;
   }
-  /** Fresh authenticator verification for step-up actions (valid ten minutes). */
-  async stepUp() {
-    await this.post("/api/v1/auth/mfa/verify", {
-      password: this.password,
-      code: await this.freshCode(),
-    });
+  /**
+   * Fresh authenticator verification for step-up actions (valid ten minutes on
+   * the server). A session verified in the last eight minutes is reused, as a
+   * person would, instead of spending the per-account verification budget.
+   */
+  async stepUp(force = false) {
+    if (!force && Date.now() - this.mfaFreshAt < 8 * 60000) return;
+    await this.withCode("/api/v1/auth/mfa/verify", (code) => ({ password: this.password, code }));
   }
   /** Like ok(), but performs a fresh authenticator step-up when the server asks for one. */
   async okMfa<T = any>(method: string, path: string, body?: unknown) {
     const r = await this.request<T>(method, path, body);
     if (r.status === 403 && (r.body as any)?.code === "MFA_STEP_UP" && this.mfaSecret) {
-      await this.stepUp();
+      await this.stepUp(true);
       return this.ok<T>(method, path, body);
     }
     if (r.status >= 300) throw new HttpError(r.status, r.body, method, path);
     return r.body;
+  }
+  /** The same person on another device: own cookies and address, same credentials and authenticator. */
+  device(label: string) {
+    const other = new Client(this.base, label, this.email, this.password);
+    other.mfaSecret = this.mfaSecret;
+    other.mfaCounter = this.mfaCounter;
+    other.recoveryCodes = this.recoveryCodes;
+    other.userId = this.userId;
+    other.tenantId = this.tenantId;
+    return other;
   }
   /** Enrols an authenticator (requires a verified email) and returns recovery codes. */
   async enrollMfa() {
@@ -206,6 +240,7 @@ export class Client {
     this.mfaSecret = enrolled.secret;
     const confirmed = await this.post("/api/v1/auth/mfa/confirm", { code: await this.freshCode() });
     this.recoveryCodes = confirmed.recoveryCodes as string[];
+    this.mfaFreshAt = Date.now();
     return this.recoveryCodes;
   }
 }

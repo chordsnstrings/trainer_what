@@ -14,7 +14,7 @@
  * Everything is torn down at the end unless --keep is given.
  *
  * Options:
- *   --suites=super-admin,trainer,follower,public-join   (default: all)
+ *   --suites=super-admin,trainer,follower,public-join,extended   (default: all)
  *   --rebuild | --skip-build     force or skip `next build`
  *   --keep                       leave the stack running until Ctrl-C
  *   --model-capture=FILE         append every model request/answer (JSONL)
@@ -377,6 +377,8 @@ try {
     featuresPath: args.features ? String(args.features) : undefined,
     artifacts,
     log: say,
+    hostEnv: runtimeEnv,
+    root,
   });
   const reportPath = args.report ? String(args.report) : join(root, "tests/e2e/report.json");
   report.run = {

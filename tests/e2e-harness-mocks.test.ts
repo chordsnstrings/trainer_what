@@ -262,3 +262,40 @@ test("the report maps steps to the feature inventory and lists what was not exer
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the software passkey satisfies the server's WebAuthn verification", async () => {
+  const { SoftwarePasskey } = await import("./e2e/harness/webauthn.ts");
+  const webauthn = await import("@simplewebauthn/server");
+  const origin = "https://localhost:8443";
+  const key = new SoftwarePasskey(origin);
+  const options = await webauthn.generateRegistrationOptions({
+    rpName: "Harness",
+    rpID: "localhost",
+    userName: "member@example.test",
+    userID: Buffer.from(randomUUID()),
+    attestationType: "none",
+    authenticatorSelection: { residentKey: "required", userVerification: "required" },
+  });
+  const registration = await webauthn.verifyRegistrationResponse({
+    response: key.register(options) as any,
+    expectedChallenge: options.challenge,
+    expectedOrigin: origin,
+    expectedRPID: "localhost",
+    requireUserVerification: true,
+  });
+  assert.equal(registration.verified, true);
+  const credential = registration.registrationInfo!.credential;
+  const check = async (expectedOrigin: string) => {
+    const auth = await webauthn.generateAuthenticationOptions({ rpID: "localhost", userVerification: "required" });
+    return webauthn.verifyAuthenticationResponse({
+      response: key.authenticate(auth) as any,
+      expectedChallenge: auth.challenge,
+      expectedOrigin,
+      expectedRPID: "localhost",
+      requireUserVerification: true,
+      credential: { id: credential.id, publicKey: credential.publicKey, counter: credential.counter },
+    });
+  };
+  assert.equal((await check(origin)).verified, true);
+  await assert.rejects(check("https://attacker.example"), "an assertion for another origin is refused");
+});
