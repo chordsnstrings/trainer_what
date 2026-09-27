@@ -55,3 +55,5 @@ Updated: 27 September 2026. This is durable project context for future build ses
 At the end of an implementation slice, replace the current-state bullets with a short factual checkpoint: active/completed issue IDs; code commit; migration/deployment state; checks actually run and evidence paths; unresolved blocker with owner; next executable action. Preserve the owner decisions until explicitly changed. Do not mark a requirement complete because its plan or UI exists.
 
 - 27 September client context stage: connected voluntary client-owned notes and dated changes, trainer consent gating, privacy/export/erasure and four passing focused tests. Remote Git transport now works; continuation starts from the published branch with matching tree. Next: affiliate administration and infrastructure broker.
+
+- 27 September affiliate stage: complete agreement/receipt/statement/bank-evidence administration, owner visibility, ledger integration, payout clawback and workspace-close guards. Six new plus sixteen existing finance tests passed. Shared MFA timestamps now reject invalid/stale/future values. Next: infrastructure completion and full qualification.

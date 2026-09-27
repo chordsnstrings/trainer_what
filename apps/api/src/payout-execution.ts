@@ -5,6 +5,7 @@ import {
   ProviderUnavailable,
 } from "@trainer/providers";
 import { financeSummary, transitionPayout } from "./finance.ts";
+import { pendingAffiliateClawbacks } from "./affiliates.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 /** Authority and recent MFA are checked by both route entry points. */
@@ -62,6 +63,11 @@ export async function executePayout(
         "Recheck destination approval and the bank-change hold",
       );
     const summary = await financeSummary(tx);
+    if (await pendingAffiliateClawbacks(tx))
+      throw fail(
+        "AFFILIATE_RECONCILIATION_REQUIRED",
+        "Reconcile affiliate corrections before paying trainer earnings",
+      );
     if (
       summary.earnedMinor < summary.reservedMinor ||
       (summary.accounts.bank_cash ?? 0) < summary.reservedMinor

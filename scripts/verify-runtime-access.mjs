@@ -93,6 +93,11 @@ export async function verifyRuntimeAccess(client) {
     await query(`SELECT * FROM public.${table} LIMIT 0`);
   }
   const scopedTables = [
+    "affiliate_contracts",
+    "affiliate_receipts",
+    "affiliate_statements",
+    "affiliate_statement_receipts",
+    "affiliate_settlements",
     "records",
     "jobs",
     "events",

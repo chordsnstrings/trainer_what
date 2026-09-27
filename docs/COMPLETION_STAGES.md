@@ -192,3 +192,7 @@ Added explicit consent-gated training/nutrition schedule views and notification 
 ### 27 September — Client context and resumed completion
 
 The owner now authorizes all remaining application work, combined auditing and merge to main after checks; external services/deployment remain deferred. Client context is connected to API and shared trainer/subscriber Twin UI. Four privacy/access/CAS/date tests pass; migration038 preserves scoped records. Source notes cannot enter automatic decisions. Remaining modules: affiliates and infrastructure broker.
+
+### 27 September — Affiliate administration and finance guards completed
+
+Added approved provider agreements with explicit disclosure and trainer shares, aggregate receipts pinned to contract revisions, immutable reversals and monthly statements, and exact signed bank-evidence reconciliation. Confirmed receipts post balanced entries to the existing trainer-payable/bank/commission ledger; no provider money is assumed collected before evidence. Outstanding clawbacks block payout dispatch, and outstanding affiliate obligations block workspace closure. Owner statements and Superadmin editing are connected. Migration039 has tenant/finance RLS and immutable financial history. Six new affiliate/MFA checks plus sixteen finance regressions passed (22 total). The audit fixed invalid/future MFA timestamps in the shared guard. No consumer tracking, external payout, provider call or new service occurred. Next: finish guarded infrastructure operations and combined release qualification.

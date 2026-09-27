@@ -1,5 +1,6 @@
 "use client";
 import { TeamControls } from "./team-controls";
+import { Affiliates } from "./affiliates";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
@@ -146,6 +147,7 @@ const nav = [
   ["Exceptions", "/trainer/exceptions", AlertCircle],
   ["Business", "/trainer/analytics", Activity],
   ["Finance", "/trainer/finance", Wallet],
+  ["Affiliates", "/trainer/affiliates", Wallet],
   ["Design studio", "/trainer/design", Palette],
   ["Photos & galleries", "/trainer/galleries", Camera],
   ["Website", "/trainer/website", Link2],
@@ -711,6 +713,10 @@ export default function Workspace() {
                 platformRole={state.user.platformRole}
               />
             )
+          ) : path === "/admin/affiliates" ? (
+            <Affiliates />
+          ) : path === "/trainer/affiliates" ? (
+            <Affiliates trainer />
           ) : path === "/admin/infrastructure/observer" ? (
             <InfrastructureObserver />
           ) : path.startsWith("/admin/settings") ||
@@ -724,6 +730,14 @@ export default function Workspace() {
               path,
             ) ? (
             <>
+              {path === "/admin/acquisition" &&
+                ["admin", "finance"].includes(state.user.platformRole) && (
+                  <p>
+                    <Link className="button secondary" href="/admin/affiliates">
+                      Affiliate agreements and earnings
+                    </Link>
+                  </p>
+                )}
               {path === "/admin/infrastructure" &&
                 state.user.platformRole === "admin" && (
                   <p>

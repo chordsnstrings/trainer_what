@@ -171,6 +171,10 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
   );
   if (!userId) {
     await add(
+      "affiliate",
+      "SELECT count(*)::int n FROM affiliate_receipts r LEFT JOIN affiliate_statement_receipts sr ON sr.tenant_id=r.tenant_id AND sr.receipt_id=r.id LEFT JOIN affiliate_settlements s ON s.tenant_id=sr.tenant_id AND s.statement_id=sr.statement_id WHERE s.id IS NULL",
+    );
+    await add(
       "promotion",
       "SELECT count(*)::int n FROM records WHERE kind='promotion' AND status IN ('creating','unknown')",
     );

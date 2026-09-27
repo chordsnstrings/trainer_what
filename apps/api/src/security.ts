@@ -127,7 +127,12 @@ export async function consumeMfa(tx: Tx, userId: string, code?: string) {
 }
 export function requireRecentMfa(a: { mfaAt?: string | null }, force = false) {
   if (!force && process.env.NODE_ENV !== "production") return;
-  if (!a.mfaAt || Date.now() - new Date(a.mfaAt).getTime() > 10 * 60 * 1000)
+  const at = Date.parse(a.mfaAt ?? "");
+  if (
+    !Number.isFinite(at) ||
+    at > Date.now() + 5000 ||
+    Date.now() - at > 10 * 60 * 1000
+  )
     throw fail(
       403,
       "MFA_STEP_UP",
