@@ -59,12 +59,9 @@ import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
 import { OperatorRecovery } from "./operator-recovery";
 import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
-import {
-  GalleryStudio,
-  WebsiteStudio,
-  CoachWebsite,
-  ClientCoachManifest,
-} from "./coach-site";
+import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
+import { MemberAppManifest } from "./member-app-install";
+import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { MealCapture } from "./meal-capture";
 import {
@@ -673,7 +670,9 @@ export default function Workspace() {
   const platformName = state.platform?.name || "Trainer Brain";
   return (
     <Shell className="workspace" theme={state.tenant.theme}>
-      {subscriber && <ClientCoachManifest tenant={state.tenant} />}
+      {!path.startsWith("/admin") && (
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+      )}
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
           {subscriber ? (
@@ -979,7 +978,10 @@ export default function Workspace() {
               path === "/trainer/galleries" ? (
                 <GalleryStudio />
               ) : path === "/trainer/website" ? (
-                <WebsiteStudio tenant={state.tenant} />
+                <>
+                  <WebsiteStudio tenant={state.tenant} />
+                  <DirectoryListingSettings />
+                </>
               ) : (
                 <CoachWebsite
                   preview
@@ -3960,6 +3962,7 @@ function Public({
           <Link href="/how-it-works">How it works</Link>
           <Link href="/demo">Demo</Link>
           <Link href="/pricing">The economics</Link>
+          <Link href="/coaches">Find a coach</Link>
           <Link href="/login">Sign in</Link>
         </nav>
         <Link

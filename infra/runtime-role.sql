@@ -55,5 +55,12 @@ GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO trainer_se
 -- and membership proof helpers remain executable only by trainer_app, exactly
 -- as their migrations specify.
 
+-- Public discovery (059): directory reads use the service role after the
+-- public_discovery_tenant() predicate; owners change their own listing in
+-- scoped transactions. Member install icon keys are system-only.
+GRANT SELECT ON coach_directory_profiles TO trainer_service;
+GRANT SELECT,INSERT ON workspace_app_icons TO trainer_service;
+GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
+
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

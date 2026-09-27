@@ -263,6 +263,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
           help: "Whole number, 0 to 100000. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
         },
       ),
+      field(
+        "COACH_DIRECTORY_ENABLED",
+        "Open the public coach directory",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Lists only published coaches who opted in from their website settings. Turning this off hides /coaches and its sitemap entry; coaches keep their choice.",
+        },
+      ),
     ],
   },
   {

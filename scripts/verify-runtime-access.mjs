@@ -108,6 +108,8 @@ export async function verifyRuntimeAccess(client) {
     account_locks: ["SELECT", "INSERT", "UPDATE"],
     platform_alerts: ["SELECT", "INSERT", "UPDATE"],
     platform_alert_deliveries: ["SELECT", "INSERT"],
+    coach_directory_profiles: ["SELECT"],
+    workspace_app_icons: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -234,6 +236,19 @@ export async function verifyRuntimeAccess(client) {
       `${name}: runtime must not own privileged helpers`,
     );
   }
+  // The public discovery predicate runs with the caller's own rights: the
+  // service role may execute it, PUBLIC may not, and it must not be a definer.
+  const [discovery] = await query(
+    "SELECT has_function_privilege('trainer_service','public_discovery_tenant(uuid)','EXECUTE') AS service,prosecdef,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid='public_discovery_tenant(uuid)'::regprocedure",
+  );
+  assert.deepEqual(
+    discovery,
+    { service: true, prosecdef: false, public_execute: false },
+    "public_discovery_tenant(uuid) must be a service-executable invoker function",
+  );
+  await query(
+    "SELECT public_discovery_tenant('00000000-0000-0000-0000-000000000000')",
+  );
   const definerFunctions = await query(
     "SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef",
   );
@@ -279,6 +294,7 @@ export async function verifyRuntimeAccess(client) {
       "account_locks",
       "platform_alerts",
       "platform_alert_deliveries",
+      "workspace_app_icons",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
@@ -326,6 +342,7 @@ export async function verifyRuntimeAccess(client) {
       "coach_gallery_photos",
       "coach_sites",
       "coach_design_drafts",
+      "coach_directory_profiles",
     ])
       await query(`SELECT * FROM public.${table} LIMIT 0`);
     await client.query("ROLLBACK");
