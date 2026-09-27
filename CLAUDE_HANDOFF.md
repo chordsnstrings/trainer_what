@@ -1,6 +1,6 @@
 # Claude continuation handoff
 
-Updated 27 September 2026. The owner has authorized completing the remaining application work, auditing the combined tree and merging to main after successful checks. Real services and deployment are deferred. Voluntary client context is now implemented and verified; affiliate administration is complete; guarded local infrastructure operations are complete; combined release checks and audit are next. Earlier broad-review deferral is superseded by the current request.
+Updated 27 September 2026. The owner has authorized completing the remaining application work, auditing the combined tree and merging to main after successful checks. Real services and deployment are deferred. Voluntary client context is now implemented and verified; affiliate administration is complete; guarded local infrastructure operations are complete; combined release checks and the job audit are in progress in PR #1. Earlier broad-review deferral is superseded by the current request.
 
 ## Start here
 
@@ -23,7 +23,7 @@ Updated 27 September 2026. The owner has authorized completing the remaining app
 7. Nutrition includes individual coach-guided approximate targets, daily meal plans, recipes, portions, cooking choices and weekly groceries. Meal photos and barcodes are required; the subscriber confirms estimated entries.
 8. Trainers can personalize the client app and actual website, upload their own photos and create unlimited galleries.
 9. Credentials belong in deployment secrets or encrypted Superadmin settings. Do not copy old chat credentials into code, docs, logs or tests. No live payment, payout, provider, registrar or cloud actions were used for these completion stages.
-10. On 26 September the owner directed: **focus on completing the app; comprehensive review comes later.** Keep outstanding reviews in this file. Continue essential checks for each change, but defer broad audits, browser/release qualification and further review sweeps to the queue below.
+10. The 27 September instruction supersedes the earlier broad-review deferral: finish the app, audit the jobs, run combined qualification and merge after passing checks. Real services and deployment remain the next phase.
 
 ## Completed and committed application work
 
@@ -111,13 +111,12 @@ Written: shared raw UTF-8 `INTERNAL_PROXY_SECRET` (at least 32 bytes) for API/we
 
 Observed: all **33 migrations** plus runtime grants twice passed in fresh PGlite; runtime verification covered 31 system tables, 27 scoped tables and 9 privileged helpers. The gate also rejects unclassified privileged helpers, PUBLIC execution and runtime-owned helpers. The historical028→030 upgrade is tested separately with existing data. Migration034 adds search indexes and was applied by the new functional tests; the last explicit full runtime-grant gate covered001–033. **36 Python deployment boundary tests passed; 1 Docker-only check skipped** because Docker is unavailable. Changed infra JS/TS/YAML was formatted. Actual PostgreSQL 17.6, Docker/container CI, web build and browser smoke remain unrun. Local Playwright installation exhausted its built-in retries because the CDN returned invalid/truncated Chromium archives; no local browser executable is available. Use the existing CI browser gate without claiming local verification. No environment was deployed.
 
-## Next actions for Claude
+## Current completion and next real-service phase
 
-1. Continue the published `work/completion-2026-09-26` branch and use the latest stage entries below. Do not reconstruct already connected routes from older area handoffs.
-2. Run the final combined TypeScript/tests/build and database permission/upgrade gates, then execute the saved browser journeys. These comprehensive checks were explicitly deferred by the owner; do not treat earlier stage evidence as release qualification.
-3. Resolve the concrete scope/implementation boundaries in the table below against the original source contract. Keep missing implementation separate from a failed review or unavailable provider. Bespoke per-coach weights, per-trainer App Store apps, a social marketplace and gym ERP were outside initial scope.
-4. Qualify the enabled real providers/models/legal and operational paths with the correct account access. Configure encrypted settings and deployment secrets without copying old chat keys.
-5. Update this handoff and the stage register after every fix. Prepare review/merge only after the final tree passes its gates. Deployment remains separately assigned and stopped; do not automatically launch the provisioning workflow from this handoff.
+1. Complete PR #1 qualification on the published September27 branch, fix any remaining CI failures, record the exact passing run and merge to main. Current evidence: [verification record](docs/VERIFICATION_2026-09-27.md). Older stage notes below describe the evidence available at their original commit.
+2. Start subsequent work from GitHub main after merge. Do not reconstruct already connected routes from older area handoffs.
+3. Qualify enabled real providers/models/legal and operational paths with the correct account access. Configure encrypted settings and deployment secrets without copying old chat keys.
+4. Real deployment remains stopped and separately owned. Do not launch the manual provisioning workflow as part of application completion. Bespoke per-coach weights, per-trainer App Store apps, a social marketplace and gym ERP remain outside the initial scope.
 
 Useful commands from repository root:
 
@@ -133,11 +132,11 @@ npm run build
 npm run test:browser
 ```
 
-The next operator should run the broad gates on the final committed tree. Stage evidence below records the focused checks already performed. The work branch has not had new GitHub Actions qualification. Review CI conditions before triggering it; do not launch the separate provisioning workflow.
+The next operator should run the broad gates on the final committed tree. Stage evidence below records the focused checks already performed. PR #1 is running current GitHub Actions qualification; see the verification record for each observed result. Review CI conditions before triggering it; do not launch the separate provisioning workflow.
 
-## Deferred review queue for Claude — owner requested
+## Qualification checklist
 
-Implementation remains the current priority. These reviews/checks are **not passed** and must not be described as completed:
+The 27 September verification record governs the current result of these checks. Historical stage entries below may still say deferred:
 
 - Run the combined test suite, production build, fresh/upgrade migrations, real non-owner PostgreSQL permission gate and Docker readiness on the final committed tree. Current stage tests are partial evidence, not the final release result.
 - Run the updated `scripts/run-browser-check.mjs` / `browser-completion-check.mjs` harness (syntax checked only): photo upload/gallery/site publication and client/public visibility; chat file send/download/delete; preference persistence/inbox; analytics opt-in/withdrawal; trainer/client/admin journeys and offline replay. The site browser fixture seeds an already launched synthetic workspace; actual launch prerequisites are separately covered by onboarding tests. Local Chromium was unavailable because downloads returned invalid archives.
@@ -313,3 +312,7 @@ First PR CI exposed inherited application variables overriding the reviewed priv
 ### 27 September — PostgreSQL runtime and job fixes
 
 The non-owner PostgreSQL suite exposed tenant-table reads in payment projections, an unnecessary UPDATE lock on recovery codes, and microsecond lease tokens that JavaScript truncated. Payment callbacks now read through their validated tenant identity, recovery remains serialized by the existing security-row lock, and forward migration041 stores leases at millisecond precision for exact compare-and-set retries. No runtime grants were broadened. Test setup now uses tenant transactions for scoped tables; immutability probes recognize permission denial, and PostgreSQL-specific observer checks require real connection metrics. CI clones its disposable migrated database per test file to prevent global policy/queue fixtures contaminating other files, while every test still runs with the restricted runtime role. TypeScript and script syntax pass; final suites are running.
+
+### 27 September — Retention scope and final fixture corrections
+
+PostgreSQL now passes payment callbacks, MFA recovery and worker lease/retry checks. The expanded database run exposed retention loading tenant policies/events before entering the tenant role. Retention now reads a bounded owner-authorized projection under RLS, joins only that projection to privileged provider evidence, and returns to the tenant role for output and notifications. Runtime grants remain narrow. Remaining test-only setup/assertion reads now use the proper tenant role; global settings tests use isolated databases without migration credentials; observer tests enable actual PostgreSQL metrics. Browser journeys explicitly decline optional analytics in each new browser context so the consent panel does not cover controls. Consolidated current handoff status and preserved historical stage evidence.

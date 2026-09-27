@@ -2,7 +2,6 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import pg from "pg";
 import { createDatabase, type Database } from "@trainer/db";
 import {
   platformSettingsRoutes,
@@ -15,7 +14,6 @@ import {
 
 let db: Database;
 let app: ReturnType<typeof Fastify>;
-let disposableFixtureOwned = false;
 const actor = {
   userId: randomUUID(),
   tenantId: randomUUID(),
@@ -90,18 +88,15 @@ async function check(id: string) {
 }
 before(async () => {
   if (process.env.DATABASE_URL) {
-    const migration = new URL(
-      process.env.MIGRATION_DATABASE_URL ?? "https://invalid",
-    );
     const runtime = new URL(process.env.DATABASE_URL);
     assert.equal(
       process.env.CI,
       "true",
-      "Global settings fixtures require an explicitly disposable CI database",
+      "Global settings fixtures require disposable CI isolation",
     );
-    assert.equal(migration.hostname, "127.0.0.1");
     assert.equal(runtime.hostname, "127.0.0.1");
-    assert.equal(migration.pathname, runtime.pathname);
+    assert.equal(runtime.username, "trainer_service");
+    assert.match(runtime.pathname, /^\/trainer_ci_[a-f0-9]{32}$/);
   }
   process.env.SECURITY_ENCRYPTION_KEY = masterKey;
   process.env.MODEL_API_KEY = "environment_model_fixture";
@@ -121,7 +116,6 @@ before(async () => {
     0,
     "Refuse to overwrite existing audit history",
   );
-  disposableFixtureOwned = true;
   app = Fastify({ logger: false });
   app.setErrorHandler(
     (error: any, _request: FastifyRequest, reply: FastifyReply) =>
@@ -155,29 +149,7 @@ before(async () => {
 after(async () => {
   await app?.close();
   await db?.close();
-  // Only the disposable loopback CI fixture's migration role removes test rows.
-  // All assertions, writes and privilege checks above use the non-owner runtime.
-  if (
-    disposableFixtureOwned &&
-    process.env.DATABASE_URL &&
-    process.env.CI === "true" &&
-    process.env.MIGRATION_DATABASE_URL
-  ) {
-    const migration = new URL(process.env.MIGRATION_DATABASE_URL);
-    if (migration.hostname === "127.0.0.1") {
-      const cleanup = new pg.Client({
-        connectionString: process.env.MIGRATION_DATABASE_URL,
-      });
-      await cleanup.connect();
-      try {
-        await cleanup.query(
-          "TRUNCATE platform_settings,platform_settings_audit",
-        );
-      } finally {
-        await cleanup.end();
-      }
-    }
-  }
+  // The CI parent drops this isolated database; tests never receive migration credentials.
   for (const [key, value] of Object.entries(environment)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

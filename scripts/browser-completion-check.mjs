@@ -66,9 +66,7 @@ export async function checkAcquisitionConsent({ page, base }) {
   const panel = page.getByRole("complementary", {
     name: "Optional analytics preferences",
   });
-  await page.goto(
-    base + "/?utm_source=instagram&utm_campaign=consent-check",
-  );
+  await page.goto(base + "/?utm_source=instagram&utm_campaign=consent-check");
   await panel
     .getByRole("button", { name: "Continue without analytics", exact: true })
     .waitFor();
@@ -127,8 +125,7 @@ export async function checkAcquisitionConsent({ page, base }) {
       page.goto(
         base + "/pricing?utm_source=newsletter&utm_campaign=second-touch",
       ),
-    (response) =>
-      response.request().postDataJSON()?.source === "newsletter",
+    (response) => response.request().postDataJSON()?.source === "newsletter",
   );
   await panel
     .getByRole("button", { name: "Analytics preferences", exact: true })
@@ -139,10 +136,9 @@ export async function checkAcquisitionConsent({ page, base }) {
     .getByRole("button", { name: "Analytics preferences", exact: true })
     .click();
   await panel
-    .getByText(
-      "First source: instagram. Last tagged source: newsletter.",
-      { exact: true },
-    )
+    .getByText("First source: instagram. Last tagged source: newsletter.", {
+      exact: true,
+    })
     .waitFor();
   assert.equal(
     (await page.context().cookies(base)).find(
@@ -309,6 +305,12 @@ export async function checkCompletionFlows({
     .click();
   await coach.getByRole("heading", { name: headline, exact: true }).waitFor();
   await publicPage.goto(base + "/coach/alex-morgan");
+  await publicPage
+    .getByRole("button", {
+      name: "Continue without analytics",
+      exact: true,
+    })
+    .click();
   await publicPage.getByRole("navigation", { name: "Coach website" }).waitFor();
   assert.equal(
     await publicPage

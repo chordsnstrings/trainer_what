@@ -183,6 +183,12 @@ try {
   pages.push(subscriber);
   observe(subscriber);
   await subscriber.goto(base + "/login");
+  await subscriber
+    .getByRole("button", {
+      name: "Continue without analytics",
+      exact: true,
+    })
+    .click();
   await subscriber.getByLabel("Email address").fill("sam.taylor@example.test");
   await subscriber
     .getByLabel("Password", { exact: true })

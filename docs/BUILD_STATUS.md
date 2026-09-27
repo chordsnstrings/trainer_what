@@ -1,5 +1,8 @@
 # Build status
 
+> **27 September completion:** PR #1 contains the expanded application and final job/runtime fixes. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md) for live completion status. Older dates and gap lists below are historical; external-service qualification and deployment remain separate.
+
+
 > **26 September continuation notice:** this document records the historical September 25 release. The current completion branch is `work/completion-2026-09-26`. Read [CLAUDE_HANDOFF.md](../CLAUDE_HANDOFF.md) and [COMPLETION_STAGES.md](COMPLETION_STAGES.md) for implemented stages, frozen unfinished work and known failures. The combined expanded branch has not passed final release checks. Screenshots have been waived by the owner; deployment remains stopped.
 
 Code verification: 25 September 2026. Active release: Superadmin settings, trainer design and meal capture. This file reports code and observed checks, separately from provider readiness and production release.

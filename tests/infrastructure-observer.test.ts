@@ -54,7 +54,7 @@ before(async () => {
         mfaAt: String(req.headers["x-mfa"] ?? new Date().toISOString()),
       };
     },
-    { startCollector: false, postgres: false },
+    { startCollector: false, postgres: Boolean(process.env.DATABASE_URL) },
   );
   app.get("/fixture/ok", async () => ({ ok: true }));
   app.get("/fixture/error", async (_req, reply) =>

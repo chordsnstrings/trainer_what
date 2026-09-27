@@ -23,7 +23,12 @@ if (
 )
   throw new Error("Test isolation requires the disposable local CI database");
 
-const administrator = new pg.Client({ connectionString: migration.href });
+// Connect outside the template: PostgreSQL requires it to have no active sessions.
+const controlConnection = new URL(migration.href);
+controlConnection.pathname = "/postgres";
+const administrator = new pg.Client({
+  connectionString: controlConnection.href,
+});
 await administrator.connect();
 let failures = 0;
 try {

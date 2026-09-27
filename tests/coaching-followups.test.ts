@@ -123,7 +123,7 @@ async function stored(id: string) {
 }
 const at = (r: any) => new Date(Date.parse(r.data.dueAt) + 1000);
 async function output(id: string) {
-  return db.system(async (tx) => ({
+  return db.tenant(owner, async (tx) => ({
     messages: await tx.query(
       "SELECT * FROM records WHERE kind='message' AND data->>'followupId'=$1",
       [id],
@@ -453,7 +453,9 @@ test("changed permissions, entitlement, consent, profiles, instructions, holds a
     const client = await member(owner.tenantId),
       author = await member(owner.tenantId, "staff"),
       r = await schedule(client, author);
-    await db.system((tx) => mutate(tx, client, author));
+    if (name === "author" || name === "client")
+      await db.system((tx) => mutate(tx, client, author));
+    else await db.tenant(owner, (tx) => mutate(tx, client, author));
     assert.equal(
       await deliverCoachingFollowup(db, owner.tenantId, r.id, at(r)),
       "review_required",

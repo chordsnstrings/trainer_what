@@ -529,7 +529,7 @@ test("personal export and erasure include private drafts, sent files and author 
     db.tenant(second, (tx) => privacyHooks.closeAdditional!(tx)),
     /privacy operator/,
   );
-  const [priorForeign] = await db.system((tx) =>
+  const [priorForeign] = await db.tenant(foreign, (tx) =>
     tx.query(
       "SELECT count(*)::int AS n FROM chat_attachments WHERE tenant_id=$1",
       [foreign.tenantId],
@@ -541,7 +541,7 @@ test("personal export and erasure include private drafts, sent files and author 
   );
   assert.equal(
     (
-      await db.system((tx) =>
+      await db.tenant(foreign, (tx) =>
         tx.query("SELECT id FROM chat_attachments WHERE tenant_id=$1", [
           foreign.tenantId,
         ]),

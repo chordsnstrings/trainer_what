@@ -118,11 +118,36 @@ async function scoped<T>(
       return;
     }
     const actor = { tenantId, userId: owner.user_id, role: "owner" };
+    await tx.query("SET LOCAL ROLE trainer_app");
+    await tx.query(
+      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
+      [tenantId, actor.userId],
+    );
     const policy = await loadPolicy(tx, tenantId);
     const period = bounds(policy, now);
-    const raw = evidence
+    const candidates = evidence
       ? await tx.query(
-          `
+          `SELECT e.id,e.actor_id,e.name,e.subject_id,e.created_at,e.data,
+             r.id instruction_id,r.status instruction_status,r.data instruction
+           FROM events e
+           LEFT JOIN records r ON r.tenant_id=e.tenant_id AND r.id::text=e.subject_id
+             AND r.kind='subscription_transition' AND r.owner_user_id=e.actor_id
+           WHERE e.tenant_id=$1 AND e.name IN ('subscription.updated','subscription.cancel_scheduled')
+             AND e.created_at>=$2 AND e.created_at<=$3
+           ORDER BY e.created_at DESC,e.id DESC LIMIT $4`,
+          [tenantId, period.previous.start, now.toISOString(), EVENT_LIMIT + 1],
+        )
+      : [];
+    // Scoped records never become readable by the service role. Only the bounded
+    // owner-authorized projection crosses into the privileged receipt lookup.
+    await tx.query("RESET ROLE");
+    const raw = candidates.length
+      ? await tx.query(
+          `WITH authorized_events AS (
+             SELECT * FROM jsonb_to_recordset($1::jsonb) AS candidate(
+               id uuid,actor_id uuid,name text,subject_id text,created_at timestamptz,
+               data jsonb,instruction_id uuid,instruction_status text,instruction jsonb)
+           )
       SELECT e.id event_id,e.actor_id user_id,e.name,e.subject_id,e.created_at recorded_at,
         e.data->>'providerEventId' provider_event_id,e.data->>'status' audit_status,
         p.external_id receipt_id,p.payload->>'id' payload_id,p.payload->>'type' event_type,
@@ -136,14 +161,13 @@ async function scoped<T>(
         p.payload->'data'->'previous_attributes'->'cancel_at_period_end' prior_cancel,
         p.payload->'data'->'previous_attributes'->>'status' prior_status,
         o.user_id mapped_user_id,
-        r.id instruction_id,r.status instruction_status,r.data instruction
-      FROM events e
+        e.instruction_id,e.instruction_status,e.instruction
+      FROM authorized_events e
       LEFT JOIN provider_events p ON p.provider='stripe' AND p.external_id=e.data->>'providerEventId' AND p.status='processed'
-      LEFT JOIN provider_objects o ON o.provider='stripe' AND o.external_id=e.subject_id AND o.tenant_id=e.tenant_id AND o.user_id=e.actor_id AND o.kind='subscription'
-      LEFT JOIN records r ON r.tenant_id=e.tenant_id AND r.id::text=e.subject_id AND r.kind='subscription_transition' AND r.owner_user_id=e.actor_id
-      WHERE e.tenant_id=$1 AND e.name IN ('subscription.updated','subscription.cancel_scheduled') AND e.created_at>=$2 AND e.created_at<=$3
-      ORDER BY e.created_at DESC,e.id DESC LIMIT $4`,
-          [tenantId, period.previous.start, now.toISOString(), EVENT_LIMIT + 1],
+      LEFT JOIN provider_objects o ON o.provider='stripe' AND o.external_id=e.subject_id
+        AND o.tenant_id=$2 AND o.user_id=e.actor_id AND o.kind='subscription'
+      ORDER BY e.created_at DESC,e.id DESC`,
+          [JSON.stringify(candidates), tenantId],
         )
       : [];
     // Membership changes require UPDATE privileges, which trainer_app deliberately
