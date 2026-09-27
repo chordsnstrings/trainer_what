@@ -26,6 +26,7 @@ import {
 import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
+import { permitCertificateIssuance } from "./host-operations.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
@@ -1614,6 +1615,13 @@ function registerDomainRoutes(
         "DOMAIN_TARGET",
         "The domain CNAME does not point to the approved ingress.",
       );
+    // Let the edge obtain this domain's certificate for the HTTPS check below.
+    await permitCertificateIssuance(db, {
+      hostname: row.hostname,
+      tenantId: row.tenant_id,
+      orderId: row.id,
+      actorId: operator.userId,
+    });
     await integrationRequest("https://" + row.hostname + "/", {
       method: "HEAD",
       signal: AbortSignal.timeout(10000),

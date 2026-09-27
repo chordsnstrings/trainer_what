@@ -26,6 +26,11 @@ GRANT SELECT,INSERT,UPDATE ON infrastructure_recommendations TO trainer_service;
 GRANT SELECT,INSERT ON infrastructure_execution_policies TO trainer_service;
 GRANT SELECT,UPDATE ON infrastructure_worker_control TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON infrastructure_actions TO trainer_service;
+-- Host operations (058): signed status reports, host action requests and
+-- short-lived TLS issuance allowances. The host controller writes as the
+-- migration administrator; the runtime never deletes these rows.
+GRANT SELECT,INSERT,UPDATE ON host_status,host_action_requests,tls_issuance_allowances TO trainer_service;
+GRANT SELECT,INSERT ON host_monitor_policies TO trainer_service;
 GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 

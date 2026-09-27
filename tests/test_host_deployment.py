@@ -156,9 +156,13 @@ class HostDeployment(unittest.TestCase):
             host.ensure_runtime()
         caddyfile = (self.root / "Caddyfile").read_text()
         self.assertIn(self.EDGE_PROXY, caddyfile)
-        self.assertEqual(caddyfile.count("reverse_proxy"), 1)
+        # The platform block and the on-demand coach-domain block both overwrite it.
+        self.assertEqual(caddyfile.count("reverse_proxy"), 2)
+        self.assertEqual(caddyfile.count(self.EDGE_PROXY), 2)
         example = (Path(__file__).resolve().parents[1] / "infra/Caddyfile.example").read_text()
         self.assertIn("reverse_proxy 127.0.0.1:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }", example)
+        self.assertEqual(example.count("reverse_proxy"),
+                         example.count("reverse_proxy 127.0.0.1:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }"))
 
     def test_release_and_rollback_edge_overwrite_forwarded_client_address(self):
         edges = []

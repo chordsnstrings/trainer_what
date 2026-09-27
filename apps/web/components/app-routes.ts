@@ -9,6 +9,7 @@ export type AdminRoute =
   | "affiliates"
   | "infrastructure_observer"
   | "infrastructure_actions"
+  | "infrastructure_host"
   | "settings"
   | "not_found";
 const operationsViews =
@@ -27,6 +28,7 @@ export function adminRoute(path: string): AdminRoute {
     return "infrastructure_observer";
   if (clean === "/admin/infrastructure/actions")
     return "infrastructure_actions";
+  if (clean === "/admin/infrastructure/host") return "infrastructure_host";
   if (
     clean.startsWith("/admin/settings") ||
     clean.startsWith("/admin/integrations")

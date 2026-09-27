@@ -86,6 +86,7 @@ try {
     "/admin",
     "/admin/affiliates",
     "/admin/infrastructure/actions",
+    "/admin/infrastructure/host",
   ]) {
     await page.goto(base + route);
     await page.getByRole("heading", { level: 1 }).first().waitFor();

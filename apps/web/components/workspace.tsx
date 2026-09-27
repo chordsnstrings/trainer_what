@@ -38,6 +38,7 @@ import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
+import { HostOperations } from "./host-operations";
 import { MarketingPage } from "./marketing-pages";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
@@ -829,6 +830,8 @@ export default function Workspace() {
             <InfrastructureObserver />
           ) : path === "/admin/infrastructure/actions" ? (
             <InfrastructureActions />
+          ) : path === "/admin/infrastructure/host" ? (
+            <HostOperations />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
