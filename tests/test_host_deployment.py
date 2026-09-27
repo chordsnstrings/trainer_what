@@ -147,6 +147,35 @@ class HostDeployment(unittest.TestCase):
             host.ensure_runtime()
             self.assertEqual((self.root / "Caddyfile").read_text(), "active release configuration")
 
+    # The web proxy signs X-Forwarded-For into the API's per-client budget key, so
+    # the edge must set it from the connecting address, never pass a client value.
+    EDGE_PROXY = "    reverse_proxy web:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }\n"
+
+    def test_bootstrap_edge_and_example_overwrite_forwarded_client_address(self):
+        with patch.object(host, "metadata", return_value="1.1.1.1"):
+            host.ensure_runtime()
+        caddyfile = (self.root / "Caddyfile").read_text()
+        self.assertIn(self.EDGE_PROXY, caddyfile)
+        self.assertEqual(caddyfile.count("reverse_proxy"), 1)
+        example = (Path(__file__).resolve().parents[1] / "infra/Caddyfile.example").read_text()
+        self.assertIn("reverse_proxy 127.0.0.1:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }", example)
+
+    def test_release_and_rollback_edge_overwrite_forwarded_client_address(self):
+        edges = []
+
+        def failure(sha, args):
+            if "--force-recreate" in args:
+                edges.append((sha, (self.root / "Caddyfile").read_text()))
+            return sha == SHA and "--force-recreate" in args
+
+        self.deployment(failure=failure)
+        with self.assertRaises(subprocess.CalledProcessError):
+            host.deploy(SHA, Mock())
+        self.assertEqual([sha for sha, _ in edges], [SHA, PREVIOUS])
+        for sha, caddyfile in edges:
+            self.assertIn("header X-GymMembership-Release " + sha + "\n" + self.EDGE_PROXY, caddyfile)
+            self.assertEqual(caddyfile.count("reverse_proxy"), 1)
+
     def test_insecure_or_incomplete_runtime_is_not_overwritten(self):
         path = self.root / "runtime.env"
         path.write_text("PUBLIC_APP_URL=" + ENDPOINT + "\n")

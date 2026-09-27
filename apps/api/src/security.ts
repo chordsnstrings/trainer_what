@@ -17,7 +17,13 @@ import type { Actor, Database, Tx } from "@trainer/db";
 import { event } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { z } from "zod";
-import { passwordHash, passwordMatches, newToken, tokenHash } from "./auth.ts";
+import {
+  accountAttempts,
+  passwordHash,
+  passwordMatches,
+  newToken,
+  tokenHash,
+} from "./auth.ts";
 import {
   openSealedValue,
   sealContexts,
@@ -163,6 +169,7 @@ export function securityRoutes(
   ) => Actor & { email: string; emailVerified: boolean; mfaAt?: string | null },
 ) {
   const rate = { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } };
+  const resetAttempts = accountAttempts();
   async function queueLink(
     user: any,
     tenantId: string,
@@ -241,10 +248,11 @@ export function securityRoutes(
       );
     return { ok: true };
   });
-  app.post("/api/v1/auth/forgot-password", rate, async (req) => {
+  app.post("/api/v1/auth/forgot-password", rate, async (req, reply) => {
     const b = z
       .object({ email: z.email().transform((s) => s.toLowerCase()) })
       .parse(req.body);
+    resetAttempts(reply, b.email);
     const host = accountHost(req);
     requireEmailConfiguration();
     const [u] = await db.system((tx) =>

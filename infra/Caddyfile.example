@@ -1,5 +1,9 @@
 coach.example.com {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:3000
+    # The web proxy signs this address for per-client API budgets; overwrite any
+    # client-supplied value with the connecting address.
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-For {remote_host}
+    }
     header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }

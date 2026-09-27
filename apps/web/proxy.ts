@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { customHostPath, proxyHost, verifiedProxyHeaders } from "./host-proxy";
+import {
+  customHostPath,
+  edgeClientIp,
+  proxyHost,
+  verifiedProxyHeaders,
+} from "./host-proxy";
 
 export async function proxy(request: NextRequest) {
   try {
@@ -18,12 +23,17 @@ export async function proxy(request: NextRequest) {
         { status: 503 },
       );
     const incomingTarget = request.nextUrl.pathname + request.nextUrl.search;
+    // Read the edge-set client address before provenance headers are stripped;
+    // it reaches the API only inside the signed host proof.
+    const clientIp = edgeClientIp(request.headers.get("x-forwarded-for"));
     const forwarded = verifiedProxyHeaders(
       request.headers,
       local ? canonical : host,
       request.method,
       incomingTarget,
       secret,
+      Date.now(),
+      clientIp,
     );
     if (request.nextUrl.pathname.startsWith("/api/")) {
       const upstream = new URL(
@@ -50,6 +60,8 @@ export async function proxy(request: NextRequest) {
           "GET",
           lookup,
           secret,
+          Date.now(),
+          clientIp,
         ),
         cache: "no-store",
         redirect: "error",

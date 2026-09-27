@@ -4,7 +4,12 @@ import { z } from "zod";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
-import { newToken, passwordMatches, tokenHash } from "./auth.ts";
+import {
+  accountAttempts,
+  newToken,
+  passwordMatches,
+  tokenHash,
+} from "./auth.ts";
 import { consumeMfa, requireRecentMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import type { HostContext } from "./host-routing.ts";
@@ -189,6 +194,8 @@ export function registerAccountCompletion(
   identity: (r: FastifyRequest) => AccountIdentity,
 ) {
   const rate = { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } };
+  const recoveryAttempts = accountAttempts(),
+    magicLinkAttempts = accountAttempts();
   app.get("/api/v1/auth/account", async (req) => {
     const a = identity(req),
       current = tokenHash(req.cookies.session ?? "");
@@ -286,6 +293,7 @@ export function registerAccountCompletion(
         .strict()
         .parse(req.body),
       host = accountHost(req);
+    recoveryAttempts(reply, b.email);
     const result = await db.system(async (tx) => {
       const [initial] = await tx.query("SELECT id FROM users WHERE email=$1", [
         b.email,
@@ -359,12 +367,13 @@ export function registerAccountCompletion(
       requiresAuthenticatorSetup: true,
     };
   });
-  app.post("/api/v1/auth/magic-link", rate, async (req) => {
+  app.post("/api/v1/auth/magic-link", rate, async (req, reply) => {
     const b = z
         .object({ email: z.email().transform((v) => v.toLowerCase()) })
         .strict()
         .parse(req.body),
       host = accountHost(req);
+    magicLinkAttempts(reply, b.email);
     // Apply unavailable-service behavior before lookup so it cannot disclose the
     // existence of an account when production email is not configured.
     requireEmailConfiguration();
