@@ -202,9 +202,11 @@ export async function resolveRequestHost(
       "UNKNOWN_HOST",
       "This address is not connected to a coaching website.",
     );
+  // A suspended workspace keeps its address so signed-in members see the
+  // suspension notice; its public pages refuse because they require 'active'.
   const [mapping] = await db.system((tx) =>
     tx.query(
-      "SELECT m.tenant_id,t.slug FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.hostname=$1 AND m.active=true AND m.verified_at IS NOT NULL AND t.published=true AND COALESCE(to_jsonb(t)->>'lifecycle_state','active')='active'",
+      "SELECT m.tenant_id,t.slug FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.hostname=$1 AND m.active=true AND m.verified_at IS NOT NULL AND t.published=true AND COALESCE(to_jsonb(t)->>'lifecycle_state','active') IN ('active','suspended')",
       [host],
     ),
   );

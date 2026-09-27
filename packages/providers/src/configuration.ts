@@ -220,6 +220,63 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         defaultValue: "false",
         help: "Looks up products in Open Food Facts. Food labels and portions require subscriber confirmation; coverage varies.",
       }),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_DAY",
+        "Follower invitation emails per workspace per day",
+        "number",
+        {
+          defaultValue: "50",
+          help: "Whole number, 0 to 10000. Includes resends. Copy-link invitations are not limited by this.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_ADDRESS",
+        "Invitation emails to one address per day",
+        "number",
+        {
+          defaultValue: "3",
+          help: "Whole number, 1 to 20, counted across all workspaces over 24 hours.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY",
+        "Follower invitation emails per day, whole platform",
+        "number",
+        {
+          defaultValue: "1000",
+          help: "Whole number, 0 to 100000. 0 pauses invitation emails; copy-link invitations keep working.",
+        },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_DAYS",
+        "Longest complimentary access period (days)",
+        "number",
+        { defaultValue: "365", help: "Whole number, 1 to 3650." },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_OPEN_ENDED",
+        "Allow complimentary access until revoked",
+        "boolean",
+        { defaultValue: "true" },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_ACTIVE",
+        "Active complimentary members per workspace",
+        "number",
+        {
+          defaultValue: "25",
+          help: "Whole number, 0 to 100000. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
+        },
+      ),
+      field(
+        "COACH_DIRECTORY_ENABLED",
+        "Open the public coach directory",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Lists only published coaches who opted in from their website settings. Turning this off hides /coaches and its sitemap entry; coaches keep their choice.",
+        },
+      ),
     ],
   },
   {
@@ -375,6 +432,44 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "google_signin",
+    name: "Sign in with Google",
+    category: "platform",
+    implemented: true,
+    description:
+      "Google accounts as a sign-in method (OpenID Connect with PKCE) for existing members, public joins and invitations.",
+    setupNotes:
+      "Create an OAuth web client in Google Cloud and register <public app address>/api/v1/auth/oidc/google/callback as an authorized redirect URI. The connection check reads Google's discovery document and signing keys and confirms the client credentials without signing anyone in. Sign-in stays off until this connection is enabled and checked. New accounts are still limited to public joins and invitations under the legal approval gate.",
+    fields: [
+      field("GOOGLE_SIGNIN_CLIENT_ID", "OAuth client ID", "text", {
+        required: true,
+      }),
+      field("GOOGLE_SIGNIN_CLIENT_SECRET", "OAuth client secret", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
+    id: "apple_signin",
+    name: "Sign in with Apple",
+    category: "platform",
+    implemented: true,
+    description:
+      "Apple IDs as a sign-in method (OpenID Connect with PKCE and an ES256 client secret).",
+    setupNotes:
+      "Create a Services ID with Sign in with Apple, register <public app address>/api/v1/auth/oidc/apple/callback as the return URL, and create a Sign in with Apple key. Paste the .p8 key contents (line breaks are removed automatically). The connection check reads Apple's discovery document and signing keys and confirms the client secret without signing anyone in.",
+    fields: [
+      field("APPLE_SIGNIN_SERVICES_ID", "Services ID (client ID)", "text", {
+        required: true,
+      }),
+      field("APPLE_SIGNIN_TEAM_ID", "Team ID", "text", { required: true }),
+      field("APPLE_SIGNIN_KEY_ID", "Key ID", "text", { required: true }),
+      field("APPLE_SIGNIN_PRIVATE_KEY", "Private key (.p8)", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
     id: "whoop",
     name: "WHOOP",
     category: "health",
@@ -407,15 +502,24 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     category: "health",
     implemented: true,
     description:
-      "User-provided health exports through the existing import flow.",
+      "User-provided health exports and, when enabled, automatic sync from the HealthKit companion app.",
     setupNotes:
-      "Manual import needs no Apple API credential. Import approval and user consent apply. Native HealthKit synchronization requires a companion app and is not available.",
+      "Manual import needs no Apple API credential. Import approval and user consent apply. Automatic HealthKit sync needs the native companion app, which is not part of this release; keep it off until that app is approved and published. Trainers must also allow sync in their wearable policy.",
     fields: [
       field(
         "APPLE_IMPORTS_ENABLED",
         "Enable Apple Health file import",
         "boolean",
         { defaultValue: "true" },
+      ),
+      field(
+        "HEALTHKIT_SYNC_ENABLED",
+        "Enable automatic sync from the HealthKit companion app",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Accepts device pairing and background uploads from the companion iPhone app. The import approval and Apple Health file import switch also apply.",
+        },
       ),
     ],
   },
@@ -598,6 +702,18 @@ function endpointUrl(value: string): URL {
     );
   return url;
 }
+/**
+ * Whole-number settings whose runtime reader only honours this range. Saving
+ * an out-of-range value is refused so the value shown is the value in force.
+ */
+export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
+  {
+    FOLLOWER_INVITE_EMAILS_PER_DAY: [0, 10000],
+    FOLLOWER_INVITE_EMAILS_PER_ADDRESS: [1, 20],
+    FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
+    COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
+    COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+  };
 export function validateIntegrationValues(
   id: string,
   values: Record<string, unknown>,
@@ -635,6 +751,16 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(
           `${entry.label} must be a nonnegative number up to 1000000`,
+        );
+      const range = INTEGER_SETTING_RANGES[key];
+      if (
+        range &&
+        (!Number.isInteger(Number(text)) ||
+          Number(text) < range[0] ||
+          Number(text) > range[1])
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a whole number from ${range[0]} to ${range[1]}`,
         );
       if (
         (key === "MODEL_MAX_DAILY_CALLS" ||
@@ -866,6 +992,13 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "google_signin" || id === "apple_signin") {
+      const { checkOidcConnection } = await import("./oidc.ts");
+      return await checkOidcConnection(
+        id === "google_signin" ? "google" : "apple",
+        config,
+      );
+    }
     if (id === "push") {
       const { pushConfiguration } = await import("./push.ts");
       pushConfiguration(config);
@@ -983,7 +1116,7 @@ export async function testIntegration(
       status: "validated",
       message:
         id === "apple"
-          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; native sync is unavailable."
+          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; automatic sync also needs the companion app and its switch."
           : "Application settings are valid. Approval controls represent your recorded review decision.",
       checkedAt,
     };

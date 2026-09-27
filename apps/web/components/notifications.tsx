@@ -40,7 +40,11 @@ export function NotificationPreferences() {
             e.preventDefault();
             setBusy(true);
             try {
-              setValue(await api("/notifications/preferences", "PUT", value));
+              const { options, ...body } = value;
+              setValue({
+                ...(await api("/notifications/preferences", "PUT", body)),
+                options,
+              });
               setError("Preferences saved.");
             } catch (e) {
               setError((e as Error).message);
@@ -53,6 +57,9 @@ export function NotificationPreferences() {
             ["email", "Email reminders"],
             ["bookings", "Booking notifications"],
             ["workouts", "Workout reminders"],
+            ...(value.options?.inquiries
+              ? [["inquiries", "Website inquiry alerts by email and device"]]
+              : []),
             ["marketing", "Optional product news"],
           ].map(([key, label]) => (
             <label className="check-field" key={key}>
@@ -69,6 +76,27 @@ export function NotificationPreferences() {
               {label}
             </label>
           ))}
+          <label className="field">
+            <span>Message language</span>
+            <select
+              value={value.data.language ?? "en"}
+              onChange={(e) =>
+                setValue({
+                  ...value,
+                  data: { ...value.data, language: e.target.value },
+                })
+              }
+            >
+              <option value="en">English</option>
+              <option value="ar" lang="ar">
+                العربية (Arabic)
+              </option>
+            </select>
+          </label>
+          <small>
+            Messages use reviewed Arabic wording where it is published and
+            English otherwise.
+          </small>
           <label className="field">
             <span>Time zone</span>
             <input

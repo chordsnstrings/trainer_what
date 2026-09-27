@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
 import { coachAppLinks } from "./app-routes";
+import { InquirySource } from "./lead-analytics";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -765,6 +766,7 @@ export function WebsiteStudio({
                   <a href={`mailto:${r.data.email}`}>{r.data.email}</a>
                   <p className="site-prose">{r.data.message}</p>
                   <small>{r.status}</small>
+                  <InquirySource attribution={r.attribution} />
                   {r.status === "open" && (
                     <button
                       className="secondary"

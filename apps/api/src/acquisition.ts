@@ -15,6 +15,8 @@ const touchInput = z
     campaign: z.string().max(200).optional(),
     medium: z.string().max(200).optional(),
     referral: z.string().max(200).optional(),
+    /** The coach page's workspace address on the shared host, if any. */
+    site: z.string().max(80).optional(),
   })
   .strict();
 const channels = new Set([
@@ -46,6 +48,8 @@ type Touch = {
   campaign: string;
   medium: string;
   referral: string;
+  /** Workspace whose page captured this touch; absent for platform pages. */
+  site?: string;
 };
 type Consent = {
   visitor_id: string;
@@ -78,6 +82,27 @@ export function safeAcquisitionTouch(input: unknown): Touch {
     campaign: code(b.campaign, 80),
     referral: code(b.referral, 40),
   };
+}
+/**
+ * The workspace whose page captured a touch. A workspace host serves only
+ * that workspace; on the shared host only a published coach page counts.
+ * The touch is attributed to that workspace and to no other.
+ */
+async function pageWorkspace(
+  tx: Tx,
+  req: RequestContext,
+  touch: Touch,
+  site: unknown,
+): Promise<Touch> {
+  const host = context(req);
+  if (host.tenantId) return { ...touch, site: host.tenantId };
+  if (typeof site !== "string" || !/^[a-z][a-z0-9-]{2,39}$/.test(site))
+    return touch;
+  const [tenant] = await tx.query(
+    "SELECT id FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state='active'",
+    [site],
+  );
+  return tenant ? { ...touch, site: tenant.id } : touch;
 }
 function context(req: RequestContext) {
   if (!req.hostContext)
@@ -195,12 +220,14 @@ async function removeVisitor(tx: Tx, visitorId: string) {
     visitorId,
   ]);
 }
+// The page's workspace is an internal attribution scope, not visitor-facing.
+const visible = ({ site: _site, ...touch }: Touch) => touch;
 function readback(row?: Consent) {
   return row
     ? {
         granted: true,
-        firstTouch: row.first_touch,
-        lastTouch: row.last_touch,
+        firstTouch: visible(row.first_touch),
+        lastTouch: visible(row.last_touch),
         policyVersion: row.policy_version,
         expiresAt: row.expires_at,
       }
@@ -264,13 +291,14 @@ export function registerAcquisition(app: FastifyInstance, db: Database) {
         .object({ granted: z.literal(true), touch: touchInput })
         .strict()
         .parse(req.body),
-      touch = safeAcquisitionTouch(body.touch);
+      tagged = safeAcquisitionTouch(body.touch);
     const policyVersion =
         (await legalAcceptanceVersion(db, "analytics")) +
         "|optional-analytics:v1",
       host = context(req);
     let issued: string | undefined;
     const result = await db.system(async (tx) => {
+      const touch = await pageWorkspace(tx, req, tagged, body.touch.site);
       let row = await consentFor(tx, req, true);
       if (!row) {
         issued = newToken();
@@ -314,10 +342,16 @@ export function registerAcquisition(app: FastifyInstance, db: Database) {
   });
   app.post("/api/v1/public/acquisition/visit", rate, async (req) => {
     checkOrigin(req);
-    const touch = safeAcquisitionTouch(req.body);
+    const tagged = safeAcquisitionTouch(req.body);
     return db.system(async (tx) => {
       const row = await consentFor(tx, req, true);
       if (!row) return { recorded: false };
+      const touch = await pageWorkspace(
+        tx,
+        req,
+        tagged,
+        (req.body as any)?.site,
+      );
       await visit(db, tx, row, touch);
       return { recorded: true };
     });
@@ -436,7 +470,13 @@ async function ownerConversion(
 export const recordPublishAcquisition = (db: Database, tenantId: string) =>
   ownerConversion(db, tenantId, "publish");
 
-/** Run after a verified positive invoice payment transaction. Reads ledger evidence again. */
+// Member money reaches a workspace as a subscription invoice or a paid session.
+const paidJournal =
+  "(source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'booking-charge:%') AND (data->>'grossMinor')::numeric>0";
+/**
+ * Run after a verified positive subscription invoice or a confirmed paid
+ * session booking commits. Reads ledger evidence again.
+ */
 export async function recordFirstPaidAcquisition(
   db: Database,
   tenantId: string,
@@ -446,12 +486,12 @@ export async function recordFirstPaidAcquisition(
     { tenantId, userId, role: "finance" },
     async (tx) => {
       const [paid] = await tx.query(
-        "SELECT id FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$1 AND (data->>'grossMinor')::numeric>0 LIMIT 1",
+        `SELECT id FROM journals WHERE ${paidJournal} AND data->>'userId'=$1 LIMIT 1`,
         [userId],
       );
       if (!paid) return null;
       const [first] = await tx.query(
-        "SELECT coalesce(nullif(data->>'chargedAt','')::timestamptz,created_at) AS happened_at FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND (data->>'grossMinor')::numeric>0 ORDER BY happened_at,id LIMIT 1",
+        `SELECT coalesce(nullif(data->>'chargedAt','')::timestamptz,created_at) AS happened_at FROM journals WHERE ${paidJournal} ORDER BY happened_at,id LIMIT 1`,
       );
       return first?.happened_at;
     },
@@ -459,6 +499,100 @@ export async function recordFirstPaidAcquisition(
   return evidence
     ? ownerConversion(db, tenantId, "first_paid", evidence)
     : false;
+}
+
+/**
+ * A website inquiry from a visitor who allowed optional analytics becomes a
+ * lead for the contacted workspace. The event keeps the visitor's
+ * platform-wide first/last touch for the operator funnel; the workspace sees
+ * only touches captured on its own pages (its own host, or its coach page on
+ * the shared host), never another workspace's or the platform's campaigns.
+ * No permission, no event: the inquiry itself is still saved and counted.
+ * Call after the inquiry commits; withdrawal deletes the event like any other.
+ */
+export async function recordLeadAcquisition(
+  db: Database,
+  req: RequestContext & { headers?: FastifyRequest["headers"] },
+  tenantId: string,
+  inquiryId: string,
+) {
+  const host = req.hostContext;
+  if (!host || (host.tenantId && host.tenantId !== tenantId)) return false;
+  if (req.headers?.origin !== host.origin) return false;
+  return db.system(async (tx) => {
+    const row = await consentFor(tx, req, true);
+    if (!row) return false;
+    const own = (t: Touch) =>
+      row.host_tenant_id === tenantId || t?.site === tenantId;
+    const inserted = await recordAcquisition(
+      db,
+      {
+        eventKey: `lead:${inquiryId}`,
+        name: "lead",
+        tenantId,
+        visitorId: row.visitor_id,
+        source: row.first_touch.source,
+        campaign: row.first_touch.campaign,
+        medium: row.first_touch.medium,
+        attribution: {
+          ...snapshot(row),
+          workspace: {
+            ...(own(row.first_touch) ? { first: row.first_touch } : {}),
+            ...(own(row.last_touch) ? { last: row.last_touch } : {}),
+          },
+        },
+      },
+      tx,
+    );
+    return inserted.length > 0;
+  });
+}
+/**
+ * Attribution for the owner's inquiry inbox; only consented, unexpired
+ * history exists, and only touches captured on this workspace's own pages
+ * are shown. `outside` marks a consenting visitor with no such touch.
+ */
+export async function inquiryAttribution(
+  db: Database,
+  tenantId: string,
+  inquiryIds: string[],
+) {
+  if (!inquiryIds.length) return new Map<string, Record<string, string>>();
+  const rows = await db.system((tx) =>
+    tx.query(
+      "SELECT event_key,source,campaign,medium,attribution FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND event_key=ANY($2::text[])",
+      [tenantId, inquiryIds.map((id) => "lead:" + id)],
+    ),
+  );
+  return new Map(
+    rows.map((r) => {
+      const own = r.attribution?.workspace ?? {},
+        first = own.first ?? own.last,
+        last = own.last ?? own.first;
+      return [
+        String(r.event_key).slice("lead:".length),
+        first
+          ? {
+              source: first.source,
+              campaign: first.campaign,
+              medium: first.medium,
+              lastSource: last.source,
+              lastCampaign: last.campaign,
+              referral: own.last?.referral || own.first?.referral || "",
+              outside: false,
+            }
+          : {
+              source: "",
+              campaign: "",
+              medium: "",
+              lastSource: "",
+              lastCampaign: "",
+              referral: "",
+              outside: true,
+            },
+      ];
+    }),
+  );
 }
 
 /** These helpers require a system transaction; tenant SQL intentionally cannot read this store. */

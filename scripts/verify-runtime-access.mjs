@@ -86,6 +86,10 @@ export async function verifyRuntimeAccess(client) {
     infrastructure_execution_policies: ["SELECT", "INSERT"],
     infrastructure_worker_control: ["SELECT", "UPDATE"],
     infrastructure_actions: ["SELECT", "INSERT", "UPDATE"],
+    host_status: ["SELECT", "INSERT", "UPDATE"],
+    host_monitor_policies: ["SELECT", "INSERT"],
+    host_action_requests: ["SELECT", "INSERT", "UPDATE"],
+    tls_issuance_allowances: ["SELECT", "INSERT", "UPDATE"],
     acquisition_events: ["SELECT", "INSERT", "DELETE"],
     acquisition_consents: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     privacy_erasure_registry: ["SELECT", "INSERT"],
@@ -93,11 +97,23 @@ export async function verifyRuntimeAccess(client) {
     mfa_recovery_codes: ["SELECT", "INSERT", "DELETE"],
     auth_passkeys: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     auth_passkey_challenges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_identities: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    oidc_sign_in_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    email_change_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_recovery_grants: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_notices: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     brand_media: ["SELECT"],
     coach_galleries: ["SELECT"],
     coach_gallery_photos: ["SELECT"],
     coach_sites: ["SELECT"],
     coach_design_drafts: ["SELECT"],
+    complimentary_access_directory: ["SELECT"],
+    workspace_suspensions: ["SELECT", "INSERT", "UPDATE"],
+    account_locks: ["SELECT", "INSERT", "UPDATE"],
+    platform_alerts: ["SELECT", "INSERT", "UPDATE"],
+    platform_alert_deliveries: ["SELECT", "INSERT"],
+    coach_directory_profiles: ["SELECT"],
+    workspace_app_icons: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -148,6 +164,10 @@ export async function verifyRuntimeAccess(client) {
     "notifications",
     "push_subscriptions",
     "chat_attachments",
+    "membership_exits",
+    "complimentary_access",
+    "healthkit_devices",
+    "healthkit_sync_batches",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -183,10 +203,15 @@ export async function verifyRuntimeAccess(client) {
     "training_actor_is_current(uuid,uuid,text)",
     "integration_actor_is_current(uuid,uuid)",
     "published_notification_template(text)",
+    "published_safety_policy()",
+    "notification_workspace_name()",
     "export_personal_chat_media(uuid)",
     "erase_personal_chat_media(uuid)",
     "expire_unattached_chat_media()",
     "erase_workspace_chat_media()",
+    // Trigger-only: writes the operator directory's keys and dates.
+    "complimentary_access_directory_sync()",
+    "current_workspace_state()",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -215,6 +240,19 @@ export async function verifyRuntimeAccess(client) {
       `${name}: runtime must not own privileged helpers`,
     );
   }
+  // The public discovery predicate runs with the caller's own rights: the
+  // service role may execute it, PUBLIC may not, and it must not be a definer.
+  const [discovery] = await query(
+    "SELECT has_function_privilege('trainer_service','public_discovery_tenant(uuid)','EXECUTE') AS service,prosecdef,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid='public_discovery_tenant(uuid)'::regprocedure",
+  );
+  assert.deepEqual(
+    discovery,
+    { service: true, prosecdef: false, public_execute: false },
+    "public_discovery_tenant(uuid) must be a service-executable invoker function",
+  );
+  await query(
+    "SELECT public_discovery_tenant('00000000-0000-0000-0000-000000000000')",
+  );
   const definerFunctions = await query(
     "SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef",
   );
@@ -243,6 +281,10 @@ export async function verifyRuntimeAccess(client) {
       "infrastructure_observations",
       "infrastructure_policies",
       "infrastructure_recommendations",
+      "host_status",
+      "host_monitor_policies",
+      "host_action_requests",
+      "tls_issuance_allowances",
       "acquisition_events",
       "acquisition_consents",
       "mfa_recovery_codes",
@@ -250,6 +292,17 @@ export async function verifyRuntimeAccess(client) {
       "auth_passkey_challenges",
       "privacy_erasure_registry",
       "workspace_lifecycle_requests",
+      "account_identities",
+      "oidc_sign_in_requests",
+      "email_change_requests",
+      "account_recovery_grants",
+      "account_notices",
+      "complimentary_access_directory",
+      "workspace_suspensions",
+      "account_locks",
+      "platform_alerts",
+      "platform_alert_deliveries",
+      "workspace_app_icons",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
@@ -283,7 +336,7 @@ export async function verifyRuntimeAccess(client) {
       );
       assert.equal(r.allowed, false, `Tenant actor must not set ${column}`);
     }
-    for (const table of ["payouts", "subscriptions"]) {
+    for (const table of ["payouts", "subscriptions", "membership_exits"]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'DELETE') AS allowed",
         [table],
@@ -297,6 +350,7 @@ export async function verifyRuntimeAccess(client) {
       "coach_gallery_photos",
       "coach_sites",
       "coach_design_drafts",
+      "coach_directory_profiles",
     ])
       await query(`SELECT * FROM public.${table} LIMIT 0`);
     await client.query("ROLLBACK");

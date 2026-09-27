@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type Actor, type Tx, event } from "@trainer/db";
 import { assertPayoutTransition } from "@trainer/domain";
 import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
+import { assertWorkspacePayoutsAllowed } from "./workspace-state.ts";
 export async function journal(
   tx: Tx,
   actor: Actor,
@@ -122,6 +123,8 @@ export async function createPayout(
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     actor.tenantId,
   ]);
+  // Suspension takes the same lock and holds payouts until reinstatement.
+  await assertWorkspacePayoutsAllowed(tx);
   const [existing] = await tx.query(
     "SELECT * FROM payouts WHERE tenant_id=$1 AND period=$2 ORDER BY revision DESC LIMIT 1",
     [actor.tenantId, period],

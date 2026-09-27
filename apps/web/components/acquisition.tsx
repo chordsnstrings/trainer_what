@@ -10,17 +10,25 @@ type Permission = {
 };
 function touch() {
   const q = new URLSearchParams(window.location.search);
-  return Object.fromEntries(
-    [
-      ["source", "utm_source"],
-      ["medium", "utm_medium"],
-      ["campaign", "utm_campaign"],
-      ["referral", "ref"],
-    ].flatMap(([key, param]) => {
-      const value = q.get(param);
-      return value && value.length <= 200 ? [[key, value]] : [];
-    }),
-  );
+  // A coach page on the shared address names its workspace, so a coach only
+  // ever sees attribution captured on their own pages.
+  const site = /^\/(?:coach|join-coach)\/([a-z][a-z0-9-]{2,39})(?:\/|$)/.exec(
+    window.location.pathname,
+  )?.[1];
+  return {
+    ...Object.fromEntries(
+      [
+        ["source", "utm_source"],
+        ["medium", "utm_medium"],
+        ["campaign", "utm_campaign"],
+        ["referral", "ref"],
+      ].flatMap(([key, param]) => {
+        const value = q.get(param);
+        return value && value.length <= 200 ? [[key, value]] : [];
+      }),
+    ),
+    ...(site ? { site } : {}),
+  };
 }
 const publicPage = (path: string) =>
   ["/", "/pricing", "/how-it-works", "/demo", "/faq", "/signup"].includes(

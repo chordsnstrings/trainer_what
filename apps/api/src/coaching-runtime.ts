@@ -26,7 +26,7 @@ import {
 } from "../../../packages/providers/src/coaching.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { lockTraining, assertTrainingOpen } from "./coaching-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import { currentClientTwin } from "./client-twin.ts";
 import { reviseExercise, scheduleProgram } from "./training-programs.ts";
 
@@ -1131,7 +1131,7 @@ export async function tryQualifiedCoaching(
   return db.tenant({ ...a, role: "staff" }, async (tx) => {
     await lockRuntime(tx, a);
     await assertTrainingOpen(tx, a.userId);
-    if (!(await currentPaidSubscription(tx, a.userId)))
+    if (!(await hasMemberAccess(tx, a.userId)))
       throw fail(402, "Your coaching membership changed during generation");
     const [consent] = await tx.query(
       "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1",

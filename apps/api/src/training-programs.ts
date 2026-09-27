@@ -3,7 +3,7 @@ import { z } from "zod";
 import { event, putRecord, type Actor, type Database, type Tx } from "@trainer/db";
 import { trainingExerciseSchema, trainingProgramSchema, trainingDateSchema, trainingSchedule, effectiveWorkoutSets } from "../../../packages/domain/src/coaching-completion.ts";
 import { lockTraining, assertTrainingOpen } from "./coaching-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 
 const id = z.string().uuid();
 const fail = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
@@ -112,7 +112,7 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
     const a = actor(req), b = z.object({ version: z.number().int().positive(), exercise: z.string().min(2).max(100), replacement: z.string().min(2).max(100), reason: z.enum(["equipment_unavailable", "coach_preference"]) }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a); await assertTrainingOpen(tx, a.userId);
-      if (a.role === "subscriber" && !(await currentPaidSubscription(tx, a.userId))) throw fail(402, "An active membership is required");
+      if (a.role === "subscriber" && !(await hasMemberAccess(tx, a.userId))) throw fail(402, "An active membership is required");
       const w = await record(tx, (req.params as any).id, "workout");
       if (w.owner_user_id !== a.userId || w.status !== "active" || w.version !== b.version) throw fail(409, "This session changed; refresh before substituting");
       const ex = w.data.program.exercises.find((e: any) => e.name === b.exercise), replacement = ex?.alternatives?.find((e: any) => e.name === b.replacement);

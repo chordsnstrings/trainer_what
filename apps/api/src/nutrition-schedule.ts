@@ -6,7 +6,7 @@ import {
   type Actor,
   type Tx,
 } from "@trainer/db";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasNutritionAccess } from "./entitlements.ts";
 import { prepareNutritionWeek } from "./nutrition.ts";
 import {
   localDate,
@@ -95,8 +95,7 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
     if (published) await recoverUnsentWeeks(tx, a);
     let count = 0;
     for (const profile of profiles) {
-      const paid = await currentPaidSubscription(tx, profile.owner_user_id);
-      if (!paid?.data?.modules?.includes("nutrition")) continue;
+      if (!(await hasNutritionAccess(tx, profile.owner_user_id))) continue;
       const permissions = await tx.query(
         "SELECT DISTINCT ON(document_type) document_type,granted FROM consent_records WHERE user_id=$1 AND document_type IN ('nutrition','nutrition_model') ORDER BY document_type,created_at DESC,id DESC",
         [profile.owner_user_id],

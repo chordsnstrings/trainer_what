@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { HostMetricsPanel } from "./host-operations";
 
 type Measurement = { state: string; value: number | null; reason?: string };
 type Observation = {
@@ -201,7 +202,9 @@ export function InfrastructureObserver() {
         <a href="/admin/infrastructure/observer" aria-current="page">
           Infrastructure observations
         </a>
+        <a href="/admin/infrastructure/host">Host and backups</a>
       </nav>
+      <HostMetricsPanel compact />
       {message && (
         <p className="notice" role="status">
           {message}

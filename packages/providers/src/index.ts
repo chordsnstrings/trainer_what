@@ -9,6 +9,7 @@ import {
 export * from "./configuration.ts";
 export * from "./sandbox.ts";
 import { sandboxOverride } from "./sandbox.ts";
+import { oidcClientConfig } from "./oidc.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
 import {
@@ -80,6 +81,16 @@ export function integrationStatus() {
         !!config.PUSH_VAPID_PRIVATE_KEY &&
         !!config.PUSH_VAPID_SUBJECT,
     },
+    ...(["google", "apple"] as const).map((provider) => {
+      const configured = !!oidcClientConfig(provider, config);
+      return {
+        id: provider + "_signin",
+        name: provider === "google" ? "Sign in with Google" : "Sign in with Apple",
+        purpose: "Optional sign-in method for members",
+        configured,
+        approved: configured,
+      };
+    }),
     {
       id: "whoop",
       name: "WHOOP",
@@ -93,6 +104,17 @@ export function integrationStatus() {
       configured: true,
       // Mirrors the import route: the platform import approval also applies.
       approved:
+        config.APPLE_IMPORTS_ENABLED !== "false" &&
+        (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
+    },
+    {
+      id: "apple_healthkit",
+      name: "Apple Health automatic sync",
+      purpose: "Background uploads from the HealthKit companion app",
+      configured: config.HEALTHKIT_SYNC_ENABLED === "true",
+      // Mirrors the HealthKit routes: the file-import gates also apply.
+      approved:
+        config.HEALTHKIT_SYNC_ENABLED === "true" &&
         config.APPLE_IMPORTS_ENABLED !== "false" &&
         (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
     },
@@ -280,7 +302,13 @@ export class LeanGateway {
     );
   }
 }
-export async function sendEmail(to: string, subject: string, text: string) {
+/** `html`, when given, is already escaped by its producer (message templates). */
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+) {
   const config = runtimeConfig();
   if (!config.EMAIL_API_URL || !config.EMAIL_API_KEY || !config.EMAIL_FROM)
     throw new ProviderUnavailable("email");
@@ -290,7 +318,13 @@ export async function sendEmail(to: string, subject: string, text: string) {
       Authorization: `Bearer ${config.EMAIL_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: config.EMAIL_FROM, to, subject, text }),
+    body: JSON.stringify({
+      from: config.EMAIL_FROM,
+      to,
+      subject,
+      text,
+      ...(html ? { html } : {}),
+    }),
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`Email provider ${r.status}`);

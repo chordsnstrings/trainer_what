@@ -1,0 +1,105 @@
+/* Account self-service and sign-in. Logical properties only, so a later
+   right-to-left pass needs no changes here. */
+.acct-stack {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+.acct-stack > .card {
+  margin-block-end: 0;
+}
+.acct-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-inline-size: 0;
+}
+.acct-row h2 {
+  margin-block-end: 0;
+}
+.acct-break {
+  overflow-wrap: anywhere;
+  min-inline-size: 0;
+}
+.acct-list {
+  list-style: none;
+  margin: 0;
+  padding-inline-start: 0;
+  display: grid;
+  gap: 0;
+}
+.acct-list > li {
+  padding-block: 12px;
+  border-block-end: 1px solid var(--line);
+  min-inline-size: 0;
+}
+.acct-list > li:last-child {
+  border-block-end: 0;
+}
+.acct-list > li > p {
+  margin-block: 6px;
+}
+.acct-list .badge {
+  margin-inline-start: 8px;
+}
+.acct-unread > strong {
+  color: var(--green);
+}
+.acct-inline-form {
+  margin-block-start: 12px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--line);
+}
+.acct-points {
+  margin-block: 0 16px;
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 6px;
+  line-height: 1.5;
+}
+.acct-danger {
+  border-color: #f0d5cb;
+}
+.acct-once input {
+  font-family: monospace;
+  text-align: start;
+}
+.acct-once {
+  align-items: stretch;
+}
+.acct-once > .acct-stack {
+  inline-size: 100%;
+  gap: 10px;
+}
+.acct-social {
+  display: grid;
+  gap: 10px;
+  margin-block-start: 16px;
+}
+.acct-social .check-field {
+  margin-block: 4px;
+}
+.acct-social-button {
+  inline-size: 100%;
+}
+.acct-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.acct-or::before,
+.acct-or::after {
+  content: "";
+  flex: 1;
+  border-block-start: 1px solid var(--line);
+}
+@media (max-width: 480px) {
+  .acct-row > .button {
+    inline-size: 100%;
+  }
+}

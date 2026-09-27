@@ -256,12 +256,40 @@ const metricDefinitions = [
   },
   {
     key: "sleep_minutes",
-    label: "Self-reported sleep duration",
+    label: "Sleep duration",
     types: ["sleep_minutes"],
     units: ["min", "h"],
     unit: "min",
     factor: (unit: string) => (unit === "h" ? 60 : 1),
     staleDays: 2,
+  },
+  // Completed-day totals from automatic Apple Health sync (healthkit.ts).
+  {
+    key: "daily_steps",
+    label: "Daily steps",
+    types: ["daily_steps"],
+    units: ["count"],
+    unit: "steps",
+    factor: (unit: string) => 1,
+    staleDays: 2,
+  },
+  {
+    key: "daily_active_energy",
+    label: "Daily active energy",
+    types: ["daily_active_energy"],
+    units: ["kcal"],
+    unit: "kcal",
+    factor: (unit: string) => 1,
+    staleDays: 2,
+  },
+  {
+    key: "workout_minutes",
+    label: "Wearable workout minutes",
+    types: ["workout_minutes"],
+    units: ["min"],
+    unit: "min",
+    factor: (unit: string) => 1,
+    staleDays: 7,
   },
 ];
 export function clientTwin(input: {

@@ -40,6 +40,8 @@ export async function changeRenewal(
   a: Actor,
   cancel: boolean,
   stripe = stripeClient(),
+  /** Someone acting for the member (an owner ending the membership). */
+  initiatedBy?: Actor,
 ) {
   const intent: any = await db.tenant({ ...a, role: "finance" }, async (tx) => {
     await lock(tx, a);
@@ -83,10 +85,24 @@ export async function changeRenewal(
         providerId: s.provider_id,
         cancel,
         periodEnd: s.period_end,
+        ...(initiatedBy
+          ? {
+              initiatedBy: {
+                userId: initiatedBy.userId,
+                role: initiatedBy.role,
+              },
+            }
+          : {}),
       },
       { ownerId: a.userId, status: "submitting" },
     );
-    await event(tx, a, "subscription.renewal_requested", r.id, { cancel });
+    await event(
+      tx,
+      initiatedBy ?? a,
+      "subscription.renewal_requested",
+      r.id,
+      initiatedBy ? { cancel, memberId: a.userId } : { cancel },
+    );
     return { ...r, done: false };
   });
   if (intent.done) return { ok: true, accessUntil: intent.periodEnd };
@@ -189,7 +205,14 @@ export async function billingHistory(db: Database, a: Actor) {
       "SELECT id,status,data,created_at FROM records WHERE kind='subscription_transition' AND owner_user_id=$1 AND status IN ('submitting','unknown')",
       [a.userId],
     );
+    // The member's own renewal state, for screens without the workspace
+    // bootstrap (such as the suspended-workspace screen).
+    const [membership] = await tx.query(
+      "SELECT status,cancel_at_period_end,period_end,price_minor,provider_id IS NOT NULL AS renewable FROM subscriptions WHERE user_id=$1",
+      [a.userId],
+    );
     return {
+      membership: membership ?? null,
       invoices,
       requests,
       transitions,
@@ -512,14 +535,16 @@ export function registerFinanceBilling(
   app.get("/api/v1/membership/billing", (req) =>
     billingHistory(db, identity(req)),
   );
+  // An injected provider (tests) replaces the default client; otherwise the
+  // default parameter builds it, and it stays unavailable until configured.
   app.post("/api/v1/membership/cancel", (req) =>
-    changeRenewal(db, identity(req), true),
+    changeRenewal(db, identity(req), true, providers.stripe?.()),
   );
   app.post("/api/v1/membership/reactivate", (req) =>
-    changeRenewal(db, identity(req), false),
+    changeRenewal(db, identity(req), false, providers.stripe?.()),
   );
   app.post("/api/v1/membership/renewal/reconcile", (req) =>
-    reconcileRenewal(db, identity(req)),
+    reconcileRenewal(db, identity(req), providers.stripe?.()),
   );
   const requestSchema = z.object({
     chargeId: z.string().min(3).max(200),

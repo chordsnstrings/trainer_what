@@ -1,9 +1,16 @@
 "use client";
 import { Field } from "./field";
 import { TeamControls } from "./team-controls";
+import { CoachSwitcher, FollowerInvitations, InvitationJoin } from "./joining";
+import {
+  AdminComplimentaryAccess,
+  ComplimentaryAccessManager,
+  MemberAccessCard,
+} from "./complimentary-access";
 import { Affiliates } from "./affiliates";
 import { InfrastructureActions } from "./infrastructure-actions";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
+import { SafetyReviewDue } from "./safety-review-due";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
 import { KnowledgeImportReview } from "./ingestion-review";
@@ -38,6 +45,7 @@ import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
+import { HostOperations } from "./host-operations";
 import { MarketingPage } from "./marketing-pages";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
@@ -46,13 +54,15 @@ import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
 import { AccountExtras, MagicAccess } from "./account-completion";
+import { AccountSettings } from "./account-settings";
+import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
+import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
+import { OperatorRecovery } from "./operator-recovery";
+import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
-import {
-  GalleryStudio,
-  WebsiteStudio,
-  CoachWebsite,
-  ClientCoachManifest,
-} from "./coach-site";
+import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
+import { MemberAppManifest } from "./member-app-install";
+import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
@@ -67,6 +77,11 @@ import {
 } from "./trainer-design";
 import { resolveBrandDesign, setSchema } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
+import { WorkspaceGovernance } from "./workspace-governance";
+import { BusinessMetrics } from "./business-metrics";
+import { PlatformAlerts } from "./platform-alerts";
+import { WorkspaceSuspended } from "./workspace-suspended";
+import { GovernanceLinks } from "./governance-shared";
 import {
   clearLocalData,
   discardRejected,
@@ -137,6 +152,7 @@ type State = {
   sets: any[];
   members?: any[];
   subscriptions: any[];
+  complimentary?: any[];
   integrations: any[];
   events?: any[];
   finance?: any;
@@ -353,7 +369,11 @@ function WorkspaceSwitcher({
   if (choices.length < 2) return null;
   return (
     <label className="workspace-switcher">
-      <span>Switch workspace</span>
+      <span>
+        {choices.find((c) => c.current)?.role === "subscriber"
+          ? "Switch coach"
+          : "Switch workspace"}
+      </span>
       <select
         value={current}
         disabled={busy}
@@ -420,7 +440,8 @@ export default function Workspace() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
-    [online, setOnline] = useState(true);
+    [online, setOnline] = useState(true),
+    [suspended, setSuspended] = useState(false);
   const publicPath =
     path === "/" ||
     [
@@ -438,6 +459,9 @@ export default function Workspace() {
     path === "/magic-link" ||
     path.startsWith("/magic-link/") ||
     path === "/recover-authenticator" ||
+    path === "/sign-in/verify" ||
+    path.startsWith("/verify-email-change/") ||
+    path.startsWith("/account-recovery/") ||
     path.startsWith("/reset-password/") ||
     path.startsWith("/verify-email/") ||
     path.startsWith("/join-coach/") ||
@@ -447,6 +471,7 @@ export default function Workspace() {
     try {
       const next = await api("/bootstrap");
       setState(next);
+      setSuspended(false);
       setBootstrapError("");
       if (next.user.role === "subscriber")
         localStorage.setItem(
@@ -465,6 +490,13 @@ export default function Workspace() {
           }),
         );
     } catch (e) {
+      if ((e as any).code === "WORKSPACE_SUSPENDED") {
+        // A platform suspension: show its status instead of the workspace.
+        setState(null);
+        setBootstrapError("");
+        setSuspended(true);
+        return;
+      }
       if ((e as any).status === 401) {
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
@@ -542,7 +574,14 @@ export default function Workspace() {
         path={path}
         onAuthenticated={async () => {
           await load();
-          const s = await api("/bootstrap");
+          const s = await api("/bootstrap").catch(async (e) => {
+            if ((e as any).code !== "WORKSPACE_SUSPENDED") throw e;
+            // Signed in to a suspended workspace: open its status screen.
+            const status = await api("/workspace/status");
+            router.push(status.role === "subscriber" ? "/app" : "/trainer");
+            return null;
+          });
+          if (!s) return;
           router.push(
             s.user.role === "subscriber"
               ? "/app"
@@ -550,6 +589,16 @@ export default function Workspace() {
                 ? "/trainer/onboarding/identity"
                 : "/trainer",
           );
+        }}
+      />
+    );
+  if (suspended)
+    return (
+      <WorkspaceSuspended
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {});
+          clearLocalData(localStorage, { keepQueues: true });
+          router.push("/login");
         }}
       />
     );
@@ -624,7 +673,9 @@ export default function Workspace() {
   const platformName = state.platform?.name || "Trainer Brain";
   return (
     <Shell className="workspace" theme={state.tenant.theme}>
-      {subscriber && <ClientCoachManifest tenant={state.tenant} />}
+      {!path.startsWith("/admin") && (
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+      )}
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
           {subscriber ? (
@@ -741,6 +792,13 @@ export default function Workspace() {
             <strong>{topTitle}</strong>
           </div>
           <div className="topbar-right">
+            {subscriber && (
+              <CoachSwitcher
+                current={state.user.tenantId}
+                userId={state.user.userId}
+                variant="compact"
+              />
+            )}
             <span className="connection-dot" />
             <span>
               {state.tenant.published ? "Published" : "Private workspace"}
@@ -808,6 +866,8 @@ export default function Workspace() {
                 </Link>
                 <AccountSecurity />
                 <AccountExtras />
+                <AccountSettings returnTo="/admin/account-security" />
+                <OperatorRecovery />
               </>
             ) : (
               <PlatformSettings
@@ -832,6 +892,14 @@ export default function Workspace() {
             <InfrastructureObserver />
           ) : path === "/admin/infrastructure/actions" ? (
             <InfrastructureActions />
+          ) : path === "/admin/alerts" ? (
+            <PlatformAlerts platformRole={state.user.platformRole} />
+          ) : path === "/admin/metrics" ? (
+            <BusinessMetrics platformRole={state.user.platformRole} />
+          ) : path === "/admin/governance" ? (
+            <WorkspaceGovernance platformRole={state.user.platformRole} />
+          ) : path === "/admin/infrastructure/host" ? (
+            <HostOperations />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -864,6 +932,15 @@ export default function Workspace() {
                 path={path}
                 platformRole={state.user.platformRole}
               />
+              {path === "/admin/support" &&
+                ["admin", "support"].includes(state.user.platformRole) && (
+                  <OperatorRecovery />
+                )}
+              {path === "/admin/subscribers" && (
+                <AdminComplimentaryAccess
+                  platformRole={state.user.platformRole}
+                />
+              )}
             </>
           ) : path.startsWith("/admin") ? (
             adminRoute(path) === "overview" ? (
@@ -907,7 +984,10 @@ export default function Workspace() {
               path === "/trainer/galleries" ? (
                 <GalleryStudio />
               ) : path === "/trainer/website" ? (
-                <WebsiteStudio tenant={state.tenant} />
+                <>
+                  <WebsiteStudio tenant={state.tenant} />
+                  <DirectoryListingSettings />
+                </>
               ) : (
                 <CoachWebsite
                   preview
@@ -940,12 +1020,23 @@ export default function Workspace() {
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
-            <ClientTwin
-              userId={path.split("/")[3]}
-              name={
-                state.members?.find((m) => m.id === path.split("/")[3])?.name
-              }
-            />
+            <>
+              <ClientTwin
+                userId={path.split("/")[3]}
+                name={
+                  state.members?.find((m) => m.id === path.split("/")[3])?.name
+                }
+              />
+              {state.user.role === "owner" && (
+                <FollowerRemoval
+                  userId={path.split("/")[3]}
+                  name={
+                    state.members?.find((m) => m.id === path.split("/")[3])
+                      ?.name
+                  }
+                />
+              )}
+            </>
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
@@ -991,7 +1082,15 @@ export default function Workspace() {
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
-            <Overview {...props} />
+            <>
+              {subscriber && (
+                <CoachSwitcher
+                  current={state.user.tenantId}
+                  userId={state.user.userId}
+                />
+              )}
+              <Overview {...props} />
+            </>
           )}
         </div>
         <footer className="workspace-footer">
@@ -1810,9 +1909,8 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   );
 }
 
-function Members({ state, records, action, busy }: ViewProps) {
-  const [invite, setInvite] = useState(""),
-    [query, setQuery] = useState("");
+function Members({ state, records }: ViewProps) {
+  const [query, setQuery] = useState("");
   const members = (state.members ?? []).filter(
     (m) =>
       m.role === "subscriber" &&
@@ -1864,7 +1962,12 @@ function Members({ state, records, action, busy }: ViewProps) {
                       <td>
                         <Badge>
                           {state.subscriptions.find((s) => s.user_id === m.id)
-                            ?.status ?? "Invited"}
+                            ?.status ??
+                            (state.complimentary?.some(
+                              (g) => g.user_id === m.id,
+                            )
+                              ? "Complimentary"
+                              : "No plan")}
                         </Badge>
                       </td>
                     </tr>
@@ -1875,49 +1978,14 @@ function Members({ state, records, action, busy }: ViewProps) {
           ) : (
             <Empty
               title="Make room for your first subscriber"
-              detail="Invite someone into your coaching space. Paid access starts through your configured membership offer."
+              detail="Invite someone into your coaching space. Access starts with a paid membership offer or complimentary access you grant."
             />
           )}
         </Card>
-        <Card>
-          <h2>Invite a subscriber</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/invitations", "POST", {
-                    email: f.get("email"),
-                    role: "subscriber",
-                  }),
-                "Invitation created",
-              ).then((r) => {
-                if (r) setInvite(r.url);
-              });
-            }}
-          >
-            <Field label="Email address">
-              <input type="email" name="email" required />
-            </Field>
-            <Button type="submit" disabled={busy}>
-              Create invitation <ArrowUpRight size={16} />
-            </Button>
-          </form>
-          {invite && (
-            <div className="invite-result">
-              <p>Share this single-use invitation:</p>
-              <input value={invite} readOnly aria-label="Invitation link" />
-              <Button
-                secondary
-                onClick={() => void navigator.clipboard.writeText(invite)}
-              >
-                Copy link
-              </Button>
-            </div>
-          )}
-        </Card>
+        <FollowerInvitations role={state.user.role} />
       </div>
+      <FormerFollowers />
+      <ComplimentaryAccessManager role={state.user.role} />
     </>
   );
 }
@@ -2655,6 +2723,7 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
               </span>
             </div>
             <h3>{e.data.description}</h3>
+            <SafetyReviewDue record={e} />
             {e.data.decisionId && (
               <blockquote>
                 {
@@ -2749,6 +2818,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
       {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
+          <MemberAccessCard />
           {!membership && (
             <Field label="Discount code (optional)">
               <input
@@ -3437,6 +3507,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       />
       <AccountSecurity />
       <AccountExtras />
+      <AccountSettings returnTo={sub ? "/app/profile" : "/trainer/settings"} />
       <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
@@ -3754,6 +3825,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           </Link>
         </nav>
       )}
+      <GovernanceLinks platformRole={state.user.platformRole} />
       {error && <div className="notice error">{error}</div>}
       {data ? (
         <>
@@ -3896,6 +3968,7 @@ function Public({
           <Link href="/how-it-works">How it works</Link>
           <Link href="/demo">Demo</Link>
           <Link href="/pricing">The economics</Link>
+          <Link href="/coaches">Find a coach</Link>
           <Link href="/login">Sign in</Link>
         </nav>
         <Link
@@ -3910,9 +3983,15 @@ function Public({
           <ArrowUpRight size={16} />
         </Link>
       </header>
-      {path === "/magic-link" ||
-      path.startsWith("/magic-link/") ||
-      path === "/recover-authenticator" ? (
+      {path === "/sign-in/verify" ? (
+        <SocialSignInVerify />
+      ) : path.startsWith("/verify-email-change/") ? (
+        <EmailChangeConfirm token={path.split("/").pop() ?? ""} />
+      ) : path.startsWith("/account-recovery/") ? (
+        <RecoveryLinkReset token={path.split("/").pop() ?? ""} />
+      ) : path === "/magic-link" ||
+        path.startsWith("/magic-link/") ||
+        path === "/recover-authenticator" ? (
         <MagicAccess path={path} />
       ) : path.startsWith("/reset-password/") ||
         path.startsWith("/verify-email/") ||
@@ -3961,7 +4040,14 @@ function Public({
                 {error}
               </div>
             )}
+            {join && (
+              <InvitationJoin
+                token={path.split("/").pop() ?? ""}
+                onAuthenticated={onAuthenticated}
+              />
+            )}
             <form
+              hidden={join}
               onSubmit={async (e) => {
                 e.preventDefault();
                 setBusy(true);
@@ -4098,6 +4184,13 @@ function Public({
                 <ArrowRight size={16} />
               </Button>
             </form>
+            {(path === "/login" || join || enroll) && (
+              <SocialSignIn
+                intent={join ? "invite" : enroll ? "join" : "sign_in"}
+                coachSlug={enroll ? path.split("/").pop() : undefined}
+                inviteToken={join ? path.split("/").pop() : undefined}
+              />
+            )}
             {path === "/login" && (
               <>
                 <div className="divider" />

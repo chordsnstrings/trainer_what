@@ -244,12 +244,16 @@ export function securityRoutes(
   app.get("/api/v1/auth/security", async (req) => {
     const a = identity(req);
     const [s] = await db.system((tx) =>
-      tx.query("SELECT enabled FROM user_security WHERE user_id=$1", [
-        a.userId,
-      ]),
+      tx.query(
+        "SELECT (SELECT enabled FROM user_security WHERE user_id=$1) AS enabled,(SELECT password_hash LIKE 'scrypt:%' FROM users WHERE id=$1) AS has_password",
+        [a.userId],
+      ),
     );
     return {
       emailVerified: a.emailVerified,
+      // Accounts created through Apple or Google set a password before an
+      // authenticator, because both authenticator routes confirm with it.
+      hasPassword: !!s?.has_password,
       mfaEnabled: s?.enabled ?? false,
       mfaConfigured: !!process.env.SECURITY_ENCRYPTION_KEY,
       mfaAt: a.mfaAt ?? null,
@@ -275,7 +279,7 @@ export function securityRoutes(
     requireEmailConfiguration();
     const [u] = await db.system((tx) =>
       tx.query(
-        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY " +
+        "SELECT u.id,u.email,m.tenant_id FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::boolean=false OR (m.role='subscriber' AND u.platform_role='none')) ORDER BY (t.lifecycle_state='active') DESC," +
           recentWorkspaceOrder +
           " LIMIT 1",
         [b.email, host.tenantId, host.custom],
@@ -389,6 +393,12 @@ export function securityRoutes(
           403,
           "EMAIL_VERIFICATION",
           "Verify your email before setting up an authenticator",
+        );
+      if (!String(u.password_hash).startsWith("scrypt:"))
+        throw fail(
+          409,
+          "PASSWORD_REQUIRED",
+          "Set a password in Account settings first. It confirms authenticator setup and sensitive actions.",
         );
       if (!(await passwordMatches(b.password, u.password_hash)))
         throw fail(401, "INVALID_PASSWORD", "Password is incorrect");

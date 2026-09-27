@@ -2,9 +2,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
+import {
+  criticalCategory,
+  localDate,
+  messageKindForKey,
+  renderMessage,
+  resolvePublishedTemplate,
+  workspaceName,
+  type TemplatePin,
+} from "./message-templates.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 export const notificationPreferencesSchema = z
@@ -13,6 +22,10 @@ export const notificationPreferencesSchema = z
     bookings: z.boolean().default(true),
     workouts: z.boolean().default(true),
     marketing: z.boolean().default(false),
+    // Website inquiry email/device alerts for workspace owners; in-app is always kept.
+    inquiries: z.boolean().default(true),
+    // Template locale; English copy is the fallback for any missing translation.
+    language: z.enum(["en", "ar"]).default("en"),
     quietStart: z.number().int().min(0).max(1439).default(1320),
     quietEnd: z.number().int().min(0).max(1439).default(480),
     timezone: z
@@ -40,19 +53,30 @@ export type NotificationInput = {
   body: string;
   href?: string;
   templateKey?: string;
+  /** A preference-controlled topic inside the category (website inquiries). */
+  topic?: "inquiry";
   // Some lifecycle confirmations belong in the private inbox only.
   email?: boolean;
   push?: boolean;
+  // A confirmation about the member's own money (payment or refund). Its email
+  // is still sent while the workspace is suspended (worker claimJob).
+  transactional?: boolean;
   source?: Record<string, unknown>;
 };
-const critical = (category: string) => ["safety", "account"].includes(category);
-function enabled(p: Preferences, category: string, channel = "email") {
+const critical = criticalCategory;
+function enabled(
+  p: Preferences,
+  category: string,
+  channel = "email",
+  topic?: string,
+) {
   return (
     critical(category) ||
     ((channel === "push" || p.email) &&
       (category !== "marketing" || p.marketing) &&
       (category !== "booking" || p.bookings) &&
-      (category !== "workout" || p.workouts))
+      (category !== "workout" || p.workouts) &&
+      (topic !== "inquiry" || p.inquiries))
   );
 }
 /**
@@ -151,42 +175,42 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
       p = notificationPreferencesSchema.parse(pref?.data ?? {});
     if (input.category === "marketing")
       p.marketing = await marketingConsent(tx, input.userId);
-    const body = input.body.slice(0, 4000),
-      href = /^\/(app|trainer)(\/|$)/.test(input.href ?? "")
-        ? (input.href ?? "")
-        : "";
-    let title = input.title.slice(0, 160),
-      rendered = body,
-      template: any = null;
-    if (input.templateKey) {
-      template = (
-        await tx.query("SELECT published_notification_template($1) value", [
-          input.templateKey,
-        ])
-      )[0]?.value;
-      if (template) {
-        const values: Record<string, string> = {
-          name: target.name,
-          coach: "Your coach",
-          link: href,
-          date: new Date().toISOString().slice(0, 10),
-          message: body,
-        };
-        const render = (s: string) =>
-          s.replace(
-            /\{\{(name|coach|link|date|message)\}\}/g,
-            (_match, key) => values[key],
-          );
-        title = render(template.title).slice(0, 160);
-        const expanded = render(template.body);
-        rendered = critical(input.category)
-          ? body.length >= 3998
-            ? body
-            : expanded.slice(0, 3998 - body.length) + "\n\n" + body
-          : expanded.slice(0, 4000);
-      }
-    }
-    const canEmail = input.email !== false && enabled(p, input.category),
+    const href = /^\/(app|trainer|admin)(\/|$)/.test(input.href ?? "")
+      ? (input.href ?? "")
+      : "";
+    // A published template (requested locale, then English) drives in-app and
+    // email copy; the sender's text is the built-in fallback. The pin records
+    // exactly which version produced this notification.
+    const template = input.templateKey
+      ? await resolvePublishedTemplate(tx, input.templateKey, p.language)
+      : null;
+    const pin: TemplatePin | null = input.templateKey
+      ? {
+          kind: messageKindForKey(input.templateKey)?.kind ?? null,
+          key: template?.key ?? input.templateKey,
+          version: template?.version ?? null,
+          locale: template?.locale ?? "en",
+          requestedLocale: p.language,
+          source: template ? "published" : "built_in",
+        }
+      : null;
+    const message = renderMessage({
+      template,
+      builtIn: { title: input.title, body: input.body },
+      values: {
+        name: target.name,
+        coach: template ? await workspaceName(tx) : "Your coach",
+        date: localDate(p.timezone),
+      },
+      href,
+      appUrl: process.env.PUBLIC_APP_URL ?? "http://localhost:3000",
+      critical: critical(input.category),
+    });
+    const title = message.title,
+      rendered = message.body;
+    const canEmail =
+        input.email !== false &&
+        enabled(p, input.category, "email", input.topic),
       notificationId = randomUUID();
     const [row] = await tx.query(
       "INSERT INTO notifications(id,tenant_id,user_id,category,dedupe_key,title,body,href,email_status,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING id",
@@ -202,9 +226,8 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
         canEmail ? "pending" : "suppressed",
         JSON.stringify({
           source: input.source ?? null,
-          template: template
-            ? { key: template.key, version: template.version }
-            : null,
+          template: pin,
+          ...(input.topic ? { topic: input.topic } : {}),
         }),
       ],
     );
@@ -223,13 +246,12 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
             notificationId,
             userId: input.userId,
             category: input.category,
+            ...(input.transactional ? { transactional: true } : {}),
             to: target.email,
             subject: title,
-            text:
-              rendered +
-              (href
-                ? `\n\n${process.env.PUBLIC_APP_URL ?? "http://localhost:3000"}${href}`
-                : ""),
+            text: message.emailText,
+            html: message.emailHtml,
+            template: pin,
           }),
           due.toISOString(),
         ],
@@ -240,7 +262,7 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
     if (
       push &&
       (input.push ?? input.email !== false) &&
-      enabled(p, input.category, "push")
+      enabled(p, input.category, "push", input.topic)
     ) {
       const devices = await tx.query(
         "SELECT id FROM push_subscriptions WHERE user_id=$1 AND expires_at>clock_timestamp() AND vapid_key_id=$2 ORDER BY created_at LIMIT 8",
@@ -301,6 +323,12 @@ export async function notificationDeliveryDecision(
   job: any,
   now = new Date(),
 ): Promise<{ allowed: boolean; due?: Date }> {
+  // Invitation emails carry a join link: send only while that exact link is
+  // still the invitation's current, pending link (joining.ts).
+  if (job.data.invitationId) {
+    const { invitationEmailCurrent } = await import("./joining.ts");
+    return { allowed: await invitationEmailCurrent(db, tenantId, job, now) };
+  }
   if (!job.data.notificationId) return { allowed: true };
   const decision = await db.tenant(
     { tenantId, userId: job.data.userId, role: "owner" },
@@ -327,9 +355,17 @@ export async function notificationDeliveryDecision(
         p = notificationPreferencesSchema.parse(pref?.data ?? {});
       if (n.category === "marketing")
         p.marketing = await marketingConsent(tx, job.data.userId);
-      if (!enabled(p, n.category, push ? "push" : "email"))
+      if (!enabled(p, n.category, push ? "push" : "email", n.data?.topic))
         return { allowed: false };
       const source = n.data.source;
+      // An inquiry already handled (or erased) needs no delayed alert.
+      if (source?.type === "website_inquiry") {
+        const [inquiry] = await tx.query(
+          "SELECT status FROM records WHERE id=$1 AND kind='website_inquiry'",
+          [source.id],
+        );
+        if (inquiry?.status !== "open") return { allowed: false };
+      }
       if (source?.type === "booking") {
         const [b] = await tx.query(
           "SELECT b.status,s.starts_at,s.status slot_status FROM bookings b JOIN booking_slots s ON s.id=b.slot_id AND s.tenant_id=b.tenant_id WHERE b.id=$1 AND b.user_id=$2",
@@ -353,7 +389,7 @@ export async function notificationDeliveryDecision(
           !r ||
           r.status !== "planned" ||
           r.data.date !== source.date ||
-          !(await currentPaidSubscription(tx, n.user_id))
+          !(await hasMemberAccess(tx, n.user_id))
         )
           return { allowed: false };
         const today = new Intl.DateTimeFormat("en-CA", {
@@ -454,7 +490,7 @@ export async function scheduleNotifications(db: Database, tenantId: string) {
       "SELECT id,owner_user_id,data FROM records WHERE kind='planned_session' AND status='planned'",
     );
     for (const p of planned) {
-      if (!(await currentPaidSubscription(tx, p.owner_user_id))) continue;
+      if (!(await hasMemberAccess(tx, p.owner_user_id))) continue;
       const timezone = p.data.timezone ?? "Asia/Dubai",
         fmt = new Intl.DateTimeFormat("en-CA", {
           timeZone: timezone,
@@ -499,6 +535,8 @@ export function registerNotifications(
           marketing: await marketingConsent(tx, a.userId),
         },
         version: r?.version ?? 0,
+        // Only workspace owners receive website inquiries.
+        options: { inquiries: a.role === "owner" },
       };
     });
   });
@@ -508,6 +546,9 @@ export function registerNotifications(
         .object({
           version: z.number().int().min(0),
           data: notificationPreferencesSchema,
+          // Read-only display hints from GET; accepted and ignored so a
+          // client can send back what it read.
+          options: z.object({ inquiries: z.boolean() }).strict().optional(),
         })
         .strict()
         .parse(req.body);

@@ -114,7 +114,8 @@ export function classifyQueueFailure(
   // Another member's session: stop and keep the queue for its owner.
   if (failure.code === QUEUE_OWNER_MISMATCH) return "session";
   const status = failure.status;
-  if (!status || status >= 500 || [408, 425, 429].includes(status))
+  // 423: the workspace is suspended; keep entries until it is reinstated.
+  if (!status || status >= 500 || [408, 423, 425, 429].includes(status))
     return "retry";
   if (status === 401) return "session";
   if (blockedStatuses.includes(status)) return "blocked";

@@ -66,6 +66,8 @@ export function verifiedProxyHeaders(
 }
 export function customHostPath(path: string, slug: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
+  // Crawler files describe the connected coach website itself.
+  if (path === "/robots.txt" || path === "/sitemap.xml") return path;
   if (/^\/(admin|trainer|signup)(\/|$)/.test(path)) return null;
   if (path === "/coach/" + slug || path.startsWith("/coach/" + slug + "/"))
     return path;
@@ -73,7 +75,7 @@ export function customHostPath(path: string, slug: string): string | null {
   if (path.startsWith("/join-coach/"))
     return path === "/join-coach/" + slug ? path : null;
   if (
-    /^\/(app|login|forgot-password|reset-password|verify-email|magic-link|recover-authenticator|join|terms|privacy|ai-disclosure)(\/|$)/.test(
+    /^\/(app|login|forgot-password|reset-password|verify-email|verify-email-change|magic-link|recover-authenticator|join|terms|privacy|ai-disclosure)(\/|$)/.test(
       path,
     )
   )

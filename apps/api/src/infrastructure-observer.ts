@@ -367,11 +367,12 @@ const unavailableSources = [
   {
     source: "Fleet and cloud resources",
     reason:
-      "No cloud inventory or machine monitoring is connected. Host CPU/memory, pods and worker capacity are unavailable.",
+      "Load, memory, disk and container status of this server come from the host controller and appear under Host and backups. No cloud inventory is connected, so other machines and capacity purchases are unavailable.",
   },
   {
     source: "Storage and egress",
-    reason: "No storage-capacity or network-egress measurements are connected.",
+    reason:
+      "This server's disk use appears under Host and backups. Object-storage capacity and network egress are not measured.",
   },
   {
     source: "Infrastructure spend and forecast",

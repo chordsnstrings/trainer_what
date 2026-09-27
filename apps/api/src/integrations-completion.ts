@@ -26,7 +26,12 @@ import {
 import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { memberAccess } from "./entitlements.ts";
+import {
+  readCoachWearablePolicy,
+  revokeHealthKitDevices,
+} from "./healthkit-sync.ts";
+import { permitCertificateIssuance } from "./host-operations.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -232,6 +237,7 @@ export async function disableUserIntegrations(
       "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE owner_user_id=$1 AND kind='wearable'",
       [userId],
     );
+    await revokeHealthKitDevices(tx, userId, "consent");
   }
   if (kind !== "wearable") {
     await tx.query(
@@ -528,7 +534,11 @@ export function registerIntegrationCompletion(
 ) {
   app.get("/api/v1/integrations/connections", async (req) => {
     const a = identity(req);
+    // The coach's policy "none" (No wearable imports) refuses the Apple
+    // export import, so the import panel can explain that before a file is chosen.
+    const policy = await readCoachWearablePolicy(db, a);
     return db.tenant(a, async (tx) => ({
+      coachAllowsImports: policy !== "none",
       connections: (
         await tx.query(
           "SELECT id,provider,status,version,scopes,summary,last_synced_at,next_sync_at FROM integration_connections WHERE user_id=$1",
@@ -776,6 +786,9 @@ export function registerIntegrationCompletion(
         "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE kind='wearable' AND owner_user_id=$1 AND data->>'source'=$2",
         [a.userId, provider],
       );
+      // Apple Health use covers both the export import and automatic sync.
+      if (provider === "apple_health")
+        await revokeHealthKitDevices(tx, a.userId, "source_revoked");
       await event(tx, a, "wearable.revoked", undefined, { provider });
       return {
         ok: true,
@@ -796,8 +809,9 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
       "This workspace or membership is no longer active.",
     );
   await lock(tx, a, "training");
-  const subscription = await currentPaidSubscription(tx, a.userId);
-  if (!subscription)
+  // Paid or complimentary access; premium voice is a paid product capability.
+  const access = await memberAccess(tx, a.userId);
+  if (!access.active)
     throw fail(
       402,
       "MEMBERSHIP_REQUIRED",
@@ -832,9 +846,7 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   return {
     workout,
     segments,
-    premium:
-      subscription.data?.modules?.includes("voice") === true ||
-      subscription.data?.premiumVoice === true,
+    premium: access.premiumVoice,
   };
 }
 function voicePublic(r: any) {
@@ -1614,6 +1626,13 @@ function registerDomainRoutes(
         "DOMAIN_TARGET",
         "The domain CNAME does not point to the approved ingress.",
       );
+    // Let the edge obtain this domain's certificate for the HTTPS check below.
+    await permitCertificateIssuance(db, {
+      hostname: row.hostname,
+      tenantId: row.tenant_id,
+      orderId: row.id,
+      actorId: operator.userId,
+    });
     await integrationRequest("https://" + row.hostname + "/", {
       method: "HEAD",
       signal: AbortSignal.timeout(10000),

@@ -34,7 +34,13 @@ import {
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
+import {
+  registerHealthKitSync,
+  isCompanionDevicePath,
+  readCoachWearablePolicy,
+} from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import { registerDiscovery } from "./discovery.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -55,13 +61,21 @@ import {
 import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
+import { screenForSafety } from "./safety-policy.ts";
+import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
+import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
+import { registerFinanceBilling } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 import {
-  registerFinanceBilling,
-  currentPaidSubscription,
-} from "./finance-billing.ts";
+  announceFollowerJoined,
+  completeInvitationAcceptance,
+  createFollowerInvitation,
+  registerJoiningRoutes,
+} from "./joining.ts";
+import { registerComplimentaryAccess } from "./complimentary-access.ts";
 import {
   registerCoachingCompletion,
   lockTraining,
@@ -103,7 +117,33 @@ import {
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
+import { openSignInSession, type SignInMethod } from "./sign-in.ts";
+import {
+  membershipEndedError,
+  registerAccountSelfService,
+} from "./account-self-service.ts";
+import { registerOperatorRecovery } from "./operator-recovery.ts";
+import { assertMayRejoin, registerMembershipExit } from "./membership-exit.ts";
+import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import { registerGovernance } from "./governance.ts";
+import { registerBusinessMetrics } from "./business-metrics.ts";
+import { registerPlatformAlerts } from "./platform-alerts.ts";
+import {
+  ACCOUNT_LOCKED_SQLSTATE,
+  accountLockedError,
+  assertSignInAllowed,
+} from "./account-governance.ts";
+import {
+  enforceWorkspaceGate,
+  lockSuspendedMember,
+  workspaceSuspendedMessage,
+} from "./workspace-state.ts";
+import {
+  adminRouteRequested,
+  enforceOperatorStepUp,
+  trackOperatorRoutes,
+} from "./operator-step-up.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
@@ -129,7 +169,6 @@ import {
 import {
   programSchema,
   ruleSchema,
-  safetySignal,
   validUaeIban,
   refundEligible,
 } from "@trainer/domain";
@@ -166,6 +205,8 @@ type Identity = Actor & {
   platformRole: string;
   emailVerified: boolean;
   mfaAt?: string | null;
+  /** "active", or "suspended" while a Super admin suspension is in force. */
+  workspaceState?: string;
 };
 declare module "fastify" {
   interface FastifyRequest {
@@ -247,8 +288,8 @@ async function putException(
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const s = await currentPaidSubscription(tx, a.userId);
-  if (!s)
+  // Paid or trainer-granted complimentary access (entitlements.ts).
+  if (!(await hasMemberAccess(tx, a.userId)))
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
 
@@ -290,6 +331,8 @@ export async function buildApp(
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
   });
+  // Before any route: records operator routes for the step-up coverage test.
+  trackOperatorRoutes(app);
   await app.register(cookie);
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
@@ -330,13 +373,17 @@ export async function buildApp(
     reply
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin")
-      .header("Cache-Control", "no-store");
+      .header("Cache-Control", "no-store")
+      // API responses are never search results; pages are indexed by the web app.
+      .header("X-Robots-Tag", "noindex, nofollow");
     const requestPath = req.url.split("?")[0];
     // Readiness is intentionally reachable by the local container probe; it
     // exposes no workspace data and cannot select a tenant.
-    const probe = ["/health", "/api/v1/health", "/api/v1/ready"].includes(
-      requestPath,
-    );
+    // The edge's TLS "ask" check reaches the API directly on the private
+    // network, never through a mapped host; it is handled like a probe.
+    const probe =
+      ["/health", "/api/v1/health", "/api/v1/ready"].includes(requestPath) ||
+      requestPath === TLS_ASK_PATH;
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
     // Probes relayed by the web proxy carry a proof; verify it so the signed
@@ -369,9 +416,13 @@ export async function buildApp(
             "Provider callbacks use the platform address.",
           );
       }
+      // Companion-app routes authenticate with a device bearer token only and
+      // never read the session cookie, so a browser origin does not apply.
       if (
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-        !req.url.startsWith("/api/v1/webhooks/")
+        !req.url.startsWith("/api/v1/webhooks/") &&
+        !isOidcFormCallback(requestPath) &&
+        !isCompanionDevicePath(req.url)
       ) {
         if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
           throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
@@ -381,7 +432,9 @@ export async function buildApp(
     if (token) {
       const rows = await db.system((tx) =>
         tx.query(
-          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state='active'",
+          // A suspended workspace keeps its sessions so members see why it is
+          // unavailable; a locked account never resolves a session.
+          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role,t.lifecycle_state FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state IN ('active','suspended') AND NOT EXISTS(SELECT 1 FROM account_locks l WHERE l.user_id=s.user_id AND l.status='active')",
           [tokenHash(token)],
         ),
       );
@@ -396,6 +449,7 @@ export async function buildApp(
           platformRole: s.platform_role,
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
+          workspaceState: s.lifecycle_state,
         };
         if (!probe)
           try {
@@ -424,6 +478,21 @@ export async function buildApp(
           "SESSION_OWNER_MISMATCH",
           "These entries were saved by another member. Sign in as that member to sync them.",
         );
+    }
+    if (!probe) {
+      // Routing already ran: decide from the matched route pattern as well as
+      // the raw path, so an encoded spelling cannot skip either guard.
+      const routePattern = req.routeOptions.url;
+      enforceWorkspaceGate(req.identity, req.method, requestPath, {
+        routePattern,
+        operatorRoute: adminRouteRequested(requestPath, routePattern),
+      });
+      enforceOperatorStepUp(
+        req.identity,
+        req.method,
+        requestPath,
+        routePattern,
+      );
     }
     if (token && req.identity && !probe)
       await touchAccountSession(db, tokenHash(token)).catch(() => {});
@@ -454,6 +523,12 @@ export async function buildApp(
         provider: error.provider,
         requestId: req.id,
       });
+    if ((error as any).code === ACCOUNT_LOCKED_SQLSTATE) {
+      const locked = accountLockedError();
+      return reply
+        .code(423)
+        .send({ code: locked.code, message: locked.message, requestId: req.id });
+    }
     const e = error as any;
     const status = e.code === "23505" ? 409 : (e.statusCode ?? 500);
     if (status >= 500)
@@ -477,21 +552,29 @@ export async function buildApp(
     userId: string,
     tenantId: string,
     mfa = false,
+    method: SignInMethod = "password",
+    /** Hash of the session this one replaces; its sign-in time carries over. */
+    replaces?: string,
   ) {
-    const token = newToken();
-    await db.system(async (tx) => {
+    const token = await db.system(async (tx) => {
       await workspaceLock(tx, tenantId);
       await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
-      const [membership] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
-        [userId, tenantId],
-      );
-      if (!membership)
-        throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
-      await tx.query(
-        "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
-        [tokenHash(token), userId, tenantId, mfa],
-      );
+      let authenticatedAt: Date | string | null = null;
+      if (replaces) {
+        const [old] = await tx.query(
+          "DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now() RETURNING authenticated_at",
+          [replaces, userId],
+        );
+        if (!old) throw fail(401, "AUTH_REQUIRED", "Please sign in");
+        authenticatedAt = old.authenticated_at;
+      }
+      return openSignInSession(tx, {
+        userId,
+        tenantId,
+        mfa,
+        method,
+        authenticatedAt,
+      });
     });
     reply.setCookie("session", token, {
       path: "/",
@@ -509,6 +592,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
+  registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
@@ -516,15 +600,26 @@ export async function buildApp(
   registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
   registerInfrastructureObserver(app, db, identity, {
     startCollector: !options.testing,
+  });
+  registerHostOperations(app, db, identity, {
+    startSampler: !options.testing,
   });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
+  registerAccountSelfService(app, db, identity);
+  registerOperatorRecovery(app, db, identity);
+  registerOidcSignIn(app, db, identity);
+  registerMembershipExit(app, db, identity, {
+    stripe: options.providers?.stripe,
+  });
   registerCoachSite(app, db);
+  registerDiscovery(app, db);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
@@ -536,6 +631,15 @@ export async function buildApp(
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   registerTeamRoutes(app, db, identity);
+  registerJoiningRoutes(app, db, identity, session, {
+    publicUrl,
+    afterJoin: (req, actor) =>
+      recordSignupAcquisition(db, req, actor, "enroll"),
+  });
+  registerComplimentaryAccess(app, db, identity);
+  registerGovernance(app, db, identity);
+  registerBusinessMetrics(app, db, identity);
+  registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/public/host", async (req) => {
@@ -616,7 +720,7 @@ export async function buildApp(
         );
         await event(tx, a, "trainer.signup_completed", uid);
       });
-      await session(reply, uid, tid);
+      await session(reply, uid, tid, false, "registration");
       try {
         await recordSignupAcquisition(db, req, {
           tenantId: tid,
@@ -712,6 +816,9 @@ export async function buildApp(
         const mfa = existing
           ? await consumeMfa(tx, existing.id, b.code)
           : false;
+        // Shared sign-in check once the existing account is fully proven.
+        if (existing) await assertSignInAllowed(tx, existing.id);
+        if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
         if (!existing)
           await tx.query(
@@ -737,9 +844,15 @@ export async function buildApp(
           "subscriber.enrolled",
           uid,
         );
+        if (membership)
+          await announceFollowerJoined(
+            tx,
+            { tenantId: tenant.id, userId: uid, role: "subscriber" },
+            "website",
+          );
         return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
-      await session(reply, result.uid, result.tid, result.mfa);
+      await session(reply, result.uid, result.tid, result.mfa, "public_join");
       if (result.joined) {
         try {
           await recordSignupAcquisition(
@@ -778,15 +891,28 @@ export async function buildApp(
       // A chosen workspace must also be the host's workspace on a custom host.
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY " +
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY (t.lifecycle_state='active') DESC," +
             recentWorkspaceOrder +
             " LIMIT 1",
           [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
         ),
       );
-      if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
+      if (!m) {
+        // A follower whose membership ended learns why, once the password
+        // and any enrolled authenticator have been proven.
+        const ended = await db.system(async (tx) => {
+          const error = await membershipEndedError(
+            tx,
+            u.id,
+            req.hostContext?.tenantId ?? b.tenantId ?? null,
+          );
+          if (error) await consumeMfa(tx, u.id, b.code);
+          return error;
+        });
+        throw ended ?? fail(403, "NO_MEMBERSHIP", "No active workspace");
+      }
       const mfa = await db.system((tx) => consumeMfa(tx, u.id, b.code));
-      await session(reply, u.id, m.tenant_id, mfa);
+      await session(reply, u.id, m.tenant_id, mfa, "password");
       return { ok: true };
     },
   );
@@ -805,7 +931,7 @@ export async function buildApp(
     // A custom host serves only its own workspace; the platform lists them all.
     const workspaces = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id,t.name,t.slug,m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
+        "SELECT m.tenant_id,t.name,t.slug,m.role,t.lifecycle_state FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
         [a.userId, req.hostContext?.custom ? req.hostContext.tenantId : null],
       ),
     );
@@ -816,6 +942,7 @@ export async function buildApp(
         name: w.name,
         slug: w.slug,
         role: w.role,
+        state: w.lifecycle_state,
         current: w.tenant_id === a.tenantId,
       })),
     };
@@ -831,17 +958,21 @@ export async function buildApp(
       );
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state IN ('active','suspended')",
         [a.userId, b.tenantId],
       ),
     );
     if (!m) throw fail(403, "NO_MEMBERSHIP", "Workspace access denied");
-    await db.system((tx) =>
-      tx.query("DELETE FROM sessions WHERE token_hash=$1", [
-        tokenHash(req.cookies.session!),
-      ]),
+    // The old session is replaced in the same transaction and its sign-in
+    // time carries over: switching is not a fresh sign-in.
+    await session(
+      reply,
+      a.userId,
+      b.tenantId,
+      false,
+      "workspace_switch",
+      tokenHash(req.cookies.session ?? ""),
     );
-    await session(reply, a.userId, b.tenantId);
     return { ok: true };
   });
   app.get("/api/v1/bootstrap", async (req) => {
@@ -866,6 +997,9 @@ export async function buildApp(
       ),
       subscriptions: await tx.query(
         "SELECT * FROM subscriptions ORDER BY period_end DESC",
+      ),
+      complimentary: await tx.query(
+        "SELECT id,user_id,tier,starts_at,ends_at FROM complimentary_access WHERE closed_at IS NULL AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 1000",
       ),
       consents: await tx.query(
         "SELECT * FROM consent_records WHERE user_id=$1 ORDER BY created_at DESC",
@@ -935,51 +1069,35 @@ export async function buildApp(
     return { trainer: t, products };
   });
 
-  app.post("/api/v1/invitations", async (req) => {
-    const a = owner(req);
-    const b = z
-      .object({
-        email: z.email(),
-        role: z.enum(["staff", "finance", "subscriber"]),
-      })
-      .parse(req.body);
-    if (b.role !== "subscriber")
-      return createTeamInvitation(db, a, b, publicUrl());
-    const token = newToken();
-    await db.system(async (tx) => {
-      await workspaceLock(tx, a.tenantId);
-      const [current] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND t.lifecycle_state='active'",
-        [a.tenantId, a.userId],
+  app.post(
+    "/api/v1/invitations",
+    { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      const b = z
+        .object({
+          email: z.email(),
+          role: z.enum(["staff", "finance", "subscriber"]),
+        })
+        .parse(req.body);
+      if (b.role !== "subscriber")
+        return createTeamInvitation(db, a, b, publicUrl());
+      // Follower invitations: optional email delivery, status and cancellation
+      // live in joining.ts; the copy-link result is always returned.
+      return createFollowerInvitation(
+        db,
+        a,
+        req.body,
+        req.hostContext?.origin ?? publicUrl(),
       );
-      if (!current)
-        throw fail(
-          403,
-          "OWNER_REQUIRED",
-          "Current workspace owner access is required",
-        );
-      await tx.query(
-        "INSERT INTO one_time_tokens(token_hash,purpose,tenant_id,payload,expires_at) VALUES($1,'invite',$2,$3,now()+interval '7 days')",
-        [
-          tokenHash(token),
-          a.tenantId,
-          JSON.stringify({ ...b, invitedBy: a.userId }),
-        ],
-      );
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "team.invited", undefined, { role: b.role }),
-    );
-    return {
-      url: `${req.hostContext?.origin ?? publicUrl()}/join/${token}`,
-      expiresInDays: 7,
-    };
-  });
+    },
+  );
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
       .object({
         token: z.string().min(20),
-        name: z.string().min(2).max(100),
+        // An existing account joins with its own password; only a new account needs a name.
+        name: z.string().trim().min(2).max(100).optional(),
         email: z.email(),
         password: z.string().min(12).max(128),
         accepted: z.literal(true),
@@ -1041,40 +1159,32 @@ export async function buildApp(
           "Use the password for your existing account",
         );
       const mfa = existing ? await consumeMfa(tx, existing.id, b.code) : false;
+      if (existing) await assertSignInAllowed(tx, existing.id);
       const uid = existing?.id ?? randomUUID();
+      if (!existing && !b.name)
+        throw fail(
+          400,
+          "NAME_REQUIRED",
+          "Enter your name to create your account",
+        );
       if (!existing)
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
           [uid, b.email.toLowerCase(), b.name, hash, false],
         );
-      const [membership] = await tx.query(
-        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
-        [invite.tenant_id, uid, invite.payload.role],
-      );
-      await tx.query(
-        "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
-        [tokenHash(b.token)],
-      );
-      if (membership) {
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-          [invite.tenant_id, uid, invite.payload.role],
-        );
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), invite.tenant_id, uid, registrationVersion],
-        );
-        await tx.query("RESET ROLE");
-      }
+      const joined = await completeInvitationAcceptance(tx, {
+        invite,
+        userId: uid,
+        registrationVersion,
+      });
       return {
         uid,
         tid: invite.tenant_id,
         mfa,
-        joined: !!membership && invite.payload.role === "subscriber",
+        joined: joined && invite.payload.role === "subscriber",
       };
     });
-    await session(reply, result.uid, result.tid, result.mfa);
+    await session(reply, result.uid, result.tid, result.mfa, "invitation");
     if (result.joined) {
       try {
         await recordSignupAcquisition(
@@ -1574,8 +1684,12 @@ export async function buildApp(
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      const safety = a.role === "subscriber" && safetySignal(b.text);
-      if (safety) await openTrainingHold(tx, a, target, b.text);
+      // Code floor plus the published policy's tightening terms.
+      const screen =
+        a.role === "subscriber" ? await screenForSafety(tx, b.text) : null;
+      const safety = !!screen?.hold;
+      if (safety)
+        await openTrainingHold(tx, a, target, b.text, undefined, screen!);
       const message = await putRecord(
         tx,
         a,
@@ -1915,7 +2029,8 @@ export async function buildApp(
   });
   app.post("/api/v1/payout-runs/:id/execute", async (req) => {
     const a = owner(req);
-    requireRecentMfa(a);
+    // Operator authority: a fresh authenticator in every environment.
+    requireRecentMfa(a, true);
     if (a.platformRole !== "finance" && a.platformRole !== "admin")
       throw fail(
         403,
@@ -1968,6 +2083,10 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    // While a workspace is suspended a member can only withdraw permission.
+    const suspended = a.workspaceState === "suspended";
+    if (suspended && b.granted)
+      throw fail(423, "WORKSPACE_SUSPENDED", workspaceSuspendedMessage());
     const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
       if (b.type === "voice" || b.type === "wearable") {
@@ -1984,7 +2103,8 @@ export async function buildApp(
             a.userId,
         ]);
       }
-      if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await (suspended ? lockSuspendedMember(tx, a) : lockTraining(tx, a));
       if (b.type === "coaching")
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":training:" + a.userId,
@@ -2081,6 +2201,13 @@ export async function buildApp(
         consent: z.literal(true),
       })
       .parse(req.body);
+    // The coach's wearable policy applies to file imports and automatic sync.
+    if ((await readCoachWearablePolicy(db, a)) === "none")
+      throw fail(
+        403,
+        "WEARABLE_POLICY",
+        "Your coach does not accept health imports.",
+      );
     const importConsentVersion =
       (await legalAcceptanceVersion(db, "wearable")) +
       "|integration-consent:v1";
@@ -2180,7 +2307,7 @@ export async function buildApp(
     const a = identity(req);
     if (!["admin", "finance", "support", "safety"].includes(a.platformRole))
       throw fail(403, "ADMIN_REQUIRED", "Platform access is required");
-    requireRecentMfa(a);
+    requireRecentMfa(a, true);
     const tenants = await db.system((tx) =>
       tx.query(
         "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC",

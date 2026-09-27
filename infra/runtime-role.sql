@@ -26,22 +26,46 @@ GRANT SELECT,INSERT,UPDATE ON infrastructure_recommendations TO trainer_service;
 GRANT SELECT,INSERT ON infrastructure_execution_policies TO trainer_service;
 GRANT SELECT,UPDATE ON infrastructure_worker_control TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON infrastructure_actions TO trainer_service;
+-- Host operations (058): signed status reports, host action requests and
+-- short-lived TLS issuance allowances. The host controller writes as the
+-- migration administrator; the runtime never deletes these rows.
+GRANT SELECT,INSERT,UPDATE ON host_status,host_action_requests,tls_issuance_allowances TO trainer_service;
+GRANT SELECT,INSERT ON host_monitor_policies TO trainer_service;
 GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 
 GRANT SELECT,INSERT ON privacy_erasure_registry TO trainer_service;
+-- Keys and dates of complimentary grants for the operator list; the table is
+-- written only by its definer trigger on complimentary_access.
+GRANT SELECT ON complimentary_access_directory TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON workspace_lifecycle_requests TO trainer_service;
+
+-- Governance history and operator alerts are platform records (no tenant actor
+-- access). History rows are only lifted, never deleted; deliveries are append-only.
+GRANT SELECT,INSERT,UPDATE ON workspace_suspensions,account_locks,platform_alerts TO trainer_service;
+GRANT SELECT,INSERT ON platform_alert_deliveries TO trainer_service;
 
 -- Account secrets and WebAuthn are system-only; tenant actors cannot read them.
 GRANT SELECT,INSERT,DELETE ON mfa_recovery_codes TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON auth_passkeys,auth_passkey_challenges TO trainer_service;
+-- Linked sign-in identities, OIDC requests, email changes, operator recovery
+-- grants and account notices are account-level and service-only as well.
+GRANT SELECT,INSERT,UPDATE,DELETE ON account_identities,oidc_sign_in_requests,email_change_requests,account_recovery_grants,account_notices TO trainer_service;
 
 -- Public-site lookups use the service role after host/visibility checks. All
 -- writes still use scoped owner transactions. Do not grant table-wide writes.
 GRANT SELECT ON brand_media,coach_galleries,coach_gallery_photos,coach_sites,coach_design_drafts TO trainer_service;
 GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO trainer_service;
--- trainer_brand_tenant(), notification-template and membership proof helpers
--- remain executable only by trainer_app, exactly as their migrations specify.
+-- trainer_brand_tenant(), notification-template, safety-policy, workspace-name
+-- and membership proof helpers remain executable only by trainer_app, exactly
+-- as their migrations specify.
+
+-- Public discovery (059): directory reads use the service role after the
+-- public_discovery_tenant() predicate; owners change their own listing in
+-- scoped transactions. Member install icon keys are system-only.
+GRANT SELECT ON coach_directory_profiles TO trainer_service;
+GRANT SELECT,INSERT ON workspace_app_icons TO trainer_service;
+GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

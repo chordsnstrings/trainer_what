@@ -1,6 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { SupportPreview, SupportPreviewLaunch } from "./support-preview";
+import { MessagingConfiguration } from "./messaging-admin";
+import { LeadAnalytics } from "./lead-analytics";
+import { SafetyQueueDue } from "./safety-review-due";
 
 const titles: Record<string, string> = {
   trainers: "Trainer workspaces",
@@ -104,6 +107,7 @@ export function TrainerAnalytics() {
             <h2>Member cohorts</h2>
             <Table rows={data.cohorts} />
           </section>
+          <LeadAnalytics leads={data.leads} />
           <section className="card">
             <h2>Ledger by month (AED minor units)</h2>
             <Table rows={data.revenue} />
@@ -331,6 +335,7 @@ function AdminOperationsWorkbench({
                 </form>
                 {draft && <p>Draft version {draft.version} saved.</p>}
               </section>
+              <MessagingConfiguration />
               <section className="card">
                 <h2>Version history</h2>
                 {data.documents.map((d: any) => (
@@ -436,6 +441,7 @@ function AdminOperationsWorkbench({
                 <details key={r.id}>
                   <summary>
                     {r.workspace} · {r.category ?? r.kind} · {r.status}
+                    <SafetyQueueDue row={r} />
                   </summary>
                   <p>{r.reason}</p>
                   {r.operator_review && (

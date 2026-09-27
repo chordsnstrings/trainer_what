@@ -18,7 +18,7 @@ import {
   groceryPurchases,
   mealNutrientsSchema,
 } from "../../../packages/domain/src/nutrition-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasNutritionAccess } from "./entitlements.ts";
 import { validateClientTargets } from "../../../packages/domain/src/nutrition-completion.ts";
 import {
   nutritionCompletionRoutes,
@@ -128,9 +128,9 @@ async function member(tx: Tx, a: Actor, userId: string) {
   );
   if (!m) throw fail(404, "SUBSCRIBER_UNAVAILABLE", "Subscriber unavailable");
 }
+/** Paid workout + nutrition, or a complimentary nutrition grant (entitlements.ts). */
 export async function nutritionEntitlement(tx: Tx, userId: string) {
-  const s = await currentPaidSubscription(tx, userId);
-  return !!s && s.data?.modules?.includes("nutrition") === true;
+  return hasNutritionAccess(tx, userId);
 }
 async function entitled(tx: Tx, userId: string) {
   if (!(await nutritionEntitlement(tx, userId)))
