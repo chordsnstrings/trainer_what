@@ -45,8 +45,30 @@ No deployment, provider call or live action was made. All test data is synthetic
   executing a payout returns `409 PAYOUT_HELD` while the workspace is not active.
   Billing is not cancelled. A `reconciliation` follow-up is opened in the
   workspace for platform finance (billing review, held and in-flight payouts).
+- The suspension notice is in-app plus the critical email only (no device push,
+  which could only be delivered after reinstatement). Reinstatement closes any
+  still-pending email or push job for that notice
+  (`last_error='Superseded by workspace reinstatement'`) so it is never sent late.
 
 ### Followers (subscribers)
+- Billing continues during a suspension, so the member's own money and privacy
+  routes stay open: `GET /membership/billing` (now also returns the member's
+  `membership` renewal state), `POST /membership/cancel` (stop renewal),
+  `POST /membership/renewal/reconcile`, `POST /refund-requests` (the existing
+  7-day eligibility rule applies), `POST /privacy/delete-request` and
+  `POST /privacy/consent` for withdrawals only (a new grant returns
+  `423 WORKSPACE_SUSPENDED`). Restarting renewal (`/membership/reactivate`) and
+  the trainer's refund decision stay refused until reinstatement. A coaching
+  consent withdrawal uses `lockSuspendedMember` (same training lock, confirms the
+  membership and that the workspace is suspended) because the existing
+  `training_actor_is_current` helper answers only for active workspaces.
+- The suspended screen shows followers a **Membership and billing** section
+  (`suspended-member-billing.tsx`): price, status and renewal date, **Cancel
+  membership renewal**, **Check renewal status** for a pending change, a refund
+  request form for eligible charges, their refund requests, and **Request account
+  deletion** with a confirmation step.
+- Payment and refund confirmation emails for paid sessions (Stripe webhooks keep
+  arriving) are marked `transactional` and are still sent while suspended.
 - The suspended screen with a generic message (no operator notice). The public
   trainer page, coach website/custom-domain pages and public join return
   not-found/unavailable; invitations to a suspended workspace are invalid.
@@ -64,21 +86,38 @@ No deployment, provider call or live action was made. All test data is synthetic
 - Sessions: resolution accepts `suspended` and flags the identity; the request
   gate allows only `/auth/*`, `/public/*`, webhooks, health, `GET /workspace/status`,
   `GET /notifications`, `POST /notifications/:id/read`, `GET /privacy/export`,
-  `GET /privacy/status`, `POST /invitations/accept`. Password, magic-link, passkey
-  and recovery sign-in prefer an active workspace and fall back to a suspended one.
-  `/auth/workspaces` lists suspended workspaces with `state`.
+  `GET /privacy/status`, `POST /invitations/accept`, and the member billing and
+  privacy routes listed under Followers. The gate decides from the matched route
+  pattern (`req.routeOptions.url`) when the request was routed, so an encoded
+  spelling (`/api/v1/workspace/%73tatus`) gets the same answer as the plain path;
+  anything unlisted fails closed. Platform operators are exempt from the gate on
+  `/api/v1/admin/*` routes only (raw or routed): those routes are scoped by their
+  own parameters and keep their role and fresh-authenticator checks, so an
+  operator who follows or staffs a suspended trainer keeps operator access.
+  Password, magic-link, passkey and recovery sign-in prefer an active workspace
+  and fall back to a suspended one. `/auth/workspaces` lists suspended workspaces
+  with `state`.
 - Custom domains of a suspended workspace keep resolving (host routing accepts
   `suspended`) so signed-in members see the notice; its public pages still refuse.
 - Refused: non-Super-admin (`OPERATOR_SCOPE`), stale code (`MFA_STEP_UP`), a
-  workspace holding a platform operator (`PLATFORM_WORKSPACE`), non-active state.
+  platform administration workspace (`PLATFORM_WORKSPACE`), non-active state. A
+  platform administration workspace is one whose **owner** holds a platform role
+  (`platformWorkspaceSql` in `workspace-state.ts`, shared with business metrics,
+  the governance list and alert delivery). Operators who merely follow or staff a
+  trainer no longer block that trainer's suspension.
 - Serialized with the workspace lock (the same lock payout preparation and
   dispatch take). Audit: `admin_operations_audit` `workspace.suspended` /
   `workspace.reinstated` plus workspace events and `payout.held` / `payout.ready`.
 - Worker (`apps/worker/src/tenant-cycle.ts`, extracted from `index.ts`): a
   suspended workspace runs no nutrition, finance automation, reminders,
   lifecycle/retention messages or coaching follow-ups, and claims only
-  `email` jobs in the `account`/`safety` categories. Wearable sync already skips
-  non-active workspaces (revocations still run). Chat attachment expiry continues.
+  `email` jobs in the `account`/`safety` categories or marked `transactional`
+  (paid-session payment and refund confirmations, set by `finance-bookings.ts`
+  through `notifyUser({ transactional: true })`). Push jobs wait (push delivery
+  requires an active workspace); queued booking and workout reminders are
+  re-validated at dispatch and dropped when their session or date has passed.
+  Wearable sync already skips non-active workspaces (revocations still run).
+  Chat attachment expiry continues.
 - Reinstatement releases only the payouts that suspension held and that are still
   `held`; the finance follow-up stays open until finance resolves it with evidence.
 - Closure or ownership transfer of a suspended workspace requires reinstatement
@@ -97,7 +136,13 @@ No deployment, provider call or live action was made. All test data is synthetic
   locked account are silently not sent. Password reset is not a sign-in and is not
   blocked; the account still cannot sign in afterwards.
 - Refuses `SELF_LOCK`, `ACCOUNT_ALREADY_LOCKED`, and `LAST_SUPERADMIN` (counted
-  under the platform administrator lock). Because the actor must be an unlocked
+  under the platform administrator lock).
+- Host CLI (`operator-actions.ts`, used by `scripts/operator.ts` and
+  `scripts/reset-mfa.ts`): a locked Super admin cannot assign platform roles or
+  reset an authenticator. The last-admin rule counts only unlocked Super admins,
+  so the last active one cannot be demoted while another is locked; the
+  no-admin recovery path opens when every Super admin is locked, and a locked
+  account cannot recover the role for itself. Because the actor must be an unlocked
   Super admin other than the target, the last-admin refusal is a defensive
   invariant; the tests prove one active Super admin always remains.
 - Lock and unlock are revisioned; history rows can only move `active → lifted`
@@ -114,7 +159,10 @@ No deployment, provider call or live action was made. All test data is synthetic
 - Monthly (Asia/Dubai): gross takings (subscription invoices + paid sessions),
   refunds and refund rate, net commission and take rate, cost recovery, platform
   revenue, paying and new paying memberships, cancellations and churn (canceled ÷
-  prior month's paying memberships), trials started/converted, AI and voice cost in
+  prior month's paying memberships; only a member who had a positive subscription
+  charge before the cancellation counts, and trials or other memberships canceled
+  before any charge are reported separately as `unpaidCancellations`, also in the
+  CSV and the web table), trials started/converted, AI and voice cost in
   USD converted at the 3.6725 AED peg, unpriced requests, cost-to-revenue, payouts
   paid/returned. Zero data yields zeros and `null` rates. CSV neutralizes formulas.
 
@@ -136,9 +184,14 @@ No deployment, provider call or live action was made. All test data is synthetic
   `backups.stale`), `raisePlatformAlert(db, rule, candidate)` and
   `clearPlatformAlert(db, dedupeKey)` for event-driven alerts.
 - Delivery: open alerts go to every unlocked operator whose role is in scope
-  (Super admins always) as an `account` notification in their most recently used
-  active workspace (`href /admin/alerts`); email only when email is configured
-  and severity is warning/critical; push for critical when push is configured.
+  (Super admins always) as an `account` notification in an active platform
+  administration workspace the operator **owns** (most recently used first;
+  `href /admin/alerts`); email only when email is configured and severity is
+  warning/critical; push for critical when push is configured. An operator with
+  no such workspace (for example one whose only membership is a follower or staff
+  seat in a trainer's workspace) gets a `no_workspace` delivery record and sees
+  the alert in the operator inbox; nothing is written into that trainer's
+  workspace, whose owner could otherwise read it.
   Each (alert, operator, severity) is delivered once. Worker evaluates every 60 s.
 - API: `GET /api/v1/admin/alerts?status=active|open|acknowledged|resolved`,
   `POST /api/v1/admin/alerts/:id/acknowledge|resolve` (revision, note),
@@ -156,6 +209,15 @@ No deployment, provider call or live action was made. All test data is synthetic
   before any handler or body validation. Module checks were also forced.
   `trackOperatorRoutes()` records every operator route; the test fails for any new
   unguarded route.
+- The guard decides from the raw path **and** the matched route pattern, so a
+  percent-encoded spelling (`/api/v1/%61dmin/settings`) that the router decodes
+  to an admin route is guarded too. The inventory test calls every route with its
+  plain and encoded spelling.
+- `STEP_UP_EXEMPT_ROUTES` lists revocation-only routes, matched by method and
+  routed pattern: `POST /api/v1/admin/support-previews/:id/end`, restoring the
+  existing policy that an operator can always stop their own member-data preview
+  (grants last up to 15 minutes, the step-up window is 10). Reading a preview and
+  starting a correction still need a fresh code.
 
 ## Routes added
 `GET /api/v1/workspace/status`; `GET /api/v1/admin/governance/workspaces`,
@@ -180,7 +242,7 @@ Widens `tenants_lifecycle_state_check`; adds `workspace_suspensions`,
 `infra/runtime-role.sql`; `scripts/verify-runtime-access.mjs` classifies the four
 system tables and the helper.
 
-## Tests actually run (this branch)
+## Tests actually run (first implementation)
 - `node node_modules/typescript/bin/tsc --noEmit` — pass (exit 0, no errors).
 - PGlite, `node --import tsx --test <file>`:
   `tests/governance-suspension.test.ts` 4/4, `tests/governance-locks.test.ts` 4/4,
@@ -209,6 +271,71 @@ system tables and the helper.
   `fix2-safety`: 131 tests, 130 pass, 1 skipped (existing PGlite-only skip).
 - Not run: the full `npm test`, `npm run build`/`next build`, browser checks.
 
+## Review round 1 (adversarial review fixes)
+Findings fixed on this branch:
+1. Followers of a suspended workspace can stop renewal, reconcile a renewal
+   change, see billing, request a refund, request erasure and withdraw consent;
+   the suspended screen offers these actions (major, requirement 1).
+2. Only a workspace whose owner holds a platform role is a platform
+   administration workspace; one definition is shared by suspension, the
+   governance list, metrics and alert delivery. Operators keep `/api/v1/admin/*`
+   access from a suspended workspace session (major, requirement 1).
+3. Stopping a support preview is exempt from the step-up guard again, by routed
+   pattern (major, requirement 5).
+4. The step-up guard and the suspension gate decide from the matched route as
+   well as the raw path; encoded admin paths are guarded (minor).
+5. Host CLI honours account locks; the last-admin rule counts unlocked Super
+   admins only (minor).
+6. Alerts are stored only in a platform workspace the operator owns (minor).
+7. Churn counts paid cancellations only; unpaid trial cancellations are reported
+   separately (minor).
+8. The suspension notice creates no push job, and reinstatement closes its
+   pending jobs; payment/refund confirmation emails are sent while suspended
+   (minor).
+
+Tests added: `governance-suspension` (operator follower/staff does not block
+suspension and keeps operator routes; suspended follower cancels renewal via an
+injected fake Stripe client, reconciles, files a refund and an erasure request,
+withdraws consent, cannot re-grant or reactivate; encoded paths; reinstatement
+closes the notice email job; worker sends the transactional refund email and
+leaves push and booking reminders pending), `governance-step-up` (plain and
+encoded spelling of every operator route; exemption list; encoded
+`/admin/settings`; stale support operator ends a preview through `buildApp` but
+cannot read it or start a correction), `governance-locks` (host CLI with a locked
+Super admin; last active admin; recovery when every admin is locked; a locked
+account cannot recover itself), `governance-metrics` (canceled unpaid trial;
+operator follower still counted as a trainer's follower), `governance-alerts`
+(operator follower/staff get `no_workspace`, nothing written to the trainer's
+workspace, alert visible in the inbox), `governance-web` (suspended billing
+section states).
+
+Checks run for this round (worktree, Node 24):
+- `npx tsc --noEmit` — exit 0, no errors.
+- PGlite `node --import tsx --test --test-concurrency=1` on the six governance
+  files — 32 tests, 32 pass, 0 fail.
+- PGlite related suites: `fix-auth`, `host-routing`, `platform`, `fix-web`,
+  `finance-completion`, `admin-completion`, `infrastructure-actions`,
+  `support-preview`, `fix-payouts`, `fix-ledger`, `bootstrap-admin`,
+  `account-completion`, `notifications`, `push-notifications`,
+  `privacy-lifecycle`, `bookings-completion`, `finance-checkout` — 177 tests, 177
+  pass (a first run had 1 failure: an existing `fix-auth` assertion expects the
+  last-admin message to contain "last one"; the message was kept compatible and
+  the rerun passed). `fix-nutrition-ops`, `fix-settings`, `lifecycle-messages`,
+  `coaching-followups`, `fix2-finance`, `privacy-media`, `team-completion`,
+  `fix-keys`, `settings-runtime`, `fix2-web`, `onboarding-completion` — 60 tests,
+  60 pass.
+- Restricted runtime role, `/opt/tools/pg-sandbox.sh 56113 <worktree>` with the
+  six governance files plus `support-preview`, `fix-payouts`,
+  `account-completion`, `fix-auth`, `finance-completion`, `notifications`,
+  `push-notifications`, `platform`, `host-routing`, `fix-web`,
+  `bookings-completion`, `privacy-lifecycle`: `runtimeAccess: verified` (46
+  migrations, 40 system tables, 33 scoped tables, 10 helpers); 18 files, 179
+  tests, 178 pass, 1 skipped (existing skip in `fix-web`), 0 fail,
+  `PG_SELECTED_FAILED_FILES=0`, exit 0.
+- Mutation check: with the routed pattern disabled in `app.ts`, the encoded-path
+  and preview-stop tests fail (2 of 2), and pass again with it restored.
+- Not run: the full `npm test`, `npm run build`/`next build`, browser checks.
+
 ## Not done, and why
 - No browser run: the local environment has no usable Chromium and cloud browsers
   are not allowed. The screens were typechecked and render-tested with
@@ -222,3 +349,13 @@ system tables and the helper.
   signed WebAuthn assertion in these tests.
 - No stale-backup rule is shipped: there is no backup evidence table yet; the hook
   is ready for it.
+- An operator with no platform administration workspace of their own receives
+  platform alerts in the operator inbox only, not by email: email jobs are
+  tenant-scoped rows, and queuing one in a trainer's workspace would put alert
+  text where that trainer's team can read it. A platform-level email queue would
+  be needed.
+- Jobs queued before a suspension other than the suspension notice (for example
+  a coaching reply push) are delivered after reinstatement. Booking and workout
+  reminders are re-validated at dispatch and dropped when stale; other messages
+  remain accurate after reinstatement, so they were not expired.
+- The suspended screen's billing section is render-tested only (no browser run).

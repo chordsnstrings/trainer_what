@@ -43,6 +43,9 @@ export type NotificationInput = {
   // Some lifecycle confirmations belong in the private inbox only.
   email?: boolean;
   push?: boolean;
+  // A confirmation about the member's own money (payment or refund). Its email
+  // is still sent while the workspace is suspended (worker claimJob).
+  transactional?: boolean;
   source?: Record<string, unknown>;
 };
 const critical = (category: string) => ["safety", "account"].includes(category);
@@ -223,6 +226,7 @@ export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
             notificationId,
             userId: input.userId,
             category: input.category,
+            ...(input.transactional ? { transactional: true } : {}),
             to: target.email,
             subject: title,
             text:

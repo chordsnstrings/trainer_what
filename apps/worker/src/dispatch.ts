@@ -33,8 +33,9 @@ const NUTRITION_BACKOFF =
 
 /**
  * Claims one due job with a two-minute lease; the returned row carries the CAS
- * token. A suspended workspace claims only critical account and safety emails;
- * its other jobs stay pending until reinstatement.
+ * token. A suspended workspace claims only critical account and safety emails
+ * and transactional money confirmations (payment and refund notices), since
+ * billing continues; its other jobs stay pending until reinstatement.
  */
 export async function claimJob(
   db: Database,
@@ -43,7 +44,7 @@ export async function claimJob(
 ) {
   return db.tenant(workerActor(tenantId), async (tx) => {
     const [j] = await tx.query(
-      "SELECT * FROM jobs WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now()) AND ($1::boolean=false OR (kind='email' AND data->>'category' IN ('account','safety'))) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1",
+      "SELECT * FROM jobs WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now()) AND ($1::boolean=false OR (kind='email' AND (data->>'category' IN ('account','safety') OR data->>'transactional'='true'))) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1",
       [options.criticalEmailOnly === true],
     );
     if (!j) return null;

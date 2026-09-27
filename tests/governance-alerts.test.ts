@@ -300,3 +300,56 @@ test("pluggable rules and event-driven alerts use the same inbox", async () => {
   assert.equal(ran.statusCode, 200, ran.body);
   assert.ok(ran.json().rules >= 7);
 });
+
+test("alert text is stored only in a platform workspace the operator owns", async () => {
+  // Operators whose only memberships are a follower or staff seat in a
+  // trainer's workspace: that trainer's owner must never receive their alerts.
+  const followerOperator = await f.person({
+    tenantId: owner.tenantId,
+    role: "subscriber",
+    platformRole: "finance",
+  });
+  const staffOperator = await f.person({
+    tenantId: owner.tenantId,
+    role: "staff",
+    platformRole: "finance",
+  });
+  const outcome = await raisePlatformAlert(f.db, "finance.synthetic_review", {
+    dedupeKey: "finance.synthetic_review:placement",
+    fingerprint: "placement-1",
+    severity: "warning",
+    scope: ["finance"],
+    title: "Synthetic finance review",
+    detail: "Synthetic Studio has 2 payouts waiting (AED 1,250.00).",
+  });
+  assert.equal(outcome, "opened");
+  const placement = (userId: string) =>
+    f.db.system((tx) =>
+      tx.query(
+        "SELECT d.status,d.tenant_id,d.notification_id FROM platform_alert_deliveries d JOIN platform_alerts a ON a.id=d.alert_id WHERE d.user_id=$1 AND a.dedupe_key='finance.synthetic_review:placement'",
+        [userId],
+      ),
+    );
+  for (const p of [followerOperator, staffOperator])
+    assert.deepEqual(await placement(p.userId), [
+      { status: "no_workspace", tenant_id: null, notification_id: null },
+    ]);
+  const [home] = await placement(finance.userId);
+  assert.equal(home.status, "delivered");
+  assert.equal(home.tenant_id, finance.tenantId);
+  // Nothing about platform alerts was written into the trainer's workspace.
+  const [leaked] = await f.db.tenant(scoped(), (tx) =>
+    tx.query(
+      "SELECT (SELECT count(*)::int FROM notifications WHERE dedupe_key LIKE 'platform-alert:%') AS notifications,(SELECT count(*)::int FROM jobs WHERE data->>'subject' LIKE '%Synthetic finance review%' OR data->>'text' LIKE '%Synthetic finance review%') AS jobs",
+    ),
+  );
+  assert.deepEqual(leaked, { notifications: 0, jobs: 0 });
+  // The alert stays visible to them in the platform alert inbox.
+  const fresh = await f.session(followerOperator.userId, owner.tenantId, true);
+  const inbox = await f.call("/admin/alerts", { cookie: fresh });
+  assert.equal(inbox.statusCode, 200, inbox.body);
+  assert.ok(
+    inbox.json().alerts.some((a: any) => a.title === "Synthetic finance review"),
+  );
+  assert.equal(await clearPlatformAlert(f.db, "finance.synthetic_review:placement"), 1);
+});

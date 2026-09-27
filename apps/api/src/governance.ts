@@ -7,7 +7,10 @@ import { workspaceLock } from "./privacy-lifecycle.ts";
 import { transitionPayout } from "./finance.ts";
 import { notifyUser } from "./notifications.ts";
 import { accountLocked } from "./account-governance.ts";
-import { workspaceSuspendedMessage } from "./workspace-state.ts";
+import {
+  platformWorkspaceSql,
+  workspaceSuspendedMessage,
+} from "./workspace-state.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 
 // Super admin governance: workspace suspension/reinstatement and account
@@ -98,15 +101,18 @@ export async function suspendWorkspace(
           ? "This workspace is already suspended."
           : "Only an active workspace can be suspended.",
       );
-    const [operatorMember] = await tx.query(
-      "SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND u.platform_role<>'none' LIMIT 1",
+    // Only a platform administration workspace (its owner is an operator) is
+    // exempt. Operators who follow or staff this trainer keep their operator
+    // access through /api/v1/admin/* and can switch workspace.
+    const [platform] = await tx.query(
+      `SELECT ${platformWorkspaceSql("$1::uuid")} AS platform`,
       [tenantId],
     );
-    if (operatorMember)
+    if (platform?.platform)
       throw fail(
         409,
         "PLATFORM_WORKSPACE",
-        "This workspace holds a platform operator account. Remove that platform role before suspending it.",
+        "This is a platform administration workspace: its owner holds a platform role. Remove that platform role before suspending it.",
       );
     await tx.query(
       "UPDATE tenants SET lifecycle_state='suspended' WHERE id=$1",
@@ -168,6 +174,10 @@ export async function suspendWorkspace(
               : "Contact platform support to resolve this."),
           href: "/trainer",
           source: { kind: "workspace_suspension", suspensionId },
+          // Device notifications only reach members of active workspaces, so a
+          // push would wait and arrive stale after reinstatement. The in-app
+          // notice and the critical email carry it.
+          push: false,
         });
       return ready.map((p) => p.id as string);
     });
@@ -245,6 +255,18 @@ export async function reinstateWorkspace(
         });
       return still.map((p) => p.id as string);
     });
+    // The suspension notice is now misleading: undelivered email or device
+    // jobs for it are closed (the in-app record stays as history). The owner
+    // role is needed to see another member's notification.
+    const superseded = await asTenant(
+      tx,
+      { tenantId, userId: a.userId, role: "owner" },
+      () =>
+        tx.query(
+          "UPDATE jobs SET status='completed',leased_until=NULL,last_error='Superseded by workspace reinstatement' WHERE status='pending' AND kind IN ('email','push') AND data->>'notificationId' IN (SELECT id::text FROM notifications WHERE dedupe_key=$1) RETURNING id",
+          ["workspace-suspension:" + s.id],
+        ),
+    );
     const [row] = await tx.query(
       "UPDATE workspace_suspensions SET status='lifted',lifted_by=$2,lifted_at=now(),lift_reason=$3,released_payouts=$4,revision=revision+1 WHERE id=$1 RETURNING *",
       [s.id, a.userId, input.reason, JSON.stringify(released)],
@@ -252,6 +274,7 @@ export async function reinstateWorkspace(
     await audit(tx, a.userId, "workspace.reinstated", tenantId, s.id, {
       reason: input.reason,
       releasedPayouts: released.length,
+      supersededNoticeJobs: superseded.length,
     });
     return { suspension: row, releasedPayouts: released };
   });
@@ -398,7 +421,9 @@ export function registerGovernance(
       .parse(req.query);
     return db.system(async (tx) => {
       const rows = await tx.query(
-        "SELECT t.id,t.slug,t.name,t.published,t.lifecycle_state,t.created_at,(SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email) FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='owner' ORDER BY m.user_id LIMIT 1) AS owner,(SELECT count(*)::int FROM memberships m WHERE m.tenant_id=t.id AND m.role='subscriber') AS followers,EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND u.platform_role<>'none') AS platform_workspace,(SELECT jsonb_build_object('id',s.id,'revision',s.revision,'reason',s.reason,'notice',s.notice,'suspendedAt',s.suspended_at,'suspendedBy',s.suspended_by,'heldPayouts',jsonb_array_length(s.held_payouts),'financeFollowupId',s.finance_followup_id) FROM workspace_suspensions s WHERE s.tenant_id=t.id AND s.status='active') AS suspension FROM tenants t WHERE ($1='' OR position(lower($1) in lower(t.name))>0 OR position(lower($1) in lower(t.slug))>0) AND ($2='' OR t.lifecycle_state=$2) ORDER BY t.created_at DESC,t.id LIMIT 51 OFFSET $3",
+        "SELECT t.id,t.slug,t.name,t.published,t.lifecycle_state,t.created_at,(SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email) FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='owner' ORDER BY m.user_id LIMIT 1) AS owner,(SELECT count(*)::int FROM memberships m WHERE m.tenant_id=t.id AND m.role='subscriber') AS followers," +
+          platformWorkspaceSql("t.id") +
+          " AS platform_workspace,(SELECT jsonb_build_object('id',s.id,'revision',s.revision,'reason',s.reason,'notice',s.notice,'suspendedAt',s.suspended_at,'suspendedBy',s.suspended_by,'heldPayouts',jsonb_array_length(s.held_payouts),'financeFollowupId',s.finance_followup_id) FROM workspace_suspensions s WHERE s.tenant_id=t.id AND s.status='active') AS suspension FROM tenants t WHERE ($1='' OR position(lower($1) in lower(t.name))>0 OR position(lower($1) in lower(t.slug))>0) AND ($2='' OR t.lifecycle_state=$2) ORDER BY t.created_at DESC,t.id LIMIT 51 OFFSET $3",
         [q.q, q.state, q.page * 50],
       );
       const [counts] = await tx.query(

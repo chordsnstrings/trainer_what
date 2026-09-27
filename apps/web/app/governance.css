@@ -132,6 +132,22 @@
   text-align: start;
   overflow-wrap: anywhere;
 }
+.governance-member-billing {
+  margin-block: 16px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.governance-member-billing .governance-form {
+  display: grid;
+  gap: 8px;
+}
+.governance-member-billing .field select,
+.governance-member-billing .field textarea {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
 .governance-notice-body {
   margin-block: 4px 0;
   white-space: pre-line;

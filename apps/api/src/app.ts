@@ -112,8 +112,13 @@ import {
   accountLockedError,
   assertSignInAllowed,
 } from "./account-governance.ts";
-import { enforceWorkspaceGate } from "./workspace-state.ts";
 import {
+  enforceWorkspaceGate,
+  lockSuspendedMember,
+  workspaceSuspendedMessage,
+} from "./workspace-state.ts";
+import {
+  adminRouteRequested,
   enforceOperatorStepUp,
   trackOperatorRoutes,
 } from "./operator-step-up.ts";
@@ -445,8 +450,19 @@ export async function buildApp(
         );
     }
     if (!probe) {
-      enforceWorkspaceGate(req.identity, req.method, requestPath);
-      enforceOperatorStepUp(req.identity, requestPath);
+      // Routing already ran: decide from the matched route pattern as well as
+      // the raw path, so an encoded spelling cannot skip either guard.
+      const routePattern = req.routeOptions.url;
+      enforceWorkspaceGate(req.identity, req.method, requestPath, {
+        routePattern,
+        operatorRoute: adminRouteRequested(requestPath, routePattern),
+      });
+      enforceOperatorStepUp(
+        req.identity,
+        req.method,
+        requestPath,
+        routePattern,
+      );
     }
     if (token && req.identity && !probe)
       await touchAccountSession(db, tokenHash(token)).catch(() => {});
@@ -2001,6 +2017,10 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    // While a workspace is suspended a member can only withdraw permission.
+    const suspended = a.workspaceState === "suspended";
+    if (suspended && b.granted)
+      throw fail(423, "WORKSPACE_SUSPENDED", workspaceSuspendedMessage());
     const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
       if (b.type === "voice" || b.type === "wearable") {
@@ -2017,7 +2037,8 @@ export async function buildApp(
             a.userId,
         ]);
       }
-      if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await (suspended ? lockSuspendedMember(tx, a) : lockTraining(tx, a));
       if (b.type === "coaching")
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":training:" + a.userId,

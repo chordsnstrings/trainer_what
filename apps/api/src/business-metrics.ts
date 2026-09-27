@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
+import { platformWorkspaceSql } from "./workspace-state.ts";
 
 // Executive business metrics for Super admin and platform finance operators.
 // Read-only: every figure is computed from the ledger (journals and lines),
@@ -30,7 +31,10 @@ export type MonthMetrics = {
   /** Distinct paying memberships; not additive, so the window total is null. */
   payingMembers: number | null;
   newPayingMembers: number;
+  /** Paid memberships canceled in the month (the churn numerator). */
   cancellations: number;
+  /** Trials or unpaid memberships canceled before any charge. */
+  unpaidCancellations: number;
   churnRate: number | null;
   trialsStarted: number;
   trialsConverted: number;
@@ -82,8 +86,10 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
     `SELECT ${month("x.first")} AS month,count(*)::int AS n FROM (SELECT j.data->>'userId' AS member,min(j.created_at) AS first FROM journals j WHERE ${POSITIVE_INVOICE} GROUP BY 1) x WHERE x.first>=$1 GROUP BY 1`,
     [since],
   );
+  // A cancellation counts toward churn only when the member (the event actor)
+  // had paid before it; a trial canceled before any charge is reported apart.
   const cancellations = await tx.query(
-    `SELECT ${month("e.created_at")} AS month,count(DISTINCT e.subject_id)::int AS n FROM events e WHERE e.name='subscription.updated' AND e.data->>'status'='canceled' AND e.created_at>=$1 GROUP BY 1`,
+    `SELECT ${month("x.created_at")} AS month,count(DISTINCT x.subject_id) FILTER(WHERE x.paid)::int AS n,count(DISTINCT x.subject_id) FILTER(WHERE NOT x.paid)::int AS unpaid FROM (SELECT e.subject_id,e.created_at,EXISTS(SELECT 1 FROM journals j WHERE ${POSITIVE_INVOICE} AND j.data->>'userId'=e.actor_id::text AND j.created_at<e.created_at) AS paid FROM events e WHERE e.name='subscription.updated' AND e.data->>'status'='canceled' AND e.created_at>=$1) x GROUP BY 1`,
     [since],
   );
   // A trial starts at the first trialing update of a provider subscription
@@ -126,12 +132,15 @@ export async function computeBusinessMetrics(
   const workspaces = await db.system((tx) =>
     tx.query<{ id: string; lifecycle_state: string; published: boolean }>(
       // Platform administration workspaces (owned by an operator) are not trainers.
-      "SELECT t.id,t.lifecycle_state,t.published FROM tenants t WHERE NOT EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='owner' AND u.platform_role<>'none') ORDER BY t.id",
+      "SELECT t.id,t.lifecycle_state,t.published FROM tenants t WHERE NOT " +
+        platformWorkspaceSql("t.id") +
+        " ORDER BY t.id",
     ),
   );
   const [followers] = await db.system((tx) =>
     tx.query(
-      "SELECT count(DISTINCT m.user_id)::int AS n FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.role='subscriber' AND t.lifecycle_state<>'closed' AND NOT EXISTS(SELECT 1 FROM memberships o JOIN users u ON u.id=o.user_id WHERE o.tenant_id=t.id AND o.role='owner' AND u.platform_role<>'none')",
+      "SELECT count(DISTINCT m.user_id)::int AS n FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.role='subscriber' AND t.lifecycle_state<>'closed' AND NOT " +
+        platformWorkspaceSql("t.id"),
     ),
   );
   const empty = (m: string): MonthMetrics => ({
@@ -148,6 +157,7 @@ export async function computeBusinessMetrics(
     payingMembers: 0,
     newPayingMembers: 0,
     cancellations: 0,
+    unpaidCancellations: 0,
     churnRate: null,
     trialsStarted: 0,
     trialsConverted: 0,
@@ -199,7 +209,9 @@ export async function computeBusinessMetrics(
     }
     for (const row of f.cancellations) {
       const m = series.get(row.month);
-      if (m) m.cancellations += row.n;
+      if (!m) continue;
+      m.cancellations += row.n;
+      m.unpaidCancellations += row.unpaid;
     }
     for (const row of f.trials) {
       const m = series.get(row.month);
@@ -302,7 +314,9 @@ export async function computeBusinessMetrics(
       mrrMinor:
         "Current monthly price of active and past-due memberships (last invoiced amount); trials are excluded.",
       churnRate:
-        "Memberships canceled in the month divided by distinct paying memberships in the previous month.",
+        "Paid memberships canceled in the month (the member had a positive subscription charge before canceling) divided by distinct paying memberships in the previous month.",
+      unpaidCancellations:
+        "Trials and other memberships canceled before any positive charge; reported separately and excluded from churn.",
       trialConversionRate:
         "Trials started in the month that later received a positive subscription charge.",
       costToRevenue:
@@ -329,6 +343,7 @@ const csvFields: Array<keyof MonthMetrics> = [
   "payingMembers",
   "newPayingMembers",
   "cancellations",
+  "unpaidCancellations",
   "churnRate",
   "trialsStarted",
   "trialsConverted",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { notifyUser } from "./notifications.ts";
+import { platformWorkspaceSql } from "./workspace-state.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 
@@ -11,8 +12,9 @@ import { pushAvailable } from "../../../packages/providers/src/push.ts";
 // return candidates; the engine de-duplicates by key, tracks each condition by
 // a fingerprint, re-opens nothing an operator resolved unless the condition
 // changed, resolves alerts whose condition cleared, and delivers new or
-// escalated alerts to operators by role scope through the in-app inbox of
-// their home workspace and the existing email/push channels.
+// escalated alerts to operators by role scope through the in-app inbox of a
+// platform administration workspace they own and the existing email/push
+// channels. Operators without one see alerts only in the operator inbox.
 
 export type PlatformRole = "admin" | "finance" | "support" | "safety";
 export type AlertSeverity = "info" | "warning" | "critical";
@@ -432,9 +434,14 @@ export async function deliverPlatformAlerts(db: Database, limit = 200) {
   let delivered = 0;
   for (const p of pending) {
     try {
+      // Alert text names other workspaces, so it is stored only in a platform
+      // administration workspace the operator owns, never in a trainer
+      // workspace they follow or staff (whose owner could read it).
       const [home] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' ORDER BY (m.role='owner') DESC,(SELECT max(s.last_seen_at) FROM sessions s WHERE s.user_id=m.user_id AND s.tenant_id=m.tenant_id) DESC NULLS LAST,m.tenant_id LIMIT 1",
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.role='owner' AND t.lifecycle_state='active' AND " +
+            platformWorkspaceSql("t.id") +
+            " ORDER BY (SELECT max(s.last_seen_at) FROM sessions s WHERE s.user_id=m.user_id AND s.tenant_id=m.tenant_id) DESC NULLS LAST,m.tenant_id LIMIT 1",
           [p.user_id],
         ),
       );

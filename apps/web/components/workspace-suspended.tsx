@@ -1,11 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { governanceApi, when } from "./governance-shared";
+import { SuspendedMemberBilling } from "./suspended-member-billing";
 
 /**
  * Shown instead of the workspace when the platform suspended it. Account
  * actions stay available: the suspension notice, notifications, switching to
- * another workspace, personal data export and signing out.
+ * another workspace, personal data export and signing out. Followers also keep
+ * membership billing (stop renewal, refund request) and deletion requests.
  */
 export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [status, setStatus] = useState<any>(null),
@@ -59,6 +61,7 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
             )}
           </>
         )}
+        {status?.role === "subscriber" && <SuspendedMemberBilling />}
         {workspaces.length > 0 && (
           <div>
             <h2>Your other workspaces</h2>

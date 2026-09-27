@@ -14,7 +14,11 @@ export type Person = {
   cookie: string;
 };
 
-export async function governanceFixture() {
+export async function governanceFixture(
+  options: {
+    providers?: NonNullable<Parameters<typeof buildApp>[0]>["providers"];
+  } = {},
+) {
   const saved = {
     PUBLIC_APP_URL: process.env.PUBLIC_APP_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
@@ -23,7 +27,12 @@ export async function governanceFixture() {
   Reflect.deleteProperty(process.env, "SUPPORT_EMAIL");
   const encoded = await passwordHash(password);
   const db: Database = await createDatabase({ memory: true });
-  const app = await buildApp({ db, testing: true });
+  // Provider fixtures (such as a fake Stripe client) never contact a provider.
+  const app = await buildApp({
+    db,
+    testing: true,
+    ...(options.providers ? { providers: options.providers } : {}),
+  });
   let address = 0;
   const call = (
     path: string,

@@ -35,7 +35,7 @@ const failures: Record<keyof TenantSchedulers, string> = {
   coachingFollowups: "Scheduled coaching follow-up delivery failed",
 };
 
-/** Workspaces the worker visits: active ones, and suspended ones for critical email only. */
+/** Workspaces the worker visits: active ones, and suspended ones for critical and transactional email only. */
 export function workerTenants(db: Database) {
   return db.system((tx) =>
     tx.query<{ id: string; lifecycle_state: string }>(
@@ -48,7 +48,8 @@ export function workerTenants(db: Database) {
  * One worker visit to a workspace. A suspended workspace runs no automated
  * coaching, nutrition delivery, reminders, lifecycle or retention messages,
  * follow-ups, finance automation or push; only critical account and safety
- * emails (such as the suspension notice) are dispatched. Returns what ran.
+ * emails (such as the suspension notice) and transactional payment or refund
+ * confirmations are dispatched. Returns what ran.
  */
 export async function runTenantCycle(
   db: Database,

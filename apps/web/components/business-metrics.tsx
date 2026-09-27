@@ -93,7 +93,7 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                 <Tile label="Platform commission (period)" value={aed(t.commissionMinor)}
                   detail={`Take rate ${percent(t.takeRate)}`} />
                 <Tile label="Churn (latest month)" value={percent(latest?.churnRate)}
-                  detail={`${latest?.cancellations ?? 0} cancellation(s) in ${latest ? monthLabel(latest.month) : "—"}`} />
+                  detail={`${latest?.cancellations ?? 0} paid cancellation(s) in ${latest ? monthLabel(latest.month) : "—"}${latest?.unpaidCancellations ? ` · ${latest.unpaidCancellations} unpaid trial(s) canceled` : ""}`} />
                 <Tile label="Trial conversion (period)" value={percent(t.trialConversionRate)}
                   detail={`${t.trialsConverted} of ${t.trialsStarted} trials`} />
                 <Tile label="AI and voice cost vs revenue" value={percent(t.costToRevenue)}
@@ -162,7 +162,12 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>{percent(m.takeRate)}</td>
                           <td>{m.payingMembers ?? "—"}</td>
                           <td>{m.newPayingMembers}</td>
-                          <td>{m.cancellations}</td>
+                          <td>
+                            {m.cancellations}
+                            {m.unpaidCancellations ? (
+                              <small className="muted"> +{m.unpaidCancellations} unpaid</small>
+                            ) : null}
+                          </td>
                           <td>{percent(m.churnRate)}</td>
                           <td>{m.trialsConverted}/{m.trialsStarted}</td>
                           <td>{aed(m.providerCostAedMinor)} <small className="muted">{percent(m.costToRevenue)}</small></td>

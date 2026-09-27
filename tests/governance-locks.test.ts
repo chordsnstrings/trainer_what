@@ -10,6 +10,10 @@ import {
   replaceRecoveryCodes,
 } from "../apps/api/src/account-completion.ts";
 import { assertSignInAllowed } from "../apps/api/src/account-governance.ts";
+import {
+  assignPlatformRole,
+  resetUserMfa,
+} from "../apps/api/src/operator-actions.ts";
 
 let f: Awaited<ReturnType<typeof governanceFixture>>;
 const savedKey = process.env.SECURITY_ENCRYPTION_KEY;
@@ -247,5 +251,88 @@ test("a session row that survives a lock is rejected, and unlocking restores sig
   // History is retained: a lifted lock cannot be edited or deleted.
   await assert.rejects(
     f.db.system((tx) => tx.query("DELETE FROM account_locks WHERE id=$1", [lockId])),
+  );
+});
+
+// Runs last in this file: it demotes the file's earlier Super admins so the
+// "last active Super admin" count is exact. Each test file has its own database.
+test("host operator commands honour account locks and keep one active Super admin", async () => {
+  const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+  await f.db.system((tx) =>
+    tx.query("UPDATE users SET platform_role='none' WHERE platform_role='admin'"),
+  );
+  const withAuthenticator = async (userId: string) =>
+    f.db.system((tx) =>
+      tx.query(
+        "INSERT INTO user_security(user_id,totp_secret,enabled,last_counter) VALUES($1,$2,true,-1)",
+        [userId, sealValue(sealContexts.authenticator(userId), secret)],
+      ),
+    );
+  const code = async (userId: string) => {
+    await f.db.system((tx) =>
+      tx.query("UPDATE user_security SET last_counter=-1 WHERE user_id=$1", [userId]),
+    );
+    return totpAt(secret, Math.floor(Date.now() / 30000));
+  };
+  const emailOf = async (userId: string) =>
+    (
+      await f.db.system((tx) => tx.query("SELECT email FROM users WHERE id=$1", [userId]))
+    )[0].email as string;
+  const active = await f.operator("admin"),
+    locked = await f.operator("admin"),
+    member = await f.person();
+  for (const p of [active, locked, member]) await withAuthenticator(p.userId);
+  const lockRow = (userId: string, by: string) =>
+    f.db.system((tx) =>
+      tx.query(
+        "INSERT INTO account_locks(id,user_id,reason,locked_by) VALUES($1,$2,'Synthetic host command lock',$3)",
+        [randomUUID(), userId, by],
+      ),
+    );
+  await lockRow(locked.userId, active.userId);
+  const reason = "Synthetic host command review fixture";
+  const role = async (actor: string, target: string, to: string) =>
+    assignPlatformRole(f.db, {
+      actorEmail: await emailOf(actor),
+      actorCode: await code(actor),
+      targetEmail: await emailOf(target),
+      role: to,
+      reason,
+    });
+  // A locked Super admin has no host authority either.
+  await assert.rejects(role(locked.userId, member.userId, "support"), /locked/);
+  await assert.rejects(
+    resetUserMfa(f.db, {
+      actorEmail: await emailOf(locked.userId),
+      actorCode: await code(locked.userId),
+      targetEmail: await emailOf(member.userId),
+      reason,
+    }),
+    /locked/,
+  );
+  // With one active and one locked Super admin, the active one is the last.
+  await assert.rejects(
+    role(active.userId, active.userId, "none"),
+    /last one \(locked Superadmins do not count\)/,
+  );
+  // Demoting the locked one leaves the active one in place.
+  const demoted = await role(active.userId, locked.userId, "none");
+  assert.deepEqual([demoted.changed, demoted.from, demoted.to], [true, "admin", "none"]);
+  // With every Super admin locked, recovery by a verified account is open,
+  // but a locked account cannot recover itself.
+  await assert.rejects(role(member.userId, member.userId, "admin"), /verified Superadmin/);
+  await lockRow(active.userId, member.userId);
+  await assert.rejects(role(active.userId, active.userId, "admin"));
+  const recovered = await role(member.userId, member.userId, "admin");
+  assert.deepEqual([recovered.changed, recovered.to], [true, "admin"]);
+  const lockedRecovery = await f.person();
+  await withAuthenticator(lockedRecovery.userId);
+  await lockRow(lockedRecovery.userId, member.userId);
+  await f.db.system((tx) =>
+    tx.query("UPDATE users SET platform_role='none' WHERE id=$1", [member.userId]),
+  );
+  await assert.rejects(
+    role(lockedRecovery.userId, lockedRecovery.userId, "admin"),
+    /locked account cannot receive/,
   );
 });

@@ -135,6 +135,8 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
   const m3 = await f.person({ tenantId: b.tenantId, role: "subscriber" });
   const m4 = await f.person({ tenantId: b.tenantId, role: "subscriber" });
   await f.person({ tenantId: c.tenantId, role: "subscriber" });
+  // An operator who follows a trainer does not make it a platform workspace.
+  await f.person({ tenantId: a.tenantId, role: "subscriber", platformRole: "support" });
 
   await invoice(a.tenantId, "inv0", m1.userId, 10000, 1500, "2026-06-10T10:00:00Z");
   await invoice(a.tenantId, "inv1", m1.userId, 10000, 1500, "2026-07-10T10:00:00Z");
@@ -163,6 +165,8 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
   await subscriptionEvent(a.tenantId, m2.userId, "sub_m2", "canceled", "2026-08-25T10:00:00Z");
   await subscriptionEvent(b.tenantId, m3.userId, "sub_m3", "trialing", "2026-08-28T10:00:00Z");
   await subscriptionEvent(b.tenantId, m4.userId, "sub_m4", "trialing", "2026-09-08T10:00:00Z");
+  // A trial canceled before any charge is not churn; it is reported apart.
+  await subscriptionEvent(b.tenantId, m4.userId, "sub_m4", "canceled", "2026-09-12T10:00:00Z");
   // Provider cost in September: AI, voice and one unpriced request.
   await f.db.tenant(f.scoped(a.tenantId, "finance"), async (tx) => {
     for (const [task, provider, cost, status] of [
@@ -192,7 +196,7 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
     suspended: 1,
     closed: 0,
   });
-  assert.equal(r.snapshot.followers, 5);
+  assert.equal(r.snapshot.followers, 6);
   assert.equal(r.snapshot.mrrMinor, 25000);
   assert.deepEqual(
     {
@@ -239,6 +243,11 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
     [1, 0.25, 1, 459, 0.18],
   );
   assert.deepEqual([sep.trialsStarted, sep.trialsConverted, sep.trialConversionRate], [1, 0, 0]);
+  assert.deepEqual(
+    [sep.cancellations, sep.unpaidCancellations, sep.churnRate],
+    [0, 1, 0],
+  );
+  assert.equal(aug.unpaidCancellations, 0);
   const t = r.totals;
   assert.deepEqual(
     [t.grossMinor, t.refundsMinor, t.refundRate, t.commissionMinor, t.takeRate, t.platformRevenueMinor],
@@ -248,6 +257,7 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
     [t.payingMembers, t.newPayingMembers, t.cancellations, t.churnRate, t.trialsStarted, t.trialsConverted],
     [null, 2, 1, 0.25, 2, 1],
   );
+  assert.equal(t.unpaidCancellations, 1);
   assert.deepEqual([t.providerCostAedMinor, t.costToRevenue, t.payoutsPaidMinor], [459, 0.0588, 8000]);
   const csv = metricsCsv(r).trim().split("\n");
   assert.equal(csv[2].split(",")[0], "2026-08");
@@ -255,6 +265,7 @@ test("executive metrics are computed from the ledger, subscriptions, events, cos
   // Non-additive paying members are blank in the total row.
   const header = csv[0].split(",");
   assert.equal(csv[4].split(",")[header.indexOf("payingMembers")], "");
+  assert.equal(csv[4].split(",")[header.indexOf("unpaidCancellations")], "1");
 });
 
 test("months follow the Asia/Dubai calendar", () => {

@@ -9,6 +9,7 @@ import { WorkspaceGovernance } from "../apps/web/components/workspace-governance
 import { BusinessMetrics } from "../apps/web/components/business-metrics.tsx";
 import { PlatformAlerts } from "../apps/web/components/platform-alerts.tsx";
 import { WorkspaceSuspended } from "../apps/web/components/workspace-suspended.tsx";
+import { SuspendedMemberBilling } from "../apps/web/components/suspended-member-billing.tsx";
 import {
   GovernanceLinks,
   aed,
@@ -53,6 +54,65 @@ test("screens render their scoped initial state with accessible labels", () => {
   assert.match(suspended, /This workspace is suspended\./);
   assert.match(suspended, /Download my data/);
   assert.match(suspended, /Sign out/);
+});
+
+test("a suspended follower sees renewal, refund and deletion actions", () => {
+  const billing = {
+    membership: {
+      status: "active",
+      cancel_at_period_end: false,
+      period_end: "2026-10-15T00:00:00Z",
+      price_minor: 25000,
+      renewable: true,
+    },
+    transitions: [],
+    requests: [
+      {
+        id: "r1",
+        status: "requested",
+        data: { amountMinor: 25000 },
+        created_at: "2026-09-20T10:00:00Z",
+      },
+    ],
+    charges: [
+      {
+        id: "c1",
+        chargeId: "ch_fixture",
+        chargedAt: "2026-09-20T10:00:00Z",
+        remainingMinor: 25000,
+        eligible: true,
+      },
+    ],
+  };
+  const page = html(SuspendedMemberBilling, { initial: billing });
+  assert.match(page, /aria-labelledby="suspended-billing-title"/);
+  assert.match(page, /not cancelled automatically/);
+  assert.match(page, />Cancel membership renewal</);
+  assert.match(page, /Request a refund/);
+  assert.match(page, /<select required="" name="chargeId">/);
+  assert.match(page, /<span>Reason<\/span><textarea name="reason"/);
+  assert.match(page, /Your refund requests/);
+  assert.match(page, />Request account deletion</);
+  assert.match(page, /AED/);
+  // Renewal already stopped: no cancel action; nothing refundable: no form.
+  const stopped = html(SuspendedMemberBilling, {
+    initial: {
+      ...billing,
+      membership: { ...billing.membership, cancel_at_period_end: true },
+      charges: [],
+      requests: [],
+      transitions: [{ id: "t1" }],
+    },
+  });
+  assert.doesNotMatch(stopped, /Cancel membership renewal/);
+  assert.match(stopped, /renewal stopped; ends/);
+  assert.match(stopped, />Check renewal status</);
+  assert.doesNotMatch(stopped, /Request a refund/);
+  const none = html(SuspendedMemberBilling, {
+    initial: { membership: null, transitions: [], requests: [], charges: [] },
+  });
+  assert.match(none, /no membership in this workspace/);
+  assert.match(none, /Request account deletion/);
 });
 
 test("governance links follow the operator role", () => {
