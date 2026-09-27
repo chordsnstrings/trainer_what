@@ -128,6 +128,7 @@ import {
   ProviderUnavailable,
   integrationStatus,
   modelDecision,
+  MODEL_EVIDENCE_LIMIT,
   compileTrainerRules,
   requireCommerce,
   stripeClient,
@@ -183,6 +184,30 @@ async function findRecord(tx: Tx, recordId: string, kind?: string) {
   );
   if (!r) throw fail(404, "NOT_FOUND", "This item is unavailable");
   return r;
+}
+/** Rules may cite trainer teaching material only, never scenarios or client records. */
+async function assertTeachingSources(tx: Tx, ids: string[]) {
+  for (const ref of ids) {
+    const source = await findRecord(tx, ref);
+    if (!["source", "interview"].includes(source.kind))
+      throw fail(
+        400,
+        "INVALID_SOURCE",
+        "Rules can cite trainer teaching sources only",
+      );
+  }
+}
+// A published release must fit in one model request beside the client's
+// profile and Client Twin, so no confirmed rule is silently left unseen.
+const RELEASE_RULE_LIMIT = MODEL_EVIDENCE_LIMIT - 2;
+const HELD_OUT_SCENARIO_LIMIT = 30;
+function assertReleaseRuleLimit(count: number) {
+  if (count > RELEASE_RULE_LIMIT)
+    throw fail(
+      409,
+      "RULE_LIMIT",
+      `A Brain release can include at most ${RELEASE_RULE_LIMIT} confirmed rules; return extra rules to draft before evaluating`,
+    );
 }
 async function putException(
   tx: Tx,
@@ -1136,7 +1161,7 @@ export async function buildApp(
           "VERSION_CONFLICT",
           "This rule changed; reload it before editing",
         );
-      for (const ref of b.rule.sourceIds) await findRecord(tx, ref);
+      await assertTeachingSources(tx, b.rule.sourceIds);
       await putRecord(
         tx,
         a,
@@ -1188,15 +1213,7 @@ export async function buildApp(
     const a = trainer(req),
       b = ruleSchema.parse(req.body);
     return db.tenant(a, async (tx) => {
-      for (const ref of b.sourceIds) {
-        const source = await findRecord(tx, ref);
-        if (!["source", "interview"].includes(source.kind))
-          throw fail(
-            400,
-            "INVALID_SOURCE",
-            "Rules can cite trainer teaching sources only",
-          );
-      }
+      await assertTeachingSources(tx, b.sourceIds);
       const r = await putRecord(tx, a, "rule", {
         ...b,
         allowedUses: ["render", "model_prompt", "trainer_specific_learning"],
@@ -1235,7 +1252,19 @@ export async function buildApp(
       })
       .parse(req.body);
     return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brain",
+      ]);
       await findRecord(tx, b.expectedEvidenceId, "rule");
+      const [held] = await tx.query(
+        "SELECT count(*)::int AS n FROM records WHERE kind='scenario' AND status='held_out'",
+      );
+      if (held.n >= HELD_OUT_SCENARIO_LIMIT)
+        throw fail(
+          409,
+          "SCENARIO_LIMIT",
+          `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios`,
+        );
       return putRecord(tx, a, "scenario", b, { status: "held_out" });
     });
   });
@@ -1246,9 +1275,18 @@ export async function buildApp(
         "SELECT * FROM records WHERE kind='rule' AND status='confirmed' ORDER BY id",
       ),
       cases: await tx.query(
-        "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT 30",
+        "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT $1",
+        [HELD_OUT_SCENARIO_LIMIT + 1],
       ),
     }));
+    // Every held-out scenario is evaluated; none is silently dropped.
+    if (material.cases.length > HELD_OUT_SCENARIO_LIMIT)
+      throw fail(
+        409,
+        "EVAL_SCOPE",
+        `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios; nothing has been evaluated`,
+      );
+    assertReleaseRuleLimit(material.rules.length);
     if (material.cases.length < 20)
       throw fail(
         409,
@@ -1327,6 +1365,7 @@ export async function buildApp(
           ),
         )
         .digest("hex");
+      assertReleaseRuleLimit(rules.length);
       if (
         evaluation.status !== "passed" ||
         evaluation.data.rulesDigest !== digest
@@ -1856,8 +1895,10 @@ export async function buildApp(
       );
       if (!b.granted && b.type === "coaching") {
         await revokeCoachingFeedbackLearning(tx, a.userId);
+        // Remove only model use. Wearable rows are governed by wearable consent
+        // and never reach the model-facing coaching object.
         await tx.query(
-          "UPDATE records SET data=jsonb_set(data,'{allowedUses}','[\"render\"]'::jsonb),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','wearable','twin_snapshot')",
+          "UPDATE records SET data=jsonb_set(data,'{allowedUses}',coalesce(data->'allowedUses','[\"render\"]'::jsonb)-'model_prompt'),updated_at=now() WHERE owner_user_id=$1 AND kind IN ('intake','twin_snapshot')",
           [a.userId],
         );
       }
