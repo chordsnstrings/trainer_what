@@ -123,6 +123,10 @@
 .directory-empty {
   text-align: start;
 }
+.directory .directory-closed-title {
+  font-size: clamp(24px, 4vw, 32px);
+  margin-block-end: 12px;
+}
 .directory-pages {
   display: flex;
   flex-wrap: wrap;

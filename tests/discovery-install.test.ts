@@ -7,7 +7,11 @@ import {
   resolveBrandDesign,
   shortAppName,
 } from "../packages/contracts/src/index.ts";
-import { renderAppIcon, workspaceIconKey } from "../apps/api/src/discovery.ts";
+import {
+  MASKABLE_LOGO_SCALE,
+  renderAppIcon,
+  workspaceIconKey,
+} from "../apps/api/src/discovery.ts";
 import {
   call,
   coach,
@@ -208,6 +212,51 @@ test("a platform-hosted logo is drawn on the brand surface and a design change g
       Math.abs(corner[2] - 0xef) < 4,
     `corner ${corner}`,
   );
+});
+
+test("a maskable icon keeps a square logo inside the circular safe zone", async () => {
+  // A fully opaque square logo is the worst case for circular launcher masks.
+  const logo = await sharp({
+    create: { width: 600, height: 600, channels: 3, background: "#0044ff" },
+  })
+    .png()
+    .toBuffer();
+  const brand = resolveBrandDesign({ design: design() });
+  const size = 512;
+  const icon = await renderAppIcon({
+    name: "Square Logo",
+    design: brand,
+    size,
+    variant: "maskable",
+    logo,
+  });
+  const { data, info } = await sharp(icon)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  assert.equal(info.width, size);
+  assert.equal(info.channels, 3);
+  assert.equal((await sharp(icon).metadata()).hasAlpha, false);
+  let logoPixels = 0,
+    outside = 0,
+    maxRadius = 0;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * info.channels;
+      if (!(data[i + 2] > 200 && data[i] < 60)) continue;
+      logoPixels++;
+      // Distance of the pixel's far corner from the centre, as a share of
+      // the icon's side; the maskable safe zone is the circle of radius 0.4.
+      const dx = Math.max(Math.abs(x - size / 2), Math.abs(x + 1 - size / 2)),
+        dy = Math.max(Math.abs(y - size / 2), Math.abs(y + 1 - size / 2));
+      const radius = Math.hypot(dx, dy) / size;
+      maxRadius = Math.max(maxRadius, radius);
+      if (radius > 0.4) outside++;
+    }
+  assert.equal(outside, 0, `max radius ${maxRadius.toFixed(3)}`);
+  // The logo still fills most of the safe zone.
+  const side = Math.round(size * MASKABLE_LOGO_SCALE);
+  assert.ok(logoPixels >= (side - 2) ** 2, `${logoPixels} logo pixels`);
+  assert.ok(maxRadius > 0.38, `max radius ${maxRadius.toFixed(3)}`);
 });
 
 test("icons fall back to initials and a coach domain serves only its own workspace's icons", async () => {

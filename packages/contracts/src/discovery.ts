@@ -21,29 +21,27 @@ export const PUBLIC_MARKETING_PATHS = [
 ] as const;
 
 /**
- * Private app, authentication and API routes. They are disallowed in
- * robots.txt, rendered with noindex metadata and sent with X-Robots-Tag.
- * Robots rules match by prefix, so "/app" also covers "/app/nutrition".
+ * First path segments of private app and authentication routes. They are
+ * disallowed in robots.txt, rendered with noindex metadata and sent with
+ * X-Robots-Tag. API routes live under "/api/".
  */
-export const PRIVATE_ROUTE_PREFIXES = [
-  "/api/",
-  "/app",
-  "/trainer",
-  "/admin",
-  "/login",
-  "/signup",
-  "/join/",
-  "/join-coach/",
-  "/forgot-password",
-  "/reset-password/",
-  "/verify-email/",
-  "/magic-link",
-  "/recover-authenticator",
+export const PRIVATE_ROUTE_SEGMENTS = [
+  "app",
+  "trainer",
+  "admin",
+  "login",
+  "signup",
+  "join",
+  "join-coach",
+  "forgot-password",
+  "reset-password",
+  "verify-email",
+  "magic-link",
+  "recover-authenticator",
 ] as const;
+export const API_ROUTE_PREFIX = "/api/";
 
-const privateSegments = new Set(
-  PRIVATE_ROUTE_PREFIXES.map((prefix) => prefix.split("/")[1]),
-);
+const privateSegments = new Set<string>([...PRIVATE_ROUTE_SEGMENTS, "api"]);
 
 /** True for a private app, auth or API path (exact segment match). */
 export function isPrivatePath(path: string): boolean {
@@ -63,26 +61,128 @@ export function isIndexablePlatformPath(path: string): boolean {
   );
 }
 
+/**
+ * Top-level paths that a connected coach domain serves from the platform (or
+ * refuses) instead of the coach's website. apps/web/host-proxy.ts
+ * customHostPath() decides, and a test keeps the two in step. Note that the
+ * bare "/coach" and "/join-coach" addresses do reach the coach's website; only
+ * their subtrees are special. A coach page with one of these addresses is
+ * reachable on that domain only under /coach/<slug>/<page>.
+ */
+export const COACH_HOST_PLATFORM_SEGMENTS = [
+  "app",
+  "trainer",
+  "admin",
+  "login",
+  "signup",
+  "join",
+  "forgot-password",
+  "reset-password",
+  "verify-email",
+  "magic-link",
+  "recover-authenticator",
+  "terms",
+  "privacy",
+  "ai-disclosure",
+] as const;
+const coachHostPlatformSegments = new Set<string>(COACH_HOST_PLATFORM_SEGMENTS);
+
+/** The address of a coach website page on the coach's connected domain. */
+export function coachHostPagePath(tenantSlug: string, page: string): string {
+  return coachHostPlatformSegments.has(page)
+    ? `/coach/${tenantSlug}/${page}`
+    : `/${page}`;
+}
+
+/**
+ * robots.txt rules for the private routes. A plain rule matches by prefix, so
+ * "/app" would also close a coach page called "/approach". Each segment is
+ * closed as a subtree ("/app/"), and exactly ("$" anchors the end, RFC 9309)
+ * and with a query string ("/app?") wherever that address is private: on a
+ * coach domain a bare address the proxy gives to the coach's website stays
+ * open.
+ */
+export function privateRouteDisallowRules(coachHost: boolean): string[] {
+  return [
+    API_ROUTE_PREFIX,
+    ...PRIVATE_ROUTE_SEGMENTS.flatMap((segment) =>
+      coachHost && !coachHostPlatformSegments.has(segment)
+        ? [`/${segment}/`]
+        : [`/${segment}$`, `/${segment}/`, `/${segment}?`],
+    ),
+  ];
+}
+
 export type RobotsPolicy = {
   rules: { userAgent: string; allow: string[]; disallow: string[] };
   sitemap: string;
 };
 
-/** The same private routes are closed on the platform and on coach domains. */
+/**
+ * The same private routes are closed on the platform and on coach domains.
+ * The directory needs no rule on a coach domain: the proxy maps "/coaches"
+ * there to the coach's own website, so it is the coach's page.
+ */
 export function robotsPolicy(origin: string, coachHost: boolean): RobotsPolicy {
   const base = new URL(origin).origin;
   return {
     rules: {
       userAgent: "*",
       allow: ["/"],
-      disallow: [
-        ...PRIVATE_ROUTE_PREFIXES,
-        // The directory exists only on the platform address.
-        ...(coachHost ? [DIRECTORY_PATH] : []),
-      ],
+      disallow: privateRouteDisallowRules(coachHost),
     },
-    sitemap: `${base}/sitemap.xml`,
+    sitemap: `${base}${SITEMAP_PATH}`,
   };
+}
+
+export const SITEMAP_PATH = "/sitemap.xml";
+/** Further sitemap files when the platform needs a sitemap index. */
+export const sitemapFilePath = (page: number) => `/sitemaps/${page}.xml`;
+/** Sitemaps stay well below the 50,000 URL protocol limit. */
+export const SITEMAP_URL_LIMIT = 45000;
+/**
+ * Coach websites per platform sitemap file. A website has at most
+ * 1 + 4 standard sections + 100 custom pages = 105 addresses, so a file holds
+ * at most 400 * 105 + marketing pages, below SITEMAP_URL_LIMIT.
+ */
+export const SITEMAP_COACHES_PER_FILE = 400;
+export const COACH_SITE_MAX_URLS = 105;
+
+export type SitemapEntry = { url: string; lastModified?: string };
+
+const escapeXmlText = (value: string) =>
+  value.replace(
+    /[<>&"']/g,
+    (c) =>
+      ({
+        "<": "&lt;",
+        ">": "&gt;",
+        "&": "&amp;",
+        '"': "&quot;",
+        "'": "&apos;",
+      })[c]!,
+  );
+const SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9";
+
+/** A sitemaps.org <urlset> document. */
+export function sitemapUrlSetXml(entries: readonly SitemapEntry[]): string {
+  const urls = entries.map(
+    (entry) =>
+      `<url>\n<loc>${escapeXmlText(entry.url)}</loc>\n` +
+      (entry.lastModified
+        ? `<lastmod>${escapeXmlText(entry.lastModified)}</lastmod>\n`
+        : "") +
+      `</url>\n`,
+  );
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="${SITEMAP_NS}">\n${urls.join("")}</urlset>\n`;
+}
+
+/** A sitemaps.org <sitemapindex> document naming each sitemap file. */
+export function sitemapIndexXml(locations: readonly string[]): string {
+  const files = locations.map(
+    (loc) => `<sitemap>\n<loc>${escapeXmlText(loc)}</loc>\n</sitemap>\n`,
+  );
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="${SITEMAP_NS}">\n${files.join("")}</sitemapindex>\n`;
 }
 
 export const DIRECTORY_SPECIALTIES = [

@@ -42,3 +42,47 @@ export async function signedApiGet(target: string): Promise<Response> {
     },
   );
 }
+
+export type SitemapFile = {
+  entries: Array<{ url: string; lastModified?: string }>;
+  page: number;
+  pages: number;
+};
+
+/**
+ * One sitemap file for this request's host, decided by the API from the
+ * signed host. Null when that file does not exist. Any other failure throws:
+ * crawlers retry an unavailable sitemap, but an empty one would drop pages.
+ */
+export async function sitemapFile(page: number): Promise<SitemapFile | null> {
+  const response = await signedApiGet(
+    `/api/v1/public/discovery/sitemap?page=${page}`,
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("The sitemap is temporarily unavailable.");
+  return response.json();
+}
+
+const xmlHeaders = {
+  "Content-Type": "application/xml; charset=utf-8",
+  "Cache-Control": "public, max-age=300",
+};
+export function xmlResponse(body: string): Response {
+  return new Response(body, { headers: xmlHeaders });
+}
+export function sitemapMissing(): Response {
+  return new Response("This sitemap does not exist.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+export function sitemapUnavailable(): Response {
+  return new Response("The sitemap is temporarily unavailable.", {
+    status: 503,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Retry-After": "300",
+      "Cache-Control": "no-store",
+    },
+  });
+}

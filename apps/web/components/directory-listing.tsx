@@ -36,7 +36,7 @@ async function api(path: string, method = "GET", body?: unknown) {
 
 const statusText: Record<Listing["status"], string> = {
   not_listed:
-    "Not listed. Visitors can still reach your website through its own address.",
+    "Not listed in the directory. Once launched, your website is still public at its own address.",
   directory_closed:
     "The platform directory is closed right now. Your choice is saved and applies when it reopens.",
   waiting_for_launch:
@@ -133,6 +133,11 @@ export function DirectoryListingSettings() {
         Choose whether prospective clients can find you in the platform’s coach
         directory. It shows your name, headline, photo, specialties, languages
         and a link to your website. Nothing about your members is ever shown.
+      </p>
+      <p className="muted">
+        Search engines are separate from the directory: once your storefront is
+        launched, your public website pages are named in the sitemap that search
+        engines read, whether or not you are listed here.
       </p>
       {message && (
         <p className="notice" role="status">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { DIRECTORY_PAGE_SIZE, appInitials } from "@trainer/contracts";
 
 type Option = { id: string; label: string };
@@ -92,6 +93,113 @@ export function CoachDirectory({
   const previous =
     query.offset > 0 ? Math.max(0, query.offset - DIRECTORY_PAGE_SIZE) : null;
   return (
+    <DirectoryFrame platformName={platformName}>
+      <p className="eyebrow">FIND A COACH</p>
+      <h1>Coaches who chose to be found.</h1>
+      <p className="muted directory-intro">
+        Every coach here opted in. Each profile links to the coach’s own
+        website, where you can read about their approach and memberships.
+      </p>
+      <form
+        className="directory-search"
+        method="get"
+        action="/coaches"
+        role="search"
+      >
+        <label className="field">
+          <span>Name or focus</span>
+          <input
+            name="q"
+            type="search"
+            maxLength={80}
+            defaultValue={query.q}
+            placeholder="For example, strength or a coach’s name"
+          />
+        </label>
+        <label className="field">
+          <span>Specialty</span>
+          <select name="specialty" defaultValue={query.specialty}>
+            <option value="">Any specialty</option>
+            {data.options.specialties.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Language</span>
+          <select name="language" defaultValue={query.language}>
+            <option value="">Any language</option>
+            {data.options.languages.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="directory-search-actions">
+          <button className="button" type="submit">
+            Search coaches
+          </button>
+          {filtered && <Link href="/coaches">Clear filters</Link>}
+        </div>
+      </form>
+      {data.error ? (
+        <p className="notice" role="alert">
+          {data.error}
+        </p>
+      ) : data.coaches.length ? (
+        <>
+          <p className="muted directory-count" role="status">
+            Showing {query.offset + 1}–{query.offset + data.coaches.length}
+            {filtered ? " matching coaches" : " coaches"}
+          </p>
+          <ul className="directory-grid">
+            {data.coaches.map((coach) => (
+              <CoachCard key={coach.slug} coach={coach} />
+            ))}
+          </ul>
+        </>
+      ) : (
+        <section className="card directory-empty" role="status">
+          <h2>
+            {filtered
+              ? "No coaches match this search."
+              : "No coaches are listed yet."}
+          </h2>
+          <p className="muted">
+            {filtered
+              ? "Try another specialty or language, or clear the filters."
+              : "Coaches appear here after they launch and choose to be listed."}
+          </p>
+        </section>
+      )}
+      {(previous !== null || data.nextOffset !== null) && (
+        <nav className="directory-pages" aria-label="Directory pages">
+          {previous !== null && (
+            <Link href={directoryHref(query, previous)}>Previous coaches</Link>
+          )}
+          {data.nextOffset !== null && (
+            <Link href={directoryHref(query, data.nextOffset)}>
+              More coaches
+            </Link>
+          )}
+        </nav>
+      )}
+    </DirectoryFrame>
+  );
+}
+
+/** Shared public header and footer of the directory pages. */
+function DirectoryFrame({
+  platformName,
+  children,
+}: {
+  platformName: string;
+  children: ReactNode;
+}) {
+  return (
     <div className="public directory-page">
       <header className="public-header">
         <Link href="/" className="wordmark" aria-label={platformName + " home"}>
@@ -109,108 +217,41 @@ export function CoachDirectory({
           List your coaching
         </Link>
       </header>
-      <main className="directory">
-        <p className="eyebrow">FIND A COACH</p>
-        <h1>Coaches who chose to be found.</h1>
-        <p className="muted directory-intro">
-          Every coach here opted in. Each profile links to the coach’s own
-          website, where you can read about their approach and memberships.
-        </p>
-        <form
-          className="directory-search"
-          method="get"
-          action="/coaches"
-          role="search"
-        >
-          <label className="field">
-            <span>Name or focus</span>
-            <input
-              name="q"
-              type="search"
-              maxLength={80}
-              defaultValue={query.q}
-              placeholder="For example, strength or a coach’s name"
-            />
-          </label>
-          <label className="field">
-            <span>Specialty</span>
-            <select name="specialty" defaultValue={query.specialty}>
-              <option value="">Any specialty</option>
-              {data.options.specialties.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Language</span>
-            <select name="language" defaultValue={query.language}>
-              <option value="">Any language</option>
-              {data.options.languages.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="directory-search-actions">
-            <button className="button" type="submit">
-              Search coaches
-            </button>
-            {filtered && <Link href="/coaches">Clear filters</Link>}
-          </div>
-        </form>
-        {data.error ? (
-          <p className="notice" role="alert">
-            {data.error}
-          </p>
-        ) : data.coaches.length ? (
-          <>
-            <p className="muted directory-count" role="status">
-              Showing {query.offset + 1}–{query.offset + data.coaches.length}
-              {filtered ? " matching coaches" : " coaches"}
-            </p>
-            <ul className="directory-grid">
-              {data.coaches.map((coach) => (
-                <CoachCard key={coach.slug} coach={coach} />
-              ))}
-            </ul>
-          </>
-        ) : (
-          <section className="card directory-empty" role="status">
-            <h2>
-              {filtered
-                ? "No coaches match this search."
-                : "No coaches are listed yet."}
-            </h2>
-            <p className="muted">
-              {filtered
-                ? "Try another specialty or language, or clear the filters."
-                : "Coaches appear here after they launch and choose to be listed."}
-            </p>
-          </section>
-        )}
-        {(previous !== null || data.nextOffset !== null) && (
-          <nav className="directory-pages" aria-label="Directory pages">
-            {previous !== null && (
-              <Link href={directoryHref(query, previous)}>
-                Previous coaches
-              </Link>
-            )}
-            {data.nextOffset !== null && (
-              <Link href={directoryHref(query, data.nextOffset)}>
-                More coaches
-              </Link>
-            )}
-          </nav>
-        )}
-      </main>
+      <main className="directory">{children}</main>
       <footer className="directory-footer">
         <Link href="/terms">Terms</Link>
         <Link href="/privacy">Privacy</Link>
         <Link href="/ai-disclosure">Digital coaching</Link>
       </footer>
     </div>
+  );
+}
+
+/**
+ * Shown at /coaches while the Super admin has closed the directory, so the
+ * marketing header link and trainers' links explain the state instead of
+ * ending on a missing page.
+ */
+export function CoachDirectoryClosed({
+  platformName = "Trainer Brain",
+}: {
+  platformName?: string;
+}) {
+  return (
+    <DirectoryFrame platformName={platformName}>
+      <p className="eyebrow">FIND A COACH</p>
+      <section className="card directory-empty" role="status">
+        <h1 className="directory-closed-title">
+          The coach directory is closed right now.
+        </h1>
+        <p className="muted">
+          Coaches’ own websites are still open. If you have a coach’s link or
+          invitation, use it to visit their website or join.
+        </p>
+        <p>
+          <Link href="/">Return to the home page</Link>
+        </p>
+      </section>
+    </DirectoryFrame>
   );
 }

@@ -3,11 +3,16 @@ import { CoachWebsite } from "../../components/coach-site";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { verifiedProxyHeaders } from "../../host-proxy";
-import { DIRECTORY_PATH, isIndexablePlatformPath } from "@trainer/contracts";
+import {
+  DIRECTORY_PATH,
+  isIndexablePlatformPath,
+  resolveBrandDesign,
+} from "@trainer/contracts";
 import {
   CoachDirectory,
+  CoachDirectoryClosed,
   type DirectoryData,
 } from "../../components/coach-directory";
 import { requestOrigin, signedApiGet } from "../../components/discovery-server";
@@ -21,32 +26,32 @@ function directoryQuery(search: SearchParams) {
   }
   return params.toString();
 }
-const directory = cache(
-  async (
-    query: string,
-  ): Promise<(DirectoryData & { platformName: string }) | null> => {
-    const response = await signedApiGet(
-      "/api/v1/public/directory" + (query ? "?" + query : ""),
-    );
-    if (response.status === 404 || response.status === 421) return null;
-    if (response.status === 400) {
-      // An edited address with an unknown filter shows the unfiltered form.
-      const fallback = await directory("");
-      return (
-        fallback && {
+type DirectoryResult =
+  (DirectoryData & { platformName: string }) | "closed" | null;
+const directory = cache(async (query: string): Promise<DirectoryResult> => {
+  const response = await signedApiGet(
+    "/api/v1/public/directory" + (query ? "?" + query : ""),
+  );
+  // On the platform address a 404 means the Super admin closed the directory.
+  if (response.status === 404) return "closed";
+  if (response.status === 421) return null;
+  if (response.status === 400) {
+    // An edited address with an unknown filter shows the unfiltered form.
+    const fallback = await directory("");
+    return fallback && fallback !== "closed"
+      ? {
           ...fallback,
           coaches: [],
           nextOffset: null,
           error:
             "That search could not be read. Clear the filters and try again.",
         }
-      );
-    }
-    if (!response.ok)
-      throw new Error("The coach directory is temporarily unavailable.");
-    return response.json();
-  },
-);
+      : fallback;
+  }
+  if (!response.ok)
+    throw new Error("The coach directory is temporarily unavailable.");
+  return response.json();
+});
 const website = cache(async (slug: string) => {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) return null;
   const incoming = await headers(),
@@ -78,6 +83,23 @@ const website = cache(async (slug: string) => {
     throw new Error("This coaching website is temporarily unavailable.");
   return response.json();
 });
+/**
+ * A coach website takes the coach's own browser colour (Design Studio
+ * primary, as in its public manifest); every other page keeps the platform
+ * colour from the root layout.
+ */
+export async function generateViewport({
+  params,
+}: {
+  params: Promise<{ path?: string[] }>;
+}): Promise<Viewport> {
+  const { path = [] } = await params;
+  if (path[0] !== "coach" || !path[1]) return {};
+  const data = await website(path[1]);
+  return data
+    ? { themeColor: resolveBrandDesign(data.tenant.theme).primary }
+    : {};
+}
 export async function generateMetadata({
   params,
   searchParams,
@@ -90,9 +112,12 @@ export async function generateMetadata({
   if (!coachHost && path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {
     const query = directoryQuery(await searchParams);
     const data = await directory(query);
-    if (!data)
+    if (!data || data === "closed")
       return {
-        title: "Coach directory unavailable",
+        title:
+          data === "closed"
+            ? "The coach directory is closed"
+            : "Coach directory unavailable",
         robots: { index: false, follow: false },
       };
     return {
@@ -144,6 +169,9 @@ export default async function Page({
     // reach this branch because the proxy maps their paths under /coach/.
     const data = await directory(directoryQuery(await searchParams));
     if (!data) notFound();
+    // Links to /coaches (the marketing header, trainers' settings) stay
+    // useful while the Super admin has the directory closed.
+    if (data === "closed") return <CoachDirectoryClosed />;
     return <CoachDirectory data={data} platformName={data.platformName} />;
   }
   if (path[0] === "coach" && path[1]) {

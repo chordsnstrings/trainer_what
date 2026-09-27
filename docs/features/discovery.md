@@ -26,9 +26,11 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
    `app/sitemap.ts`) that read the host from the proxy-set headers. The proxy
    passes `/robots.txt` and `/sitemap.xml` through unchanged on a custom domain.
    The platform sitemap lists marketing pages, the directory (when open) and
-   the published site pages of discoverable coaches without a connected custom
-   domain; a coach domain lists only its own published site pages. The API
-   endpoint `GET /api/v1/public/discovery/sitemap` decides from the signed host.
+   the site pages of launched coaches without a connected custom domain; a
+   coach domain lists only its own site pages. The API endpoint
+   `GET /api/v1/public/discovery/sitemap` decides from the signed host.
+   (After review: the sitemap became route handlers with a sitemap index; see
+   "Review round" below.)
    Private app, auth and API routes are disallowed in robots.txt, get
    `noindex` metadata, and the API and private web routes send
    `X-Robots-Tag: noindex, nofollow`.
@@ -62,7 +64,9 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
   `packages/providers/src/configuration.ts`. It appears in Settings and API
   connections with the other application switches, and its changes are in the
   existing settings change history. When it is `"false"`: `/coaches` returns
-  404, `GET /api/v1/public/directory` answers 404 `DIRECTORY_UNAVAILABLE`, the
+  a short "The coach directory is closed right now" page (noindex, so the
+  marketing header's "Find a coach" link never ends on a missing page),
+  `GET /api/v1/public/directory` answers 404 `DIRECTORY_UNAVAILABLE`, the
   platform sitemap omits `/coaches`, and trainers see "The platform directory is
   closed right now. Your choice is saved and applies when it reopens." Trainers'
   choices are kept.
@@ -74,10 +78,13 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
   to `trainer_service` in `infra/runtime-role.sql`; the runtime verifier checks
   exactly that.
 - **Search-engine hygiene for the platform.** `robots.txt` on the platform
-  address disallows `/api/`, `/app`, `/trainer`, `/admin`, `/login`, `/signup`,
-  `/join/`, `/join-coach/`, `/forgot-password`, `/reset-password/`,
-  `/verify-email/`, `/magic-link` and `/recover-authenticator`, and names
-  `<origin>/sitemap.xml`. Those pages also render
+  address disallows `/api/` and, for each private segment (`app`, `trainer`,
+  `admin`, `login`, `signup`, `join`, `join-coach`, `forgot-password`,
+  `reset-password`, `verify-email`, `magic-link`, `recover-authenticator`),
+  three segment-bounded rules: the exact address (`/app$`), the subtree
+  (`/app/`) and the address with a query (`/app?`). There is no bare prefix
+  rule, so `/approach` or `/trainers` are never closed by `/app` or
+  `/trainer`. It names `<origin>/sitemap.xml`. Those pages also render
   `<meta name="robots" content="noindex, nofollow">` and the web server sends
   `X-Robots-Tag: noindex, nofollow` for them (`next.config.ts`). API responses
   now carry `X-Robots-Tag: noindex, nofollow`, set at the start of the existing
@@ -87,7 +94,11 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
 - **Platform manifest.** `public/manifest.webmanifest` now lists real PNG icons
   (`/icons/icon-192.png`, `/icons/icon-512.png`, maskable
   `/icons/maskable-512.png`) plus the SVG, and `layout.tsx` adds a 192 PNG
-  favicon, a 180×180 `apple-touch-icon` and `theme-color`. The file is kept
+  favicon, a 180×180 `apple-touch-icon` and the platform `theme-color`. Coach
+  website pages (`/coach/<slug>...`, and so every page of a connected domain)
+  override it with the coach's Design Studio primary colour through
+  `generateViewport` in `app/[[...path]]/page.tsx`, matching their public
+  manifest. The file is kept
   identical to `platformManifest()` in `packages/contracts/src/discovery.ts` by
   a test.
 
@@ -118,10 +129,21 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
 - **Branded app for the trainer's team.** Owners, staff and finance members
   get the branded manifest too, with `start_url` `/trainer`.
 - **Coach domain crawler files.** On a connected custom domain `robots.txt`
-  names that domain's sitemap and also disallows `/coaches`; `sitemap.xml`
-  lists only that coach's published pages (`/`, `/about`, `/memberships`,
-  `/galleries` when a website gallery exists, `/contact` and each visible
-  custom page) with the website's publish time as `lastmod`.
+  names that domain's sitemap and closes the same private routes, except that
+  a bare address the proxy gives to the coach's website stays open (on a coach
+  domain `/join-coach` alone is the coach's page, so only `/join-coach/` is
+  closed). `/coaches` is not closed there: the proxy maps it to the coach's
+  own page. `sitemap.xml` lists only that coach's pages (`/`, `/about`,
+  `/memberships`, `/galleries` when a website gallery exists, `/contact` and
+  each visible custom page) with the website's publish time as `lastmod`. A
+  custom page whose address that domain gives to a platform page (`/privacy`,
+  `/terms`, `/ai-disclosure`, `/join`, `/app`, `/login` and the other
+  pass-through routes in `COACH_HOST_PLATFORM_SEGMENTS`) is listed at
+  `/coach/<slug>/<page>`, where the domain really serves it.
+- **Search engines and the directory are separate.** The directory card now
+  says so plainly: once the storefront is launched, the public website pages
+  are in the platform (or own-domain) sitemap whether or not the coach is
+  listed in the directory.
 
 ### Follower (subscriber) and visitors
 
@@ -153,9 +175,10 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
   launch. It replaces the previous subscriber-only `ClientCoachManifest` mount,
   which only branded published workspaces.
 - Icons are rendered by `renderAppIcon()` at exactly the declared size, always
-  opaque: a platform-hosted logo is inset on the Design Studio surface colour
-  (inside the maskable safe zone for the maskable icon), otherwise initials on
-  the primary colour. A damaged stored logo falls back to initials. A design or
+  opaque and without an alpha channel: a platform-hosted logo is inset on the
+  Design Studio surface colour (for the maskable icon in a square of 56% of the
+  side, whose corners stay inside the circular safe zone of radius 40%),
+  otherwise initials on the primary colour. A damaged stored logo falls back to initials. A design or
   name change produces new icon addresses (`?v=<revision>`), so installed apps
   refresh. Icons load without cookies from a random per-workspace key and are
   never listed publicly; on a coach domain only that workspace's icons are
@@ -169,9 +192,10 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
 | Route | Who | Notes |
 | --- | --- | --- |
 | `GET /robots.txt` (web) | anyone | per host; platform or coach domain |
-| `GET /sitemap.xml` (web) | anyone | from `GET /api/v1/public/discovery/sitemap` |
-| `GET /coaches` (web) | anyone | platform address only; 404 when closed |
-| `GET /api/v1/public/discovery/sitemap` | anyone | signed host decides platform or coach domain |
+| `GET /sitemap.xml` (web) | anyone | URL set, or a sitemap index on a large platform (`app/sitemap.xml/route.ts`) |
+| `GET /sitemaps/<n>.xml` (web) | anyone | index files; 404 while `/sitemap.xml` is a single file |
+| `GET /coaches` (web) | anyone | platform address only; a "closed right now" page (noindex) when the Super admin closed it |
+| `GET /api/v1/public/discovery/sitemap?page=<n>` | anyone | signed host decides platform or coach domain; returns `{entries, page, pages}`; strict query, 404 past the last file |
 | `GET /api/v1/public/directory?q=&specialty=&language=&offset=` | anyone | platform host only; strict query validation |
 | `GET/PUT /api/v1/tenant/directory` | owner | revisioned, audited |
 | `GET /api/v1/app/install` | signed-in member | 401 otherwise |
@@ -229,6 +253,100 @@ All with Node 24 (`/opt/node24/bin/node`).
   console errors. `next build` and the whole test suite were not run (left to
   the coordinator's gates).
 
+## Review round (adversarial review fixes)
+
+What changed, per finding:
+
+- **robots.txt prefix rules closed coach pages (major).** `robots.txt` now has
+  no bare prefix rule. `privateRouteDisallowRules()` in
+  `packages/contracts/src/discovery.ts` emits `/api/` plus, per private
+  segment, `/<segment>$`, `/<segment>/` and `/<segment>?`. On a coach domain a
+  bare address that the proxy gives to the coach's website keeps only its
+  subtree rule (`/join-coach/`), and `/coaches` is no longer closed there (the
+  proxy maps it to the coach's own page). `PRIVATE_ROUTE_PREFIXES` became
+  `PRIVATE_ROUTE_SEGMENTS`; `robotsPolicy(origin, coachHost)` keeps its shape.
+- **Coach-domain sitemap listed shadowed addresses.** New
+  `COACH_HOST_PLATFORM_SEGMENTS` and `coachHostPagePath()` (contracts): a
+  custom page whose address the connected domain serves from the platform
+  (`/privacy`, `/terms`, ...) is listed at `/coach/<slug>/<page>`, which that
+  domain does route to the coach's page. A test checks the list against
+  `customHostPath()` in both directions.
+- **Platform sitemap and directory opt-in.** Kept by design and stated plainly
+  in the directory card (see "Left out, and why"); the old "Not listed"
+  wording no longer implies the platform does not advertise the website.
+- **Sitemap capped at 1,000 coaches.** `/sitemap.xml` and `/sitemaps/<n>.xml`
+  are now route handlers (`app/sitemap.xml/route.ts`,
+  `app/sitemaps/[file]/route.ts`; the `app/sitemap.ts` metadata route was
+  removed). The API returns `{entries, page, pages}` for
+  `?page=<n>` with 400 coach websites per file (at most 400 x 105 + 9 =
+  42,009 addresses, below the 45,000 cap); when more than one file is needed
+  `/sitemap.xml` becomes a sitemap index. `/sitemaps/<n>.xml` answers 404
+  while `/sitemap.xml` is a single file, so no page is listed twice. A failed
+  API lookup answers 503 with `Retry-After`, never an empty sitemap.
+- **Two definitions of "published".** Both sitemaps now use the directory's
+  and `publicCoachSite()`'s test (a launched, active workspace), with a left
+  join to `coach_sites`: a launched coach who never published a website
+  revision is listed with the default pages (no `lastmod`).
+- **Platform theme colour on coach websites.** `generateViewport` gives coach
+  pages the coach's primary colour.
+- **"Find a coach" link to a 404 when the directory is closed.** `/coaches`
+  now shows a short "The coach directory is closed right now" page
+  (`CoachDirectoryClosed`, noindex) instead of a 404.
+- **Maskable logo outside the safe zone.** The maskable logo box is 56% of the
+  side (half-diagonal 0.396 < 0.4); logo icons also drop the (opaque) alpha
+  channel.
+
+Checks run for this round (Node 24):
+
+- `npx tsc --noEmit`: passed, exit 0.
+- `node --import tsx --test --test-concurrency=1 tests/discovery-directory.test.ts tests/discovery-install.test.ts tests/discovery-seo.test.ts`
+  on PGlite: 23 tests, 23 passed, 0 failed (directory 5, install 6, SEO 12).
+  New tests: an RFC 9309 matcher (longest match, `$` anchor, `*`) shows that
+  `/approach`, `/apply`, `/trainers`, `/login-help`, `/coaches`,
+  `/join-coach` (coach domain) and similar coach pages are open on both hosts
+  while `/app`, `/app/x`, `/app?x`, `/trainer`, `/login` and the other private
+  routes are closed; the coach-domain page list agrees with `customHostPath()`;
+  XML escaping and size budget; the coach-domain sitemap lists `/approach` and
+  `/coach/seo-host/privacy`; a launched coach without a website revision is
+  listed; paging splits coaches across files with each coach exactly once and
+  strict `page` validation (404 past the end, 400 for `abc`, `-1` or unknown
+  keys); a square logo's maskable icon has no logo pixel outside radius 0.4.
+- `/opt/tools/pg-sandbox.sh 56116 <worktree> tests/discovery-directory.test.ts tests/discovery-install.test.ts tests/discovery-seo.test.ts`:
+  runtime access verified (migrations 46, systemTables 38, scopedTables 33,
+  helpers 9); 5/5, 6/6 and 12/12 passed as the restricted role;
+  `PG_SELECTED_FAILED_FILES=0`.
+- Related suites on PGlite: `tests/fix-web.test.ts tests/coach-site.test.ts tests/host-routing.test.ts tests/platform-settings.test.ts tests/provider-configuration.test.ts tests/branding.test.ts tests/settings-runtime.test.ts`:
+  59 tests, 59 passed, 0 failed.
+- Related suites in the sandbox: `coach-site` 12/12, `host-routing` 6/6,
+  `fix-web` 11 passed and 1 skipped (embedded-only by design);
+  `PG_SELECTED_FAILED_FILES=0`.
+- Local smoke run (API on in-memory PGlite with synthetic coaches, 400 bulk
+  launched workspaces and one connected domain; `next dev`; loopback only;
+  both stopped afterwards): platform `robots.txt` had only segment-bounded
+  rules; the coach domain's `robots.txt` named its own sitemap and closed only
+  `/join-coach/` for that segment; the coach domain's `sitemap.xml` listed
+  `/apply` and `/coach/smoke-domain/privacy`, both of which rendered the
+  coach's pages (200, no noindex), while `/privacy` there rendered the
+  platform page with noindex; the platform `/sitemap.xml` was an index of two
+  files (`/sitemaps/0.xml` 1,609 URLs with the marketing pages and directory,
+  `/sitemaps/1.xml` 10 URLs), and `/sitemaps/2.xml`, `/sitemaps/abc.xml` and
+  `/sitemaps/01.xml` answered 404; `theme-color` was `#733f32` on
+  `/coach/smoke-brand` and its sections, the coach's default colour on the
+  connected domain and `#254d42` on platform pages; with
+  `COACH_DIRECTORY_ENABLED=false`, `/coaches` rendered the closed page (200,
+  `noindex, nofollow`) and the sitemap omitted `/coaches`. A local headless
+  Chromium (`/opt/pw-browsers`, not a cloud browser) at 390 px showed no
+  horizontal overflow on the closed and open directory pages and a coach
+  website, and no page errors. Note: `next dev --hostname 127.0.0.1` treats
+  the custom-domain rewrite as external (Next normalises 127.0.0.1 to
+  localhost in `nextUrl` but not in the router's base URL), so the smoke used
+  `--hostname localhost`. Production runs `next start --hostname 0.0.0.0`,
+  which `NextURL` does not rewrite, so the rewrite stays internal there; this
+  was read from the Next 16.3.6 source, not run against a production build.
+- Not run: `next build` and the whole test suite (left to the coordinator's
+  gates); `tests/platform-settings.test.ts` in the sandbox (its isolation guard
+  requires a `trainer_ci_*` database name, as the reviewer also observed).
+
 ## Left out, and why
 
 - **Per-listing moderation by the Super admin** (hide one coach without
@@ -239,12 +357,20 @@ All with Node 24 (`/opt/node24/bin/node`).
   platform sitemap already omits coaches with a connected domain, but their
   platform-address pages remain crawlable; adding a canonical would need the
   public site response to expose the domain (a change to `coach-site.ts`).
-- **Sitemap index** for very large catalogues: one sitemap is capped at 45,000
-  URLs and 1,000 coach websites; beyond that an index would be needed.
 - **Translated directory labels**: labels are English; the CSS uses logical
   properties for a later right-to-left pass.
-- **Per-coach opt-out from search engines** for a published website: a
-  published website is public and listed in the sitemap; there is no separate
-  "hide from search engines" setting.
+- **Per-coach opt-out from search engines** for a launched website: a
+  launched website is public, its pages carry no noindex, the editor already
+  has SEO title and description fields, and the feature's purpose is to help
+  search engines find coach websites, so it stays in the sitemap. The
+  directory card states this plainly. A "hide from search engines" switch
+  would need a stored setting read by the sitemap and by the coach page
+  metadata; it was not requested.
+- **Rejecting page addresses that a connected domain shadows** (`privacy`,
+  `terms`, ...) in the website editor: a coach without a domain can
+  legitimately have their own `/coach/<slug>/privacy` page, and stored
+  websites are parsed with the same schema, so tightening it could break
+  existing sites. The sitemap lists such pages where the domain serves them
+  instead.
 - No worker job is needed: sitemaps, the directory and icons are computed per
   request from current data.

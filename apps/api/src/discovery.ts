@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import sharp from "sharp";
+import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import {
@@ -9,8 +10,10 @@ import {
   DIRECTORY_PATH,
   DIRECTORY_SPECIALTIES,
   PUBLIC_MARKETING_PATHS,
+  SITEMAP_COACHES_PER_FILE,
   appInitials,
   brandContrast,
+  coachHostPagePath,
   directoryListingSchema,
   directorySearchSchema,
   platformManifest,
@@ -18,6 +21,7 @@ import {
   shortAppName,
   type AppIconFile,
   type BrandDesign,
+  type SitemapEntry,
 } from "@trainer/contracts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { siteSchema } from "./coach-site.ts";
@@ -39,8 +43,6 @@ export function directoryOpen(config = runtimeConfig()): boolean {
   return config.COACH_DIRECTORY_ENABLED !== "false";
 }
 
-/** Sitemaps are capped well below the 50,000 URL protocol limit. */
-export const SITEMAP_URL_LIMIT = 45000;
 const STANDARD_SECTIONS = ["about", "memberships", "galleries", "contact"];
 const mediaPath = /^\/api\/v1\/media\/([0-9a-f-]{36})$/i;
 const iconKeyPattern = /^[A-Za-z0-9_-]{32,64}$/;
@@ -51,7 +53,6 @@ type SiteRow = {
   published_at: Date | string | null;
   has_galleries: boolean;
 };
-type SitemapEntry = { url: string; lastModified?: string };
 
 function iso(value: Date | string | null | undefined) {
   if (!value) return undefined;
@@ -59,18 +60,29 @@ function iso(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-/** Published pages of one coach website, relative to `base` ("" or /coach/x). */
-export function coachSitePaths(row: SiteRow, base: string): string[] {
+/**
+ * Public pages of one launched coach website. On the platform they live under
+ * /coach/<slug>; on the coach's connected domain at the root, except custom
+ * pages whose address that domain gives to a platform page (for example
+ * /privacy), which are listed at /coach/<slug>/<page> where they really are.
+ * A launched coach who never published a website revision has the default
+ * site, exactly as publicCoachSite() serves it.
+ */
+export function coachSitePaths(row: SiteRow, host: "platform" | "custom") {
   const parsed = siteSchema.safeParse(row.published ?? {});
   const pages = parsed.success
     ? parsed.data.pages.filter((page) => page.visible).map((page) => page.slug)
     : [];
+  const base =
+    host === "custom" ? "" : `/coach/${encodeURIComponent(row.slug)}`;
   return [
     base || "/",
     ...STANDARD_SECTIONS.filter(
       (section) => section !== "galleries" || row.has_galleries,
     ).map((section) => `${base}/${section}`),
-    ...pages.map((slug) => `${base}/${slug}`),
+    ...pages.map((page) =>
+      host === "custom" ? coachHostPagePath(row.slug, page) : `${base}/${page}`,
+    ),
   ];
 }
 
@@ -78,54 +90,79 @@ const siteColumns =
   "t.slug,s.published,s.published_at,EXISTS(SELECT 1 FROM coach_galleries g WHERE g.tenant_id=t.id AND g.audience IN ('site','both')) AS has_galleries";
 const activeDomain =
   "SELECT 1 FROM domain_mappings m WHERE m.tenant_id=t.id AND m.active=true AND m.verified_at IS NOT NULL";
+// Launched coaches whose website lives at /coach/<slug> on the platform. It is
+// the same "launched" test the directory and publicCoachSite() use; a coach
+// with a connected domain is listed by that domain's own sitemap instead.
+const platformCoaches = `FROM tenants t LEFT JOIN coach_sites s ON s.tenant_id=t.id WHERE ${discoverable("t")} AND NOT EXISTS(${activeDomain})`;
+
+export type SitemapPage = {
+  entries: SitemapEntry[];
+  /** Zero-based sitemap file number and the number of files. */
+  page: number;
+  pages: number;
+};
+
+const entry = (url: string, lastModified?: string): SitemapEntry =>
+  lastModified ? { url, lastModified } : { url };
 
 /**
- * Sitemap entries for the host that asked. The platform lists marketing pages,
- * the directory and the published sites of discoverable coaches that have no
- * connected domain; a coach domain lists only its own published site pages.
+ * One sitemap file for the host that asked. The platform lists marketing
+ * pages, the directory and the websites of launched coaches without a
+ * connected domain, SITEMAP_COACHES_PER_FILE coaches per file; when that needs
+ * more than one file the web app serves a sitemap index. A coach domain has
+ * one file listing only its own website.
  */
 export async function sitemapEntries(
   db: Database,
   context: HostContext,
-): Promise<SitemapEntry[]> {
+  page = 0,
+  coachesPerFile = SITEMAP_COACHES_PER_FILE,
+): Promise<SitemapPage> {
   const origin = new URL(context.origin).origin;
+  const missing = () =>
+    fail(404, "NOT_FOUND", "This sitemap file does not exist");
   if (context.custom) {
+    if (page !== 0) throw missing();
     const [row] = await db.system((tx) =>
       tx.query<SiteRow>(
-        `SELECT ${siteColumns} FROM tenants t JOIN coach_sites s ON s.tenant_id=t.id WHERE t.id=$1 AND ${discoverable("t")} AND s.published IS NOT NULL`,
+        `SELECT ${siteColumns} FROM tenants t LEFT JOIN coach_sites s ON s.tenant_id=t.id WHERE t.id=$1 AND ${discoverable("t")}`,
         [context.tenantId],
       ),
     );
-    if (!row) return [];
-    const lastModified = iso(row.published_at);
-    return coachSitePaths(row, "").map((path) => ({
-      url: origin + path,
-      ...(lastModified ? { lastModified } : {}),
-    }));
+    const lastModified = iso(row?.published_at);
+    return {
+      entries: row
+        ? coachSitePaths(row, "custom").map((path) =>
+            entry(origin + path, lastModified),
+          )
+        : [],
+      page: 0,
+      pages: 1,
+    };
   }
-  const entries: SitemapEntry[] = PUBLIC_MARKETING_PATHS.map((path) => ({
-    url: origin + path,
-  }));
-  if (directoryOpen()) entries.push({ url: origin + DIRECTORY_PATH });
-  const rows = await db.system((tx) =>
-    tx.query<SiteRow>(
-      `SELECT ${siteColumns} FROM tenants t JOIN coach_sites s ON s.tenant_id=t.id WHERE ${discoverable("t")} AND s.published IS NOT NULL AND NOT EXISTS(${activeDomain}) ORDER BY t.slug LIMIT 1000`,
-    ),
-  );
-  for (const row of rows) {
-    const lastModified = iso(row.published_at);
-    for (const path of coachSitePaths(
-      row,
-      `/coach/${encodeURIComponent(row.slug)}`,
-    )) {
-      if (entries.length >= SITEMAP_URL_LIMIT) return entries;
-      entries.push({
-        url: origin + path,
-        ...(lastModified ? { lastModified } : {}),
-      });
+  return db.system(async (tx) => {
+    const [{ coaches }] = await tx.query<{ coaches: number }>(
+      `SELECT count(*)::int AS coaches ${platformCoaches}`,
+    );
+    const pages = Math.max(1, Math.ceil(coaches / coachesPerFile));
+    if (page >= pages) throw missing();
+    const entries: SitemapEntry[] = [];
+    if (page === 0) {
+      for (const path of PUBLIC_MARKETING_PATHS)
+        entries.push(entry(origin + path));
+      if (directoryOpen()) entries.push(entry(origin + DIRECTORY_PATH));
     }
-  }
-  return entries;
+    const rows = await tx.query<SiteRow>(
+      `SELECT ${siteColumns} ${platformCoaches} ORDER BY t.slug LIMIT $1 OFFSET $2`,
+      [coachesPerFile, page * coachesPerFile],
+    );
+    for (const row of rows) {
+      const lastModified = iso(row.published_at);
+      for (const path of coachSitePaths(row, "platform"))
+        entries.push(entry(origin + path, lastModified));
+    }
+    return { entries, page, pages };
+  });
 }
 
 /** Only platform photos or already-validated public HTTPS images are shown. */
@@ -376,6 +413,7 @@ const escapeXml = (value: string) =>
         "'": "&apos;",
       })[c]!,
   );
+export const MASKABLE_LOGO_SCALE = 0.56;
 /**
  * Render an exact-size PNG. A platform-hosted logo sits on the brand surface
  * colour (inside the maskable safe zone when needed); otherwise initials are
@@ -391,9 +429,15 @@ export async function renderAppIcon(options: {
   const { name, design, size, variant, logo } = options;
   if (logo) {
     try {
+      // A maskable icon's safe zone is the centred circle of radius 0.4; a
+      // square of side 0.56 fits inside it (half-diagonal 0.396).
       const inner = Math.round(
         size *
-          (variant === "maskable" ? 0.6 : variant === "apple" ? 0.8 : 0.84),
+          (variant === "maskable"
+            ? MASKABLE_LOGO_SCALE
+            : variant === "apple"
+              ? 0.8
+              : 0.84),
       );
       const fitted = await sharp(logo)
         .resize(inner, inner, {
@@ -411,6 +455,9 @@ export async function renderAppIcon(options: {
         },
       })
         .composite([{ input: fitted, gravity: "centre" }])
+        // The base is opaque, so dropping the alpha channel loses nothing;
+        // home-screen surfaces treat an alpha channel inconsistently.
+        .removeAlpha()
         .png()
         .toBuffer();
     } catch {
@@ -431,9 +478,14 @@ export async function renderAppIcon(options: {
     .toBuffer();
 }
 
+const sitemapQuery = z
+  .object({ page: z.coerce.number().int().min(0).max(100000).default(0) })
+  .strict();
+
 export function registerDiscovery(app: FastifyInstance, db: Database) {
   app.get("/api/v1/public/discovery/sitemap", async (req) => {
-    return { entries: await sitemapEntries(db, req.hostContext!) };
+    const { page } = sitemapQuery.parse(req.query);
+    return sitemapEntries(db, req.hostContext!, page);
   });
   app.get("/api/v1/public/directory", async (req) => {
     const context = req.hostContext!;
