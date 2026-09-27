@@ -80,66 +80,76 @@ export function AccountSecurity() {
             ? "Add this account to your authenticator app."
             : "Authenticator setup is waiting for the security service configuration."}
       </p>
-      {status?.mfaConfigured && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void submit(
-              secret
-                ? "mfa/confirm"
+      {status?.mfaConfigured &&
+        status.hasPassword === false &&
+        !status.mfaEnabled && (
+          <p className="muted" role="note">
+            Your account signs in with Apple or Google and has no password yet.
+            Set a password in Account settings first; it confirms authenticator
+            setup and sensitive actions.
+          </p>
+        )}
+      {status?.mfaConfigured &&
+        (status.hasPassword !== false || status.mfaEnabled) && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              void submit(
+                secret
+                  ? "mfa/confirm"
+                  : status.mfaEnabled
+                    ? "mfa/verify"
+                    : "mfa/enroll",
+                secret
+                  ? { code: f.get("code") }
+                  : status.mfaEnabled
+                    ? { password: f.get("password"), code: f.get("code") }
+                    : { password: f.get("password") },
+              );
+            }}
+          >
+            {!secret && (
+              <label className="field">
+                <span>Current password</span>
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+            )}
+            {secret && (
+              <p className="notice">
+                Manual setup key:{" "}
+                <code style={{ overflowWrap: "anywhere" }}>{secret}</code>
+                <br />
+                Use time-based codes, 6 digits, 30 seconds. Save this key in
+                your password manager before confirming.
+              </p>
+            )}
+            {(secret || status.mfaEnabled) && (
+              <label className="field">
+                <span>Authenticator code</span>
+                <input
+                  name="code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  required
+                />
+              </label>
+            )}
+            <button className="button" disabled={busy}>
+              {secret
+                ? "Confirm authenticator"
                 : status.mfaEnabled
-                  ? "mfa/verify"
-                  : "mfa/enroll",
-              secret
-                ? { code: f.get("code") }
-                : status.mfaEnabled
-                  ? { password: f.get("password"), code: f.get("code") }
-                  : { password: f.get("password") },
-            );
-          }}
-        >
-          {!secret && (
-            <label className="field">
-              <span>Current password</span>
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-          )}
-          {secret && (
-            <p className="notice">
-              Manual setup key:{" "}
-              <code style={{ overflowWrap: "anywhere" }}>{secret}</code>
-              <br />
-              Use time-based codes, 6 digits, 30 seconds. Save this key in your
-              password manager before confirming.
-            </p>
-          )}
-          {(secret || status.mfaEnabled) && (
-            <label className="field">
-              <span>Authenticator code</span>
-              <input
-                name="code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                required
-              />
-            </label>
-          )}
-          <button className="button" disabled={busy}>
-            {secret
-              ? "Confirm authenticator"
-              : status.mfaEnabled
-                ? "Verify sensitive actions"
-                : "Set up authenticator"}
-          </button>
-        </form>
-      )}
+                  ? "Verify sensitive actions"
+                  : "Set up authenticator"}
+            </button>
+          </form>
+        )}
       <div className="divider" />
       <button
         className="button secondary"

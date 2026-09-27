@@ -8,12 +8,7 @@ import {
   isOidcProvider,
   oidcClientConfig,
 } from "../../../packages/providers/src/oidc.ts";
-import {
-  newToken,
-  passwordHash,
-  passwordMatches,
-  tokenHash,
-} from "./auth.ts";
+import { newToken, passwordHash, passwordMatches, tokenHash } from "./auth.ts";
 import {
   accountAudit,
   accountHost,
@@ -72,11 +67,56 @@ export async function addAccountNotice(
   kind: string,
   title: string,
   body: string,
+  tenantId?: string,
 ) {
   await tx.query(
-    "INSERT INTO account_notices(id,user_id,kind,title,body) VALUES($1,$2,$3,$4,$5)",
-    [randomUUID(), userId, kind, title.slice(0, 160), body.slice(0, 2000)],
+    "INSERT INTO account_notices(id,user_id,kind,title,body,tenant_id) VALUES($1,$2,$3,$4,$5,$6)",
+    [
+      randomUUID(),
+      userId,
+      kind,
+      title.slice(0, 160),
+      body.slice(0, 2000),
+      tenantId ?? null,
+    ],
   );
+}
+/**
+ * Why a correctly authenticated person has no workspace to open: the latest
+ * membership-exit notice, for the given workspace when one is implied (a
+ * trainer's own address or a chosen workspace). Callers use it only after
+ * the sign-in proof, including an enrolled authenticator, has succeeded.
+ */
+export async function membershipEndedError(
+  tx: Tx,
+  userId: string,
+  tenantId: string | null,
+) {
+  const [notice] = await tx.query(
+    "SELECT title,body FROM account_notices WHERE user_id=$1 AND kind IN ('membership_left','membership_removed') AND ($2::uuid IS NULL OR tenant_id=$2) ORDER BY created_at DESC LIMIT 1",
+    [userId, tenantId],
+  );
+  return notice ? fail(403, "MEMBERSHIP_ENDED", notice.body) : null;
+}
+/** accountMembership(), but explains an ended membership after a sign-in proof. */
+export async function signInMembership(
+  tx: Tx,
+  userId: string,
+  host: Parameters<typeof accountMembership>[2],
+  tenantId?: string,
+) {
+  try {
+    return await accountMembership(tx, userId, host, tenantId);
+  } catch (error: any) {
+    if (error?.code !== "NO_MEMBERSHIP") throw error;
+    throw (
+      (await membershipEndedError(
+        tx,
+        userId,
+        tenantId ?? (host.custom ? host.tenantId : null),
+      )) ?? error
+    );
+  }
 }
 /** The workspace used for account emails and audit when none is implied. */
 export async function latestMembership(tx: Tx, userId: string) {
@@ -88,7 +128,8 @@ export async function latestMembership(tx: Tx, userId: string) {
 }
 /**
  * Re-proves account ownership inside the caller's transaction: the current
- * password when one exists, otherwise a sign-in within the last ten minutes;
+ * password when one exists, otherwise a real sign-in (sessions.authenticated_at,
+ * which a workspace switch does not renew) within the last ten minutes;
  * plus a fresh authenticator code whenever one is enrolled. Locks the user row.
  */
 export async function confirmAccountOwner(
@@ -110,7 +151,7 @@ export async function confirmAccountOwner(
       throw fail(401, "INVALID_PASSWORD", "Current password is incorrect");
   } else {
     const [s] = await tx.query(
-      "SELECT created_at>now()-interval '10 minutes' AS recent FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now()",
+      "SELECT authenticated_at>now()-interval '10 minutes' AS recent FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now()",
       [sessionHash, userId],
     );
     if (!s?.recent)
@@ -187,8 +228,8 @@ export function registerAccountSelfService(
         [a.userId],
       );
       const [session] = await tx.query(
-        "SELECT created_at>now()-interval '10 minutes' AS recent FROM sessions WHERE token_hash=$1",
-        [current],
+        "SELECT authenticated_at>now()-interval '10 minutes' AS recent FROM sessions WHERE token_hash=$1 AND user_id=$2",
+        [current, a.userId],
       );
       return {
         profile: {
@@ -233,7 +274,10 @@ export function registerAccountSelfService(
 
   app.patch("/api/v1/account/profile", rate, async (req) => {
     const a = identity(req);
-    const b = z.object({ name: plainText(2, 100) }).strict().parse(req.body);
+    const b = z
+      .object({ name: plainText(2, 100) })
+      .strict()
+      .parse(req.body);
     await db.system(async (tx) => {
       const [before] = await tx.query(
         "SELECT name FROM users WHERE id=$1 FOR UPDATE",
@@ -288,7 +332,15 @@ export function registerAccountSelfService(
       const id = randomUUID();
       await tx.query(
         "INSERT INTO email_change_requests(id,user_id,tenant_id,old_email,new_email,token_hash,origin,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '30 minutes')",
-        [id, a.userId, a.tenantId, u.email, b.email, tokenHash(token), host.origin],
+        [
+          id,
+          a.userId,
+          a.tenantId,
+          u.email,
+          b.email,
+          tokenHash(token),
+          host.origin,
+        ],
       );
       const [taken] = await tx.query("SELECT id FROM users WHERE email=$1", [
         b.email,
@@ -463,7 +515,11 @@ export function registerAccountSelfService(
       throw error;
     }
     if (outcome.error)
-      throw fail(outcome.error.status, outcome.error.code, outcome.error.message);
+      throw fail(
+        outcome.error.status,
+        outcome.error.code,
+        outcome.error.message,
+      );
     return {
       ok: true,
       message: "Your email address is confirmed and now used for sign-in.",
@@ -500,7 +556,10 @@ export function registerAccountSelfService(
       );
       await accountAudit(tx, a, "security.password_set", a.userId);
     });
-    return { ok: true, message: "Password saved. Other devices were signed out." };
+    return {
+      ok: true,
+      message: "Password saved. Other devices were signed out.",
+    };
   });
 
   app.post("/api/v1/account/identities/:provider/unlink", rate, async (req) => {

@@ -38,8 +38,11 @@ CREATE TABLE account_recovery_grants (
 );
 CREATE INDEX account_recovery_grants_user ON account_recovery_grants(user_id,created_at);
 CREATE INDEX account_recovery_grants_issuer ON account_recovery_grants(issued_by,created_at);
+-- tenant_id names the workspace a notice is about (a membership exit), so a
+-- sign-in at that trainer's address can explain why there is no access.
 CREATE TABLE account_notices (
  id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), kind text NOT NULL,
+ tenant_id uuid REFERENCES tenants(id),
  title text NOT NULL CHECK(length(title) BETWEEN 1 AND 160), body text NOT NULL CHECK(length(body) BETWEEN 1 AND 2000),
  created_at timestamptz NOT NULL DEFAULT now(), read_at timestamptz
 );
@@ -48,6 +51,15 @@ REVOKE ALL ON account_identities,oidc_sign_in_requests,email_change_requests,acc
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='trainer_service') THEN
  GRANT SELECT,INSERT,UPDATE,DELETE ON account_identities,oidc_sign_in_requests,email_change_requests,account_recovery_grants,account_notices TO trainer_service;
 END IF; END $$;
+
+-- When the person last proved who they are (password, provider, passkey,
+-- magic link, recovery). A workspace switch or the follow-on session after
+-- leaving a trainer carries the previous session's time instead of now(), so
+-- a new session never counts as a recent sign-in by itself. Existing sessions
+-- keep their creation time.
+ALTER TABLE sessions ADD COLUMN authenticated_at timestamptz;
+UPDATE sessions SET authenticated_at=created_at;
+ALTER TABLE sessions ALTER COLUMN authenticated_at SET DEFAULT now(), ALTER COLUMN authenticated_at SET NOT NULL;
 
 -- A follower's exit from a workspace. The membership row is removed; this row
 -- keeps the relationship evidence that retained billing and audit records

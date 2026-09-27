@@ -8,7 +8,8 @@ import {
 } from "./account-request";
 import { LeaveTrainer } from "./membership-exit";
 
-type ReturnPath = "/app/profile" | "/trainer/settings" | "/admin/account-security";
+type ReturnPath =
+  "/app/profile" | "/trainer/settings" | "/admin/account-security";
 type Account = {
   profile: {
     name: string;
@@ -25,7 +26,12 @@ type Account = {
     linkedAt: string;
     lastUsedAt: string | null;
   }>;
-  providers: Array<{ id: string; name: string; enabled: boolean; linked: boolean }>;
+  providers: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    linked: boolean;
+  }>;
   passkeys: number;
   notices: Array<{
     id: string;
@@ -78,8 +84,9 @@ function ProofFields({
       ) : (
         !account.recentSignIn && (
           <p className="notice">
-            Your account has no password. Sign out and sign in again with
-            Apple or Google, then repeat this change within ten minutes.
+            Your account has no password. Sign out and sign in again with Apple
+            or Google, then repeat this change within ten minutes. Switching
+            coaching spaces does not count as signing in.
           </p>
         )
       )}
@@ -113,7 +120,10 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       action: "link" | "unlink";
     } | null>(null);
   const say = (section: string, value: string, tone: Tone = "success") =>
-    setMessages((m) => ({ ...m, [section]: value ? { text: value, tone } : null }));
+    setMessages((m) => ({
+      ...m,
+      [section]: value ? { text: value, tone } : null,
+    }));
   const load = useCallback(async () => {
     try {
       setAccount(await accountRequest<Account>("/account"));
@@ -137,7 +147,8 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       window.history.replaceState(null, "", window.location.pathname);
     const refresh = () => void load();
     window.addEventListener("account-security-updated", refresh);
-    return () => window.removeEventListener("account-security-updated", refresh);
+    return () =>
+      window.removeEventListener("account-security-updated", refresh);
   }, [load]);
   async function run(
     section: string,
@@ -219,7 +230,9 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
         <h2 id="acct-email">Sign-in email</h2>
         <p className="acct-row">
           <span className="acct-break">{account.profile.email}</span>
-          <span className={`badge ${account.profile.emailVerified ? "green" : "amber"}`}>
+          <span
+            className={`badge ${account.profile.emailVerified ? "green" : "amber"}`}
+          >
             {account.profile.emailVerified ? "Verified" : "Not verified"}
           </span>
         </p>
@@ -439,7 +452,10 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                           ).then((r) => r && setPendingMethod(null));
                       }}
                     >
-                      <ProofFields account={account} prefix={`method-${provider.id}`} />
+                      <ProofFields
+                        account={account}
+                        prefix={`method-${provider.id}`}
+                      />
                       <button className="button" disabled={busy === "methods"}>
                         {pendingMethod?.action === "link"
                           ? `Continue to ${provider.name}`

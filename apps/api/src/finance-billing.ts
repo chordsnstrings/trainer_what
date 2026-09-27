@@ -40,6 +40,8 @@ export async function changeRenewal(
   a: Actor,
   cancel: boolean,
   stripe = stripeClient(),
+  /** Someone acting for the member (an owner ending the membership). */
+  initiatedBy?: Actor,
 ) {
   const intent: any = await db.tenant({ ...a, role: "finance" }, async (tx) => {
     await lock(tx, a);
@@ -83,10 +85,24 @@ export async function changeRenewal(
         providerId: s.provider_id,
         cancel,
         periodEnd: s.period_end,
+        ...(initiatedBy
+          ? {
+              initiatedBy: {
+                userId: initiatedBy.userId,
+                role: initiatedBy.role,
+              },
+            }
+          : {}),
       },
       { ownerId: a.userId, status: "submitting" },
     );
-    await event(tx, a, "subscription.renewal_requested", r.id, { cancel });
+    await event(
+      tx,
+      initiatedBy ?? a,
+      "subscription.renewal_requested",
+      r.id,
+      initiatedBy ? { cancel, memberId: a.userId } : { cancel },
+    );
     return { ...r, done: false };
   });
   if (intent.done) return { ok: true, accessUntil: intent.periodEnd };

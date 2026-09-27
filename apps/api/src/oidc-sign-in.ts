@@ -1,9 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type {
-  FastifyInstance,
-  FastifyReply,
-  FastifyRequest,
-} from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
@@ -39,10 +35,12 @@ import { lockActiveInvitation } from "./team.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { recordSignupAcquisition } from "./acquisition.ts";
 import { openSignInSession } from "./sign-in.ts";
+import { assertMayRejoin } from "./membership-exit.ts";
 import {
   addAccountNotice,
   confirmAccountOwner,
   emailDeliveryConfigured,
+  signInMembership,
   unusablePassword,
 } from "./account-self-service.ts";
 import type { HostContext } from "./host-routing.ts";
@@ -110,6 +108,8 @@ export const OIDC_REDIRECT_CODES = [
   "OIDC_PLATFORM_ONLY",
   "OIDC_LINK_EXPIRED",
   "NO_MEMBERSHIP",
+  "MEMBERSHIP_ENDED",
+  "REMOVED_BY_TRAINER",
   "LEGAL_PENDING",
   "TRAINER_UNAVAILABLE",
   "INVALID_INVITE",
@@ -120,7 +120,8 @@ export const OIDC_REDIRECT_CODES = [
 const redirectCodes = new Set<string>(OIDC_REDIRECT_CODES);
 const derive = (label: string, id: string, binder: string) =>
   createHash("sha256").update(`${label}:${id}:${binder}`).digest("base64url");
-const homePath = (role: string) => (role === "subscriber" ? "/app" : "/trainer");
+const homePath = (role: string) =>
+  role === "subscriber" ? "/app" : "/trainer";
 function legalGate() {
   if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
     throw fail(
@@ -216,7 +217,11 @@ async function complete(
       [row.session_hash, row.user_id],
     );
     if (!session)
-      throw fail(401, "OIDC_LINK_EXPIRED", "Sign in again to link this account");
+      throw fail(
+        401,
+        "OIDC_LINK_EXPIRED",
+        "Sign in again to link this account",
+      );
     await workspaceLock(tx, session.tenant_id);
     await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
       row.user_id,
@@ -416,7 +421,7 @@ async function complete(
     role: string,
     joined = false;
   if (row.intent === "sign_in") {
-    const m = await accountMembership(
+    const m = await signInMembership(
       tx,
       userId,
       host,
@@ -440,6 +445,7 @@ async function complete(
         "INVITE_EMAIL_MISMATCH",
         "Use the account for the invited email address",
       );
+    if (row.intent === "join") await assertMayRejoin(tx, targetTenant, userId);
     const [inserted] = await tx.query(
       "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
       [targetTenant, userId, targetRole],
@@ -880,7 +886,13 @@ export function registerOidcSignIn(
       return found;
     });
     try {
-      const redirect = await finish(req, reply, row, row.payload.claims, b.code);
+      const redirect = await finish(
+        req,
+        reply,
+        row,
+        row.payload.claims,
+        b.code,
+      );
       return { ok: true, redirect };
     } catch (error: any) {
       // A wrong code keeps the pending sign-in for the remaining attempts.

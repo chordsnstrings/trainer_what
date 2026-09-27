@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
-import { accountRequest, formatDate, type AccountError } from "./account-request";
+import {
+  accountRequest,
+  formatDate,
+  type AccountError,
+} from "./account-request";
 
 type Preview = {
   subscription: {
@@ -11,8 +15,15 @@ type Preview = {
   } | null;
   action: "renewal_cancelled" | "already_cancelled" | "none";
   blockers: Array<{ kind: string; count: number; message: string }>;
+  openDeletionRequests?: number;
 };
-function Consequences({ preview, follower }: { preview: Preview; follower: boolean }) {
+function Consequences({
+  preview,
+  follower,
+}: {
+  preview: Preview;
+  follower: boolean;
+}) {
   const you = follower ? "your" : "their";
   return (
     <ul className="acct-points">
@@ -31,13 +42,19 @@ function Consequences({ preview, follower }: { preview: Preview; follower: boole
         </li>
       )}
       {preview.action === "already_cancelled" && (
-        <li>The renewal is already cancelled; no further payments are taken.</li>
+        <li>
+          The renewal is already cancelled; no further payments are taken.
+        </li>
       )}
       <li>
         Coaching records stay with this trainer under the retention policy.
-        {follower
-          ? " To have them erased instead, submit a deletion request in Privacy before leaving."
-          : " Erasure remains a separate privacy request."}
+        {preview.openDeletionRequests
+          ? follower
+            ? " Your deletion request stays open; the platform privacy team still processes it after you leave."
+            : " Their open deletion request stays open and is still processed after the membership ends."
+          : follower
+            ? " To have them erased instead, submit a deletion request in Privacy and download your data export before leaving; the request is still processed after you leave, but you cannot sign in here to file one afterwards."
+            : " Erasure remains a separate privacy request, which is still processed after the membership ends."}
       </li>
       <li>
         {follower ? "Your" : "Their"} account and any other coaches are not
@@ -61,7 +78,8 @@ function Blockers({ preview }: { preview: Preview }) {
 /** A follower ends their own membership with the current trainer. */
 export function LeaveTrainer() {
   const [preview, setPreview] = useState<
-      (Preview & { workspace: { name: string }; otherWorkspaces: number }) | null
+      | (Preview & { workspace: { name: string }; otherWorkspaces: number })
+      | null
     >(null),
     [message, setMessage] = useState(""),
     [done, setDone] = useState(false),
@@ -74,9 +92,7 @@ export function LeaveTrainer() {
   if (!preview && !message) return null;
   return (
     <section className="card acct-danger" aria-labelledby="acct-leave">
-      <h2 id="acct-leave">
-        Leave {preview?.workspace.name ?? "this trainer"}
-      </h2>
+      <h2 id="acct-leave">Leave {preview?.workspace.name ?? "this trainer"}</h2>
       {message && (
         <p className={`notice ${done ? "success" : "error"}`} role="status">
           {message}
@@ -190,9 +206,13 @@ export function FollowerRemoval({
               setBusy(true);
               setMessage("");
               try {
-                await accountRequest(`/trainer/followers/${userId}/remove`, "POST", {
-                  reason: String(f.get("reason") ?? "").trim(),
-                });
+                await accountRequest(
+                  `/trainer/followers/${userId}/remove`,
+                  "POST",
+                  {
+                    reason: String(f.get("reason") ?? "").trim(),
+                  },
+                );
                 setDone(true);
                 setMessage(
                   "The membership ended. The follower was notified in the app and by email when email is configured.",
@@ -211,7 +231,13 @@ export function FollowerRemoval({
           >
             <label className="field">
               <span>Reason</span>
-              <textarea name="reason" minLength={5} maxLength={1000} rows={3} required />
+              <textarea
+                name="reason"
+                minLength={5}
+                maxLength={1000}
+                rows={3}
+                required
+              />
               <small className="muted">
                 Shared with the follower and kept in the workspace audit log.
                 Leave out health details.
@@ -251,7 +277,9 @@ export function FormerFollowers() {
           <li key={e.id}>
             <div className="acct-row">
               <strong className="acct-break">{e.name}</strong>
-              <span className="badge">{e.kind === "left" ? "Left" : "Removed"}</span>
+              <span className="badge">
+                {e.kind === "left" ? "Left" : "Removed"}
+              </span>
             </div>
             <small className="muted">
               {formatDate(e.createdAt)}

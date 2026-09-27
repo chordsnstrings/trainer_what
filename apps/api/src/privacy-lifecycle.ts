@@ -460,13 +460,22 @@ export async function eraseMember(
       "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 FOR UPDATE",
       [a.tenantId, r.owner_user_id],
     );
-    if (!member || member.role === "owner")
+    await setTenant(tx, a);
+    // A follower who left or was removed keeps a processable request: the
+    // workspace still holds their records, and the recorded exit shows they
+    // were a member here. Nobody else without a membership qualifies.
+    const [formerMember] = member
+      ? []
+      : await tx.query(
+          "SELECT id FROM membership_exits WHERE user_id=$1 LIMIT 1",
+          [r.owner_user_id],
+        );
+    if (member?.role === "owner" || (!member && !formerMember))
       throw fail(
         409,
         "WORKSPACE_CLOSURE_REQUIRED",
         "The current owner must complete ownership transfer or workspace closure before account erasure",
       );
-    await setTenant(tx, a);
     await assertSettled(tx, r.owner_user_id);
     const knownProviders = hooks.providerInventory
       ? await hooks.providerInventory(tx, r.owner_user_id)

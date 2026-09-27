@@ -35,9 +35,18 @@ in Settings (`/trainer/settings`, `/app/profile`) and on
 - **Display name**: `PATCH /api/v1/account/profile` `{name}` (2 to 100 plain
   characters). Audited as `account.name_changed` in the current workspace with
   `{fields:["name"]}`; the value itself is never written to the audit.
+- **Re-proving ownership** (`confirmAccountOwner`): the current password, or,
+  for an account without a password, a real sign-in within the last ten
+  minutes, plus a fresh authenticator code when one is enrolled. "Real sign-in"
+  is `sessions.authenticated_at`, set by password, Apple/Google, passkey, magic
+  link, authenticator recovery, registration, public join and invitation
+  sign-ins. A workspace switch (`POST /api/v1/auth/workspace`) and the
+  follow-on session after leaving a trainer carry the replaced session's time
+  forward (`openSignInSession` refuses those two methods without it), so they
+  never reopen the ten-minute window. `GET /api/v1/account` `recentSignIn`
+  uses the same column.
 - **Email change**: `POST /api/v1/account/email` `{email, password, code?}`
-  needs the current password (or, for an account without a password, a sign-in
-  within ten minutes) and a fresh authenticator code when one is enrolled. It
+  needs that proof. It
   queues a 30-minute confirmation link to the new address through the existing
   `email` job queue (marked sensitive, scrubbed after sending) and a notice to
   the old address. Nothing changes until `POST /api/v1/account/email/confirm`
@@ -52,12 +61,21 @@ in Settings (`/trainer/settings`, `/app/profile`) and on
   can be cancelled (`POST /api/v1/account/email/cancel`). In production
   without email delivery the request returns 503 ("Email delivery must be
   configured…", the forgot-password pattern) and the screen says email
-  delivery is not configured instead of showing the form.
+  delivery is not configured instead of showing the form. The link uses the
+  address the change started from; on a trainer's own domain
+  `/verify-email-change/<token>` is served as the confirmation page (it was
+  missing from the custom-host allowlist in `apps/web/host-proxy.ts` and was
+  rewritten to the coach site).
 - **Password**: a change-password form over the existing
   `POST /api/v1/auth/password` (current password, new password twice,
   authenticator code when enrolled; every session ends). Accounts created
   through Apple/Google have no password; they can set one right after a fresh
   sign-in with `POST /api/v1/account/password/set`.
+- **Authenticator for accounts without a password**: both authenticator routes
+  confirm with the password, so `POST /api/v1/auth/mfa/enroll` answers 409
+  `PASSWORD_REQUIRED` ("Set a password in Account settings first") instead of
+  "Password is incorrect", `GET /api/v1/auth/security` reports `hasPassword`,
+  and the Account security card shows that guidance instead of the form.
 - **Apple and Google sign-in methods**: link from settings
   (`POST /api/v1/auth/oidc/:provider/link` re-proves ownership with password
   or recent sign-in plus authenticator code) and unlink
@@ -145,7 +163,10 @@ Web: `SocialSignIn` buttons on `/login`, `/join-coach/<slug>` and
   sets a new password, deletes every session and voids magic/reset links; an
   enrolled authenticator code is still required (five attempts per link). The
   member gets an account notice and, when email delivery is configured, an
-  email at issue and at use. The host-only authenticator reset
+  email at issue and at use. A link works only while its issuer still holds
+  an operator role covering the account (Superadmin, or support for
+  non-platform accounts): demoting the issuer voids their open links at once.
+  The host-only authenticator reset
   (`operator-actions.ts`) is unchanged and separate. Trainers have no route.
 
 ### Trainer
@@ -154,7 +175,18 @@ Web: `SocialSignIn` buttons on `/login`, `/join-coach/<slug>` and
   owner only): `GET /api/v1/trainer/followers/:userId/exit` previews the
   effect; `POST /api/v1/trainer/followers/:userId/remove` `{reason}` needs the
   owner role and a fresh authenticator (`MFA_STEP_UP` otherwise). The reason
-  is shared with the follower and kept in the workspace audit.
+  is shared with the follower and kept in the workspace audit. The target must
+  be a current follower (and the actor the owner) before any billing call, so a
+  refused removal never touches Stripe. The renewal cancellation is recorded as
+  the owner's instruction: the `subscription_transition` record carries
+  `initiatedBy` and `subscription.renewal_requested` names the owner as actor
+  with `memberId`.
+- **Removed followers stay out**: the public join paths (password
+  `/api/v1/auth/enroll` and the Apple/Google `join` intent) refuse a person
+  whose latest exit from that workspace is `removed` and who is not a member
+  again (403 `REMOVED_BY_TRAINER`, checked after the password and
+  authenticator). A new invitation from the workspace is the only way back;
+  a follower who left by choice can rejoin publicly.
 - **Former followers** (`FormerFollowers` on `/trainer/subscribers`, owner and
   staff): `GET /api/v1/trainer/follower-exits`.
 - When a follower leaves, owner and staff get an in-app notification ("A
@@ -176,7 +208,24 @@ Shared exit behaviour (`apps/api/src/membership-exit.ts`):
   refund before leaving.
 - Exits wait for in-flight instructions: renewal changes being confirmed, open
   checkouts, refunds or payment intents being submitted, and upcoming
-  confirmed bookings (409 `EXIT_BLOCKED` with the reasons).
+  confirmed bookings (409 `EXIT_BLOCKED` with the reasons). The same checks run
+  again inside the locked exit transaction, after the workspace lock, the
+  membership row lock and the member's booking lock. Checkout creation takes
+  the workspace lock and locks the membership row; booking reservation takes
+  the member's booking lock and now re-reads the membership inside its
+  transaction (`booking-schedule.ts`), so a checkout or booking either lands
+  before the exit (which then refuses) or finds no membership. If the renewal
+  was already cancelled when the late check refuses, it stays cancelled and
+  the member stays; the member can switch renewal back on.
+- An open deletion request does not block an exit. `eraseMember` now accepts a
+  former member of the workspace (a `membership_exits` row and no current
+  membership) and still scrubs the account when no other membership remains;
+  someone never a member is still refused (`WORKSPACE_CLOSURE_REQUIRED`). The
+  preview reports `openDeletionRequests`, and the Leave and removal screens
+  say that such a request is still processed after the membership ends. The
+  Leave screen advises filing a deletion request and downloading the export
+  before leaving, because a follower without another membership cannot sign
+  in to file one afterwards.
 - Then, in one transaction: a `membership_exits` row (immutable), the
   membership removed, that workspace's sessions deleted (push subscriptions
   cascade), that workspace's links and any unused invitation to the address
@@ -189,12 +238,22 @@ Shared exit behaviour (`apps/api/src/membership-exit.ts`):
   and has another workspace, a session for it is opened.
 - Stripe events for a recorded former member still reach the ledger
   (`stripe-events.ts`); events for someone never a member are still refused.
+- Signing in after the last membership ended: exit notices record their
+  workspace (`account_notices.tenant_id`). Password login answers 403
+  `MEMBERSHIP_ENDED` with the notice text (trainer name and reason) once the
+  password and any enrolled authenticator are proven, for the trainer's own
+  address or a chosen workspace, or for the account's latest exit on the
+  platform address. Passkey sign-in does the same. Apple/Google sign-in
+  redirects with `signin_error=MEMBERSHIP_ENDED` (generic wording, after the
+  authenticator step). Anyone else still gets `NO_MEMBERSHIP`.
 
 ## Single sign-in entry point
 
 `openSignInSession(tx, {userId, tenantId, mfa, method})` in
 `apps/api/src/sign-in.ts` is the only code that inserts `sessions` rows
-(a test asserts this). It checks the membership and active workspace. An
+(a test asserts this). It checks the membership and active workspace and
+sets `authenticated_at`, carried forward for `workspace_switch` and
+`membership_exit`. An
 account lock or suspension check belongs there, before the insert; it then
 covers password login, registration, public join, invitation, workspace
 switch, magic link, authenticator recovery, passkey, Apple, Google and the
@@ -206,38 +265,66 @@ System tables (service connection only, no tenant grants, granted to
 `trainer_service` in the migration and `infra/runtime-role.sql`):
 `account_identities`, `oidc_sign_in_requests`, `email_change_requests`
 (one open request per account), `account_recovery_grants`,
-`account_notices`. Tenant table `membership_exits` with RLS (owner, staff and
+`account_notices` (with a nullable `tenant_id` for exit notices).
+`sessions.authenticated_at` (not null, default `now()`; existing sessions are
+backfilled with their `created_at`). The existing table-level grants on
+`sessions` cover the column. Migration 054 is this work package's own
+migration and has not been merged or applied to any database outside tests,
+so the review round added these two columns to it instead of a new file. Tenant table `membership_exits` with RLS (owner, staff and
 finance of the workspace), `SELECT, INSERT` for `trainer_app`, immutable
 trigger. `scripts/verify-runtime-access.mjs` classifies all six and asserts
 the tenant role cannot read the system tables or delete exits.
 
 ## Tests actually run
 
-All on 27 September 2026 in this worktree, Node 24.
+Initial implementation, 27 September 2026, Node 24:
 
-- `npx tsc --noEmit -p .` — passed (no output), last run after the final code
-  change.
-- PGlite, new files:
-  `node --import tsx --test tests/accounts-self-service.test.ts` 7/7,
-  `tests/accounts-recovery.test.ts` 3/3,
-  `tests/accounts-membership-exit.test.ts` 3/3,
-  `tests/accounts-oidc.test.ts` 7/7 (re-run after the last change),
-  `tests/accounts-web.test.ts` 3/3.
-- PGlite, existing related files (with `--test-concurrency=1`):
+- `npx tsc --noEmit -p .` passed. PGlite: accounts-self-service 7/7,
+  accounts-recovery 3/3, accounts-membership-exit 3/3, accounts-oidc 7/7,
+  accounts-web 3/3, plus 54 + 63 + 89 + 28 existing related tests, all passing.
+- `/opt/tools/pg-sandbox.sh 56111 …`: runtime access verified (46 migrations,
+  41 system tables, 34 scoped tables); 20/20, 72/72 and 23/23 in three runs,
+  `PG_SELECTED_FAILED_FILES=0`.
+
+Review round (fixes listed above), 27 September 2026, Node 24. Every check
+below was run after the last code change, which was a `prettier --write` pass
+over the changed files (the same checks had also passed before it):
+
+- `npx tsc --noEmit` passed (exit 0, no output).
+- PGlite: `node --import tsx --test tests/accounts-self-service.test.ts
+  tests/accounts-recovery.test.ts tests/accounts-membership-exit.test.ts
+  tests/accounts-oidc.test.ts tests/accounts-web.test.ts`: 30/30 pass
+  (9 + 4 + 6 + 8 + 3).
+- PGlite, related existing files with `--test-concurrency=1`:
   account-completion, fix-auth, platform-settings, provider-configuration,
-  settings-runtime, fix-settings: 54/54; finance-completion, fix-ledger,
-  privacy-lifecycle, team-completion, host-routing, rate-limits,
-  finance-checkout, fix2-finance: 63/63; fix-db, fix-keys, platform, fix-web,
-  notifications, retention, fix-edge, fix2-web: 89/89; privacy-lifecycle,
-  privacy-media plus the account files after the export change: 28/28.
-- Restricted-role PostgreSQL (`/opt/tools/pg-sandbox.sh 56111 …`):
-  run 1, the four API account files: runtime access verified (46 migrations,
-  41 system tables, 34 scoped tables), 20/20, `PG_SELECTED_FAILED_FILES=0`.
-  Run 2, the five account files plus account-completion, fix-auth,
-  privacy-lifecycle and finance-completion: runtime access verified, 72/72,
-  `PG_SELECTED_FAILED_FILES=0`. Run 3, after the last code change (OIDC
-  request housekeeping), the five account files: runtime access verified,
-  23/23, `PG_SELECTED_FAILED_FILES=0`.
+  privacy-lifecycle, privacy-media, host-routing, finance-completion,
+  team-completion, rate-limits, fix-web, fix2-web, fix-edge,
+  bookings-completion, fix-ledger, finance-checkout, fix2-finance, platform,
+  integrations-completion, support-preview: 211/211 pass.
+- Restricted-role PostgreSQL: `/opt/tools/pg-sandbox.sh 56111 "$PWD"` with the
+  five account files plus account-completion, fix-auth, privacy-lifecycle,
+  finance-completion, team-completion, bookings-completion and host-routing:
+  runtime access verified (46 migrations, 41 system tables, 34 scoped tables,
+  9 helpers); 12 files, 98/98 pass, `PG_SELECTED_FAILED_FILES=0`.
+- The workspace-switch regression test was also run against the old check
+  (`created_at` in `confirmAccountOwner`, restored afterwards) and failed, as
+  expected.
+
+New regression tests: a stolen session of a passwordless account cannot
+set a password, change the email, link Apple or unlink Google after one or two
+workspace switches, and the sign-in time carries over exactly; a fresh Google
+sign-in reopens the window; a follower on a trainer's own domain confirms an
+email change there (and the link is origin-bound); deletion requests filed
+before leaving or pending at removal are erased afterwards, and a never-member
+is still refused; a checkout inserted while the renewal call is in flight, and
+a booking reserved at that moment, both stop the exit; a refused removal of a
+staff member makes no billing call; the owner is recorded as the renewal
+initiator; a removed follower gets `MFA_REQUIRED` then `MEMBERSHIP_ENDED` with
+the reason at login, is refused by the password and Apple/Google join pages
+(`REMOVED_BY_TRAINER`) and comes back by invitation; Apple/Google sign-in
+after removal redirects with `MEMBERSHIP_ENDED`; links from a demoted support
+operator stop working; `mfa/enroll` answers `PASSWORD_REQUIRED` for a
+passwordless account.
 
 The OIDC tests use in-test mock issuers on reserved `.test` domains, served
 through the existing fixture transport (fetch replacement allowed only under
@@ -260,8 +347,15 @@ outside the Node test runner or in production.
   password, passkey and magic-link sign-in.
 - Trainer workspace registration through Apple/Google is not offered; a
   trainer registers with a password and links a provider in settings.
-- A removed follower can rejoin through a public join page; a block list for
-  removed followers is not built.
+- Apple/Google sign-in after an ended membership shows generic wording, not
+  the coach's message: the callback is a redirect and the message is not put
+  in a URL. Password and passkey sign-in show it; the email copy is sent when
+  email delivery is configured.
+- A former follower cannot see the status of their deletion request after
+  leaving (the privacy status view needs a workspace session); the platform
+  privacy queue still lists and processes it.
+- A workspace switch still clears the authenticator step-up time (unchanged
+  behaviour), in addition to carrying the sign-in time.
 - Automatic pro-rated refunds on exit are not built; refunds stay with the
   existing refund flow.
 - `next build` and browser checks were not run (instructions); the web code is

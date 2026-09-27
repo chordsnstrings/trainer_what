@@ -481,6 +481,18 @@ export function registerBookingRoutes(
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":booking-subscriber:" + a.userId,
       ]);
+      // Ending a membership takes the same lock, so a reservation either
+      // lands before the exit (which then refuses) or sees no membership.
+      const [member] = await tx.query(
+        "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
+        [a.tenantId, a.userId],
+      );
+      if (member?.role !== "subscriber")
+        throw fail(
+          403,
+          "SUBSCRIBER_REQUIRED",
+          "Sign in as a subscriber to reserve.",
+        );
       const [sub] = await tx.query(
         "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())",
         [a.userId],

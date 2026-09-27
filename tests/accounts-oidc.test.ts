@@ -29,12 +29,16 @@ const GOOGLE = "https://google.oidc.test",
   APPLE = "https://apple.oidc.test";
 let clock = Date.now();
 const now = () => clock;
-const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+const b64 = (v: unknown) =>
+  Buffer.from(JSON.stringify(v)).toString("base64url");
 const s256 = (v: string) => createHash("sha256").update(v).digest("base64url");
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json", "cache-control": "public, max-age=3600" },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "public, max-age=3600",
+    },
   });
 type MockUser = {
   sub: string;
@@ -56,22 +60,39 @@ class MockIssuer {
     this.addKey();
   }
   addKey() {
-    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+    });
     const kid = "kid-" + randomUUID().slice(0, 8);
     this.keys.push({
       kid,
       privateKey,
-      jwk: { ...publicKey.export({ format: "jwk" }), kid, use: "sig", alg: "RS256" },
+      jwk: {
+        ...publicKey.export({ format: "jwk" }),
+        kid,
+        use: "sig",
+        alg: "RS256",
+      },
     });
     return kid;
   }
-  mint(claims: Record<string, unknown>, options: { kid?: string; key?: KeyObject } = {}) {
-    const key = this.keys.find((k) => k.kid === (options.kid ?? this.keys.at(-1)!.kid))!;
-    const input = b64({ alg: "RS256", kid: key.kid, typ: "JWT" }) + "." + b64(claims);
+  mint(
+    claims: Record<string, unknown>,
+    options: { kid?: string; key?: KeyObject } = {},
+  ) {
+    const key = this.keys.find(
+      (k) => k.kid === (options.kid ?? this.keys.at(-1)!.kid),
+    )!;
+    const input =
+      b64({ alg: "RS256", kid: key.kid, typ: "JWT" }) + "." + b64(claims);
     return (
       input +
       "." +
-      sign("sha256", Buffer.from(input), options.key ?? key.privateKey).toString("base64url")
+      sign(
+        "sha256",
+        Buffer.from(input),
+        options.key ?? key.privateKey,
+      ).toString("base64url")
     );
   }
   claims(user: MockUser, nonce: string, extra: Record<string, unknown> = {}) {
@@ -150,16 +171,23 @@ class MockIssuer {
 }
 
 const settings = {
-  google: { id: "google-client.apps.test", secret: "google-secret-" + randomUUID() },
+  google: {
+    id: "google-client.apps.test",
+    secret: "google-secret-" + randomUUID(),
+  },
   apple: {
     services: "test.trainer.signin",
     team: "TEAM123456",
     keyId: "KEY1234567",
     ...(() => {
-      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const { privateKey, publicKey } = generateKeyPairSync("ec", {
+        namedCurve: "P-256",
+      });
       return {
         publicKey,
-        pem: String(privateKey.export({ type: "pkcs8", format: "pem" })).replace(/\n/g, ""),
+        pem: String(
+          privateKey.export({ type: "pkcs8", format: "pem" }),
+        ).replace(/\n/g, ""),
       };
     })(),
   },
@@ -191,7 +219,12 @@ const google = new MockIssuer(
   () => settings.google.id,
   (form) => form.get("client_secret") === googleSecretAccepted,
 );
-const apple = new MockIssuer(APPLE, () => settings.apple.services, appleClientValid, true);
+const apple = new MockIssuer(
+  APPLE,
+  () => settings.apple.services,
+  appleClientValid,
+  true,
+);
 
 let ctx: Awaited<ReturnType<typeof accountsContext>>, admin: Person;
 const originalFetch = globalThis.fetch;
@@ -204,7 +237,11 @@ before(async () => {
   }) as typeof fetch;
   setOidcTestOverrides({ issuers: { google: GOOGLE, apple: APPLE }, now });
   ctx = await accountsContext();
-  admin = await ctx.person({ platformRole: "admin", mfa: true, mfaFresh: true });
+  admin = await ctx.person({
+    platformRole: "admin",
+    mfa: true,
+    mfaFresh: true,
+  });
 });
 after(async () => {
   await ctx.close();
@@ -216,9 +253,9 @@ async function saveSettings(
   values: Record<string, string>,
   secrets: Record<string, string>,
 ) {
-  const current = ok(await ctx.call("/admin/settings", { cookie: admin.cookie })).integrations.find(
-    (i: any) => i.id === id,
-  );
+  const current = ok(
+    await ctx.call("/admin/settings", { cookie: admin.cookie }),
+  ).integrations.find((i: any) => i.id === id);
   return ok(
     await ctx.call(`/admin/settings/${id}`, {
       method: "PUT",
@@ -229,12 +266,18 @@ async function saveSettings(
 }
 async function testSettings(id: string, revision: number) {
   return ok(
-    await ctx.call(`/admin/settings/${id}/test`, { body: { revision }, cookie: admin.cookie }),
+    await ctx.call(`/admin/settings/${id}/test`, {
+      body: { revision },
+      cookie: admin.cookie,
+    }),
   );
 }
 async function providers() {
   return Object.fromEntries(
-    ok(await ctx.call("/auth/oidc/providers")).providers.map((p: any) => [p.id, p.enabled]),
+    ok(await ctx.call("/auth/oidc/providers")).providers.map((p: any) => [
+      p.id,
+      p.enabled,
+    ]),
   );
 }
 async function start(
@@ -278,7 +321,9 @@ const location = (r: any) => String(r.headers.location ?? "");
 
 test("Apple and Google sign-in stay off until Superadmin settings hold encrypted credentials and pass the discovery connection check", async () => {
   assert.deepEqual(await providers(), { google: false, apple: false });
-  const closed = await ctx.call("/auth/oidc/google/start", { body: { intent: "sign_in" } });
+  const closed = await ctx.call("/auth/oidc/google/start", {
+    body: { intent: "sign_in" },
+  });
   assert.equal(closed.statusCode, 503);
   assert.match(closed.json().message, /not available yet/);
   googleSecretAccepted = "the-real-secret";
@@ -287,9 +332,17 @@ test("Apple and Google sign-in stay off until Superadmin settings hold encrypted
     { GOOGLE_SIGNIN_CLIENT_ID: settings.google.id },
     { GOOGLE_SIGNIN_CLIENT_SECRET: settings.google.secret },
   );
-  assert.equal((await providers()).google, false, "saving alone does not activate");
+  assert.equal(
+    (await providers()).google,
+    false,
+    "saving alone does not activate",
+  );
   const rejected = await testSettings("google_signin", saved.revision);
-  assert.equal(rejected.lastTest.status, "failed", "a rejected client secret fails the check");
+  assert.equal(
+    rejected.lastTest.status,
+    "failed",
+    "a rejected client secret fails the check",
+  );
   assert.equal((await providers()).google, false);
   googleSecretAccepted = settings.google.secret;
   saved = await saveSettings(
@@ -300,7 +353,10 @@ test("Apple and Google sign-in stay off until Superadmin settings hold encrypted
   const discoveryBefore = google.fetches.discovery;
   const verified = await testSettings("google_signin", saved.revision);
   assert.equal(verified.lastTest.status, "verified");
-  assert.ok(google.fetches.discovery > discoveryBefore, "the check reads the live discovery document");
+  assert.ok(
+    google.fetches.discovery > discoveryBefore,
+    "the check reads the live discovery document",
+  );
   const appleSaved = await saveSettings(
     "apple_signin",
     {
@@ -310,14 +366,21 @@ test("Apple and Google sign-in stay off until Superadmin settings hold encrypted
     },
     { APPLE_SIGNIN_PRIVATE_KEY: settings.apple.pem },
   );
-  assert.equal((await testSettings("apple_signin", appleSaved.revision)).lastTest.status, "verified");
+  assert.equal(
+    (await testSettings("apple_signin", appleSaved.revision)).lastTest.status,
+    "verified",
+  );
   assert.deepEqual(await providers(), { google: true, apple: true });
   const [row] = await ctx.db.system((tx) =>
-    tx.query("SELECT encrypted_secrets::text AS stored FROM platform_settings WHERE integration_id='apple_signin'"),
+    tx.query(
+      "SELECT encrypted_secrets::text AS stored FROM platform_settings WHERE integration_id='apple_signin'",
+    ),
   );
   assert.doesNotMatch(row.stored, /BEGIN PRIVATE KEY|MIG/);
   const [googleRow] = await ctx.db.system((tx) =>
-    tx.query("SELECT encrypted_secrets::text AS stored FROM platform_settings WHERE integration_id='google_signin'"),
+    tx.query(
+      "SELECT encrypted_secrets::text AS stored FROM platform_settings WHERE integration_id='google_signin'",
+    ),
   );
   assert.doesNotMatch(googleRow.stored, new RegExp(settings.google.secret));
   // A discovery document naming another issuer fails the check.
@@ -336,36 +399,74 @@ test("Apple and Google sign-in stay off until Superadmin settings hold encrypted
   });
   assert.equal(badKey.status, "failed");
   assert.match(badKey.message, /\.p8/);
-  assert.throws(() => setOidcTestOverrides({ issuers: { google: "https://accounts.google.com" } }));
+  assert.throws(() =>
+    setOidcTestOverrides({
+      issuers: { google: "https://accounts.google.com" },
+    }),
+  );
   setOidcTestOverrides({ issuers: { google: GOOGLE, apple: APPLE }, now });
 });
 
 test("Google sign-in binds state, nonce and PKCE to the starting browser and links only a verified matching email", async () => {
-  const member = await ctx.person({ role: "subscriber", tenantId: (await ctx.person()).tenantId });
+  const member = await ctx.person({
+    role: "subscriber",
+    tenantId: (await ctx.person()).tenantId,
+  });
   const flow = await start("google", { intent: "sign_in" });
   assert.ok(flow.binder.startsWith("oidc_binder="));
   const [stored] = await ctx.db.system((tx) =>
-    tx.query("SELECT payload::text AS payload,state_hash,binder_hash FROM oidc_sign_in_requests ORDER BY created_at DESC LIMIT 1"),
+    tx.query(
+      "SELECT payload::text AS payload,state_hash,binder_hash FROM oidc_sign_in_requests ORDER BY created_at DESC LIMIT 1",
+    ),
   );
   assert.notEqual(stored.state_hash, flow.url.searchParams.get("state"));
-  assert.doesNotMatch(stored.payload, new RegExp(flow.url.searchParams.get("nonce")!));
+  assert.doesNotMatch(
+    stored.payload,
+    new RegExp(flow.url.searchParams.get("nonce")!),
+  );
   // The same callback in another browser (no binder) never signs in.
-  const hijacked = await finish("google", flow, { sub: "g-" + member.userId, email: member.email }, { binder: "oidc_binder=forged" });
+  const hijacked = await finish(
+    "google",
+    flow,
+    { sub: "g-" + member.userId, email: member.email },
+    { binder: "oidc_binder=forged" },
+  );
   assert.equal(hijacked.statusCode, 303);
   assert.equal(location(hijacked), "/login?signin_error=OIDC_BROWSER_MISMATCH");
   assert.equal(sessionCookie(hijacked), "");
   const second = await start("google", { intent: "sign_in" });
-  const signedIn = await finish("google", second, { sub: "g-" + member.userId, email: member.email });
+  const signedIn = await finish("google", second, {
+    sub: "g-" + member.userId,
+    email: member.email,
+  });
   assert.equal(signedIn.statusCode, 303, signedIn.body);
   assert.equal(location(signedIn), "/app");
   const cookie = sessionCookie(signedIn);
-  assert.equal(ok(await ctx.call("/bootstrap", { cookie })).user.userId, member.userId);
+  assert.equal(
+    ok(await ctx.call("/bootstrap", { cookie })).user.userId,
+    member.userId,
+  );
   const account = ok(await ctx.call("/account", { cookie }));
-  assert.deepEqual(account.identities.map((i: any) => i.provider), ["google"]);
+  assert.deepEqual(
+    account.identities.map((i: any) => i.provider),
+    ["google"],
+  );
   assert.ok(account.notices.some((n: any) => n.kind === "identity_linked"));
-  const [audit] = await ctx.events(member.tenantId, "security.oidc_signed_in", member.userId);
-  assert.deepEqual(audit.data, { provider: "google", linkedAutomatically: true, accountCreated: false });
-  const [linkedMail] = await ctx.emailJobs(member.tenantId, member.email, "identity-linked");
+  const [audit] = await ctx.events(
+    member.tenantId,
+    "security.oidc_signed_in",
+    member.userId,
+  );
+  assert.deepEqual(audit.data, {
+    provider: "google",
+    linkedAutomatically: true,
+    accountCreated: false,
+  });
+  const [linkedMail] = await ctx.emailJobs(
+    member.tenantId,
+    member.email,
+    "identity-linked",
+  );
   assert.match(linkedMail.data.text, /Google can now be used to sign in/);
   const exported = ok(await ctx.call("/privacy/export", { cookie }));
   assert.deepEqual(
@@ -385,21 +486,44 @@ test("Google sign-in binds state, nonce and PKCE to the starting browser and lin
   );
   assert.equal(location(refusal), "/login?signin_error=OIDC_CANCELLED");
   const cases: Array<[Promise<Person> | Person, MockUser, string]> = [
-    [ctx.person({ verified: false }), { sub: "g-unverified-local" }, "OIDC_LINK_REQUIRED"],
-    [ctx.person({ platformRole: "support" }), { sub: "g-platform" }, "OIDC_LINK_REQUIRED"],
-    [ctx.person(), { sub: "g-unverified-provider", email_verified: false }, "OIDC_EMAIL_UNVERIFIED"],
+    [
+      ctx.person({ verified: false }),
+      { sub: "g-unverified-local" },
+      "OIDC_LINK_REQUIRED",
+    ],
+    [
+      ctx.person({ platformRole: "support" }),
+      { sub: "g-platform" },
+      "OIDC_LINK_REQUIRED",
+    ],
+    [
+      ctx.person(),
+      { sub: "g-unverified-provider", email_verified: false },
+      "OIDC_EMAIL_UNVERIFIED",
+    ],
   ];
   for (const [who, user, code] of cases) {
     const p = await who;
-    const r = await finish("google", await start("google", { intent: "sign_in" }), { email: p.email, ...user });
+    const r = await finish(
+      "google",
+      await start("google", { intent: "sign_in" }),
+      { email: p.email, ...user },
+    );
     assert.equal(location(r), `/login?signin_error=${code}`);
     const [linked] = await ctx.db.system((tx) =>
-      tx.query("SELECT count(*)::int n FROM account_identities WHERE user_id=$1", [p.userId]),
+      tx.query(
+        "SELECT count(*)::int n FROM account_identities WHERE user_id=$1",
+        [p.userId],
+      ),
     );
     assert.equal(linked.n, 0);
   }
   const unknown = `nobody-${randomUUID()}@example.test`;
-  const none = await finish("google", await start("google", { intent: "sign_in" }), { sub: "g-new", email: unknown });
+  const none = await finish(
+    "google",
+    await start("google", { intent: "sign_in" }),
+    { sub: "g-new", email: unknown },
+  );
   assert.equal(location(none), "/login?signin_error=OIDC_NO_ACCOUNT");
   const [created] = await ctx.db.system((tx) =>
     tx.query("SELECT count(*)::int n FROM users WHERE email=$1", [unknown]),
@@ -412,15 +536,20 @@ test("new accounts come only from a public join or an invitation, under the lega
   const [{ slug }] = await ctx.db.system((tx) =>
     tx.query("SELECT slug FROM tenants WHERE id=$1", [trainer.tenantId]),
   );
-  const unaccepted = await ctx.call("/auth/oidc/google/start", { body: { intent: "join", coachSlug: slug } });
-  assert.equal(unaccepted.json().code, "TERMS_REQUIRED");
-  await withEnv({ NODE_ENV: "production", LEGAL_APPROVED: undefined }, async () => {
-    const pending = await ctx.call("/auth/oidc/google/start", {
-      body: { intent: "join", coachSlug: slug, accepted: true },
-    });
-    assert.equal(pending.statusCode, 503);
-    assert.equal(pending.json().code, "LEGAL_PENDING");
+  const unaccepted = await ctx.call("/auth/oidc/google/start", {
+    body: { intent: "join", coachSlug: slug },
   });
+  assert.equal(unaccepted.json().code, "TERMS_REQUIRED");
+  await withEnv(
+    { NODE_ENV: "production", LEGAL_APPROVED: undefined },
+    async () => {
+      const pending = await ctx.call("/auth/oidc/google/start", {
+        body: { intent: "join", coachSlug: slug, accepted: true },
+      });
+      assert.equal(pending.statusCode, 503);
+      assert.equal(pending.json().code, "LEGAL_PENDING");
+    },
+  );
   const email = `joiner-${randomUUID()}@example.test`;
   const joined = await finish(
     "google",
@@ -437,20 +566,41 @@ test("new accounts come only from a public join or an invitation, under the lega
   const boot = ok(await ctx.call("/bootstrap", { cookie }));
   assert.equal(boot.user.role, "subscriber");
   assert.equal(boot.tenant.id, trainer.tenantId);
-  assert.equal(boot.consents.filter((c: any) => c.document_type === "registration").length, 1);
-  assert.equal((await ctx.events(trainer.tenantId, "subscriber.enrolled", boot.user.userId)).length, 1);
+  assert.equal(
+    boot.consents.filter((c: any) => c.document_type === "registration").length,
+    1,
+  );
+  assert.equal(
+    (
+      await ctx.events(
+        trainer.tenantId,
+        "subscriber.enrolled",
+        boot.user.userId,
+      )
+    ).length,
+    1,
+  );
   // Password sign-in is impossible until the member sets a password.
-  assert.equal((await ctx.call("/auth/login", { body: { email, password } })).statusCode, 401);
+  assert.equal(
+    (await ctx.call("/auth/login", { body: { email, password } })).statusCode,
+    401,
+  );
   // Invitations: the provider email must be the invited address.
   const invitedEmail = `invited-${randomUUID()}@example.test`;
   const invitation = ok(
-    await ctx.call("/invitations", { body: { email: invitedEmail, role: "subscriber" }, cookie: trainer.cookie }),
+    await ctx.call("/invitations", {
+      body: { email: invitedEmail, role: "subscriber" },
+      cookie: trainer.cookie,
+    }),
   );
   const inviteToken = String(invitation.url).split("/").pop()!;
   const mismatch = await finish(
     "google",
     await start("google", { intent: "invite", inviteToken, accepted: true }),
-    { sub: "g-wrong-" + randomUUID(), email: `other-${randomUUID()}@example.test` },
+    {
+      sub: "g-wrong-" + randomUUID(),
+      email: `other-${randomUUID()}@example.test`,
+    },
   );
   assert.equal(location(mismatch), "/login?signin_error=INVITE_EMAIL_MISMATCH");
   const accepted = await finish(
@@ -460,9 +610,10 @@ test("new accounts come only from a public join or an invitation, under the lega
   );
   assert.equal(location(accepted), "/app");
   const [invite] = await ctx.db.system((tx) =>
-    tx.query("SELECT consumed_at IS NOT NULL AS used FROM one_time_tokens WHERE token_hash=$1", [
-      createHash("sha256").update(inviteToken).digest("hex"),
-    ]),
+    tx.query(
+      "SELECT consumed_at IS NOT NULL AS used FROM one_time_tokens WHERE token_hash=$1",
+      [createHash("sha256").update(inviteToken).digest("hex")],
+    ),
   );
   assert.equal(invite.used, true);
   const again = await ctx.call("/auth/oidc/google/start", {
@@ -473,22 +624,47 @@ test("new accounts come only from a public join or an invitation, under the lega
 
 test("an enrolled authenticator is still required after Apple or Google confirms the identity", async () => {
   const trainer = await ctx.person();
-  const member = await ctx.person({ mfa: true, role: "staff", tenantId: trainer.tenantId });
+  const member = await ctx.person({
+    mfa: true,
+    role: "staff",
+    tenantId: trainer.tenantId,
+  });
   const sub = "g-mfa-" + member.userId;
   const flow = await start("google", { intent: "sign_in" });
   const r = await finish("google", flow, { sub, email: member.email });
   assert.equal(location(r), "/sign-in/verify");
-  assert.equal(sessionCookie(r), "", "no session before the authenticator code");
+  assert.equal(
+    sessionCookie(r),
+    "",
+    "no session before the authenticator code",
+  );
   const linkedCount = async () =>
     (
       await ctx.db.system((tx) =>
-        tx.query("SELECT count(*)::int n FROM account_identities WHERE user_id=$1", [member.userId]),
+        tx.query(
+          "SELECT count(*)::int n FROM account_identities WHERE user_id=$1",
+          [member.userId],
+        ),
       )
     )[0].n;
-  assert.equal(await linkedCount(), 0, "nothing is linked until the sign-in completes");
-  assert.equal(ok(await ctx.call("/auth/oidc/pending", { cookie: flow.binder })).provider, "google");
-  assert.equal((await ctx.call("/auth/oidc/pending")).statusCode, 404, "bound to the starting browser");
-  const wrong = await ctx.call("/auth/oidc/verify", { body: { code: "000000" }, cookie: flow.binder });
+  assert.equal(
+    await linkedCount(),
+    0,
+    "nothing is linked until the sign-in completes",
+  );
+  assert.equal(
+    ok(await ctx.call("/auth/oidc/pending", { cookie: flow.binder })).provider,
+    "google",
+  );
+  assert.equal(
+    (await ctx.call("/auth/oidc/pending")).statusCode,
+    404,
+    "bound to the starting browser",
+  );
+  const wrong = await ctx.call("/auth/oidc/verify", {
+    body: { code: "000000" },
+    cookie: flow.binder,
+  });
   assert.equal(wrong.statusCode, 401);
   const done = await ctx.call("/auth/oidc/verify", {
     body: { code: await ctx.freshCode(member.userId) },
@@ -497,9 +673,14 @@ test("an enrolled authenticator is still required after Apple or Google confirms
   assert.equal(ok(done).redirect, "/trainer");
   const cookie = sessionCookie(done);
   const [session] = await ctx.db.system((tx) =>
-    tx.query("SELECT mfa_at IS NOT NULL AS mfa FROM sessions WHERE token_hash=$1", [
-      createHash("sha256").update(cookie.slice("session=".length)).digest("hex"),
-    ]),
+    tx.query(
+      "SELECT mfa_at IS NOT NULL AS mfa FROM sessions WHERE token_hash=$1",
+      [
+        createHash("sha256")
+          .update(cookie.slice("session=".length))
+          .digest("hex"),
+      ],
+    ),
   );
   assert.equal(session.mfa, true);
   assert.equal(await linkedCount(), 1);
@@ -510,10 +691,18 @@ test("an enrolled authenticator is still required after Apple or Google confirms
   assert.equal(reused.json().code, "OIDC_EXPIRED");
   // Five wrong codes end a pending sign-in.
   const guessed = await start("google", { intent: "sign_in" });
-  assert.equal(location(await finish("google", guessed, { sub, email: member.email })), "/sign-in/verify");
+  assert.equal(
+    location(await finish("google", guessed, { sub, email: member.email })),
+    "/sign-in/verify",
+  );
   for (let i = 0; i < 5; i++)
     assert.equal(
-      (await ctx.call("/auth/oidc/verify", { body: { code: "000000" }, cookie: guessed.binder })).statusCode,
+      (
+        await ctx.call("/auth/oidc/verify", {
+          body: { code: "000000" },
+          cookie: guessed.binder,
+        })
+      ).statusCode,
       401,
     );
   const locked = await ctx.call("/auth/oidc/verify", {
@@ -523,13 +712,20 @@ test("an enrolled authenticator is still required after Apple or Google confirms
   assert.equal(locked.json().code, "OIDC_EXPIRED");
   // Provider claims held for an abandoned authenticator step do not outlive it.
   const abandoned = await start("google", { intent: "sign_in" });
-  assert.equal(location(await finish("google", abandoned, { sub, email: member.email })), "/sign-in/verify");
+  assert.equal(
+    location(await finish("google", abandoned, { sub, email: member.email })),
+    "/sign-in/verify",
+  );
   await ctx.db.system((tx) =>
-    tx.query("UPDATE oidc_sign_in_requests SET expires_at=now()-interval '1 second' WHERE status='mfa_pending'"),
+    tx.query(
+      "UPDATE oidc_sign_in_requests SET expires_at=now()-interval '1 second' WHERE status='mfa_pending'",
+    ),
   );
   await start("google", { intent: "sign_in" });
   const [held] = await ctx.db.system((tx) =>
-    tx.query("SELECT count(*)::int n FROM oidc_sign_in_requests WHERE payload ? 'claims'"),
+    tx.query(
+      "SELECT count(*)::int n FROM oidc_sign_in_requests WHERE payload ? 'claims'",
+    ),
   );
   assert.equal(held.n, 0);
 });
@@ -539,7 +735,11 @@ test("Apple sign-in uses an ES256 client secret and a cross-site form_post callb
   const [{ slug }] = await ctx.db.system((tx) =>
     tx.query("SELECT slug FROM tenants WHERE id=$1", [trainer.tenantId]),
   );
-  const flow = await start("apple", { intent: "join", coachSlug: slug, accepted: true });
+  const flow = await start("apple", {
+    intent: "join",
+    coachSlug: slug,
+    accepted: true,
+  });
   assert.equal(flow.url.searchParams.get("response_mode"), "form_post");
   assert.equal(flow.url.searchParams.get("scope"), "name email");
   const email = `apple-${randomUUID()}@privaterelay.example.test`;
@@ -547,13 +747,22 @@ test("Apple sign-in uses an ES256 client secret and a cross-site form_post callb
     "apple",
     flow,
     { sub: "a-" + randomUUID(), email },
-    { extra: { user: JSON.stringify({ name: { firstName: "Apple", lastName: "Member" } }) } },
+    {
+      extra: {
+        user: JSON.stringify({
+          name: { firstName: "Apple", lastName: "Member" },
+        }),
+      },
+    },
   );
   assert.equal(r.statusCode, 303, r.body);
   assert.equal(location(r), "/app");
   const account = ok(await ctx.call("/account", { cookie: sessionCookie(r) }));
   assert.equal(account.profile.name, "Apple Member");
-  assert.deepEqual(account.identities.map((i: any) => i.provider), ["apple"]);
+  assert.deepEqual(
+    account.identities.map((i: any) => i.provider),
+    ["apple"],
+  );
   // Other endpoints keep the origin check and do not accept form bodies.
   const crossSite = await ctx.call("/auth/oidc/google/start", {
     body: { intent: "sign_in" },
@@ -575,26 +784,56 @@ test("linking from signed-in settings re-proves ownership; unlinking keeps at le
     cookie: member.cookie,
   });
   assert.equal(refused.json().code, "INVALID_PASSWORD");
-  const flow = await start("apple", { password, returnTo: "/trainer/settings" }, member.cookie, "link");
+  const flow = await start(
+    "apple",
+    { password, returnTo: "/trainer/settings" },
+    member.cookie,
+    "link",
+  );
   const appleSub = "a-link-" + randomUUID();
-  const linked = await finish("apple", flow, { sub: appleSub, email: `relay-${randomUUID()}@example.test` });
+  const linked = await finish("apple", flow, {
+    sub: appleSub,
+    email: `relay-${randomUUID()}@example.test`,
+  });
   assert.equal(location(linked), "/trainer/settings?linked=apple");
   let account = ok(await ctx.call("/account", { cookie: member.cookie }));
-  assert.deepEqual(account.identities.map((i: any) => i.provider), ["apple"]);
+  assert.deepEqual(
+    account.identities.map((i: any) => i.provider),
+    ["apple"],
+  );
   // The same Apple ID cannot be linked to a second account.
   const other = await ctx.person();
   const taken = await finish(
     "apple",
-    await start("apple", { password, returnTo: "/trainer/settings" }, other.cookie, "link"),
+    await start(
+      "apple",
+      { password, returnTo: "/trainer/settings" },
+      other.cookie,
+      "link",
+    ),
     { sub: appleSub, email: other.email },
   );
-  assert.equal(location(taken), "/trainer/settings?signin_error=IDENTITY_IN_USE");
+  assert.equal(
+    location(taken),
+    "/trainer/settings?signin_error=IDENTITY_IN_USE",
+  );
   // Signing in with the linked Apple ID reaches the member's account.
-  const viaApple = await finish("apple", await start("apple", { intent: "sign_in" }), { sub: appleSub });
+  const viaApple = await finish(
+    "apple",
+    await start("apple", { intent: "sign_in" }),
+    { sub: appleSub },
+  );
   assert.equal(location(viaApple), "/trainer");
-  assert.equal(ok(await ctx.call("/bootstrap", { cookie: sessionCookie(viaApple) })).user.userId, member.userId);
+  assert.equal(
+    ok(await ctx.call("/bootstrap", { cookie: sessionCookie(viaApple) })).user
+      .userId,
+    member.userId,
+  );
   ok(
-    await ctx.call("/account/identities/apple/unlink", { body: { password }, cookie: member.cookie }),
+    await ctx.call("/account/identities/apple/unlink", {
+      body: { password },
+      cookie: member.cookie,
+    }),
   );
   account = ok(await ctx.call("/account", { cookie: member.cookie }));
   assert.deepEqual(account.identities, []);
@@ -606,14 +845,131 @@ test("linking from signed-in settings re-proves ownership; unlinking keeps at le
   const created = await finish(
     "google",
     await start("google", { intent: "join", coachSlug: slug, accepted: true }),
-    { sub: "g-only-" + randomUUID(), email: `only-${randomUUID()}@example.test` },
+    {
+      sub: "g-only-" + randomUUID(),
+      email: `only-${randomUUID()}@example.test`,
+    },
   );
   const cookie = sessionCookie(created);
-  const last = await ctx.call("/account/identities/google/unlink", { body: {}, cookie });
+  const last = await ctx.call("/account/identities/google/unlink", {
+    body: {},
+    cookie,
+  });
   assert.equal(last.statusCode, 409);
   assert.equal(last.json().code, "LAST_SIGN_IN_METHOD");
-  ok(await ctx.call("/account/password/set", { body: { password: "OwnPassword2026!" }, cookie }));
-  ok(await ctx.call("/account/identities/google/unlink", { body: { password: "OwnPassword2026!" }, cookie }));
+  ok(
+    await ctx.call("/account/password/set", {
+      body: { password: "OwnPassword2026!" },
+      cookie,
+    }),
+  );
+  ok(
+    await ctx.call("/account/identities/google/unlink", {
+      body: { password: "OwnPassword2026!" },
+      cookie,
+    }),
+  );
+});
+
+test("only a real Apple or Google sign-in renews the sign-in time; a removed follower is told why and cannot rejoin through the provider", async () => {
+  const first = await ctx.person({ mfa: true, mfaFresh: true }),
+    second = await ctx.person({ mfa: true, mfaFresh: true });
+  const slugOf = async (tenantId: string) =>
+    (
+      await ctx.db.system((tx) =>
+        tx.query("SELECT slug FROM tenants WHERE id=$1", [tenantId]),
+      )
+    )[0].slug as string;
+  const sub = "g-switch-" + randomUUID(),
+    email = `switch-${randomUUID()}@example.test`;
+  const joined = await finish(
+    "google",
+    await start("google", {
+      intent: "join",
+      coachSlug: await slugOf(first.tenantId),
+      accepted: true,
+    }),
+    { sub, email },
+  );
+  let cookie = sessionCookie(joined);
+  const userId = ok(await ctx.call("/bootstrap", { cookie })).user.userId;
+  await ctx.db.system((tx) =>
+    tx.query(
+      "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber')",
+      [second.tenantId, userId],
+    ),
+  );
+  await ctx.db.system((tx) =>
+    tx.query(
+      "UPDATE sessions SET authenticated_at=now()-interval '3 hours' WHERE user_id=$1",
+      [userId],
+    ),
+  );
+  const switched = await ctx.call("/auth/workspace", {
+    body: { tenantId: second.tenantId },
+    cookie,
+  });
+  ok(switched);
+  cookie = sessionCookie(switched);
+  assert.equal(ok(await ctx.call("/account", { cookie })).recentSignIn, false);
+  const link = await ctx.call("/auth/oidc/apple/link", {
+    body: { returnTo: "/app/profile" },
+    cookie,
+  });
+  assert.equal(link.statusCode, 403, link.body);
+  assert.equal(link.json().code, "REAUTH_REQUIRED");
+  const set = await ctx.call("/account/password/set", {
+    body: { password: "SwitchPassword2026!" },
+    cookie,
+  });
+  assert.equal(set.json().code, "REAUTH_REQUIRED");
+  // Signing in with Google again is a fresh sign-in.
+  const fresh = await finish(
+    "google",
+    await start("google", { intent: "sign_in" }),
+    { sub, email },
+  );
+  const freshCookie = sessionCookie(fresh);
+  assert.equal(
+    ok(await ctx.call("/account", { cookie: freshCookie })).recentSignIn,
+    true,
+  );
+  ok(
+    await ctx.call("/auth/oidc/apple/link", {
+      body: { returnTo: "/app/profile" },
+      cookie: freshCookie,
+    }),
+  );
+  // Both trainers remove the follower; provider sign-in explains the ended membership.
+  for (const owner of [first, second])
+    ok(
+      await ctx.call(`/trainer/followers/${userId}/remove`, {
+        body: { reason: "Membership ended by the coach" },
+        cookie: owner.cookie,
+      }),
+    );
+  const ended = await finish(
+    "google",
+    await start("google", { intent: "sign_in" }),
+    { sub, email },
+  );
+  assert.equal(location(ended), "/login?signin_error=MEMBERSHIP_ENDED");
+  const slug = await slugOf(first.tenantId);
+  const rejoin = await finish(
+    "google",
+    await start("google", { intent: "join", coachSlug: slug, accepted: true }),
+    { sub, email },
+  );
+  assert.equal(
+    location(rejoin),
+    `/join-coach/${slug}?signin_error=REMOVED_BY_TRAINER`,
+  );
+  const [member] = await ctx.db.system((tx) =>
+    tx.query("SELECT count(*)::int n FROM memberships WHERE user_id=$1", [
+      userId,
+    ]),
+  );
+  assert.equal(member.n, 0);
 });
 
 test("ID tokens are verified against the provider keys, issuer, audience, expiry and nonce; keys are cached and refreshed on rotation", async () => {
@@ -621,40 +977,93 @@ test("ID tokens are verified against the provider keys, issuer, audience, expiry
     user = { sub: "unit-" + randomUUID(), email: "Unit@Example.test" };
   const expected = { clientId: settings.google.id, nonce };
   const fetches = google.fetches.jwks;
-  const claims = await verifyIdToken("google", google.mint(google.claims(user, nonce)), expected);
+  const claims = await verifyIdToken(
+    "google",
+    google.mint(google.claims(user, nonce)),
+    expected,
+  );
   assert.equal(claims.email, "unit@example.test");
   assert.equal(claims.emailVerified, true);
-  await verifyIdToken("google", google.mint(google.claims(user, nonce)), expected);
+  await verifyIdToken(
+    "google",
+    google.mint(google.claims(user, nonce)),
+    expected,
+  );
   assert.ok(google.fetches.jwks - fetches <= 1, "signing keys are cached");
   const forged = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
   const bad: Array<[string, RegExp]> = [
-    [google.mint(google.claims(user, nonce), { key: forged }), /signature is invalid/],
-    [google.mint(google.claims(user, nonce, { iss: "https://evil.oidc.test" })), /unexpected issuer/],
-    [google.mint(google.claims(user, nonce, { aud: "another-client" })), /another application/],
-    [google.mint(google.claims(user, nonce, { exp: Math.floor(now() / 1000) - 120 })), /expired/],
+    [
+      google.mint(google.claims(user, nonce), { key: forged }),
+      /signature is invalid/,
+    ],
+    [
+      google.mint(
+        google.claims(user, nonce, { iss: "https://evil.oidc.test" }),
+      ),
+      /unexpected issuer/,
+    ],
+    [
+      google.mint(google.claims(user, nonce, { aud: "another-client" })),
+      /another application/,
+    ],
+    [
+      google.mint(
+        google.claims(user, nonce, { exp: Math.floor(now() / 1000) - 120 }),
+      ),
+      /expired/,
+    ],
     [google.mint(google.claims(user, "other-nonce")), /does not belong/],
-    [google.mint(google.claims(user, nonce, { iat: Math.floor(now() / 1000) - 3600 })), /not current/],
+    [
+      google.mint(
+        google.claims(user, nonce, { iat: Math.floor(now() / 1000) - 3600 }),
+      ),
+      /not current/,
+    ],
     ["a.b", /could not be verified/],
   ];
   for (const [token, message] of bad)
     await assert.rejects(verifyIdToken("google", token, expected), message);
   const unsigned =
-    b64({ alg: "none", kid: google.keys[0].kid }) + "." + b64(google.claims(user, nonce)) + ".AAAA";
-  await assert.rejects(verifyIdToken("google", unsigned, expected), /unsupported signature/);
+    b64({ alg: "none", kid: google.keys[0].kid }) +
+    "." +
+    b64(google.claims(user, nonce)) +
+    ".AAAA";
+  await assert.rejects(
+    verifyIdToken("google", unsigned, expected),
+    /unsupported signature/,
+  );
   // Rotation: a new key id forces one refresh (throttled to once per ten seconds).
   const rotated = google.addKey();
   clock += 11_000;
   const before = google.fetches.jwks;
-  await verifyIdToken("google", google.mint(google.claims(user, nonce), { kid: rotated }), expected);
+  await verifyIdToken(
+    "google",
+    google.mint(google.claims(user, nonce), { kid: rotated }),
+    expected,
+  );
   assert.equal(google.fetches.jwks, before + 1);
   const unknownKid = google.mint(google.claims(user, nonce), { kid: rotated });
-  const tampered = unknownKid.replace(/^[^.]+/, b64({ alg: "RS256", kid: "missing-kid" }));
-  await assert.rejects(verifyIdToken("google", tampered, expected), /unknown key/);
-  assert.equal(google.fetches.jwks, before + 1, "unknown keys do not trigger a request storm");
+  const tampered = unknownKid.replace(
+    /^[^.]+/,
+    b64({ alg: "RS256", kid: "missing-kid" }),
+  );
+  await assert.rejects(
+    verifyIdToken("google", tampered, expected),
+    /unknown key/,
+  );
+  assert.equal(
+    google.fetches.jwks,
+    before + 1,
+    "unknown keys do not trigger a request storm",
+  );
   // Cached discovery and keys expire with the provider's max-age.
   const discovery = google.fetches.discovery;
   clock += 3601_000;
-  await verifyIdToken("google", google.mint(google.claims(user, nonce)), expected);
+  await verifyIdToken(
+    "google",
+    google.mint(google.claims(user, nonce)),
+    expected,
+  );
   assert.equal(google.fetches.discovery, discovery + 1);
   clock = Date.now();
 });

@@ -32,7 +32,16 @@ export type SignInMethod =
  * A future account-lock or suspension check belongs in this function, before
  * the insert, so no sign-in path can bypass it. The caller runs it inside the
  * transaction that already holds the workspace and user locks.
+ *
+ * sessions.authenticated_at records when the person last proved who they are.
+ * Methods that only carry an existing session forward (workspace switch, the
+ * follow-on session after leaving a trainer) must pass the replaced session's
+ * authenticated_at, so opening a session never counts as a fresh sign-in.
  */
+const carriedMethods: ReadonlySet<SignInMethod> = new Set([
+  "workspace_switch",
+  "membership_exit",
+]);
 export async function openSignInSession(
   tx: Tx,
   input: {
@@ -40,8 +49,13 @@ export async function openSignInSession(
     tenantId: string;
     mfa: boolean;
     method: SignInMethod;
+    /** Required for workspace_switch and membership_exit; ignored otherwise. */
+    authenticatedAt?: Date | string | null;
   },
 ) {
+  const carried = carriedMethods.has(input.method);
+  if (carried && !input.authenticatedAt)
+    throw fail(401, "AUTH_REQUIRED", "Please sign in");
   const [membership] = await tx.query(
     "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
     [input.userId, input.tenantId],
@@ -50,8 +64,26 @@ export async function openSignInSession(
     throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
   const token = newToken();
   await tx.query(
-    "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
-    [tokenHash(token), input.userId, input.tenantId, input.mfa],
+    "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at,authenticated_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END,least(now(),coalesce($5::timestamptz,now())))",
+    [
+      tokenHash(token),
+      input.userId,
+      input.tenantId,
+      input.mfa,
+      carried ? new Date(input.authenticatedAt!).toISOString() : null,
+    ],
   );
   return token;
+}
+/** The authentication time of a live session, for carrying it forward. */
+export async function sessionAuthenticatedAt(
+  tx: Tx,
+  sessionHash: string,
+  userId: string,
+) {
+  const [row] = await tx.query(
+    "SELECT authenticated_at FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now()",
+    [sessionHash, userId],
+  );
+  return (row?.authenticated_at ?? null) as Date | string | null;
 }

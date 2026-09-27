@@ -44,6 +44,10 @@ export function signInErrorMessage(code: string | null | undefined) {
       "Your session ended before linking finished. Sign in and try again.",
     NO_MEMBERSHIP:
       "Your account has no active coaching workspace. Join a coach to continue.",
+    MEMBERSHIP_ENDED:
+      "Your coaching membership has ended, so there is no workspace to open. Your account remains; join a coach to continue. Signing in with your password or a passkey shows your coach's message.",
+    REMOVED_BY_TRAINER:
+      "This coach ended your membership, so you can rejoin only through a new invitation from them.",
     LEGAL_PENDING:
       "New accounts are paused until the published terms are approved.",
     TRAINER_UNAVAILABLE: "This coach is not accepting new members right now.",

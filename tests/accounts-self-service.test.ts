@@ -10,6 +10,8 @@ import {
   withEnv,
 } from "./accounts-fixtures.ts";
 import { newToken, tokenHash } from "../apps/api/src/auth.ts";
+import { HOST_HEADERS, signHostRequest } from "../apps/api/src/host-routing.ts";
+import { customHostPath } from "../apps/web/host-proxy.ts";
 
 let ctx: Awaited<ReturnType<typeof accountsContext>>;
 before(async () => {
@@ -39,7 +41,11 @@ test("every account type changes its display name through an audited API that ne
     assert.equal(ok(r).name, name);
     const account = ok(await ctx.call("/account", { cookie: p.cookie }));
     assert.equal(account.profile.name, name);
-    const [audit] = await ctx.events(p.tenantId, "account.name_changed", p.userId);
+    const [audit] = await ctx.events(
+      p.tenantId,
+      "account.name_changed",
+      p.userId,
+    );
     assert.deepEqual(audit.data, { fields: ["name"] });
     assert.doesNotMatch(JSON.stringify(audit), /Renamed Person/);
   }
@@ -55,8 +61,12 @@ test("every account type changes its display name through an audited API that ne
       400,
     );
   assert.equal(
-    (await ctx.call("/account/profile", { method: "PATCH", body: { name: "Anonymous" } }))
-      .statusCode,
+    (
+      await ctx.call("/account/profile", {
+        method: "PATCH",
+        body: { name: "Anonymous" },
+      })
+    ).statusCode,
     401,
   );
 });
@@ -85,18 +95,37 @@ test("an email change needs the current password and a fresh authenticator code 
   assert.equal(noCode.json().code, "MFA_REQUIRED");
   ok(
     await ctx.call("/account/email", {
-      body: { email: next.toUpperCase(), password, code: await ctx.freshCode(p.userId) },
+      body: {
+        email: next.toUpperCase(),
+        password,
+        code: await ctx.freshCode(p.userId),
+      },
       cookie: p.cookie,
     }),
   );
   const [link] = await ctx.emailJobs(p.tenantId, next, "email-change");
   assert.match(link.data.text, /\/verify-email-change\//);
-  assert.equal(link.data.sensitive, true, "the bearer link is scrubbed after sending");
-  const [notice] = await ctx.emailJobs(p.tenantId, p.email, "email-change-notice");
-  assert.match(notice.data.text, /applies only after the new address is confirmed/);
+  assert.equal(
+    link.data.sensitive,
+    true,
+    "the bearer link is scrubbed after sending",
+  );
+  const [notice] = await ctx.emailJobs(
+    p.tenantId,
+    p.email,
+    "email-change-notice",
+  );
+  assert.match(
+    notice.data.text,
+    /applies only after the new address is confirmed/,
+  );
   assert.doesNotMatch(notice.data.text, /verify-email-change/);
   let account = ok(await ctx.call("/account", { cookie: p.cookie }));
-  assert.equal(account.profile.email, p.email, "nothing changes before verification");
+  assert.equal(
+    account.profile.email,
+    p.email,
+    "nothing changes before verification",
+  );
   assert.equal(account.pendingEmailChange.newEmail, next);
   // Old credentials still work until the new address is confirmed.
   assert.equal(
@@ -124,7 +153,10 @@ test("an email change needs the current password and a fresh authenticator code 
   );
   const [changed] = await ctx.emailJobs(p.tenantId, p.email, "email-changed");
   assert.match(changed.data.text, /was changed/);
-  assert.equal((await ctx.events(p.tenantId, "account.email_changed", p.userId)).length, 1);
+  assert.equal(
+    (await ctx.events(p.tenantId, "account.email_changed", p.userId)).length,
+    1,
+  );
   const replay = await ctx.call("/account/email/confirm", {
     body: { token: linkFrom(link) },
   });
@@ -140,8 +172,15 @@ test("an email change never discloses or takes another account's address, includ
     cookie: p.cookie,
   });
   assert.equal(ok(taken).message.includes("Check the new address"), true);
-  assert.equal((await ctx.emailJobs(p.tenantId, holder.email, "email-change")).length, 0);
-  const [warning] = await ctx.emailJobs(p.tenantId, holder.email, "email-change-taken");
+  assert.equal(
+    (await ctx.emailJobs(p.tenantId, holder.email, "email-change")).length,
+    0,
+  );
+  const [warning] = await ctx.emailJobs(
+    p.tenantId,
+    holder.email,
+    "email-change-taken",
+  );
   assert.match(warning.data.text, /already belongs to an account/);
   const free = `race-${randomUUID()}@example.test`;
   ok(
@@ -190,7 +229,84 @@ test("an email change never discloses or takes another account's address, includ
     }),
   );
   ok(await ctx.call("/account/email/cancel", { body: {}, cookie: p.cookie }));
-  assert.equal(ok(await ctx.call("/account", { cookie: p.cookie })).pendingEmailChange, null);
+  assert.equal(
+    ok(await ctx.call("/account", { cookie: p.cookie })).pendingEmailChange,
+    null,
+  );
+});
+
+test("a follower on a trainer's own web address confirms an email change there", async () => {
+  const trainer = await ctx.person();
+  const p = await ctx.person({
+    role: "subscriber",
+    tenantId: trainer.tenantId,
+  });
+  const host = `studio-${randomUUID().slice(0, 8)}.host-fixture.test`,
+    customOrigin = "https://" + host,
+    proxySecret = "synthetic-host-proof-key-with-32-bytes-minimum";
+  const [{ slug }] = await ctx.db.system(async (tx) => {
+    await tx.query(
+      "INSERT INTO domain_mappings(hostname,tenant_id,active,verified_at) VALUES($1,$2,true,now())",
+      [host, trainer.tenantId],
+    );
+    return tx.query("SELECT slug FROM tenants WHERE id=$1", [trainer.tenantId]);
+  });
+  const custom = (path: string, body: unknown, cookie?: string) => {
+    const url = "/api/v1" + path,
+      time = String(Date.now());
+    return ctx.app.inject({
+      method: "POST",
+      url,
+      payload: body as any,
+      headers: {
+        host: "localhost:4000",
+        origin: customOrigin,
+        [HOST_HEADERS.host]: host,
+        [HOST_HEADERS.time]: time,
+        [HOST_HEADERS.signature]: signHostRequest(
+          host,
+          "POST",
+          url,
+          time,
+          proxySecret,
+        ),
+        ...(cookie ? { cookie } : {}),
+      },
+    });
+  };
+  await withEnv({ INTERNAL_PROXY_SECRET: proxySecret }, async () => {
+    const next = `custom-${randomUUID()}@example.test`;
+    ok(await custom("/account/email", { email: next, password }, p.cookie));
+    const [link] = await ctx.emailJobs(p.tenantId, next, "email-change");
+    const url = new URL(String(link.data.text).split("\n")[0]);
+    assert.equal(
+      url.origin,
+      customOrigin,
+      "the link opens on the address the change started from",
+    );
+    // The trainer's web address serves the confirmation page instead of the coach site.
+    assert.equal(customHostPath(url.pathname, slug), url.pathname);
+    assert.equal(
+      customHostPath("/verify-email-changes/x", slug),
+      "/coach/" + slug + "/verify-email-changes/x",
+    );
+    const token = url.pathname.split("/").pop()!;
+    const elsewhere = await ctx.call("/account/email/confirm", {
+      body: { token },
+    });
+    assert.equal(
+      elsewhere.json().code,
+      "LINK_EXPIRED",
+      "the link is bound to its origin",
+    );
+    ok(await custom("/account/email/confirm", { token }));
+    const [u] = await ctx.db.system((tx) =>
+      tx.query("SELECT email,email_verified FROM users WHERE id=$1", [
+        p.userId,
+      ]),
+    );
+    assert.deepEqual(u, { email: next, email_verified: true });
+  });
 });
 
 test("without production email delivery the change is refused and the account screen says so", async () => {
@@ -205,17 +321,24 @@ test("without production email delivery the change is refused and the account sc
     assert.equal(refused.statusCode, 503, refused.body);
     assert.match(refused.json().message, /Email delivery must be configured/);
     await withEnv(
-      { EMAIL_API_URL: "https://mail.example.test/send", EMAIL_API_KEY: "fixture" },
+      {
+        EMAIL_API_URL: "https://mail.example.test/send",
+        EMAIL_API_KEY: "fixture",
+      },
       async () => {
         assert.equal(
-          ok(await ctx.call("/account", { cookie: p.cookie })).emailDelivery.configured,
+          ok(await ctx.call("/account", { cookie: p.cookie })).emailDelivery
+            .configured,
           true,
         );
       },
     );
   });
   const [count] = await ctx.db.system((tx) =>
-    tx.query("SELECT count(*)::int n FROM email_change_requests WHERE user_id=$1", [p.userId]),
+    tx.query(
+      "SELECT count(*)::int n FROM email_change_requests WHERE user_id=$1",
+      [p.userId],
+    ),
   );
   assert.equal(count.n, 0);
 });
@@ -241,14 +364,32 @@ test("password changes work for trainers and followers; passwordless accounts se
       }),
     );
   }
-  const passwordless = await ctx.person({ passwordHash: "unusable:" + randomUUID() });
-  const account = ok(await ctx.call("/account", { cookie: passwordless.cookie }));
+  const passwordless = await ctx.person({
+    passwordHash: "unusable:" + randomUUID(),
+  });
+  const account = ok(
+    await ctx.call("/account", { cookie: passwordless.cookie }),
+  );
   assert.equal(account.profile.hasPassword, false);
   assert.equal(account.recentSignIn, true);
+  // An authenticator is set up after a password, which confirms it.
+  assert.equal(
+    ok(await ctx.call("/auth/security", { cookie: passwordless.cookie }))
+      .hasPassword,
+    false,
+  );
+  const enrol = await ctx.call("/auth/mfa/enroll", {
+    body: { password: "" },
+    cookie: passwordless.cookie,
+  });
+  assert.equal(enrol.statusCode, 409, enrol.body);
+  assert.equal(enrol.json().code, "PASSWORD_REQUIRED");
+  assert.match(enrol.json().message, /Set a password/);
   await ctx.db.system((tx) =>
-    tx.query("UPDATE sessions SET created_at=now()-interval '1 hour' WHERE user_id=$1", [
-      passwordless.userId,
-    ]),
+    tx.query(
+      "UPDATE sessions SET authenticated_at=now()-interval '1 hour' WHERE user_id=$1",
+      [passwordless.userId],
+    ),
   );
   const stale = await ctx.call("/account/password/set", {
     body: { password: "FirstPassword2026!" },
@@ -257,7 +398,9 @@ test("password changes work for trainers and followers; passwordless accounts se
   assert.equal(stale.statusCode, 403);
   assert.equal(stale.json().code, "REAUTH_REQUIRED");
   await ctx.db.system((tx) =>
-    tx.query("UPDATE sessions SET created_at=now() WHERE user_id=$1", [passwordless.userId]),
+    tx.query("UPDATE sessions SET authenticated_at=now() WHERE user_id=$1", [
+      passwordless.userId,
+    ]),
   );
   ok(
     await ctx.call("/account/password/set", {
@@ -275,8 +418,111 @@ test("password changes work for trainers and followers; passwordless accounts se
     cookie: passwordless.cookie,
   });
   assert.equal(again.json().code, "PASSWORD_EXISTS");
-  const [audit] = await ctx.events(passwordless.tenantId, "security.password_set");
+  const [audit] = await ctx.events(
+    passwordless.tenantId,
+    "security.password_set",
+  );
   assert.equal(audit.subject_id, passwordless.userId);
+});
+
+test("a workspace switch never counts as a fresh sign-in, so a stolen session of a passwordless account cannot take it over", async () => {
+  const first = await ctx.person(),
+    second = await ctx.person();
+  const p = await ctx.person({
+    role: "subscriber",
+    tenantId: first.tenantId,
+    passwordHash: "unusable:" + randomUUID(),
+  });
+  await ctx.join(p, second.tenantId);
+  await ctx.db.system((tx) =>
+    tx.query(
+      "UPDATE sessions SET created_at=now()-interval '3 hours',authenticated_at=now()-interval '3 hours' WHERE user_id=$1",
+      [p.userId],
+    ),
+  );
+  const [before] = await ctx.db.system((tx) =>
+    tx.query("SELECT authenticated_at FROM sessions WHERE user_id=$1", [
+      p.userId,
+    ]),
+  );
+  const refused = (r: any) => {
+    assert.equal(r.statusCode, 403, r.body);
+    assert.equal(r.json().code, "REAUTH_REQUIRED");
+  };
+  refused(
+    await ctx.call("/account/password/set", {
+      body: { password: "TakeoverPassword2026!" },
+      cookie: p.cookie,
+    }),
+  );
+  let cookie = p.cookie;
+  for (const tenantId of [second.tenantId, first.tenantId]) {
+    const switched = await ctx.call("/auth/workspace", {
+      body: { tenantId },
+      cookie,
+    });
+    ok(switched);
+    assert.notEqual(sessionCookie(switched), cookie);
+    assert.equal(
+      (await ctx.call("/account", { cookie })).statusCode,
+      401,
+      "the replaced session ends",
+    );
+    cookie = sessionCookie(switched);
+    const account = ok(await ctx.call("/account", { cookie }));
+    assert.equal(account.workspace.tenantId, tenantId);
+    assert.equal(account.recentSignIn, false);
+    refused(
+      await ctx.call("/account/password/set", {
+        body: { password: "TakeoverPassword2026!" },
+        cookie,
+      }),
+    );
+    refused(
+      await ctx.call("/account/email", {
+        body: { email: `takeover-${randomUUID()}@example.test` },
+        cookie,
+      }),
+    );
+    refused(
+      await ctx.call("/account/identities/google/unlink", { body: {}, cookie }),
+    );
+  }
+  const [after] = await ctx.db.system((tx) =>
+    tx.query(
+      "SELECT authenticated_at,created_at FROM sessions WHERE user_id=$1",
+      [p.userId],
+    ),
+  );
+  assert.equal(
+    new Date(after.authenticated_at).getTime(),
+    new Date(before.authenticated_at).getTime(),
+    "the original sign-in time carries over",
+  );
+  assert.ok(
+    new Date(after.created_at).getTime() >
+      new Date(before.authenticated_at).getTime(),
+  );
+  const [u] = await ctx.db.system((tx) =>
+    tx.query(
+      "SELECT password_hash LIKE 'unusable:%' AS unchanged FROM users WHERE id=$1",
+      [p.userId],
+    ),
+  );
+  assert.equal(u.unchanged, true);
+  const [requests] = await ctx.db.system((tx) =>
+    tx.query(
+      "SELECT count(*)::int n FROM email_change_requests WHERE user_id=$1",
+      [p.userId],
+    ),
+  );
+  assert.equal(requests.n, 0);
+  // A switch without a live session is refused rather than opening one.
+  const expired = await ctx.call("/auth/workspace", {
+    body: { tenantId: second.tenantId },
+    cookie: p.cookie,
+  });
+  assert.equal(expired.statusCode, 401);
 });
 
 test("account notices are private to their owner and can be marked read", async () => {
@@ -291,19 +537,41 @@ test("account notices are private to their owner and can be marked read", async 
   });
   const mine = ok(await ctx.call("/account", { cookie: p.cookie })).notices;
   assert.equal(mine.length, 1);
-  ok(await ctx.call("/account/notices/read", { body: { ids: [mine[0].id] }, cookie: q.cookie }));
-  assert.equal(ok(await ctx.call("/account", { cookie: p.cookie })).notices[0].readAt, null);
+  ok(
+    await ctx.call("/account/notices/read", {
+      body: { ids: [mine[0].id] },
+      cookie: q.cookie,
+    }),
+  );
+  assert.equal(
+    ok(await ctx.call("/account", { cookie: p.cookie })).notices[0].readAt,
+    null,
+  );
   ok(await ctx.call("/account/notices/read", { body: {}, cookie: p.cookie }));
-  assert.ok(ok(await ctx.call("/account", { cookie: p.cookie })).notices[0].readAt);
+  assert.ok(
+    ok(await ctx.call("/account", { cookie: p.cookie })).notices[0].readAt,
+  );
 });
 
 test("sessions are created in exactly one place so an account-lock check covers every sign-in path", async () => {
   const dir = new URL("../apps/api/src/", import.meta.url);
   const writers: string[] = [];
   for (const name of await readdir(dir))
-    if (name.endsWith(".ts") && /INSERT INTO sessions/.test(await readFile(new URL(name, dir), "utf8")))
+    if (
+      name.endsWith(".ts") &&
+      /INSERT INTO sessions/.test(await readFile(new URL(name, dir), "utf8"))
+    )
       writers.push(name);
   assert.deepEqual(writers, ["sign-in.ts"]);
-  for (const name of ["app.ts", "account-completion.ts", "oidc-sign-in.ts", "membership-exit.ts"])
-    assert.match(await readFile(new URL(name, dir), "utf8"), /openSignInSession\(/, name);
+  for (const name of [
+    "app.ts",
+    "account-completion.ts",
+    "oidc-sign-in.ts",
+    "membership-exit.ts",
+  ])
+    assert.match(
+      await readFile(new URL(name, dir), "utf8"),
+      /openSignInSession\(/,
+      name,
+    );
 });

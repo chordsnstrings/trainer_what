@@ -198,11 +198,17 @@ export function registerOperatorRecovery(
             RECOVERY_LINK_MINUTES,
           ],
         );
-        await adminAudit(tx, a.userId, "account.recovery_link_issued", target.id, {
-          grantId: id,
-          reason: b.reason,
-          expiresAt: grant.expires_at,
-        });
+        await adminAudit(
+          tx,
+          a.userId,
+          "account.recovery_link_issued",
+          target.id,
+          {
+            grantId: id,
+            reason: b.reason,
+            expiresAt: grant.expires_at,
+          },
+        );
         await addAccountNotice(
           tx,
           target.id,
@@ -280,9 +286,15 @@ export function registerOperatorRecovery(
           "RECOVERY_CHANGED",
           "This link was already used, revoked or is unavailable.",
         );
-      await adminAudit(tx, a.userId, "account.recovery_link_revoked", g.user_id, {
-        grantId: id,
-      });
+      await adminAudit(
+        tx,
+        a.userId,
+        "account.recovery_link_revoked",
+        g.user_id,
+        {
+          grantId: id,
+        },
+      );
     });
     return { ok: true };
   });
@@ -296,7 +308,10 @@ export function registerOperatorRecovery(
     counted = false,
   ) {
     const [g] = await tx.query(
-      "SELECT g.*,coalesce(s.enabled,false) AS mfa,u.name FROM account_recovery_grants g JOIN users u ON u.id=g.user_id LEFT JOIN user_security s ON s.user_id=g.user_id WHERE g.token_hash=$1 AND g.consumed_at IS NULL AND g.revoked_at IS NULL AND g.expires_at>now()",
+      // The issuing operator must still hold an operator role that covers
+      // this account: a demoted (for example compromised) support account's
+      // open links stop working at once.
+      "SELECT g.*,coalesce(s.enabled,false) AS mfa,u.name FROM account_recovery_grants g JOIN users u ON u.id=g.user_id JOIN users i ON i.id=g.issued_by LEFT JOIN user_security s ON s.user_id=g.user_id WHERE g.token_hash=$1 AND g.consumed_at IS NULL AND g.revoked_at IS NULL AND g.expires_at>now() AND (i.platform_role='admin' OR (i.platform_role='support' AND u.platform_role='none'))",
       [tokenHash(token)],
     );
     if (
