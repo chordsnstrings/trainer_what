@@ -221,11 +221,17 @@ export async function closeMonth(
     [cutoff.toISOString()],
   );
   const accounts = Object.fromEntries(
-      lines.map((r) => [r.account, Number(r.amount)]),
-    ),
-    summary = await financeSummary(tx);
+    lines.map((r) => [r.account, Number(r.amount)]),
+  );
   const earnings = Math.max(0, -(accounts.trainer_payable ?? 0));
-  if ((summary.accounts.stripe_receivable ?? 0) !== 0)
+  // Only charges before the cutoff must be settled: later charges are still in transit, and
+  // settlements, refunds and losses (credits) count whenever they post. A negative balance means
+  // funds were returned after settlement; it cannot block close and is reconciled by a Stripe debit.
+  const [receivable] = await tx.query(
+    "SELECT coalesce(sum(l.amount_minor) FILTER (WHERE j.created_at<$1 OR l.amount_minor<0),0)::text AS unsettled FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='stripe_receivable'",
+    [cutoff.toISOString()],
+  );
+  if (Number(receivable.unsettled) > 0)
     throw fail(
       409,
       "SETTLEMENT_REQUIRED",
@@ -240,6 +246,7 @@ export async function closeMonth(
       cutoff: cutoff.toISOString(),
       accounts,
       eligibleMinor: earnings,
+      unsettledReceivableMinor: Number(receivable.unsettled),
       evidenceReference,
       reviewedBy: a.userId,
       policy: "month-end-uae-seven-day-review-v1",
@@ -248,6 +255,50 @@ export async function closeMonth(
   );
   await event(tx, a, "finance.month_closed", r.id, { period });
   return r;
+}
+/** Stripe recovered a negative balance from the company bank: cash out, receivable restored. */
+export async function recordStripeDebit(
+  tx: Tx,
+  a: Actor,
+  input: {
+    stripeDebitId: string;
+    bankReference: string;
+    amountMinor: number;
+    evidenceReference: string;
+  },
+) {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+  const source = "stripe-debit:" + input.stripeDebitId;
+  const [prior] = await tx.query("SELECT * FROM journals WHERE source_key=$1", [
+    source,
+  ]);
+  if (prior) {
+    if (Object.entries(input).some(([key, value]) => prior.data[key] !== value))
+      throw fail(
+        409,
+        "INTENT_CONFLICT",
+        "Stripe debit reference already has different evidence",
+      );
+    return prior;
+  }
+  const totals = await financeSummary(tx);
+  if (input.amountMinor > -(totals.accounts.stripe_receivable ?? 0))
+    throw fail(
+      409,
+      "EXCESS_DEBIT",
+      "A Stripe debit can only restore this workspace’s negative Stripe balance",
+    );
+  return journal(
+    tx,
+    a,
+    source,
+    "Verified Stripe balance debit from the bank",
+    [
+      { account: "bank_cash", amount: -input.amountMinor },
+      { account: "stripe_receivable", amount: input.amountMinor },
+    ],
+    input,
+  );
 }
 export function financeOperations(
   app: FastifyInstance,
@@ -349,6 +400,19 @@ export function financeOperations(
         b,
       );
     });
+  });
+  app.post(prefix + "/settlements/debits", async (req) => {
+    const a = finance(req);
+    const b = z
+      .object({
+        stripeDebitId: z.string().min(4).max(120),
+        bankReference: z.string().min(5).max(200),
+        amountMinor: z.number().int().positive().max(1000000000),
+        evidenceReference: z.string().min(10).max(500),
+      })
+      .strict()
+      .parse(req.body);
+    return db.tenant(a, (tx) => recordStripeDebit(tx, a, b));
   });
   app.post(prefix + "/usage/:id/reconcile", async (req) => {
     const a = finance(req);

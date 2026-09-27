@@ -163,7 +163,11 @@ export async function scheduleFinance(
     }
   });
 }
-async function replayReceipts(db: Database, a: Actor) {
+async function replayReceipts(
+  db: Database,
+  a: Actor,
+  stripe?: ReturnType<typeof stripeClient>,
+) {
   const rows = await db.system((tx) =>
     tx.query(
       "SELECT p.* FROM provider_events p WHERE p.provider='stripe' AND p.status IN ('received','failed') AND (p.payload->'data'->'object'->'metadata'->>'tenant_id'=$1 OR p.payload->'data'->'object'->'parent'->'subscription_details'->'metadata'->>'tenant_id'=$1 OR EXISTS(SELECT 1 FROM provider_objects o WHERE o.provider='stripe' AND o.tenant_id=$2 AND o.external_id IN (p.payload->'data'->'object'->>'id',p.payload->'data'->'object'->>'subscription',p.payload->'data'->'object'->>'charge'))) ORDER BY p.created_at LIMIT 50",
@@ -173,7 +177,7 @@ async function replayReceipts(db: Database, a: Actor) {
   let failures = 0;
   for (const row of rows) {
     try {
-      await processStripeEvent(db, row.payload);
+      await processStripeEvent(db, row.payload, { stripe });
       await db.system((tx) =>
         tx.query(
           "UPDATE provider_events SET status='processed' WHERE provider=$1 AND external_id=$2",
@@ -206,21 +210,25 @@ export async function syncStripeSubscription(
       "PROVIDER_OWNER_MISMATCH",
       "Subscription identity does not match the workspace",
     );
-  await processStripeEvent(db, {
-    id: `reconcile-subscription:${remote.id}:${Date.now()}`,
-    type: "customer.subscription.updated",
-    created: Math.floor(Date.now() / 1000),
-    data: {
-      object: {
-        ...remote,
-        metadata: {
-          ...remote.metadata,
-          tenant_id: a.tenantId,
-          user_id: userId,
+  await processStripeEvent(
+    db,
+    {
+      id: `reconcile-subscription:${remote.id}:${Date.now()}`,
+      type: "customer.subscription.updated",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          ...remote,
+          metadata: {
+            ...remote.metadata,
+            tenant_id: a.tenantId,
+            user_id: userId,
+          },
         },
       },
     },
-  });
+    { stripe },
+  );
   let cursor: string | undefined;
   for (let page = 0; page < 10; page++) {
     const invoices = await stripe.invoices.list({
@@ -230,21 +238,25 @@ export async function syncStripeSubscription(
     });
     for (const invoice of invoices.data) {
       if (invoice.currency !== "aed" || invoice.status !== "paid") continue;
-      await processStripeEvent(db, {
-        id: `reconcile-invoice:${invoice.id}:paid`,
-        type: "invoice.paid",
-        created: invoice.status_transitions.paid_at ?? invoice.created,
-        data: {
-          object: {
-            ...invoice,
-            metadata: {
-              ...invoice.metadata,
-              tenant_id: a.tenantId,
-              user_id: userId,
+      await processStripeEvent(
+        db,
+        {
+          id: `reconcile-invoice:${invoice.id}:paid`,
+          type: "invoice.paid",
+          created: invoice.status_transitions.paid_at ?? invoice.created,
+          data: {
+            object: {
+              ...invoice,
+              metadata: {
+                ...invoice.metadata,
+                tenant_id: a.tenantId,
+                user_id: userId,
+              },
             },
           },
         },
-      });
+        { stripe },
+      );
     }
     if (!invoices.has_more) return;
     cursor = invoices.data.at(-1)?.id;
@@ -292,7 +304,7 @@ export async function executeFinanceJob(
   if (!c?.data.enabled)
     return { status: "blocked", code: "AUTOMATION_DISABLED" };
   if (job.kind === "finance_replay") {
-    const result = await replayReceipts(db, a);
+    const result = await replayReceipts(db, a, dependencies.stripe);
     return {
       status: result.failures ? "blocked" : "completed",
       code: result.failures ? "REPLAY_UNRESOLVED" : undefined,
