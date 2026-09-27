@@ -4,7 +4,6 @@
  * Feature names match the verified inventory's "Trainers" list.
  */
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import type { Client } from "../harness/client.ts";
 import type { E2EContext, TrainerSeed } from "../harness/context.ts";
 import {
@@ -22,6 +21,7 @@ import {
   fixtureProfile,
 } from "../../nutrition-fixtures.ts";
 import { principleForCategory } from "../../../packages/domain/src/nutrition-learning-schema.ts";
+import { trainerFlows } from "./trainer-flows.e2e.ts";
 
 const T = "Trainers" as const;
 const today = () =>
@@ -123,7 +123,9 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
   let rules: any[] = [];
   await must(ctx, "AI rule compilation from sources", `${plan.slug}: model compiles draft rules citing the sources`, async () => {
     const compiled = await t.post("/api/v1/brain/compile", { sourceIds });
-    rules = compiled.rules;
+    // A deterministic order (the API's follows random IDs) keeps the corrected rule, the held-out
+    // scenarios and therefore later model requests identical across runs, so replay files match.
+    rules = [...compiled.rules].sort((x: any, y: any) => String(x.data.directive).localeCompare(String(y.data.directive)));
     assert.ok(rules.length >= 4, "rules compiled");
     assert.ok(rules.every((r: any) => r.status === "draft" && r.data.sourceIds.every((id: string) => sourceIds.includes(id))));
     assert.equal(compiled.coverage.completeInput, true);
@@ -229,6 +231,7 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
         description: "Everything in the workout tier plus weekly meal plans (sandbox)",
         priceMinor: plan.workoutPriceMinor + 15000,
         tier: "workout_nutrition",
+        premiumVoice: plan.voice,
         baseProductId: seed.products.workout.id,
       });
     }
@@ -529,10 +532,5 @@ async function setupNutrition(ctx: E2EContext, t: Client, plan: TrainerPlan) {
 }
 
 export async function trainerScenarios(ctx: E2EContext) {
-  void randomUUID;
-  const [layla] = ctx.trainers;
-  if (!layla?.published) {
-    ctx.reporter.skip(T, "Finance screen with earnings and balances", "trainer scenarios", "the first trainer did not launch");
-    return;
-  }
+  await trainerFlows(ctx);
 }

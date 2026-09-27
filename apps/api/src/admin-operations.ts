@@ -330,7 +330,7 @@ export function registerAdminOperations(
             }
             if (view === "subscribers") {
               const people = await tx.query(
-                "SELECT u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.tenant_id=$1 AND m.role='subscriber' AND ($2::uuid IS NULL OR u.id=$2) ORDER BY u.name,u.id LIMIT 200",
+                "SELECT u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.tenant_id=$1 AND m.role='subscriber' AND ($2::uuid IS NULL OR u.id=$2) ORDER BY u.created_at DESC LIMIT 200",
                 [t.id, q.userId ?? null],
               );
               return people;

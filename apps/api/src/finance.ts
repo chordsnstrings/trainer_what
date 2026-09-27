@@ -147,7 +147,8 @@ export async function createPayout(
     [period],
   );
   if (!closed)
-    throw new Error(
+    throw conflict(
+      "PAYOUT_CLOSE_REQUIRED",
       "A reconciled monthly close is required before payout preparation",
     );
   const totals = await financeSummary(tx);
@@ -170,7 +171,8 @@ export async function createPayout(
   );
   const amount = Math.min(eligible, totals.availableMinor, funded);
   if (amount <= 0)
-    throw new Error(
+    throw conflict(
+      "PAYOUT_NOTHING_AVAILABLE",
       "No reconciled, funded earnings are available for this period",
     );
   const [payout] = await tx.query(

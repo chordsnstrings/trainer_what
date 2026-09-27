@@ -48,8 +48,10 @@ export async function runHarness(input: {
     await phase("platform setup (Super admin)", () => setupPlatform(ctx));
     await phase("trainer seed", () => setupTrainers(ctx));
     await phase("follower seed", () => setupFollowers(ctx));
-    if (suites.has("trainer")) await phase("trainer scenarios", () => trainerScenarios(ctx));
+    // Follower activity first: the trainer suite reviews what members produced
+    // (exceptions from digital coaching, nutrition consent for photo guardrails).
     if (suites.has("follower")) await phase("follower scenarios", () => followerScenarios(ctx));
+    if (suites.has("trainer")) await phase("trainer scenarios", () => trainerScenarios(ctx));
     if (suites.has("public-join")) await phase("public-join scenarios", () => publicJoinScenarios(ctx));
     if (suites.has("super-admin")) await phase("super admin scenarios", () => superAdminScenarios(ctx));
   } finally {

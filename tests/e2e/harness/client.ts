@@ -61,6 +61,7 @@ export class Client {
   cookies = new Map<string, string>();
   readonly ip: string;
   mfaSecret?: string;
+  recoveryCodes: string[] = [];
   private lastCounter = -1;
   userId?: string;
   tenantId?: string;
@@ -204,6 +205,7 @@ export class Client {
     const enrolled = await this.post("/api/v1/auth/mfa/enroll", { password: this.password });
     this.mfaSecret = enrolled.secret;
     const confirmed = await this.post("/api/v1/auth/mfa/confirm", { code: await this.freshCode() });
-    return confirmed.recoveryCodes as string[];
+    this.recoveryCodes = confirmed.recoveryCodes as string[];
+    return this.recoveryCodes;
   }
 }

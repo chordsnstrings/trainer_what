@@ -308,6 +308,40 @@ export async function processBookingStripeEvent(
 ) {
   const object = e.data?.object;
   if (!object) return false;
+  // Stripe also sends charge.refunded for a refunded session payment. Its
+  // refunds carry the booking instruction, so apply each through the same
+  // idempotent refund path instead of the subscription ledger, which has no
+  // record of booking charges.
+  if (e.type === "charge.refunded") {
+    const intent =
+      typeof object.payment_intent === "string"
+        ? object.payment_intent
+        : object.payment_intent?.id;
+    if (!intent) return false;
+    const [booking] = await db.system((tx) =>
+      tx.query(
+        "SELECT 1 FROM provider_objects WHERE provider='stripe' AND external_id=$1 AND kind='booking_payment_intent'",
+        [intent],
+      ),
+    );
+    if (!booking) return false;
+    if (object.refunds?.has_more)
+      throw fail(
+        "BOOKING_REFUND_PAGE",
+        "Refund page incomplete; reconciliation must retrieve all refunds",
+      );
+    for (const refund of object.refunds?.data ?? [])
+      await processBookingStripeEvent(
+        db,
+        {
+          type: "refund.updated",
+          id: `${e.id}:${refund.id}`,
+          data: { object: { ...refund, payment_intent: refund.payment_intent ?? intent } },
+        },
+        refundClient,
+      );
+    return true;
+  }
   if (
     ![
       "checkout.session.completed",

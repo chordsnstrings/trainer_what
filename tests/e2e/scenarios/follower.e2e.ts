@@ -11,14 +11,11 @@ import { randomUUID } from "node:crypto";
 import type { Client } from "../harness/client.ts";
 import type { E2EContext, FollowerSeed, TrainerSeed } from "../harness/context.ts";
 import { PASSWORD, TRAINERS, followerName } from "../harness/data.ts";
-import { linkIn } from "../mocks/email.ts";
-import { fixtureProfile } from "../../nutrition-fixtures.ts";
+import { followerFlows } from "./follower-flows.e2e.ts";
 
 const F = "followers" as const;
 const P = "public-join" as const;
 const T = "Trainers" as const;
-const today = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 /** Tier plan per trainer: first invitations, then public joins. */
 const TIERS: Record<string, Array<FollowerSeed["tier"]>> = {
@@ -169,14 +166,7 @@ async function payMembership(ctx: E2EContext, f: FollowerSeed, i: number) {
 }
 
 export async function followerScenarios(ctx: E2EContext) {
-  void linkIn;
-  void fixtureProfile;
-  void today;
-  const paid = ctx.followers.filter((f) => f.paid);
-  if (!paid.length) {
-    ctx.reporter.skip(F, "Start a workout", "follower scenarios", "no follower completed checkout");
-    return;
-  }
+  await followerFlows(ctx);
 }
 
 export type { Client, TrainerSeed };

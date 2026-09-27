@@ -103,10 +103,26 @@ export function createContext(input: {
       }
     },
     async advanceClock(what, sql, params = []) {
-      const result = await pool.query(sql, params);
-      ctx.clockShifts.push({ at: new Date().toISOString(), what, rows: result.rowCount ?? 0 });
-      input.log(`  clock  ${what} (${result.rowCount} rows)`);
-      return result.rowCount ?? 0;
+      // One transaction; statements separated by ";\n" share the parameters.
+      const client = await pool.connect();
+      let rows = 0;
+      try {
+        await client.query("BEGIN");
+        for (const statement of sql.split(/;\s*\n/).filter((s) => s.trim())) {
+          const needed = [...statement.matchAll(/\$(\d+)/g)].reduce((max, m) => Math.max(max, Number(m[1])), 0);
+          const result = await client.query(statement, params.slice(0, needed));
+          if (/^\s*update/i.test(statement)) rows += result.rowCount ?? 0;
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      ctx.clockShifts.push({ at: new Date().toISOString(), what, rows });
+      input.log(`  clock  ${what} (${rows} rows)`);
+      return rows;
     },
     async sqlRead(sql, params = []) {
       if (!/^\s*select\b/i.test(sql)) throw new Error("sqlRead is read-only");

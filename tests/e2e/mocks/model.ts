@@ -81,6 +81,12 @@ export class ModelMock {
   enqueue(answer: ScriptedAnswer) {
     this.queue.push(answer);
   }
+  /** Drops unconsumed scripted answers; returns how many were left. */
+  clearQueue() {
+    const left = this.queue.length;
+    this.queue = [];
+    return left;
+  }
   loadReplay(path: string) {
     if (!existsSync(path)) return 0;
     let count = 0;

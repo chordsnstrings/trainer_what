@@ -6,8 +6,8 @@ import { MockServer } from "./http.ts";
 
 export const MOCK_PRODUCTS: Record<string, any> = {
   // Valid EAN-13 check digits.
-  "6291003000014": {
-    code: "6291003000014",
+  "6291003000010": {
+    code: "6291003000010",
     product_name: "Mock Greek Yogurt Plain",
     brands: "Sandbox Dairy",
     serving_size: "170 g",

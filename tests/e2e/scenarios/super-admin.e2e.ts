@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import type { E2EContext } from "../harness/context.ts";
+import { operatorScenarios } from "./super-admin-ops.e2e.ts";
 
 const A = "Super admin" as const;
 
@@ -114,6 +115,32 @@ export async function setupPlatform(ctx: E2EContext) {
     assert.ok(view.audit.some((a: any) => a.action === "saved" && a.integrationId === "stripe"));
     assert.ok(view.audit.some((a: any) => a.action === "tested" && a.result === "verified"));
   });
+  await r.step(A, "Worker pause and speed control", "reviewed operation sets the worker cycle to one second", async () => {
+    const base = "/api/v1/admin/infrastructure/operations";
+    let state = await admin.get(base);
+    const policy = await admin.post(base + "/policy", {
+      revision: state.policy.revision,
+      enabled: true,
+      actionsPerHour: 5,
+      monthlyCostCapMinor: 0,
+      reason: "Sandbox: allow reviewed worker speed changes",
+    });
+    state = await admin.get(base);
+    const op = await admin.post(base, {
+      requestId: crypto.randomUUID(),
+      resourceId: "worker:primary",
+      action: "set_worker_dispatch",
+      policyRevision: policy.revision,
+      expectedRevision: state.resource.revision,
+      estimatedMonthlyCostMinor: 0,
+      desired: { paused: false, intervalMs: 1000 },
+      reason: "Faster delivery for the end-to-end sandbox",
+    });
+    await admin.post(`${base}/${op.id}/approve`, { reason: "Reviewed: no cost, loopback sandbox" });
+    const executed = await admin.post(`${base}/${op.id}/execute`, { reason: "Apply the reviewed worker speed" });
+    assert.equal(executed.status, "succeeded");
+    assert.equal((await admin.get(base)).resource.interval_ms, 1000);
+  });
   await r.step(A, "Recovery codes", "recovery codes were issued at enrolment", async () => {
     assert.ok(recoveryCodes.every((c) => typeof c === "string" && c.length >= 8));
   });
@@ -130,11 +157,12 @@ export async function superAdminScenarios(ctx: E2EContext) {
   for (const [view, feature] of [
     ["trainers", "Trainer workspaces list"],
     ["subscribers", "Subscriber accounts list"],
-    ["security", "Operator activity log and operator list"],
   ] as const)
-    await r.step(A, feature, `operations view ${view}`, async () => {
+    await r.step(A, feature, `operations view ${view} lists seeded rows`, async () => {
       const result = await admin.get(`/api/v1/admin/operations/${view}`);
       assert.equal(result.view, view);
-      return `${result.rows?.length ?? 0} rows`;
+      assert.ok(result.rows.length >= (view === "trainers" ? 3 : 15), `${result.rows.length} rows`);
+      return `${result.rows.length} rows`;
     });
+  await operatorScenarios(ctx);
 }
