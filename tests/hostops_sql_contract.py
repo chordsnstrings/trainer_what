@@ -46,7 +46,7 @@ def main(secret, mode):
                 hostops.transition(None, key, row["id"], "pending", verdict, {"message": message})
             output.append({"id": row["id"], "verdict": verdict,
                            "statements": [statements(sql) for sql in captured]})
-        report = {"version": 1, "generatedAt": "2026-09-27T00:00:00Z", "controllerRelease": None, "host": None,
+        report = {"version": 1, "generatedAt": hostops.iso(), "controllerRelease": None, "host": None,
                   "containers": None, "edge": None, "deploy": None, "backups": None}
         captured.clear()
         with patch.object(hostops, "table_ready", return_value=True), \

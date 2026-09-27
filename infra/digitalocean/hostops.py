@@ -11,7 +11,7 @@ stderr. The database is reached only through ``docker compose exec database``
 as the migration administrator, exactly like the runtime-role step.
 
 Command line (as root on the server, from a deployed release):
-  python3 hostops.py status | list | backup | restore-check [--backup NAME] [--keep]
+  python3 hostops.py status | list | backup | restore-check [--backup NAME] [--keep] | reapply
 """
 import base64
 import datetime
@@ -49,10 +49,23 @@ CIPHER = ["-aes-256-cbc", "-pbkdf2", "-iter", "100000", "-md", "sha256"]
 FORMAT = "pg_dump-custom+openssl-aes-256-cbc-pbkdf2-sha256+hmac-sha256"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 MAX_ACTIONS_PER_CYCLE = 5
+# At most one of these runs per cycle, and that cycle does not also deploy.
+LONG_ACTIONS = frozenset({"backup_now", "verify_backup"})
 ACTION_MAX_LIFETIME_MS = 3600 * 1000
 CLOCK_SKEW_MS = 5 * 60 * 1000
 BACKUP_TIMEOUT_SECONDS = 1200
 FAILURE_BACKOFF_SECONDS = 3600
+# A backup this much past its interval is taken even in a cycle that deployed.
+OVERDUE_SECONDS = 3600
+# Time kept back at the end of a cycle so a stopped step can clean up (kill its
+# processes, drop a scratch database, record the result) before systemd stops it.
+CYCLE_MARGIN_SECONDS = 180
+LONG_MIN_SECONDS = 300
+ACTION_START_MIN_SECONDS = 900
+GUARD_INTERVAL_SECONDS = 2
+# A backup stops when free space would fall below this.
+BACKUP_FREE_FLOOR_BYTES = 512 << 20
+DOCKER_ROOT = Path("/var/lib/docker")
 DEFAULT_INTERVAL_HOURS, DEFAULT_KEEP = 24, 7
 S3_KEYS = ("BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_REGION",
            "BACKUP_S3_ACCESS_KEY_ID", "BACKUP_S3_SECRET_ACCESS_KEY")
@@ -247,12 +260,14 @@ def execute(h, values, row):
         paused = action == "pause_deploys"
         h.set_deploy_pause(paused, "operator", row["id"])
         return {"message": "Automatic deploys are " + ("paused." if paused else "resumed."), "details": {"paused": paused}}
+    if action in LONG_ACTIONS and cycle_limit(h) is None:
+        raise DeploymentError("Too little of this controller cycle was left; request it again")
     if action == "backup_now":
-        record = backup_with_state(h, values, "manual")
+        record = backup_with_state(h, values, "manual", limit=cycle_limit(h))
         return {"message": "Backup " + record["name"] + " written (" + str(record["sizeBytes"]) + " bytes, "
                 + location(record) + ").", "details": summarize(record)}
     if action == "verify_backup":
-        result = verify_with_state(h, values)
+        result = verify_with_state(h, values, limit=cycle_limit(h))
         if not result["ok"]:
             raise DeploymentError(result["message"])
         return {"message": result["message"], "details": result}
@@ -265,7 +280,26 @@ PENDING_SQL = ("SELECT coalesce(json_agg(r ORDER BY r.created_at),'[]'::json) FR
 RUNNING_SQL = "SELECT coalesce(json_agg(id),'[]'::json) FROM host_action_requests WHERE status='running';"
 
 
-def process_actions(h, values, key, now_ms=None):
+def cycle_limit(h):
+    """Seconds a long step may run so its own cleanup finishes before systemd stops the cycle.
+
+    None when too little of the cycle is left to start one. Console commands run
+    outside a cycle and get the full limit.
+    """
+    remaining = h.cycle_remaining()
+    if remaining is None:
+        return BACKUP_TIMEOUT_SECONDS
+    limit = int(min(BACKUP_TIMEOUT_SECONDS, remaining - CYCLE_MARGIN_SECONDS))
+    return limit if limit >= LONG_MIN_SECONDS else None
+
+
+def process_actions(h, values, key, now_ms=None, cycle=None):
+    """Verify and run pending requests. ``cycle["long"]`` becomes True when a long action ran.
+
+    At most one long action runs per cycle, and no action starts when too little of
+    the cycle is left; such requests stay pending for the next cycle.
+    """
+    cycle = {} if cycle is None else cycle
     if not table_ready(h, "host_action_requests"):
         return []
     # The controller holds the deploy lock, so anything still running was interrupted.
@@ -283,8 +317,18 @@ def process_actions(h, values, key, now_ms=None):
             transition(h, key, row_id, "pending", verdict, {"message": message})
             handled.append((row_id, verdict))
             continue
+        remaining = h.cycle_remaining()
+        if remaining is not None and remaining < ACTION_START_MIN_SECONDS:
+            log("little time is left in this cycle; remaining requests wait for the next one")
+            break
+        is_long = row["action"] in LONG_ACTIONS
+        if is_long and cycle.get("long"):
+            log("one backup or restore check per cycle; " + row["action"] + " waits for the next cycle")
+            continue
         if not transition(h, key, row_id, "pending", "running"):
             continue  # canceled meanwhile
+        if is_long:
+            cycle["long"] = True
         try:
             outcome, status = execute(h, values, row), "succeeded"
         except Exception as error:
@@ -441,12 +485,18 @@ def open_restore(h, sha, database):
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def pump(source, sink, processes, limit=BACKUP_TIMEOUT_SECONDS):
-    """Copy a stream while hashing it; kill every process if it takes too long."""
+def pump(source, sink, processes, limit=BACKUP_TIMEOUT_SECONDS, guard=None):
+    """Copy a stream while hashing it; kill every process if it takes too long.
+
+    ``guard`` is called after every chunk and every few seconds while the processes
+    finish (a restore builds its indexes after the stream ends). When it raises,
+    every process is killed and the error propagates.
+    """
     digest, size, head = hashlib.sha256(), 0, b""
     timer = threading.Timer(limit, lambda: [p.kill() for p in processes if p.poll() is None])
     timer.daemon = True
     timer.start()
+    deadline = time.monotonic() + limit + 30
     try:
         for chunk in iter(lambda: source.read(1 << 20), b""):
             if len(head) < 5:
@@ -454,8 +504,21 @@ def pump(source, sink, processes, limit=BACKUP_TIMEOUT_SECONDS):
             digest.update(chunk)
             size += len(chunk)
             sink.write(chunk)
+            if guard:
+                guard()
         sink.close()
-        codes = [p.wait(timeout=limit) for p in processes]
+        codes = []
+        for process in processes:
+            while True:
+                try:
+                    codes.append(process.wait(timeout=max(0.1, min(GUARD_INTERVAL_SECONDS if guard else limit,
+                                                                   deadline - time.monotonic()))))
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise
+                    if guard:
+                        guard()
     except BaseException:
         for p in processes:
             if p.poll() is None:
@@ -466,7 +529,35 @@ def pump(source, sink, processes, limit=BACKUP_TIMEOUT_SECONDS):
     return digest.hexdigest(), size, head, codes
 
 
-def run_backup(h, values, kind, now=None):
+def disk_free(h):
+    """Free bytes on the filesystems holding the backups and Docker's volumes (the database)."""
+    directory = backup_dir(h)
+    paths = [directory if directory.is_dir() else h.ROOT] + ([DOCKER_ROOT] if DOCKER_ROOT.is_dir() else [])
+    return min(shutil.disk_usage(path).free for path in paths)
+
+
+def free_space_guard(h, floor, what):
+    def guard():
+        free = disk_free(h)
+        if free < floor:
+            raise DeploymentError("Free disk space fell to " + str(free // (1 << 20)) + " MiB during the " + what
+                                  + "; it was stopped to protect the production database")
+    return guard
+
+
+DATABASE_FACTS_SQL = ("SELECT pg_database_size('trainer')::text||' '||"
+                      "pg_size_bytes(current_setting('max_wal_size'))::text;")
+
+
+def database_facts(h):
+    """(size of the production database, max_wal_size) in bytes, measured now."""
+    parts = psql(h, DATABASE_FACTS_SQL, timeout=60).split()
+    if len(parts) != 2 or not all(re.fullmatch(r"[0-9]{1,20}", part) for part in parts):
+        raise DeploymentError("The database size could not be measured")
+    return int(parts[0]), int(parts[1])
+
+
+def run_backup(h, values, kind, now=None, limit=BACKUP_TIMEOUT_SECONDS):
     """Write one encrypted, checksummed custom-format dump; upload it when configured."""
     if kind not in ("scheduled", "manual"):
         raise DeploymentError("Unknown backup kind")
@@ -482,10 +573,15 @@ def run_backup(h, values, kind, now=None):
         stale.unlink(missing_ok=True)
     records = list_backups(directory)
     needed = max(1 << 30, 3 * int(records[0].get("plainSizeBytes", 0))) if records else 1 << 30
-    free = shutil.disk_usage(directory).free
+    free = disk_free(h)
     if free < needed:
         raise DeploymentError("Not enough free disk space for a backup: " + str(free // (1 << 20)) + " MiB free, "
                               + str(needed // (1 << 20)) + " MiB needed")
+    try:
+        # Recorded so a restore check can size its scratch copy by the real database.
+        database_size = database_facts(h)[0]
+    except Exception:
+        database_size = None
     created = time.time() if now is None else now
     name = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(created))
     for suffix in range(1, 1000):
@@ -501,7 +597,8 @@ def run_backup(h, values, kind, now=None):
                                             stderr=subprocess.DEVNULL, env=openssl_environment(h, key["passphrase"])))
             started.append(open_dump(h, sha))
             encrypt, dump = started
-            plain_sha, plain_size, head, codes = pump(dump.stdout, encrypt.stdin, [dump, encrypt])
+            plain_sha, plain_size, head, codes = pump(dump.stdout, encrypt.stdin, [dump, encrypt], limit,
+                                                      free_space_guard(h, BACKUP_FREE_FLOOR_BYTES, "backup"))
         if any(codes):
             raise DeploymentError("The database dump or its encryption failed; no backup was recorded")
         if plain_size == 0 or head != b"PGDMP":
@@ -517,8 +614,8 @@ def run_backup(h, values, kind, now=None):
         raise
     record = {"version": 1, "name": name, "createdAt": iso(created), "kind": kind, "format": FORMAT,
               "keyId": key["id"], "sizeBytes": final.stat().st_size, "sha256": digest, "hmacSha256": tag,
-              "plainSha256": plain_sha, "plainSizeBytes": plain_size, "release": sha, "database": "trainer",
-              "offsite": {"status": "not_configured"}}
+              "plainSha256": plain_sha, "plainSizeBytes": plain_size, "databaseSizeBytes": database_size,
+              "release": sha, "database": "trainer", "offsite": {"status": "not_configured"}}
     atomic_json(directory / (name + ".json"), record)
     if settings["offsite"]:
         record["offsite"] = upload_backup(directory, record, settings["offsite"])
@@ -538,12 +635,12 @@ def prune_backups(directory, keep):
                 warn("an old backup could not be removed; retrying after the next backup")
 
 
-def backup_with_state(h, values, kind, now=None):
+def backup_with_state(h, values, kind, now=None, limit=BACKUP_TIMEOUT_SECONDS):
     directory = backup_dir(h)
     state = load_state(directory)
     state["lastAttemptAt"] = iso(now)
     try:
-        record = run_backup(h, values, kind, now)
+        record = run_backup(h, values, kind, now, limit)
     except Exception as error:
         state["lastFailure"] = {"at": iso(now), "message": safe_message(error)}
         save_state(directory, state)
@@ -554,7 +651,12 @@ def backup_with_state(h, values, kind, now=None):
 
 
 def scheduled_backup(h, values, deployed, now=None):
-    """Run the daily (or configured) backup when due; never in a cycle that deployed."""
+    """Run the daily (or configured) backup when due.
+
+    ``deployed`` is True when this cycle recorded a deployment or ran a long host
+    action; the backup then waits one cycle, unless it is overdue by an hour or no
+    backup exists. A backup starts only with enough of the cycle left to finish.
+    """
     now = time.time() if now is None else now
     settings = backup_settings(values)
     directory = backup_dir(h)
@@ -566,13 +668,18 @@ def scheduled_backup(h, values, deployed, now=None):
     if not due:
         retry_offsite(h, settings, records, state, now)
         return None
-    if deployed:
-        log("backup deferred to the next cycle after a deployment")
+    overdue = latest_at is None or now - latest_at >= settings["interval_hours"] * 3600 + OVERDUE_SECONDS
+    if deployed and not overdue:
+        log("backup deferred to the next cycle after a deployment or a long host action")
         return None
     failure = parse_iso((state.get("lastFailure") or {}).get("at"))
     if failure is not None and now - failure < FAILURE_BACKOFF_SECONDS:
         return None
-    return backup_with_state(h, values, "scheduled", now)
+    limit = cycle_limit(h)
+    if limit is None:
+        log("backup deferred: too little of this cycle is left")
+        return None
+    return backup_with_state(h, values, "scheduled", now, limit)
 
 
 def retry_offsite(h, settings, records, state, now):
@@ -611,7 +718,42 @@ VERIFY_SQL = ("SELECT json_build_object('migrations',(SELECT coalesce(json_agg(v
               "'users',(SELECT count(*) FROM users),'tenants',(SELECT count(*) FROM tenants));")
 
 
-def restore_check(h, values, name=None, keep=False):
+SCRATCH_SQL = ("SELECT coalesce(json_agg(datname ORDER BY datname),'[]'::json) FROM pg_database "
+               "WHERE left(datname,14)='restore_check_';")
+
+
+def drop_leftover_scratch(h):
+    """Drop restore-check databases left by a stopped or killed run.
+
+    A scratch database holds a full copy of production data, so only those kept on
+    purpose (``restore-check --keep``, recorded in state.json) survive.
+    """
+    directory = backup_dir(h)
+    names = [n for n in json_rows(psql(h, SCRATCH_SQL, database="postgres", timeout=60))
+             if isinstance(n, str) and SCRATCH_NAME.fullmatch(n)]
+    state = load_state(directory)
+    kept = [n for n in state.get("keptScratch") or [] if n in names]
+    if kept != (state.get("keptScratch") or []):
+        state["keptScratch"] = kept
+        save_state(directory, state)
+    dropped = [n for n in names if n not in kept]
+    for name in dropped:
+        psql(h, "DROP DATABASE IF EXISTS " + name + " WITH (FORCE);", database="postgres")
+    if dropped:
+        log("removed " + str(len(dropped)) + " leftover restore-check database(s)")
+    return dropped
+
+
+def expected_migrations(h, state):
+    """Migrations of the newest recorded release and of the serving one (after a rollback)."""
+    expected = set()
+    for sha in {state.get("current"), h.serving_release(state)} - {None}:
+        folder = h.ROOT / "releases" / valid_sha(sha) / "packages/db/migrations"
+        expected |= {p.name[:-4] for p in folder.glob("*.sql")}
+    return expected
+
+
+def restore_check(h, values, name=None, keep=False, limit=BACKUP_TIMEOUT_SECONDS):
     """Restore a backup into a scratch database, verify it, then drop the scratch database."""
     directory = backup_dir(h)
     records = list_backups(directory)
@@ -619,11 +761,26 @@ def restore_check(h, values, name=None, keep=False):
     if record is None:
         raise DeploymentError("No complete backup is available to verify" if name is None else "Backup not found")
     key = verify_backup_file(directory, record, backup_keys(values))
-    needed = 2 * int(record.get("plainSizeBytes", 0)) + (512 << 20)
-    if shutil.disk_usage(directory).free < needed:
-        raise DeploymentError("Not enough free disk space to restore a scratch copy")
-    sha = h.serving_release(h.read_state())
+    drop_leftover_scratch(h)
+    # The scratch copy lives in the production cluster, on its disk and its WAL. Size
+    # it by the real database (a compressed dump is several times smaller), and keep
+    # room for the production WAL.
+    live_size, max_wal = database_facts(h)
+    recorded = record.get("databaseSizeBytes")
+    size = max(live_size, recorded if isinstance(recorded, int) and not isinstance(recorded, bool) else 0)
+    floor = max_wal + (1 << 30)
+    needed = size * 3 // 2 + floor
+    free = disk_free(h)
+    if free < needed:
+        raise DeploymentError("Not enough free disk space to restore a scratch copy: " + str(free // (1 << 20))
+                              + " MiB free, " + str(needed // (1 << 20)) + " MiB needed")
+    state = h.read_state()
+    sha = h.serving_release(state)
     scratch = "restore_check_" + secrets.token_hex(6)
+    if keep:
+        kept = load_state(directory)
+        kept["keptScratch"] = (kept.get("keptScratch") or []) + [scratch]
+        save_state(directory, kept)
     psql(h, "CREATE DATABASE " + scratch + ";", database="postgres")
     started = []
     try:
@@ -633,7 +790,8 @@ def restore_check(h, values, name=None, keep=False):
                                         env=openssl_environment(h, key["passphrase"])))
         started.append(open_restore(h, sha, scratch))
         decrypt, restore = started
-        plain_sha, _, _, codes = pump(decrypt.stdout, restore.stdin, [decrypt, restore])
+        plain_sha, _, _, codes = pump(decrypt.stdout, restore.stdin, [decrypt, restore], limit,
+                                      free_space_guard(h, floor, "restore check"))
         if codes[0]:
             raise DeploymentError("The backup could not be decrypted")
         if plain_sha != record.get("plainSha256"):
@@ -641,7 +799,7 @@ def restore_check(h, values, name=None, keep=False):
         if codes[1]:
             raise DeploymentError("pg_restore failed for the scratch database")
         facts = json.loads(psql(h, VERIFY_SQL, database=scratch).strip())
-        expected = {p.name[:-4] for p in (h.ROOT / "releases" / sha / "packages/db/migrations").glob("*.sql")}
+        expected = expected_migrations(h, state)
         applied = set(facts.get("migrations") or [])
         unknown = sorted(applied - expected)
         ok = bool(applied) and not unknown and int(facts.get("tables", 0)) > 0
@@ -649,7 +807,7 @@ def restore_check(h, values, name=None, keep=False):
                    + " migrations, " + str(facts.get("tables")) + " tables, " + str(facts.get("tenants"))
                    + " workspaces, " + str(facts.get("users")) + " accounts.")
         if unknown:
-            message = "The restored backup has migrations this release does not know: " + ", ".join(unknown[:5])
+            message = "The restored backup has migrations no deployed release knows: " + ", ".join(unknown[:5])
         elif not applied:
             message = "The restored backup has no migration history"
         return {"ok": ok, "backup": record["name"], "message": message, "migrations": len(applied),
@@ -661,13 +819,14 @@ def restore_check(h, values, name=None, keep=False):
             if process.poll() is None:
                 process.kill()
         if not keep:
+            # FORCE also ends a pg_restore session still running inside the container.
             psql(h, "DROP DATABASE IF EXISTS " + scratch + " WITH (FORCE);", database="postgres")
 
 
-def verify_with_state(h, values, name=None, keep=False):
+def verify_with_state(h, values, name=None, keep=False, limit=BACKUP_TIMEOUT_SECONDS):
     directory = backup_dir(h)
     try:
-        result = restore_check(h, values, name, keep)
+        result = restore_check(h, values, name, keep, limit)
     except Exception as error:
         result = {"ok": False, "backup": name, "message": safe_message(error)}
     state = load_state(directory)
@@ -822,6 +981,27 @@ def backup_summary(h, values):
             "nextDueAt": iso(latest_at + settings["interval_hours"] * 3600) if latest_at else None}
 
 
+def edge_state(h, values, endpoint, sha):
+    """What the edge serves (the Caddyfile on disk), not only what runtime.env asks for.
+
+    The Caddyfile changes only when a release is started (deploy, rollback, return,
+    re-apply), so after a settings change or a rollout by an older controller the
+    served edge can lag behind; that shows as ``pendingReapply``.
+    """
+    ask = h.edge_ask(values)
+    try:
+        served = (h.ROOT / "Caddyfile").read_text()
+    except OSError:
+        served = None
+    try:
+        expected = h.edge_config(endpoint, sha, ask) if endpoint and sha else None
+    except DeploymentError:
+        expected = None
+    return {"onDemandTls": served is not None and served.startswith("{\n    on_demand_tls {\n"),
+            "onDemandConfigured": bool(ask), "pendingReapply": expected is not None and served != expected,
+            "endpoint": endpoint[:300]}
+
+
 def build_report(h, values):
     state, control = h.read_state(), h.deploy_control()
     sha = h.serving_release(state)
@@ -833,7 +1013,7 @@ def build_report(h, values):
     reason = control.get("reason") if control.get("paused") else None
     return {"version": 1, "generatedAt": iso(), "controllerRelease": controller_release(),
             "host": host_metrics(h.ROOT), "containers": container_status(h, sha) if sha else None,
-            "edge": {"onDemandTls": bool(h.edge_ask(values)), "endpoint": endpoint[:300]},
+            "edge": edge_state(h, values, endpoint, sha),
             "deploy": {"current": state.get("current"), "previous": state.get("previous"),
                        "serving": state.get("serving"), "deployedAt": state.get("deployed_at"),
                        "paused": bool(control.get("paused")),
@@ -866,13 +1046,28 @@ def ready(h):
 
 
 def before_deploy(h):
-    """Operator actions run first so a pause or rollback applies to this cycle's deployment."""
+    """Operator actions run first so a pause or rollback applies to this cycle's deployment.
+
+    Returns True when a long action (a backup or a restore check) ran; the cycle then
+    skips its deployment so the two together stay within the unit's time limit.
+    """
+    cycle = {}
     try:
         values, key = ready(h)
-        if values:
-            process_actions(h, values, key)
     except Exception as error:
         warn("operator actions were not processed: " + safe_message(error))
+        return False
+    if not values:
+        return False
+    try:
+        drop_leftover_scratch(h)
+    except Exception as error:
+        warn("leftover restore-check databases were not checked: " + safe_message(error))
+    try:
+        process_actions(h, values, key, cycle=cycle)
+    except Exception as error:
+        warn("operator actions were not processed: " + safe_message(error))
+    return bool(cycle.get("long"))
 
 
 def after_deploy(h, deployed):
@@ -920,8 +1115,15 @@ def cli(argv):
             result = verify_with_state(h, values, name, keep="--keep" in argv)
             print(json.dumps(result, indent=2))
             return 0 if result["ok"] else 1
+        elif command == "reapply":
+            # Console recovery when the admin page is unreachable, for example after a
+            # platform address change whose readiness check failed: re-read runtime.env
+            # (as a timer cycle does first) and recreate the serving release with it.
+            h.ensure_runtime()
+            sha = h.reapply_release()
+            print("Recreated release " + sha[:12] + " for " + h.endpoint_url())
         else:
-            raise DeploymentError("Commands: status, list, backup, restore-check [--backup NAME] [--keep]")
+            raise DeploymentError("Commands: status, list, backup, restore-check [--backup NAME] [--keep], reapply")
     return 0
 
 

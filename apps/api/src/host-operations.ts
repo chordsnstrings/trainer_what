@@ -42,6 +42,8 @@ export const HOST_ACTION_TTL_MS = 30 * 60 * 1000;
 /** A running request without a reported result after this is shown as unknown. */
 const RUNNING_UNKNOWN_MS = 45 * 60 * 1000;
 const ACTIONS_PER_HOUR = 12;
+/** A signed report may claim a time at most this far ahead of the API clock. */
+const REPORT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 function proxySecret(secret = process.env.INTERNAL_PROXY_SECRET) {
   return secret && Buffer.byteLength(secret) >= 32 ? secret : null;
@@ -135,7 +137,7 @@ export const hostActions = {
     label: "Re-apply runtime settings",
     targets: [],
     description:
-      "Recreates api, web, worker and the HTTPS edge from the serving release with the current private runtime settings, for example after changing the platform address.",
+      "Recreates api, web, worker and the HTTPS edge from the serving release with the current private runtime settings, for example after changing the platform address. Nothing is rolled back automatically if the new settings fail their readiness check.",
   },
   pause_deploys: {
     label: "Pause automatic deploys",
@@ -159,7 +161,7 @@ export const hostActions = {
     label: "Verify the latest backup",
     targets: [],
     description:
-      "Checks the latest backup's checksum and authentication tag, restores it into a temporary scratch database, verifies its migrations and tables, then drops the scratch database. Needs free disk space for a second copy.",
+      "Checks the latest backup's checksum and authentication tag, restores it into a temporary scratch database, verifies its migrations and tables, then drops the scratch database. Needs free disk space of about one and a half times the database plus room for its write-ahead log; it refuses to start without it and stops if space runs low.",
   },
 } as const;
 export type HostAction = keyof typeof hostActions;
@@ -252,7 +254,15 @@ const controllerReport = z.object({
     .max(20)
     .nullable(),
   edge: z
-    .object({ onDemandTls: z.boolean(), endpoint: z.string().max(300) })
+    .object({
+      /** The served Caddyfile has the on-demand block. */
+      onDemandTls: z.boolean(),
+      /** runtime.env asks for it (absent from older controllers). */
+      onDemandConfigured: z.boolean().optional(),
+      /** The served Caddyfile differs from what the current settings render. */
+      pendingReapply: z.boolean().optional(),
+      endpoint: z.string().max(300),
+    })
     .nullable()
     .optional(),
   deploy: z
@@ -326,8 +336,22 @@ type StatusRow = {
   signature: string | null;
   reported_at: unknown;
 };
-function readController(row: StatusRow | undefined, key: Buffer | null) {
-  if (!row) return { state: "unreported" as const, report: null };
+/**
+ * A verified report's time is its signed `generatedAt`, never the unsigned
+ * `reported_at` column: anyone able to write the row could otherwise replay an
+ * old signed report as current. `reportedAtMs` is null when nothing verifies.
+ */
+function readController(
+  row: StatusRow | undefined,
+  key: Buffer | null,
+  now: number,
+) {
+  if (!row)
+    return {
+      state: "unreported" as const,
+      report: null,
+      reportedAtMs: null,
+    };
   const verified =
     !!key &&
     sameHex(row.signature, signHostStatus(key, "controller", row.payload));
@@ -335,16 +359,17 @@ function readController(row: StatusRow | undefined, key: Buffer | null) {
   try {
     report = controllerReport.parse(JSON.parse(row.payload));
   } catch {
-    return {
-      state: "invalid" as const,
-      report: null,
-      reportedAt: row.reported_at,
-    };
+    return { state: "invalid" as const, report: null, reportedAtMs: null };
   }
+  if (!verified)
+    return { state: "unverified" as const, report: null, reportedAtMs: null };
+  const generatedAt = Date.parse(report.generatedAt);
+  if (!Number.isFinite(generatedAt) || generatedAt > now + REPORT_CLOCK_SKEW_MS)
+    return { state: "invalid" as const, report: null, reportedAtMs: null };
   return {
-    state: verified ? ("verified" as const) : ("unverified" as const),
-    report: verified ? report : null,
-    reportedAt: row.reported_at,
+    state: "verified" as const,
+    report,
+    reportedAtMs: generatedAt,
   };
 }
 async function statusRows(tx: Tx) {
@@ -360,13 +385,18 @@ async function statusRows(tx: Tx) {
 export type BackupStatus = {
   /** healthy, warning (older than warning age), stale (older than critical age),
    * missing (reported, but no successful backup), unreported (no verified
-   * controller report), report_stale (controller stopped reporting). */
+   * controller report), report_stale (no verified report for longer than the
+   * backup warning age, so backups cannot be judged). */
   state:
     "healthy" | "warning" | "stale" | "missing" | "unreported" | "report_stale";
   /** True when an operator should be alerted about backups. */
   stale: boolean;
   message: string;
+  /** Signed time of the controller report the status is based on. */
   reportedAt: string | null;
+  /** That report is older than the host report freshness threshold. A
+   * separate signal from backup age: deployments delay reports. */
+  reportStale: boolean;
   lastSuccessAt: string | null;
   ageHours: number | null;
   sizeBytes: number | null;
@@ -392,6 +422,7 @@ function backupStatusFrom(
 ): BackupStatus {
   const base = {
     reportedAt: null,
+    reportStale: false,
     lastSuccessAt: null,
     ageHours: null,
     sizeBytes: null,
@@ -419,7 +450,10 @@ function backupStatusFrom(
           : "No host controller has reported backup status. Backups cannot be confirmed.",
     };
   const b = controller.report.backups,
-    reportedAt = new Date(ms(controller.reportedAt)).toISOString();
+    reportedAtMs = controller.reportedAtMs ?? 0,
+    reportedAt = new Date(reportedAtMs).toISOString(),
+    reportAge = Math.max(0, (now - reportedAtMs) / 1000),
+    reportStale = reportAge > thresholds.reportFreshnessSeconds;
   const latest = b.latest,
     successAt = latest ? Date.parse(latest.createdAt) : NaN,
     ageHours = Number.isFinite(successAt)
@@ -428,6 +462,7 @@ function backupStatusFrom(
   const detail = {
     ...base,
     reportedAt,
+    reportStale,
     lastSuccessAt: latest ? new Date(successAt).toISOString() : null,
     ageHours: ageHours === null ? null : Number(ageHours.toFixed(2)),
     sizeBytes: latest?.sizeBytes ?? null,
@@ -443,65 +478,75 @@ function backupStatusFrom(
     lastVerification: b.lastVerification,
     policy: { intervalHours: b.policy.intervalHours, keep: b.policy.keep },
   };
-  const reportAge = (now - ms(controller.reportedAt)) / 1000;
-  if (reportAge > thresholds.reportFreshnessSeconds)
+  // A long deployment delays the controller's report; that alone says nothing
+  // about backups, whose age is measured from the last verified report's
+  // newest backup. Only a report silent for longer than the backup warning
+  // age leaves backups unjudgeable.
+  if (reportAge > thresholds.backupWarnAgeHours * 3600)
     return {
       ...detail,
       state: "report_stale",
       stale: true,
-      message:
-        "The host controller has stopped reporting; the backup status shown is historical.",
+      message: `The host controller has not reported for ${Math.round(reportAge / 3600)} hours; backups cannot be confirmed.`,
     };
+  const note = reportStale
+    ? ` The host controller last reported ${reportAge < 7200 ? `${Math.round(reportAge / 60)} minutes` : `${Math.round(reportAge / 3600)} hours`} ago.`
+    : "";
   if (ageHours === null)
     return {
       ...detail,
       state: "missing",
       stale: true,
-      message: b.lastFailure
-        ? "No successful backup exists yet. The last attempt failed."
-        : "No successful backup exists yet.",
+      message:
+        (b.lastFailure
+          ? "No successful backup exists yet. The last attempt failed."
+          : "No successful backup exists yet.") + note,
     };
   if (ageHours > thresholds.backupCriticalAgeHours)
     return {
       ...detail,
       state: "stale",
       stale: true,
-      message: `The latest successful backup is ${Math.round(ageHours)} hours old.`,
+      message: `The latest successful backup is ${Math.round(ageHours)} hours old.${note}`,
     };
   if (ageHours > thresholds.backupWarnAgeHours)
     return {
       ...detail,
       state: "warning",
       stale: true,
-      message: `The latest successful backup is ${Math.round(ageHours)} hours old; a daily backup is overdue.`,
+      message: `The latest successful backup is ${Math.round(ageHours)} hours old; a daily backup is overdue.${note}`,
     };
   return {
     ...detail,
     state: "healthy",
     stale: false,
     message:
-      latest?.location === "local+offsite"
+      (latest?.location === "local+offsite"
         ? "The latest backup is recent and stored on the server and off-server."
-        : "The latest backup is recent. It is stored on this server only.",
+        : "The latest backup is recent. It is stored on this server only.") +
+      note,
   };
 }
 
 /**
  * Backup status for dashboards and stale-backup alerts. `stale` is true when
- * the latest verified evidence is older than the configured warning age, when
- * no successful backup exists, or when no verified host report is available.
+ * the latest verified backup is older than the configured warning age, when no
+ * successful backup exists, when no verified host report is available, or when
+ * the controller has been silent for longer than the backup warning age. A
+ * report delayed by a deployment sets only `reportStale`.
  */
 export async function readBackupStatus(
   db: Database,
   options: { now?: number } = {},
 ): Promise<BackupStatus> {
+  const now = options.now ?? Date.now();
   return db.system(async (tx) => {
     const policy = await currentThresholds(tx);
     const { controller } = await statusRows(tx);
     return backupStatusFrom(
-      readController(controller, hostOperationsKey()),
+      readController(controller, hostOperationsKey(), now),
       policy.thresholds,
-      options.now ?? Date.now(),
+      now,
     );
   });
 }
@@ -662,11 +707,15 @@ export async function readHostHealth(
   return db.system(async (tx) => {
     const policy = await currentThresholds(tx);
     const rows = await statusRows(tx);
-    const controller = readController(rows.controller, key);
+    const controller = readController(rows.controller, key, now);
     const t = policy.thresholds;
-    const ageSeconds = rows.controller
-      ? Math.max(0, (now - ms(rows.controller.reported_at)) / 1000)
-      : null;
+    // Freshness comes from the signed report time; the row's own timestamp is
+    // only shown for reports that do not verify.
+    const reportedAtMs =
+      controller.reportedAtMs ??
+      (rows.controller ? ms(rows.controller.reported_at) : null);
+    const ageSeconds =
+      reportedAtMs === null ? null : Math.max(0, (now - reportedAtMs) / 1000);
     const fresh = ageSeconds !== null && ageSeconds <= t.reportFreshnessSeconds;
     const state = !rows.controller
       ? "unreported"
@@ -728,9 +777,8 @@ export async function readHostHealth(
       },
       controller: {
         state,
-        reportedAt: rows.controller
-          ? new Date(ms(rows.controller.reported_at)).toISOString()
-          : null,
+        reportedAt:
+          reportedAtMs === null ? null : new Date(reportedAtMs).toISOString(),
         ageSeconds: ageSeconds === null ? null : Math.round(ageSeconds),
         release: controller.report?.controllerRelease ?? null,
       },
@@ -800,17 +848,85 @@ export async function recordApiHostSample(
 
 // ---- On-demand TLS ask -----------------------------------------------------
 
-const askCache = new WeakMap<
-  Database,
-  Map<string, { allowed: boolean; until: number }>
->();
-const ASK_POSITIVE_MS = 60000,
-  ASK_NEGATIVE_MS = 10000,
-  ASK_CACHE_LIMIT = 2048;
-function cacheFor(db: Database) {
-  let cache = askCache.get(db);
-  if (!cache) askCache.set(db, (cache = new Map()));
-  return cache;
+/**
+ * Hostnames the edge may obtain certificates for, loaded as one set. Every TLS
+ * handshake for an unknown name makes Caddy ask, unauthenticated clients can
+ * choose those names, so a lookup must never cost a query per name: a flood of
+ * random names triggers at most one reload per ASK_MISS_RELOAD_MS.
+ */
+type AskSnapshot = {
+  /** hostname -> permitted until (ms); Infinity for an active mapping. */
+  hosts: Map<string, number>;
+  loadedAt: number;
+  loading: Promise<void> | null;
+  /** Bumped by every new allowance; a set loaded before the bump is stale. */
+  generation: number;
+  loadedGeneration: number;
+};
+const askSnapshots = new WeakMap<Database, AskSnapshot>();
+/** A permitted name is re-read at least this often (deactivation takes effect). */
+const ASK_MAX_AGE_MS = 30000;
+/** An unknown name reloads the set at most this often. */
+const ASK_MISS_RELOAD_MS = 5000;
+const ASK_HOST_LIMIT = 100000;
+function askSnapshot(db: Database) {
+  let snapshot = askSnapshots.get(db);
+  if (!snapshot)
+    askSnapshots.set(
+      db,
+      (snapshot = {
+        hosts: new Map(),
+        loadedAt: -Infinity,
+        loading: null,
+        generation: 0,
+        loadedGeneration: -1,
+      }),
+    );
+  return snapshot;
+}
+async function reloadAskHosts(
+  db: Database,
+  snapshot: AskSnapshot,
+  now: number,
+) {
+  // Concurrent asks share one query. A load already in flight may have started
+  // before the latest allowance; then one more load follows it.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (snapshot.loading) {
+      await snapshot.loading;
+      if (snapshot.loadedGeneration === snapshot.generation) return;
+      continue;
+    }
+    const generation = snapshot.generation;
+    snapshot.loading = (async () => {
+      try {
+        const rows = await db.system((tx) =>
+          tx.query<{ hostname: string; expires_at: unknown }>(
+            "SELECT m.hostname,NULL::timestamptz AS expires_at FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.active AND m.verified_at IS NOT NULL AND t.lifecycle_state='active' UNION ALL SELECT a.hostname,a.expires_at FROM tls_issuance_allowances a JOIN tenants t ON t.id=a.tenant_id WHERE a.expires_at>now() AND t.lifecycle_state='active' LIMIT " +
+              ASK_HOST_LIMIT,
+          ),
+        );
+        const hosts = new Map<string, number>();
+        for (const row of rows) {
+          const until = row.expires_at === null ? Infinity : ms(row.expires_at);
+          hosts.set(
+            row.hostname,
+            Math.max(hosts.get(row.hostname) ?? -Infinity, until),
+          );
+        }
+        snapshot.hosts = hosts;
+        snapshot.loadedAt = now;
+        snapshot.loadedGeneration = generation;
+      } finally {
+        snapshot.loading = null;
+      }
+    })();
+    await snapshot.loading;
+    return;
+  }
+}
+function askAllowed(snapshot: AskSnapshot, host: string, now: number) {
+  return (snapshot.hosts.get(host) ?? -Infinity) > now;
 }
 /** A lower-case DNS name without port or trailing dot; IP literals are refused. */
 export function askHostname(value: string) {
@@ -847,23 +963,18 @@ export async function tlsIssuancePermitted(
 ) {
   const host = askHostname(hostname);
   if (host === platformHostname()) return false;
-  const cache = cacheFor(db),
-    cached = cache.get(host);
-  if (cached && cached.until > now) return cached.allowed;
-  const [row] = await db.system((tx) =>
-    tx.query(
-      "SELECT EXISTS(SELECT 1 FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.hostname=$1 AND m.active AND m.verified_at IS NOT NULL AND t.lifecycle_state='active') OR EXISTS(SELECT 1 FROM tls_issuance_allowances a JOIN tenants t ON t.id=a.tenant_id WHERE a.hostname=$1 AND a.expires_at>now() AND t.lifecycle_state='active') AS allowed",
-      [host],
-    ),
-  );
-  const allowed = row?.allowed === true;
-  if (cache.size >= ASK_CACHE_LIMIT)
-    cache.delete(cache.keys().next().value as string);
-  cache.set(host, {
-    allowed,
-    until: now + (allowed ? ASK_POSITIVE_MS : ASK_NEGATIVE_MS),
-  });
-  return allowed;
+  const snapshot = askSnapshot(db),
+    age = now - snapshot.loadedAt;
+  // A clock that moved backwards counts as stale.
+  if (
+    age < 0 ||
+    age > ASK_MAX_AGE_MS ||
+    snapshot.loadedGeneration !== snapshot.generation
+  )
+    await reloadAskHosts(db, snapshot, now);
+  else if (!askAllowed(snapshot, host, now) && age > ASK_MISS_RELOAD_MS)
+    await reloadAskHosts(db, snapshot, now);
+  return askAllowed(snapshot, host, now);
 }
 /**
  * Called by coach-domain activation just before its HTTPS check, so the edge
@@ -885,7 +996,8 @@ export async function permitCertificateIssuance(
       [host, input.tenantId, input.orderId, input.actorId],
     ),
   );
-  cacheFor(db).delete(host);
+  // The next ask re-reads the set, so the new allowance applies at once.
+  askSnapshot(db).generation++;
 }
 
 // ---- Platform address validation ------------------------------------------
@@ -1159,7 +1271,24 @@ export function registerHostOperations(
 
   app.get(
     TLS_ASK_PATH,
-    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    {
+      config: {
+        // Every ask comes from the one edge container, so a shared per-address
+        // budget would let a flood of random names deny real ones. Budget per
+        // requested name instead; lookups themselves are served from memory.
+        rateLimit: {
+          max: 120,
+          timeWindow: "1 minute",
+          keyGenerator: (req: FastifyRequest) =>
+            "tls-ask:" +
+            String((req.query as { domain?: unknown })?.domain ?? "")
+              .trim()
+              .toLowerCase()
+              .replace(/\.$/, "")
+              .slice(0, 260),
+        },
+      },
+    },
     async (req, reply) => {
       reply.header("Cache-Control", "no-store");
       // Only the edge calls this directly on the private network. Requests
@@ -1444,7 +1573,7 @@ export function registerHostOperations(
           "Create an A (and AAAA, if used) record for the new name pointing at this server, and wait until this check passes.",
           "Tell people with passkeys that they will sign in with password and authenticator once and add a new passkey.",
           "In the DigitalOcean console, edit PUBLIC_APP_URL in /opt/gymmembership/runtime.env (keep mode 600 and every other value unchanged).",
-          "Request 'Re-apply runtime settings' here. The controller renders the edge for the new name, recreates the services and checks readiness at the new address; if that fails it restores the previous edge and you should restore the old PUBLIC_APP_URL.",
+          "Request 'Re-apply runtime settings' here. The controller renders the edge for the new name, recreates the services and checks readiness at the new address. If that check fails, nothing is rolled back: the edge stays on the new name and the platform may be unreachable at both names. Then restore the old PUBLIC_APP_URL in runtime.env from the DigitalOcean console and, as root, run python3 /opt/gymmembership/releases/<serving release>/infra/digitalocean/hostops.py reapply (or request re-apply here again if this page still loads).",
           "Update the Stripe webhook endpoint, wearable OAuth redirect addresses and DOMAIN_CNAME_TARGET, then re-run the live checks.",
         ],
       };

@@ -295,10 +295,72 @@ test("signed controller reports are evaluated against thresholds; forged ones ar
   assert.equal(v.containers, null);
   assert.equal((await readBackupStatus(db)).state, "unreported");
 
-  await publish(report(), { ageSeconds: 1800 });
+  // Freshness is the signed generatedAt, not the writable reported_at column.
+  const ago = (seconds: number) =>
+    new Date(Date.now() - seconds * 1000).toISOString();
+  await publish(report({ generatedAt: ago(1800) }));
   v = await view();
   assert.equal(v.controller.state, "stale");
+  assert.ok(v.controller.ageSeconds >= 1799, String(v.controller.ageSeconds));
+  assert.notEqual(v.metricsSource, "controller");
+  assert.equal(v.containers, null);
+
+  // Replay: an old, validly signed report written again with reported_at=now().
+  const replayed = report({ generatedAt: ago(7 * 86400) }) as any;
+  replayed.host.disks[0].usedBytes = 1;
+  await publish(replayed, { ageSeconds: 0 });
+  v = await view();
+  assert.equal(v.controller.state, "stale");
+  assert.notEqual(v.metricsSource, "controller");
+  assert.equal(v.controller.reportedAt, replayed.generatedAt);
+  const replayedBackups = await readBackupStatus(db);
+  assert.equal(replayedBackups.state, "report_stale");
+  assert.equal(replayedBackups.stale, true);
+
+  // A signed report dated in the future is refused rather than trusted as current.
+  await publish(
+    report({ generatedAt: new Date(Date.now() + 3600000).toISOString() }),
+  );
+  v = await view();
+  assert.equal(v.controller.state, "invalid");
+  assert.equal((await readBackupStatus(db)).state, "unreported");
+});
+
+test("a report delayed by a long deployment does not raise a stale-backup alert", async () => {
+  // The controller reports after each cycle; a 20-minute image build delays it.
+  const delayed = report(
+    { generatedAt: new Date(Date.now() - 20 * 60000).toISOString() },
+    2,
+  );
+  await publish(delayed);
+  const status = await readBackupStatus(db);
+  assert.equal(status.state, "healthy");
+  assert.equal(status.stale, false);
+  assert.equal(status.reportStale, true);
+  assert.match(status.message, /last reported 20 minutes ago/);
+  // Backup age is still measured against now from that last verified report.
+  await publish(
+    report(
+      { generatedAt: new Date(Date.now() - 3 * 3600000).toISOString() },
+      30,
+    ),
+  );
+  const aging = await readBackupStatus(db);
+  assert.equal(aging.state, "warning");
+  assert.equal(aging.stale, true);
+  assert.equal(aging.reportStale, true);
+  // Silent for longer than the backup warning age: backups cannot be judged.
+  await publish(
+    report(
+      { generatedAt: new Date(Date.now() - 27 * 3600000).toISOString() },
+      2,
+    ),
+  );
   assert.equal((await readBackupStatus(db)).state, "report_stale");
+  await publish(report());
+  const fresh = await readBackupStatus(db);
+  assert.equal(fresh.reportStale, false);
+  assert.equal(fresh.state, "healthy");
 });
 
 test("backup age drives the stale-backup signal used by alerts", async () => {
@@ -667,11 +729,14 @@ test("platform address validation covers format, coach domains, DNS and passkeys
     const passkeys = body.checks.find((c: any) => c.key === "passkeys");
     assert.equal(passkeys.ok, false);
     assert.match(passkeys.message, /1 passkey is bound/);
-    assert.ok(
-      body.procedure.some((step: string) =>
-        /Re-apply runtime settings/.test(step),
-      ),
+    const reapply = body.procedure.find((step: string) =>
+      /Re-apply runtime settings/.test(step),
     );
+    assert.ok(reapply);
+    // The controller does not fall back; the step names the console recovery.
+    assert.doesNotMatch(reapply, /restores the previous edge/);
+    assert.match(reapply, /nothing is rolled back/);
+    assert.match(reapply, /hostops\.py reapply/);
   } finally {
     if (saved === undefined) delete process.env.PUBLIC_APP_URL;
     else process.env.PUBLIC_APP_URL = saved;

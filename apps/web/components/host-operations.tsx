@@ -17,6 +17,7 @@ type Backups = {
   stale: boolean;
   message: string;
   reportedAt: string | null;
+  reportStale?: boolean;
   lastSuccessAt: string | null;
   ageHours: number | null;
   sizeBytes: number | null;
@@ -78,7 +79,12 @@ type Snapshot = {
     pausedAt: number | null;
     pausedReason?: string | null;
   } | null;
-  edge: { onDemandTls: boolean; endpoint: string } | null;
+  edge: {
+    onDemandTls: boolean;
+    onDemandConfigured?: boolean;
+    pendingReapply?: boolean;
+    endpoint: string;
+  } | null;
   backups: Backups;
   signingAvailable: boolean;
   actions: {
@@ -155,7 +161,7 @@ const controllerText: Record<string, string> = {
   stale: "Host report is stale",
   unreported: "No host controller report",
   unverified: "Host report failed verification",
-  invalid: "Host report is unreadable",
+  invalid: "Host report is unreadable or dated in the future",
   signing_unavailable: "Signing secret unavailable",
 };
 const thresholdLabels: Record<string, string> = {
@@ -371,6 +377,27 @@ function BackupCard({ backups }: { backups: Backups }) {
   );
 }
 
+/** What the edge serves; a pending re-apply means runtime.env has moved on. */
+export function EdgeState({ edge }: { edge: Snapshot["edge"] }) {
+  return (
+    <>
+      {edge?.onDemandTls
+        ? "On-demand certificates for verified domains"
+        : "Platform address only"}
+      {edge?.pendingReapply && (
+        <span className="host-pending">
+          Pending re-apply: the edge does not serve the current runtime settings
+          yet
+          {edge.onDemandConfigured && !edge.onDemandTls
+            ? ", so new coach domains cannot get certificates"
+            : ""}
+          . Request &ldquo;Re-apply runtime settings&rdquo;.
+        </span>
+      )}
+    </>
+  );
+}
+
 export function HostOperations() {
   const [data, setData] = useState<Snapshot | null>(null),
     [error, setError] = useState(""),
@@ -485,9 +512,7 @@ export function HostOperations() {
                 <div>
                   <dt>Coach-domain HTTPS</dt>
                   <dd>
-                    {data.edge?.onDemandTls
-                      ? "On-demand certificates for verified domains"
-                      : "Platform address only"}
+                    <EdgeState edge={data.edge} />
                   </dd>
                 </div>
               </dl>

@@ -64,6 +64,8 @@ test("a report written by the Python controller is verified and understood by th
   );
   assert.equal(health.deploy?.current, "a".repeat(40));
   assert.equal(health.edge?.onDemandTls, true);
+  assert.equal(health.edge?.onDemandConfigured, true);
+  assert.equal(health.edge?.pendingReapply, false);
   const backups = await readBackupStatus(db);
   assert.equal(backups.state, "healthy");
   assert.equal(backups.stale, false);

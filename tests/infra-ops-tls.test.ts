@@ -203,12 +203,70 @@ test("activation allowances permit one certificate briefly; decisions are cached
   );
 });
 
-test("the ask endpoint has its own rate budget", async () => {
+test("a flood of random names costs no per-name queries and cannot starve real names", async () => {
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES('real.tls-fixture.test',$1,now(),true)",
+      [active],
+    ),
+  );
+  const system = db.system;
+  let queries = 0;
+  (db as any).system = (...args: unknown[]) => {
+    queries++;
+    return (system as any).apply(db, args);
+  };
+  try {
+    // Later than any time used above, so the first call reloads the set.
+    const t0 = Date.now() + 10 * 60000;
+    assert.equal(
+      await tlsIssuancePermitted(db, "real.tls-fixture.test", t0),
+      true,
+    );
+    assert.equal(queries, 1);
+    for (let i = 0; i < 300; i++)
+      assert.equal(
+        await tlsIssuancePermitted(
+          db,
+          `flood-${i}.tls-fixture.test`,
+          t0 + i * 10,
+        ),
+        false,
+      );
+    assert.equal(
+      queries,
+      1,
+      "unknown names within the reload interval are answered from memory",
+    );
+    assert.equal(
+      await tlsIssuancePermitted(db, "flood-x.tls-fixture.test", t0 + 6000),
+      false,
+    );
+    assert.equal(queries, 2, "one reload after the miss interval");
+    assert.equal(
+      await tlsIssuancePermitted(db, "real.tls-fixture.test", t0 + 6001),
+      true,
+    );
+    assert.equal(queries, 2);
+  } finally {
+    (db as any).system = system;
+  }
+});
+
+test("the ask route budget is per requested name, not per edge address", async () => {
+  // Every ask arrives from the one edge container.
+  for (let i = 0; i < 150; i++)
+    assert.equal(
+      (await ask("random-" + i + ".tls-fixture.test")).statusCode,
+      404,
+      "random name " + i,
+    );
+  assert.equal((await ask("real.tls-fixture.test")).statusCode, 200);
   let limited = 0;
   for (let i = 0; i < 125; i++)
-    if ((await ask("unknown-" + i + ".tls-fixture.test")).statusCode === 429)
-      limited++;
-  assert.ok(limited >= 1, "expected the route budget to apply");
+    if ((await ask("repeat.tls-fixture.test")).statusCode === 429) limited++;
+  assert.ok(limited >= 1, "expected the per-name budget to apply");
+  assert.equal((await ask("REAL.tls-fixture.test.")).statusCode, 200);
 });
 
 test("assembled application registers host operation routes", async () => {

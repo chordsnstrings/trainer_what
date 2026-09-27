@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { adminRoute } from "../apps/web/components/app-routes.ts";
 import {
+  EdgeState,
   HostMetricsPanel,
   HostOperations,
 } from "../apps/web/components/host-operations.tsx";
@@ -77,4 +78,31 @@ test("the host view renders its heading, navigation and loading state before dat
   assert.match(html, /<h1>Host and backups\.<\/h1>/);
   assert.match(html, /aria-current="page">Host and backups/);
   assert.match(html, /role="status">Loading host status/);
+});
+
+test("the edge state shows what is served and a pending re-apply", () => {
+  const render = (edge: unknown) =>
+    renderToStaticMarkup(createElement(EdgeState, { edge } as any));
+  const pending = render({
+    onDemandTls: false,
+    onDemandConfigured: true,
+    pendingReapply: true,
+    endpoint: "https://app.example.test",
+  });
+  assert.match(pending, /^Platform address only/);
+  assert.match(pending, /class="host-pending">Pending re-apply/);
+  assert.match(pending, /new coach domains cannot get certificates/);
+  const served = render({
+    onDemandTls: true,
+    onDemandConfigured: true,
+    pendingReapply: false,
+    endpoint: "https://app.example.test",
+  });
+  assert.equal(served, "On-demand certificates for verified domains");
+  // Reports from older controllers carry only onDemandTls.
+  assert.equal(
+    render({ onDemandTls: false, endpoint: "" }),
+    "Platform address only",
+  );
+  assert.equal(render(null), "Platform address only");
 });

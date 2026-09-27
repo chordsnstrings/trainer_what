@@ -600,7 +600,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/gymmembership/dispatch.py
-TimeoutStartSec=1800
+TimeoutStartSec=""" + str(UNIT_TIMEOUT_SECONDS) + """
 UMask=0077
 """
         timer = """[Unit]
@@ -642,30 +642,49 @@ def operations_module():
     return hostops
 
 
+# The deploy unit's TimeoutStartSec. systemd stops a cycle that runs longer, and
+# Python finally blocks do not run then, so long operations budget against it.
+UNIT_TIMEOUT_SECONDS = 1800
+CYCLE_STARTED = None
+
+
+def cycle_remaining():
+    """Seconds left before systemd stops this timer cycle; None outside a cycle (console commands)."""
+    if CYCLE_STARTED is None:
+        return None
+    return UNIT_TIMEOUT_SECONDS - (time.monotonic() - CYCLE_STARTED)
+
+
 def run_cycle():
     """One serialized controller cycle: operator actions, deployment, then upkeep."""
+    global CYCLE_STARTED
+    CYCLE_STARTED = time.monotonic()
     operations = operations_module()
     this = sys.modules[__name__]
-    if operations:
-        operations.before_deploy(this)
+    # True only when a long action (a backup or a restore check) ran in this cycle.
+    busy = operations.before_deploy(this) is True if operations else False
     deployed = False
     try:
         if deploy_control().get("paused"):
             print("Automatic deployment is paused by an operator")
+        elif busy:
+            print("A backup or restore check used this cycle; deployment waits for the next cycle")
         else:
             github = API("https://api.github.com")
             sha = approved_head(github)
             if sha:
-                # A deployment attempt that fails still used this cycle's time:
-                # upkeep then defers the scheduled backup to the next cycle.
-                deployed = True
+                # Only a recorded deployment counts as having used the cycle. A failed
+                # attempt is retried every cycle and must not hold back the backup.
                 deployed = bool(deploy(sha, github))
                 bootstrap_pending_admin()
             else:
                 print("Waiting for current main application checks to succeed")
     finally:
-        if operations:
-            operations.after_deploy(this, deployed)
+        try:
+            if operations:
+                operations.after_deploy(this, deployed or busy)
+        finally:
+            CYCLE_STARTED = None
 
 
 if __name__ == "__main__":

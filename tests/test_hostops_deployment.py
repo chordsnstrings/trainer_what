@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,7 +69,10 @@ class Base(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(host, "ROOT", self.root))
         self.stack.enter_context(patch.object(host, "docker", return_value=None))
-        self.stack.enter_context(redirect_stdout(io.StringIO()))
+        # Free space is measured on the fixture directory, never on this machine's Docker root.
+        self.stack.enter_context(patch.object(hostops, "DOCKER_ROOT", self.root / "no-docker-root"))
+        self.output = io.StringIO()
+        self.stack.enter_context(redirect_stdout(self.output))
         self.errors = io.StringIO()
         self.stack.enter_context(redirect_stderr(self.errors))
         for sha in (SHA, PREVIOUS):
@@ -248,14 +252,16 @@ class ReleaseServing(Base):
         with self.assertRaises(common.DeploymentError):
             host.set_deploy_pause(True, "because", None)
 
-    def test_failed_deployment_still_runs_upkeep_but_defers_the_backup(self):
+    def test_failed_deployment_still_runs_upkeep_and_does_not_hold_back_the_backup(self):
         operations = Mock()
         with patch.object(host, "operations_module", return_value=operations), \
                 patch.object(host, "approved_head", return_value=SHA), \
                 patch.object(host, "deploy", side_effect=common.DeploymentError("bad readiness")):
             with self.assertRaises(common.DeploymentError):
                 host.run_cycle()
-        operations.after_deploy.assert_called_once_with(host, True)
+        # Only a recorded deployment counts as having used the cycle.
+        operations.after_deploy.assert_called_once_with(host, False)
+        self.assertIsNone(host.CYCLE_STARTED)
         broken = Mock(side_effect=SyntaxError("broken module"))
         with patch.dict(sys.modules, {"hostops": None}):
             self.assertIsNone(host.operations_module())
@@ -273,6 +279,46 @@ class ReleaseServing(Base):
         self.assertIn("operator actions were not processed", self.errors.getvalue())
         self.assertTrue((self.root / "host-status.json").is_file())
 
+    def test_repeatedly_failing_deployments_still_produce_scheduled_backups(self):
+        """A broken main head is retried every cycle; backups must continue meanwhile."""
+        self.state(current=PREVIOUS)
+        runtime_env(self.root)
+        database = FakeDatabase()
+        with patch.object(host, "approved_head", return_value=SHA), \
+                patch.object(host, "deploy", side_effect=common.DeploymentError("migration failed")), \
+                patch.object(hostops, "psql", side_effect=database), \
+                patch.object(hostops, "open_dump", side_effect=lambda h, sha: FakeProcess(DUMP)), \
+                patch.object(hostops, "open_restore"):
+            for _ in range(3):
+                with self.assertRaises(common.DeploymentError):
+                    host.run_cycle()
+        names = [r["name"] for r in hostops.list_backups(hostops.backup_dir(host))]
+        self.assertEqual(len(names), 1, "the first failing cycle takes the due backup; later ones find it fresh")
+        self.assertNotIn("backup deferred", self.output.getvalue())
+
+    def test_a_long_host_action_skips_the_cycles_deployment(self):
+        operations = Mock()
+        operations.before_deploy.return_value = True
+        with patch.object(host, "operations_module", return_value=operations), \
+                patch.object(host, "approved_head") as approved, patch.object(host, "deploy") as deploy:
+            host.run_cycle()
+        approved.assert_not_called()
+        deploy.assert_not_called()
+        operations.after_deploy.assert_called_once_with(host, True)
+
+    def test_cycle_budget_follows_the_unit_timeout(self):
+        self.assertIsNone(host.cycle_remaining())
+        # The installed unit (written at bootstrap) uses the same limit.
+        self.assertEqual(host.UNIT_TIMEOUT_SECONDS, 1800)
+        self.assertIn('TimeoutStartSec=""" + str(UNIT_TIMEOUT_SECONDS) + """', Path(host.__file__).read_text())
+        with patch.object(host, "CYCLE_STARTED", 1000.0), patch.object(host.time, "monotonic", return_value=1000.0 + 1500):
+            self.assertEqual(host.cycle_remaining(), host.UNIT_TIMEOUT_SECONDS - 1500)
+            self.assertIsNone(hostops.cycle_limit(host))
+        with patch.object(host, "cycle_remaining", return_value=1000):
+            self.assertEqual(hostops.cycle_limit(host), 1000 - hostops.CYCLE_MARGIN_SECONDS)
+        with patch.object(host, "cycle_remaining", return_value=None):
+            self.assertEqual(hostops.cycle_limit(host), hostops.BACKUP_TIMEOUT_SECONDS)
+
     def test_bootstrap_controller_without_hostops_still_deploys(self):
         with patch.object(host, "operations_module", return_value=None), \
                 patch.object(host, "approved_head", return_value=None) as approved:
@@ -282,8 +328,9 @@ class ReleaseServing(Base):
 
 class FakeDatabase:
     """Records SQL sent through hostops.psql and answers the controller's queries."""
-    def __init__(self, pending=(), running=()):
+    def __init__(self, pending=(), running=(), size=40 << 20, max_wal=1 << 30, scratch=()):
         self.pending, self.running, self.sql = list(pending), list(running), []
+        self.size, self.max_wal, self.scratch = size, max_wal, list(scratch)
 
     def __call__(self, h, sql, database="trainer", timeout=300):
         self.sql.append((database, sql))
@@ -293,6 +340,13 @@ class FakeDatabase:
             return json.dumps(self.running)
         if sql == hostops.PENDING_SQL:
             return json.dumps(self.pending)
+        if sql == hostops.DATABASE_FACTS_SQL:
+            return str(self.size) + " " + str(self.max_wal) + "\n"
+        if sql == hostops.SCRATCH_SQL:
+            return json.dumps(self.scratch)
+        match = re.fullmatch(r"DROP DATABASE IF EXISTS (\w+) WITH \(FORCE\);", sql)
+        if match and match.group(1) in self.scratch:
+            self.scratch.remove(match.group(1))
         match = re.search(r"WHERE id='([0-9a-f-]{36})' AND status='(\w+)' RETURNING id", sql)
         return (match.group(1) + "\n") if match else ""
 
@@ -406,6 +460,48 @@ class OperatorActions(Base):
             self.assertEqual(hostops.process_actions(host, self.values, self.key, now_ms=1790000001000), [])
         self.assertEqual(self.calls, [])
 
+    def test_one_long_action_per_cycle_and_none_started_late_in_a_cycle(self):
+        backup = signed_row(self.key, action="backup_now")
+        verify = signed_row(self.key, action="verify_backup", id="cd3c9a4e-8a0f-4c55-9b7e-1f2a3b4c5d6e",
+                            request_id="dd3c9a4e-8a0f-4c55-9b7e-1f2a3b4c5d6e")
+        pause = signed_row(self.key, action="pause_deploys", id="ed3c9a4e-8a0f-4c55-9b7e-1f2a3b4c5d6e",
+                           request_id="fd3c9a4e-8a0f-4c55-9b7e-1f2a3b4c5d6e")
+        database, cycle = FakeDatabase([backup, verify, pause]), {}
+        with patch.object(hostops, "psql", side_effect=database), \
+                patch.object(hostops, "backup_with_state", return_value={
+                    "name": "20260921T141320Z", "createdAt": "2026-09-21T14:13:20Z", "sizeBytes": 10,
+                    "sha256": "0" * 64}) as backup_call, \
+                patch.object(hostops, "verify_with_state") as verify_call:
+            handled = hostops.process_actions(host, self.values, self.key, now_ms=1790000001000, cycle=cycle)
+        self.assertEqual(handled, [(backup["id"], "succeeded"), (pause["id"], "succeeded")])
+        self.assertTrue(cycle["long"])
+        backup_call.assert_called_once()
+        verify_call.assert_not_called()
+        self.assertFalse(any("WHERE id='" + verify["id"] + "'" in sql for _, sql in database.sql),
+                         "the second long action stays pending, untouched")
+        # With little of the cycle left, verified requests are left pending too.
+        database = FakeDatabase([pause])
+        with patch.object(hostops, "psql", side_effect=database), \
+                patch.object(host, "cycle_remaining", return_value=hostops.ACTION_START_MIN_SECONDS - 1):
+            self.assertEqual(hostops.process_actions(host, self.values, self.key, now_ms=1790000001000), [])
+        self.assertFalse(any(sql.startswith("BEGIN") for _, sql in database.sql))
+
+    def test_before_deploy_reports_a_long_action_and_drops_leftover_scratch_databases(self):
+        now = int(time.time() * 1000)
+        verify = signed_row(self.key, action="verify_backup", issued_at_ms=now, expires_at_ms=now + 1800000)
+        kept, leftover = "restore_check_" + "a" * 12, "restore_check_" + "b" * 12
+        directory = hostops.backup_dir(host)
+        hostops.save_state(directory, {"keptScratch": [kept, "restore_check_" + "c" * 12]})
+        database = FakeDatabase([verify], scratch=[kept, leftover, "restore_check_evil; DROP"])
+        with patch.object(hostops, "psql", side_effect=database), \
+                patch.object(hostops, "verify_with_state", return_value={"ok": True, "message": "fine"}):
+            self.assertIs(hostops.before_deploy(host), True)
+        self.assertIn(("postgres", "DROP DATABASE IF EXISTS " + leftover + " WITH (FORCE);"), database.sql)
+        self.assertEqual(database.scratch, [kept, "restore_check_evil; DROP"])
+        self.assertEqual(hostops.load_state(directory)["keptScratch"], [kept])
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()):
+            self.assertIs(hostops.before_deploy(host), False)
+
     def test_transition_rejects_unexpected_identifiers(self):
         for args in (("x'; DROP TABLE users; --", "pending", "running"), (VECTOR_ROW["id"], "pending", "done")):
             with self.assertRaises(common.DeploymentError):
@@ -439,6 +535,7 @@ class Backups(Base):
         self.values = runtime_env(self.root)
         self.state(current=SHA, previous=PREVIOUS)
         self.dump = self.stack.enter_context(patch.object(hostops, "open_dump", side_effect=lambda h, sha: FakeProcess(DUMP)))
+        self.stack.enter_context(patch.object(hostops, "psql", side_effect=FakeDatabase()))
         self.directory = hostops.backup_dir(host)
 
     def decrypt(self, path, values=None):
@@ -497,10 +594,21 @@ class Backups(Base):
 
     def test_schedule_defers_after_deploy_backs_off_after_failure_and_respects_interval(self):
         day = 86400
-        self.assertIsNone(hostops.scheduled_backup(host, self.values, deployed=True, now=1790000000))
-        first = hostops.scheduled_backup(host, self.values, deployed=False, now=1790000000)
+        # With no backup at all, even a cycle that deployed takes one.
+        first = hostops.scheduled_backup(host, self.values, deployed=True, now=1790000000)
         self.assertIsNotNone(first)
         self.assertIsNone(hostops.scheduled_backup(host, self.values, deployed=False, now=1790000000 + 3600))
+        # Due after a deployment: waits one cycle; overdue by an hour: taken anyway.
+        self.assertIsNone(hostops.scheduled_backup(host, self.values, deployed=True, now=1790000000 + day))
+        self.assertIn("backup deferred", self.output.getvalue())
+        overdue = hostops.scheduled_backup(host, self.values, deployed=True, now=1790000000 + day + 3600)
+        self.assertIsNotNone(overdue)
+        # Too little of the cycle left: deferred, not recorded as a failure.
+        with patch.object(host, "cycle_remaining", return_value=hostops.CYCLE_MARGIN_SECONDS + 60):
+            self.assertIsNone(hostops.scheduled_backup(host, self.values, deployed=False, now=1790000000 + 3 * day))
+        self.assertIsNone(hostops.load_state(self.directory).get("lastFailure"))
+        for record in hostops.list_backups(self.directory):
+            (self.directory / (record["name"] + ".json")).unlink()
         self.dump.side_effect = lambda h, sha: FakeProcess(b"", code=1)
         with self.assertRaises(common.DeploymentError):
             hostops.scheduled_backup(host, self.values, deployed=False, now=1790000000 + day)
@@ -527,8 +635,8 @@ class Backups(Base):
         database = FakeDatabase()
 
         def psql(h, sql, **kwargs):
-            database(h, sql, **kwargs)
-            return json.dumps(facts) if sql == hostops.VERIFY_SQL else ""
+            answer = database(h, sql, **kwargs)
+            return json.dumps(facts) if sql == hostops.VERIFY_SQL else answer
 
         with patch.object(hostops, "open_restore", side_effect=restore), patch.object(hostops, "psql", side_effect=psql):
             result = hostops.verify_with_state(host, self.values)
@@ -539,8 +647,9 @@ class Backups(Base):
         self.assertRegex(scratch, r"^restore_check_[0-9a-f]{12}$")
         self.assertEqual(process.stdin.getvalue(), DUMP)
         statements = [(db, sql) for db, sql in database.sql]
-        self.assertEqual(statements[0], ("postgres", "CREATE DATABASE " + scratch + ";"))
-        self.assertEqual(statements[1], (scratch, hostops.VERIFY_SQL))
+        self.assertEqual(statements[:4], [("postgres", hostops.SCRATCH_SQL), ("trainer", hostops.DATABASE_FACTS_SQL),
+                                          ("postgres", "CREATE DATABASE " + scratch + ";"),
+                                          (scratch, hostops.VERIFY_SQL)])
         self.assertEqual(statements[-1], ("postgres", "DROP DATABASE IF EXISTS " + scratch + " WITH (FORCE);"))
         self.assertTrue(hostops.load_state(self.directory)["lastVerification"]["ok"])
         # A migration unknown to this release fails verification; the scratch copy is still dropped.
@@ -550,6 +659,107 @@ class Backups(Base):
         self.assertFalse(result["ok"])
         self.assertIn("999_future", result["message"])
         self.assertTrue(database.sql[-1][1].startswith("DROP DATABASE"))
+
+    def restore_fixture(self, database, facts=None):
+        restored = []
+
+        def restore(h, sha, name):
+            process = FakeProcess()
+            restored.append((sha, name, process))
+            return process
+        facts = facts or {"migrations": ["001_initial", "058_host_operations"], "tables": 80, "users": 3, "tenants": 2}
+
+        def psql(h, sql, **kwargs):
+            answer = database(h, sql, **kwargs)
+            return json.dumps(facts) if sql == hostops.VERIFY_SQL else answer
+        return restored, restore, psql
+
+    def test_restore_space_check_uses_the_real_database_size_not_the_dump_size(self):
+        """A 3 GiB database compresses to a small dump; free space for the dump is not enough."""
+        record = hostops.run_backup(host, self.values, "scheduled", now=1790000000)
+        self.assertEqual(record["databaseSizeBytes"], 40 << 20)
+        self.assertLess(record["plainSizeBytes"], 1 << 20)
+        meta = self.directory / (record["name"] + ".json")
+        stored = json.loads(meta.read_text())
+        stored["databaseSizeBytes"] = 3 << 30
+        meta.write_text(json.dumps(stored))
+        database = FakeDatabase(size=100 << 20)
+        restored, restore, psql = self.restore_fixture(database)
+        free = SimpleNamespace(free=(3 << 30) + (1 << 30))  # the old 2 x dump + 512 MiB rule would pass
+        with patch.object(hostops, "open_restore", side_effect=restore), \
+                patch.object(hostops, "psql", side_effect=psql), \
+                patch.object(hostops.shutil, "disk_usage", return_value=free):
+            result = hostops.verify_with_state(host, self.values)
+        self.assertFalse(result["ok"])
+        self.assertIn("Not enough free disk space to restore", result["message"])
+        needed = (3 << 30) * 3 // 2 + (1 << 30) + (1 << 30)
+        self.assertIn(str(needed // (1 << 20)) + " MiB needed", result["message"])
+        self.assertEqual(restored, [])
+        self.assertFalse(any(sql.startswith("CREATE DATABASE") for _, sql in database.sql))
+        # An older backup without a recorded size is sized by the live database.
+        del stored["databaseSizeBytes"]
+        meta.write_text(json.dumps(stored))
+        database = FakeDatabase(size=3 << 30)
+        restored, restore, psql = self.restore_fixture(database)
+        with patch.object(hostops, "open_restore", side_effect=restore), \
+                patch.object(hostops, "psql", side_effect=psql), \
+                patch.object(hostops.shutil, "disk_usage", return_value=free):
+            self.assertIn("Not enough free disk space", hostops.verify_with_state(host, self.values)["message"])
+        self.assertEqual(restored, [])
+
+    def test_restore_stops_and_drops_the_scratch_copy_when_free_space_runs_low(self):
+        hostops.run_backup(host, self.values, "scheduled", now=1790000000)
+        database = FakeDatabase()
+        restored, restore, psql = self.restore_fixture(database)
+        readings = iter([50 << 30] + [(1 << 30) + (512 << 20)] * 10)
+        with patch.object(hostops, "open_restore", side_effect=restore), \
+                patch.object(hostops, "psql", side_effect=psql), \
+                patch.object(hostops, "disk_free", side_effect=lambda h: next(readings)):
+            result = hostops.verify_with_state(host, self.values)
+        self.assertFalse(result["ok"])
+        self.assertIn("Free disk space fell to 1536 MiB during the restore check", result["message"])
+        (_, scratch, _), = restored
+        self.assertEqual(database.sql[-1], ("postgres", "DROP DATABASE IF EXISTS " + scratch + " WITH (FORCE);"))
+        self.assertNotIn((scratch, hostops.VERIFY_SQL), database.sql)
+        self.assertFalse(hostops.load_state(self.directory)["lastVerification"]["ok"])
+
+    def test_backup_stops_when_free_space_runs_low(self):
+        readings = iter([50 << 30, 100 << 20])
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()), \
+                patch.object(hostops, "disk_free", side_effect=lambda h: next(readings)):
+            with self.assertRaises(common.DeploymentError) as raised:
+                hostops.run_backup(host, self.values, "manual")
+        self.assertIn("during the backup", str(raised.exception))
+        self.assertEqual(list(self.directory.glob("*.dump.enc*")), [])
+
+    def test_restore_check_accepts_the_newest_migrations_after_a_rollback(self):
+        """Serving the previous release: the database (and backup) carry the newer migrations."""
+        (self.root / "releases" / SHA / "packages/db/migrations/059_newer.sql").write_text("--")
+        self.state(current=SHA, previous=PREVIOUS, serving=PREVIOUS)
+        hostops.run_backup(host, self.values, "scheduled", now=1790000000)
+        database = FakeDatabase()
+        restored, restore, psql = self.restore_fixture(database, {
+            "migrations": ["001_initial", "058_host_operations", "059_newer"], "tables": 80, "users": 3, "tenants": 2})
+        with patch.object(hostops, "open_restore", side_effect=restore), patch.object(hostops, "psql", side_effect=psql):
+            result = hostops.verify_with_state(host, self.values)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["migrations"], 3)
+        self.assertEqual(restored[0][0], PREVIOUS)
+
+    def test_kept_scratch_database_is_recorded_and_survives_cleanup(self):
+        hostops.run_backup(host, self.values, "scheduled", now=1790000000)
+        database = FakeDatabase()
+        restored, restore, psql = self.restore_fixture(database)
+        with patch.object(hostops, "open_restore", side_effect=restore), patch.object(hostops, "psql", side_effect=psql):
+            result = hostops.verify_with_state(host, self.values, keep=True)
+        self.assertTrue(result["ok"], result)
+        scratch = result["scratchDatabase"]
+        self.assertEqual(hostops.load_state(self.directory)["keptScratch"], [scratch])
+        self.assertFalse(any(sql.startswith("DROP DATABASE") for _, sql in database.sql))
+        database = FakeDatabase(scratch=[scratch])
+        with patch.object(hostops, "psql", side_effect=database):
+            self.assertEqual(hostops.drop_leftover_scratch(host), [])
+        self.assertEqual(database.scratch, [scratch])
 
     def test_tampered_or_foreign_key_backups_fail_before_any_restore(self):
         record = hostops.run_backup(host, self.values, "scheduled", now=1790000000)
@@ -711,7 +921,9 @@ class HostReport(Base):
         self.compose.side_effect = lambda release, sha, *args, **kwargs: SimpleNamespace(stdout=lines)
         report = hostops.build_report(host, values)
         self.assertEqual(report["version"], 1)
-        self.assertTrue(report["edge"]["onDemandTls"])
+        # The fixture Caddyfile predates on-demand TLS: settings ask for it, the edge does not serve it yet.
+        self.assertEqual(report["edge"], {"onDemandTls": False, "onDemandConfigured": True, "pendingReapply": True,
+                                          "endpoint": ENDPOINT})
         self.assertEqual(report["deploy"]["current"], SHA)
         self.assertTrue(report["deploy"]["paused"])
         self.assertEqual(report["deploy"]["pausedReason"], "operator")
@@ -740,6 +952,42 @@ class HostReport(Base):
                          [{"service": "migrate", "state": "exited", "health": None, "exitCode": 1}])
         self.compose.side_effect = subprocess.CalledProcessError(1, "docker")
         self.assertIsNone(hostops.container_status(host, SHA))
+
+    def test_edge_report_follows_the_served_caddyfile(self):
+        values = runtime_env(self.root)
+        self.state(current=SHA, previous=PREVIOUS)
+        self.compose.side_effect = lambda release, sha, *args, **kwargs: SimpleNamespace(stdout="")
+        # What a pre-change controller writes on rollout: the legacy platform-only edge.
+        (self.root / "Caddyfile").write_text(host.edge_config(ENDPOINT, SHA))
+        self.assertEqual(hostops.edge_state(host, values, ENDPOINT, SHA)["pendingReapply"], True)
+        self.assertEqual(host.reapply_release(), SHA)
+        edge = hostops.edge_state(host, values, ENDPOINT, SHA)
+        self.assertEqual((edge["onDemandTls"], edge["pendingReapply"]), (True, False))
+        # A new platform address in runtime.env is pending until re-applied.
+        self.assertTrue(hostops.edge_state(host, values, "https://app.example.test", SHA)["pendingReapply"])
+        disabled = {**values, "EDGE_ON_DEMAND_TLS": "false"}
+        self.assertEqual(hostops.edge_state(host, disabled, ENDPOINT, SHA)["pendingReapply"], True)
+        (self.root / "Caddyfile").write_text(host.edge_config(ENDPOINT, SHA))
+        self.assertEqual(hostops.edge_state(host, disabled, ENDPOINT, SHA),
+                         {"onDemandTls": False, "onDemandConfigured": False, "pendingReapply": False,
+                          "endpoint": ENDPOINT})
+        (self.root / "Caddyfile").unlink()
+        self.assertEqual(hostops.edge_state(host, values, "", None)["pendingReapply"], False)
+
+    def test_console_reapply_rereads_runtime_settings(self):
+        """Recovery when the admin page is unreachable after a failed address change."""
+        runtime_env(self.root, PUBLIC_APP_URL="https://app.example.test")
+        self.state(current=SHA, previous=PREVIOUS, serving=PREVIOUS)
+        (self.root / "deploy.lock").touch()
+        with patch.object(host, "metadata", return_value="1.1.1.1"), \
+                patch.object(hostops.os, "geteuid", return_value=0):
+            self.assertEqual(hostops.cli(["reapply"]), 0)
+        self.assertEqual(host.endpoint_url(), "https://app.example.test")
+        caddyfile = (self.root / "Caddyfile").read_text()
+        self.assertIn("https://app.example.test {\n", caddyfile)
+        self.assertIn("X-GymMembership-Release " + PREVIOUS, caddyfile)
+        self.assertEqual([sha for sha, args in self.calls if args[0] == "up"], [PREVIOUS])
+        self.ready.assert_any_call("https://app.example.test/api/v1/ready", expected_sha=PREVIOUS)
 
     def test_report_is_skipped_quietly_before_the_migration(self):
         values = runtime_env(self.root)

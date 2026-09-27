@@ -46,12 +46,19 @@ def main(secret):
         containers = "\n".join(json.dumps({"Service": s, "State": "running", "Health": "healthy" if s in ("api", "database") else "",
                                            "ExitCode": 0}) for s in ("database", "api", "web", "worker", "edge"))
         captured = []
+
+        def psql(h, sql, **kwargs):
+            captured.append(sql)
+            return "734003200 1073741824\n" if sql == hostops.DATABASE_FACTS_SQL else "t\n"
+
         with patch.object(host, "ROOT", root), \
                 patch.object(host, "compose", side_effect=lambda *a, **k: SimpleNamespace(stdout=containers)), \
                 patch.object(hostops, "open_dump", side_effect=lambda h, sha: Dump()), \
-                patch.object(hostops, "psql", side_effect=lambda h, sql, **k: captured.append(sql) or "t\n"), \
+                patch.object(hostops, "psql", side_effect=psql), \
                 patch("sys.stdout", io.StringIO()):
             values = host.runtime_values()
+            # The edge as a deployment by this controller renders it.
+            (root / "Caddyfile").write_text(host.edge_config(host.endpoint_url(), SHA, host.edge_ask(values)))
             hostops.backup_with_state(host, values, "scheduled")
             hostops.write_report(host, hostops.host_key(values), hostops.build_report(host, values))
         payload = json.loads((root / "host-status.json").read_text())
