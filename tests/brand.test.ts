@@ -14,6 +14,7 @@ import {
   BRAND_COLORS,
   BRAND_COPY,
   BRAND_NAME,
+  BRAND_SHARE_IMAGE_ALT,
   DEFAULT_PLATFORM_NAME,
   PLATFORM_ICON_BASE,
   SUPERSEDED_PLATFORM_NAMES,
@@ -34,6 +35,8 @@ import {
   MarketingHeader,
   claimCta,
 } from "../apps/web/components/marketing/frame.tsx";
+import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
+import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
 const pub = (asset: string) => web("public" + asset);
@@ -153,8 +156,18 @@ test("marketing pages share the trainsyou card on the home page and a branded pr
   assert.equal(home.twitter.images[0], ORIGIN + BRAND_ASSETS.shareImage);
   assert.equal(home.openGraph.images[0].width, 1200);
   assert.equal(home.openGraph.images[0].height, 630);
+  // The supplied card's alternative text describes the card's own words,
+  // not the page's H1; generated cards keep the page's H1.
+  assert.equal(
+    BRAND_SHARE_IMAGE_ALT,
+    "trainsyou: Your coaching. Beyond your hours. Teach your AI. Grow your coaching business.",
+  );
+  assert.equal(home.openGraph.images[0].alt, BRAND_SHARE_IMAGE_ALT);
   const pricing = marketingMetadata(marketingPage("/pricing")!, ctx);
   assert.equal(pricing.openGraph.images[0].url, ORIGIN + "/og?path=%2Fpricing");
+  assert.equal(pricing.openGraph.images[0].alt, marketingPage("/pricing")!.h1);
+  const renamed = marketingMetadata(marketingPage("/")!, { ...ctx, appName: "Acme" });
+  assert.equal(renamed.openGraph.images[0].alt, marketingPage("/")!.h1);
   const og = await source("app/og/route.tsx");
   assert.match(og, /BRAND_ASSETS\.lockupInk/);
   assert.match(og, /BRAND_ASSETS\.symbolInk/);
@@ -172,7 +185,8 @@ test("marketing pages share the trainsyou card on the home page and a branded pr
 
 test("the approved lines lead the home page, its description and llms.txt", () => {
   const home = marketingPage("/")!;
-  assert.equal(home.h1, BRAND_COPY.line);
+  // The home H1 says what happens; the brand line closes every page instead.
+  assert.equal(home.h1, BRAND_COPY.homeHeadline);
   assert.equal(home.eyebrow, BRAND_COPY.audience.toUpperCase());
   assert.ok(home.intro.startsWith("Teach your own AI how you coach"));
   assert.ok(home.intro.includes("Build a paid coaching offering around your methods, your identity and your standards"));
@@ -183,6 +197,52 @@ test("the approved lines lead the home page, its description and llms.txt", () =
   assert.doesNotMatch(llmsTxt({ origin: "https://acme.example", appName: "Acme" }), /trainsyou/i);
   assert.deepEqual(claimCta(true), { label: "Teach your AI", href: "/signup" });
   assert.equal(claimCta(false).label, "Join early access");
+});
+
+test("the brand line is the closing heading on every marketing page; a renamed platform asks the call to action", () => {
+  const platform = {
+    name: "trainsyou",
+    initials: "T",
+    supportEmail: null,
+    companyDetails: null,
+    registrationOpen: false,
+    coachAddressTemplate: ORIGIN + "/coach/{slug}",
+    availability: {
+      model: true,
+      nutrition: false,
+      voice: false,
+      customDomains: false,
+      payments: true,
+      payouts: false,
+      whoop: false,
+      zepp: false,
+      instagram: false,
+    },
+    followerModel: DEFAULT_FOLLOWER_MODEL,
+  };
+  const closing = (path: string, name = "trainsyou") => {
+    const html = renderToStaticMarkup(
+      createElement(MarketingSite, {
+        page: marketingPage(path)!,
+        platform: { ...platform, name },
+        origin: ORIGIN,
+      }),
+    );
+    const match = html.match(/<section class="mk-closing"[^>]*>([\s\S]*?)<\/section>/);
+    assert.ok(match, path + " has a closing panel");
+    return match[1];
+  };
+  for (const path of ["/", "/pricing"]) {
+    const panel = closing(path);
+    assert.match(panel, new RegExp(`<h2[^>]*>${BRAND_COPY.line.replace(/\./g, "\\.")}</h2>`), path);
+    assert.match(panel, /Guided setup\. Nothing goes live until you publish\./);
+    assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
+  }
+  assert.match(closing("/"), /href="\/how-it-works"/);
+  assert.match(closing("/pricing"), /href="\/follower-calculator"/);
+  const acme = closing("/", "Acme Coaching");
+  assert.match(acme, /<h2[^>]*>Ready to teach your AI\?<\/h2>/);
+  assert.doesNotMatch(acme, /Beyond your hours/);
 });
 
 test("the header and footer show the lockup in ink and white, and a renamed platform shows its name", () => {
@@ -297,7 +357,7 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   const root = declarations(css.match(/:root \{([\s\S]*?)\n\}/)![1]);
   const dark = declarations(
     css.match(
-      /@media \(prefers-color-scheme: dark\) \{\s*\.platform-ui,[^{]*\.acquisition-consent \{([\s\S]*?)\n  \}/,
+      /@media \(prefers-color-scheme: dark\) \{\s*\.workspace\.platform-ui,[^{]*\.acquisition-consent \{([\s\S]*?)\n  \}/,
     )![1],
   );
   // The supplied palette, value for value (digital/design-tokens.css).
@@ -351,37 +411,84 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
       assert.ok(contrast(color("--field-border"), color(bg)) >= 3, `${mode}: field edge on ${bg}`);
     }
   }
-  // Ink bands give the focus ring their text colour: the page's ink ring
-  // would draw ink on ink there (non-text contrast 3:1).
+  // The public platform pages have no ink bands: no platform stylesheet
+  // paints a band ink (the marketing site is always light).
   const marketing = await readFile(web("app/marketing.css"), "utf8");
-  const bandRule = marketing.match(/\n\.mk-closing,\s*\.mk-band-ink \{([^}]*)\}/);
-  assert.ok(bandRule, "the ink bands set their own focus ring");
-  const band = declarations(bandRule[1]);
-  for (const [mode, layers] of [["light", [root]], ["dark", [root, dark]]] as const) {
-    const color = resolver(...layers, band);
-    const ratio = contrast(color("--focus"), color("--band-ink"));
-    assert.ok(ratio >= 3, `${mode}: focus ring on the ink band is ${ratio.toFixed(2)}:1`);
-  }
   for (const file of platformCssFiles) {
     const text = await readFile(web("app/" + file), "utf8");
     for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g))
-      if (/background(-color)?:\s*var\(--band-ink\)/.test(rule[2]))
-        assert.ok(
-          [".mk-closing", ".mk-band-ink"].includes(rule[1].trim().split("\n").pop()!.trim()),
-          `${file}: ${rule[1].trim()} is an ink band without the band focus ring`,
-        );
+      assert.doesNotMatch(
+        rule[2],
+        /background(-color)?:\s*var\(--band-ink\)/,
+        `${file}: ${rule[1].trim()} paints an ink band`,
+      );
   }
-  // Pace is a background accent: never text on a light surface (it may
-  // colour figures on the ink band, where it reads at 14:1).
+  // The closing panel is Pace with ink text; its ink focus ring and the
+  // ink button's white text stay readable on it.
+  const closingRule = marketing.match(/\n\.mk-closing \{([^}]*)\}/);
+  assert.ok(closingRule, "the closing panel rule");
+  const closing = declarations(closingRule[1]);
+  assert.match(closingRule[1], /background:\s*var\(--lime\);/);
+  assert.match(closingRule[1], /color:\s*var\(--on-lime\);/);
+  const panel = resolver(root, closing);
+  const ring = contrast(panel("--focus"), panel("--lime"));
+  assert.ok(ring >= 3, `focus ring on the closing panel is ${ring.toFixed(2)}:1`);
+  assert.ok(contrast(panel("--on-lime"), panel("--lime")) >= 4.5);
+  const button = marketing.match(/\n\.mk-closing \.button \{([^}]*)\}/);
+  assert.ok(button, "the closing button rule");
+  assert.match(button[1], /background:\s*var\(--ink\);/);
+  assert.match(button[1], /color:\s*var\(--ty-white\);/);
+  assert.ok(contrast(panel("--ty-white"), panel("--ink")) >= 4.5);
+  // The primary action is Pace with ink text and an ink edge (3:1 or better
+  // against white); its hover stays readable. The address preview's claim
+  // button on white follows it (lime is the only primary style on white),
+  // and the action stays 15px semibold on phones too.
+  const cta = marketing.match(/\n(\.button\.mk-cta,[^{]*)\{([^}]*)\}/);
+  assert.ok(cta, "the primary action rule");
+  assert.match(cta[1], /\.mk-econ \.mk-address \.button/);
+  assert.match(cta[2], /background:\s*var\(--lime\);/);
+  assert.match(cta[2], /color:\s*var\(--on-lime\);/);
+  assert.match(cta[2], /border:\s*1px solid var\(--ink\);/);
+  assert.match(cta[2], /font-size:\s*15px;/);
+  assert.match(cta[2], /font-weight:\s*600;/);
+  assert.ok(contrast(light("--ink"), light("--white")) >= 3);
+  const hover = marketing.match(/\n\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/);
+  assert.ok(hover, "the primary action hover rule");
+  const hovered = resolver(root, { "--hover": hover[1].trim() });
+  assert.ok(contrast(hovered("--on-lime"), hovered("--hover")) >= 4.5, "hover contrast");
+  // Pace is a background accent: never text on a light surface.
   for (const file of platformCssFiles) {
     const text = await readFile(web("app/" + file), "utf8");
     for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       if (!/(^|\s|;)color:\s*var\(--lime\)/.test(rule[2])) continue;
       const selector = rule[1].trim();
-      assert.ok(
-        [".mk-included strong", ".coach-monogram"].includes(selector),
-        `${file}: lime text in ${selector}`,
-      );
+      assert.ok([".coach-monogram"].includes(selector), `${file}: lime text in ${selector}`);
     }
   }
+});
+
+test("dark mode is the workspace's alone; public platform pages are always light", async () => {
+  const css = await readFile(web("app/globals.css"), "utf8");
+  // Every selector inside a dark-scheme block names the workspace.
+  const blocks = [...css.matchAll(/@media \(prefers-color-scheme: dark\) \{([\s\S]*?)\n\}/g)];
+  assert.equal(blocks.length, 2, "the token block and the logo swap");
+  for (const [, body] of blocks)
+    for (const rule of body.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*\}/g))
+      for (const selector of rule[1].split(","))
+        assert.match(selector.trim(), /\.workspace\.platform-ui/, `dark rule for ${selector.trim()}`);
+  assert.match(css, /\.workspace\.platform-ui \.brand-logo \.brand-logo-light \{\s*display: none;/);
+  assert.match(css, /\.workspace\.platform-ui \.brand-logo \.brand-logo-dark \{\s*display: block;/);
+  // The public root and the document behind it stay light in any scheme.
+  assert.match(css, /\n\.public\.platform-ui \{\s*color-scheme: light;\s*\}/);
+  assert.match(
+    css,
+    /\n:root:has\(\.public\.platform-ui\) \{\s*background: var\(--ty-white\);\s*color-scheme: light;\s*\}/,
+  );
+  // The browser colour of public platform pages is white in every scheme;
+  // the workspace keeps the root layout's paper and ink pair.
+  const page = await source("app/[[...path]]/page.tsx");
+  assert.match(page, /themeColor: BRAND_COLORS\.white, colorScheme: "light"/);
+  assert.match(page, /isPublicPlatformRoute\("\/" \+ path\.join\("\/"\)\)/);
+  const layout = await source("app/layout.tsx");
+  assert.match(layout, /media: "\(prefers-color-scheme: dark\)", color: BRAND_COLORS\.ink/);
 });

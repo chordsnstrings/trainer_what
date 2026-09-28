@@ -11,7 +11,8 @@ import {
 /**
  * The trainsyou lockup when the platform name is the brand: the ink version
  * on light surfaces and the white version on dark ones (CSS picks one from
- * prefers-color-scheme inside `.platform-ui`). Any other configured name
+ * prefers-color-scheme inside the workspace's `.workspace.platform-ui`; the
+ * public platform pages are always light). Any other configured name
  * shows as text with its initials, so the logo never contradicts APP_NAME.
  * Only the visible image is exposed to assistive technology.
  */

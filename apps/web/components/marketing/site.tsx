@@ -3,12 +3,18 @@
 // JSON-LD and llms-full.txt agree. Interactive parts are small client islands.
 import Link from "next/link";
 import {
+  Apple,
   ArrowRight,
+  CalendarCheck,
+  CalendarDays,
   Check,
   CheckCircle,
   CircleAlert,
-  ShieldCheck,
+  Dumbbell,
+  MessageCircle,
+  TrendingUp,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -23,10 +29,11 @@ import {
   marketingJsonLd,
   marketingPage,
   sourceById,
-  type AvailabilityKey,
+  usesBrandIdentity,
   type MarketingPage,
   type MarketingSection,
 } from "@trainer/contracts";
+import { BANDS } from "@trainer/domain";
 import {
   aedWhole as aed,
   DEFAULT_FOLLOWER_INPUTS,
@@ -46,6 +53,8 @@ import {
   EarningsCalculator,
   FollowerCalculator,
 } from "./islands";
+import { availabilityChip, Chip } from "./chip";
+import { HeroFlow } from "./hero-flow";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -53,6 +62,7 @@ import {
   ProductScreens,
   Replaces,
 } from "./showcase";
+export { availabilityChip };
 
 type Ctx = { page: MarketingPage; platform: PublicPlatform; origin: string };
 const dateLabel = (iso: string) =>
@@ -74,23 +84,6 @@ function secondaryCta(page: MarketingPage): Cta {
   return page.path === "/follower-calculator"
     ? { label: "Estimate my earnings", href: "/earnings-calculator" }
     : { label: "Estimate what your followers are worth", href: "/follower-calculator" };
-}
-
-/** "Available soon" when a required provider is off at runtime. */
-export function availabilityChip(
-  page: MarketingPage,
-  availability: Record<AvailabilityKey, boolean>,
-): { label: string; soon: boolean } | null {
-  if (!page.offering) return null;
-  const soon = (page.availability ?? []).some((key) => !availability[key]);
-  return soon
-    ? { label: "Available soon", soon: true }
-    : { label: page.offering, soon: false };
-}
-function Chip({ chip }: { chip: { label: string; soon: boolean } | null }) {
-  return chip ? (
-    <span className={"badge " + (chip.soon ? "amber" : "green")}>{chip.label}</span>
-  ) : null;
 }
 
 function SourceNote({ ids }: { ids?: string[] }) {
@@ -198,11 +191,19 @@ export function Section({
   );
 }
 
-function Faqs({ page, t }: { page: MarketingPage; t: (s: string) => string }) {
+function Faqs({
+  page,
+  t,
+  heading = "Frequently asked questions",
+}: {
+  page: MarketingPage;
+  t: (s: string) => string;
+  heading?: string;
+}) {
   if (!page.faqs.length) return null;
   return (
     <section className="mk-section mk-faqs" id="faq" aria-labelledby="faq-h">
-      <h2 id="faq-h">Frequently asked questions</h2>
+      <h2 id="faq-h">{heading}</h2>
       {page.faqs.map((f) => (
         <details key={f.q} className="mk-faq">
           <summary>{t(f.q)}</summary>
@@ -259,21 +260,81 @@ function Breadcrumbs({ page, t }: { page: MarketingPage; t: (s: string) => strin
   );
 }
 
-function Closing({ cta, t }: { cta: Cta; t: (s: string) => string }) {
+/**
+ * The closing panel on every marketing page: a contained Pace panel with ink
+ * text and an ink button. The brand line is its heading on the trainsyou
+ * platform; a renamed platform asks the call to action instead.
+ */
+function Closing({
+  cta,
+  platform,
+  secondary,
+}: {
+  cta: Cta;
+  platform: PublicPlatform;
+  secondary: Cta;
+}) {
   return (
-    <section className="mk-closing">
-      <p className="eyebrow">YOU ALREADY HAVE THE EXPERIENCE</p>
-      <h2>{t("Give your method somewhere new to go.")}</h2>
-      <div className="button-row">
-        <Link className="button large" href={cta.href}>
-          {cta.label} <ArrowRight size={17} aria-hidden="true" />
-        </Link>
-        <Link className="text-link" href="/follower-calculator">
-          What are my followers worth? <ArrowRight size={15} aria-hidden="true" />
-        </Link>
-      </div>
-    </section>
+    <div className="mk-container mk-closing-wrap">
+      <section className="mk-closing" aria-labelledby="mk-closing-h">
+        <h2 id="mk-closing-h">
+          {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
+        </h2>
+        <p>Guided setup. Nothing goes live until you publish.</p>
+        <div className="button-row">
+          <Link className="button large mk-closing-cta" href={cta.href}>
+            {cta.label} <ArrowRight size={17} aria-hidden="true" />
+          </Link>
+          <Link className="text-link mk-link" href={secondary.href}>
+            {secondary.label} <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
+    </div>
   );
+}
+const HOW_IT_WORKS: Cta = { label: "See how it works", href: "/how-it-works" };
+/** The closing panel's second link: the follower estimate, or how it works. */
+function closingLink(path: string): Cta {
+  return path === "/" || path === "/follower-calculator"
+    ? HOW_IT_WORKS
+    : { label: "What are my followers worth?", href: "/follower-calculator" };
+}
+
+/**
+ * The Pace highlight on part of a heading; the text itself is unchanged. A
+ * span, not <mark>: the emphasis is decorative, and screen readers can
+ * announce <mark> as "highlight" in the middle of the H1.
+ */
+function Highlighted({ text, mark }: { text: string; mark?: string }) {
+  const at = mark ? text.indexOf(mark) : -1;
+  if (!mark || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="mk-mark">{mark}</span>
+      {text.slice(at + mark.length)}
+    </>
+  );
+}
+
+/**
+ * The commission bands as short labels, from the ledger's own bands. The
+ * list is labelled "Commission by paying subscriber", so the ranges count
+ * paying subscribers: "25% · first 100", "20% · 101–300", ...
+ */
+export function bandPills(): string[] {
+  const n = (v: number) => v.toLocaleString("en-GB");
+  let from = 1;
+  return BANDS.map((band) => {
+    const range = !Number.isFinite(band.count)
+      ? `${n(from)}+`
+      : from === 1
+        ? `first ${n(band.count)}`
+        : `${n(from)}–${n(from + band.count - 1)}`;
+    from += band.count;
+    return `${band.bps / 100}% · ${range}`;
+  });
 }
 
 /** A grid of child pages (hubs and the home feature grid). */
@@ -891,7 +952,8 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
     return (
       <section className="mk-section" id="claim" aria-labelledby="claim-h">
         <h2 id="claim-h">Claim your coaching address</h2>
-        <AddressPreview template={platform.coachAddressTemplate} />
+        {/* Shown without the scheme, as on the home page. */}
+        <AddressPreview template={platform.coachAddressTemplate.replace(/^https?:\/\//, "")} />
       </section>
     );
   return (
@@ -933,22 +995,8 @@ function CustomBlock({ page, platform, t }: Ctx & { t: (s: string) => string }) 
         </>
       );
     case "/features":
-      return (
-        <>
-          <ProductScreens t={t} />
-          <FeatureMatrix platform={platform} t={t} />
-          <Replaces t={t} />
-          <section className="mk-section" aria-labelledby="all-features-h">
-            <h2 id="all-features-h">Feature guides</h2>
-            <PageTiles
-              pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
-              platform={platform}
-              t={t}
-              withChips
-            />
-          </section>
-        </>
-      );
+      // The home page's "everything included" counts, as a paper strip.
+      return <IncludedStrip t={t} />;
     case "/for-trainers":
     case "/guides":
       return <PageTiles pages={childrenOf(page.path)} platform={platform} t={t} />;
@@ -974,16 +1022,57 @@ function DirectoryBlock({ place }: { place: string }) {
     </aside>
   );
 }
+/** Published price anchors for one-to-one and online coaching (cited). */
+function PriceAnchors() {
+  return (
+    <div className="mk-anchors">
+      <div>
+        <strong>AED 70–350</strong>
+        <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
+      </div>
+      <div>
+        <strong>AED 200–700+</strong>
+        <span>per session, basic to premium (Embody Fitness, 2025)</span>
+      </div>
+      <div>
+        <strong>AED 400–2,000</strong>
+        <span>a month for online coaching (369MMAFIT, 2026)</span>
+      </div>
+    </div>
+  );
+}
 /** Blocks placed after a section, by section id. */
 function AfterSection({
   page,
   section,
   platform,
+  t,
 }: {
   page: MarketingPage;
   section: MarketingSection;
   platform: PublicPlatform;
+  t: (s: string) => string;
 }) {
+  if (page.path === "/pricing" && section.id === "hours") return <PriceAnchors />;
+  // /features: screens and guides first; the full capability matrix (still
+  // server-rendered and indexed) sits lower on the page.
+  if (page.path === "/features" && section.id === "subscribers")
+    return (
+      <>
+        <ProductScreens t={t} />
+        <section className="mk-section" id="feature-guides" aria-labelledby="all-features-h">
+          <h2 id="all-features-h">Feature guides</h2>
+          <PageTiles
+            pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
+            platform={platform}
+            t={t}
+            withChips
+          />
+        </section>
+        <Replaces t={t} />
+        <FeatureMatrix platform={platform} t={t} />
+      </>
+    );
   if (page.path === "/get-started" && section.id === "checklist")
     return (
       <ol className="mk-checklist">
@@ -1020,19 +1109,21 @@ function StandardPage({ page, platform, origin }: Ctx) {
   const demo = page.path === "/demo";
   return (
     <>
-      <div className="mk-page">
+      <div className="mk-container mk-page">
         <Breadcrumbs page={page} t={t} />
         <header className="mk-page-head">
           <p className="eyebrow">{t(page.eyebrow)}</p>
           <h1>{t(page.h1)}</h1>
           {chip && <Chip chip={chip} />}
-          <p className="mk-answer">{t(page.intro)}</p>
+          {/* One short statement above the fold: the lede, or the
+              answer-first introduction on pages without one. */}
+          <p className={page.lede ? "mk-lede" : "mk-answer"}>{t(page.lede ?? page.intro)}</p>
           <div className="button-row">
-            <Link className="button large" href={cta.href}>
+            <Link className="button large mk-cta" href={cta.href}>
               {cta.label} <ArrowRight size={17} aria-hidden="true" />
             </Link>
             {!page.path.endsWith("-calculator") && (
-              <Link className="text-link" href={second.href}>
+              <Link className="text-link mk-link" href={second.href}>
                 {second.label} <ArrowRight size={15} aria-hidden="true" />
               </Link>
             )}
@@ -1055,7 +1146,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
           ) : (
             <div key={section.id}>
               <Section section={section} t={t} />
-              <AfterSection page={page} section={section} platform={platform} />
+              <AfterSection page={page} section={section} platform={platform} t={t} />
             </div>
           ),
         )}
@@ -1079,35 +1170,247 @@ function StandardPage({ page, platform, origin }: Ctx) {
           </section>
         )}
         {page.path === "/methodology" && <Methodology platform={platform} />}
+        {/* A page with a lede keeps its answer-first introduction (the text
+            in JSON-LD and llms-full.txt) as a short summary before the FAQs,
+            instead of repeating the lede straight under it. */}
+        {page.lede && (
+          <section className="mk-section mk-in-short" id="in-short" aria-labelledby="in-short-h">
+            <h2 id="in-short-h">In short</h2>
+            <p className="mk-body">{t(page.intro)}</p>
+          </section>
+        )}
         <Faqs page={page} t={t} />
         <Related page={page} t={t} />
         <p className="mk-updated muted">
           Last updated <time dateTime={page.lastUpdated}>{dateLabel(page.lastUpdated)}</time>
         </p>
       </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }
 
+/**
+ * A home band: the registry heading and body, a visual and up to two links.
+ * Bands alternate white and paper; "split" puts the text beside the visual
+ * on wide screens. Every band shares the one page container.
+ */
 function HomeSection({
   page,
   id,
   t,
-  children,
+  tone,
+  split = false,
+  visual,
+  links = [],
   className = "",
 }: {
   page: MarketingPage;
   id: string;
   t: (s: string) => string;
-  children?: ReactNode;
+  tone: "white" | "paper";
+  split?: boolean;
+  visual?: ReactNode;
+  links?: Cta[];
   className?: string;
 }) {
   const section = page.sections.find((s) => s.id === id)!;
+  const more = links.length > 0 && (
+    <p className="mk-home-more">
+      {links.map((link) => (
+        <Link key={link.href} className="text-link mk-link" href={link.href}>
+          {link.label} <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+      ))}
+    </p>
+  );
   return (
-    <div className={"mk-band " + className}>
-      <Section section={section} t={t} />
-      {children}
+    <section
+      className={`mk-home-band mk-home-${tone} ${className}`.trim()}
+      id={id}
+      aria-labelledby={id + "-h"}
+    >
+      <div className={"mk-container mk-home-inner" + (split ? " mk-home-split" : "")}>
+        <div className="mk-home-text">
+          <h2 id={id + "-h"}>{t(section.heading)}</h2>
+          {section.body?.map((p) => (
+            <p key={p} className="mk-home-body">
+              {t(p)}
+            </p>
+          ))}
+          {split && more}
+        </div>
+        {visual && <div className="mk-home-visual">{visual}</div>}
+        {!split && more}
+      </div>
+    </section>
+  );
+}
+
+type Tile = {
+  icon: LucideIcon;
+  label: string;
+  line: string;
+  href: string;
+  /** The feature page whose availability decides whether the tile shows. */
+  gate?: string;
+};
+/**
+ * What subscribers get: four flat tiles, each linking to its feature page
+ * with one short line. Only features available now are shown ("Available
+ * soon" stays on /features): the fourth tile is nutrition when that tier is
+ * on, otherwise the first available of chat and bookings.
+ */
+function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
+  const core: Tile[] = [
+    {
+      icon: CalendarDays,
+      label: "Daily plan",
+      line: "Dated, built from your rules.",
+      href: "/features/ai-training-plans",
+    },
+    {
+      icon: Dumbbell,
+      label: "Guided workouts",
+      line: "Cues, set logging and rest timers.",
+      href: "/features/subscriber-app",
+    },
+    {
+      icon: TrendingUp,
+      label: "Progress they can see",
+      line: "Sessions and best loads, in one place.",
+      href: "/features/progress-and-client-twin",
+    },
+  ];
+  const extra: Tile[] = [
+    {
+      icon: Apple,
+      label: "Nutrition",
+      line: "Meal plans and a food diary, as an optional tier.",
+      href: "/features/nutrition",
+      gate: "/features/nutrition",
+    },
+    {
+      icon: MessageCircle,
+      label: "Chat",
+      line: "With you and a clearly labelled digital coach.",
+      href: "/features/chat-and-digital-coach",
+      gate: "/features/chat-and-digital-coach",
+    },
+    {
+      icon: CalendarCheck,
+      label: "Sessions with you",
+      line: "Paid one-to-one bookings, when it matters.",
+      href: "/features/bookings",
+      gate: "/features/bookings",
+    },
+  ];
+  const available = (tile: Tile) =>
+    !tile.gate ||
+    !availabilityChip(marketingPage(tile.gate), platform.availability)?.soon;
+  const tiles = [...core, ...extra.filter(available).slice(0, 1)];
+  return (
+    <ul className="mk-icon-tiles">
+      {tiles.map(({ icon: Icon, label, line, href }) => (
+        <li key={label}>
+          <Link className="mk-icon-tile" href={href}>
+            <span className="mk-icon-square" aria-hidden="true">
+              <Icon size={22} />
+            </span>
+            <span className="mk-icon-label">{label}</span>
+            <span className="mk-icon-line">{line}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The trainer stays in charge: the decision flow (sample data). */
+function ControlFlow() {
+  // One image for assistive technology: the tag and the three paths are
+  // summarised in its label; the drawn cards are presentational.
+  return (
+    <div
+      className="mk-flow-card"
+      role="img"
+      aria-label="Illustration with sample data: a subscriber says squats felt easy; your rule adds 2.5 kg automatically. Unsure changes come to you, and pain pauses the workout and comes to you."
+    >
+      <p className="mk-relay-tag" aria-hidden="true">
+        Illustration with sample data
+      </p>
+      <div className="mk-flow" aria-hidden="true">
+        <div className="mk-flow-msg">
+          <span className="small-label">SUBSCRIBER</span>
+          <p>“Week three done. Squats felt easy.”</p>
+        </div>
+        <div className="mk-flow-brain">
+          <span className="small-label">YOUR AI</span>
+          <p>
+            <strong>Your rule:</strong> two easy sessions at 3+ reps in reserve →
+            add 2.5 kg.
+          </p>
+          <div className="mk-meter">
+            <span style={{ inlineSize: "86%" }} />
+          </div>
+          <small>Confidence above your threshold</small>
+        </div>
+        <div className="mk-flow-lanes">
+          <span className="mk-lane mk-lane-auto">
+            <CheckCircle size={14} /> Applied automatically
+          </span>
+          <span className="mk-lane">
+            <UserRound size={14} /> Unsure → to you
+          </span>
+          <span className="mk-lane mk-lane-safety">
+            <CircleAlert size={14} /> Pain → paused, to you
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Your site and your price: the coaching address from the platform's
+ * template (never a hard-coded domain), shown without the scheme, and the
+ * commission bands by paying subscriber.
+ */
+function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
+  const template = platform.coachAddressTemplate.replace(/^https?:\/\//, "");
+  const address = template.replace("{slug}", "yourname");
+  return (
+    <div className="mk-econ">
+      {platform.registrationOpen ? (
+        <AddressPreview template={template} />
+      ) : (
+        <div className="mk-browser">
+          <span className="mk-browser-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="mk-browser-address ltr-data">{address}</span>
+        </div>
+      )}
+      <div className="mk-bands-box">
+        <p className="small-label" id="mk-bands-label">
+          Commission by paying subscriber
+        </p>
+        <ul className="mk-band-pills" aria-labelledby="mk-bands-label">
+          {bandPills().map((pill) => {
+            const [rate, range] = pill.split(" · ");
+            return (
+              <li key={pill}>
+                <strong>{rate}</strong> · {range}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="fine-print muted">
+          Each rate applies only to the subscribers in its band.
+        </p>
+      </div>
     </div>
   );
 }
@@ -1115,145 +1418,89 @@ function HomeSection({
 function Home({ page, platform }: Ctx) {
   const t = (s: string) => brandText(s, platform.name, platform.followerModel);
   const cta = primaryCta(page, platform);
-  const features = [
-    marketingPage("/trainer-brain")!,
-    ...childrenOf("/features"),
-  ];
+  // The follower estimate keeps its own block (the calculator is owned by
+  // the calculator package; only its container is styled here).
+  const calculator = (
+    <div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>
+  );
   return (
     <>
-      <section className="mk-hero">
-        <div className="mk-hero-copy">
-          <p className="eyebrow">
-            <span className="tiny-line" />
-            {t(page.eyebrow)}
-          </p>
-          <h1>{t(page.h1)}</h1>
-          <p className="mk-hero-sub">{t(page.intro)}</p>
-          <div className="button-row">
-            <Link className="button large" href={cta.href}>
-              {cta.label} <ArrowRight size={18} aria-hidden="true" />
-            </Link>
-            <Link className="text-link" href="/how-it-works">
-              {BRAND_COPY.secondaryAction}{" "}
-              <ArrowRight size={16} aria-hidden="true" />
-            </Link>
-          </div>
-          <ul className="mk-hero-notes">
-            <li>
-              <Check size={14} aria-hidden="true" /> You set the price in AED
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Pain and red flags always go to you
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Monthly payouts to a UAE bank
-            </li>
-          </ul>
-        </div>
-        <div className="mk-hero-art" aria-hidden="true">
-          <div className="mk-flow">
-            <div className="mk-flow-msg">
-              <span className="small-label">SUBSCRIBER</span>
-              <p>“Week three done. Squats felt easy.”</p>
+      <section className="mk-hero" aria-labelledby="mk-hero-h">
+        <div className="mk-container mk-hero-inner">
+          <div className="mk-hero-copy">
+            <div className="mk-hero-head">
+              <p className="eyebrow">{t(page.eyebrow)}</p>
+              <h1 id="mk-hero-h">
+                <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
+              </h1>
             </div>
-            <div className="mk-flow-brain">
-              <span className="small-label">YOUR TRAINER BRAIN</span>
-              <p>
-                <strong>Your rule:</strong> two easy sessions at 3+ reps in
-                reserve → add 2.5 kg.
-              </p>
-              <div className="mk-meter">
-                <span style={{ inlineSize: "86%" }} />
+            <div className="mk-hero-body">
+              {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
+              <div className="button-row">
+                <Link className="button large mk-cta" href={cta.href}>
+                  {cta.label} <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+                <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
+                  {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
+                </Link>
               </div>
-              <small>Confidence above your threshold</small>
-            </div>
-            <div className="mk-flow-lanes">
-              <span className="mk-lane mk-lane-auto">
-                <CheckCircle size={14} /> Applied automatically
-              </span>
-              <span className="mk-lane">
-                <UserRound size={14} /> Unsure → to you
-              </span>
-              <span className="mk-lane mk-lane-safety">
-                <CircleAlert size={14} /> Pain → paused, to you
-              </span>
+              <p className="mk-hero-micro">
+                Built for UAE trainers · You set the price in AED · No technical
+                skills needed
+              </p>
             </div>
           </div>
+          <HeroFlow platform={platform} t={t} />
         </div>
       </section>
-      <div className="mk-entity">
-        <HomeSection page={page} id="what-is" t={t} />
-      </div>
-      <IncludedStrip t={t} />
-      <HomeSection page={page} id="hours" t={t} className="mk-band-sand">
-        <div className="mk-anchors">
-          <div>
-            <strong>AED 70–350</strong>
-            <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
-          </div>
-          <div>
-            <strong>AED 200–700+</strong>
-            <span>per session, basic to premium (Embody Fitness, 2025)</span>
-          </div>
-          <div>
-            <strong>AED 400–2,000</strong>
-            <span>a month for online coaching (369MMAFIT, 2026)</span>
-          </div>
+      <HomeSection
+        page={page}
+        id="subscribers"
+        t={t}
+        tone="white"
+        visual={<SubscriberTiles platform={platform} />}
+        links={[{ label: "All features", href: "/features" }]}
+      />
+      <HomeSection
+        page={page}
+        id="control"
+        t={t}
+        tone="paper"
+        split
+        visual={<ControlFlow />}
+        links={[
+          { label: "How your AI decides", href: "/trainer-brain" },
+          { label: "Try the demo", href: "/demo" },
+        ]}
+      />
+      <HomeSection
+        page={page}
+        id="economics"
+        t={t}
+        tone="white"
+        split
+        visual={<EconomicsVisual platform={platform} />}
+        links={[{ label: "Pricing in detail", href: "/pricing" }]}
+      />
+      <HomeSection
+        page={page}
+        id="followers"
+        t={t}
+        tone="paper"
+        className="mk-home-followers"
+        visual={calculator}
+        links={[{ label: "Open the full calculator", href: "/follower-calculator" }]}
+      />
+      <div className="mk-home-band mk-home-white">
+        <div className="mk-container mk-home-inner">
+          {/* All answers start closed: the home page stays under its word
+              budget (scripts/brand-check.mjs). The first answer is the
+              answer-first introduction, in the page's HTML, the FAQPage
+              JSON-LD and llms-full.txt. */}
+          <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
-      </HomeSection>
-      <HomeSection page={page} id="steps" t={t} />
-      <HomeSection page={page} id="brain" t={t} className="mk-band-mint">
-        <p>
-          <Link className="text-link" href="/demo">
-            See four decisions in the demo <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="subscribers" t={t} />
-      <div className="mk-band">
-        <ProductScreens t={t} />
       </div>
-      <div className="mk-band" id="followers">
-        <section className="mk-section" aria-labelledby="followers-h">
-          <h2 id="followers-h">What could your followers be worth?</h2>
-          <p className="mk-body">
-            A quick estimate from published Instagram and conversion benchmarks
-            and our stated assumptions. The headline is a strong case for an
-            engaged, growing audience; change the numbers to yours.
-          </p>
-          <FollowerCalculator model={platform.followerModel} compact headingLevel={3} />
-          <p>
-            <Link className="text-link" href="/follower-calculator">
-              Open the full follower calculator <ArrowRight size={15} aria-hidden="true" />
-            </Link>
-          </p>
-        </section>
-      </div>
-      <HomeSection page={page} id="economics" t={t} className="mk-band-sand">
-        <WorkedExample />
-        <p>
-          <Link className="text-link" href="/pricing">
-            Pricing in detail <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="control" t={t}>
-        <p>
-          <Link className="text-link" href="/security-and-privacy">
-            <ShieldCheck size={15} aria-hidden="true" /> Security and privacy
-          </Link>
-        </p>
-      </HomeSection>
-      <div className="mk-band">
-        <section className="mk-section" aria-labelledby="features-h">
-          <h2 id="features-h">One platform, every part of the business</h2>
-          <PageTiles pages={features} platform={platform} t={t} withChips />
-        </section>
-      </div>
-      <div className="mk-band">
-        <Faqs page={page} t={t} />
-      </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }

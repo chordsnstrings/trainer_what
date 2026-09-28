@@ -12,6 +12,7 @@ import {
   BRAND_ASSETS,
   BRAND_COPY,
   BRAND_NAME,
+  BRAND_SHARE_IMAGE_ALT,
   usesBrandIdentity,
 } from "./brand.ts";
 export { MARKETING_SOURCES, SETUP_CHECKLIST };
@@ -87,8 +88,24 @@ export type MarketingPage = {
   title: string;
   description: string;
   h1: string;
+  /**
+   * A substring of the H1 the renderer marks with the Pace highlight. The
+   * H1 itself stays plain text for metadata, JSON-LD and llms files.
+   */
+  h1Highlight?: string;
   eyebrow: string;
-  /** Answer-first introduction (about 40-60 words) under the H1. */
+  /**
+   * A short hero line (25 words or fewer) shown under the H1 instead of the
+   * introduction. The introduction then appears lower on the page, never
+   * straight under the lede it would repeat: an "In short" section before
+   * the FAQs, or on the home page the answer to its first FAQ. JSON-LD and
+   * llms-full.txt carry it unchanged.
+   */
+  lede?: string;
+  /**
+   * Answer-first introduction (about 40-60 words). Shown under the H1 on
+   * pages without a lede; see `lede` for where it goes on pages with one.
+   */
   intro: string;
   /** Keyword hypothesis to validate after launch; no volume is claimed. */
   primaryKeyword: string;
@@ -406,10 +423,16 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
   const title = `${brandText(page.title, ctx.appName, ctx.followerModel)} | ${ctx.appName}`;
   const description = brandText(page.description, ctx.appName, ctx.followerModel);
   const url = marketingCanonical(ctx.origin, page.path);
+  const imageUrl = marketingImage(ctx.origin, page.path, ctx.appName);
+  // The brand's home page shares the supplied card, whose alternative text
+  // describes the card's own words; generated cards show the page's H1.
+  const staticCard = imageUrl.endsWith(BRAND_ASSETS.shareImage);
   const image = {
-    url: marketingImage(ctx.origin, page.path, ctx.appName),
+    url: imageUrl,
     ...MARKETING_IMAGE_SIZE,
-    alt: brandText(page.h1, ctx.appName, ctx.followerModel),
+    alt: staticCard
+      ? BRAND_SHARE_IMAGE_ALT
+      : brandText(page.h1, ctx.appName, ctx.followerModel),
   };
   return {
     title,

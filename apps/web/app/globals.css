@@ -82,14 +82,17 @@
   background: var(--paper);
   font-size: 14px;
 }
-/* Dark: the platform's own surfaces (marketing site, sign-in pages, the
-   directory and the trainer and operator workspace carry .platform-ui)
-   follow the device setting. The derived tints are declared again because
-   a custom property resolves where it is declared. */
+/* Dark: only the trainer, team and operator workspace (.workspace
+   .platform-ui) follows the device setting. The public platform pages (the
+   marketing site, sign-in and recovery pages and the coach directory carry
+   .public.platform-ui) are always light: white and paper surfaces, ink text
+   and Pace accents (see below and docs/features/brand.md). The derived tints
+   are declared again because a custom property resolves where it is
+   declared. */
 @media (prefers-color-scheme: dark) {
-  .platform-ui,
+  .workspace.platform-ui,
   /* The analytics preferences panel sits outside the page root. */
-  :root:has(.platform-ui) .acquisition-consent {
+  :root:has(.workspace.platform-ui) .acquisition-consent {
     --canvas: var(--ty-ink);
     --paper: var(--ty-ink);
     --white: #202320;
@@ -119,12 +122,20 @@
     color-scheme: dark;
     color: var(--ink);
   }
-  :root:has(.platform-ui) {
+  :root:has(.workspace.platform-ui) {
     background: var(--ty-ink);
     color-scheme: dark;
   }
 }
-/* The logo follows the surface: ink on light, white on dark. */
+/* Public platform pages never follow the device into dark mode. */
+.public.platform-ui {
+  color-scheme: light;
+}
+:root:has(.public.platform-ui) {
+  background: var(--ty-white);
+  color-scheme: light;
+}
+/* The logo follows the surface: ink on light, white on the dark workspace. */
 .brand-logo {
   display: inline-flex;
   align-items: center;
@@ -141,10 +152,10 @@
   display: none;
 }
 @media (prefers-color-scheme: dark) {
-  .platform-ui .brand-logo .brand-logo-light {
+  .workspace.platform-ui .brand-logo .brand-logo-light {
     display: none;
   }
-  .platform-ui .brand-logo .brand-logo-dark {
+  .workspace.platform-ui .brand-logo .brand-logo-dark {
     display: block;
   }
 }
@@ -311,6 +322,18 @@ small {
 }
 .muted {
   color: var(--muted);
+}
+/* Read by assistive technology, not shown. */
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 .lead {
   font-size: 16px;
