@@ -1,0 +1,996 @@
+"use client";
+import { Field } from "./field";
+import { useEffect, useState } from "react";
+
+/**
+ * Trainer Brain plans (docs/features/brain-plans.md): the trainer's review
+ * queue, confidence settings, learning stats, library equipment tags and plan
+ * qualification; the subscriber's generated plan; the intake notice.
+ */
+async function api(path: string, method = "GET", body?: unknown) {
+  const r = await fetch("/api/v1" + path, {
+    method,
+    credentials: "same-origin",
+    headers:
+      body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.message ?? "Request failed");
+  return d;
+}
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const percent = (n: number | null | undefined) =>
+  typeof n === "number" ? `${Math.round(n * 100)}%` : "—";
+const label = (value: string) => value.replaceAll("_", " ");
+
+type ExerciseRow = {
+  name: string;
+  sets: number;
+  reps: number;
+  loadKg: number;
+  rir: number;
+  restSeconds: number;
+  cue: string;
+  alternatives: string[];
+};
+
+function ExerciseRows({
+  exercises,
+  names,
+  onChange,
+  legend,
+}: {
+  exercises: ExerciseRow[];
+  names: string[];
+  onChange?: (next: ExerciseRow[]) => void;
+  legend: string;
+}) {
+  const patch = (i: number, key: keyof ExerciseRow, value: unknown) =>
+    onChange?.(exercises.map((e, j) => (j === i ? { ...e, [key]: value } : e)));
+  if (!onChange)
+    return (
+      <ul className="plan-exercises">
+        {exercises.map((e) => (
+          <li key={e.name}>
+            <strong>{e.name}</strong>{" "}
+            <span className="muted">
+              {e.sets} × {e.reps} · {e.loadKg} kg · RIR {e.rir} · rest{" "}
+              {e.restSeconds}s
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  return (
+    <fieldset className="plan-editor-session">
+      <legend>{legend}</legend>
+      {exercises.map((e, i) => (
+        <div className="plan-exercise-row" key={i}>
+          <Field label="Exercise">
+            <select
+              value={e.name}
+              onChange={(event) => patch(i, "name", event.target.value)}
+            >
+              {[...new Set([e.name, ...names])].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {(
+            [
+              ["sets", "Sets", 1, 10, 1],
+              ["reps", "Reps", 1, 30, 1],
+              ["loadKg", "Load kg", 0, 500, 0.5],
+              ["rir", "RIR", 0, 5, 1],
+              ["restSeconds", "Rest s", 15, 600, 5],
+            ] as const
+          ).map(([key, text, min, max, step]) => (
+            <Field key={key} label={text}>
+              <input
+                type="number"
+                min={min}
+                max={max}
+                step={step}
+                value={e[key]}
+                onChange={(event) =>
+                  patch(i, key, Number(event.target.value))
+                }
+              />
+            </Field>
+          ))}
+          <button
+            type="button"
+            className="text-button"
+            disabled={exercises.length <= 1}
+            onClick={() => onChange(exercises.filter((_, j) => j !== i))}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="button secondary"
+        disabled={exercises.length >= 12 || !names.length}
+        onClick={() =>
+          onChange([
+            ...exercises,
+            {
+              name: names.find((n) => !exercises.some((e) => e.name === n)) ?? names[0],
+              sets: 3,
+              reps: 10,
+              loadKg: 0,
+              rir: 2,
+              restSeconds: 90,
+              cue: "",
+              alternatives: [],
+            },
+          ])
+        }
+      >
+        Add exercise
+      </button>
+    </fieldset>
+  );
+}
+
+function ProgrammeDraft({
+  draft,
+  names,
+  onChange,
+}: {
+  draft: any;
+  names: string[];
+  onChange?: (next: any) => void;
+}) {
+  const setSession = (i: number, patch: any) =>
+    onChange?.({
+      ...draft,
+      sessions: draft.sessions.map((s: any, j: number) =>
+        j === i ? { ...s, ...patch } : s,
+      ),
+    });
+  const setWeek = (i: number, patch: any) =>
+    onChange?.({
+      ...draft,
+      weeks: draft.weeks.map((w: any, j: number) =>
+        j === i ? { ...w, ...patch } : w,
+      ),
+    });
+  return (
+    <div className="plan-draft">
+      <h4>{draft.title}</h4>
+      {draft.summary && <p className="muted">{draft.summary}</p>}
+      {draft.sessions.map((s: any, i: number) => (
+        <div key={s.key} className="plan-session">
+          {onChange ? (
+            <div className="form-grid">
+              <Field label={`Session ${s.key} name`}>
+                <input
+                  value={s.label}
+                  maxLength={120}
+                  onChange={(e) => setSession(i, { label: e.target.value })}
+                />
+              </Field>
+              <Field label="Weekday">
+                <select
+                  value={s.weekday}
+                  onChange={(e) =>
+                    setSession(i, { weekday: Number(e.target.value) })
+                  }
+                >
+                  {WEEKDAYS.map((d, n) => (
+                    <option key={d} value={n}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          ) : (
+            <h5>
+              {s.label} · {WEEKDAYS[s.weekday]}
+            </h5>
+          )}
+          <ExerciseRows
+            legend={`Session ${s.key} exercises`}
+            exercises={s.exercises}
+            names={names}
+            onChange={
+              onChange ? (next) => setSession(i, { exercises: next }) : undefined
+            }
+          />
+        </div>
+      ))}
+      <details>
+        <summary>
+          {draft.weeks.length} weeks of progression
+        </summary>
+        <ol className="plan-weeks">
+          {draft.weeks.map((w: any, i: number) => (
+            <li key={w.week}>
+              {onChange ? (
+                <div className="plan-exercise-row">
+                  <Field label={`Week ${w.week} focus`}>
+                    <input
+                      value={w.focus}
+                      maxLength={120}
+                      onChange={(e) => setWeek(i, { focus: e.target.value })}
+                    />
+                  </Field>
+                  {(
+                    [
+                      ["volumeFactor", "Volume ×", 0.4, 1.6, 0.05],
+                      ["loadFactor", "Load ×", 0.5, 1.3, 0.025],
+                      ["rirDelta", "RIR ±", -3, 3, 1],
+                    ] as const
+                  ).map(([key, text, min, max, step]) => (
+                    <Field key={key} label={text}>
+                      <input
+                        type="number"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={w[key]}
+                        onChange={(e) =>
+                          setWeek(i, { [key]: Number(e.target.value) })
+                        }
+                      />
+                    </Field>
+                  ))}
+                  <label className="plan-check">
+                    <input
+                      type="checkbox"
+                      checked={w.deload}
+                      onChange={(e) => setWeek(i, { deload: e.target.checked })}
+                    />{" "}
+                    Deload
+                  </label>
+                </div>
+              ) : (
+                <span>
+                  Week {w.week}: {w.focus}
+                  {w.deload ? " (deload)" : ""} · volume ×{w.volumeFactor} ·
+                  load ×{w.loadFactor}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </details>
+    </div>
+  );
+}
+
+function ReviewItem({
+  item,
+  names,
+  busy,
+  act,
+}: {
+  item: any;
+  names: string[];
+  busy: boolean;
+  act: (fn: () => Promise<any>, success: string) => Promise<any>;
+}) {
+  const [editing, setEditing] = useState<any>(null),
+    [note, setNote] = useState("");
+  const spot = item.status === "delivered" && item.outcome?.spotCheck === "pending";
+  const programme = item.type === "programme";
+  const startEdit = () => {
+    if (programme) {
+      const { selfConfidence, uncertainties, evidenceIds, ...plan } = item.draft;
+      setEditing(structuredClone(plan));
+    } else setEditing(structuredClone(item.draft));
+  };
+  const review = (action: string, extra: any = {}) =>
+    act(
+      () =>
+        api(`/brain/plans/${item.id}/review`, "POST", {
+          action,
+          version: item.version,
+          ...(note.trim() ? { note: note.trim() } : {}),
+          ...extra,
+        }),
+      action === "reject"
+        ? "Plan rejected; the Brain learns from your reason"
+        : action === "edit"
+          ? "Edited plan delivered; the Brain learns from your changes"
+          : "Plan approved",
+    );
+  return (
+    <article className="card plan-review">
+      <div className="plan-review-head">
+        <span className="badge">
+          {spot ? "Spot check" : item.status === "failed" ? "Needs you" : "Review"}
+        </span>
+        <h3>
+          {item.subscriberName} ·{" "}
+          {programme
+            ? `${item.inputs?.programmeDays ?? "?"}-day programme`
+            : `Week ${item.inputs?.week ?? "?"} adjustment`}
+        </h3>
+      </div>
+      {item.confidence && (
+        <p>
+          Confidence <strong>{percent(item.confidence.score)}</strong> (your
+          threshold {percent(item.confidence.threshold)}) · rules{" "}
+          {percent(item.confidence.signals?.ruleCoverage)} · similar reviewed
+          plans {percent(item.confidence.signals?.caseCoverage)} · checks{" "}
+          {percent(item.confidence.signals?.validation)} · model{" "}
+          {percent(item.confidence.signals?.model)}
+        </p>
+      )}
+      {(item.routeReasons?.length > 0 || item.error) && (
+        <ul className="plan-reasons">
+          {item.error && <li>{item.error}</li>}
+          {item.routeReasons.map((r: string) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {item.validation?.errors?.length > 0 && (
+        <p className="notice" role="alert">
+          Your bounds reject this draft: {item.validation.errors.slice(0, 4).join("; ")}
+        </p>
+      )}
+      {item.inputs?.profile && (
+        <p className="muted">
+          {label(item.inputs.profile.experience)} · {item.inputs.profile.daysPerWeek}{" "}
+          days · {item.inputs.profile.goal} · equipment:{" "}
+          {item.inputs.profile.equipment || "none listed"} · limitations:{" "}
+          {item.inputs.profile.limitations || "none"}
+        </p>
+      )}
+      {item.inputs?.outcomes && (
+        <p className="muted">
+          This week: {item.inputs.outcomes.completedSessions} of{" "}
+          {item.inputs.outcomes.dueSessions} sessions completed ·{" "}
+          {item.inputs.outcomes.loggedSets} sets logged
+        </p>
+      )}
+      {!editing && item.draft && programme && (
+        <ProgrammeDraft draft={item.draft} names={names} />
+      )}
+      {!editing &&
+        item.draft &&
+        !programme &&
+        item.draft.sessions.map((s: any) => (
+          <ExerciseRows
+            key={s.plannedSessionId}
+            legend={`Session ${s.sessionKey}`}
+            exercises={s.exercises}
+            names={names}
+          />
+        ))}
+      {editing && programme && (
+        <ProgrammeDraft draft={editing} names={names} onChange={setEditing} />
+      )}
+      {editing &&
+        !programme &&
+        editing.sessions.map((s: any, i: number) => (
+          <ExerciseRows
+            key={s.plannedSessionId}
+            legend={`Session ${s.sessionKey}`}
+            exercises={s.exercises}
+            names={names}
+            onChange={(next) =>
+              setEditing({
+                sessions: editing.sessions.map((x: any, j: number) =>
+                  j === i ? { ...x, exercises: next } : x,
+                ),
+              })
+            }
+          />
+        ))}
+      <Field label="Note for the Brain (required to reject)">
+        <textarea
+          rows={2}
+          maxLength={2000}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </Field>
+      <div className="button-row">
+        {!editing && item.draft && !item.validation?.errors?.length && (
+          <button
+            className="button"
+            disabled={busy}
+            onClick={() => void review("approve")}
+          >
+            {spot ? "Looks right" : "Approve and deliver"}
+          </button>
+        )}
+        {!editing && item.draft && (
+          <button
+            className="button secondary"
+            disabled={busy}
+            onClick={startEdit}
+          >
+            Edit
+          </button>
+        )}
+        {editing && (
+          <>
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                void review("edit", programme ? { plan: editing } : { week: editing }).then(
+                  (r) => r && setEditing(null),
+                )
+              }
+            >
+              Deliver my edit
+            </button>
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setEditing(null)}
+            >
+              Cancel edit
+            </button>
+          </>
+        )}
+        <button
+          className="button secondary"
+          disabled={busy || note.trim().length < 5}
+          onClick={() => void review("reject")}
+        >
+          {spot ? "Withdraw plan" : "Reject"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function SettingsCard({
+  settings,
+  version,
+  busy,
+  act,
+}: {
+  settings: any;
+  version: number | null;
+  busy: boolean;
+  act: (fn: () => Promise<any>, success: string) => Promise<any>;
+}) {
+  return (
+    <section className="card">
+      <h2>Confidence and safety settings</h2>
+      <p className="muted">
+        Plans at or above your threshold are delivered automatically once plan
+        qualification passes. Medical limitations, pain reports and red-flag
+        terms always come to you.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const f = new FormData(event.currentTarget);
+          const n = (k: string) => Number(f.get(k));
+          void act(
+            () =>
+              api("/brain/plans/settings", "PUT", {
+                version,
+                settings: {
+                  mode: f.get("mode"),
+                  threshold: n("threshold") / 100,
+                  spotCheckRate: n("spotCheckRate") / 100,
+                  youngBrainReviews: n("youngBrainReviews"),
+                  defaultBlockDays: n("defaultBlockDays"),
+                  bounds: {
+                    maxWeeklyVolumeIncreasePct: n("maxWeeklyVolumeIncreasePct"),
+                    maxLoadJumpPct: n("maxLoadJumpPct"),
+                    maxSessionMinutes: n("maxSessionMinutes"),
+                    minRestSeconds: n("minRestSeconds"),
+                    maxRestSeconds: n("maxRestSeconds"),
+                  },
+                },
+              }),
+            "Plan settings saved",
+          );
+        }}
+      >
+        <div className="form-grid">
+          <Field label="Delivery">
+            <select name="mode" defaultValue={settings.mode}>
+              <option value="automatic">Automatic when confident</option>
+              <option value="supervised">Every plan to me</option>
+            </select>
+          </Field>
+          {(
+            [
+              ["threshold", "Confidence threshold (%)", 50, 99, Math.round(settings.threshold * 100)],
+              ["spotCheckRate", "Spot-check share while young (%)", 0, 100, Math.round(settings.spotCheckRate * 100)],
+              ["youngBrainReviews", "Young until this many reviews", 0, 500, settings.youngBrainReviews],
+              ["defaultBlockDays", "Default block length (days)", 7, 365, settings.defaultBlockDays],
+              ["maxWeeklyVolumeIncreasePct", "Max weekly volume increase (%)", 0, 50, settings.bounds.maxWeeklyVolumeIncreasePct],
+              ["maxLoadJumpPct", "Max load jump (%)", 0, 30, settings.bounds.maxLoadJumpPct],
+              ["maxSessionMinutes", "Max session length (minutes)", 20, 180, settings.bounds.maxSessionMinutes],
+              ["minRestSeconds", "Shortest rest (seconds)", 15, 300, settings.bounds.minRestSeconds],
+              ["maxRestSeconds", "Longest rest (seconds)", 30, 600, settings.bounds.maxRestSeconds],
+            ] as const
+          ).map(([name, text, min, max, value]) => (
+            <Field key={name} label={text}>
+              <input
+                name={name}
+                type="number"
+                min={min}
+                max={max}
+                defaultValue={value}
+                required
+              />
+            </Field>
+          ))}
+        </div>
+        <button className="button" disabled={busy}>
+          Save settings
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function QualificationCard({
+  qualification,
+  busy,
+  act,
+}: {
+  qualification: any;
+  busy: boolean;
+  act: (fn: () => Promise<any>, success: string) => Promise<any>;
+}) {
+  const latest = qualification.latest;
+  return (
+    <section className="card">
+      <h2>Plan qualification</h2>
+      <p>
+        {qualification.qualified
+          ? "Qualified: confident plans are delivered automatically."
+          : "Supervised: every plan comes to you until plan generation passes your held-out scenarios for the current Brain, model and bounds."}
+      </p>
+      {latest && (
+        <p className="muted">
+          Latest run {latest.status} ({latest.passed} of {latest.total})
+          {latest.current ? "" : " — for an earlier Brain, bounds or scenario set"}
+        </p>
+      )}
+      <ul className="plan-reasons">
+        {qualification.scenarios.map((s: any) => (
+          <li key={s.id}>
+            <strong>{s.title}</strong> · {s.profile.experience},{" "}
+            {s.profile.daysPerWeek} days, {s.programmeDays} days · expect{" "}
+            {s.expected === "review" ? "review by you" : "a deliverable plan"}{" "}
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              onClick={() =>
+                void act(
+                  () =>
+                    api(`/brain/plans/scenarios/${s.id}/archive`, "POST", {
+                      version: s.version,
+                    }),
+                  "Scenario archived",
+                )
+              }
+            >
+              Archive
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget,
+            f = new FormData(form);
+          void act(
+            () =>
+              api("/brain/plans/scenarios", "POST", {
+                title: f.get("title"),
+                programmeDays: Number(f.get("programmeDays")),
+                expected: f.get("expected"),
+                profile: {
+                  goal: f.get("goal"),
+                  experience: f.get("experience"),
+                  daysPerWeek: Number(f.get("daysPerWeek")),
+                  equipment: f.get("equipment"),
+                  limitations: f.get("limitations"),
+                },
+              }),
+            "Held-out scenario saved",
+          ).then((r) => r && form.reset());
+        }}
+      >
+        <h3>Add a held-out scenario</h3>
+        <div className="form-grid">
+          <Field label="Title">
+            <input name="title" required minLength={3} maxLength={150} />
+          </Field>
+          <Field label="Goal">
+            <input name="goal" required minLength={3} maxLength={1000} />
+          </Field>
+          <Field label="Experience">
+            <select name="experience" defaultValue="beginner">
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </Field>
+          <Field label="Days per week">
+            <input name="daysPerWeek" type="number" min={1} max={7} defaultValue={3} required />
+          </Field>
+          <Field label="Equipment">
+            <input name="equipment" maxLength={1000} />
+          </Field>
+          <Field label="Limitations">
+            <input name="limitations" maxLength={2000} defaultValue="None reported" />
+          </Field>
+          <Field label="Programme days">
+            <input name="programmeDays" type="number" min={7} max={84} defaultValue={28} required />
+          </Field>
+          <Field label="Expected result">
+            <select name="expected" defaultValue="deliverable">
+              <option value="deliverable">A deliverable plan</option>
+              <option value="review">Must come to me</option>
+            </select>
+          </Field>
+        </div>
+        <div className="button-row">
+          <button className="button secondary" disabled={busy}>
+            Save scenario
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                () => api("/brain/plans/qualify", "POST", {}),
+                "Qualification finished",
+              )
+            }
+          >
+            Run qualification
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function LibraryCard({
+  library,
+  busy,
+  act,
+}: {
+  library: any[];
+  busy: boolean;
+  act: (fn: () => Promise<any>, success: string) => Promise<any>;
+}) {
+  const untagged = library.filter((e) => !Array.isArray(e.equipment));
+  return (
+    <section className="card">
+      <h2>Library equipment</h2>
+      <p className="muted">
+        The Brain may use only your library exercises and their approved
+        alternatives. Tag the equipment each needs so plans are checked against
+        every subscriber&rsquo;s equipment. {untagged.length} of {library.length}{" "}
+        untagged.
+      </p>
+      <ul className="plan-library">
+        {library.map((e) => (
+          <li key={e.id}>
+            <form
+              className="plan-exercise-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const f = new FormData(event.currentTarget);
+                void act(
+                  () =>
+                    api(`/brain/plans/exercises/${e.id}/equipment`, "POST", {
+                      version: e.version,
+                      equipment: String(f.get("equipment") ?? "")
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter((s) => s.length >= 2),
+                    }),
+                  "Equipment saved",
+                );
+              }}
+            >
+              <Field label={e.name}>
+                <input
+                  name="equipment"
+                  defaultValue={(e.equipment ?? []).join(", ")}
+                  placeholder="e.g. dumbbells, bench or bodyweight"
+                />
+              </Field>
+              <button className="button secondary" disabled={busy}>
+                Save
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function BrainPlans({ role }: { role: string }) {
+  const [data, setData] = useState<any>(),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState(""),
+    [error, setError] = useState(""),
+    [member, setMember] = useState("");
+  const owner = role === "owner";
+  const load = async () => setData(await api("/brain/plans/workspace"));
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
+  }, []);
+  async function act(fn: () => Promise<any>, success: string) {
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const r = await fn();
+      await load();
+      setMessage(success);
+      return r;
+    } catch (e) {
+      setError((e as Error).message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+  const names: string[] = (data?.library ?? []).map((e: any) => e.name);
+  return (
+    <>
+      <div className="page-heading">
+        <h1>Plans your Brain writes</h1>
+        <p className="muted">
+          Your Brain prepares each subscriber&rsquo;s programme from your rules,
+          cases and reviewed plans, delivers the ones it is confident about and
+          sends the rest to you. Every decision you make teaches it.
+        </p>
+      </div>
+      <nav className="button-row" aria-label="Brain sections">
+        <a className="button secondary" href="/trainer/brain">
+          Brain overview
+        </a>
+        <a className="button secondary" href="/trainer/brain/teaching">
+          Teach through cases
+        </a>
+        <a className="button" href="/trainer/brain/plans" aria-current="page">
+          Plans
+        </a>
+      </nav>
+      {error && (
+        <p className="notice" role="alert">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p className="notice" role="status">
+          {message}
+        </p>
+      )}
+      {!data && !error && <p>Loading your plans…</p>}
+      {data && (
+        <>
+          <section className="card">
+            <h2>Status</h2>
+            {!data.modelConfigured && (
+              <p className="notice">
+                No coaching model is configured, so the Brain cannot prepare
+                plans yet. Your platform administrator enables it.
+              </p>
+            )}
+            <div className="plan-stats">
+              <p>
+                <strong>{data.qualification.qualified ? "Qualified" : "Supervised"}</strong>
+                <span className="muted">delivery mode</span>
+              </p>
+              <p>
+                <strong>{data.stats.pending}</strong>
+                <span className="muted">waiting for you</span>
+              </p>
+              <p>
+                <strong>{data.stats.automatic}</strong>
+                <span className="muted">delivered automatically (90 days)</span>
+              </p>
+              <p>
+                <strong>{percent(data.stats.averageConfidence)}</strong>
+                <span className="muted">average confidence</span>
+              </p>
+              <p>
+                <strong>{data.stats.reviewed}</strong>
+                <span className="muted">
+                  reviews learned{data.stats.young ? " (still young)" : ""}
+                </span>
+              </p>
+            </div>
+          </section>
+          <section>
+            <h2>Review queue</h2>
+            {!data.queue.length && (
+              <p className="muted">Nothing is waiting for you.</p>
+            )}
+            {data.queue.map((item: any) => (
+              <ReviewItem
+                key={item.id + ":" + item.version}
+                item={item}
+                names={names}
+                busy={busy}
+                act={act}
+              />
+            ))}
+          </section>
+          <section className="card">
+            <h2>Prepare a plan now</h2>
+            <p className="muted">
+              The Brain also prepares plans on its own after intake and before
+              each block ends.
+            </p>
+            <div className="plan-exercise-row">
+              <Field label="Subscriber">
+                <select value={member} onChange={(e) => setMember(e.target.value)}>
+                  <option value="">Choose a subscriber</option>
+                  {data.members.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button
+                className="button"
+                disabled={busy || !member || !data.modelConfigured}
+                onClick={() =>
+                  void act(
+                    () => api("/brain/plans/generate", "POST", { subscriberId: member }),
+                    "The Brain prepared a plan",
+                  )
+                }
+              >
+                Prepare plan
+              </button>
+            </div>
+          </section>
+          {owner && (
+            <SettingsCard
+              key={data.settingsVersion ?? "default"}
+              settings={data.settings}
+              version={data.settingsVersion}
+              busy={busy}
+              act={act}
+            />
+          )}
+          <section className="card">
+            <h2>What the Brain has learned</h2>
+            {!data.stats.segments.length && (
+              <p className="muted">
+                No reviewed plans yet. Each approval, edit or rejection becomes
+                a private example for similar subscribers.
+              </p>
+            )}
+            <ul className="plan-reasons">
+              {data.stats.segments.map((s: any) => (
+                <li key={s.goal + s.experience}>
+                  {label(s.goal)} · {s.experience}: {s.approved} approved,{" "}
+                  {s.edited} edited, {s.rejected} rejected
+                </li>
+              ))}
+            </ul>
+            <h3>Recent plans</h3>
+            <ul className="plan-reasons">
+              {data.recent.map((r: any) => (
+                <li key={r.id}>
+                  {new Date(r.createdAt).toLocaleDateString()} · {r.subscriberName} ·{" "}
+                  {r.type} · {label(r.status)}
+                  {r.decision ? ` (${r.decision})` : ""} · confidence{" "}
+                  {percent(r.score)}
+                </li>
+              ))}
+            </ul>
+          </section>
+          <LibraryCard library={data.library} busy={busy} act={act} />
+          {owner && (
+            <QualificationCard
+              qualification={data.qualification}
+              busy={busy}
+              act={act}
+            />
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+const MEMBER_STATE: Record<string, string> = {
+  preparing: "Your trainer's Brain is preparing your plan from your profile.",
+  in_review: "Your trainer is reviewing your plan before it reaches you.",
+  delivered: "Your plan is ready.",
+  with_trainer: "Your trainer is preparing your plan personally.",
+};
+/** The subscriber's generated plan and its state. */
+export function MemberPlan() {
+  const [data, setData] = useState<any>();
+  useEffect(() => {
+    void api("/brain/plans/mine")
+      .then(setData)
+      .catch(() => setData(null));
+  }, []);
+  if (!data || (!data.status && !data.program)) return null;
+  const p = data.program;
+  return (
+    <section className="card member-plan">
+      <h2>{p ? p.title : "Your plan"}</h2>
+      {data.status && (
+        <p role="status">{MEMBER_STATE[data.status.state] ?? MEMBER_STATE.preparing}</p>
+      )}
+      {p && (
+        <>
+          {p.summary && <p className="muted">{p.summary}</p>}
+          <p className="muted">
+            {p.startDate} to {p.endDate} · {p.programmeDays} days
+          </p>
+          <ol className="plan-weeks">
+            {p.weeks.map((w: any) => (
+              <li key={w.week}>
+                Week {w.week}: {w.focus}
+                {w.deload ? " (lighter recovery week)" : ""}
+              </li>
+            ))}
+          </ol>
+          <h3>Coming up</h3>
+          {!data.upcoming.length && (
+            <p className="muted">No sessions left in this block.</p>
+          )}
+          {data.upcoming.map((s: any) => (
+            <div key={s.id} className="plan-session">
+              <h4>
+                {s.date} · {s.label} · week {s.week}
+              </h4>
+              <ExerciseRows
+                legend={s.label}
+                exercises={(s.exercises ?? []).map((e: any) => ({
+                  ...e,
+                  alternatives: (e.alternatives ?? []).map((a: any) => a.name ?? a),
+                }))}
+                names={[]}
+              />
+            </div>
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Shown with the intake form: what happens after the subscriber saves it. */
+export function PlanIntakeNotice() {
+  return (
+    <p className="muted plan-intake-notice">
+      When you save this, your trainer&rsquo;s Brain prepares your training
+      plan from it: your goal, experience, training days and equipment. Your
+      trainer reviews it whenever the Brain is not sure. Anything you list as a
+      limitation, and any pain you report later, always goes to your trainer
+      personally.
+    </p>
+  );
+}

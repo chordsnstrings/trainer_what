@@ -8,6 +8,7 @@ import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
 import { sweepComplimentaryAccess } from "../../api/src/complimentary-access.ts";
 import { scheduleSafetyEscalations } from "../../api/src/safety-policy.ts";
+import { scheduleBrainPlans } from "../../api/src/brain-plans.ts";
 import {
   claimJob,
   runClaimedJob,
@@ -26,6 +27,8 @@ export type TenantSchedulers = {
   retentionAlerts: Step;
   coachingFollowups: Step;
   safetyEscalations: Step;
+  /** Trainer Brain plans (docs/features/brain-plans.md); optional for older callers. */
+  brainPlans?: Step;
 };
 export const defaultSchedulers: TenantSchedulers = {
   nutrition: (db, id) => scheduleNutrition(db, id),
@@ -36,6 +39,7 @@ export const defaultSchedulers: TenantSchedulers = {
   retentionAlerts: (db, id) => scheduleRetentionAlerts(db, id),
   coachingFollowups: (db, id) => processCoachingFollowups(db, id),
   safetyEscalations: (db, id) => scheduleSafetyEscalations(db, id),
+  brainPlans: (db, id) => scheduleBrainPlans(db, id),
 };
 const stillRunsWhileSuspended: ReadonlySet<keyof TenantSchedulers> = new Set([
   "safetyEscalations",
@@ -49,6 +53,7 @@ const failures: Record<keyof TenantSchedulers, string> = {
   retentionAlerts: "Retention alert scheduling failed",
   coachingFollowups: "Scheduled coaching follow-up delivery failed",
   safetyEscalations: "Safety review escalation failed",
+  brainPlans: "Brain plan scheduling failed",
 };
 
 /** Workspaces the worker visits: active ones, and suspended ones for critical and transactional email only. */
@@ -88,7 +93,7 @@ export async function runTenantCycle(
     // Overdue safety reviews still escalate to the platform while suspended.
     if (suspended && !stillRunsWhileSuspended.has(name)) continue;
     try {
-      await schedulers[name](db, tenant.id);
+      await schedulers[name]!(db, tenant.id);
       ran.push(name);
     } catch {
       console.error(failures[name]);

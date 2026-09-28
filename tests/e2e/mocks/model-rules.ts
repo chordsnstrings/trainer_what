@@ -15,6 +15,7 @@ import {
   type Recipe,
 } from "../../../packages/domain/src/nutrition.ts";
 import { principleForCategory } from "../../../packages/domain/src/nutrition-learning-schema.ts";
+import { memberEquipment, normalizeTerm } from "../../../packages/domain/src/brain-plans.ts";
 
 export type PromptKind =
   | "coach_decision"
@@ -22,6 +23,8 @@ export type PromptKind =
   | "coach_action_selection"
   | "nutrition"
   | "meal_photo"
+  | "plan_generation"
+  | "plan_adaptation"
   | "unknown";
 
 export function classifyPrompt(body: any): { kind: PromptKind; task: string | null; input: any } {
@@ -42,6 +45,10 @@ export function classifyPrompt(body: any): { kind: PromptKind; task: string | nu
     return { kind: "coach_action_selection", task: "coach_action_selection", input };
   if (system.startsWith("You are the nutrition assistant"))
     return { kind: "nutrition", task: input?.task ?? null, input: input?.input ?? null };
+  if (system.startsWith("Trainer Brain plan generator"))
+    return { kind: "plan_generation", task: "plan_generation", input };
+  if (system.startsWith("Trainer Brain plan adaptation"))
+    return { kind: "plan_adaptation", task: "plan_adaptation", input };
   if (system.startsWith("Estimate visible food"))
     return { kind: "meal_photo", task: "meal_photo_estimate", input };
   return { kind: "unknown", task: null, input };
@@ -389,6 +396,100 @@ function mealPhoto() {
   };
 }
 
+/**
+ * Trainer Brain plan: sessions on spread weekdays from library exercises whose
+ * equipment tags the member has (untagged ones last), steady volume, a small
+ * weekly load wave and a deload every fourth week, citing the first supplied
+ * rule, reviewed example and template.
+ */
+export function planGeneration(input: any) {
+  const profile = input?.profile ?? {};
+  const material = input?.material ?? {};
+  const bounds = input?.bounds ?? {};
+  const days = Math.max(1, Math.min(7, Number(profile.daysPerWeek) || 3));
+  const weeks = Math.max(1, Math.min(53, Number(input?.programme?.weeks) || 4));
+  const available = memberEquipment(String(profile.equipment ?? ""));
+  const ok = (e: any) =>
+    available.fullGym ||
+    (Array.isArray(e.equipment) &&
+      e.equipment.every((t: string) => ["bodyweight", "body weight", "none", "floor"].includes(normalizeTerm(t)) || available.items.includes(normalizeTerm(t))));
+  const library: any[] = material.library ?? [];
+  const eligible = [...library.filter(ok), ...library.filter((e) => !Array.isArray(e.equipment))];
+  const experience = profile.experience ?? "beginner";
+  const reps = experience === "advanced" ? 6 : experience === "intermediate" ? 8 : 10;
+  const rir = experience === "beginner" ? 3 : 2;
+  const rest = Math.min(Math.max(90, Number(bounds.minRestSeconds) || 30), Number(bounds.maxRestSeconds) || 240);
+  const perSession = Math.min(4, Math.max(1, eligible.length));
+  const sessions = Array.from({ length: days }, (_, i) => {
+    const picked: any[] = [];
+    for (let k = 0; k < eligible.length && picked.length < perSession; k++) {
+      const e = eligible[(i * perSession + k) % eligible.length];
+      if (!picked.some((p) => normalizeTerm(p.name) === normalizeTerm(e.name))) picked.push(e);
+    }
+    return {
+      key: "ABCDEFG"[i],
+      label: `Session ${"ABCDEFG"[i]}`,
+      weekday: (Math.floor((i * 7) / days) + 1) % 7,
+      exercises: picked.map((e) => ({
+        name: e.name,
+        sets: 3,
+        reps,
+        loadKg: Array.isArray(e.equipment) && e.equipment.some((t: string) => /barbell|dumbbell|kettlebell|machine|cable/i.test(t)) ? 20 : 0,
+        rir,
+        restSeconds: rest,
+        cue: String(e.cue ?? "").slice(0, 200),
+        alternatives: (e.alternatives ?? []).filter((a: string) => eligible.some((x) => normalizeTerm(x.name) === normalizeTerm(a))).slice(0, 2),
+      })),
+    };
+  });
+  const weekRows = Array.from({ length: weeks }, (_, i) => {
+    const deload = (i + 1) % 4 === 0;
+    return {
+      week: i + 1,
+      focus: deload ? "Deload and recover" : i % 4 === 0 ? "Learn the movements" : "Build gradually",
+      volumeFactor: deload ? 0.6 : 1,
+      loadFactor: deload ? 0.9 : Math.round((1 + 0.025 * (i % 4)) * 1000) / 1000,
+      rirDelta: deload ? 1 : 0,
+      deload,
+    };
+  });
+  const examples: any[] = material.examples ?? [];
+  const rules: any[] = material.rules ?? [];
+  return {
+    title: `${String(profile.goal ?? "Training").slice(0, 60)} plan`,
+    summary: `A ${weeks}-week plan with ${days} sessions a week built from your trainer's library.`,
+    sessions,
+    weeks: weekRows,
+    selfConfidence: Math.min(0.9, 0.6 + (rules.length ? 0.1 : 0) + 0.1 * Math.min(2, examples.length)),
+    uncertainties: examples.length ? [] : ["No reviewed plans for similar clients yet"],
+    evidenceIds: [rules[0]?.id, examples[0]?.id, material.templates?.[0]?.id].filter(Boolean),
+  };
+}
+/** Adds 2.5% load where every prescribed set was logged at or above the prescribed RIR. */
+export function planAdaptation(input: any) {
+  const outcomes = input?.outcomes ?? {};
+  const next: any[] = input?.nextWeek ?? [];
+  const rules: any[] = input?.material?.rules ?? [];
+  if ((outcomes.adherence ?? 0) < 0.5)
+    return { changes: [], reason: "Too few sessions were completed to progress.", selfConfidence: 0.6, uncertainties: ["Low adherence this week"], evidenceIds: rules[0] ? [rules[0].id] : [] };
+  const changes: any[] = [];
+  for (const row of outcomes.exercises ?? []) {
+    if (!row.logged?.sets || row.logged.sets < row.prescribed.sets) continue;
+    if ((row.logged.averageRir ?? 0) < row.prescribed.rir || !row.prescribed.loadKg) continue;
+    for (const s of next)
+      for (const e of s.exercises ?? [])
+        if (normalizeTerm(e.name) === normalizeTerm(row.exercise) && e.loadKg > 0)
+          changes.push({ sessionKey: s.sessionKey, exercise: e.name, loadKg: Math.round(e.loadKg * 1.025 * 2) / 2 });
+  }
+  return {
+    changes,
+    reason: changes.length ? "All prescribed sets were completed with reps in reserve." : "Keep next week as planned.",
+    selfConfidence: 0.8,
+    uncertainties: [],
+    evidenceIds: rules[0] ? [rules[0].id] : [],
+  };
+}
+
 export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | null; content: unknown } {
   const { kind, task, input } = classifyPrompt(body);
   switch (kind) {
@@ -400,6 +501,10 @@ export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | n
       return { kind, task, content: actionSelection(input) };
     case "meal_photo":
       return { kind, task, content: mealPhoto() };
+    case "plan_generation":
+      return { kind, task, content: planGeneration(input) };
+    case "plan_adaptation":
+      return { kind, task, content: planAdaptation(input) };
     case "nutrition": {
       if (task === "nutrition_evaluation") return { kind, task, content: nutritionEvaluation(input) };
       if (task === "nutrition_week") return { kind, task, content: nutritionWeek(input) };
