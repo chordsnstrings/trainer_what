@@ -10,6 +10,7 @@ import { processVoiceSessions } from "../../api/src/voice-session.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
+import { processWebAddressOrders } from "../../api/src/web-address-orders.ts";
 import { assertProviderSandboxBinding } from "../../../packages/providers/src/sandbox.ts";
 // The mock-provider sandbox is refused anywhere but a loopback-only process.
 if (assertProviderSandboxBinding())
@@ -32,6 +33,8 @@ if (!process.env.DATABASE_URL) {
   let lastAlertEvaluation = 0;
   let integrationTask: Promise<void> | undefined;
   let voiceTask: Promise<void> | undefined;
+  let lastWebAddressTick = 0;
+  let webAddressTask: Promise<void> | undefined;
   async function tick() {
     if (!voiceTask)
       // Trainer-voice audio for prepared sessions, off the delivery path like
@@ -53,6 +56,16 @@ if (!process.env.DATABASE_URL) {
         )
         .finally(() => {
           integrationTask = undefined;
+        });
+    }
+    if (!webAddressTask && Date.now() - lastWebAddressTick >= 30000) {
+      lastWebAddressTick = Date.now();
+      // Registrar calls can take tens of seconds; keep them off the main loop.
+      webAddressTask = processWebAddressOrders(db)
+        .then(() => undefined)
+        .catch(() => console.error("Web address processing needs review"))
+        .finally(() => {
+          webAddressTask = undefined;
         });
     }
     const purgeMedia = Date.now() - lastMediaPurge >= 60 * 60 * 1000;
@@ -114,6 +127,11 @@ if (!process.env.DATABASE_URL) {
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.on(signal, async () => {
       running = false;
+      if (webAddressTask)
+        await Promise.race([
+          webAddressTask,
+          new Promise<void>((resolve) => setTimeout(resolve, 30000)),
+        ]);
       if (integrationTask || voiceTask)
         await Promise.race([
           Promise.all([integrationTask, voiceTask]),

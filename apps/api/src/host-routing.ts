@@ -5,6 +5,13 @@ import {
   runtimeConfig,
   strictSecurity,
 } from "../../../packages/providers/src/configuration.ts";
+import {
+  RESERVED_SLUGS,
+  platformRootDomain,
+  subdomainEligible,
+  subdomainHost,
+  subdomainLabel,
+} from "../../../packages/domain/src/web-address.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -14,6 +21,8 @@ export type HostContext = {
   tenantId: string | null;
   tenantSlug: string | null;
   custom: boolean;
+  /** A workspace subdomain of the platform root (same rules as a custom domain). */
+  subdomain?: boolean;
   verifiedProxy: boolean;
   // Edge-observed client address, present only inside a verified proxy proof.
   clientIp?: string;
@@ -202,6 +211,35 @@ export async function resolveRequestHost(
       "UNKNOWN_HOST",
       "This address is not connected to a coaching website.",
     );
+  // Every published workspace is served at <slug>.<PLATFORM_ROOT_DOMAIN>.
+  const root = platformRoot(),
+    label = subdomainLabel(host, root);
+  if (root && label !== null) {
+    const found = await subdomainTenant(db, label);
+    if (found)
+      return {
+        host,
+        origin: "https://" + host,
+        tenantId: found.tenant_id,
+        tenantSlug: found.slug,
+        custom: true,
+        subdomain: true,
+        verifiedProxy,
+        ...client,
+      };
+    // A renamed workspace's previous name redirects for a while.
+    const moved = await movedSlug(db, label);
+    if (moved && subdomainEligible(moved))
+      throw Object.assign(
+        fail(421, "HOST_MOVED", "This coaching website has a new address."),
+        { location: "https://" + subdomainHost(moved, root) },
+      );
+    throw fail(
+      421,
+      "UNKNOWN_HOST",
+      "This address is not connected to a published coaching website.",
+    );
+  }
   // A suspended workspace keeps its address so signed-in members see the
   // suspension notice; its public pages refuse because they require 'active'.
   const [mapping] = await db.system((tx) =>
@@ -257,4 +295,49 @@ export function allowedRequestOrigin(
   } catch {
     return false;
   }
+}
+
+/** PLATFORM_ROOT_DOMAIN when it is a valid DNS name; null turns subdomains off. */
+export function platformRoot() {
+  return platformRootDomain(runtimeConfig().PLATFORM_ROOT_DOMAIN);
+}
+/** The published workspace served at a subdomain label (suspended ones keep it, as for domains). */
+export async function subdomainTenant(db: Database, label: string) {
+  // Reserved names (www, app, api, mail …) never select a workspace.
+  if (!subdomainEligible(label) || RESERVED_SLUGS.has(label)) return null;
+  const [row] = await db.system((tx) =>
+    tx.query<{ tenant_id: string; slug: string }>(
+      "SELECT id AS tenant_id,slug FROM tenants WHERE slug=$1 AND published=true AND lifecycle_state IN ('active','suspended')",
+      [label],
+    ),
+  );
+  return row ?? null;
+}
+/** The current slug of a published workspace whose previous slug this is, within its redirect window. */
+export async function movedSlug(db: Database, previous: string) {
+  const [row] = await db.system((tx) =>
+    tx.query<{ slug: string }>(
+      "SELECT t.slug FROM tenant_slug_redirects r JOIN tenants t ON t.id=r.tenant_id WHERE r.slug=$1 AND r.redirect_until>now() AND t.slug<>r.slug AND t.published=true AND t.lifecycle_state IN ('active','suspended')",
+      [previous],
+    ),
+  );
+  return row?.slug ?? null;
+}
+/**
+ * The workspace a verified coach host (an active custom-domain mapping or a
+ * workspace subdomain) belongs to, or null. For callers that check an origin
+ * recorded earlier, such as the wearable OAuth relay.
+ */
+export async function coachHostTenant(db: Database, hostname: string) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const label = subdomainLabel(host, platformRoot());
+  if (label !== null)
+    return (await subdomainTenant(db, label))?.tenant_id ?? null;
+  const [mapping] = await db.system((tx) =>
+    tx.query<{ tenant_id: string }>(
+      "SELECT tenant_id FROM domain_mappings WHERE hostname=$1 AND active=true AND verified_at IS NOT NULL",
+      [host],
+    ),
+  );
+  return mapping?.tenant_id ?? null;
 }

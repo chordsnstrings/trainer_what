@@ -142,6 +142,12 @@ export function integrationStatus() {
       purpose: "Connect an owned address or approve a registrar quote",
       ...integrationCapability("domains", config)!,
     },
+    {
+      id: "web_addresses",
+      name: "Web addresses",
+      purpose: "Buy, set up and renew trainer domains automatically",
+      ...integrationCapability("web_addresses", config)!,
+    },
   ];
 }
 export function stripeClient() {

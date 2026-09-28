@@ -24,6 +24,8 @@ export const PROVIDER_SANDBOX_OVERRIDES = [
   // OpenID Connect issuers for Sign in with Google / Apple (mock issuers).
   "GOOGLE_OIDC_ISSUER",
   "APPLE_OIDC_ISSUER",
+  // Namecheap XML API double (web addresses).
+  "NAMECHEAP_API_BASE_URL",
 ] as const;
 /**
  * A loopback DNS server (127.0.0.1:<port>) that answers the custom-domain

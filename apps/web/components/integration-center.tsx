@@ -8,6 +8,8 @@ import {
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
 import { VoiceSessionStyle } from "./voice-session-style";
+import { WebAddressCenter } from "./web-address";
+import { WebAddressOperations } from "./web-address-operations";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -94,7 +96,7 @@ export function IntegrationCenter({
         <nav className="tabs" aria-label="Integration sections">
           <a href="/trainer/integrations">Health connections</a>
           <a href="/trainer/voice">Trainer voice</a>
-          <a href="/trainer/domains">Custom domains</a>
+          <a href="/trainer/domains">Web address</a>
         </nav>
       )}
       {trainer && path.includes("/voice") ? (
@@ -103,7 +105,7 @@ export function IntegrationCenter({
           <VoiceSessionStyle />
         </>
       ) : trainer && path.includes("/domains") ? (
-        <DomainCenter />
+        <WebAddressCenter manual={<DomainCenter />} />
       ) : (
         <>
           <HealthConnections integrations={integrations} trainer={trainer} />
@@ -782,8 +784,7 @@ function DomainCenter() {
           )}
           {order.status === "requested" && (
             <p>
-              A platform operator will obtain an exact registrar quote for your
-              approval.
+              The platform team will send you an exact price for your approval.
             </p>
           )}
           {order.status === "quoted" && (
@@ -858,7 +859,9 @@ function DomainCenter() {
                     api(`/domains/${order.id}/cancel`, "POST", {
                       revision: order.version,
                     }),
-                  "Domain disconnected; registrar registration remains yours",
+                  order.alreadyOwned
+                    ? "Domain disconnected; your own registration is not affected"
+                    : "Domain disconnected",
                 )
               }
             >
@@ -896,6 +899,7 @@ export function IntegrationOperations() {
         </p>
       </div>
       <Notice value={action.message} />
+      <WebAddressOperations />
       {voices.map((voice) => (
         <Panel title={`${voice.name} · Voice ${voice.status}`} key={voice.id}>
           <p>{voice.evidence.rightsStatement}</p>

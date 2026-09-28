@@ -106,9 +106,21 @@ def existing_deployment():
 
 
 TLS_ASK_URL = "http://api:4000/api/v1/internal/tls/ask?token="
+ROOT_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 
 
-def edge_config(endpoint, revision=None, ask=None):
+def valid_root(root):
+    """A plain DNS name of two or more labels (not an IP address), or None."""
+    root = (root or "").strip().lower().rstrip(".")
+    labels = root.split(".")
+    if (not root or len(root) > 200 or len(labels) < 2
+            or not all(re.fullmatch(ROOT_LABEL, label) for label in labels)
+            or not re.search(r"[a-z]", labels[-1])):
+        return None
+    return root
+
+
+def edge_config(endpoint, revision=None, ask=None, root=None):
     # Overwrite X-Forwarded-For with the connecting address: the web proxy signs it
     # for the API's per-client budgets, so a client must not be able to choose it.
     release = "    header X-GymMembership-Release " + valid_sha(revision) + "\n" if revision else ""
@@ -118,11 +130,24 @@ def edge_config(endpoint, revision=None, ask=None):
         return endpoint + " {\n" + site + "}\n"
     if not ask.startswith(TLS_ASK_URL) or not re.fullmatch(r"[0-9a-f]{64}", ask[len(TLS_ASK_URL):]):
         raise DeploymentError("Unexpected TLS ask endpoint")
+    # Workspace subdomains (<slug>.<PLATFORM_ROOT_DOMAIN>): one wildcard site with
+    # on-demand TLS, so each published workspace name gets its own certificate
+    # after the same ask check. Without a root the output is unchanged.
+    wildcard = ""
+    if root:
+        if valid_root(root) != root:
+            raise DeploymentError("Unexpected platform root domain")
+        www = ""
+        if urlsplit(endpoint).hostname == root:
+            # The platform is served at the root: www.<root> redirects to it.
+            www = "    @www host www." + root + "\n    redir @www https://" + root + "{uri} 308\n"
+        wildcard = "*." + root + " {\n    tls {\n        on_demand\n    }\n" + www + site + "}\n\n"
     # Coach domains: Caddy obtains a certificate on the first TLS handshake for a
     # name only when the API's ask endpoint answers 200 (an active, verified
     # mapping or a short activation allowance). The platform keeps its own block.
     return ("{\n    on_demand_tls {\n        ask " + ask + "\n    }\n}\n\n"
             + endpoint + " {\n" + site + "}\n\n"
+            + wildcard
             + "https:// {\n    tls {\n        on_demand\n    }\n" + site + "}\n")
 
 
@@ -147,6 +172,16 @@ def edge_ask(values=None):
         return None
     token = hmac.new(secret.encode(), b"gymmembership-tls-ask-v1", hashlib.sha256).hexdigest()
     return TLS_ASK_URL + token
+
+
+def edge_root(values=None):
+    """PLATFORM_ROOT_DOMAIN from runtime.env when valid; None leaves the edge unchanged."""
+    values = runtime_values() if values is None else values
+    value = values.get("PLATFORM_ROOT_DOMAIN", "")
+    root = valid_root(value)
+    if value.strip() and not root:
+        print("Ignoring PLATFORM_ROOT_DOMAIN: expected a plain DNS name such as trainsyou.com")
+    return root
 
 
 def ensure_runtime():
@@ -202,7 +237,7 @@ def ensure_runtime():
         raise DeploymentError("Expected a public HTTPS origin")
     # Recover interruption after writing runtime.env without rotating database secrets.
     if not (ROOT / "Caddyfile").exists():
-        (ROOT / "Caddyfile").write_text(edge_config(endpoint, ask=edge_ask(values)))
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, ask=edge_ask(values), root=edge_root(values)))
     if not (ROOT / "edge.json").exists():
         atomic_json(ROOT / "edge.json", {
             "services": {"edge": {
@@ -444,10 +479,10 @@ def deploy(sha, github):
     compose(release, sha, "run", "--rm", "--no-deps", "migrate")
     runtime_role(release, sha, running)
     endpoint = json.loads((ROOT / "endpoint.json").read_text())["url"]
-    ask = edge_ask()
+    ask, root = edge_ask(), edge_root()
 
     def edge_release(revision):
-        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision, ask))
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision, ask, root))
     try:
         edge_release(sha)
         compose(release, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
@@ -493,7 +528,7 @@ def endpoint_url():
 def start_release(sha, endpoint):
     """Recreate the application services of one recorded release and verify it."""
     sha = valid_sha(sha)
-    (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask()))
+    (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask(), edge_root()))
     compose(ROOT / "releases" / sha, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
             "api", "web", "worker", "edge")
     wait_ready("http://127.0.0.1:3000/api/v1/ready")

@@ -135,7 +135,9 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
   app.get(prefix + "/controls", (req) => dashboard(operator(req, false)));
   app.get(prefix + "/statements/:period", (req) =>
     db.tenant(operator(req, false), (tx) =>
-      financialStatement(tx, (req.params as any).period),
+      financialStatement(tx, (req.params as any).period, {
+        platformView: true,
+      }),
     ),
   );
   app.post(prefix + "/policies", (req) => {

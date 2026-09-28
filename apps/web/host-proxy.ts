@@ -64,6 +64,33 @@ export function verifiedProxyHeaders(
   }
   return headers;
 }
+/**
+ * The new address of a renamed workspace's previous subdomain, from the API's
+ * HOST_MOVED answer: only an https origin that is itself a subdomain of the
+ * configured platform root is followed.
+ */
+export function movedHostLocation(
+  body: unknown,
+  rootDomain: string | undefined,
+): string | null {
+  const root = (rootDomain ?? "").trim().toLowerCase().replace(/\.$/, "");
+  const answer = body as { code?: unknown; location?: unknown } | null;
+  if (!root || answer?.code !== "HOST_MOVED") return null;
+  if (typeof answer.location !== "string") return null;
+  try {
+    const url = new URL(answer.location);
+    const label = url.hostname.slice(0, -(root.length + 1));
+    return url.protocol === "https:" &&
+      url.origin === answer.location &&
+      !url.port &&
+      url.hostname.endsWith("." + root) &&
+      /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
 export function customHostPath(path: string, slug: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
   // Crawler files describe the connected coach website itself.

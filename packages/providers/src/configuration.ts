@@ -159,6 +159,35 @@ export function integrationCapability(
       approved: configured && config.LEAN_CONTRACT_VERIFIED === "true",
     };
   }
+  if (id === "web_addresses") {
+    const registrar = (config.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+    const contact = [
+      "WEB_ADDRESS_REGISTRANT_FIRST_NAME",
+      "WEB_ADDRESS_REGISTRANT_LAST_NAME",
+      "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
+      "WEB_ADDRESS_REGISTRANT_ADDRESS",
+      "WEB_ADDRESS_REGISTRANT_CITY",
+      "WEB_ADDRESS_REGISTRANT_STATE",
+      "WEB_ADDRESS_REGISTRANT_POSTAL_CODE",
+      "WEB_ADDRESS_REGISTRANT_COUNTRY",
+      "WEB_ADDRESS_REGISTRANT_PHONE",
+      "WEB_ADDRESS_REGISTRANT_EMAIL",
+    ];
+    const configured =
+      has(...contact) &&
+      (registrar === "generic" ||
+        (registrar === "namecheap" &&
+          has(
+            "NAMECHEAP_API_USER",
+            "NAMECHEAP_API_KEY",
+            "NAMECHEAP_USERNAME",
+            "NAMECHEAP_CLIENT_IP",
+          )));
+    return {
+      configured,
+      approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
+    };
+  }
   if (id === "domains") {
     const configured =
       has("DOMAIN_CNAME_TARGET") &&
@@ -692,6 +721,135 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
   },
 ];
 
+/** Namecheap (or the generic registrar) for autonomous trainer domains. */
+INTEGRATION_CATALOG.push({
+  id: "web_addresses",
+  name: "Web addresses and registrar",
+  category: "branding",
+  implemented: true,
+  description:
+    "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
+  setupNotes:
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price in AED, which is the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+  fields: [
+    field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
+      required: true,
+      defaultValue: "namecheap",
+      options: [
+        { value: "namecheap", label: "Namecheap" },
+        {
+          value: "generic",
+          label: "Generic registrar API (Custom domains settings)",
+        },
+      ],
+    }),
+    field("NAMECHEAP_API_USER", "Namecheap API user", "text"),
+    field("NAMECHEAP_API_KEY", "Namecheap API key", "secret"),
+    field("NAMECHEAP_USERNAME", "Namecheap account username", "text"),
+    field("NAMECHEAP_CLIENT_IP", "Whitelisted client IPv4 address", "text", {
+      help: "The public IPv4 address of this server, added to the API whitelist in the Namecheap account.",
+    }),
+    field(
+      "NAMECHEAP_SANDBOX",
+      "Use the Namecheap test environment",
+      "boolean",
+      {
+        defaultValue: "true",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_FIRST_NAME",
+      "Registrant first name",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_LAST_NAME", "Registrant last name", "text", {
+      required: true,
+    }),
+    field(
+      "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
+      "Registrant organization (the platform company)",
+      "text",
+      {
+        required: true,
+        help: "The platform company always holds the domains it buys for trainers.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_ADDRESS",
+      "Registrant street address",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_CITY", "Registrant city", "text", {
+      required: true,
+    }),
+    field(
+      "WEB_ADDRESS_REGISTRANT_STATE",
+      "Registrant state or emirate",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_POSTAL_CODE",
+      "Registrant postal code",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_COUNTRY",
+      "Registrant country (two letters)",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_PHONE",
+      "Registrant phone (+971.501234567)",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_EMAIL", "Registrant email", "text", {
+      required: true,
+    }),
+    field("WEB_ADDRESS_MARGIN_AED", "Yearly margin (AED)", "number", {
+      defaultValue: "25",
+    }),
+    field("WEB_ADDRESS_USD_TO_AED", "USD to AED rate", "number", {
+      defaultValue: "3.6725",
+    }),
+    field("WEB_ADDRESS_TLDS", "Offered endings", "text", {
+      defaultValue: "com,net,org,co",
+      help: "Comma-separated, at most 12.",
+    }),
+    field(
+      "WEB_ADDRESS_TARGET_IPV4",
+      "Server IPv4 address for domain DNS",
+      "text",
+      {
+        help: "Optional. When blank, the address the platform's own name resolves to is used.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_PURCHASES_ENABLED",
+      "Enable automatic purchases and renewals",
+      "boolean",
+      { defaultValue: "false" },
+    ),
+  ],
+});
+
 export class ConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -848,6 +1006,46 @@ export function validateIntegrationValues(
         throw new ConfigurationError(
           `${entry.label} has an unsupported selection`,
         );
+      if (
+        (key === "NAMECHEAP_CLIENT_IP" || key === "WEB_ADDRESS_TARGET_IPV4") &&
+        (isIP(text) !== 4 || !isPublicAddress(text))
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a public IPv4 address`,
+        );
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_COUNTRY" &&
+        !/^[A-Za-z]{2}$/.test(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be two letters`);
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_PHONE" &&
+        !/^\+\d{1,3}\.\d{4,14}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must look like +971.501234567`,
+        );
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_EMAIL" &&
+        !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be an email address`);
+      if (
+        key === "WEB_ADDRESS_TLDS" &&
+        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,11}\s*$/i.test(
+          text,
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be up to 12 comma-separated endings such as com,net`,
+        );
+      if (
+        key === "WEB_ADDRESS_USD_TO_AED" &&
+        !(Number(text) >= 1 && Number(text) <= 10)
+      )
+        throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+      if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
+        throw new ConfigurationError(`${entry.label} must be at most 10000`);
       if (
         (key === "SUPPORT_EMAIL" || key === "EMAIL_FROM") &&
         !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
@@ -1069,6 +1267,73 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "web_addresses") {
+      // Read-only: the account balance. Works before purchases are enabled so
+      // the API access and the IP whitelist can be proven first.
+      const registrar = (fields.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+      const {
+        NamecheapRegistrar,
+        namecheapSettings,
+        RegistrarError,
+        paymentModeProblem,
+        registrarSandboxSetting,
+        stripeKeyMode,
+      } = await import("./registrar.ts");
+      // Stripe's mode must match the registrar environment: purchases are
+      // refused otherwise, and this check says so.
+      const stripeMode = stripeKeyMode(config);
+      const modeProblem = stripeMode
+        ? paymentModeProblem(
+            stripeMode === "live",
+            registrarSandboxSetting({ ...config, ...fields }),
+          )
+        : null;
+      const modeNote = modeProblem
+        ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
+        : "";
+      if (registrar !== "namecheap")
+        return {
+          status: "validated",
+          message:
+            "The generic registrar uses the Custom domains API URL and key; its account is read on the first search. No domain was bought." +
+            modeNote,
+          checkedAt,
+          details: {
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
+          },
+        };
+      const settings = namecheapSettings(fields);
+      try {
+        const balance = await new NamecheapRegistrar(settings).balance();
+        return {
+          status: "verified",
+          message:
+            "Namecheap API access verified from the whitelisted address. No domain was bought." +
+            (Number(balance.available) < 20
+              ? " The available balance is low: purchases and renewals are paid from it."
+              : "") +
+            modeNote,
+          checkedAt,
+          details: {
+            environment: settings.sandbox ? "sandbox" : "production",
+            currency: balance.currency,
+            availableBalance: balance.available,
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
+          },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message:
+            error instanceof RegistrarError && error.outcome === "definitive"
+              ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
+              : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
     if (id === "google_signin" || id === "apple_signin") {
       const { checkOidcConnection } = await import("./oidc.ts");
       return await checkOidcConnection(

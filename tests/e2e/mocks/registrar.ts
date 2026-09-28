@@ -1,14 +1,23 @@
 /**
  * Domain registrar double (availability, price quote, registration, DNS
- * records). The current application saves DOMAIN_API_URL/KEY but performs
- * registrar purchase and DNS as recorded operator actions, so scenarios use
- * this mock to produce the evidence an operator would copy. Test-only.
+ * records). The manual domain flow records registrar work as operator
+ * evidence, so scenarios use this mock to produce the evidence an operator
+ * would copy. It also implements the generic registrar JSON contract of the
+ * web address flow (docs/features/web-addresses.md): USD pricing, domain
+ * lookup and search, record read-back, renewal and the account balance.
+ * Test-only.
  */
 import { MockServer, bearer, randomId, unauthorized } from "./http.ts";
 
 export class RegistrarMock {
   readonly server: MockServer;
   registrations = new Map<string, { id: string; domain: string; expiresAt: string; priceMinor: number }>();
+  /** One-year USD prices per ending for the generic contract. */
+  pricesUsd: Record<string, { register: string; renew: string }> = {
+    com: { register: "11.00", renew: "15.00" },
+    net: { register: "12.00", renew: "16.00" },
+  };
+  balanceUsd = "200.00";
   records = new Map<string, Array<{ type: string; name: string; value: string }>>();
   /** Publishes saved records to the DNS double, as the registrar's name servers would. */
   onRecords?: (domain: string, records: Array<{ type: string; name: string; value: string }>) => void;
@@ -45,6 +54,48 @@ export class RegistrarMock {
       };
       this.registrations.set(domain, registration);
       return { status: 201, body: registration };
+    });
+    s.route("GET", "/v1/pricing/:tld", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      const price = this.pricesUsd[r.params.tld];
+      if (!price) return { status: 404, body: { error: "unsupported ending" } };
+      return { body: { tld: r.params.tld, currency: "USD", ...price } };
+    });
+    s.route("GET", "/v1/domains", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      const search = (r.query.get("search") ?? "").toLowerCase();
+      return {
+        body: {
+          data: [...this.registrations.values()]
+            .filter((x) => x.domain.includes(search))
+            .map((x) => ({ domain: x.domain, expiresAt: x.expiresAt, expired: Date.parse(x.expiresAt) < Date.now() })),
+        },
+      };
+    });
+    s.route("GET", "/v1/domains/:domain", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      const registration = this.registrations.get(r.params.domain);
+      return registration
+        ? { body: { domain: registration.domain, expiresAt: registration.expiresAt, privacy: true } }
+        : { status: 404, body: { error: "not found" } };
+    });
+    s.route("GET", "/v1/domains/:domain/records", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      return { body: { domain: r.params.domain, records: this.records.get(r.params.domain) ?? [] } };
+    });
+    s.route("POST", "/v1/domains/:domain/renew", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      const registration = this.registrations.get(r.params.domain);
+      if (!registration) return { status: 404, body: { error: "not found" } };
+      const next = new Date(registration.expiresAt);
+      next.setUTCFullYear(next.getUTCFullYear() + Number(r.json?.years ?? 1));
+      registration.expiresAt = next.toISOString();
+      return { body: { domain: registration.domain, expiresAt: registration.expiresAt, chargedUsd: this.pricesUsd[registration.domain.split(".").slice(1).join(".")]?.renew } };
+    });
+    s.route("GET", "/v1/account", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      return { body: { balanceUsd: this.balanceUsd } };
     });
     s.route("PUT", "/v1/domains/:domain/records", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();

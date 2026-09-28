@@ -989,12 +989,19 @@ def edge_state(h, values, endpoint, sha):
     served edge can lag behind; that shows as ``pendingReapply``.
     """
     ask = h.edge_ask(values)
+    # A controller older than workspace subdomains has no edge_root.
+    root = h.edge_root(values) if hasattr(h, "edge_root") else None
     try:
         served = (h.ROOT / "Caddyfile").read_text()
     except OSError:
         served = None
     try:
-        expected = h.edge_config(endpoint, sha, ask) if endpoint and sha else None
+        if not endpoint or not sha:
+            expected = None
+        elif root:
+            expected = h.edge_config(endpoint, sha, ask, root)
+        else:
+            expected = h.edge_config(endpoint, sha, ask)
     except DeploymentError:
         expected = None
     return {"onDemandTls": served is not None and served.startswith("{\n    on_demand_tls {\n"),

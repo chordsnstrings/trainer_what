@@ -17,6 +17,10 @@ import {
 import { stripeClient } from "@trainer/providers";
 import { recordCharge, journal, assignCommissionRank } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
+import {
+  processWebAddressStripeEvent,
+  type WebAddressStripe,
+} from "./web-address-orders.ts";
 type StripeLike = ReturnType<typeof stripeClient>;
 /**
  * Stable rank, assigned once at a subscriber's first positive charge as the next number after
@@ -81,6 +85,14 @@ export async function processStripeEvent(
   e: any,
   deps: { stripe?: StripeLike } = {},
 ) {
+  // A trainer's own web address subscription (docs/features/web-addresses.md)
+  // is never a member payment: it is handled first and completely.
+  if (
+    await processWebAddressStripeEvent(db, e, {
+      stripe: deps.stripe as unknown as WebAddressStripe | undefined,
+    })
+  )
+    return { processed: true };
   if (await processBookingStripeEvent(db, e)) return { processed: true };
   // A voice add-on is its own provider subscription tied to the membership;
   // its checkout, subscription and invoice events never touch the membership.

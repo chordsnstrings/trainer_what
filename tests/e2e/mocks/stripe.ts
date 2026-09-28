@@ -24,6 +24,9 @@ export type WebhookDelivery = {
 };
 
 const now = () => Math.floor(Date.now() / 1000);
+/** One billing period of a price: a year for yearly prices, otherwise the mock's 30 days. */
+const periodSeconds = (price: { recurring?: { interval?: string } | null }) =>
+  price?.recurring?.interval === "year" ? 365 * 86400 : 30 * 86400;
 const list = (data: Obj[], url: string, hasMore = false) => ({
   object: "list",
   data,
@@ -280,6 +283,16 @@ export class StripeMock {
         const f = r.form ?? {};
         if (f.cancel_at_period_end !== undefined)
           sub.cancel_at_period_end = f.cancel_at_period_end === "true";
+        // A trial until a date moves the billing date (proration_behavior=none):
+        // the current period ends then and the next invoice is issued then.
+        const trialEnd = num(f.trial_end);
+        if (trialEnd !== undefined) {
+          if (trialEnd <= now())
+            return stripeError(400, "trial_end must be in the future");
+          sub.trial_end = trialEnd;
+          sub.status = "trialing";
+          sub.items.data[0].current_period_end = trialEnd;
+        }
         this.later(() => this.sendEvent("customer.subscription.updated", sub));
         return ok(sub);
       }),
@@ -299,6 +312,20 @@ export class StripeMock {
         sub.canceled_at = now();
         sub.cancel_at_period_end = false;
         this.later(() => this.sendEvent("customer.subscription.deleted", sub));
+        return ok(sub);
+      }),
+    );
+    s.route(
+      "DELETE",
+      "/v1/subscriptions/:id",
+      guard((r) => {
+        const sub = this.subscriptions.get(r.params.id);
+        if (!sub) return stripeError(404, "No such subscription", "resource_missing");
+        if (sub.status !== "canceled") {
+          sub.status = "canceled";
+          sub.canceled_at = now();
+          this.later(() => this.sendEvent("customer.subscription.deleted", sub));
+        }
         return ok(sub);
       }),
     );
@@ -460,7 +487,35 @@ export class StripeMock {
       if (!price) return stripeError(400, "No such price", "resource_missing");
       priceId = price.id;
       amount = price.unit_amount;
-    } else if (item.price_data) amount = num(item.price_data.unit_amount) ?? 0;
+    } else if (item.price_data) {
+      amount = num(item.price_data.unit_amount) ?? 0;
+      // Inline prices (price_data with product_data) become a price object,
+      // as Stripe creates one for the subscription item.
+      if (f.mode === "subscription" && item.price_data.recurring) {
+        const product = {
+          id: randomId("prod"),
+          object: "product",
+          name: item.price_data.product_data?.name ?? "Inline product",
+          metadata: {},
+          active: true,
+          created: now(),
+        };
+        this.products.set(product.id, product);
+        const price = {
+          id: randomId("price"),
+          object: "price",
+          product: product.id,
+          currency: item.price_data.currency,
+          unit_amount: amount,
+          recurring: { interval: item.price_data.recurring.interval, interval_count: 1 },
+          type: "recurring",
+          active: true,
+          created: now(),
+        };
+        this.prices.set(price.id, price);
+        priceId = price.id;
+      }
+    }
     // Stripe's amount_subtotal is before discounts; amount_total after them.
     const subtotal = amount;
     const couponId = f.discounts?.[0]?.coupon;
@@ -480,13 +535,14 @@ export class StripeMock {
     const session = {
       id,
       object: "checkout.session",
+      livemode: false,
       mode: f.mode,
       status: "open",
       payment_status: "unpaid",
       url: `${this.url}/c/pay/${id}`,
       client_reference_id: f.client_reference_id ?? null,
       customer_email: f.customer_email ?? null,
-      customer: null as string | null,
+      customer: (f.customer ?? null) as string | null,
       metadata: f.metadata ?? {},
       currency: f.line_items?.[0]?.price_data?.currency ?? "aed",
       amount_total: trialDays ? 0 : amount,
@@ -629,6 +685,7 @@ export class StripeMock {
     const invoice = {
       id: randomId("in"),
       object: "invoice",
+      livemode: false,
       status: paid ? "paid" : "open",
       amount_paid: paid ? amount : 0,
       amount_due: amount,
@@ -693,8 +750,8 @@ export class StripeMock {
     const x = this.sessions.get(sessionId);
     if (!x) throw new Error("Unknown mock checkout " + sessionId);
     if (x.status !== "open") throw new Error("Checkout is not open: " + x.status);
-    const customer = {
-      id: randomId("cus"),
+    const customer = (x.customer && this.customers.get(x.customer)) || {
+      id: x.customer ?? randomId("cus"),
       object: "customer",
       email: x.customer_email,
       created: now(),
@@ -712,10 +769,11 @@ export class StripeMock {
       const price = this.prices.get(x.subscription_data.priceId)!;
       const start = now(),
         trialDays = x.subscription_data.trialDays;
-      const end = start + (trialDays ? trialDays * 86400 : 30 * 86400);
+      const end = start + (trialDays ? trialDays * 86400 : periodSeconds(price));
       const sub = {
         id: randomId("sub"),
         object: "subscription",
+        livemode: false,
         status: trialDays ? "trialing" : "active",
         customer: customer.id,
         cancel_at_period_end: false,
@@ -773,7 +831,9 @@ export class StripeMock {
     if (!sub) throw new Error("Unknown subscription");
     const item = sub.items.data[0];
     item.current_period_start = item.current_period_end;
-    item.current_period_end = item.current_period_end + 30 * 86400;
+    item.current_period_end =
+      item.current_period_end + periodSeconds(this.prices.get(item.price.id) ?? {});
+    sub.trial_end = null;
     const { invoice, charge } = this.issueInvoice(sub, item.price.unit_amount, !options.fail);
     const deliveries = [];
     if (options.fail) {

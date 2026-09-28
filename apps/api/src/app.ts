@@ -55,6 +55,8 @@ import {
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
+import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
+import type { WebAddressDeps } from "./web-address-orders.ts";
 import {
   resolveProbeHost,
   resolveRequestHost,
@@ -316,7 +318,11 @@ export async function buildApp(
     db?: Database;
     testing?: boolean;
     /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
-    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+    providers?: {
+      stripe?: () => ReturnType<typeof stripeClient>;
+      /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
+      webAddresses?: WebAddressDeps;
+    };
   } = {},
 ) {
   const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
@@ -563,6 +569,20 @@ export async function buildApp(
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
+      // A renamed workspace's previous subdomain names its new address.
+      ...(e.code === "HOST_MOVED" && typeof e.location === "string"
+        ? { location: e.location }
+        : {}),
+      // A domain price that changed since it was shown carries the new
+      // first-year and renewal prices (never the registrar's cost).
+      ...(e.code === "PRICE_CHANGED" &&
+      Number.isSafeInteger(e.firstYearPriceMinor) &&
+      Number.isSafeInteger(e.renewalPriceMinor)
+        ? {
+            firstYearPriceMinor: e.firstYearPriceMinor,
+            renewalPriceMinor: e.renewalPriceMinor,
+          }
+        : {}),
     });
   });
   async function session(
@@ -612,6 +632,7 @@ export async function buildApp(
   registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
   registerVoiceSessions(app, db);
+  registerWebAddresses(app, db, options.providers?.webAddresses);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerVoiceAddOn(app, db, {
@@ -695,18 +716,9 @@ export async function buildApp(
         db,
         "registration",
       );
-      if (
-        [
-          "admin",
-          "api",
-          "app",
-          "www",
-          "support",
-          "billing",
-          "trainer",
-        ].includes(b.slug)
-      )
-        throw fail(400, "RESERVED_SLUG", "Please choose another address");
+      // The slug is also the workspace subdomain (<slug>.<root>): reserved
+      // names and a previous slug still redirecting are refused.
+      await assertSlugAvailable(db, b.slug);
       if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
@@ -2048,7 +2060,9 @@ export async function buildApp(
       );
     const rows = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,l.account",
+        // The platform's registrar cost for the trainer's domain is not the
+        // trainer's ledger (docs/features/web-addresses.md).
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
       ),
     );
     reply
