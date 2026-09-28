@@ -147,9 +147,11 @@ Deployment stays separately assigned.
 12. **101domain as registrar (optional)**: Settings → Web addresses and registrar → Registrar
     101domain, the API key (created by the account's primary user with two-factor sign-in, at
     most one year valid) and its expiry date. The connection check reads the balance only.
-    101domain has not published registration or renewal in its API yet, so purchases stay off
-    with 101domain until **101domain registration and renewal API verified** is switched on
-    after checking the live API reference (see below); Namecheap remains the buying registrar.
+    101domain's `/v1` API has no live registration or renewal endpoint (checked again on
+    28 September 2026: registration is listed as "Coming Soon", renewal is not listed at all; see
+    "101domain registration and renewal: what exists" below), so purchases stay off with 101domain
+    and **101domain registration and renewal API verified** stays off; Namecheap remains the
+    buying registrar.
 
 ## What was built, per audience
 
@@ -614,8 +616,10 @@ registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
 `has_requirements`, true for `.co.ae`), domain
   list and details, the finance balance, pending orders, DNS records (only on 101domain
   nameservers). Registration (`POST /v1/domains/registration` with the platform company as every
-  contact, private registration except for endings without it such as `.ae`, auto-renew off) and
-  renewal follow the announced, not yet published endpoints: they are sent only when **101domain
+  contact, private registration except for endings without it such as `.ae`, auto-renew off:
+  the path is the announced one, every field is a guess) and renewal (`POST
+  /v1/domains/<d>/renew`: a guessed path that 101domain answers with 404, see "101domain
+  registration and renewal: what exists" below) are not published endpoints: they are sent only when **101domain
   registration and renewal API verified** is on; until then they refuse without sending, purchases
   stay off with 101domain (trainers see "not available yet", operators the reason), and a paid
   renewal waits for 101domain's own auto-renewal (about 60 days before expiry), recognised from
@@ -644,6 +648,132 @@ registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
   the status of an order still being processed. Their field names must be checked against the live
   API reference (behind a browser challenge at `https://api.101domain.com/api/documentation`)
   before **101domain registration and renewal API verified** is turned on.
+
+### 101domain registration and renewal: what exists (stage 2026-09-28m, 28 September 2026)
+
+The owner was sure that 101domain offers registration and renewal through an API. That is true,
+but not through the `/v1` REST API (Bearer key) this adapter uses: there they are not live. They
+exist in 101domain's older reseller XML API (DOMAPI), which needs a separate reseller account and
+other credentials, and whose current request format is not public. So nothing was confirmed that
+the adapter could be switched to, and no code changed in this stage (the stage's research was
+read-only: GET and OPTIONS requests only, recorded in `docs/COMPLETION_STAGES.md` stage
+2026-09-28m).
+
+**`/v1` REST API (`https://api.101domain.com/v1`).** Confirmed from 101domain's own pages and the
+live server:
+
+- The official endpoint reference (help.101domain.com/kb/api-endpoints-reference, modified
+  2026-09-21) lists `POST /v1/domains/registration` as "(Coming Soon): Will allow clients to place
+  an order to register new domains programmatically", with no body, answer, status codes or scope.
+  Renewal is not listed, not even as Coming Soon. Also Coming Soon: `PATCH /v1/domains/{domainname}`
+  (auto-renew status, nameservers, add-ons, contact handles), `GET/POST/DELETE /v1/account/contacts`
+  (contact handles; a contact used by an active domain cannot be deleted) and `GET/PUT
+  /v1/domains/token/{domainname}` (auth codes).
+- The blog post introducing the API (published 2026-04-28, modified 2026-09-14) lists "Register
+  and Renew Domains" under what is coming next; the KB page "10 use cases for the 101domain API"
+  (2026-09-21) speaks of "the upcoming `registration` endpoint (coming soon)". The MCP server's 12
+  tools (KB "101domain MCP server tools", 2026-06-20) include none that registers, renews or
+  transfers.
+- Live (28 September 2026, 11:42 UTC, OPTIONS without a key): the `Allow` header lists each route's
+  methods correctly for the known write routes (records `GET,HEAD,POST,PATCH,DELETE`, nameservers
+  `GET,HEAD,PUT`, bulk search and bulk TLD lookup `POST`, forwarding `POST,PATCH,DELETE`) and
+  `GET,HEAD` for a made-up path. `/v1/domains/registration`, `/v1/domains`, `/v1/domains/<d>`,
+  `/v1/domains/<d>/renew`, `/v1/domains/renew`, `/v1/domains/renewal`, `/v1/account/contacts` and
+  `/v1/domains/token/<d>` all answer only `GET,HEAD` (about 170 path variants in an earlier
+  research pass, all `GET,HEAD`). `GET /v1/domains/example.com/renew` and `GET
+  /v1/account/contacts` answer 404 `{"code":"NOT_FOUND","message":"The requested API endpoint does
+  not exist."}`. So the adapter's renewal path does not exist, and the announced registration path
+  is not live. A POST route at a path nobody guessed cannot be ruled out completely (inference).
+
+**Order tracking (live, read-only, confirmed).**
+
+- `GET /v1/finance/orders`: `{status, code:"OK", message, meta.pagination{total, current_page,
+  per_page, total_pages}, data[]}`, rows `{order_number, status, order_date, subtotal, tax, total,
+  currency}` without a domain; 10 a page by default, `per_page=50` and `page` honoured.
+- The `status` filter accepts only `processing`, `processed` and `cancelled` (any case, comma
+  lists work); every other value tried (`pending`, `queued`, `submitted`, `in_progress`,
+  `completed`, `failed`, `rejected`, `canceled`, `declined`, `paid`, `refunded` and about 50 more)
+  is refused with 422 `VALIDATION_ERROR` "The selected statuses.0 is invalid.". Those three
+  together cover every order of the account. Inference: they are the complete list, and a new
+  order reads `processing` until it is finished (not observed: no order was in progress).
+- `date_from` and `date_to` work (`date_to` excludes orders placed on that day). No domain filter
+  works (17 parameter names tried, all ignored).
+- `GET /v1/finance/orders/<number>`: `{order_number, status, order_date, quote_number,
+  account_manager, invoice_numbers[], currency, subtotal, tax, total, items[{description, domain,
+  type: "domain"|"product", product_id, term_months, quantity}]}`. Real examples: a registration
+  order ("trainsyou.com - Registration", 12 months, plus "ICANN Fee (trainsyou.com)", product 397,
+  0.20 USD, as a separate item) and two renewal orders ("<domain> - Renewal", 12 months) placed
+  around 00:41 UTC, about 60 days before expiry (inference: 101domain's nightly auto-renewal;
+  the order data has no channel field).
+- `GET /v1/domains/<d>`: `id, domain_name, tld, status ("ACTIVE"), status_note,
+  registry_statuses[], created_at, registered_at, expires_at, nameservers[], auto_renew,
+  product_ids[], web_forwarding, contacts{registrant, admin, tech, billing}` (contact handle ids).
+  There is no "Paid Until" field (the KB says the Account Manager shows one). Two days after its
+  renewal order, a renewed `.ae` name read an `expires_at` in November 2027 (inference: its old
+  expiry was about 60 days after the order, so it moved by one year; when it moved was not
+  observed).
+
+**101domain's own auto-renewal** (KB "understanding domain name and product auto-renewal" and
+"unchanged expiration date on renewed domain name"): on by default; terms of a year or more renew
+60 days before expiry on the default billing method, for the original registration term (a
+different term needs a support ticket); `.ai` renews only in 2-year steps; a failed renewal on an
+annual plan is retried twice, 3 days apart; a gTLD such as `.com` shows the new expiry within
+minutes, a ccTLD can take days, and a registry that refuses early renewal keeps the domain queued
+with the old expiry until near the expiry date.
+
+**Reseller XML API (DOMAPI).** A GET on `https://api.101domain.com/` answers a DOMAPI XML error
+2001 "Command Syntax Error: Empty Request"; a test environment at `https://api.ote.101domain.com/`
+answers the same with `testmode="1"`. The answer names an `api.xsd` schema, which is 404 on both
+hosts. 101domain's reseller programme page promises "Register, renew, transfer, and maintain
+domain names" and a "Robust API to fully-integrate into an automated system" (plan fee 499 USD
+with no deposit, 399 USD plus a 1,500 USD non-refundable deposit, or 99 USD plus a 3,000 USD
+non-refundable deposit; the page does not say whether the fee is yearly); the WHMCS 101Domain module (docs modified 2026-08-04) supports Register,
+Transfer and Renew with "101Domain credentials". The only public request format is a 2016
+community client (github.com/rajeshrolen/101DomainAPI, commit 471915b): a
+`<DOMAPI xmlns="https://api.101domain.com"><Request><Login><id/><Key/></Login>…</Request></DOMAPI>`
+wrapper; `Register` with `Domain`, `Period`, `Trustee`, `UserAccount`, contacts as
+`<Registrant><id>HANDLE</id></Registrant>` (plus `Admin`, `Technical`, `Billing`), `NameServers/Host`
+and TLD `Fields`; `Renew` with `Domain` and `Period`; success codes 1000/1001; a new registration
+answers `pendingCreate` without an expiry and is followed with `Info`; renewing a `pendingCreate`
+domain fails with "Object status prohibits operation". Inference: the login is a reseller id and
+key, not the `/v1` Bearer key, and `Period` is in months. Whether this account has reseller access,
+whether the 2016 format is current and which production path (`/` or `/do`) applies are unknown;
+testing even the test environment needs a POST and reseller credentials.
+
+**Where `OneOhOneRegistrar` disagrees with this evidence** (not changed; the ordering switch keeps
+all of it unsent):
+
+- `register` sends `domain_name`, `term_years`, inline contact objects, `private_registration` and
+  `auto_renew` to the announced path; none of these fields is confirmed, and a future `/v1`
+  registration will more likely take contact handle ids (inference: domain details return handles
+  and the Coming Soon contacts endpoint creates them).
+- `renew` posts to `/v1/domains/<d>/renew`, which 101domain answers with 404.
+- The provisional status lists (`ONEOHONE_PENDING`, `ONEOHONE_DONE`, `ONEOHONE_REFUSED`) are mostly
+  words 101domain refuses as order statuses; only `processing`, `processed` and `cancelled` are
+  real. They still stand in for the unpublished registration answer, whose words may differ.
+  `pendingOrder` already behaves correctly on the real statuses (`processed` and `cancelled` are
+  finished, `processing` is opened and matched by `items[].domain`, anything else counts as open).
+- `pendingOrder` could ask `GET /v1/finance/orders?status=processing&date_from=<45 days ago>`
+  once instead of paging through 45 days of history; each order found must still be opened for
+  its domain.
+- The class comment says 101domain has no test environment: true for `/v1`, not for DOMAPI.
+
+**What only a real order (or a published endpoint) can settle:** whether `POST
+/v1/domains/registration` launches at that path; its fields, term unit, contact model,
+nameservers, privacy add-on, `auto_renew` and TLD fields; its answer (200/201/202, immediate or
+queued, status words, `order_number`, domain id, amount charged); payment (the account's credit
+balance was 0.00, so the card on file or a refusal); whether API prices include the ICANN fee
+(the one manual order carried it as a separate 0.20 USD item); how long an order stays
+`processing`, what domain details show meanwhile, how failures are refunded; what a repeated
+request does (no idempotency key is documented); whether `/v1` renewal will exist, whether a
+manual renewal next to auto-renewal charges twice, minimum terms and queued ccTLD renewals; rate
+limits and scopes for write calls. For DOMAPI: reseller access, the current command format and
+the production path.
+
+**Before switching the ordering on (owner decisions):** keep Namecheap as the buying registrar
+and wait for 101domain to publish `POST /v1/domains/registration` (and a renewal endpoint), or
+join 101domain's reseller programme and have a DOMAPI adapter built from its current official
+specification. Either way the first real order must be a cheap test domain the owner approves.
 
 ### States and steps (DigitalOcean path)
 
@@ -925,11 +1055,15 @@ First pass:
   through `zone`/`delegating` (late renewal, operator re-run). A daily read-only drift check
   (including re-pointing held zones' A records when the server IPv4 changes) and a platform-DNS
   drift alert are not built.
-- **101domain ordering.** Registration and renewal through 101domain's API are built against the
-  announced endpoints but switched off until those endpoints are published and their field names
-  are checked (GET only) against the live API reference; early-access fees and whether API prices
-  include the ICANN fee are also unverified there. The root domain's own nameservers at 101domain
-  are not changed by the platform (the root is already delegated to DigitalOcean).
+- **101domain ordering.** Registration and renewal through 101domain's API are built against
+  guessed shapes (the announced registration path, a renewal path that does not exist) and
+  switched off. Rechecked on 28 September 2026 (stage 2026-09-28m): the `/v1` API has no live
+  registration or renewal endpoint (registration "Coming Soon", renewal not listed); the reseller
+  XML API (DOMAPI) has `Register` and `Renew` but needs a reseller account and an adapter built
+  from its current specification. Early-access fees and whether API prices include the ICANN fee
+  are also unverified. See "101domain registration and renewal: what exists". The root domain's
+  own nameservers at 101domain are not changed by the platform (the root is already delegated to
+  DigitalOcean).
 - **DNSSEC on bought domains.** DigitalOcean does not sign zones; a domain with a DS record at the
   registry waits for an operator (remove DNSSEC, or use the registrar's DNS).
 - **390 px and browser check.** The panel uses wrapping flex rows, `min-inline-size: 0` and
