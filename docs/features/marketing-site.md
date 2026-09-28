@@ -570,6 +570,11 @@ the page.
    JSON-LD; the first, "How does trainsyou work?", answers with the
    answer-first introduction. All start closed, which keeps the home page
    under its 400-word budget (an open first answer measured 435 words).
+   The budget counts the visible words in `main` outside the follower
+   calculator block (`.mk-home-calc`, block 6), which belongs to the
+   calculator package; `scripts/brand-check.mjs` reports both numbers. On
+   28 September: 392 words outside the calculator, 112 in the closed v3
+   compact calculator, 504 in total.
 8. **Closing** (every marketing page): a contained Pace panel, H2 the brand
    line (or "Ready to teach your AI?" for a renamed platform), "Guided setup.
    Nothing goes live until you publish.", the ink button and a link ("See
@@ -628,6 +633,7 @@ belong to the calculator package.
 | Bullets | 12 words, 5 per list |
 | FAQ answers | 45 words; the first sentence answers |
 | Hub tiles | One line, 12 words |
+| Home page | 400 visible words in `main`, not counting the follower calculator block (reported separately) |
 
 Voice: second person, active, UAE/UK spelling. Not used: seamless,
 revolutionary, cutting-edge, unlock, empower, game-changing. Two text-only
@@ -691,8 +697,11 @@ not a promise), within the copy limits above: the shared Instagram FAQ
 (`INSTAGRAM_FAQ`, 45 words), the home "What are your followers worth?"
 line, the /get-started minimum-followers answer, a second /about honesty
 bullet ("The follower headline is a strong case: a best case, not
-typical.") and the footer note ("Figures on this site are labelled
-estimates, never promises."). The render test that no page calls the
+typical.") and the footer note ("Earnings and follower figures are
+labelled estimates, never promises.", the /about bullet's wording and
+the llms.txt scope; the merge first said "Figures on this site", which
+also covered firm terms such as the commission bands, and review narrowed
+it). The render test that no page calls the
 follower result an estimate range now also covers /, /get-started and the
 footer. The calculator's CSS uses the shared tokens, which resolve to the
 light palette on public pages (white card, paper result panel, ink figure,

@@ -174,8 +174,8 @@ export function MarketingFooter({ appName, initials }: BrandProps) {
         ))}
       </nav>
       <p className="mk-footer-note muted">
-        © {new Date().getFullYear()} {appName}. Figures on this site are
-        labelled estimates, never promises. Coaching is not medical advice.{" "}
+        © {new Date().getFullYear()} {appName}. Earnings and follower figures
+        are labelled estimates, never promises. Coaching is not medical advice.{" "}
         {/* Opens the optional analytics preferences (components/
             acquisition.tsx listens for this attribute); it replaces the
             floating preferences button on pages with this footer. */}

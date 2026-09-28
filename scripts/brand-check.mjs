@@ -397,8 +397,12 @@ async function homeChecks(scheme) {
       const main = document.querySelector("main");
       const calc = document.querySelector(".mk-home-calc");
       const count = (t) => (t ?? "").split(/\s+/).filter(Boolean).length;
+      // The 400-word budget covers `main` outside the follower calculator
+      // (`.mk-home-calc`), which belongs to the calculator package; its
+      // visible words are reported separately so the total is never hidden.
       return {
         words: count(main.innerText) - count(calc?.innerText),
+        calcWords: count(calc?.innerText),
         h2: [...main.querySelectorAll("h2")].length,
         h1: document.querySelectorAll("h1").length,
         relayH: document.querySelectorAll(".mk-relay h1, .mk-relay h2, .mk-relay h3, .mk-home-calc h1").length,
@@ -413,7 +417,7 @@ async function homeChecks(scheme) {
     if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
-    if (m.words > 400) fail(label, `${m.words} visible words in main (limit 400)`);
+    if (m.words > 400) fail(label, `${m.words} visible words in main outside the calculator (limit 400)`);
     if (m.h2 > 6) fail(label, `${m.h2} H2 headings`);
     if (m.h1 !== 1 || m.relayH) fail(label, `${m.h1} H1, ${m.relayH} headings in the relay or calculator`);
     await page.mouse.wheel(0, 600);
@@ -423,7 +427,7 @@ async function homeChecks(scheme) {
       .then(() => page.locator(".consent-bar").boundingBox());
     if (!bar || bar.height > 64) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 64)`);
     console.log(
-      `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main, ${m.h2} H2`,
+      `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main outside the calculator (limit 400), ${m.calcWords} in the calculator, ${m.words + m.calcWords} in total, ${m.h2} H2`,
     );
     await ctx.close();
   });
