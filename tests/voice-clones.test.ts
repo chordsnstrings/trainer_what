@@ -842,6 +842,31 @@ test("a refused or unsent clone request releases its cost; automatic retries bac
   }
 });
 
+test("a Cartesia plan without cloning (HTTP 402, as the free tier answered live) keeps the recording, alerts operators and hides the provider's upgrade text", async () => {
+  const draft = await draftWith(third, "instant");
+  mock.failNext.clone = 402;
+  let failed: any;
+  try {
+    failed = await ok(`/voice/clones/${draft.id}/submit`, "POST", { revision: draft.version }, third);
+  } finally {
+    delete mock.failNext.clone;
+  }
+  assert.deepEqual([failed.status, failed.error.code, failed.retryable], ["failed", "PROVIDER_PLAN", true]);
+  assert.doesNotMatch(failed.error.message, /upgrade|subscription|play\.cartesia|HTTP 402/i, "the trainer is not told to upgrade the provider plan");
+  assert.equal(failed.recordings[0].status, "stored", "the recording is kept for another try");
+  const [alert] = await db.system((tx) => tx.query("SELECT status,severity,scope,tenant_id,data FROM platform_alerts WHERE dedupe_key='voice.provider_plan'"));
+  assert.deepEqual([alert.status, alert.severity, alert.scope, alert.tenant_id], ["open", "warning", ["admin"], null]);
+  assert.deepEqual(alert.data, { kind: "instant", status: 402, code: "plan_upgrade_required" });
+  const costs = await rows(third, "SELECT status,cost_usd FROM cost_events WHERE task='voice.clone' AND trace_id=$1", [draft.id]);
+  assert.ok(costs.every((c) => c.status === "recorded" && Number(c.cost_usd) === 0), "a plan refusal costs nothing");
+  // Once the plan allows cloning, the same recording makes the clone and the alert clears.
+  const again = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: failed.version }, third);
+  assert.equal(again.status, "ready");
+  const [cleared] = await db.system((tx) => tx.query("SELECT status,resolution FROM platform_alerts WHERE dedupe_key='voice.provider_plan'"));
+  assert.deepEqual(cleared, { status: "resolved", resolution: "condition_cleared" });
+  await ok(`/voice/clones/${draft.id}`, "DELETE", undefined, third);
+});
+
 test("after a lost answer the deletion keeps looking up the name while the provider's list lags", async () => {
   mock.loseNextAnswer.add("clone");
   const lost = await quickClone(third);

@@ -818,7 +818,10 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "VOICE_QUICK_CLONE_ENABLED",
         "Let trainers make a Quick clone (Cartesia)",
         "boolean",
-        { defaultValue: "true" },
+        {
+          defaultValue: "true",
+          help: "Needs a paid Cartesia plan (Pro or higher on 28 September 2026). The free tier refuses cloning (HTTP 402, plan_upgrade_required) and has no commercial use licence; the connection check cannot see the plan. A refused clone alerts operators and the trainer can try again after the upgrade.",
+        },
       ),
       field(
         "VOICE_PRO_CLONE_ENABLED",

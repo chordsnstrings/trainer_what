@@ -262,6 +262,18 @@ export class CartesiaMock {
     return true;
   }
   private problem(status: number, code: string | null, message: string): MockResponse {
+    // The body Cartesia's free tier returned to Clone Voice (live check, 28 September 2026).
+    if (status === 402)
+      return {
+        status,
+        body: {
+          error_code: "plan_upgrade_required",
+          message:
+            "This feature is not available on the free tier, please upgrade your subscription at (https://play.cartesia.ai/subscription) or contact us at support@cartesia.ai.",
+          title: "Feature not available",
+          request_id: randomUUID(),
+        },
+      };
     return { status, body: { error_code: code, title: "Mock error", message, request_id: "req_" + randomUUID() } };
   }
   private checked(r: MockRequest, handler: (r: MockRequest) => MockResponse | Promise<MockResponse>) {

@@ -163,6 +163,16 @@ const CLONE_COLUMNS =
  * trainer deletes the clone and records again.
  */
 const NOT_RETRYABLE = new Set(["RECORDING_MISSING", "RECORDING_UNREADABLE", "TRAINING_FAILED"]);
+/**
+ * Cartesia's refusal when the account's plan lacks the feature (HTTP 402
+ * `plan_upgrade_required`; its free tier answered this to Clone Voice in the
+ * live check of 28 September 2026). It is the platform's plan, not the
+ * trainer's: the trainer never sees the provider's upgrade text, the
+ * recordings stay for "Try again" and operators are alerted.
+ */
+const planRefused = (error: CartesiaError) =>
+  error.status === 402 || error.code === "plan_upgrade_required";
+const PLAN_ALERT = "voice.provider_plan";
 /** Each Pro training attempt has its own provider name, `<clone name>-<n>`. */
 const fineTuneName = (clone: Clone, round: number) => `${clone.provider_name}-${round}`;
 
@@ -592,6 +602,8 @@ async function ready(
   model: string | null,
   job: Job,
 ) {
+  // A clone made shows the provider's plan allows cloning again.
+  await clearPlatformAlert(db, PLAN_ALERT).catch(() => 0);
   return db.tenant(actor, async (tx) => {
     const retireDataset = clone.kind === "pro" && !!job.datasetId && !job.datasetRetired;
     const saved = await save(tx, clone.id, lease, {
@@ -631,7 +643,8 @@ async function queueStrays(tx: Tx, clone: Clone) {
 }
 /**
  * A failed provider request. `rejected`: the clone fails with the provider's
- * reason. `retry` (nothing reached the provider, or it asked to wait): tried
+ * reason (a plan refusal fails it with PROVIDER_PLAN and alerts operators).
+ * `retry` (nothing reached the provider, or it asked to wait): tried
  * again with a growing delay, and failed after MAX_RETRIES in a row.
  * `ambiguous` (it may have been processed): reconciled before any resend.
  */
@@ -644,7 +657,8 @@ async function outcome(
   job: Job,
   on: { ambiguous?: { step?: string; job?: Job }; retry?: { step?: string; job?: Job } } = {},
 ): Promise<StepResult> {
-  return db.tenant<StepResult>(actor, async (tx) => {
+  let planAlert = false;
+  const result = await db.tenant<StepResult>(actor, async (tx) => {
     if (!(error instanceof CartesiaError)) {
       const code = (error as any)?.code;
       if (code === "VOICE_CONSENT")
@@ -653,7 +667,16 @@ async function outcome(
         await save(tx, clone.id, lease, { next_attempt_at: later(300) });
       return "wait";
     }
-    if (error.outcome === "rejected")
+    if (error.outcome === "rejected" && planRefused(error))
+      planAlert = await failClone(
+        tx,
+        clone,
+        lease,
+        "PROVIDER_PLAN",
+        "Voice cloning is not switched on for this platform's voice provider account yet. The platform team has been told. Your recordings are kept: try again once they confirm it is on.",
+        job,
+      );
+    else if (error.outcome === "rejected")
       await failClone(tx, clone, lease, error.code ?? "PROVIDER_REFUSED", error.message, job);
     else if (error.outcome === "retry") {
       const retries = Number(clone.provider_job?.retries ?? 0) + 1;
@@ -682,6 +705,17 @@ async function outcome(
     }
     return "wait";
   });
+  if (planAlert && error instanceof CartesiaError)
+    await raisePlatformAlert(db, PLAN_ALERT, {
+      dedupeKey: PLAN_ALERT,
+      fingerprint: clone.kind,
+      severity: "warning",
+      scope: ["admin"],
+      title: "The Cartesia plan does not include voice cloning",
+      detail: `Cartesia refused a trainer's ${clone.kind === "pro" ? "Pro" : "Quick"} clone (HTTP ${error.status ?? "?"}${error.code ? ", " + error.code : ""}): the account's plan does not include it. On Cartesia's pricing read on 28 September 2026, Quick (instant) clones need the Pro plan or higher and Pro clones the Startup plan or higher; the free tier has neither and no commercial use licence. Upgrade the Cartesia plan, or switch that clone type off under Trainer voice. The trainer's recordings are kept and they can try again; this alert clears when a clone is made.`,
+      data: { kind: clone.kind, status: error.status, code: error.code },
+    }).catch(() => undefined);
+  return result;
 }
 async function openSample(tenantId: string, sample: any) {
   return openSealedBytes(

@@ -62,6 +62,10 @@ Rules (`packages/domain/src/voice-clone.ts`, enforced again in the database):
 - A provider that keeps answering "try again later" (HTTP 429, or unreachable before sending)
   is retried with a growing wait (2 minutes doubling to 1 hour); after 10 such answers in a row
   the clone fails with `PROVIDER_UNAVAILABLE`.
+- A Cartesia plan without cloning (HTTP 402, `plan_upgrade_required`) fails the clone with
+  `PROVIDER_PLAN`: the recordings are kept for "Try again", the trainer is not shown the
+  provider's upgrade text, and operators get the `voice.provider_plan` alert (cleared when a
+  clone is made).
 - Pro deadlines count from the current training attempt (not the first submission): no answer
   within a day fails with `TRAINING_TIMEOUT`; a completed training that lists no voice within
   6 hours fails with `PROVIDER_VOICE_MISSING`. A failed Pro clone's training is queued for
@@ -274,13 +278,64 @@ Events: `voice.clone_started`, `_submitted`, `_retried`, `_ready`, `_previewed`,
   X-API-Key) and `Cartesia-Version`, requires a dated model for Pro voices, advances fine-tunes
   through `training` to `completed` over polls, and can lose an answer after acting
   (`loseNextAnswer`) or fail a call (`failNext`).
-- Not verified against Cartesia: the account's plan and Pro slots, whether Bearer or X-API-Key is
-  preferred on this account, per-clone credit charges, maximum transcript length, real audio
-  quality, timing and failure texts, how a Pro voice is named, and that a Pro voice still speaks
-  after its dataset is deleted. The live smoke stage checks these (Pro stays off until then).
+- Checked live on 28 September 2026 (next section): Bearer auth with `Cartesia-Version`
+  2026-08-14, speech, transcription, the voice list, name look-ups, the fine-tune and dataset
+  lists, and the "missing" answers the deletion queue relies on. The owner's account is on
+  Cartesia's free tier, which refuses cloning, so no clone was made.
+- Still not verified against Cartesia: a real Quick clone (creation answer, how soon a name
+  look-up finds it, speech from it, its deletion), per-clone credit charges, Pro slots, how a Pro
+  voice is named, that a Pro voice still speaks after its dataset is deleted, maximum transcript
+  length, and real audio quality. These need a Cartesia plan with cloning (Pro stays off until
+  then).
+
+## Live check against api.cartesia.ai (28 September 2026)
+
+A throwaway script (session scratchpad, not in the repository) called the branch's
+`CartesiaClient` with the owner's key, read at runtime and never printed or stored, through a
+proxy-aware transport that follows `providerRequest`'s rules (the permission check before
+sending, no redirects). `providerRequest` itself (pinned DNS, no proxy support) was not
+exercised. Every request the account received:
+
+| # | Request | Answer | What it showed |
+| --- | --- | --- | --- |
+| 1 | `GET /voices?limit=20` | 200 | Bearer key and version accepted; `data`, `has_more`, `next_page`; rows carry `is_owner`, `access`, `status`, `is_pro`, `language`. The account owned no voices. |
+| 2 | `POST /tts/bytes` (62 characters, public library voice "Skylar", `sonic-3.6`, `en`) | 200 | `audio/mpeg`, 63,574 bytes, MP3 with an ID3 tag, about 4.0 s; `x-request-id` header |
+| 3 | `POST /stt` (that MP3, `ink-whisper`, `en`, word timings) | 200 | "Welcome back. Take a slow breath and let's start your warm up." (input "warm-up"); `duration` 3.97 s, `language` en, `request_id`, `words` |
+| 4 | `POST /tts/bytes` (218 characters, same public voice) | 200 | 193,978 bytes, about 12.1 s: the synthetic sample for the clone (no real person's voice) |
+| 5 | `POST /voices/clone` (that sample, name `trainsyou-smoke-delete-me`, `en`) | **402** | `plan_upgrade_required`: "This feature is not available on the free tier, please upgrade your subscription ...". The adapter read it as `rejected` with status and code. Nothing was created. |
+| 6 | `GET /voices?limit=100&q=trainsyou-smoke-delete-me&is_owner=true` | 200 | Empty: no clone was left on the account |
+| 7 | `DELETE /voices/<random UUID>` | 404 | "Voice not found"; the adapter answers `missing`, as the deletion queue expects |
+| 8 | `GET /fine-tunes/?limit=100` | 200 | `{"data":[],"has_more":false,"next_page":null}` (lists are readable on the free tier) |
+| 9 | `GET /datasets/?limit=100` | 200 | Same empty page |
+| 10 | `GET /fine-tunes/<random UUID>/voices?limit=100` | 404 | "Fine tune not found"; fine-tune deletion already tolerates this 404 |
+
+Cost to the account: about 280 characters of speech and 4 seconds of transcription (a few
+hundred credits); no clone, dataset or fine-tune was made. Audio files and the JSON reports stay
+in the session scratchpad.
+
+What changed because of it:
+
+- A plan refusal (HTTP 402 or `plan_upgrade_required`, on any clone step, Quick or Pro) now
+  fails the clone with `PROVIDER_PLAN` and a trainer message that does not repeat the
+  provider's upgrade text ("Voice cloning is not switched on for this platform's voice provider
+  account yet ..."). The recordings are kept, so "Try again" works once the plan allows cloning;
+  the cost reservation is released. Operators get the `voice.provider_plan` platform alert
+  (warning, administrators), which clears when any clone is made.
+- The Quick clone switch's help text says cloning needs a paid Cartesia plan and that the
+  connection check cannot see the plan.
+- The Cartesia double answers a `failNext` 402 with the body Cartesia returned.
+
+Also learned: Cartesia's pricing page (read 28 September 2026) lists instant cloning from the
+Pro plan (5 USD a month) and Pro cloning from Startup (2 slots) and Scale (4); the free tier
+also has no commercial use licence. MP3 speech at 128 kbps is about 16 KB a second, so
+`providerRequest`'s 2 MB response cap allows about 130 seconds of speech per request.
 
 ## Owner decisions pending
 
+0. The Cartesia plan. The key supplied on 28 September 2026 is on the free tier: speech and
+   transcription work, cloning is refused (HTTP 402) and the tier has no commercial use licence.
+   Quick clones need at least the Pro plan; Pro clones need Startup or higher. Until the plan is
+   upgraded, trainers' clones fail with `PROVIDER_PLAN` and operators are alerted.
 1. The Pro clone price shown to trainers (`VOICE_PRO_CLONE_PRICE_AED`) and how it is billed (the
    app shows it and records it in the clone's evidence but does not charge it).
 2. Whether Pro is switched on by default (it is off; it needs a Cartesia Startup plan or higher,
