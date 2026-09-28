@@ -540,7 +540,9 @@ export function FollowerInvitations({ role }: { role: string }) {
           {rows.map((i: any) => (
             <li key={i.id}>
               <div className="invitation-main">
-                <strong>{i.email}</strong>
+                <strong>
+                  <span dir="ltr">{i.email}</span>
+                </strong>
                 <span className={`badge ${statusTone[i.status] ?? ""}`}>
                   {i.status}
                 </span>

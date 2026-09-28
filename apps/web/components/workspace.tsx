@@ -62,6 +62,7 @@ import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
+import { MemberLanguage } from "./document-direction";
 import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
@@ -764,6 +765,7 @@ export default function Workspace() {
   const platformName = state.platform?.name || "Trainer Brain";
   return (
     <Shell className="workspace" theme={state.tenant.theme}>
+      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && (
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
       )}
@@ -2232,7 +2234,9 @@ function Members({ state }: ViewProps) {
                         <Link href={`/trainer/subscribers/${m.id}`}>
                           <strong>{m.name}</strong>
                         </Link>
-                        <small>{m.email}</small>
+                        <small>
+                          <span dir="ltr">{m.email}</span>
+                        </small>
                       </td>
                       <td>{m.programs ?? 0} assigned</td>
                       <td>
@@ -3373,22 +3377,36 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           <div className="stats-grid">
             <Card className="stat">
               <span className="small-label">Trainer payable</span>
-              <strong>{money(state.finance?.earnedMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">{money(state.finance?.earnedMinor ?? 0)}</span>
+              </strong>
               <span className="muted">After booked adjustments</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Allocated to payouts</span>
-              <strong>{money(state.finance?.reservedMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.reservedMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Held or in progress</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Available to allocate</span>
-              <strong>{money(state.finance?.availableMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.availableMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Funding and eligibility still apply</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Platform commission</span>
-              <strong>{money(state.finance?.commissionMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.commissionMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Marginal subscriber bands</span>
             </Card>
           </div>
@@ -3670,12 +3688,18 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                           <td>{new Date(j.created_at).toLocaleDateString()}</td>
                           <td>{j.description}</td>
                           <td>
-                            {j.data.grossMinor ? money(j.data.grossMinor) : "—"}
+                            <span dir="ltr">
+                              {j.data.grossMinor
+                                ? money(j.data.grossMinor)
+                                : "—"}
+                            </span>
                           </td>
                           <td>
-                            {j.data.commissionMinor
-                              ? money(j.data.commissionMinor)
-                              : "—"}
+                            <span dir="ltr">
+                              {j.data.commissionMinor
+                                ? money(j.data.commissionMinor)
+                                : "—"}
+                            </span>
                           </td>
                         </tr>
                       ))}
@@ -3710,7 +3734,9 @@ function PayoutView({ state, records, action, busy, more }: ViewProps) {
           <div className="list-row" key={b.id}>
             <div>
               <strong>{b.data.name}</strong>
-              <p>{b.data.maskedIban}</p>
+              <p>
+                <span dir="ltr">{b.data.maskedIban}</span>
+              </p>
             </div>
             <Badge>{b.status}</Badge>
           </div>
@@ -3735,7 +3761,12 @@ function PayoutView({ state, records, action, busy, more }: ViewProps) {
             ["city", "City"],
           ].map(([name, label]) => (
             <Field key={name} label={label}>
-              <input name={name} required autoComplete="off" />
+              <input
+                name={name}
+                required
+                autoComplete="off"
+                dir={name === "iban" ? "ltr" : undefined}
+              />
             </Field>
           ))}
           <p className="muted">

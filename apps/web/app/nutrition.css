@@ -63,13 +63,13 @@
   padding: 16px;
   border: 1px solid #d9e1d9;
   border-radius: 10px;
-  text-align: left;
+  text-align: start;
   background: #fafcf9;
   text-transform: capitalize;
 }
 .nutrition-coverage span {
   color: var(--meal-accent);
-  padding-right: 12px;
+  padding-inline-end: 12px;
 }
 .nutrition-option {
   border: 1px solid #dce3da;

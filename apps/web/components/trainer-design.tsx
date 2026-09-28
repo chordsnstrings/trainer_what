@@ -32,6 +32,7 @@ import {
   type BrandDesign,
   type BrandSection,
 } from "@trainer/contracts";
+import { directionOf, type Language } from "../document-language";
 
 import { PhotoUploader, MediaLibrary } from "./coach-site";
 
@@ -100,15 +101,19 @@ export function TrainerTheme({
   theme,
   children,
   className = "",
+  language,
 }: {
   theme: unknown;
   children: ReactNode;
   className?: string;
+  /** A coach website's language: sets its direction (Arabic is right to left). */
+  language?: Language;
 }) {
   const design = resolveBrandDesign(theme);
   return (
     <div
       className={`trainer-theme ${className}`}
+      {...(language ? { lang: language, dir: directionOf(language) } : {})}
       style={brandCssVariables(theme) as CSSProperties}
       data-brand-buttons={design.buttonStyle}
       data-brand-density={design.density}
@@ -699,12 +704,17 @@ export function TrainerDesign({
               event.preventDefault();
               const tabs = ["Identity", "Style", "Home layout", "Preview"],
                 index = tabs.indexOf(tab);
+              // The row mirrors right to left, so the next tab is then on the
+              // left and ArrowLeft moves forward.
+              const rtl =
+                getComputedStyle(event.currentTarget).direction === "rtl";
+              const forward = event.key === (rtl ? "ArrowLeft" : "ArrowRight");
               const next =
                 event.key === "Home"
                   ? 0
                   : event.key === "End"
                     ? 3
-                    : (index + (event.key === "ArrowRight" ? 1 : -1) + 4) % 4;
+                    : (index + (forward ? 1 : -1) + 4) % 4;
               setTab(tabs[next]);
               document
                 .getElementById(`design-tab-${tabs[next].replace(" ", "-")}`)

@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { parseLanguage } from "../document-language";
+import { rememberMemberLanguage } from "./document-direction";
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -41,10 +43,15 @@ export function NotificationPreferences() {
             setBusy(true);
             try {
               const { options, ...body } = value;
-              setValue({
-                ...(await api("/notifications/preferences", "PUT", body)),
-                options,
-              });
+              const saved = await api(
+                "/notifications/preferences",
+                "PUT",
+                body,
+              );
+              setValue({ ...saved, options });
+              // The saved language also sets the workspace direction.
+              const language = parseLanguage(saved.data?.language);
+              if (language) rememberMemberLanguage(language);
               setError("Preferences saved.");
             } catch (e) {
               setError((e as Error).message);
@@ -95,7 +102,7 @@ export function NotificationPreferences() {
           </label>
           <small>
             Messages use reviewed Arabic wording where it is published and
-            English otherwise.
+            English otherwise. Arabic also arranges the app from right to left.
           </small>
           <label className="field">
             <span>Time zone</span>
@@ -200,8 +207,11 @@ export function NotificationInbox() {
             {n.category} · {new Date(n.created_at).toLocaleString()}
             {n.read_at ? " · Read" : " · New"}
           </small>
-          <h2>{n.title}</h2>
-          <p style={{ whiteSpace: "pre-wrap" }}>{n.body}</p>
+          {/* Reviewed Arabic templates read right to left in any layout. */}
+          <h2 dir="auto">{n.title}</h2>
+          <p style={{ whiteSpace: "pre-wrap" }} dir="auto">
+            {n.body}
+          </p>
           <div className="actions">
             {n.href && (
               <Link className="button secondary" href={n.href}>

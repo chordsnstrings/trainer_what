@@ -5,6 +5,13 @@ import {
   proxyHost,
   verifiedProxyHeaders,
 } from "./host-proxy";
+import {
+  LANGUAGE_COOKIE,
+  LANGUAGE_COOKIE_MAX_AGE,
+  LANGUAGE_HEADER,
+  PAGE_PATH_HEADER,
+  parseLanguage,
+} from "./document-language";
 
 export async function proxy(request: NextRequest) {
   try {
@@ -44,7 +51,27 @@ export async function proxy(request: NextRequest) {
         request: { headers: forwarded },
       });
     }
-    if (!custom) return NextResponse.next({ request: { headers: forwarded } });
+    // Page requests: an explicit ?lang= becomes the device language cookie
+    // (its only writer; readable by the page, which restores it after leaving
+    // a coach website client-side) and, with the final page path, reaches the
+    // root layout's <html lang dir> as server-set headers (client copies of
+    // x-trainer-* were removed above).
+    const language = parseLanguage(request.nextUrl.searchParams.get("lang"));
+    if (language) forwarded.set(LANGUAGE_HEADER, language);
+    const remember = (response: NextResponse) => {
+      if (language)
+        response.cookies.set(LANGUAGE_COOKIE, language, {
+          path: "/",
+          maxAge: LANGUAGE_COOKIE_MAX_AGE,
+          sameSite: "lax",
+          secure: custom || publicUrl.protocol === "https:",
+        });
+      return response;
+    };
+    if (!custom) {
+      forwarded.set(PAGE_PATH_HEADER, request.nextUrl.pathname);
+      return remember(NextResponse.next({ request: { headers: forwarded } }));
+    }
     if (!secret)
       return NextResponse.json(
         { message: "Custom domain routing requires internal request signing." },
@@ -95,9 +122,12 @@ export async function proxy(request: NextRequest) {
     forwarded.set("x-trainer-site-slug", mapping.tenantSlug);
     forwarded.set("x-trainer-site-tenant", mapping.tenantId);
     forwarded.set("x-trainer-site-origin", "https://" + host);
+    forwarded.set(PAGE_PATH_HEADER, path);
     const url = request.nextUrl.clone();
     url.pathname = path;
-    return NextResponse.rewrite(url, { request: { headers: forwarded } });
+    return remember(
+      NextResponse.rewrite(url, { request: { headers: forwarded } }),
+    );
   } catch {
     return NextResponse.json(
       {

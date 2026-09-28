@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
 import { coachAppLinks } from "./app-routes";
 import { InquirySource } from "./lead-analytics";
+import { PageLanguage } from "./document-direction";
+import { parseLanguage, type Language } from "../document-language";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -553,6 +555,12 @@ export function WebsiteStudio({
           <input
             value={draft[k] ?? ""}
             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+            // Email, phone and links read left to right in either layout.
+            dir={
+              ["contactEmail", "whatsapp", "instagram", "youtube"].includes(k)
+                ? "ltr"
+                : undefined
+            }
           />
         )}
       </Field>
@@ -621,6 +629,19 @@ export function WebsiteStudio({
             {field("introduction", "Introduction", true)}
             {field("about", "About your coaching", true)}
             {field("cta", "Join button text")}
+            <Field label="Website language">
+              <select
+                value={draft.language ?? "en"}
+                onChange={(e) =>
+                  setDraft({ ...draft, language: e.target.value })
+                }
+              >
+                <option value="en">English (left to right)</option>
+                <option value="ar" lang="ar">
+                  العربية — Arabic (right to left)
+                </option>
+              </select>
+            </Field>
           </section>
           <section className="card">
             <h2>Contact & social links</h2>
@@ -763,7 +784,9 @@ export function WebsiteStudio({
               inquiries.map((r) => (
                 <article key={r.id}>
                   <h3>{r.data.name}</h3>
-                  <a href={`mailto:${r.data.email}`}>{r.data.email}</a>
+                  <a href={`mailto:${r.data.email}`} dir="ltr">
+                    {r.data.email}
+                  </a>
                   <p className="site-prose">{r.data.message}</p>
                   <small>{r.status}</small>
                   <InquirySource attribution={r.attribution} />
@@ -802,10 +825,13 @@ export function CoachWebsite({
   initialData,
   path = "",
   preview = false,
+  language,
 }: {
   initialData?: any;
   path?: string;
   preview?: boolean;
+  /** The document language the server resolved for this public page. */
+  language?: Language;
 }) {
   const [data, setData] = useState<any>(initialData ?? null),
     [message, setMessage] = useState(""),
@@ -847,9 +873,23 @@ export function CoachWebsite({
   const custom = (site.pages ?? []).find(
       (p: any) => p.slug === section && p.visible,
     ),
-    paragraph = (v: string) => <div className="site-prose">{v}</div>;
+    // The coach's own text follows its own direction inside either layout.
+    paragraph = (v: string) => (
+      <div className="site-prose" dir="auto">
+        {v}
+      </div>
+    );
+  // Public pages use the server-resolved language (the visitor's choice, else
+  // the website's); the private preview shows the draft's own language.
+  const pageLanguage =
+    (preview ? null : language) ?? parseLanguage(site.language) ?? "en";
   return (
-    <TrainerTheme theme={tenant.theme} className="coach-website">
+    <TrainerTheme
+      theme={tenant.theme}
+      className="coach-website"
+      language={pageLanguage}
+    >
+      {!preview && <PageLanguage language={pageLanguage} />}
       <header className="site-header">
         <Link href={base}>
           <CoachIdentity name={tenant.name} theme={tenant.theme} />
@@ -902,7 +942,12 @@ export function CoachWebsite({
                     1200,
                   ),
                 )}
-                <Link href={`${base}/about`}>Meet your coach →</Link>
+                <Link href={`${base}/about`}>
+                  Meet your coach{" "}
+                  <span className="bidi-mirror" aria-hidden="true">
+                    →
+                  </span>
+                </Link>
               </div>
               {tenant.theme?.design?.photoUrl && (
                 <img src={tenant.theme.design.photoUrl} alt={tenant.name} />
@@ -1010,7 +1055,7 @@ export function CoachWebsite({
               <h1>Let’s talk about your goals.</h1>
               {site.contactEmail && (
                 <p>
-                  <a href={`mailto:${site.contactEmail}`}>
+                  <a href={`mailto:${site.contactEmail}`} dir="ltr">
                     {site.contactEmail}
                   </a>
                 </p>

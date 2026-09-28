@@ -1,10 +1,12 @@
 import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import type { Metadata, Viewport } from "next";
-import { verifiedProxyHeaders } from "../../host-proxy";
+import {
+  documentLanguage,
+  publicWebsite as website,
+} from "../../components/public-website";
 import {
   DIRECTORY_PATH,
   isIndexablePlatformPath,
@@ -50,37 +52,6 @@ const directory = cache(async (query: string): Promise<DirectoryResult> => {
   }
   if (!response.ok)
     throw new Error("The coach directory is temporarily unavailable.");
-  return response.json();
-});
-const website = cache(async (slug: string) => {
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) return null;
-  const incoming = await headers(),
-    origin =
-      incoming.get("x-trainer-site-origin") ??
-      process.env.PUBLIC_APP_URL ??
-      "http://localhost:3000";
-  const target = `/api/v1/public/sites/${slug}`;
-  const response = await fetch(
-    new URL(target, process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000"),
-    {
-      headers: verifiedProxyHeaders(
-        new Headers(),
-        new URL(origin).host,
-        "GET",
-        target,
-        process.env.INTERNAL_PROXY_SECRET,
-        Date.now(),
-        // Set by proxy.ts from the edge address after removing client copies.
-        incoming.get("x-trainer-client-ip"),
-      ),
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(8000),
-    },
-  );
-  if (response.status === 404 || response.status === 421) return null;
-  if (!response.ok)
-    throw new Error("This coaching website is temporarily unavailable.");
   return response.json();
 });
 /**
@@ -185,7 +156,17 @@ export default async function Page({
         !data.site.pages.some((p: any) => p.visible && p.slug === section))
     )
       notFound();
-    return <CoachWebsite initialData={data} path={path.slice(2).join("/")} />;
+    // The same language as <html>: the visitor's explicit choice, else the
+    // website's own. The website root carries it too, so client-side
+    // navigation between pages keeps the right direction.
+    const { lang } = await documentLanguage();
+    return (
+      <CoachWebsite
+        initialData={data}
+        path={path.slice(2).join("/")}
+        language={lang}
+      />
+    );
   }
   return <Workspace />;
 }

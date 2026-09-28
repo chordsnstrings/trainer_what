@@ -452,7 +452,13 @@ export function MealCapture() {
       )}
       {message && (
         <p className="notice" role="status">
-          {message} <Link href="/app/nutrition">Open nutrition →</Link>
+          {message}{" "}
+          <Link href="/app/nutrition">
+            Open nutrition{" "}
+            <span className="bidi-mirror" aria-hidden="true">
+              →
+            </span>
+          </Link>
         </p>
       )}
       {!settings && (
@@ -628,7 +634,10 @@ export function MealCapture() {
               }
               onClick={() => void analyse()}
             >
-              Estimate this meal <span aria-hidden="true">↗</span>
+              Estimate this meal{" "}
+              <span className="bidi-mirror" aria-hidden="true">
+                ↗
+              </span>
             </button>
           </section>
           <aside className="card capture-aside">
@@ -737,7 +746,10 @@ export function MealCapture() {
               }
               onClick={() => void findProduct()}
             >
-              Find product ↗
+              Find product{" "}
+              <span className="bidi-mirror" aria-hidden="true">
+                ↗
+              </span>
             </button>
           </section>
           <aside className="card capture-aside">
@@ -911,7 +923,10 @@ export function MealCapture() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Source: Open Food Facts ↗
+                    Source: Open Food Facts{" "}
+                    <span className="bidi-mirror" aria-hidden="true">
+                      ↗
+                    </span>
                   </a>{" "}
                   · ODbL · Retrieved{" "}
                   {new Date(
