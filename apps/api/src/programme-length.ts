@@ -27,14 +27,27 @@ export async function programmeLengthDays(
   tx: Tx,
   userId: string,
 ): Promise<number> {
-  const [offer] = await tx.query(
-    "SELECT p.data->>'programmeDays' AS days FROM subscriptions s JOIN records p ON p.kind='product' AND p.id::text=s.data->>'productId' WHERE s.user_id=$1 LIMIT 1",
+  // The length snapshotted on the paid membership, else the offer's.
+  const [s] = await tx.query(
+    "SELECT data FROM subscriptions WHERE user_id=$1",
     [userId],
   );
-  const offered = validDays(offer?.days);
-  if (offered) return offered;
+  const snapshot =
+    s?.data && Object.prototype.hasOwnProperty.call(s.data, "programmeDays")
+      ? validDays(s.data.programmeDays)
+      : undefined;
+  if (snapshot) return snapshot;
+  if (snapshot === undefined && s?.data?.productId) {
+    const [offer] = await tx.query(
+      "SELECT data->>'programmeDays' AS days FROM records WHERE id::text=$1 AND kind='product'",
+      [String(s.data.productId)],
+    );
+    const offered = validDays(offer?.days);
+    if (offered) return offered;
+  }
+  // Rolling: the Brain's default block length (the trainer's plan setting).
   const [settings] = await tx.query(
-    "SELECT data->>'defaultBlockDays' AS days FROM records WHERE kind='plan_brain_settings' ORDER BY created_at DESC LIMIT 1",
+    "SELECT data->'settings'->>'defaultBlockDays' AS days FROM records WHERE kind='plan_brain_settings' ORDER BY created_at DESC LIMIT 1",
   );
   return validDays(settings?.days) ?? BRAIN_DEFAULT_PROGRAMME_DAYS;
 }

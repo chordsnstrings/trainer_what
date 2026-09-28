@@ -9,8 +9,9 @@ import { addTrainingDays, canonicalCoaching } from "./coaching-completion.ts";
  */
 export const planPromptVersion = "brain-plan-v1";
 export const planAdaptationPromptVersion = "brain-plan-adapt-v1";
-export const planValidatorVersion = "brain-plan-validator-v1";
+export const planValidatorVersion = "brain-plan-validator-v2";
 export const planConfidenceVersion = "brain-plan-confidence-v1";
+export const planRouteVersion = "brain-plan-route-v2";
 
 const name = z.string().trim().min(2).max(100);
 export const planExerciseSchema = z
@@ -21,7 +22,8 @@ export const planExerciseSchema = z
     loadKg: z.number().min(0).max(500),
     rir: z.number().int().min(0).max(5),
     restSeconds: z.number().int().min(15).max(600),
-    cue: z.string().max(500).default(""),
+    // Library cues may be up to 1000 characters (trainingExerciseSchema).
+    cue: z.string().max(1000).default(""),
     alternatives: z.array(name).max(4).default([]),
   })
   .strict();
@@ -113,6 +115,18 @@ export const planBoundsSchema = z
     maxSessionMinutes: z.number().int().min(20).max(180).default(75),
     minRestSeconds: z.number().int().min(15).max(300).default(30),
     maxRestSeconds: z.number().int().min(30).max(600).default(240),
+    /**
+     * Week-1 load limit (kg) for an exercise with no logged history and no
+     * library load: the model's starting numbers are never trusted.
+     */
+    startLoadCapKg: z
+      .object({
+        beginner: z.number().min(0).max(500).default(20),
+        intermediate: z.number().min(0).max(500).default(40),
+        advanced: z.number().min(0).max(500).default(60),
+      })
+      .strict()
+      .prefault({}),
   })
   .strict()
   .refine((b) => b.minRestSeconds < b.maxRestSeconds, {
@@ -145,14 +159,52 @@ export const planProfileSchema = z
   })
   .strict();
 export type PlanProfile = z.infer<typeof planProfileSchema>;
-export const planScenarioSchema = z
+/** A held-out programme scenario: the Brain writes a plan for this profile. */
+export const planProgrammeScenarioSchema = z
   .object({
+    type: z.literal("programme").optional(),
     title: z.string().trim().min(3).max(150),
     profile: planProfileSchema,
-    programmeDays: z.number().int().min(7).max(84),
+    programmeDays: z.number().int().min(7).max(365),
     expected: z.enum(["deliverable", "review"]),
   })
   .strict();
+/**
+ * A held-out adaptation scenario: one prescribed week and how it went; the
+ * Brain proposes next week's changes, which are routed like a live week.
+ */
+export const planAdaptationScenarioSchema = z
+  .object({
+    type: z.literal("adaptation"),
+    title: z.string().trim().min(3).max(150),
+    profile: planProfileSchema,
+    week: z
+      .array(
+        z
+          .object({
+            sessionKey: z.string().regex(/^[A-G]$/),
+            exercises: z.array(planExerciseSchema).min(1).max(12),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(7),
+    outcomes: z
+      .object({
+        adherence: z.number().min(0).max(1),
+        /** Logged RIR relative to the prescription (negative: harder than planned). */
+        rirDelta: z.number().int().min(-3).max(3).default(0),
+        painReported: z.boolean().default(false),
+      })
+      .strict(),
+    expected: z.enum(["deliverable", "review"]),
+  })
+  .strict();
+export const planScenarioSchema = z.union([
+  planAdaptationScenarioSchema,
+  planProgrammeScenarioSchema,
+]);
+export type PlanScenario = z.infer<typeof planScenarioSchema>;
 
 // ---------------------------------------------------------------------------
 // Library and equipment
@@ -176,6 +228,8 @@ export function memberEquipment(text: string) {
 export type LibraryExercise = {
   name: string;
   equipment: string[] | null;
+  /** The trainer's default load for the exercise (kg), when above zero. */
+  loadKg?: number;
   alternatives: string[];
   cue: string;
   demonstrationUrl?: string;
@@ -203,6 +257,10 @@ export function planLibrary(
       equipment: prior?.equipment ?? equipment,
       alternatives: [...new Set([...(prior?.alternatives ?? []), ...alternatives])],
       cue: prior?.cue || (typeof e.cue === "string" ? e.cue : ""),
+      ...(prior?.loadKg !== undefined ||
+      (typeof e.loadKg === "number" && e.loadKg > 0)
+        ? { loadKg: prior?.loadKg ?? e.loadKg }
+        : {}),
       ...(prior?.demonstrationUrl || e.demonstrationUrl
         ? { demonstrationUrl: prior?.demonstrationUrl ?? e.demonstrationUrl }
         : {}),
@@ -326,6 +384,14 @@ export type PlanCheckContext = {
   library: PlanLibrary;
   bounds: PlanBounds;
   evidenceIds?: Set<string>;
+  /**
+   * Starting-load references (normalized exercise name to kg): the member's
+   * logged loads, else the library's default load. When given, an exercise
+   * with no previous week to compare against may start at most one load jump
+   * above its reference, or at the trainer's start cap when it has none.
+   * Omitted for a trainer's own edits (the trainer decides).
+   */
+  loadReference?: Map<string, number>;
 };
 export type PlanValidation = {
   errors: string[];
@@ -336,6 +402,8 @@ export type PlanValidation = {
     untaggedExercises: string[];
     taggedExercises: number;
     exerciseCount: number;
+    /** Exercises that started at or below the start cap with no load reference. */
+    unreferencedLoads: string[];
   };
 };
 function checkSessions(
@@ -371,6 +439,9 @@ function checkSessions(
           result.errors.push(`${alt} (alternative to ${e.name}) is not in the trainer's library`);
         else if (equipmentGaps(a, available).length)
           result.errors.push(`${alt} (alternative to ${e.name}) needs unavailable equipment`);
+        // The member may pick an alternative, so it needs checked equipment too.
+        else if (!a.equipment && !result.metrics.untaggedExercises.includes(a.name))
+          result.metrics.untaggedExercises.push(a.name);
       }
       if (e.sets > 10) result.errors.push(`${label}: ${e.name} exceeds 10 sets`);
       if (
@@ -430,6 +501,43 @@ function checkTransition(
         );
     }
 }
+/**
+ * Absolute starting loads: an exercise with nothing to compare against in the
+ * previous week starts within one load jump of the member's logged load or
+ * the library load, or at most at the trainer's start cap for this experience.
+ */
+function checkStartLoads(
+  sessions: Array<{ key: string; exercises: ExpandedExercise[] }>,
+  known: Set<string>,
+  ctx: PlanCheckContext,
+  where: string,
+  result: PlanValidation,
+) {
+  if (!ctx.loadReference) return;
+  const cap =
+    ctx.bounds.startLoadCapKg?.[ctx.profile.experience] ??
+    planBoundsSchema.parse({}).startLoadCapKg[ctx.profile.experience];
+  for (const s of sessions)
+    for (const e of s.exercises) {
+      const key = normalizeTerm(e.name);
+      if (known.has(key) || !(e.loadKg > 0)) continue;
+      const reference = ctx.loadReference.get(key);
+      if (reference !== undefined && reference > 0) {
+        const limit = Math.max((reference * ctx.bounds.maxLoadJumpPct) / 100, 1);
+        if (e.loadKg - reference > limit + 1e-9)
+          result.errors.push(
+            `${where}: ${e.name} starts at ${e.loadKg} kg, above the member's reference ${reference} kg (limit +${ctx.bounds.maxLoadJumpPct}%)`,
+          );
+      } else if (e.loadKg > cap + 1e-9)
+        result.errors.push(
+          `${where}: ${e.name} starts at ${e.loadKg} kg with no logged or library load (your start limit for ${ctx.profile.experience} subscribers is ${cap} kg)`,
+        );
+      else if (!result.metrics.unreferencedLoads.includes(e.name))
+        result.metrics.unreferencedLoads.push(e.name);
+    }
+}
+const names = (sessions: Array<{ exercises: ExpandedExercise[] }>) =>
+  new Set(sessions.flatMap((s) => s.exercises.map((e) => normalizeTerm(e.name))));
 const emptyValidation = (): PlanValidation => ({
   errors: [],
   warnings: [],
@@ -439,6 +547,7 @@ const emptyValidation = (): PlanValidation => ({
     untaggedExercises: [],
     taggedExercises: 0,
     exerciseCount: 0,
+    unreferencedLoads: [],
   },
 });
 function finish(result: PlanValidation, exerciseNames: string[], ctx: PlanCheckContext) {
@@ -500,6 +609,10 @@ export function validatePlan(
     const where = `Week ${week.week}`;
     checkSessions(week.sessions, ctx, where, result);
     result.metrics.weeklyVolume.push(volume(week.sessions));
+    // Week 1 has no earlier week in this draft: new exercises are bounded by
+    // the member's history, the library load or the start cap.
+    if (week.week === 1)
+      checkStartLoads(week.sessions, names(reference ?? []), ctx, where, result);
     if (reference) checkTransition(reference, week.sessions, ctx, where, result);
     if (!week.deload) reference = week.sessions;
   }
@@ -518,6 +631,8 @@ export function validateAdaptedWeek(
   const result = emptyValidation();
   checkSessions(next, ctx, "Next week", result);
   result.metrics.weeklyVolume.push(volume(next));
+  // A swapped-in alternative has no load this week to compare against.
+  checkStartLoads(next, names(current), ctx, "Next week", result);
   if (current.length) checkTransition(current, next, ctx, "Next week", result);
   return finish(
     result,
@@ -726,6 +841,70 @@ export function planConfidence(input: {
     signals,
     weights: confidenceWeights,
     reasons,
+  };
+}
+/**
+ * The delivery gate, shared by live plans, weekly adjustments and
+ * qualification: a plan goes out automatically only in automatic mode, once
+ * qualified, with no safety reason, no other hold-back reason, every exercise
+ * and alternative checked against the member's equipment, and a confident,
+ * error-free validation. Anything else goes to the trainer with the reasons.
+ */
+export function planRoute(input: {
+  type: "programme" | "adaptation";
+  mode: "automatic" | "supervised";
+  qualified: boolean;
+  qualificationReason?: string;
+  safety: string[];
+  /** Other reasons the trainer decides (for example a hand-written programme). */
+  holds?: string[];
+  confidence: ReturnType<typeof planConfidence>;
+  validation: PlanValidation;
+  equipment: string;
+}) {
+  const noun = input.type === "programme" ? "plan" : "adjustment";
+  const unchecked = memberEquipment(input.equipment).fullGym
+    ? []
+    : input.validation.metrics.untaggedExercises;
+  const holds = input.holds ?? [];
+  const automatic =
+    input.mode === "automatic" &&
+    input.qualified &&
+    !input.safety.length &&
+    !holds.length &&
+    !unchecked.length &&
+    input.confidence.confident;
+  const reasons = automatic
+    ? []
+    : [
+        ...input.safety.map((s) => "Safety: " + s),
+        ...holds,
+        ...(input.mode === "supervised"
+          ? [`Supervised mode: every ${noun} goes to you`]
+          : []),
+        ...(!input.qualified
+          ? [
+              input.qualificationReason ??
+                `Plan qualification has not passed for the current Brain, so every ${noun} goes to you`,
+            ]
+          : []),
+        ...(unchecked.length
+          ? [
+              `Equipment is unchecked for ${unchecked.slice(0, 5).join(", ")}: tag ${unchecked.length === 1 ? "it" : "them"} in your library (alternatives as their own library exercises) so the Brain can check the subscriber's equipment`,
+            ]
+          : []),
+        ...(!input.confidence.confident
+          ? [
+              `Confidence ${input.confidence.score.toFixed(2)} is below your threshold ${input.confidence.threshold.toFixed(2)}`,
+              ...input.confidence.reasons,
+            ]
+          : []),
+      ];
+  return {
+    version: planRouteVersion,
+    route: automatic ? ("automatic" as const) : ("review" as const),
+    reasons,
+    unchecked,
   };
 }
 /** Deterministic sampling so a spot check is reproducible for audit. */

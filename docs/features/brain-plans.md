@@ -1,7 +1,8 @@
 # Trainer Brain plan generation (work package `core/brain-plans`)
 
-Status: implemented on branch `core/brain-plans` (migration 063). Everything here is engineering
-work with a scripted fake model; no real model, provider or live server was used.
+Status: implemented on branch `core/brain-plans` (migration 063), then revised after review (see
+"Review fixes"). Everything here is engineering work with a scripted fake model; no real model,
+provider or live server was used.
 
 ## Plan (written before implementation)
 
@@ -76,7 +77,8 @@ Design:
 ### Data (migration `063_brain_plans.sql`)
 
 No new table: plans use `records` with staff-only kinds (`plan_brain_settings`,
-`plan_generation`, `plan_learning`, `plan_scenario`, `plan_qualification`); none is in
+`plan_generation`, `plan_learning`, `plan_scenario`, `plan_qualification`, and
+`plan_schedule_state`, the scheduler's cursor with no owner); none is in
 `record_subscriber_scope`, so a follower's scope cannot read them. The migration adds a unique
 settings row per workspace, one generation per worker job (`data.jobId`), a queue index, one
 learning example per generation, and the definer helper `member_plan_status()` (a follower's own
@@ -91,10 +93,19 @@ equipment), the plan excerpt, the diff and the trainer's note.
 
 ### Shared contract
 
-`apps/api/src/programme-length.ts` — `programmeLengthDays(tx, userId)`: the member's current offer
-(`subscriptions.data.productId` → `product.data.programmeDays`, 7..365), else the trainer's
-`defaultBlockDays` plan setting, else 28 (`BRAIN_DEFAULT_PROGRAMME_DAYS`). The `programme` package
-owns the final logic; the signature is the agreed one.
+`apps/api/src/programme-length.ts` — `programmeLengthDays(tx, userId)`: the `programmeDays`
+snapshotted on the member's membership (`subscriptions.data.programmeDays`), else the member's
+current offer (`subscriptions.data.productId` → `product.data.programmeDays`, 7..365), else the
+trainer's `defaultBlockDays` plan setting (`plan_brain_settings.data.settings.defaultBlockDays`;
+the first version read the wrong path), else 28 (`BRAIN_DEFAULT_PROGRAMME_DAYS`). The `programme`
+package owns the final logic; the signature is the agreed one (its version returns the default 28
+for rolling offers and ignores the trainer's block setting; reconcile when merging).
+
+Next blocks follow the same contract (`nextBlockAllowed`): an offer bought `upfront` is one
+programme, so a next block needs access that demonstrably reaches its first day (period end at or
+after it); a `monthly` membership (fixed length or rolling) continues in consecutive blocks while
+it renews, as the programme package's calendar does; a membership set to end
+(`cancel_at_period_end`) stops at its period end; complimentary access continues until its end.
 
 ### Domain and provider
 
@@ -122,7 +133,8 @@ owns the final logic; the signature is the agreed one.
 | `PUT /api/v1/brain/plans/settings` | owner | mode, threshold, spot-check rate, young-Brain review count, default block length, bounds (version-checked) |
 | `POST /api/v1/brain/plans/generate` | owner, staff | generate for one subscriber now (503 without a model; 409 with the reason when not ready) |
 | `POST /api/v1/brain/plans/:id/review` | owner, staff | `{action: approve, edit or reject, version, note?, plan? or week?}` |
-| `POST /api/v1/brain/plans/scenarios`, `.../scenarios/:id/archive` | owner | held-out plan scenarios (at most 50) |
+| `POST /api/v1/brain/plans/:id/regenerate` | owner, staff | `{version}`: a fresh attempt for a `failed`, `not_sent` or `pending_review` item (programme or week); the old item becomes `superseded` (`outcome.decision: regenerated`) once the new generation exists |
+| `POST /api/v1/brain/plans/scenarios`, `.../scenarios/:id/archive` | owner | held-out scenarios (at most 50): programme scenarios (7..365 days) and `type: "adaptation"` scenarios (profile, one prescribed week, adherence, effort, pain) |
 | `POST /api/v1/brain/plans/qualify` | owner | run plan qualification |
 | `POST /api/v1/brain/plans/exercises/:id/equipment` | owner, staff | tag a library exercise's equipment |
 | `GET /api/v1/brain/plans/mine` | subscriber | own plan state, generated programme summary and the next 14 Brain sessions |
@@ -134,22 +146,40 @@ Behaviour:
   a safety hold changed meanwhile. Length from `programmeLengthDays`; start date is today in the
   member's timezone (notification preference, then nutrition profile, then UTC), or the day after
   the running block for a next block. A delivered plan is one `program` (status `assigned`,
-  `generated: true`, `startDate`, `endDate`, `planWeeks`, `draft`, `generationId`) and one
+  `generated: true`, `startDate`, `endDate`, projected `planWeeks`, `generationId`; never the
+  model's draft, confidence, uncertainties or evidence, which stay on the staff-only generation)
+  and one
   `planned_session` per training date (`date`, `timezone`, `week`, `label`, `sessionKey`,
   `program.exercises` in the existing exercise shape, `programId`, `programVersion`) plus the
   `program.scheduled` event, as `scheduleProgram` writes them. Other assigned programmes are
   archived and their sessions from the start date canceled; a Brain block that ends before the new
-  one starts stays assigned for its last days and the worker archives it once it has ended.
-- **Routing**: automatic only when the mode is automatic, plan qualification passed for the
-  current contract, no safety reason applies and the score is at least the threshold. Otherwise
-  `pending_review`, with the reasons (safety, supervised mode, missing qualification,
-  low-confidence signals, validator errors, model uncertainties) and a notice to the coaching team
+  one starts stays assigned for its last days and the worker archives it once it has ended. An
+  automatic delivery only ever archives the Brain's own programmes; a hand-written one is replaced
+  only when the trainer approves.
+- **Hand-written programmes**: a queued job carries `expectedProgramId` (the programme the
+  scheduler saw, or null). Before and after the model call, a queued generation stops
+  (`programme_changed` / `superseded`) when the latest assigned programme is hand-written or is not
+  the expected one. A trainer's own request for a member with a hand-written (or meanwhile
+  changed) programme goes to review with that reason, even when confident.
+- **Routing** (`planRoute`, shared by live plans, weekly adjustments and qualification, version
+  `brain-plan-route-v2`): automatic only when the mode is automatic, qualification passed, no
+  safety reason or trainer hold applies, every exercise and alternative has equipment tags (unless
+  the member has a full gym) and the confidence is at least the threshold with no validator
+  error. Otherwise `pending_review`, with the reasons and a notice to the coaching team
   (`brain-plan-review`). Automatic plans notify the subscriber (`brain-plan-ready`). While fewer
   than `youngBrainReviews` reviews exist, a deterministic `spotCheckRate` share of automatic plans
-  is flagged for a post-delivery trainer spot check.
-- **Safety floor (code)**: a non-empty limitation; a red-flag or personal-review term in the goal,
-  limitations or equipment (`screenSafety` with the published policy); or a hold, flagged set note
-  or flagged check-in note in the last 28 days (7 for adaptation). An active hold blocks generation.
+  and automatic weekly adjustments is flagged for a post-delivery trainer spot check.
+- **Starting loads (code)**: in week 1 (and for any exercise a new block or an adjustment adds),
+  an exercise starts within one load jump (`maxLoadJumpPct`) of the member's highest logged load in
+  the last 90 days (corrections applied), else of the library exercise's default load; with
+  neither, at most the trainer's `startLoadCapKg` for the member's experience (defaults 20/40/60 kg,
+  a bound in the settings). The references used are stored in `inputs.loadReference`. A trainer's
+  own edit is not capped.
+- **Safety floor (code)**, the same for plans and weekly adjustments (`memberSafety`): a
+  non-empty limitation; a red-flag or personal-review term in the goal, limitations or equipment
+  (`screenSafety` with the published policy); or a hold, flagged set note or flagged check-in note
+  in the last 28 days. An active hold blocks generation. Both are checked before the model call
+  and again after it.
 - **Review**: approve re-validates against the current library and bounds; edit takes a full plan
   (or a week for adaptations), validates it and stores the diff; reject needs a note. A spot check
   can be confirmed, edited (re-delivered from today) or withdrawn (future sessions canceled,
@@ -158,16 +188,34 @@ Behaviour:
 - **Weekly adaptation**: near each programme week's end the worker queues an adaptation of the
   next week. Outcomes: due, completed and skipped sessions, adherence, logged sets with corrections
   (per exercise: prescribed vs logged sets, reps, max load, RIR) and the week's check-ins (hunger,
-  difficulty, weight). A pain or safety report skips the model and queues the unchanged week for
-  the trainer. Otherwise the proposed changes (sets, reps, load, RIR, rest, swap to a listed
+  difficulty, weight). A safety reason skips the model and queues the unchanged week for the
+  trainer. Otherwise the proposed changes (sets, reps, load, RIR, rest, swap to a listed
   alternative) are applied to a copy, validated against the current week, scored (confidence
-  scaled by outcome evidence) and written to the planned sessions (only those unchanged since) or
-  queued for review.
-- **Qualification**: at least 6 held-out scenarios, at least 4 expected deliverable and 2 expected
-  to reach the trainer. Code-safety scenarios pass without a model call; the others pass when the
-  validator result matches the expectation. A passing run pins the Brain release and rules, the
-  prompt/validator/confidence/retrieval versions, the model endpoint and name, and the bounds;
-  changing any of them (or the scenarios) returns the workspace to supervised mode.
+  scaled by outcome evidence) and routed. After the model call the member's access, holds,
+  intake, programme and safety floor are checked again: a hold or lost access supersedes the
+  proposal; a new pain report routes it to the trainer. Automatic weeks are written to the planned
+  sessions still at their prepared version; the new versions are kept so a spot check can be
+  confirmed, edited or withdrawn (withdrawing restores the prepared week).
+- **Qualification**: at least 6 held-out programme scenarios (4 expected automatic, 2 expected to
+  reach the trainer); adaptation scenarios are optional but, when present, need one of each. Each
+  scenario is scored on the full live route (code safety floor, model output, validator with
+  library loads and the start cap, equipment tags, confidence against the current threshold) and
+  passes when the route matches the expectation, so a trainer can hold out a low-coverage profile
+  that confidence must send back. A passing run pins the Brain release and rules, the
+  prompt/validator/confidence/retrieval versions, the model endpoint and name and the bounds, and
+  counts for its threshold or any stricter one; a looser threshold or any change returns the
+  workspace to supervised mode. Weekly adjustments are automatic only when the passing run also
+  included passing adaptation scenarios (one to apply, one for the trainer).
+- **Recovery**: a worker job refused before dispatch (`MODEL_DAILY_LIMIT`, `MODEL_USER_LIMIT`,
+  `MODEL_NOT_CONFIGURED`, `PLAN_CONTEXT_TOO_LARGE`) stays `not_sent` for the job's own retry, which
+  reuses the same row (programme and adaptation). A trainer's refused request is `failed` at once.
+  The scheduler closes `not_sent` rows with no pending job, no job or more than 26 hours old as
+  `failed`, and interrupted `generating` rows after 30 minutes. `failed` and `not_sent` items are in
+  the trainer's queue with a Regenerate action; the member then reads "with trainer", not
+  "preparing".
+- **Long programmes**: the model's output budget and timeout scale with sessions a week and weeks
+  (`planGenerationBudget`: at least 6000 and at most 16000 tokens, 45 s to 240 s;
+  `modelCompletion` gained an optional `timeoutMs`).
 - **Audit**: each `plan_generation` stores type, trigger, job id, Brain release, contract digest,
   prompt version, model pin, usage, inputs (profile, segment, length, start date, timezone, twin
   snapshot id) and their digest, retrieval trace, draft, validation, confidence breakdown, safety
@@ -183,10 +231,14 @@ Behaviour:
 most every 10 minutes per workspace, skipped while suspended like other automation) and
 `brain_plan` a new job kind (`apps/worker/src/dispatch.ts`). It does nothing unless a model is
 configured and a Brain is published. It queues first plans (idempotent per intake), next blocks
-(three days before a Brain block ends) and weekly adaptations; it never replaces a trainer's
-hand-written programme and leaves a rejected or failed plan for the same intake to the trainer. A
-retried job never pays the model twice: an interrupted generation becomes `failed` for the
-trainer; a request refused before dispatch (daily limit) is retried the next day. The worker
+(three days before a Brain block ends, only when access continues into the next block) and
+weekly adaptations; it never replaces a trainer's hand-written programme and leaves a rejected or
+failed plan for the same intake to the trainer. Members already waiting on a generation or a
+pending job are filtered in SQL; the rest are examined 200 at a time from a cursor persisted on a
+staff-only `plan_schedule_state` record (owner null), wrapping around at the end, under a
+per-workspace advisory lock. A retried job never pays the model twice: an interrupted generation
+becomes `failed` for the trainer; a request refused before dispatch (daily limit) is retried the
+next day with the same generation row. The worker
 scope is the allowlisted `worker` elevation (`packages/db/src/scope.ts` now lists
 `apps/api/src/brain-plans.ts`). The new scheduler and handler fields are optional in their types so
 existing test fixtures keep compiling.
@@ -201,8 +253,12 @@ existing test fixtures keep compiling.
 - `/trainer/brain/plans` (`apps/web/components/brain-plans.tsx`, linked from the Brain overview and
   the coaching studio): status, review queue (draft, confidence and signals, reasons, validator
   errors, profile or week outcomes; approve, structured edit of sessions, exercises and weeks,
-  reject with a note), prepare a plan now, confidence and safety settings (owner), learning stats
-  and recent plans, library equipment tags, held-out scenarios and qualification (owner).
+  reject with a note, Regenerate for failed, unsent or pending items; "Waiting for the model"
+  badge for unsent ones), prepare a plan now, confidence and safety settings including the start
+  load limits (owner), learning stats and recent plans, library equipment tags (with the note that
+  untagged exercises and alternatives hold plans for review), held-out programme and weekly
+  adjustment scenarios (the week as lines such as `A: Goblet squat, 3x10 @ 20 kg, RIR 2`) and
+  qualification with the failed scenarios' routes (owner).
 - Subscriber programme screen: `MemberPlan` shows the plan state, the programme summary, its weeks
   and the next sessions. The intake form explains that the Brain prepares the plan and that
   limitations and pain always go to the trainer.
@@ -218,33 +274,74 @@ qualification decide automatic delivery. The e2e mock model's rule responder
 (`tests/e2e/mocks/model-rules.ts`) answers the two new prompt kinds (`plan_generation`,
 `plan_adaptation`); `docs/E2E_MOCK_PROVIDERS.md` says so.
 
+## Review fixes (28 September 2026)
+
+Fixed from the package review (details in the sections above):
+
+1. Weekly adjustments re-run the member check (hold, access, intake, programme) and the full
+   safety floor (28 days, intake red flags) after the model call.
+2. Queued jobs carry `expectedProgramId`; hand-written or changed programmes stop them before and
+   after the call; automatic delivery archives only generated programmes; a manual request for a
+   member with a hand-written programme goes to review.
+3. `not_sent` recovery: retries reuse the row (the adaptation retry no longer hits the unique
+   index), manual refusals are `failed`, the sweep closes stranded rows, the queue shows both with
+   Regenerate (`POST /brain/plans/:id/regenerate`).
+4. Unchecked equipment (untagged exercise or alternative) holds a plan or adjustment for review
+   unless the member has a full gym.
+5. Absolute first-week loads: logged history, then library load, then the trainer's start cap.
+6. Next blocks only when access continues (upfront programmes end; monthly continues while it
+   renews; a membership set to end stops).
+7. The member-visible programme record no longer carries the model's draft, confidence,
+   uncertainties or evidence.
+8. Qualification scores the full route, supports adaptation scenarios (which gate automatic
+   adjustments), allows 7..365-day scenarios and records its threshold; automatic adjustments are
+   spot-checked while the Brain is young.
+9. Long programmes: output budget and timeout scale with weeks and sessions.
+10. Scheduler: SQL pre-filter plus a persisted cursor, batches of 200.
+11. Review queue: Regenerate for items without a draft; plan cues up to 1000 characters (as in the
+    library) and older stored cues cut to fit, so editing an adjustment no longer fails.
+12. Tests are independent per workspace with controls and regressions for each finding.
+13. `programmeLengthDays` read the trainer's default block length from the wrong JSON path.
+
+Declined or left: the voice-led session is built in `core/voice-session`, not here. Alternatives
+do not inherit their parent's equipment tags (that would wrongly restrict or permit them); they
+are held for review instead until tagged.
+
 ## Checks actually run
 
-- `npx tsc --noEmit` (whole tree): passes.
-- `node --import tsx --test tests/brain-plans.test.ts` on PGlite: 11 tests, 11 pass. Covered:
-  validator bounds; confidence, coverage, safety reasons and diff; the e2e rule responder's output
-  validates; template registration; supervised generation to review, then approval with dated
-  sessions in `Pacific/Kiritimati` from a 14-day offer; a validator rejection that cannot be
-  approved, a rejected edit, then a validated edit with its diff learned; learning raising later
-  case coverage and confidence and appearing in retrieval; qualification (4 model calls, 2
-  code-safety gates) enabling automatic delivery with a spot check, and changed bounds returning
-  to supervised; the safety floor for a limitation, recent pain and a red flag, and an active hold
-  blocking; worker scheduling to job to generation without a second model call on re-run;
-  adaptation from logged outcomes raising next week's loads and a pain report skipping the model;
-  next block queued before the end with hand-over and later archive; workspace isolation and member
-  route refusals.
-- PostgreSQL restricted role (`/opt/tools/pg-sandbox.sh 56131`): migrations (55 files) and
-  `verify-runtime-access.mjs` passed (`helpers: 41`); every selected file passed: `brain-plans`
-  11/11, `isolation-elevation` 3/3, `isolation-scope` 8/8, `coaching-runtime` 8/8,
-  `governance-suspension` 7/7, `fix-nutrition-ops` 8/8, `messaging-templates` 5/5.
-- Related existing suites plus this package's test on PGlite, on the final code, in one run of 23
-  files: 166 tests, 166 pass (`coaching-runtime`, `coaching-completion`, the four `isolation-*`
-  files, `messaging-templates`, `governance-suspension`, `fix-nutrition-ops`, `e2e-harness-mocks`,
-  `client-twin-adherence`, `fix-coaching`, `coaching-feedback`, `coaching-retrieval`,
-  `coaching-input-coverage`, `bounded-bootstrap`, `notifications`, `privacy-lifecycle`,
-  `client-context`, `coaching-followups`, `logical-css`, `rtl-layout`, `brain-plans`).
-- Not run: the whole suite, `next build`, a browser journey and the e2e harness. No real model was
-  called.
+After the review fixes (this revision):
+
+- `npx tsc --noEmit` (whole tree) and `npx tsc --noEmit -p apps/web`: pass.
+- `node --import tsx --test tests/brain-plans.test.ts` on PGlite: 18 tests, 18 pass. Every
+  end-to-end test builds its own workspace (Brain, library, settings, qualification), so no test
+  depends on another's order. New coverage: untagged alternatives and the route gate (full-gym
+  bypass, safety, mode, holds); first-week loads (reference, library, cap, new block, swapped-in
+  exercise); the long-programme budget; qualification that fails on a wrong expectation, scores a
+  low-coverage runner profile to review through confidence alone and qualifies adaptations; a
+  looser threshold dropping qualification; a control member delivered automatically next to
+  limitation, pain and red-flag members; an untagged exercise holding a confident plan until the
+  trainer tags it; a 200 kg first week without history, 40 kg vs 32 kg against a logged 30 kg; a
+  spot-checked automatic adjustment withdrawn back to the prepared loads; an adjustment
+  superseded by a hold opened during the model call; a pain report 10 days old (28-day window)
+  skipping the model; a pain report filed during the call routing the proposal to review; a queued
+  first plan skipped after the coach wrote a programme, one superseded when the coach assigned a
+  programme during the call, and a manual request held for the trainer; an adaptation job retried
+  after `MODEL_DAILY_LIMIT` reusing its row (no unique-index error); a refused manual request
+  regenerated; the sweep closing a stranded `not_sent` generation; next blocks for a monthly
+  member but not for an upfront programme or a membership set to end (and an upfront job refused
+  when it runs); a 365-day programme with 53 validated weeks and a larger token budget; the
+  scheduler cursor paging 3 members in batches of 2.
+- Mutation check: removing the post-call member recheck in adaptation, or the queued-job
+  programme check, makes the adaptation and hand-written tests fail (then restored).
+- PostgreSQL restricted role (`/opt/tools/pg-sandbox.sh 56131 "$PWD" tests/brain-plans.test.ts`):
+  18/18 pass, `PG_SELECTED_FAILED_FILES=0`.
+- Related suites on PGlite: `fix-nutrition-ops`, `governance-suspension`, `joining-complimentary`,
+  `provider-configuration` (37 tests, 37 pass) and `rtl-layout` (9/9).
+- Not run: the whole suite, `next build`, a browser or 390px check of the changed screens and the
+  e2e harness. No real model was called.
+
+First version (before review): `brain-plans` 11/11 on PGlite and the sandbox, and 23 related files
+(166 tests) on PGlite; see git history of this file.
 
 ## Limits
 
@@ -254,8 +351,11 @@ qualification decide automatic delivery. The e2e mock model's rule responder
   appropriateness; the weights are fixed in code (`brain-plan-confidence-v1`).
 - Plan qualification pins the Brain release and bounds but not the growing set of reviewed
   examples (the trainer's own decisions); new examples do not force requalification.
-- Equipment checks need library tags; untagged exercises are allowed with a warning that lowers
-  confidence.
+- Equipment checks need library tags. Untagged exercises and alternatives are allowed but hold the
+  plan for review (except for full-gym members); an alternative is tagged by adding it as its own
+  library exercise.
+- The start cap is one number per experience level, not per exercise; library default loads are
+  the finer reference.
 - Adaptation skips planned sessions that changed after it was prepared (for example a member's
   reschedule).
 - A spot-checked plan is already with the subscriber; withdrawing it cancels its future sessions and
@@ -266,4 +366,7 @@ qualification decide automatic delivery. The e2e mock model's rule responder
   which automatic coaching actions that need a single programme fall back to the trainer).
   Programmes longer than 26 weeks keep `weeks` at 26 on the programme record; the dated sessions and
   `planWeeks` cover the whole length.
-- The voice-led workout session is a separate package and was not built here.
+- The voice-led workout session is the separate `core/voice-session` package and is not part of
+  this branch.
+- The scheduler still examines each member in its batch with a few queries; the SQL pre-filter
+  removes members already waiting, not members with nothing due.

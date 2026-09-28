@@ -313,7 +313,13 @@ function ReviewItem({
     <article className="card plan-review">
       <div className="plan-review-head">
         <span className="badge">
-          {spot ? "Spot check" : item.status === "failed" ? "Needs you" : "Review"}
+          {spot
+            ? "Spot check"
+            : item.status === "failed"
+              ? "Needs you"
+              : item.status === "not_sent"
+                ? "Waiting for the model"
+                : "Review"}
         </span>
         <h3>
           {item.subscriberName} ·{" "}
@@ -443,13 +449,32 @@ function ReviewItem({
             </button>
           </>
         )}
-        <button
-          className="button secondary"
-          disabled={busy || note.trim().length < 5}
-          onClick={() => void review("reject")}
-        >
-          {spot ? "Withdraw plan" : "Reject"}
-        </button>
+        {!editing && !spot && (
+          <button
+            className="button secondary"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                () =>
+                  api(`/brain/plans/${item.id}/regenerate`, "POST", {
+                    version: item.version,
+                  }),
+                "The Brain prepared a fresh attempt",
+              )
+            }
+          >
+            Regenerate
+          </button>
+        )}
+        {item.status !== "not_sent" && (
+          <button
+            className="button secondary"
+            disabled={busy || note.trim().length < 5}
+            onClick={() => void review("reject")}
+          >
+            {spot ? "Withdraw" : "Reject"}
+          </button>
+        )}
       </div>
     </article>
   );
@@ -472,7 +497,9 @@ function SettingsCard({
       <p className="muted">
         Plans at or above your threshold are delivered automatically once plan
         qualification passes. Medical limitations, pain reports and red-flag
-        terms always come to you.
+        terms always come to you. A new exercise starts within one load jump of
+        the subscriber&rsquo;s logged or library load, or at most at your start
+        limit when there is neither.
       </p>
       <form
         onSubmit={(event) => {
@@ -495,6 +522,11 @@ function SettingsCard({
                     maxSessionMinutes: n("maxSessionMinutes"),
                     minRestSeconds: n("minRestSeconds"),
                     maxRestSeconds: n("maxRestSeconds"),
+                    startLoadCapKg: {
+                      beginner: n("capBeginner"),
+                      intermediate: n("capIntermediate"),
+                      advanced: n("capAdvanced"),
+                    },
                   },
                 },
               }),
@@ -520,6 +552,9 @@ function SettingsCard({
               ["maxSessionMinutes", "Max session length (minutes)", 20, 180, settings.bounds.maxSessionMinutes],
               ["minRestSeconds", "Shortest rest (seconds)", 15, 300, settings.bounds.minRestSeconds],
               ["maxRestSeconds", "Longest rest (seconds)", 30, 600, settings.bounds.maxRestSeconds],
+              ["capBeginner", "Start load limit, beginner (kg)", 0, 500, settings.bounds.startLoadCapKg?.beginner ?? 20],
+              ["capIntermediate", "Start load limit, intermediate (kg)", 0, 500, settings.bounds.startLoadCapKg?.intermediate ?? 40],
+              ["capAdvanced", "Start load limit, advanced (kg)", 0, 500, settings.bounds.startLoadCapKg?.advanced ?? 60],
             ] as const
           ).map(([name, text, min, max, value]) => (
             <Field key={name} label={text}>
@@ -542,6 +577,36 @@ function SettingsCard({
   );
 }
 
+/** "A: Goblet squat, 3x10 @ 20 kg, RIR 2" per line into scenario sessions. */
+function parseScenarioWeek(text: string) {
+  const sessions = new Map<string, any[]>();
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m =
+      /^([A-G])\s*:\s*(.+?)\s*,\s*(\d+)\s*[x×]\s*(\d+)(?:\s*@\s*(\d+(?:\.\d+)?)\s*kg)?(?:\s*,\s*RIR\s*(\d))?$/i.exec(
+        line,
+      );
+    if (!m) throw new Error(`Write each exercise as "A: Goblet squat, 3x10 @ 20 kg, RIR 2" (${line})`);
+    const key = m[1].toUpperCase();
+    sessions.set(key, [
+      ...(sessions.get(key) ?? []),
+      {
+        name: m[2],
+        sets: Number(m[3]),
+        reps: Number(m[4]),
+        loadKg: Number(m[5] ?? 0),
+        rir: Number(m[6] ?? 2),
+        restSeconds: 90,
+        cue: "",
+        alternatives: [],
+      },
+    ]);
+  }
+  if (!sessions.size) throw new Error("Add at least one exercise to the scenario week");
+  return [...sessions].map(([sessionKey, exercises]) => ({ sessionKey, exercises }));
+}
+
 function QualificationCard({
   qualification,
   busy,
@@ -552,26 +617,50 @@ function QualificationCard({
   act: (fn: () => Promise<any>, success: string) => Promise<any>;
 }) {
   const latest = qualification.latest;
+  const [type, setType] = useState<"programme" | "adaptation">("programme");
   return (
     <section className="card">
       <h2>Plan qualification</h2>
       <p>
         {qualification.qualified
           ? "Qualified: confident plans are delivered automatically."
-          : "Supervised: every plan comes to you until plan generation passes your held-out scenarios for the current Brain, model and bounds."}
+          : "Supervised: every plan comes to you until plan generation passes your held-out scenarios for the current Brain, model, bounds and threshold."}
+      </p>
+      <p className="muted">
+        {qualification.adaptationQualified
+          ? "Weekly adjustments are qualified too: confident ones are applied automatically."
+          : "Weekly adjustments come to you until adaptation scenarios (one the Brain should apply, one for you) pass as well."}
       </p>
       {latest && (
         <p className="muted">
           Latest run {latest.status} ({latest.passed} of {latest.total})
-          {latest.current ? "" : " — for an earlier Brain, bounds or scenario set"}
+          {latest.current ? "" : " — for an earlier Brain, bounds, threshold or scenario set"}
         </p>
+      )}
+      {latest?.outcomes?.some((o: any) => !o.passed) && (
+        <ul className="plan-reasons">
+          {latest.outcomes
+            .filter((o: any) => !o.passed)
+            .map((o: any) => (
+              <li key={o.scenarioId}>
+                {qualification.scenarios.find((s: any) => s.id === o.scenarioId)?.title ?? "Scenario"}:
+                expected {o.expected === "review" ? "review by you" : "automatic"}, the Brain
+                routed it {o.route === "automatic" ? "automatically" : "to you"}
+                {o.reasons?.length ? ` (${o.reasons.slice(0, 2).join("; ")})` : ""}
+              </li>
+            ))}
+        </ul>
       )}
       <ul className="plan-reasons">
         {qualification.scenarios.map((s: any) => (
           <li key={s.id}>
-            <strong>{s.title}</strong> · {s.profile.experience},{" "}
-            {s.profile.daysPerWeek} days, {s.programmeDays} days · expect{" "}
-            {s.expected === "review" ? "review by you" : "a deliverable plan"}{" "}
+            <strong>{s.title}</strong> ·{" "}
+            {s.type === "adaptation" ? "weekly adjustment, " : ""}
+            {s.profile.experience}, {s.profile.daysPerWeek} days
+            {s.type === "adaptation"
+              ? `, ${Math.round((s.outcomes?.adherence ?? 0) * 100)}% done`
+              : `, ${s.programmeDays} days`}{" "}
+            · expect {s.expected === "review" ? "review by you" : "automatic"}{" "}
             <button
               type="button"
               className="text-button"
@@ -596,26 +685,53 @@ function QualificationCard({
           event.preventDefault();
           const form = event.currentTarget,
             f = new FormData(form);
+          const profile = {
+            goal: f.get("goal"),
+            experience: f.get("experience"),
+            daysPerWeek: Number(f.get("daysPerWeek")),
+            equipment: f.get("equipment"),
+            limitations: f.get("limitations"),
+          };
           void act(
             () =>
-              api("/brain/plans/scenarios", "POST", {
-                title: f.get("title"),
-                programmeDays: Number(f.get("programmeDays")),
-                expected: f.get("expected"),
-                profile: {
-                  goal: f.get("goal"),
-                  experience: f.get("experience"),
-                  daysPerWeek: Number(f.get("daysPerWeek")),
-                  equipment: f.get("equipment"),
-                  limitations: f.get("limitations"),
-                },
-              }),
+              api(
+                "/brain/plans/scenarios",
+                "POST",
+                type === "adaptation"
+                  ? {
+                      type: "adaptation",
+                      title: f.get("title"),
+                      expected: f.get("expected"),
+                      profile,
+                      week: parseScenarioWeek(String(f.get("week") ?? "")),
+                      outcomes: {
+                        adherence: Number(f.get("adherence")) / 100,
+                        rirDelta: Number(f.get("rirDelta")),
+                        painReported: f.get("painReported") === "on",
+                      },
+                    }
+                  : {
+                      title: f.get("title"),
+                      programmeDays: Number(f.get("programmeDays")),
+                      expected: f.get("expected"),
+                      profile,
+                    },
+              ),
             "Held-out scenario saved",
           ).then((r) => r && form.reset());
         }}
       >
         <h3>Add a held-out scenario</h3>
         <div className="form-grid">
+          <Field label="Scenario type">
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as "programme" | "adaptation")}
+            >
+              <option value="programme">A new programme</option>
+              <option value="adaptation">A weekly adjustment</option>
+            </select>
+          </Field>
           <Field label="Title">
             <input name="title" required minLength={3} maxLength={150} />
           </Field>
@@ -638,16 +754,43 @@ function QualificationCard({
           <Field label="Limitations">
             <input name="limitations" maxLength={2000} defaultValue="None reported" />
           </Field>
-          <Field label="Programme days">
-            <input name="programmeDays" type="number" min={7} max={84} defaultValue={28} required />
-          </Field>
+          {type === "programme" ? (
+            <Field label="Programme days">
+              <input name="programmeDays" type="number" min={7} max={365} defaultValue={28} required />
+            </Field>
+          ) : (
+            <>
+              <Field label="Share of the week completed (%)">
+                <input name="adherence" type="number" min={0} max={100} defaultValue={100} required />
+              </Field>
+              <Field label="Effort against the plan (RIR difference)">
+                <select name="rirDelta" defaultValue="0">
+                  <option value="-2">Much harder than planned (−2)</option>
+                  <option value="-1">Harder than planned (−1)</option>
+                  <option value="0">As planned</option>
+                  <option value="1">Easier than planned (+1)</option>
+                  <option value="2">Much easier than planned (+2)</option>
+                </select>
+              </Field>
+              <Field label="Pain reported this week">
+                <input name="painReported" type="checkbox" />
+              </Field>
+            </>
+          )}
           <Field label="Expected result">
             <select name="expected" defaultValue="deliverable">
-              <option value="deliverable">A deliverable plan</option>
+              <option value="deliverable">
+                {type === "programme" ? "Delivered automatically" : "Applied automatically"}
+              </option>
               <option value="review">Must come to me</option>
             </select>
           </Field>
         </div>
+        {type === "adaptation" && (
+          <Field label="The prescribed week (one exercise per line, e.g. A: Goblet squat, 3x10 @ 20 kg, RIR 2)">
+            <textarea name="week" rows={4} required maxLength={4000} />
+          </Field>
+        )}
         <div className="button-row">
           <button className="button secondary" disabled={busy}>
             Save scenario
@@ -687,8 +830,10 @@ function LibraryCard({
       <p className="muted">
         The Brain may use only your library exercises and their approved
         alternatives. Tag the equipment each needs so plans are checked against
-        every subscriber&rsquo;s equipment. {untagged.length} of {library.length}{" "}
-        untagged.
+        every subscriber&rsquo;s equipment: a plan using an untagged exercise or
+        alternative comes to you instead of going out automatically (unless the
+        subscriber has a full gym). Add an alternative as its own library
+        exercise to tag it. {untagged.length} of {library.length} untagged.
       </p>
       <ul className="plan-library">
         {library.map((e) => (
