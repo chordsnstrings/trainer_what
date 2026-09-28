@@ -489,7 +489,8 @@ after(async () => {
 });
 
 const readsCatalog = (s: Statement) =>
-  /FROM nutrition_(?:foods|recipes)\b/.test(s.sql);
+  // A follower scope reads the catalog through member_nutrition_*() helpers.
+  /FROM (?:member_)?nutrition_(?:foods|recipes)\b/.test(s.sql);
 
 test("every transaction that delivers a week reads the catalog under the tenant setup lock", async () => {
   const client = await subscriber("lock-order");
@@ -575,7 +576,9 @@ test(
       const atCatalog = new Promise<void>((r) => (reached = r)),
         resumed = new Promise<void>((r) => (resume = r));
       pauseAfter = (sql, log) => {
-        const recipeRead = (s: string) => /FROM nutrition_recipes\b/.test(s);
+        // A follower's delivery reads recipes through member_nutrition_recipes().
+        const recipeRead = (s: string) =>
+          /FROM (?:member_)?nutrition_recipes\b/.test(s);
         if (
           !recipeRead(sql) ||
           log.filter((s) => recipeRead(s.sql)).length !== 1 ||

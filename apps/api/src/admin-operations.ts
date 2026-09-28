@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Actor, type Database, type Tx, event } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx, event } from "@trainer/db";
+import { listEarlyAccess } from "./early-access.ts";
 import { requireRecentMfa } from "./security.ts";
+import { assertNotificationDocument } from "./message-templates.ts";
+import { createdKey, keysetPage, updatedKey } from "./workspace-pages.ts";
+import {
+  EFFECTIVE_DUE_SQL,
+  PINNED_DUE_SQL,
+  assertSafetyPolicyDocument,
+  effectiveSafetyPolicy,
+} from "../../../packages/domain/src/safety-policy.ts";
 
 type Identity = Actor & { platformRole: string; mfaAt?: string | null };
 const fail = (statusCode: number, code: string, message: string) =>
@@ -40,6 +49,7 @@ const views = [
   "support",
   "security",
   "acquisition",
+  "early-access",
   "experiments",
   "configuration",
 ] as const;
@@ -49,6 +59,101 @@ const scopes: Record<string, readonly string[]> = {
   support: ["trainers", "subscribers", "support", "wearables", "domains"],
   safety: ["trainers", "subscribers", "brains", "safety"],
 };
+/**
+ * Per-workspace lists page by keyset. With one workspace selected they page
+ * ROWS_PAGE rows at a time through `rowsCursor`; across a page of workspaces
+ * each shows its first rows (the previous caps) and `truncated` names every
+ * workspace with more, so nothing is silently cut off.
+ */
+const ROWS_PAGE = 100;
+const ROWS_PER_WORKSPACE: Record<string, number> = {
+  subscribers: 200,
+  brains: 100,
+  safety: 100,
+  support: 100,
+  wearables: 100,
+  infrastructure: 100,
+};
+const OVERDUE_FIRST =
+  "(CASE WHEN status='open' AND data ? 'overdueAt' THEN '1' ELSE '0' END)";
+type RowsSpec = Omit<Parameters<typeof keysetPage>[1], "cursor" | "limit">;
+function workspaceRows(
+  view: string,
+  t: { id: string },
+  q: { userId?: string },
+  policy: { holdReviewHours: number; personalReviewHours: number },
+): RowsSpec | null {
+  if (view === "subscribers")
+    return {
+      select:
+        "u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end",
+      from: "memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id",
+      where: [
+        "m.tenant_id=$1",
+        "m.role='subscriber'",
+        "($2::uuid IS NULL OR u.id=$2)",
+      ],
+      params: [t.id, q.userId ?? null],
+      // By name: the runtime role may read only a user's id, name and email
+      // (ordering by users.created_at was refused with 42501).
+      key: [
+        { sql: "u.name", cursorSql: "u.name", type: "text" },
+        { sql: "u.id", cursorSql: "u.id::text", type: "uuid" },
+      ],
+      descending: false,
+    };
+  if (view === "brains")
+    return {
+      select:
+        "id,kind,status,version,created_at,data->>'score' AS score,data->>'releaseId' AS release_id",
+      from: "records",
+      where: ["kind IN ('brain_release','evaluation','coaching_evaluation')"],
+      key: createdKey(),
+      descending: true,
+    };
+  if (view === "safety")
+    // The due time shown is the one that escalates: the earlier of the
+    // pinned deadline and the current policy's. Overdue reviews come first.
+    return {
+      select: `id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review,CASE WHEN kind='exception' AND status='open' AND data->>'category' IN ('safety','policy_review') THEN ${EFFECTIVE_DUE_SQL} ELSE ${PINNED_DUE_SQL} END AS review_due_at,data->>'overdueAt' AS overdue_at,data->'safetyPolicy'->>'version' AS policy_version`,
+      from: "records",
+      where: ["kind IN ('exception','nutrition_exception')"],
+      params: [policy.holdReviewHours, policy.personalReviewHours],
+      key: [
+        { sql: OVERDUE_FIRST, cursorSql: OVERDUE_FIRST, type: "text" },
+        ...createdKey(),
+      ],
+      descending: true,
+    };
+  if (view === "support")
+    return {
+      select:
+        "r.id,r.owner_user_id,r.status,r.version,r.created_at,r.updated_at,u.name,r.data->>'subject' AS subject,r.data->>'category' AS category,r.data->'messages' AS messages,extract(epoch FROM(now()-r.created_at))/3600 AS age_hours",
+      from: "records r LEFT JOIN users u ON u.id=r.owner_user_id",
+      where: ["r.kind='support'"],
+      key: updatedKey("r."),
+      descending: true,
+    };
+  if (view === "wearables")
+    // Paired HealthKit companion devices and wearable records in one list:
+    // connection health only, never tokens or health values.
+    return {
+      select: "*",
+      from: `(SELECT id,user_id AS owner_user_id,status,created_at,updated_at,'apple_healthkit'::text AS provider,'healthkit_device'::text AS source,to_json(last_sync_at)#>>'{}' AS last_sync_at,last_error_code AS error_code,platform,revoked_reason,batches_received,samples_received::text AS samples_received FROM healthkit_devices
+        UNION ALL SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider',data->>'source',data->>'lastSyncAt',data->>'errorCode',NULL,NULL,NULL,NULL FROM records WHERE kind IN ('wearable','wearable_connection')) w`,
+      key: updatedKey(),
+      descending: true,
+    };
+  if (view === "infrastructure")
+    return {
+      select: "id,kind,status,attempts,available_at,leased_until,created_at",
+      from: "jobs",
+      where: ["status IN ('pending','blocked','failed')"],
+      key: createdKey(),
+      descending: false,
+    };
+  return null;
+}
 async function audit(
   tx: Tx,
   a: Identity,
@@ -107,6 +212,17 @@ export function consentedAcquisition(cookieValue?: string) {
     return null;
   }
 }
+const attributionTouch = z
+  .object({
+    source: z.string().max(80),
+    campaign: z.string().max(80),
+    medium: z.string().max(40),
+    referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/),
+    /** Workspace whose page captured the touch (never shown to visitors). */
+    site: z.string().uuid().optional(),
+  })
+  .strict();
+type AttributionTouch = z.infer<typeof attributionTouch>;
 export async function recordAcquisition(
   db: Database,
   input: {
@@ -118,7 +234,12 @@ export async function recordAcquisition(
     source: string;
     campaign?: string;
     medium?: string;
-    attribution?: { first: { source: string; campaign: string; medium: string; referral: string }; last: { source: string; campaign: string; medium: string; referral: string } };
+    attribution?: {
+      first: AttributionTouch;
+      last: AttributionTouch;
+      /** Lead events: only the touches captured on the lead workspace's pages. */
+      workspace?: { first?: AttributionTouch; last?: AttributionTouch };
+    };
     experimentId?: string;
     experimentRevision?: number;
     variant?: "a" | "b";
@@ -142,8 +263,12 @@ export async function recordAcquisition(
         .regex(/^[a-zA-Z0-9._ -]{0,40}$/)
         .default(""),
       attribution: z.object({
-        first: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
-        last: z.object({ source: z.string().max(80), campaign: z.string().max(80), medium: z.string().max(40), referral: z.string().regex(/^[a-zA-Z0-9_-]{0,40}$/) }).strict(),
+        first: attributionTouch,
+        last: attributionTouch,
+        workspace: z
+          .object({ first: attributionTouch.optional(), last: attributionTouch.optional() })
+          .strict()
+          .optional(),
       }).strict().optional(),
       experimentId: z.string().uuid().optional(),
       experimentRevision: z.number().int().positive().optional(),
@@ -168,14 +293,85 @@ export async function recordAcquisition(
     );
   return transaction ? write(transaction) : db.system(write);
 }
+/**
+ * Website inquiries are the workspace's own records and are always counted.
+ * Source, campaign and referral exist only for visitors who allowed optional
+ * analytics (lead events), and only for touches captured on this
+ * workspace's own pages; the platform's and other workspaces' campaigns stay
+ * in the operator funnel. Owner only: finance cannot read inquiry records.
+ */
+export async function leadAnalytics(db: Database, a: Actor) {
+  const monthly = await db.tenant(a, (tx) =>
+    tx.query(
+      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*)::int AS inquiries,count(*) FILTER(WHERE status='handled')::int AS handled FROM records WHERE kind='website_inquiry' AND created_at>now()-interval '12 months' GROUP BY 1 ORDER BY 1 DESC",
+    ),
+  );
+  const attributed = await db.system((tx) =>
+    tx.query(
+      "SELECT to_char(created_at,'YYYY-MM') AS month,count(*) FILTER(WHERE attribution->'workspace'->'first' IS NOT NULL OR attribution->'workspace'->'last' IS NOT NULL)::int AS attributed FROM acquisition_events WHERE tenant_id=$1 AND name='lead' AND created_at>now()-interval '12 months' GROUP BY 1",
+      [a.tenantId],
+    ),
+  );
+  const sources = await db.system((tx) =>
+    tx.query(
+      "WITH l AS (SELECT e.visitor_id,e.tenant_id,e.created_at,coalesce(e.attribution->'workspace'->'first',e.attribution->'workspace'->'last') AS t,e.attribution->'workspace' AS w FROM acquisition_events e WHERE e.tenant_id=$1 AND e.name='lead' AND e.created_at>now()-interval '90 days') SELECT coalesce(t->>'source','') AS source,coalesce(t->>'campaign','') AS campaign,coalesce(t->>'medium','') AS medium,coalesce(nullif(w->'last'->>'referral',''),nullif(w->'first'->>'referral',''),'') AS referral,(t IS NULL) AS outside,count(*)::int AS leads,count(*) FILTER(WHERE EXISTS(SELECT 1 FROM acquisition_events j WHERE j.visitor_id=l.visitor_id AND j.tenant_id=l.tenant_id AND j.name='enroll' AND j.created_at>=l.created_at))::int AS joined FROM l GROUP BY 1,2,3,4,5 ORDER BY leads DESC,5,1 LIMIT 50",
+      [a.tenantId],
+    ),
+  );
+  const byMonth = new Map(attributed.map((r) => [r.month, r.attributed]));
+  return {
+    monthly: monthly.map((r) => ({
+      ...r,
+      attributed: byMonth.get(r.month) ?? 0,
+    })),
+    sources,
+    note: "Every website inquiry is counted. Source, campaign and referral are shown only for visitors who allowed optional analytics, and only from visits to your own website pages; withdrawing that permission removes their attribution. Joined counts leads whose visitor later joined your coaching.",
+  };
+}
 export async function businessAnalytics(db: Database, a: Actor) {
+  // Inquiries are not finance records: the finance role gets no lead card.
+  const leads = a.role === "owner" ? await leadAnalytics(db, a) : null;
+  // Account join months come from the account registry, which tenant
+  // transactions cannot read; subscription state stays tenant-scoped.
+  const joined = await db.system((tx) =>
+    tx.query(
+      "SELECT m.user_id,to_char(u.created_at,'YYYY-MM') AS cohort FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='subscriber'",
+      [a.tenantId],
+    ),
+  );
   return db.tenant(a, async (tx) => ({
+    leads,
     members: await tx.query(
-      "SELECT status,count(*)::int AS members,coalesce(sum(price_minor),0)::text AS recurring_minor FROM subscriptions GROUP BY status ORDER BY status",
+      // An upfront programme is one payment, not recurring revenue.
+      "SELECT status,count(*)::int AS members,coalesce(sum(price_minor) FILTER(WHERE coalesce(data->>'billing','monthly')<>'upfront'),0)::text AS recurring_minor,coalesce(sum(price_minor) FILTER(WHERE data->>'billing'='upfront'),0)::text AS upfront_minor FROM subscriptions GROUP BY status ORDER BY status",
     ),
-    cohorts: await tx.query(
-      "SELECT to_char(u.created_at,'YYYY-MM') AS cohort,count(*)::int AS joined,count(*) FILTER(WHERE s.status IN ('active','trialing'))::int AS active,count(*) FILTER(WHERE s.status IN ('canceled','unpaid'))::int AS ended FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.role='subscriber' GROUP BY 1 ORDER BY 1 DESC LIMIT 24",
-    ),
+    cohorts: await (async () => {
+      const status = new Map(
+        (await tx.query("SELECT user_id,status FROM subscriptions")).map(
+          (s) => [s.user_id, s.status],
+        ),
+      );
+      const cohorts = new Map<
+        string,
+        { cohort: string; joined: number; active: number; ended: number }
+      >();
+      for (const m of joined) {
+        const c = cohorts.get(m.cohort) ?? {
+          cohort: m.cohort,
+          joined: 0,
+          active: 0,
+          ended: 0,
+        };
+        const s = status.get(m.user_id);
+        c.joined++;
+        if (s === "active" || s === "trialing") c.active++;
+        if (s === "canceled" || s === "unpaid") c.ended++;
+        cohorts.set(m.cohort, c);
+      }
+      return [...cohorts.values()]
+        .sort((x, y) => y.cohort.localeCompare(x.cohort))
+        .slice(0, 24);
+    })(),
     revenue: await tx.query(
       "SELECT to_char(j.created_at,'YYYY-MM') AS month,l.account,sum(l.amount_minor)::text AS amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.created_at>now()-interval '24 months' AND l.account IN ('gross_revenue','trainer_payable','commission_revenue','platform_commission','refunds') GROUP BY 1,2 ORDER BY 1 DESC,2",
     ),
@@ -244,24 +440,70 @@ export function registerAdminOperations(
         tenantId: z.string().uuid().optional(),
         userId: z.string().uuid().optional(),
         page: z.coerce.number().int().min(0).default(0),
+        // Keyset position of the workspace page (newest first) and of the
+        // security audit list; `page` remains for older clients.
+        cursor: z.string().max(1000).optional(),
+        rowsCursor: z.string().max(1000).optional(),
       })
       .parse(req.query);
+    // The workspace picker lists the 500 most recent; paging and a selected
+    // workspace are resolved directly, so older workspaces stay reachable.
     const tenants = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC LIMIT 500",
+        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC,id DESC LIMIT 500",
       ),
     );
-    if (q.tenantId && !tenants.some((t) => t.id === q.tenantId))
-      throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+    let selected: any[],
+      nextCursor: string | null = null,
+      hasMore = false;
+    if (q.tenantId) {
+      selected = await db.system((tx) =>
+        tx.query(
+          "SELECT id,slug,name,published,created_at FROM tenants WHERE id=$1",
+          [q.tenantId],
+        ),
+      );
+      if (!selected.length)
+        throw fail(404, "TENANT_NOT_FOUND", "Workspace unavailable.");
+    } else if (q.cursor !== undefined) {
+      const page = await db.system((tx) =>
+        keysetPage(tx, {
+          select: "id,slug,name,published,created_at",
+          from: "tenants",
+          key: createdKey(),
+          descending: true,
+          cursor: q.cursor,
+          limit: 25,
+        }),
+      );
+      selected = page.items;
+      nextCursor = page.cursor;
+      hasMore = page.hasMore;
+    } else {
+      const page = await db.system((tx) =>
+        tx.query(
+          "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC,id DESC LIMIT 26 OFFSET $1",
+          [q.page * 25],
+        ),
+      );
+      hasMore = page.length > 25;
+      selected = page.slice(0, 25);
+    }
     await db.system((tx) =>
       audit(tx, a, "operations." + view + ".read", q.tenantId, q.userId),
     );
-    const selected = q.tenantId
-      ? tenants.filter((t) => t.id === q.tenantId)
-      : tenants.slice(q.page * 25, q.page * 25 + 25);
+    if (q.rowsCursor !== undefined && !q.tenantId && view !== "security")
+      throw fail(
+        400,
+        "WORKSPACE_REQUIRED",
+        "Choose a workspace to page through its rows.",
+      );
     let rows: any[] = [],
       summary: any = {},
-      documents: any[] = [];
+      documents: any[] = [],
+      rowsCursor: string | null = null,
+      rowsHasMore = false;
+    const truncated: { tenantId: string; workspace: string }[] = [];
     if (view === "configuration")
       documents = await db.system((tx) =>
         tx.query(
@@ -274,7 +516,14 @@ export function registerAdminOperations(
           "SELECT x.*, (SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS exposures_a,(SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS exposures_b,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS conversions_a,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS conversions_b FROM admin_experiments x ORDER BY created_at DESC LIMIT 100",
         ),
       );
-    else if (view === "acquisition") {
+    else if (view === "early-access") {
+      rows = await listEarlyAccess(db);
+      summary = {
+        period: "newest 500",
+        attribution:
+          "Requests from the public site while trainer registration is closed, each with the visitor's consent. Source, campaign and medium are filled only for visitors who allowed optional analytics. Erase a request when the person asks.",
+      };
+    } else if (view === "acquisition") {
       rows = await db.system((tx) =>
         tx.query(
           "SELECT source,campaign,medium,count(DISTINCT visitor_id) FILTER(WHERE name='landing')::int AS visitors,count(DISTINCT tenant_id) FILTER(WHERE name='signup')::int AS signups,count(DISTINCT tenant_id) FILTER(WHERE name='publish')::int AS published,count(*) FILTER(WHERE name='lead')::int AS leads,count(DISTINCT user_id) FILTER(WHERE name='enroll')::int AS enrolled,count(DISTINCT tenant_id) FILTER(WHERE name='first_paid')::int AS first_paid FROM acquisition_events WHERE created_at>now()-interval '90 days' GROUP BY source,campaign,medium ORDER BY signups DESC LIMIT 100",
@@ -283,14 +532,23 @@ export function registerAdminOperations(
       summary = {
         period: "90 days",
         attribution:
-          "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. First paid counts workspaces with a verified positive subscription journal. No health targeting or referral commission.",
+          "Explicit optional analytics permission only. Source columns use first touch; events retain the last tagged touch and referral code. Leads are website inquiries from consenting visitors. First paid counts workspaces with a verified positive subscription or paid-session journal. No health targeting or referral commission.",
       };
     } else if (view === "security") {
-      rows = await db.system((tx) =>
-        tx.query(
-          "SELECT o.id,o.action,o.tenant_id,o.subject_id,o.created_at,u.name AS operator FROM admin_operations_audit o JOIN users u ON u.id=o.actor_id ORDER BY o.created_at DESC LIMIT 200",
-        ),
+      const page = await db.system((tx) =>
+        keysetPage(tx, {
+          select:
+            "o.id,o.action,o.tenant_id,o.subject_id,o.created_at,u.name AS operator",
+          from: "admin_operations_audit o JOIN users u ON u.id=o.actor_id",
+          key: createdKey("o."),
+          descending: true,
+          cursor: q.rowsCursor,
+          limit: 100,
+        }),
       );
+      rows = page.items;
+      rowsCursor = page.cursor;
+      rowsHasMore = page.hasMore;
       summary = {
         operators: await db.system((tx) =>
           tx.query(
@@ -301,7 +559,14 @@ export function registerAdminOperations(
     } else {
       for (const t of selected) {
         const result = await db.tenant(
-          { ...a, tenantId: t.id, role: "owner" },
+          {
+            ...a,
+            ...elevated("platform-operator", {
+              tenantId: t.id,
+              userId: a.userId,
+              role: "owner",
+            }),
+          },
           async (tx) => {
             if (view === "trainers") {
               const [r] = await tx.query(
@@ -328,42 +593,35 @@ export function registerAdminOperations(
                 },
               ];
             }
-            if (view === "subscribers") {
-              const people = await tx.query(
-                "SELECT u.id,u.name,u.email,m.role,s.status AS subscription_status,s.period_end,s.cancel_at_period_end FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN subscriptions s ON s.user_id=m.user_id AND s.tenant_id=m.tenant_id WHERE m.tenant_id=$1 AND m.role='subscriber' AND ($2::uuid IS NULL OR u.id=$2) ORDER BY u.created_at DESC LIMIT 200",
-                [t.id, q.userId ?? null],
-              );
-              return people;
-            }
-            if (view === "brains")
-              return tx.query(
-                "SELECT id,kind,status,version,created_at,data->>'score' AS score,data->>'releaseId' AS release_id FROM records WHERE kind IN ('brain_release','evaluation','coaching_evaluation') ORDER BY created_at DESC LIMIT 100",
-              );
-            if (view === "safety")
-              return tx.query(
-                "SELECT id,kind,status,version,owner_user_id,created_at,data->>'category' AS category,data->>'severity' AS severity,data->>'reason' AS reason,data->'operatorReview' AS operator_review FROM records WHERE kind IN ('exception','nutrition_exception') ORDER BY created_at DESC LIMIT 100",
-              );
             if (view === "finops")
               return tx.query(
                 "SELECT task,provider,model,status,count(*)::int AS requests,sum(input_tokens)::text AS input_tokens,sum(output_tokens)::text AS output_tokens,sum(cost_usd)::text AS cost_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unresolved FROM cost_events WHERE created_at>now()-interval '30 days' GROUP BY task,provider,model,status ORDER BY task,provider",
-              );
-            if (view === "support")
-              return tx.query(
-                "SELECT r.id,r.owner_user_id,r.status,r.version,r.created_at,r.updated_at,u.name,r.data->>'subject' AS subject,r.data->>'category' AS category,r.data->'messages' AS messages,extract(epoch FROM(now()-r.created_at))/3600 AS age_hours FROM records r LEFT JOIN users u ON u.id=r.owner_user_id WHERE kind='support' ORDER BY r.updated_at DESC LIMIT 100",
               );
             if (view === "domains")
               return tx.query(
                 "SELECT hostname,active,verified_at FROM domain_mappings WHERE tenant_id=$1",
                 [t.id],
               );
-            if (view === "wearables")
-              return tx.query(
-                "SELECT id,owner_user_id,status,created_at,updated_at,data->>'provider' AS provider,data->>'source' AS source,data->>'lastSyncAt' AS last_sync_at,data->>'errorCode' AS error_code FROM records WHERE kind IN ('wearable','wearable_connection') ORDER BY updated_at DESC LIMIT 100",
+            let policy = { holdReviewHours: 0, personalReviewHours: 0 };
+            if (view === "safety") {
+              const [published] = await tx.query(
+                "SELECT published_safety_policy() AS value",
               );
-            if (view === "infrastructure")
-              return tx.query(
-                "SELECT id,kind,status,attempts,available_at,leased_until,created_at FROM jobs WHERE status IN ('pending','blocked','failed') ORDER BY created_at LIMIT 100",
-              );
+              policy = effectiveSafetyPolicy(published?.value ?? null);
+            }
+            const spec = workspaceRows(view, t, q, policy);
+            if (!spec) return [];
+            const page = await keysetPage(tx, {
+              ...spec,
+              cursor: q.tenantId ? q.rowsCursor : undefined,
+              limit: q.tenantId ? ROWS_PAGE : ROWS_PER_WORKSPACE[view],
+            });
+            if (q.tenantId) {
+              rowsCursor = page.cursor;
+              rowsHasMore = page.hasMore;
+            } else if (page.hasMore)
+              truncated.push({ tenantId: t.id, workspace: t.name });
+            return page.items;
             return [];
           },
         );
@@ -390,7 +648,11 @@ export function registerAdminOperations(
       macros,
       summary,
       page: q.page,
-      hasMore: !q.tenantId && tenants.length > (q.page + 1) * 25,
+      hasMore: !q.tenantId && hasMore,
+      nextCursor: q.tenantId ? null : nextCursor,
+      rowsHasMore,
+      rowsCursor,
+      truncated,
     };
   });
   app.post("/api/v1/admin/documents", async (req) => {
@@ -405,15 +667,11 @@ export function registerAdminOperations(
         "DOCUMENT_KEY",
         "Choose terms, privacy, or ai-disclosure.",
       );
-    if (
-      b.kind === "notification" &&
-      /\{\{(?!\s*(name|link|coach|date|message)\s*\}\})/.test(b.content)
-    )
-      throw fail(
-        400,
-        "TEMPLATE_VARIABLE",
-        "Use only name, link, coach, date, and message template variables.",
-      );
+    // Templates must name a registered message kind and only its variables;
+    // the structured safety policy may only tighten the code floor.
+    if (b.kind === "notification")
+      assertNotificationDocument(b.key, b.title, b.content);
+    if (b.kind === "safety") assertSafetyPolicyDocument(b.key, b.content);
     return db.system(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         "document:" + b.kind + ":" + b.key,
@@ -463,6 +721,15 @@ export function registerAdminOperations(
         "Publish now or schedule a future effective date.",
       );
     return db.system(async (tx) => {
+      // Drafts saved before these checks existed are checked again here.
+      const [draft] = await tx.query(
+        "SELECT kind,key,title,content FROM admin_documents WHERE id=$1",
+        [documentId],
+      );
+      if (draft?.kind === "notification")
+        assertNotificationDocument(draft.key, draft.title, draft.content);
+      if (draft?.kind === "safety")
+        assertSafetyPolicyDocument(draft.key, draft.content);
       const [r] = await tx.query(
         "UPDATE admin_documents SET status='published',revision=revision+1,effective_at=$3,published_at=now(),published_by=$4 WHERE id=$1 AND revision=$2 AND status='draft' RETURNING *",
         [documentId, b.revision, b.effectiveAt, a.userId],
@@ -490,7 +757,14 @@ export function registerAdminOperations(
       .strict()
       .parse(req.body);
     const result = await db.tenant(
-      { ...a, tenantId: p.tenantId, role: "owner" },
+      {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
       async (tx) => {
         const [r] = await tx.query(
           "SELECT * FROM records WHERE id=$1 AND kind='support' FOR UPDATE",
@@ -546,7 +820,14 @@ export function registerAdminOperations(
       .strict()
       .parse(req.body);
     return db.tenant(
-      { ...a, tenantId: p.tenantId, role: "owner" },
+      {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
       async (tx) => {
         const [r] = await tx.query(
           "UPDATE records SET data=data||jsonb_build_object('operatorReview',$3::jsonb),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND kind IN ('exception','nutrition_exception') RETURNING id,version,status",
@@ -588,7 +869,14 @@ export function registerAdminOperations(
         .strict()
         .parse(req.body);
       return db.tenant(
-        { ...a, tenantId: p.tenantId, role: "owner" },
+        {
+        ...a,
+        ...elevated("platform-operator", {
+          tenantId: p.tenantId,
+          userId: a.userId,
+          role: "owner",
+        }),
+      },
         async (tx) => {
           const [r] = await tx.query(
             // Never return message content: account emails carry bearer links.

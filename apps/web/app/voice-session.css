@@ -1,0 +1,107 @@
+/* Voice-led workout session (components/voice-session.tsx) and the trainer's
+   voice-session style (components/voice-session-style.tsx). Logical
+   properties only, so the layout mirrors in right-to-left languages. */
+.voice-session .card-heading {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.voice-runner {
+  display: grid;
+  gap: 14px;
+}
+.voice-now {
+  margin-block: 0;
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+.voice-target {
+  margin-block: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.voice-clock {
+  margin-block: 0;
+  font-size: 3rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.voice-prompt {
+  margin-block: 0;
+  min-block-size: 3em;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.voice-commands {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.voice-commands .button,
+.voice-start,
+.voice-pain {
+  min-block-size: 48px;
+  inline-size: 100%;
+}
+.voice-pain {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--on-status);
+  font-weight: 700;
+}
+.voice-pain:focus-visible,
+.voice-commands .button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.voice-reps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.voice-reps label {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 120px;
+}
+.voice-reps input {
+  inline-size: 100%;
+}
+.voice-alert {
+  font-weight: 600;
+}
+.voice-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.voice-check input {
+  margin-block-start: 4px;
+  flex: none;
+}
+.voice-reasons {
+  padding-inline-start: 20px;
+}
+.voice-style textarea,
+.voice-style select,
+.voice-style input[type="number"] {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+.voice-issue {
+  display: block;
+  color: var(--error);
+}
+.voice-preview ol,
+.voice-outcomes {
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-session * {
+    transition: none;
+    animation: none;
+  }
+}

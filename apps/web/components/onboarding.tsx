@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { money } from "@trainer/domain";
+import { offerTermsText } from "./programme-offers";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/onboarding" + path, {
     method: body ? "PUT" : "GET",
@@ -116,6 +116,80 @@ function IdentityForm({ step, onSaved }: { step: any; onSaved: () => void }) {
     </form>
   );
 }
+const SHARE_CHANNELS = [
+  ["instagram_bio", "Instagram bio"],
+  ["instagram_story", "Instagram Stories"],
+  ["other", "Somewhere else (WhatsApp, email, another network)"],
+] as const;
+function ShareChannels({
+  busy,
+  saved,
+  onSave,
+}: {
+  busy: boolean;
+  saved: string[];
+  onSave: (channels: string[]) => void;
+}) {
+  const [channels, setChannels] = useState<string[]>(saved);
+  return (
+    <fieldset className="share-channels">
+      <legend>Where did you share your link?</legend>
+      {SHARE_CHANNELS.map(([key, label]) => (
+        <label className="check-field" key={key}>
+          <input
+            type="checkbox"
+            checked={channels.includes(key)}
+            onChange={(e) =>
+              setChannels((current) =>
+                e.target.checked
+                  ? [...current, key]
+                  : current.filter((c) => c !== key),
+              )
+            }
+          />
+          {label}
+        </label>
+      ))}
+      <button
+        type="button"
+        className="button"
+        disabled={busy || !channels.length}
+        onClick={() => onSave(channels)}
+      >
+        I’ve shared my link
+      </button>
+    </fieldset>
+  );
+}
+
+/** The "Share your link" step: the tagged links, then where they were shared. */
+export function ShareStep({
+  storefrontPath,
+  busy,
+  saved,
+  onSave,
+  children,
+}: {
+  storefrontPath: string;
+  busy: boolean;
+  saved: string[];
+  onSave: (channels: string[]) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <p>
+        Your coaching address:{" "}
+        <code className="ltr-data">{storefrontPath}</code>. Copy the tagged
+        links below into your Instagram bio and Stories, then record where you
+        shared it.
+      </p>
+      {children}
+      <ShareChannels busy={busy} saved={saved} onSave={onSave} />
+    </>
+  );
+}
+
 export function Onboarding({
   stepKey,
   revision,
@@ -282,7 +356,16 @@ export function Onboarding({
         </section>
       )}
       <section className="card">
-        {stepKey === "identity" ? (
+        {stepKey === "share" ? (
+          <ShareStep
+            storefrontPath={data.storefrontPath}
+            busy={busy}
+            saved={(step.values?.channels as string[] | undefined) ?? []}
+            onSave={(channels) => void save({ channels })}
+          >
+            {children}
+          </ShareStep>
+        ) : stepKey === "identity" ? (
           <IdentityForm step={step} onSaved={refresh} />
         ) : stepKey === "account" ? (
           <>
@@ -328,9 +411,11 @@ export function Onboarding({
         ) : stepKey === "wearables" ? (
           <>
             <p>
-              Apple export imports are available. WHOOP and Zepp connections
-              need approved adapters and provider access. No connection is
-              implied by this choice.
+              Apple export imports are available. Automatic Apple Health sync
+              needs the companion iPhone app and the platform switch; clients
+              pair their own devices. WHOOP and Zepp connections need approved
+              adapters and provider access. No connection is implied by this
+              choice.
             </p>
             <label className="field">
               <span>My coaching data policy</span>
@@ -341,6 +426,9 @@ export function Onboarding({
                 <option value="none">No wearable imports</option>
                 <option value="permitted_imports">
                   Allow permitted manual imports
+                </option>
+                <option value="permitted_imports_and_sync">
+                  Allow permitted imports and Apple Health sync
                 </option>
               </select>
             </label>
@@ -397,7 +485,7 @@ export function Onboarding({
                     <p>{p.description}</p>
                   </div>
                   <span>
-                    {money(p.priceMinor)} / month · {p.status}
+                    {offerTermsText(p).price} · {p.status}
                   </span>
                 </div>
               ))}

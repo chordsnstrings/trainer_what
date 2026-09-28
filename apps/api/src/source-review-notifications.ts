@@ -111,16 +111,13 @@ export async function brainReviewNotificationCurrent(
     return false;
   const source = parsed.data;
   await workspaceLock(tx, tenantId);
-  const [member] = await tx.query(
-    "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
-    [tenantId, userId],
+  // The outbox worker's scope rechecks the recipient's current role in the
+  // active workspace (never the recipient's own scope).
+  const [member] = await tx.query<{ role: string | null }>(
+    "SELECT workspace_member_role($1) AS role",
+    [userId],
   );
-  if (!member || !["owner", "staff"].includes(member.role)) return false;
-  const [current] = await tx.query(
-    "SELECT training_actor_is_current($1,$2,$3) AS current",
-    [tenantId, userId, member.role],
-  );
-  if (!current?.current) return false;
+  if (!member?.role || !["owner", "staff"].includes(member.role)) return false;
   if (source.stage === "import") {
     const [record] = await tx.query(
       "SELECT id FROM records WHERE id=$1 AND kind='source_import' AND owner_user_id=$2 AND status='needs_review' AND version=$3",

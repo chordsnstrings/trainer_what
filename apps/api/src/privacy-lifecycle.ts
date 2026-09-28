@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  actingAs,
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { passwordMatches } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import { exportMealCaptures } from "./meal-capture.ts";
@@ -50,7 +57,12 @@ const retainedKinds = [
   "finance_run",
   "privacy_request",
 ];
-const privateKinds = [
+/**
+ * Other-owned record kinds that belong in a member's export when their data
+ * names the member. personal_export_records() (migration 061) holds the same
+ * fixed list; tests/isolation-scope.test.ts keeps the two equal.
+ */
+export const privateKinds = [
   "intake",
   "program",
   "workout",
@@ -93,12 +105,9 @@ export async function workspaceLock(tx: Tx, tenantId: string) {
   ]);
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId]);
 }
-async function setTenant(tx: Tx, a: Actor) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-    [a.tenantId, a.userId],
-  );
+/** The acting owner (or platform operator) scope inside a service transaction. */
+function asOwner(a: Actor): Actor {
+  return { ...a, role: "owner" };
 }
 async function assertOwner(tx: Tx, a: Actor, password?: string) {
   const [row] = await tx.query(
@@ -156,7 +165,10 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
   );
   await add(
     "checkout",
-    "SELECT count(*)::int n FROM records r WHERE r.kind='checkout' AND ($1::uuid IS NULL OR r.owner_user_id=$1) AND r.status NOT IN ('expired','closed') AND NOT (r.status='completed' AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id=r.tenant_id AND s.user_id=r.owner_user_id AND s.provider_id=r.data->>'subscriptionId' AND s.status IN ('canceled','incomplete_expired')))",
+    // A paid upfront programme's intent is settled once its payment posted
+    // (its access is the subscription row above); a voice add-on intent
+    // closes when its provider subscription ends (voice-addon.ts).
+    "SELECT count(*)::int n FROM records r WHERE r.kind='checkout' AND ($1::uuid IS NULL OR r.owner_user_id=$1) AND r.status NOT IN ('expired','closed') AND NOT (r.status='completed' AND coalesce(r.data->>'billing','')='upfront') AND NOT (r.status='completed' AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id=r.tenant_id AND s.user_id=r.owner_user_id AND s.provider_id=r.data->>'subscriptionId' AND s.status IN ('canceled','incomplete_expired')))",
     [userId ?? null],
   );
   await add(
@@ -209,9 +221,12 @@ export async function assertSettled(tx: Tx, userId?: string) {
     );
 }
 
-// An owner transaction is intentional: a subscriber's RLS view omits internal
-// decisions derived from their data. Selection always stays on this user and
-// workspace, and never exports authentication tokens or other clients' data.
+// A follower exports in its own subscriber scope. Rows its view omits
+// (internal decisions derived from its data, scheduled follow-ups, usage and
+// audit references) come from the personal_export_* helpers (migration 061), which
+// returns only rows about the requesting member. A staff or finance member's
+// own export keeps the owner-level view through the allowlisted
+// member-self-service elevation; it is never used for a follower.
 export async function exportPersonalData(
   db: Database,
   a: Actor,
@@ -236,52 +251,73 @@ export async function exportPersonalData(
       profile: u,
       membership: m,
       acquisition: await exportAcquisitionData(tx, a.tenantId, a.userId),
+      // Account-level sign-in methods and notices belong to the person, not
+      // the workspace; provider subjects are included, tokens never exist.
+      signInIdentities: await tx.query(
+        "SELECT provider,subject,email,email_verified,created_at,last_used_at FROM account_identities WHERE user_id=$1 ORDER BY provider",
+        [a.userId],
+      ),
+      accountNotices: await tx.query(
+        "SELECT kind,title,body,created_at,read_at FROM account_notices WHERE user_id=$1 ORDER BY created_at",
+        [a.userId],
+      ),
     };
   });
-  return db.tenant({ ...a, role: "owner" }, async (tx) => ({
-    formatVersion: "personal-export-v2",
-    generatedAt: new Date().toISOString(),
-    tenantId: a.tenantId,
-    ...identity,
-    records: await tx.query(
-      "SELECT id,kind,status,version,data,created_at,updated_at FROM records WHERE owner_user_id=$1 OR (kind=ANY($2::text[]) AND (data->>'userId'=$1::text OR data->>'subscriberId'=$1::text OR data->>'clientId'=$1::text)) ORDER BY created_at,id",
-      [a.userId, privateKinds],
-    ),
-    workouts: await tx.query(
-      "SELECT id,workout_id,event_key,data,created_at FROM workout_events WHERE user_id=$1 ORDER BY created_at",
-      [a.userId],
-    ),
-    mealCaptures: await exportMealCaptures(tx, a.userId),
-    consents: await tx.query(
-      "SELECT document_type,document_version,granted,created_at FROM consent_records WHERE user_id=$1 ORDER BY created_at",
-      [a.userId],
-    ),
-    subscriptions: await tx.query(
-      "SELECT id,status,period_end,cancel_at_period_end,price_minor,data FROM subscriptions WHERE user_id=$1",
-      [a.userId],
-    ),
-    bookings: await tx.query(
-      "SELECT b.id,b.status,b.created_at,s.title,s.starts_at,s.ends_at,s.location FROM bookings b JOIN booking_slots s ON s.tenant_id=b.tenant_id AND s.id=b.slot_id WHERE b.user_id=$1 ORDER BY s.starts_at",
-      [a.userId],
-    ),
-    usage: await tx.query(
-      "SELECT id,task,provider,model,input_tokens,output_tokens,cost_usd,price_version,created_at FROM cost_events WHERE user_id=$1 ORDER BY created_at",
-      [a.userId],
-    ),
-    audit: await tx.query(
-      "SELECT id,name,subject_id,created_at FROM events WHERE actor_id=$1 ORDER BY created_at",
-      [a.userId],
-    ),
-    privacyFollowups: await tx.query(
-      "SELECT scope,subject,status,due_at,completed_at FROM privacy_followups WHERE user_id=$1",
-      [a.userId],
-    ),
-    ...(hooks.exportAdditional
+  return db.tenant(actingAs(a, "owner", "member-self-service"), async (tx) => {
+    const own = {
+      records: await tx.query("SELECT * FROM personal_export_records($1)", [
+        a.userId,
+      ]),
+      usage: await tx.query("SELECT * FROM personal_export_usage($1)", [
+        a.userId,
+      ]),
+      audit: await tx.query("SELECT * FROM personal_export_audit($1)", [
+        a.userId,
+      ]),
+      followups: await tx.query("SELECT * FROM personal_export_followups($1)", [
+        a.userId,
+      ]),
+    };
+    const additional = hooks.exportAdditional
       ? await hooks.exportAdditional(tx, a.userId)
-      : {}),
-    retainedDataNotice:
-      "Financial records, consent history and minimal audit references follow the applicable retention policy. Provider and backup handling is reported separately.",
-  }));
+      : {};
+    return {
+      formatVersion: "personal-export-v2",
+      generatedAt: new Date().toISOString(),
+      tenantId: a.tenantId,
+      ...identity,
+      records: own.records,
+      workouts: await tx.query(
+        "SELECT id,workout_id,event_key,data,created_at FROM workout_events WHERE user_id=$1 ORDER BY created_at",
+        [a.userId],
+      ),
+      mealCaptures: await exportMealCaptures(tx, a.userId),
+      consents: await tx.query(
+        "SELECT document_type,document_version,granted,created_at FROM consent_records WHERE user_id=$1 ORDER BY created_at",
+        [a.userId],
+      ),
+      subscriptions: await tx.query(
+        "SELECT id,status,period_end,cancel_at_period_end,price_minor,data FROM subscriptions WHERE user_id=$1",
+        [a.userId],
+      ),
+      bookings: await tx.query(
+        "SELECT b.id,b.status,b.created_at,s.title,s.starts_at,s.ends_at,s.location FROM bookings b JOIN booking_slots s ON s.tenant_id=b.tenant_id AND s.id=b.slot_id WHERE b.user_id=$1 ORDER BY s.starts_at",
+        [a.userId],
+      ),
+      usage: own.usage,
+      audit: own.audit,
+      privacyFollowups: await tx.query(
+        "SELECT scope,subject,status,due_at,completed_at FROM privacy_followups WHERE user_id=$1",
+        [a.userId],
+      ),
+      ...additional,
+      ...("coachingFollowups" in additional
+        ? { coachingFollowups: own.followups }
+        : {}),
+      retainedDataNotice:
+        "Financial records, consent history and minimal audit references follow the applicable retention policy. Provider and backup handling is reported separately.",
+    };
+  });
 }
 
 async function optionalDelete(
@@ -302,9 +338,19 @@ export async function erasePersonalData(
   email: string,
   hooks: PrivacyHooks = {},
 ) {
+  // The caller's tenant scope carries the erasure flag (db package option
+  // privacyErasure); a tenant scope cannot set it.
+  const [flag] = await tx.query(
+    "SELECT current_setting('app.privacy_erasure',true)='true' AS on",
+  );
+  if (!flag?.on)
+    throw fail(
+      500,
+      "PRIVACY_SCOPE_REQUIRED",
+      "Personal data erasure needs a privacy erasure scope",
+    );
   await lockPersonal(tx, a, userId);
   if (hooks.eraseAdditional) await hooks.eraseAdditional(tx, userId);
-  await tx.query("SELECT set_config('app.privacy_erasure','true',true)");
   await tx.query("DELETE FROM meal_captures WHERE user_id=$1", [userId]);
   await tx.query("DELETE FROM workout_events WHERE user_id=$1", [userId]);
   await tx.query(
@@ -339,6 +385,11 @@ export async function scrubUnusedAccount(tx: Tx, userId: string) {
       "mfa_recovery_codes",
       "auth_passkeys",
       "auth_passkey_challenges",
+      "account_identities",
+      "oidc_sign_in_requests",
+      "email_change_requests",
+      "account_recovery_grants",
+      "account_notices",
     ])
       await optionalDelete(tx, table, "user_id=$1", [userId]);
   }
@@ -421,109 +472,138 @@ export async function eraseMember(
   b: z.infer<typeof erasureSchema>,
   hooks: PrivacyHooks = {},
 ) {
-  return db.system(async (tx) => {
-    await workspaceLock(tx, a.tenantId);
-    await setTenant(tx, a);
-    const [r] = await tx.query(
-      "SELECT * FROM records WHERE id=$1 AND kind='privacy_request' FOR UPDATE",
-      [requestId],
-    );
-    if (!r) throw fail(404, "NOT_FOUND", "Privacy request unavailable");
-    if (r.status === "local_erasure_completed") return { status: r.status };
-    if (r.version !== b.expectedRevision)
-      throw fail(
-        409,
-        "STALE_REVISION",
-        "The privacy request changed; reload it",
+  // Bound to the workspace (docs/features/isolation.md): its service rows
+  // (memberships, sessions, tokens, registry, acquisition) are the only ones
+  // these statements can reach; the account scrub and a visitor's analytics
+  // erasure are cross-workspace by design and lift the binding explicitly.
+  return db.system(
+    async (tx) => {
+      await workspaceLock(tx, a.tenantId);
+      const [r] = await tx.tenant(asOwner(a), (tx) =>
+        tx.query(
+          "SELECT * FROM records WHERE id=$1 AND kind='privacy_request' FOR UPDATE",
+          [requestId],
+        ),
       );
-    await tx.query("RESET ROLE");
-    const [u] = await tx.query(
-      "SELECT id,email FROM users WHERE id=$1 FOR UPDATE",
-      [r.owner_user_id],
-    );
-    const [member] = await tx.query(
-      "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 FOR UPDATE",
-      [a.tenantId, r.owner_user_id],
-    );
-    if (!member || member.role === "owner")
-      throw fail(
-        409,
-        "WORKSPACE_CLOSURE_REQUIRED",
-        "The current owner must complete ownership transfer or workspace closure before account erasure",
+      if (!r) throw fail(404, "NOT_FOUND", "Privacy request unavailable");
+      if (r.status === "local_erasure_completed") return { status: r.status };
+      if (r.version !== b.expectedRevision)
+        throw fail(
+          409,
+          "STALE_REVISION",
+          "The privacy request changed; reload it",
+        );
+      const [u] = await tx.query(
+        "SELECT id,email FROM users WHERE id=$1 FOR UPDATE",
+        [r.owner_user_id],
       );
-    await setTenant(tx, a);
-    await assertSettled(tx, r.owner_user_id);
-    const knownProviders = hooks.providerInventory
-      ? await hooks.providerInventory(tx, r.owner_user_id)
-      : [];
-    const evidence = {
-      ...b,
-      providers: [
-        ...b.providers,
-        ...knownProviders
-          .filter(
-            (name) =>
-              !b.providers.some(
-                (p) => p.name.toLowerCase() === name.toLowerCase(),
-              ),
-          )
-          .map((name) => ({ name, dueAt: b.backupPurgeBy })),
-      ],
-    };
-    await erasePersonalData(tx, a, r.owner_user_id, u.email, hooks);
-    await createPrivacyFollowups(tx, a, r.id, r.owner_user_id, evidence);
-    await tx.query(
-      "UPDATE records SET status='local_erasure_completed',version=version+1,data=$2,updated_at=now() WHERE id=$1",
-      [
-        r.id,
-        JSON.stringify({
-          type: "deletion",
-          requestedAt: r.data.requestedAt,
-          completedAt: new Date().toISOString(),
-          retentionPolicyVersion: b.retentionPolicyVersion,
-          evidenceReference: b.evidenceReference,
-          backupPurgeBy: b.backupPurgeBy,
-          processedBy: a.userId,
-          externalStatus: "followups_pending",
-        }),
-      ],
-    );
-    await event(tx, a, "privacy.local_erasure_completed", r.id, {
-      retentionPolicyVersion: b.retentionPolicyVersion,
-      evidenceReference: b.evidenceReference,
-    });
-    await tx.query("RESET ROLE");
-    await purgeAcquisition(tx, a, r.owner_user_id);
-    await tx.query(
-      "INSERT INTO privacy_erasure_registry(id,tenant_id,user_id,request_id,scope,retention_policy_version,evidence_reference) VALUES($1,$2,$3,$4,'member',$5,$6)",
-      [
-        randomUUID(),
+      const [member] = await tx.query(
+        "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 FOR UPDATE",
+        [a.tenantId, r.owner_user_id],
+      );
+      await tx.tenant(
+        asOwner(a),
+        async (tx) => {
+          // A follower who left or was removed keeps a processable request: the
+          // workspace still holds their records, and the recorded exit shows they
+          // were a member here. Nobody else without a membership qualifies.
+          const [formerMember] = member
+            ? []
+            : await tx.query(
+                "SELECT id FROM membership_exits WHERE user_id=$1 LIMIT 1",
+                [r.owner_user_id],
+              );
+          if (member?.role === "owner" || (!member && !formerMember))
+            throw fail(
+              409,
+              "WORKSPACE_CLOSURE_REQUIRED",
+              "The current owner must complete ownership transfer or workspace closure before account erasure",
+            );
+          await assertSettled(tx, r.owner_user_id);
+          const knownProviders = hooks.providerInventory
+            ? await hooks.providerInventory(tx, r.owner_user_id)
+            : [];
+          const evidence = {
+            ...b,
+            providers: [
+              ...b.providers,
+              ...knownProviders
+                .filter(
+                  (name) =>
+                    !b.providers.some(
+                      (p) => p.name.toLowerCase() === name.toLowerCase(),
+                    ),
+                )
+                .map((name) => ({ name, dueAt: b.backupPurgeBy })),
+            ],
+          };
+          await erasePersonalData(tx, a, r.owner_user_id, u.email, hooks);
+          await createPrivacyFollowups(tx, a, r.id, r.owner_user_id, evidence);
+          await tx.query(
+            "UPDATE records SET status='local_erasure_completed',version=version+1,data=$2,updated_at=now() WHERE id=$1",
+            [
+              r.id,
+              JSON.stringify({
+                type: "deletion",
+                requestedAt: r.data.requestedAt,
+                completedAt: new Date().toISOString(),
+                retentionPolicyVersion: b.retentionPolicyVersion,
+                evidenceReference: b.evidenceReference,
+                backupPurgeBy: b.backupPurgeBy,
+                processedBy: a.userId,
+                externalStatus: "followups_pending",
+              }),
+            ],
+          );
+          await event(tx, a, "privacy.local_erasure_completed", r.id, {
+            retentionPolicyVersion: b.retentionPolicyVersion,
+            evidenceReference: b.evidenceReference,
+          });
+        },
+        { privacyErasure: true },
+      );
+      await tx.acrossWorkspaces((tx) =>
+        purgeAcquisition(tx, a, r.owner_user_id),
+      );
+      await tx.query(
+        "INSERT INTO privacy_erasure_registry(id,tenant_id,user_id,request_id,scope,retention_policy_version,evidence_reference) VALUES($1,$2,$3,$4,'member',$5,$6)",
+        [
+          randomUUID(),
+          a.tenantId,
+          r.owner_user_id,
+          r.id,
+          b.retentionPolicyVersion,
+          b.evidenceReference,
+        ],
+      );
+      await tx.query(
+        "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2",
+        [a.tenantId, r.owner_user_id],
+      );
+      await tx.query("DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2", [
         a.tenantId,
         r.owner_user_id,
-        r.id,
-        b.retentionPolicyVersion,
-        b.evidenceReference,
-      ],
-    );
-    await tx.query(
-      "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2",
-      [a.tenantId, r.owner_user_id],
-    );
-    await tx.query("DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2", [
-      a.tenantId,
-      r.owner_user_id,
-    ]);
-    await tx.query(
-      "DELETE FROM one_time_tokens WHERE tenant_id=$1 AND user_id=$2",
-      [a.tenantId, r.owner_user_id],
-    );
-    await scrubUnusedAccount(tx, r.owner_user_id);
-    return {
-      status: "local_erasure_completed",
-      externalStatus: "followups_pending",
-      backupPurgeBy: b.backupPurgeBy,
-    };
-  });
+      ]);
+      await tx.query(
+        "DELETE FROM one_time_tokens WHERE tenant_id=$1 AND user_id=$2",
+        [a.tenantId, r.owner_user_id],
+      );
+      // Invitation history names the invited address; remove it with the member.
+      await tx.query(
+        "DELETE FROM one_time_tokens WHERE tenant_id=$1 AND purpose='invite' AND lower(payload->>'email')=lower($2)",
+        [a.tenantId, u.email],
+      );
+      await tx.acrossWorkspaces((tx) =>
+        scrubUnusedAccount(tx, r.owner_user_id),
+      );
+      return {
+        status: "local_erasure_completed",
+        externalStatus: "followups_pending",
+        backupPurgeBy: b.backupPurgeBy,
+      };
+    },
+    { tenantId: a.tenantId },
+  );
 }
 
 export function registerPrivacyLifecycle(
@@ -542,15 +622,21 @@ export function registerPrivacyLifecycle(
         "A platform administrator must process privacy operations",
       );
     requireRecentMfa(a, true);
+    // A platform administrator acts in the workspace as an allowlisted
+    // platform operator (never as a member of it).
     return {
       ...a,
-      tenantId: uuid.parse((req.params as any).tenantId),
-      role: "owner",
+      ...elevated("platform-operator", {
+        tenantId: uuid.parse((req.params as any).tenantId),
+        userId: a.userId,
+        role: "owner",
+      }),
     };
   };
   app.get("/api/v1/privacy/status", async (req) => {
     const a = identity(req);
-    return db.tenant({ ...a, role: "owner" }, async (tx) => ({
+    // Every member reads its own requests and follow-ups in its own scope.
+    return db.tenant(a, async (tx) => ({
       requests: await tx.query(
         "SELECT id,status,version,data,created_at FROM records WHERE kind='privacy_request' AND owner_user_id=$1 ORDER BY created_at DESC",
         [a.userId],
@@ -631,10 +717,11 @@ export function registerPrivacyLifecycle(
           JSON.stringify({ reason: b.reason }),
         ],
       );
-      await setTenant(tx, a);
-      await event(tx, a, "workspace.ownership_transfer_requested", request.id, {
-        targetUserId: b.targetUserId,
-      });
+      await tx.tenant(asOwner(a), (tx) =>
+        event(tx, a, "workspace.ownership_transfer_requested", request.id, {
+          targetUserId: b.targetUserId,
+        }),
+      );
       return request;
     });
   });
@@ -713,13 +800,12 @@ export function registerPrivacyLifecycle(
         "DELETE FROM sessions WHERE tenant_id=$1 AND user_id=ANY($2::uuid[])",
         [a.tenantId, [a.userId, r.requested_by]],
       );
-      await setTenant(tx, { ...a, role: "owner" });
-      await event(
-        tx,
-        { ...a, role: "owner" },
-        "workspace.ownership_transferred",
-        r.id,
-        { previousOwner: r.requested_by, newOwner: a.userId },
+      // The membership update above made this member the owner.
+      await tx.tenant(asOwner(a), (tx) =>
+        event(tx, asOwner(a), "workspace.ownership_transferred", r.id, {
+          previousOwner: r.requested_by,
+          newOwner: a.userId,
+        }),
       );
       reply.clearCookie("session", { path: "/" });
       return { status: "completed", signInRequired: true };
@@ -746,8 +832,9 @@ export function registerPrivacyLifecycle(
       );
       if (!r)
         throw fail(409, "STALE_REVISION", "This request changed; reload it");
-      await setTenant(tx, a);
-      await event(tx, a, "workspace.lifecycle_canceled", r.id);
+      await tx.tenant(asOwner(a), (tx) =>
+        event(tx, a, "workspace.lifecycle_canceled", r.id),
+      );
       return r;
     });
   });
@@ -765,9 +852,7 @@ export function registerPrivacyLifecycle(
     return db.system(async (tx) => {
       await workspaceLock(tx, a.tenantId);
       await assertOwner(tx, a, b.password);
-      await setTenant(tx, a);
-      await assertSettled(tx);
-      await tx.query("RESET ROLE");
+      await tx.tenant(asOwner(a), (tx) => assertSettled(tx));
       await tx.query(
         "UPDATE workspace_lifecycle_requests SET status='canceled',revision=revision+1 WHERE tenant_id=$1 AND status='pending' AND expires_at<=now()",
         [a.tenantId],
@@ -781,8 +866,9 @@ export function registerPrivacyLifecycle(
           JSON.stringify({ reason: b.reason }),
         ],
       );
-      await setTenant(tx, a);
-      await event(tx, a, "workspace.closure_requested", r.id);
+      await tx.tenant(asOwner(a), (tx) =>
+        event(tx, a, "workspace.closure_requested", r.id),
+      );
       return r;
     });
   });
@@ -871,119 +957,135 @@ export function registerPrivacyLifecycle(
     async (req) => {
       const a = operator(req);
       const b = erasureSchema.parse(req.body);
-      return db.system(async (tx) => {
-        await workspaceLock(tx, a.tenantId);
-        const [r] = await tx.query(
-          "SELECT * FROM workspace_lifecycle_requests WHERE id=$1 AND tenant_id=$2 AND kind='closure' FOR UPDATE",
-          [uuid.parse((req.params as any).id), a.tenantId],
-        );
-        if (!r) throw fail(404, "NOT_FOUND", "Closure request unavailable");
-        if (r.status === "completed") return { status: "completed" };
-        if (
-          r.status !== "pending" ||
-          r.revision !== b.expectedRevision ||
-          new Date(r.expires_at).getTime() <= Date.now()
-        )
-          throw fail(
-            409,
-            "STALE_REVISION",
-            "The closure request changed or expired",
+      // Bound to the closing workspace: the destructive service statements
+      // below reach no other workspace's sessions, tokens, memberships or
+      // domains even without their tenant predicate. Account scrubs (which
+      // must see a person's other memberships) and visitor analytics erasure
+      // lift the binding explicitly.
+      return db.system(
+        async (tx) => {
+          await workspaceLock(tx, a.tenantId);
+          const [r] = await tx.query(
+            "SELECT * FROM workspace_lifecycle_requests WHERE id=$1 AND tenant_id=$2 AND kind='closure' FOR UPDATE",
+            [uuid.parse((req.params as any).id), a.tenantId],
           );
-        if (r.requested_by === a.userId)
-          throw fail(
-            403,
-            "INDEPENDENT_REVIEW",
-            "A different platform administrator must review the owner’s closure request",
+          if (!r) throw fail(404, "NOT_FOUND", "Closure request unavailable");
+          if (r.status === "completed") return { status: "completed" };
+          if (
+            r.status !== "pending" ||
+            r.revision !== b.expectedRevision ||
+            new Date(r.expires_at).getTime() <= Date.now()
+          )
+            throw fail(
+              409,
+              "STALE_REVISION",
+              "The closure request changed or expired",
+            );
+          if (r.requested_by === a.userId)
+            throw fail(
+              403,
+              "INDEPENDENT_REVIEW",
+              "A different platform administrator must review the owner’s closure request",
+            );
+          await assertOwner(tx, { ...a, userId: r.requested_by });
+          const users = await tx.query(
+            "SELECT u.id,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 ORDER BY u.id FOR UPDATE OF u,m",
+            [a.tenantId],
           );
-        await assertOwner(tx, { ...a, userId: r.requested_by });
-        const users = await tx.query(
-          "SELECT u.id,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 ORDER BY u.id FOR UPDATE OF u,m",
-          [a.tenantId],
-        );
-        await setTenant(tx, a);
-        await assertSettled(tx);
-        const knownProviders = hooks.providerInventory
-          ? await hooks.providerInventory(tx)
-          : [];
-        const evidence = {
-          ...b,
-          providers: [
-            ...b.providers,
-            ...knownProviders
-              .filter(
-                (name) =>
-                  !b.providers.some(
-                    (p) => p.name.toLowerCase() === name.toLowerCase(),
-                  ),
-              )
-              .map((name) => ({ name, dueAt: b.backupPurgeBy })),
-          ],
-        };
-        for (const u of users)
-          await erasePersonalData(tx, a, u.id, u.email, hooks);
-        await tx.query("SELECT set_config('app.privacy_erasure','true',true)");
-        await tx.query("DELETE FROM records WHERE kind<>ALL($1::text[])", [
-          retainedKinds,
-        ]);
-        for (const table of [
-          "nutrition_ingredients",
-          "nutrition_recipe_options",
-          "nutrition_recipes",
-          "nutrition_foods",
-          "bookings",
-          "booking_slots",
-          "meal_captures",
-          "workout_events",
-          "jobs",
-        ])
-          await tx.query(`DELETE FROM ${table}`);
-        if (hooks.closeAdditional) await hooks.closeAdditional(tx);
-        await createPrivacyFollowups(tx, a, r.id, null, evidence);
-        await event(tx, a, "workspace.closed", r.id, {
-          retentionPolicyVersion: b.retentionPolicyVersion,
-          evidenceReference: b.evidenceReference,
-          externalStatus: "followups_pending",
-        });
-        await tx.query("RESET ROLE");
-        await purgeAcquisition(tx, a);
-        await tx.query(
-          "UPDATE tenants SET lifecycle_state='closed',closed_at=now(),published=false,name='Closed workspace',theme='{}'::jsonb WHERE id=$1",
-          [a.tenantId],
-        );
-        await tx.query(
-          "UPDATE domain_mappings SET active=false,verified_at=NULL WHERE tenant_id=$1",
-          [a.tenantId],
-        );
-        await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [a.tenantId]);
-        await tx.query("DELETE FROM one_time_tokens WHERE tenant_id=$1", [
-          a.tenantId,
-        ]);
-        await tx.query("DELETE FROM memberships WHERE tenant_id=$1", [
-          a.tenantId,
-        ]);
-        for (const u of users) await scrubUnusedAccount(tx, u.id);
-        await tx.query(
-          "UPDATE workspace_lifecycle_requests SET status='completed',revision=revision+1,completed_at=now(),data=$2 WHERE id=$1",
-          [
-            r.id,
-            JSON.stringify({
-              retentionPolicyVersion: b.retentionPolicyVersion,
-              evidenceReference: b.evidenceReference,
-            }),
-          ],
-        );
-        await tx.query(
-          "INSERT INTO privacy_erasure_registry(id,tenant_id,request_id,scope,retention_policy_version,evidence_reference) VALUES($1,$2,$3,'workspace',$4,$5)",
-          [
-            randomUUID(),
+          await tx.tenant(
+            a,
+            async (tx) => {
+              await assertSettled(tx);
+              const knownProviders = hooks.providerInventory
+                ? await hooks.providerInventory(tx)
+                : [];
+              const evidence = {
+                ...b,
+                providers: [
+                  ...b.providers,
+                  ...knownProviders
+                    .filter(
+                      (name) =>
+                        !b.providers.some(
+                          (p) => p.name.toLowerCase() === name.toLowerCase(),
+                        ),
+                    )
+                    .map((name) => ({ name, dueAt: b.backupPurgeBy })),
+                ],
+              };
+              for (const u of users)
+                await erasePersonalData(tx, a, u.id, u.email, hooks);
+              await tx.query(
+                "DELETE FROM records WHERE kind<>ALL($1::text[])",
+                [retainedKinds],
+              );
+              for (const table of [
+                "nutrition_ingredients",
+                "nutrition_recipe_options",
+                "nutrition_recipes",
+                "nutrition_foods",
+                "bookings",
+                "booking_slots",
+                "meal_captures",
+                "workout_events",
+                "jobs",
+              ])
+                await tx.query(`DELETE FROM ${table}`);
+              if (hooks.closeAdditional) await hooks.closeAdditional(tx);
+              await createPrivacyFollowups(tx, a, r.id, null, evidence);
+              await event(tx, a, "workspace.closed", r.id, {
+                retentionPolicyVersion: b.retentionPolicyVersion,
+                evidenceReference: b.evidenceReference,
+                externalStatus: "followups_pending",
+              });
+            },
+            { privacyErasure: true },
+          );
+          await tx.acrossWorkspaces((tx) => purgeAcquisition(tx, a));
+          await tx.query(
+            "UPDATE tenants SET lifecycle_state='closed',closed_at=now(),published=false,name='Closed workspace',theme='{}'::jsonb WHERE id=$1",
+            [a.tenantId],
+          );
+          await tx.query(
+            "UPDATE domain_mappings SET active=false,verified_at=NULL WHERE tenant_id=$1",
+            [a.tenantId],
+          );
+          await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [
             a.tenantId,
-            r.id,
-            b.retentionPolicyVersion,
-            b.evidenceReference,
-          ],
-        );
-        return { status: "completed", externalStatus: "followups_pending" };
-      });
+          ]);
+          await tx.query("DELETE FROM one_time_tokens WHERE tenant_id=$1", [
+            a.tenantId,
+          ]);
+          await tx.query("DELETE FROM memberships WHERE tenant_id=$1", [
+            a.tenantId,
+          ]);
+          await tx.acrossWorkspaces(async (tx) => {
+            for (const u of users) await scrubUnusedAccount(tx, u.id);
+          });
+          await tx.query(
+            "UPDATE workspace_lifecycle_requests SET status='completed',revision=revision+1,completed_at=now(),data=$2 WHERE id=$1",
+            [
+              r.id,
+              JSON.stringify({
+                retentionPolicyVersion: b.retentionPolicyVersion,
+                evidenceReference: b.evidenceReference,
+              }),
+            ],
+          );
+          await tx.query(
+            "INSERT INTO privacy_erasure_registry(id,tenant_id,request_id,scope,retention_policy_version,evidence_reference) VALUES($1,$2,$3,'workspace',$4,$5)",
+            [
+              randomUUID(),
+              a.tenantId,
+              r.id,
+              b.retentionPolicyVersion,
+              b.evidenceReference,
+            ],
+          );
+          return { status: "completed", externalStatus: "followups_pending" };
+        },
+        { tenantId: a.tenantId },
+      );
     },
   );
 }

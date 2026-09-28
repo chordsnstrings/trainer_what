@@ -1,0 +1,214 @@
+/* Public coach directory and the owner's directory listing settings. Logical
+   properties only, so a right-to-left pass needs no rewrites. */
+.directory-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.directory {
+  inline-size: min(100%, 1180px);
+  margin-inline: auto;
+  padding-block: 24px 64px;
+  padding-inline: 24px;
+  flex: 1;
+}
+.directory h1 {
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 1.08;
+  margin-block-end: 14px;
+}
+.directory-intro {
+  max-inline-size: 640px;
+  line-height: 1.7;
+  margin-block-end: 28px;
+}
+.directory-search {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+  align-items: end;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding-block: 20px 4px;
+  padding-inline: 20px;
+  margin-block-end: 24px;
+}
+.directory-search-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-block-end: 16px;
+}
+.directory-search-actions a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.directory-count {
+  margin-block-end: 16px;
+}
+.directory-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 20px;
+}
+.directory-card {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  block-size: 100%;
+  min-inline-size: 0;
+}
+.directory-photo {
+  flex: none;
+  inline-size: 72px;
+  block-size: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--mint);
+}
+.directory-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green);
+  color: var(--on-green);
+  font-weight: 650;
+  font-size: 22px;
+}
+.directory-card-body {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.directory-card-body h2 {
+  font-size: 20px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.directory-card-body p {
+  margin: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.directory-tags {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.directory-tags li {
+  background: var(--mint);
+  border-radius: 999px;
+  padding-block: 4px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+.directory-languages {
+  font-size: 12px;
+}
+.directory-empty {
+  text-align: start;
+}
+.directory .directory-closed-title {
+  font-size: clamp(24px, 4vw, 32px);
+  margin-block-end: 12px;
+}
+.directory-pages {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-start: 28px;
+}
+.directory-pages a,
+.directory-footer a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.directory-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: center;
+  padding-block: 24px;
+  padding-inline: 24px;
+  border-block-start: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Owner settings inside the website editor. */
+.directory-settings {
+  margin-block-start: 24px;
+}
+.directory-status {
+  font-weight: 550;
+}
+.directory-status a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.directory-choices {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding-block: 12px;
+  padding-inline: 16px;
+  margin-block: 16px;
+  margin-inline: 0;
+  min-inline-size: 0;
+}
+.directory-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 8px 16px;
+}
+.directory-preview {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin-block: 16px;
+  min-inline-size: 0;
+}
+.directory-preview img,
+.directory-preview .directory-initials {
+  flex: none;
+  inline-size: 56px;
+  block-size: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.directory-preview p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .directory-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 420px) {
+  .directory {
+    padding-inline: 16px;
+  }
+  .directory-card {
+    flex-direction: column;
+  }
+}

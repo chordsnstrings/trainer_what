@@ -4,6 +4,29 @@
   background: var(--paper);
   font-family: var(--brand-font);
   min-width: 0;
+  /* Tokens the platform identity added (globals.css) follow the trainer's
+     Design Studio design here, never the trainsyou palette. The colour
+     variables themselves are set inline (brandCssVariables). */
+  --canvas: var(--paper);
+  --field-border: var(--line);
+  --green-hover: var(--green);
+  --on-green: var(--brand-on-primary);
+  --on-lime: var(--brand-on-accent);
+  --client-bubble: var(--mint);
+  --focus: var(--ink);
+  /* Status colours stay the light set even inside a dark platform page
+     (the Design Studio preview). */
+  --success: var(--ty-success);
+  --warning: var(--ty-warning);
+  --error: var(--ty-error);
+  --success-bg: color-mix(in srgb, var(--ty-success) 9%, #ffffff);
+  --success-line: color-mix(in srgb, var(--ty-success) 30%, #ffffff);
+  --warning-bg: color-mix(in srgb, var(--ty-warning) 9%, #ffffff);
+  --warning-line: color-mix(in srgb, var(--ty-warning) 30%, #ffffff);
+  --error-bg: color-mix(in srgb, var(--ty-error) 8%, #ffffff);
+  --error-line: color-mix(in srgb, var(--ty-error) 30%, #ffffff);
+  --on-status: #ffffff;
+  color-scheme: normal;
 }
 .trainer-theme h1,
 .trainer-theme h2,
@@ -268,7 +291,7 @@
   flex-shrink: 0;
 }
 .coach-home-section > svg:last-child {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .coach-home-section.is-featured {
   grid-column: 1 / -1;
@@ -323,29 +346,29 @@
 }
 .design-save-state {
   font-size: 11px;
-  color: #66746c;
+  color: var(--muted);
 }
 .design-save-state.has-changes {
-  color: #81552b;
+  color: var(--warning);
 }
 .design-top-note {
   display: flex;
   gap: 12px;
   align-items: center;
   padding: 16px 20px;
-  background: #ecf1e5;
-  border: 1px solid #e1e8d7;
+  background: var(--mint);
+  border: 1px solid var(--line);
   border-radius: 10px;
   margin: 12px 0 25px;
 }
 .design-top-note svg {
-  color: #466344;
+  color: var(--muted);
   flex-shrink: 0;
 }
 .design-top-note p {
   margin: 0;
   font-size: 12px;
-  color: #455340;
+  color: var(--muted);
   line-height: 1.6;
 }
 .design-tabs {
@@ -365,12 +388,12 @@
   border-radius: 7px;
   padding: 11px 16px;
   font-size: 12px;
-  color: #626f69;
+  color: var(--muted);
   white-space: nowrap;
 }
 .design-tabs button[aria-selected="true"] {
-  background: #244c46;
-  color: white;
+  background: var(--green);
+  color: var(--on-green);
 }
 .design-workbench {
   display: grid;
@@ -399,9 +422,9 @@
 }
 .design-section-heading > span {
   font-size: 10px;
-  border: 1px solid #dce4d9;
-  background: #f4f7f0;
-  color: #526149;
+  border: 1px solid var(--line);
+  background: var(--mint);
+  color: var(--muted);
   border-radius: 50%;
   height: 28px;
   width: 28px;
@@ -417,7 +440,7 @@
 .design-section-heading p {
   margin: 0;
   font-size: 12px;
-  color: #657369;
+  color: var(--muted);
   line-height: 1.6;
 }
 .design-field {
@@ -435,7 +458,7 @@
 }
 .design-field small {
   font-size: 10px;
-  color: #68746d;
+  color: var(--muted);
   font-weight: 400;
   line-height: 1.6;
 }
@@ -445,7 +468,7 @@
   gap: 9px;
   font-size: 11px;
   line-height: 1.6;
-  color: #66746b;
+  color: var(--muted);
   margin-bottom: 0;
 }
 .design-help svg {
@@ -458,16 +481,16 @@
   gap: 13px;
 }
 .design-presets > button {
-  background: white;
-  text-align: left;
-  border: 1px solid #e2e7df;
+  background: var(--white);
+  text-align: start;
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 8px 13px;
   min-width: 0;
 }
 .design-presets > button[aria-pressed="true"] {
-  border-color: #244c46;
-  outline: 1px solid #244c46;
+  border-color: var(--green);
+  outline: 1px solid var(--focus);
 }
 .design-preset-art {
   height: 94px;
@@ -507,7 +530,7 @@
   font-size: 10px;
   line-height: 1.5;
   padding: 6px 5px 0;
-  color: #66746b;
+  color: var(--muted);
 }
 .design-color-row {
   display: flex;
@@ -515,7 +538,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 15px 0;
-  border-bottom: 1px solid #edf0e9;
+  border-bottom: 1px solid var(--line);
 }
 .design-color-row:first-of-type {
   padding-top: 0;
@@ -534,8 +557,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px 5px 5px;
-  border: 1px solid #e0e5dc;
+  padding-block: 5px;
+  padding-inline: 5px 8px;
+  border: 1px solid var(--line);
   border-radius: 6px;
   flex-shrink: 0;
 }
@@ -554,8 +578,8 @@
 .design-contrast-note {
   display: flex;
   gap: 8px;
-  color: #52644d;
-  background: #f2f6ed;
+  color: var(--muted);
+  background: var(--mint);
   padding: 11px;
   border-radius: 6px;
   margin-top: 16px;
@@ -579,22 +603,22 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid #e1e6dd;
+  border: 1px solid var(--line);
   border-radius: 9px;
   margin-top: 10px;
   padding: 15px 12px;
 }
 .design-order li:first-child {
-  background: #f0f4e9;
-  border-color: #cbd7c1;
+  background: var(--mint);
+  border-color: var(--line);
 }
 .design-order-number {
-  color: #77856e;
+  color: var(--muted);
   font-size: 10px;
 }
 .design-order li > svg {
   flex-shrink: 0;
-  color: #4e6551;
+  color: var(--muted);
 }
 .design-order li > div:not(.design-order-actions) {
   flex: 1;
@@ -620,14 +644,14 @@
   place-items: center;
   border: 0;
   background: transparent;
-  color: #45604b;
+  color: var(--muted);
   padding: 7px;
 }
 .design-protected {
-  background: #f0f3eb;
+  background: var(--mint);
 }
 .design-protected > svg {
-  color: #547148;
+  color: var(--muted);
   margin-bottom: 14px;
 }
 .design-protected h3 {
@@ -635,7 +659,7 @@
 }
 .design-protected p {
   font-size: 12px;
-  color: #5d6c55;
+  color: var(--muted);
   margin-bottom: 0;
 }
 .design-bottom-actions {
@@ -655,7 +679,7 @@
 }
 .design-final-review > p {
   font-size: 13px;
-  color: #637064;
+  color: var(--muted);
 }
 .design-review-icon {
   display: grid;
@@ -663,8 +687,8 @@
   height: 58px;
   width: 58px;
   border-radius: 50%;
-  background: #edf4e1;
-  color: #416940;
+  background: var(--mint);
+  color: var(--muted);
   margin-bottom: 20px;
 }
 .design-review-summary {
@@ -673,19 +697,19 @@
   gap: 8px;
   margin: 23px 0;
   padding: 18px;
-  border: 1px solid #e2e7dc;
+  border: 1px solid var(--line);
   border-radius: 9px;
   font-size: 12px;
 }
 .design-review-summary span {
-  color: #647161;
+  color: var(--muted);
   font-size: 11px;
 }
 .design-live-preview {
   position: sticky;
   top: 23px;
-  background: #e9ece5;
-  border: 1px solid #e1e6dd;
+  background: var(--mint);
+  border: 1px solid var(--line);
   padding: 21px;
   border-radius: 14px;
 }
@@ -704,27 +728,27 @@
 .design-preview-label {
   display: block;
   font-size: 12px;
-  color: #52634e;
+  color: var(--muted);
 }
 .design-device-toggle {
   display: flex;
   padding: 3px;
-  border: 1px solid #d9dfd3;
+  border: 1px solid var(--line);
   border-radius: 7px;
   flex-shrink: 0;
 }
 .design-device-toggle button {
   border: 0;
   background: transparent;
-  color: #66725e;
+  color: var(--muted);
   display: grid;
   place-items: center;
   padding: 7px;
   border-radius: 4px;
 }
 .design-device-toggle button[aria-pressed="true"] {
-  background: white;
-  color: #264a3e;
+  background: var(--white);
+  color: var(--ink);
   box-shadow: 0 1px 3px #263a2710;
 }
 .design-preview-mode {
@@ -738,16 +762,16 @@
   border-bottom: 1px solid transparent;
   padding: 4px 0 7px;
   font-size: 11px;
-  color: #737d6b;
+  color: var(--muted);
   background: transparent;
 }
 .design-preview-mode button[aria-pressed="true"] {
-  border-bottom-color: #365243;
-  color: #294f3f;
+  border-bottom-color: var(--green);
+  color: var(--ink);
 }
 .design-device {
-  border: 7px solid #fff;
-  background: #fff;
+  border: 7px solid var(--line);
+  background: var(--white);
   box-shadow: 0 10px 34px #22331a12;
   overflow: hidden;
   margin: 0 auto;
@@ -896,7 +920,7 @@
   font-size: 8px;
 }
 .design-preview-caption {
-  color: #64715e;
+  color: var(--muted);
   text-align: center;
   font-size: 9px;
   line-height: 1.7;
@@ -980,7 +1004,7 @@
   flex-wrap: wrap;
 }
 .design-studio .notice .button {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 @media (max-width: 1180px) {
@@ -1024,8 +1048,7 @@
   }
   .design-preview-toolbar {
     max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
+    margin-inline: auto;
   }
 }
 @media (max-width: 600px) {

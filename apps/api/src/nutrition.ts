@@ -18,7 +18,7 @@ import {
   groceryPurchases,
   mealNutrientsSchema,
 } from "../../../packages/domain/src/nutrition-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasNutritionAccess } from "./entitlements.ts";
 import { validateClientTargets } from "../../../packages/domain/src/nutrition-completion.ts";
 import {
   nutritionCompletionRoutes,
@@ -33,6 +33,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  actingAs,
   event,
   putRecord,
   type Actor,
@@ -78,7 +79,10 @@ const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const hash = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
-const internal = (a: Actor) => ({ ...a, role: "owner" });
+// A follower keeps its own subscriber scope (its rows plus the workspace
+// nutrition material RLS shares with members, migration 061); a staff coach
+// uses the allowlisted coach-workflow elevation for owner-only catalog writes.
+const internal = (a: Actor) => actingAs(a, "owner", "coach-workflow");
 // Every active held-out check is evaluated; the model output schema allows 50 decisions.
 const maxHeldOut = 40;
 async function lock(tx: Tx, a: Actor, suffix = "setup") {
@@ -128,9 +132,9 @@ async function member(tx: Tx, a: Actor, userId: string) {
   );
   if (!m) throw fail(404, "SUBSCRIBER_UNAVAILABLE", "Subscriber unavailable");
 }
+/** Paid workout + nutrition, or a complimentary nutrition grant (entitlements.ts). */
 export async function nutritionEntitlement(tx: Tx, userId: string) {
-  const s = await currentPaidSubscription(tx, userId);
-  return !!s && s.data?.modules?.includes("nutrition") === true;
+  return hasNutritionAccess(tx, userId);
 }
 async function entitled(tx: Tx, userId: string) {
   if (!(await nutritionEntitlement(tx, userId)))
@@ -151,11 +155,8 @@ async function permission(tx: Tx, userId: string, model = false) {
     );
   return { processing, ai };
 }
-export async function nutritionCatalog(
-  tx: Tx,
-  includeHistory = false,
-): Promise<{ foods: Food[]; recipes: Recipe[] }> {
-  const [f, r, o, i] = await Promise.all([
+function catalogRows(tx: Tx, includeHistory: boolean) {
+  return [
     tx.query(
       `SELECT f.* FROM nutrition_foods f WHERE $1 OR (NOT EXISTS(SELECT 1 FROM nutrition_foods n WHERE n.supersedes_id=f.id) AND NOT EXISTS(SELECT 1 FROM records a WHERE a.kind='nutrition_catalog_archive' AND a.status='active' AND a.data->>'entityId'=f.id::text)) ORDER BY f.id`,
       [includeHistory],
@@ -170,7 +171,27 @@ export async function nutritionCatalog(
     tx.query(
       "SELECT * FROM nutrition_ingredients ORDER BY recipe_id,option_key,position",
     ),
-  ]);
+  ];
+}
+export async function nutritionCatalog(
+  tx: Tx,
+  includeHistory = false,
+): Promise<{ foods: Food[]; recipes: Recipe[] }> {
+  // A follower's scope never reads the catalog tables: the member helpers
+  // return the same current foods and recipes (migration 061).
+  const [scope] = await tx.query<{ role: string }>(
+    "SELECT current_setting('app.role',true) AS role",
+  );
+  const [f, r, o, i] = await Promise.all(
+    scope?.role === "subscriber" && !includeHistory
+      ? [
+          tx.query("SELECT * FROM member_nutrition_foods()"),
+          tx.query("SELECT * FROM member_nutrition_recipes()"),
+          tx.query("SELECT * FROM member_nutrition_recipe_options()"),
+          tx.query("SELECT * FROM member_nutrition_ingredients()"),
+        ]
+      : catalogRows(tx, includeHistory),
+  );
   const foods = f.map((x) => ({
     id: x.id,
     name: x.name,
@@ -2095,8 +2116,14 @@ function subscriberRoutes(
         .parse(req.body);
     return db.tenant(internal(a), async (tx) => {
       await permission(tx, a.userId);
-      const plan = await find(tx, b.planId, "nutrition_plan");
+      // The follower's own scope sees only its own plans; another member's
+      // plan is simply not one of them.
+      const [plan] = await tx.query(
+        "SELECT * FROM records WHERE id=$1 AND kind='nutrition_plan'",
+        [b.planId],
+      );
       if (
+        !plan ||
         plan.owner_user_id !== a.userId ||
         b.foodIds.some(
           (i) => !plan.data.view.groceries.some((g: any) => g.food.id === i),

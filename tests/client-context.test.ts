@@ -141,13 +141,16 @@ test("personal export includes context, erasure removes it, and audit omits its 
   );
   assert.equal(events.length, 1);
   assert.doesNotMatch(JSON.stringify(events), /Keep my notes private/);
-  await db.tenant(owner, (tx) =>
-    erasePersonalData(
-      tx,
-      owner,
-      client.userId,
-      client.userId + "@example.test",
-    ),
+  await db.tenant(
+    owner,
+    (tx) =>
+      erasePersonalData(
+        tx,
+        owner,
+        client.userId,
+        client.userId + "@example.test",
+      ),
+    { privacyErasure: true },
   );
   assert.equal((await request(client)).json().version, 0);
 });

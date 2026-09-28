@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Actor, type Database, event } from "@trainer/db";
+import { type Actor, type Database, elevated, event } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import {
   erasureSchema,
@@ -26,13 +26,18 @@ export function privacyOperations(
         "A platform administrator must process privacy requests",
       );
     requireRecentMfa(a, true);
+    // A platform administrator acts in the workspace as an allowlisted
+    // platform operator (never as a member of it).
     return {
       ...a,
-      tenantId: z
-        .string()
-        .uuid()
-        .parse((req.params as any).tenantId),
-      role: "owner",
+      ...elevated("platform-operator", {
+        tenantId: z
+          .string()
+          .uuid()
+          .parse((req.params as any).tenantId),
+        userId: a.userId,
+        role: "owner",
+      }),
     };
   }
   const prefix = "/api/v1/admin/tenants/:tenantId/privacy";

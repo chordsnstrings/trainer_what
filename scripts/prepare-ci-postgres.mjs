@@ -31,6 +31,14 @@ try {
   await client.query(
     "ALTER ROLE trainer_service PASSWORD 'ci_runtime_fixture_only'",
   );
+  // A fresh CI database runs only scope-compatible code: apply the tenant
+  // scope hardening exactly as a scope-compatible controller would.
+  await client.query(
+    await readFile(
+      new URL("../infra/tenant-scope.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   console.log(
     "Disposable CI runtime role provisioned without table ownership or RLS bypass.",
   );

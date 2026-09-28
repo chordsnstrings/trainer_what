@@ -3,6 +3,7 @@ import {
   type Actor,
   type Database,
   type Tx,
+  elevated,
   event,
   putRecord,
 } from "@trainer/db";
@@ -10,6 +11,12 @@ import { requireCommerce, stripeClient } from "@trainer/providers";
 import { z } from "zod";
 import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import {
+  offerBilling,
+  processProgrammeCheckoutEvent,
+  upfrontAdmission,
+} from "./programme-billing.ts";
+import { effectiveProgrammeDays } from "../../../packages/domain/src/programme.ts";
 const uuid = z.string().uuid();
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
@@ -26,7 +33,7 @@ type CheckoutOptions = {
   origin: string;
   nutritionReady: (tx: Tx) => Promise<unknown>;
 };
-async function checkoutLock(tx: Tx, a: Actor) {
+async function checkoutLock(tx: Tx, a: Pick<Actor, "tenantId" | "userId">) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":workspace",
   ]);
@@ -35,23 +42,35 @@ async function checkoutLock(tx: Tx, a: Actor) {
     a.tenantId + ":checkout:" + a.userId,
   ]);
 }
+/**
+ * Membership intents only: a voice add-on purchase is its own checkout
+ * (voice-addon.ts), and a paid upfront programme is settled once its payment
+ * is posted (its access lives on the membership row, not the intent).
+ */
+const MEMBERSHIP_INTENT =
+  "coalesce(data->>'purpose','membership')<>'voice_addon' AND NOT (status='completed' AND coalesce(data->>'billing','')='upfront')";
 async function unresolvedCheckout(tx: Tx, a: Actor) {
   const [r] = await tx.query(
-    "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1 FOR UPDATE",
+    `SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') AND ${MEMBERSHIP_INTENT} ORDER BY created_at,id LIMIT 1 FOR UPDATE`,
     [a.userId],
   );
   return r;
 }
-/** Subscription state comes from Stripe evidence; elapsed local time cannot close a checkout. */
-async function settleCheckoutSubscriptionScoped(
+/**
+ * Subscription state comes from Stripe evidence; elapsed local time cannot
+ * close a checkout. Runs in the provider callback's finance scope, which may
+ * read checkout intents (migration 061 finance_record_scope); `memberId` is
+ * the subscription's member.
+ */
+export async function settleCheckoutSubscription(
   tx: Tx,
-  a: Actor,
+  memberId: string,
   subscription: any,
 ) {
   const intentId = subscription.metadata?.intent_id;
   const rows = await tx.query(
     "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->>'subscriptionId'=$2 OR id::text=$3) FOR UPDATE",
-    [a.userId, subscription.id, intentId ?? ""],
+    [memberId, subscription.id, intentId ?? ""],
   );
   for (const r of rows) {
     if (r.data.subscriptionId && r.data.subscriptionId !== subscription.id)
@@ -76,25 +95,15 @@ async function settleCheckoutSubscriptionScoped(
     );
   }
 }
-export async function settleCheckoutSubscription(
-  tx: Tx,
-  a: Actor,
-  subscription: any,
-) {
-  const [context] = await tx.query(
-    "SELECT current_setting('app.role',true) AS role",
-  );
-  await tx.query("SELECT set_config('app.role','owner',true)");
-  try {
-    await settleCheckoutSubscriptionScoped(tx, a, subscription);
-  } finally {
-    await tx
-      .query("SELECT set_config('app.role',$1,true)", [context.role])
-      .catch(() => {});
-  }
-}
 /** Entry is restricted to signed webhook payloads or authenticated provider reads. */
-export async function processMembershipCheckoutEvent(db: Database, e: any) {
+export async function processMembershipCheckoutEvent(
+  db: Database,
+  e: any,
+  deps: { stripe?: ReturnType<typeof stripeClient> } = {},
+) {
+  // An upfront programme is a one-time payment checkout (programme-billing.ts).
+  if (e.data?.object?.mode === "payment")
+    return processProgrammeCheckoutEvent(db, e, deps);
   if (
     ![
       "checkout.session.completed",
@@ -105,6 +114,7 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
     return false;
   const remote = e.data?.object;
   if (remote?.mode !== "subscription") return false;
+  if (remote.metadata?.purpose === "voice_addon") return false;
   const intentId = remote.metadata?.intent_id ?? remote.client_reference_id;
   if (!uuid.safeParse(intentId).success)
     throw fail(
@@ -119,11 +129,10 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
       "CHECKOUT_MAPPING_REQUIRED",
       "Checkout tenant and user identity are required",
     );
-  const providerActor = {
+  const providerActor = elevated("provider-callback", {
     tenantId: remote.metadata.tenant_id,
-    userId: remote.metadata.user_id,
     role: "owner",
-  };
+  });
   const [r] = await db.tenant(providerActor, (tx) =>
     tx.query("SELECT * FROM records WHERE id=$1 AND kind='checkout'", [
       intentId,
@@ -162,9 +171,15 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
       "CHECKOUT_STATE_MISMATCH",
       "Provider has not confirmed a completed subscription checkout",
     );
-  const a = { tenantId: r.tenant_id, userId: r.owner_user_id, role: "owner" };
+  // The provider acted: a service identity scopes the projection, and the
+  // checkout lock and subscription read use the checkout's member.
+  const member = { tenantId: r.tenant_id, userId: r.owner_user_id as string };
+  const a = elevated("provider-callback", {
+    tenantId: r.tenant_id,
+    role: "owner",
+  });
   await db.tenant(a, async (tx) => {
-    await checkoutLock(tx, a);
+    await checkoutLock(tx, member);
     const [current] = await tx.query(
       "SELECT * FROM records WHERE id=$1 FOR UPDATE",
       [r.id],
@@ -198,7 +213,7 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
         );
       const [s] = await tx.query(
         "SELECT provider_id,status FROM subscriptions WHERE user_id=$1",
-        [a.userId],
+        [member.userId],
       );
       const status =
         current.status === "closed" ||
@@ -232,7 +247,8 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
 }
 function assertCheckoutOwnership(remote: any, r: any) {
   if (
-    remote.mode !== "subscription" ||
+    remote.mode !==
+      (r.data.billing === "upfront" ? "payment" : "subscription") ||
     remote.client_reference_id !== r.id ||
     remote.metadata?.intent_id !== r.id ||
     remote.metadata?.tenant_id !== r.tenant_id ||
@@ -287,15 +303,20 @@ async function reconcileIntent(
     );
   assertCheckoutOwnership(remote, r);
   if (remote.status === "expired" || remote.status === "complete") {
-    await processMembershipCheckoutEvent(db, {
-      type:
-        remote.status === "expired"
-          ? "checkout.session.expired"
-          : "checkout.session.completed",
-      id: `reconcile-checkout:${remote.id}:${remote.status}`,
-      data: { object: remote },
-    });
-    if (remote.status === "complete") {
+    await processMembershipCheckoutEvent(
+      db,
+      {
+        type:
+          remote.status === "expired"
+            ? "checkout.session.expired"
+            : "checkout.session.completed",
+        id: `reconcile-checkout:${remote.id}:${remote.status}`,
+        data: { object: remote },
+      },
+      { stripe },
+    );
+    // An upfront programme has no provider subscription to project.
+    if (remote.status === "complete" && remote.mode === "subscription") {
       const sid =
         typeof remote.subscription === "string"
           ? remote.subscription
@@ -344,7 +365,7 @@ async function reconcileIntent(
         "CHECKOUT_UNRESOLVED",
         "Provider has not supplied an open checkout link",
       );
-    await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    await db.tenant(a, async (tx) => {
       await checkoutLock(tx, a);
       await tx.query(
         "UPDATE records SET status='open',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown','open')",
@@ -376,9 +397,9 @@ export async function reconcileMembershipCheckout(
       statusCode: 403,
       code: "SUBSCRIBER_REQUIRED",
     });
-  const [r] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  const [r] = await db.tenant(a, (tx) =>
     tx.query(
-      "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1",
+      `SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') AND ${MEMBERSHIP_INTENT} ORDER BY created_at,id LIMIT 1`,
       [a.userId],
     ),
   );
@@ -425,80 +446,105 @@ export async function createMembershipCheckout(
           statusCode: 403,
           code: "SUBSCRIBER_REQUIRED",
         });
-      // Keep lifecycle/membership admission and intent reservation in one transaction,
-      // then use the same restricted tenant role as all other financial record access.
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-        [a.tenantId, a.userId],
-      );
-      const [s] = await tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
-        [a.userId],
-      );
-      if (s && !terminalSubscription(s.status))
-        throw fail(
-          "ALREADY_SUBSCRIBED",
-          "Manage or reconcile the existing subscription before buying another membership",
-        );
-      const old = await unresolvedCheckout(tx, a);
-      if (old) {
-        const same =
-          old.data.productId === input.productId &&
-          (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
-        if (
-          old.status === "open" &&
-          old.data.checkoutUrl &&
-          Date.parse(old.data.expiresAt) > Date.now()
-        ) {
-          if (!same)
-            throw fail(
-              "CHECKOUT_OPEN",
-              "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
-            );
-          return { existing: true, ready: true, intent: old };
-        }
-        if (
-          old.status === "creating" &&
-          Date.now() - new Date(old.created_at).getTime() < 120000
-        )
-          throw fail(
-            "CHECKOUT_PENDING",
-            "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
+      // Keep lifecycle/membership admission and intent reservation in one
+      // transaction; the reservation runs in the buyer's own subscriber scope
+      // (its subscription and checkout rows, published products and the
+      // checkout_promotion() lookup, migration 061).
+      return tx.tenant(
+        { tenantId: a.tenantId, userId: a.userId, role: "subscriber" },
+        async (tx) => {
+          const [s] = await tx.query(
+            "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
+            [a.userId],
           );
-        return { existing: true, ready: false, intent: old, same };
-      }
-      const [product] = await tx.query(
-        "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
-        [input.productId],
-      );
-      if (!product?.data.stripePriceId)
-        throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
-      if (product.data.tier === "workout_nutrition")
-        await options.nutritionReady(tx);
-      const offerTerms = await checkoutOfferTerms(
-        tx,
-        a,
-        product,
-        input.promotionCode,
-      );
-      const intent = await putRecord(
-        tx,
-        a,
-        "checkout",
-        {
-          productId: product.id,
-          offerTerms,
-          priceId: product.data.stripePriceId,
-          email: member.email,
-          expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+          // An upfront programme that ended (or is in its renewal window, for
+          // another upfront programme) does not block the next purchase.
+          const admission = upfrontAdmission(s);
+          if (s && !terminalSubscription(s.status) && admission === "held")
+            throw fail(
+              "ALREADY_SUBSCRIBED",
+              "Manage or reconcile the existing subscription before buying another membership",
+            );
+          const old = await unresolvedCheckout(tx, a);
+          if (old) {
+            const same =
+              old.data.productId === input.productId &&
+              (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
+            if (
+              old.status === "open" &&
+              old.data.checkoutUrl &&
+              Date.parse(old.data.expiresAt) > Date.now()
+            ) {
+              if (!same)
+                throw fail(
+                  "CHECKOUT_OPEN",
+                  "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
+                );
+              return { existing: true, ready: true, intent: old };
+            }
+            if (
+              old.status === "creating" &&
+              Date.now() - new Date(old.created_at).getTime() < 120000
+            )
+              throw fail(
+                "CHECKOUT_PENDING",
+                "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
+              );
+            return { existing: true, ready: false, intent: old, same };
+          }
+          const [product] = await tx.query(
+            "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
+            [input.productId],
+          );
+          if (!product?.data.stripePriceId)
+            throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
+          const billing = offerBilling(product.data);
+          if (admission === "renew_upfront" && billing !== "upfront")
+            throw fail(
+              "ALREADY_SUBSCRIBED",
+              "A monthly membership can start once your current programme ends",
+            );
+          if (product.data.tier === "workout_nutrition")
+            await options.nutritionReady(tx);
+          const terms = await checkoutOfferTerms(
+            tx,
+            a,
+            product,
+            input.promotionCode,
+          );
+          // A free trial belongs to a recurring membership, never to a
+          // one-time programme payment.
+          const offerTerms =
+            billing === "upfront" ? { ...terms, trialDays: 0 } : terms;
+          const intent = await putRecord(
+            tx,
+            a,
+            "checkout",
+            {
+              productId: product.id,
+              offerTerms,
+              priceId: product.data.stripePriceId,
+              email: member.email,
+              expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+              billing,
+              ...(billing === "upfront"
+                ? {
+                    purpose: "programme",
+                    amountMinor: product.data.priceMinor,
+                    programmeDays: effectiveProgrammeDays(
+                      product.data.programmeDays,
+                    ),
+                  }
+                : {}),
+            },
+            { ownerId: a.userId, status: "creating" },
+          );
+          await event(tx, a, "checkout.reserved", intent.id, {
+            productId: product.id,
+          });
+          return { existing: false, intent };
         },
-        { ownerId: a.userId, status: "creating" },
       );
-      await event(tx, a, "checkout.reserved", intent.id, {
-        productId: product.id,
-      });
-      return { existing: false, intent };
     });
     if (context.existing) {
       if (context.ready)
@@ -525,24 +571,41 @@ export async function createMembershipCheckout(
         intent_id: intent.id,
         product_id: intent.data.productId,
       };
+      const discounts = intent.data.offerTerms?.couponId
+        ? [{ coupon: intent.data.offerTerms.couponId }]
+        : undefined;
+      const programme = { ...metadata, purpose: "programme" };
       const remote = await stripe.checkout.sessions.create(
-        {
-          mode: "subscription",
-          customer_email: intent.data.email,
-          client_reference_id: intent.id,
-          line_items: [{ price: intent.data.priceId, quantity: 1 }],
-          expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
-          metadata,
-          discounts: intent.data.offerTerms?.couponId
-            ? [{ coupon: intent.data.offerTerms.couponId }]
-            : undefined,
-          subscription_data: {
-            trial_period_days: intent.data.offerTerms?.trialDays || undefined,
-            metadata,
-          },
-          success_url: options.origin + "/app/membership?checkout=complete",
-          cancel_url: options.origin + "/app/membership",
-        },
+        intent.data.billing === "upfront"
+          ? {
+              // One payment for the whole programme (a one-time price).
+              mode: "payment",
+              customer_email: intent.data.email,
+              client_reference_id: intent.id,
+              line_items: [{ price: intent.data.priceId, quantity: 1 }],
+              expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
+              metadata: programme,
+              discounts,
+              payment_intent_data: { metadata: programme },
+              success_url: options.origin + "/app/membership?checkout=complete",
+              cancel_url: options.origin + "/app/membership",
+            }
+          : {
+              mode: "subscription",
+              customer_email: intent.data.email,
+              client_reference_id: intent.id,
+              line_items: [{ price: intent.data.priceId, quantity: 1 }],
+              expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
+              metadata,
+              discounts,
+              subscription_data: {
+                trial_period_days:
+                  intent.data.offerTerms?.trialDays || undefined,
+                metadata,
+              },
+              success_url: options.origin + "/app/membership?checkout=complete",
+              cancel_url: options.origin + "/app/membership",
+            },
         { idempotencyKey: "checkout:" + intent.id },
       );
       assertCheckoutOwnership(remote, intent);
@@ -551,7 +614,7 @@ export async function createMembershipCheckout(
           "CHECKOUT_UNRESOLVED",
           "Provider did not return a confirmed open checkout; reconcile the existing instruction",
         );
-      const [saved] = await db.tenant({ ...a, role: "owner" }, async (tx) => {
+      const [saved] = await db.tenant(a, async (tx) => {
         await checkoutLock(tx, a);
         return tx.query(
           "UPDATE records SET status='open',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status='creating' RETURNING id",
@@ -572,7 +635,7 @@ export async function createMembershipCheckout(
         );
       return { url: remote.url, intentId: intent.id };
     } catch (error) {
-      await db.tenant({ ...a, role: "owner" }, (tx) =>
+      await db.tenant(a, (tx) =>
         tx.query(
           "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
           [intent.id],

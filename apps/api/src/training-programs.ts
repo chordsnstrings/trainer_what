@@ -3,7 +3,7 @@ import { z } from "zod";
 import { event, putRecord, type Actor, type Database, type Tx } from "@trainer/db";
 import { trainingExerciseSchema, trainingProgramSchema, trainingDateSchema, trainingSchedule, effectiveWorkoutSets } from "../../../packages/domain/src/coaching-completion.ts";
 import { lockTraining, assertTrainingOpen } from "./coaching-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
 
 const id = z.string().uuid();
 const fail = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
@@ -68,6 +68,16 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       return reviseExercise(tx, a, p, b.exercise, { loadKg: b.loadKg, reps: b.reps, rir: b.rir }, b.note);
     });
   });
+  // The client pickers list the first followers by name; `membersHasMore`
+  // tells the screen to offer a server search (/workspace/pages/members) for
+  // the rest. A selected follower is always included.
+  const PICKER_MEMBERS = 100;
+  async function pickerMembers(tx: Tx, tenantId: string, selected?: string) {
+    const rows = await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name,u.id LIMIT $2", [tenantId, PICKER_MEMBERS + 1]);
+    const members = rows.slice(0, PICKER_MEMBERS);
+    if (selected && !members.some((m: any) => m.id === selected)) members.push(...await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' AND u.id=$2", [tenantId, selected]));
+    return { members, membersHasMore: rows.length > PICKER_MEMBERS };
+  }
   app.get("/api/v1/training/overview", async (req) => {
     const a = actor(req), q = z.object({ subscriberId: id.optional() }).parse(req.query), userId = a.role === "subscriber" ? a.userId : q.subscriberId;
     return db.tenant(a, async (tx) => {
@@ -75,7 +85,7 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const rows = await tx.query("SELECT * FROM records WHERE kind IN ('program','planned_session','workout','workout_correction','workout_substitution','training_hold') AND ($1::uuid IS NULL OR owner_user_id=$1 OR (kind='program' AND status='template')) ORDER BY created_at DESC LIMIT 1500", [userId ?? null]);
       const sets = userId ? await tx.query("SELECT * FROM workout_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 5000", [userId]) : [];
       const corrections = rows.filter((r) => r.kind === "workout_correction"), effectiveSets = effectiveWorkoutSets(sets, corrections);
-      return { records: rows, sets: effectiveSets, partial: rows.length === 1500 || sets.length === 5000, ...(a.role !== "subscriber" ? { members: await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name", [a.tenantId]) } : {}) };
+      return { records: rows, sets: effectiveSets, partial: rows.length === 1500 || sets.length === 5000, ...(a.role !== "subscriber" ? await pickerMembers(tx, a.tenantId, userId) : {}) };
     });
   });
   app.post("/api/v1/training/sessions/:id/reschedule", async (req) => {
@@ -112,7 +122,7 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
     const a = actor(req), b = z.object({ version: z.number().int().positive(), exercise: z.string().min(2).max(100), replacement: z.string().min(2).max(100), reason: z.enum(["equipment_unavailable", "coach_preference"]) }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a); await assertTrainingOpen(tx, a.userId);
-      if (a.role === "subscriber" && !(await currentPaidSubscription(tx, a.userId))) throw fail(402, "An active membership is required");
+      if (a.role === "subscriber" && !(await hasMemberAccess(tx, a.userId))) throw fail(402, "An active membership is required");
       const w = await record(tx, (req.params as any).id, "workout");
       if (w.owner_user_id !== a.userId || w.status !== "active" || w.version !== b.version) throw fail(409, "This session changed; refresh before substituting");
       const ex = w.data.program.exercises.find((e: any) => e.name === b.exercise), replacement = ex?.alternatives?.find((e: any) => e.name === b.replacement);
@@ -149,8 +159,12 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const cursor = q.before ? await record(tx, q.before, "message") : undefined;
       if (cursor && cursor.owner_user_id !== target) throw fail(404, "Message unavailable");
       const rows = await tx.query("SELECT * FROM records WHERE kind='message' AND owner_user_id=$1 AND status='sent' AND ($2::timestamptz IS NULL OR (created_at,id)<($2::timestamptz,$3::uuid)) ORDER BY created_at DESC,id DESC LIMIT 100", [target, cursor?.created_at ?? null, cursor?.id ?? null]);
-      const takeover = await tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'", [target]);
-      return { messages: rows.reverse(), hasMore: rows.length === 100, personalReview: takeover.length > 0 };
+      // Takeover records are staff-only; a member reads just its own flag, in its own scope,
+      // through the member_takeover_active() definer helper (migration 062).
+      const personalReview = a.role === "subscriber"
+        ? (await tx.query("SELECT member_takeover_active() AS active"))[0]?.active === true
+        : (await tx.query("SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active' LIMIT 1", [target])).length > 0;
+      return { messages: rows.reverse(), hasMore: rows.length === 100, personalReview };
     });
   });
 }

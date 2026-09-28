@@ -1,6 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { SupportPreview, SupportPreviewLaunch } from "./support-preview";
+import { MessagingConfiguration } from "./messaging-admin";
+import { LeadAnalytics } from "./lead-analytics";
+import { SafetyQueueDue } from "./safety-review-due";
 
 const titles: Record<string, string> = {
   trainers: "Trainer workspaces",
@@ -14,6 +17,7 @@ const titles: Record<string, string> = {
   support: "Support workbench",
   security: "Security and audit",
   acquisition: "Acquisition funnel",
+  "early-access": "Early access requests",
   experiments: "Product experiments",
   configuration: "Published documents and templates",
 };
@@ -104,6 +108,7 @@ export function TrainerAnalytics() {
             <h2>Member cohorts</h2>
             <Table rows={data.cohorts} />
           </section>
+          <LeadAnalytics leads={data.leads} />
           <section className="card">
             <h2>Ledger by month (AED minor units)</h2>
             <Table rows={data.revenue} />
@@ -141,21 +146,48 @@ function AdminOperationsWorkbench({
           ? (new URLSearchParams(window.location.search).get("tenantId") ?? "")
           : "",
     ),
-    [page, setPage] = useState(0),
+    // Keyset positions of the visited workspace pages; "" is the first page.
+    [cursors, setCursors] = useState<string[]>([""]),
     [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loadingRows, setLoadingRows] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   const [kind, setKind] = useState("legal"),
     [draft, setDraft] = useState<any>(null);
   const query = new URLSearchParams();
   if (tenant) query.set("tenantId", tenant);
-  query.set("page", String(page));
+  query.set("cursor", cursor);
   if (view === "subscribers" && segments[2]) query.set("userId", segments[2]);
   const load = () =>
     request("/admin/operations/" + view + "?" + query).then(setData);
   useEffect(() => {
     setData(null);
     void load().catch((e) => setNotice(e.message));
-  }, [view, tenant, page]);
+  }, [view, tenant, cursor]);
+  // The security audit list, and every per-workspace list of a selected
+  // workspace, pages by its own cursor.
+  async function loadMoreRows() {
+    if (!data?.rowsCursor) return;
+    setLoadingRows(true);
+    try {
+      const next = new URLSearchParams(query);
+      next.set("rowsCursor", data.rowsCursor);
+      const page = await request("/admin/operations/" + view + "?" + next);
+      setData((current: any) => ({
+        ...page,
+        rows: [
+          ...current.rows,
+          ...page.rows.filter(
+            (r: any) => !current.rows.some((c: any) => c.id === r.id),
+          ),
+        ],
+      }));
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setLoadingRows(false);
+    }
+  }
   async function act(url: string, body: unknown) {
     setBusy(true);
     try {
@@ -169,6 +201,50 @@ function AdminOperationsWorkbench({
       setBusy(false);
     }
   }
+  const rowsMore = data?.rowsHasMore ? (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loadingRows}
+        onClick={() => void loadMoreRows()}
+      >
+        {loadingRows
+          ? "Loading…"
+          : view === "security"
+            ? "Load older audit entries"
+            : "Load more rows"}
+      </button>
+    </div>
+  ) : null;
+  // Across a page of workspaces each lists only its first rows; say so and
+  // offer the workspace view, which pages through all of them.
+  const truncatedNotice = data?.truncated?.length ? (
+    <div className="notice" role="status">
+      <p>
+        Only the first rows of{" "}
+        {data.truncated.length === 1
+          ? "this workspace are"
+          : `${data.truncated.length} workspaces are`}{" "}
+        shown. Choose a workspace to page through all of its rows.
+      </p>
+      <div className="button-row">
+        {data.truncated.map((t: { tenantId: string; workspace: string }) => (
+          <button
+            type="button"
+            className="button secondary"
+            key={t.tenantId}
+            onClick={() => {
+              setTenant(t.tenantId);
+              setCursors([""]);
+            }}
+          >
+            Open {t.workspace}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
   if (!titles[view])
     return (
       <section className="card">
@@ -214,6 +290,7 @@ function AdminOperationsWorkbench({
             "configuration",
             "security",
             "acquisition",
+            "early-access",
             "experiments",
           ].includes(view) && (
             <section className="card">
@@ -223,7 +300,7 @@ function AdminOperationsWorkbench({
                   value={tenant}
                   onChange={(e) => {
                     setTenant(e.target.value);
-                    setPage(0);
+                    setCursors([""]);
                   }}
                 >
                   <option value="">All workspaces</option>
@@ -237,15 +314,17 @@ function AdminOperationsWorkbench({
               <div className="button-row">
                 <button
                   className="button secondary"
-                  disabled={!page}
-                  onClick={() => setPage(page - 1)}
+                  disabled={cursors.length < 2}
+                  onClick={() => setCursors((c) => c.slice(0, -1))}
                 >
                   Previous
                 </button>
                 <button
                   className="button secondary"
-                  disabled={!data.hasMore}
-                  onClick={() => setPage(page + 1)}
+                  disabled={!data.hasMore || !data.nextCursor}
+                  onClick={() =>
+                    setCursors((c) => [...c, data.nextCursor as string])
+                  }
                 >
                   Next
                 </button>
@@ -331,6 +410,7 @@ function AdminOperationsWorkbench({
                 </form>
                 {draft && <p>Draft version {draft.version} saved.</p>}
               </section>
+              <MessagingConfiguration />
               <section className="card">
                 <h2>Version history</h2>
                 {data.documents.map((d: any) => (
@@ -385,6 +465,7 @@ function AdminOperationsWorkbench({
           ) : view === "support" ? (
             <section className="card">
               <h2>Conversations</h2>
+              {truncatedNotice}
               {!data.rows.length && <p className="muted">No conversations.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
@@ -424,6 +505,7 @@ function AdminOperationsWorkbench({
                   />
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "safety" ? (
             <section className="card">
@@ -431,11 +513,13 @@ function AdminOperationsWorkbench({
                 Operator review records triage. The coach must resolve any
                 training or nutrition hold through its governed workflow.
               </p>
+              {truncatedNotice}
               {!data.rows.length && <p>No safety cases.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
                   <summary>
                     {r.workspace} · {r.category ?? r.kind} · {r.status}
+                    <SafetyQueueDue row={r} />
                   </summary>
                   <p>{r.reason}</p>
                   {r.operator_review && (
@@ -477,6 +561,7 @@ function AdminOperationsWorkbench({
                   </form>
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "experiments" ? (
             <>
@@ -621,12 +706,66 @@ function AdminOperationsWorkbench({
                   integration.
                 </p>
               )}
-              {view === "acquisition" && (
+              {(view === "acquisition" || view === "early-access") && (
                 <p className="muted">
                   {data.summary.period} · {data.summary.attribution}
                 </p>
               )}
+              {view === "early-access" && (
+                <p>
+                  <a
+                    className="button secondary"
+                    href="/api/v1/admin/early-access.csv"
+                  >
+                    Export all as CSV
+                  </a>
+                </p>
+              )}
+              {truncatedNotice}
               <Table rows={data.rows} />
+              {view === "early-access" &&
+                data.rows.map((r: any) => (
+                  <form
+                    key={r.id}
+                    className="button-row"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const f = new FormData(e.currentTarget);
+                      void act(`/admin/early-access/${r.id}/status`, {
+                        status: f.get("status"),
+                      });
+                    }}
+                  >
+                    <span>
+                      {r.name} · <span className="ltr-data">{r.email}</span>
+                    </span>
+                    <select
+                      name="status"
+                      defaultValue={r.status}
+                      aria-label={`Status of ${r.name}`}
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="invited">Invited</option>
+                      <option value="declined">Declined</option>
+                    </select>
+                    <button className="button secondary" disabled={busy}>
+                      Save status
+                    </button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(`Erase the request from ${r.name}?`))
+                          void act(`/admin/early-access/${r.id}/erase`, {});
+                      }}
+                    >
+                      Erase
+                    </button>
+                  </form>
+                ))}
+              {rowsMore}
               {view === "security" && (
                 <>
                   <h2>Operator access</h2>

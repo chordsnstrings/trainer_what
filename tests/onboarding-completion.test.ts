@@ -405,7 +405,7 @@ test("nutrition setup reflects independent current case checks and preview witho
       );
   });
   let s = await state(a);
-  assert.equal(s.steps.length, 22);
+  assert.equal(s.steps.length, 23);
   assert.equal(step(s, "nutrition-cases").status, "complete");
   assert.equal(step(s, "nutrition-preview").status, "blocked");
   await withRuntimeConfig(config, () =>
@@ -487,7 +487,7 @@ test("nutrition setup reflects independent current case checks and preview witho
     );
   });
   s = await state(a);
-  assert.equal(s.steps.length, 22);
+  assert.equal(s.steps.length, 23);
   assert.equal(step(s, "nutrition-readiness").required, true);
   assert.match(step(s, "nutrition-readiness").blocker, /enable nutrition/i);
   assert.ok(s.gates.some((g: any) => g.key === "nutrition-readiness"));

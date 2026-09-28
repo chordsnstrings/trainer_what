@@ -8,6 +8,7 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
+import { hasMemberAccess } from "./entitlements.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const id = z.string().uuid();
@@ -54,6 +55,7 @@ export type BookingHooks = {
       title: string;
       body: string;
       href?: string;
+      templateKey?: string;
     },
   ) => Promise<any>;
 };
@@ -171,18 +173,17 @@ async function notification(
   tx: Tx,
   a: Actor,
   booking: any,
-  title: string,
-  body: string,
-  key: string,
+  notice: { title: string; body: string; key: string; templateKey: string },
 ) {
   if (hooks.notify)
     await hooks.notify(tx, a, {
       userId: booking.user_id,
       category: "booking",
-      dedupeKey: `booking:${booking.id}:${key}`,
-      title,
-      body,
+      dedupeKey: `booking:${booking.id}:${notice.key}`,
+      title: notice.title,
+      body: notice.body,
       href: "/app/bookings",
+      templateKey: notice.templateKey,
     });
 }
 const escapeIcs = (value: string) =>
@@ -213,7 +214,7 @@ export function bookingCalendar(rows: any[]) {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Trainer Brain//Booking Calendar//EN",
+    "PRODID:-//trainsyou//Booking Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
   ];
@@ -265,9 +266,9 @@ export function registerBookingRoutes(
   };
   app.get("/api/v1/bookings", async (req) => {
     const a = allowed(req);
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
+    return db.tenant(a, async (tx) => {
       const slots = await tx.query(
-        "SELECT s.*,count(b.id) FILTER(WHERE b.status='confirmed' OR (b.status='payment_pending' AND b.hold_expires_at>now()))::int AS booked FROM booking_slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.tenant_id=s.tenant_id WHERE s.ends_at>now()-interval '30 days' GROUP BY s.id ORDER BY s.starts_at LIMIT 500",
+        "SELECT s.*,booking_slot_taken(s.id) AS booked FROM booking_slots s WHERE s.ends_at>now()-interval '30 days' ORDER BY s.starts_at LIMIT 500",
       );
       const bookings = await tx.query(
         "SELECT b.*,u.name FROM bookings b JOIN users u ON u.id=b.user_id WHERE ($1<>'subscriber' OR b.user_id=$2) ORDER BY b.created_at DESC LIMIT 1000",
@@ -456,15 +457,12 @@ export function registerBookingRoutes(
         startsAt: b.startsAt,
       });
       for (const booking of booked)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Session updated",
-          `${b.title} has changed. Check the date, time and location in your bookings.`,
-          "changed:" + r.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Session updated",
+          body: `${b.title} has changed. Check the date, time and location in your bookings.`,
+          key: "changed:" + r.version,
+          templateKey: "booking-changed",
+        });
       return r;
     });
   });
@@ -477,15 +475,24 @@ export function registerBookingRoutes(
         "Sign in as a subscriber to reserve.",
       );
     const slotId = id.parse((req.params as any).id);
-    const result = await db.tenant({ ...a, role: "staff" }, async (tx) => {
+    const result = await db.tenant(a, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":booking-subscriber:" + a.userId,
       ]);
-      const [sub] = await tx.query(
-        "SELECT id FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND (period_end IS NULL OR period_end>now())",
-        [a.userId],
+      // Ending a membership takes the same lock, so a reservation either
+      // lands before the exit (which then refuses) or sees no membership.
+      const [member] = await tx.query(
+        "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
+        [a.tenantId, a.userId],
       );
-      if (!sub)
+      if (member?.role !== "subscriber")
+        throw fail(
+          403,
+          "SUBSCRIBER_REQUIRED",
+          "Sign in as a subscriber to reserve.",
+        );
+      // Active paid (not grace) or complimentary access (entitlements.ts).
+      if (!(await hasMemberAccess(tx, a.userId, { grace: false })))
         throw fail(
           402,
           "MEMBERSHIP_REQUIRED",
@@ -521,10 +528,9 @@ export function registerBookingRoutes(
           "PAYMENT_RECONCILIATION",
           "Complete the existing payment or refund review before booking again.",
         );
-      const [count] = await tx.query(
-        "SELECT count(*)::int AS n FROM bookings WHERE slot_id=$1 AND (status='confirmed' OR (status='payment_pending' AND hold_expires_at>now()))",
-        [slotId],
-      );
+      const [count] = await tx.query("SELECT booking_slot_taken($1) AS n", [
+        slotId,
+      ]);
       if (count.n >= slot.capacity)
         throw fail(409, "SLOT_FULL", "This session is full.");
       const conflicts = await tx.query(
@@ -558,15 +564,12 @@ export function registerBookingRoutes(
         booking.id,
       );
       if (!paid)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Session reserved",
-          `${slot.title} is reserved. View your session time and cancellation policy in bookings.`,
-          "reserved:" + booking.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Session reserved",
+          body: `${slot.title} is reserved. View your session time and cancellation policy in bookings.`,
+          key: "reserved:" + booking.version,
+          templateKey: "booking-reserved",
+        });
       return { booking, paid };
     });
     if (result.paid) {
@@ -633,15 +636,12 @@ export function registerBookingRoutes(
         reason: b.reason,
         priorStatus: r.status,
       });
-      await notification(
-        hooks,
-        tx,
-        a,
-        updated,
-        "Session canceled",
-        `${r.title} has been canceled. Any payment refund is tracked separately.`,
-        "canceled:" + updated.version,
-      );
+      await notification(hooks, tx, a, updated, {
+        title: "Session canceled",
+        body: `${r.title} has been canceled. Any payment refund is tracked separately.`,
+        key: "canceled:" + updated.version,
+        templateKey: "booking-canceled",
+      });
       return updated;
     });
     if (
@@ -696,15 +696,12 @@ export function registerBookingRoutes(
         [slotId, b.reason],
       );
       for (const booking of bookings)
-        await notification(
-          hooks,
-          tx,
-          a,
-          booking,
-          "Coach canceled session",
-          `${slot.title} was canceled by your coach. Any payment refund is tracked separately.`,
-          "canceled:" + booking.version,
-        );
+        await notification(hooks, tx, a, booking, {
+          title: "Coach canceled session",
+          body: `${slot.title} was canceled by your coach. Any payment refund is tracked separately.`,
+          key: "canceled:" + booking.version,
+          templateKey: "booking-canceled-by-coach",
+        });
       await event(tx, a, "booking.slot_canceled", slotId, {
         reason: b.reason,
         reservations: bookings.length,

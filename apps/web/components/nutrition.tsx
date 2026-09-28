@@ -227,7 +227,10 @@ export function NutritionCoach({
                 </button>
                 <p>
                   <Link href="/trainer/products">
-                    Set the two subscription prices →
+                    Set the two subscription prices{" "}
+                    <span className="bidi-mirror" aria-hidden="true">
+                      →
+                    </span>
                   </Link>
                 </p>
               </Card>
@@ -690,7 +693,10 @@ export function NutritionCoach({
             )}
             <p>
               <Link href="/trainer/onboarding/offer">
-                Continue to subscription offers →
+                Continue to subscription offers{" "}
+                <span className="bidi-mirror" aria-hidden="true">
+                  →
+                </span>
               </Link>
             </p>
           </Card>
@@ -702,7 +708,10 @@ export function NutritionCoach({
             {d.members.map((m: any) => (
               <p key={m.id}>
                 <Link href={"/trainer/nutrition/clients/" + m.id}>
-                  {m.name} →
+                  {m.name}{" "}
+                  <span className="bidi-mirror" aria-hidden="true">
+                    →
+                  </span>
                 </Link>
               </p>
             ))}
@@ -728,7 +737,10 @@ export function NutritionCoach({
                   </summary>
                   <p>{x.data.message}</p>
                   <Link href={"/trainer/nutrition/clients/" + x.owner_user_id}>
-                    Inspect client nutrition →
+                    Inspect client nutrition{" "}
+                    <span className="bidi-mirror" aria-hidden="true">
+                      →
+                    </span>
                   </Link>
                   {x.status === "open" && (
                     <form
@@ -2422,7 +2434,12 @@ export function NutritionSubscriber({
         <Notice>
           Choose your coach's workout + nutrition membership for new nutrition
           plans. Your previous records remain available.{" "}
-          <Link href="/app/membership">Membership options →</Link>
+          <Link href="/app/membership">
+            Membership options{" "}
+            <span className="bidi-mirror" aria-hidden="true">
+              →
+            </span>
+          </Link>
         </Notice>
       )}
       {d.exceptions.map((e: any) => (
@@ -4428,7 +4445,10 @@ function NutritionLearningView() {
           understand every possible contradiction.
         </p>
         <Link href="/trainer/nutrition/scenarios">
-          Check unseen client cases →
+          Check unseen client cases{" "}
+          <span className="bidi-mirror" aria-hidden="true">
+            →
+          </span>
         </Link>
       </Card>
     </>

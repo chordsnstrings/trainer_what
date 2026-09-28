@@ -27,6 +27,7 @@ import {
   localDate,
 } from "../packages/domain/src/nutrition.ts";
 import { fixtureProfile } from "./nutrition-fixtures.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 type User = Actor & { cookie: string };
 let db: Database,
@@ -115,7 +116,7 @@ async function actor(tenantId: string, role = "subscriber"): Promise<User> {
   });
   const a = { tenantId, userId, role, cookie: "session=" + token };
   if (role === "subscriber")
-    await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    await db.tenant(seedScope(a), async (tx) => {
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,data) VALUES($1,$2,$3,'active',now()+interval '1 month','{\"modules\":[\"training\",\"nutrition\"]}')",
         [randomUUID(), tenantId, userId],

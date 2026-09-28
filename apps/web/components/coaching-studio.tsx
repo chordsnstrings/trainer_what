@@ -93,6 +93,7 @@ export function CoachingStudio({ path }: { path: string }) {
           ["actions", "Routine actions"],
           ["checks", "Independent checks"],
           ["autonomy", "Activation"],
+          ["plans", "Plans"],
         ].map(([key, name]) => (
           <a
             className={mode === key ? "button" : "button secondary"}

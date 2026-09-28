@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
-import { integrationStatus } from "@trainer/providers";
+import { integrationStatus, providerSandboxStatus } from "@trainer/providers";
 import { z } from "zod";
 import {
   INTEGRATION_CATALOG,
@@ -11,6 +11,7 @@ import {
   type IntegrationDefinition,
   type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
+import { followerSettingsNeedNote } from "../../../packages/domain/src/marketing-calculators.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
   encryptionReady,
@@ -78,7 +79,7 @@ function definition(integrationId: string) {
   return def;
 }
 function isActive(def: IntegrationDefinition, row?: SettingsRow) {
-  if (def.id === "application") return true;
+  if (def.controls) return true;
   if (!row) {
     const inherited = integrationStatus().find((item) => item.id === def.id);
     return Boolean(inherited?.configured && inherited.approved);
@@ -121,8 +122,15 @@ function credentialStatus(def: IntegrationDefinition, row?: SettingsRow) {
     return "credentials_unreadable";
   }
 }
+/** A value equal to an earlier default of the field reads as its default. */
+function superseded(field: IntegrationField, value: string | undefined) {
+  return (
+    value !== undefined && !!field.supersededValues?.includes(value.trim())
+  );
+}
 /** A field with a documented default is never blank; older rows may still hold "". */
 function storedValue(field: IntegrationField, value: string | undefined) {
+  if (superseded(field, value)) return field.defaultValue ?? "";
   return (
     (field.defaultValue && !value?.trim() ? field.defaultValue : value) ?? ""
   );
@@ -135,7 +143,9 @@ function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
         field.key,
         row
           ? storedValue(field, row.settings_values[field.key])
-          : (process.env[field.key] ?? field.defaultValue ?? ""),
+          : superseded(field, process.env[field.key])
+            ? (field.defaultValue ?? "")
+            : (process.env[field.key] ?? field.defaultValue ?? ""),
       ]),
   );
 }
@@ -155,7 +165,7 @@ function safeView(def: IntegrationDefinition, row?: SettingsRow) {
         ]),
     ),
     revision: row?.revision ?? 0,
-    enabled: def.id === "application" ? true : (row?.enabled ?? isActive(def)),
+    enabled: def.controls ? true : (row?.enabled ?? isActive(def)),
     active:
       isActive(def, row) &&
       !["encryption_unavailable", "credentials_unreadable"].includes(
@@ -380,6 +390,8 @@ export function platformSettingsRoutes(
       );
       return {
         encryptionReady: encryptionReady(),
+        // Loud marker for the local mock-provider sandbox; null elsewhere.
+        ...providerSandboxStatus(),
         integrations: INTEGRATION_CATALOG.map((def) =>
           safeView(
             def,
@@ -406,11 +418,11 @@ export function platformSettingsRoutes(
       const actor = admin(request, true);
       const def = definition(request.params.id);
       const body = parseBody(saveBody, request.body);
-      if (def.id === "application" && !body.enabled)
+      if (def.controls && !body.enabled)
         throw fail(
           400,
           "SETTINGS_INVALID",
-          "Application settings remain enabled. Change the individual controls instead.",
+          `${def.name} remain enabled. Change the individual controls instead.`,
         );
       const submitted = validatedFields(
         def,
@@ -459,6 +471,17 @@ export function platformSettingsRoutes(
           if (next.encrypted_secrets[key]) changed.push(key);
           delete next.encrypted_secrets[key];
         }
+        // An assumption that no longer matches its cited source needs the
+        // operator's reason, which /methodology shows next to it.
+        if (
+          def.id === "marketing" &&
+          followerSettingsNeedNote(next.settings_values)
+        )
+          throw fail(
+            400,
+            "SETTINGS_INVALID",
+            "Give the reason and source for assumptions that differ from their cited defaults.",
+          );
         if (changed.length) next.last_test = null;
         else if (next.last_test)
           next.last_test = { ...next.last_test, revision: next.revision };
@@ -541,11 +564,11 @@ export function platformSettingsRoutes(
     async (request) => {
       const actor = admin(request, true);
       const def = definition(request.params.id);
-      if (def.id === "application")
+      if (def.controls)
         throw fail(
           400,
           "SETTINGS_INVALID",
-          "Application settings cannot be disconnected.",
+          `${def.name} cannot be disconnected.`,
         );
       const body = parseBody(revisionBody, request.body);
       return db.system(async (tx) => {

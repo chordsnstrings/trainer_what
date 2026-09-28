@@ -7,6 +7,9 @@ import {
   strictSecurity,
 } from "./configuration.ts";
 export * from "./configuration.ts";
+export * from "./sandbox.ts";
+import { sandboxOverride } from "./sandbox.ts";
+import { oidcClientConfig } from "./oidc.ts";
 export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
 import Stripe from "stripe";
 import {
@@ -22,6 +25,17 @@ export class ProviderUnavailable extends Error {
   ) {
     super(message);
     this.name = "ProviderUnavailable";
+  }
+}
+/**
+ * The provider answered but its output failed validation and was withheld
+ * (usage stays recorded). Callers may score or route it instead of failing
+ * the whole request; configuration and network failures are not this.
+ */
+export class ModelOutputInvalid extends ProviderUnavailable {
+  constructor(message = "The model response failed validation and was withheld. Provider usage remains recorded.") {
+    super("model", message);
+    this.name = "ModelOutputInvalid";
   }
 }
 export function integrationStatus() {
@@ -78,6 +92,16 @@ export function integrationStatus() {
         !!config.PUSH_VAPID_PRIVATE_KEY &&
         !!config.PUSH_VAPID_SUBJECT,
     },
+    ...(["google", "apple"] as const).map((provider) => {
+      const configured = !!oidcClientConfig(provider, config);
+      return {
+        id: provider + "_signin",
+        name: provider === "google" ? "Sign in with Google" : "Sign in with Apple",
+        purpose: "Optional sign-in method for members",
+        configured,
+        approved: configured,
+      };
+    }),
     {
       id: "whoop",
       name: "WHOOP",
@@ -95,6 +119,17 @@ export function integrationStatus() {
         (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
     },
     {
+      id: "apple_healthkit",
+      name: "Apple Health automatic sync",
+      purpose: "Background uploads from the HealthKit companion app",
+      configured: config.HEALTHKIT_SYNC_ENABLED === "true",
+      // Mirrors the HealthKit routes: the file-import gates also apply.
+      approved:
+        config.HEALTHKIT_SYNC_ENABLED === "true" &&
+        config.APPLE_IMPORTS_ENABLED !== "false" &&
+        (config.FILE_IMPORTS_APPROVED === "true" || !strictSecurity()),
+    },
+    {
       id: "zepp",
       name: "Amazfit / Zepp",
       purpose: "Fitness data through an approved partner connection",
@@ -107,19 +142,41 @@ export function integrationStatus() {
       ...integrationCapability("voice", config)!,
     },
     {
+      id: "speech_to_text",
+      name: "Speech-to-text",
+      purpose: "Spoken replies during voice-led sessions",
+      ...integrationCapability("speech_to_text", config)!,
+    },
+    {
       id: "domains",
       name: "Custom domains",
       purpose: "Connect an owned address or approve a registrar quote",
       ...integrationCapability("domains", config)!,
+    },
+    {
+      id: "web_addresses",
+      name: "Web addresses",
+      purpose: "Buy, set up and renew trainer domains automatically",
+      ...integrationCapability("web_addresses", config)!,
     },
   ];
 }
 export function stripeClient() {
   const config = runtimeConfig();
   if (!config.STRIPE_SECRET_KEY) throw new ProviderUnavailable("stripe");
+  // The local mock-provider sandbox (sandbox.ts) may point the SDK at a
+  // loopback HTTPS mock; the override is ignored everywhere else.
+  const sandbox = sandboxOverride("STRIPE_API_BASE_URL");
   return new Stripe(config.STRIPE_SECRET_KEY, {
     maxNetworkRetries: 2,
     timeout: 15000,
+    ...(sandbox
+      ? {
+          host: sandbox.hostname.replace(/^\[|\]$/g, ""),
+          port: Number(sandbox.port || 443),
+          protocol: "https" as const,
+        }
+      : {}),
   });
 }
 export function requireCommerce() {
@@ -191,10 +248,7 @@ export async function modelDecision(
     decision.requiresHumanReview = true;
     return { decision, usage };
   } catch {
-    throw new ProviderUnavailable(
-      "model",
-      "The model response failed validation and was withheld. Provider usage remains recorded.",
-    );
+    throw new ModelOutputInvalid();
   }
 }
 
@@ -268,7 +322,13 @@ export class LeanGateway {
     );
   }
 }
-export async function sendEmail(to: string, subject: string, text: string) {
+/** `html`, when given, is already escaped by its producer (message templates). */
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+) {
   const config = runtimeConfig();
   if (!config.EMAIL_API_URL || !config.EMAIL_API_KEY || !config.EMAIL_FROM)
     throw new ProviderUnavailable("email");
@@ -278,7 +338,13 @@ export async function sendEmail(to: string, subject: string, text: string) {
       Authorization: `Bearer ${config.EMAIL_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: config.EMAIL_FROM, to, subject, text }),
+    body: JSON.stringify({
+      from: config.EMAIL_FROM,
+      to,
+      subject,
+      text,
+      ...(html ? { html } : {}),
+    }),
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`Email provider ${r.status}`);
@@ -404,8 +470,7 @@ export async function compileTrainerRules(
         );
     return { ...result, usage, coverage };
   } catch {
-    throw new ProviderUnavailable(
-      "model",
+    throw new ModelOutputInvalid(
       "The compiled rules failed validation and were withheld. Provider usage remains recorded.",
     );
   }

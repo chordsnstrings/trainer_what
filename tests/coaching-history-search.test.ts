@@ -397,7 +397,9 @@ test("history rechecks current trainer membership inside the transaction after s
         target,
       );
       assert.equal(response.statusCode, 403, response.body);
-      assert.match(response.body, /WORKSPACE_CHANGED/);
+      // The route recheck (WORKSPACE_CHANGED) or the db scope recheck
+      // (ACTOR_ROLE_MISMATCH), whichever runs first, refuses the stale role.
+      assert.match(response.body, /WORKSPACE_CHANGED|ACTOR_ROLE_MISMATCH/);
     } finally {
       await target.close();
     }
@@ -472,14 +474,17 @@ test("outcome deletion and existing personal erasure remove searchable entries w
   );
   assert.equal((await search(f.coach, { q: "outcomeneedle" })).items.length, 0);
   await outcome(f, c, "Retained erasureoutcome until personal deletion");
-  await db.tenant(f.coach, (tx) =>
-    erasePersonalData(
-      tx,
-      f.coach,
-      f.client.userId,
-      f.client.userId + "@example.test",
-      { eraseAdditional: eraseCoachingFeedbackDerivedData },
-    ),
+  await db.tenant(
+    f.coach,
+    (tx) =>
+      erasePersonalData(
+        tx,
+        f.coach,
+        f.client.userId,
+        f.client.userId + "@example.test",
+        { eraseAdditional: eraseCoachingFeedbackDerivedData },
+      ),
+    { privacyErasure: true },
   );
   for (const q of ["rotation", "erasureoutcome"])
     assert.equal((await search(f.coach, { q })).items.length, 0);

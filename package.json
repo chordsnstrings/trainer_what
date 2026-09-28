@@ -18,12 +18,15 @@
     "seed:demo": "node --import tsx scripts/seed-demo.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "test:browser": "node scripts/run-browser-check.mjs",
+    "test:rtl": "node scripts/run-rtl-check.mjs",
+    "test:brand": "node scripts/run-brand-check.mjs",
     "screenshots": "node scripts/capture-app-views.mjs",
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
     "operator:role": "node --import tsx --env-file-if-exists=.env scripts/operator.ts",
     "admin:bootstrap": "node --import tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",
-    "secrets:reseal": "node --import tsx --env-file-if-exists=.env scripts/reseal-secrets.ts"
+    "secrets:reseal": "node --import tsx --env-file-if-exists=.env scripts/reseal-secrets.ts",
+    "e2e": "node scripts/e2e/run.mjs"
   },
   "dependencies": {
     "tsx": "4.23.15",

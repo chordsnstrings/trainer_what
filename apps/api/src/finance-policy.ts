@@ -34,6 +34,22 @@ export async function effectiveFinancePolicy(tx: Tx, at = new Date()) {
     }
   );
 }
+/**
+ * The booking fee of the effective policy, for a follower's reservation: the
+ * definer booking_fee_policy() (migration 061) returns only the policy id and
+ * booking fee, so the follower's scope never reads finance policy records.
+ */
+export async function bookingFeePolicy(tx: Tx) {
+  const [r] = await tx.query(
+    "SELECT policy_id,booking_fee_bps FROM booking_fee_policy()",
+  );
+  return r
+    ? {
+        id: r.policy_id as string,
+        data: { bookingFeeBps: Number(r.booking_fee_bps) },
+      }
+    : { id: "marginal-stable-rank-v1", data: { bookingFeeBps: 0 } };
+}
 export function feeInMinor(amount: number, bps: number) {
   if (
     !Number.isSafeInteger(amount) ||

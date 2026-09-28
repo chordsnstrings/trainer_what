@@ -1,0 +1,78 @@
+/* Web address panels. Logical properties only, so a right-to-left pass works. */
+.web-address-url {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.web-address-chip {
+  display: inline-block;
+  margin-inline-end: 8px;
+}
+.web-address-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.web-address-row label {
+  flex: 1 1 220px;
+  min-inline-size: 0;
+}
+.web-address-row input {
+  inline-size: 100%;
+}
+.web-address-results {
+  list-style: none;
+  padding-inline-start: 0;
+  margin-block: 12px;
+  display: grid;
+  gap: 8px;
+}
+.web-address-results li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--line);
+}
+.web-address-results li > :first-child {
+  flex: 1 1 160px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.web-address-confirm {
+  display: grid;
+  gap: 12px;
+  margin-block-start: 12px;
+}
+.web-address-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-inline-start: 0;
+  list-style: none;
+  margin-block: 12px;
+  font-size: 13px;
+}
+.web-address-steps li {
+  color: var(--muted);
+}
+.web-address-steps li::before {
+  content: "○ ";
+}
+.web-address-steps li[data-done="true"] {
+  color: var(--green);
+  font-weight: 600;
+}
+.web-address-steps li[data-done="true"]::before {
+  content: "● ";
+}
+.web-address-operator {
+  display: grid;
+  gap: 8px;
+  padding-block: 12px;
+  border-block-start: 1px solid var(--line);
+}
+.web-address-operator p {
+  overflow-wrap: anywhere;
+}

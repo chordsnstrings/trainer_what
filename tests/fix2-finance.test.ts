@@ -174,7 +174,12 @@ const automation = {
   reason: "Reviewed synthetic automation fixture",
 };
 async function approveAutomation(owner: any, operator: any) {
-  const a = { ...actor(operator, "finance"), tenantId: owner.tenantId };
+  // A platform finance operator, as the automation admin route builds it.
+  const a = {
+    ...actor(operator, "finance"),
+    tenantId: owner.tenantId,
+    elevation: "platform-operator" as const,
+  };
   return db.tenant(a, (tx) =>
     configureFinanceAutomation(tx, a, { ...automation, revision: 0 }),
   );

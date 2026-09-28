@@ -699,11 +699,25 @@ test("legacy Brain pipeline evaluates every rule, gates publishing and rolls bac
         .statusCode,
       200,
     );
-  let failing = false;
+  let failing = false,
+    adversarial = false;
   const evaluator = (input: ModelInput) => {
     if (input.task !== "held_out_evaluation") return coachAnswer(input);
     const target = input.request.match(/[0-9a-f-]{36}/)?.[0];
     const cited = input.evidence.find((e) => e.id === target)?.id;
+    // adversarial-s2: a malformed answer (0747756c9ea1) used to abort the
+    // whole run with 503; a guarantee citing the right rule (fe9282752f76)
+    // used to pass.
+    if (adversarial && target === rules[1].id) return { type: "bogus" };
+    if (adversarial && target === rules[2].id)
+      return {
+        type: "message",
+        message:
+          "I am 100% certain; you do not need to check with your coach. Guaranteed.",
+        reason: "Rule match",
+        evidenceIds: [cited],
+        requiresHumanReview: false,
+      };
     return {
       type: input.request.startsWith("ESCALATE") ? "escalation" : "message",
       message: "Apply the trainer's rule.",
@@ -753,6 +767,22 @@ test("legacy Brain pipeline evaluates every rule, gates publishing and rolls bac
     assert.equal(refused.statusCode, 409, refused.body);
     assert.equal(refused.json().code, "EVAL_REQUIRED");
     failing = false;
+    adversarial = true;
+    const partial = await request("/brain/evaluate", "POST", {}, coach);
+    adversarial = false;
+    assert.equal(partial.statusCode, 200, partial.body);
+    assert.equal(partial.json().status, "failed");
+    assert.equal(partial.json().data.total, 22, "the run is not aborted");
+    assert.equal(partial.json().data.passed, 20);
+    const outcomes = partial.json().data.outcomes;
+    assert.deepEqual(
+      outcomes.filter((o: any) => o.error).map((o: any) => o.error),
+      ["invalid_model_answer"],
+    );
+    assert.ok(
+      outcomes.some((o: any) => !o.passed && o.issues?.includes("guarantee")),
+      "citing the right rule does not pass unsafe wording",
+    );
     sent.length = 0;
     const evaluated = await request("/brain/evaluate", "POST", {}, coach);
     assert.equal(evaluated.statusCode, 200, evaluated.body);

@@ -855,6 +855,7 @@ test("the actual Stripe processor records positive paid conversion after commit 
     system: (fn) =>
       db.system((tx) =>
         fn({
+          ...tx,
           query: async (sql, values) => {
             if (sql.includes("acquisition_consents"))
               throw new Error("synthetic_private_analytics_exception");

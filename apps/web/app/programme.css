@@ -1,0 +1,129 @@
+/* Day-by-day programme view, timeline, offer terms and the voice add-on.
+   Logical properties only (tests/logical-css.test.ts); fits 390px. */
+.programme-today {
+  display: grid;
+  gap: 18px;
+}
+.programme-today .programme-day {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+}
+.programme-today .programme-day strong {
+  font-size: 28px;
+  line-height: 1.1;
+}
+.programme-meter {
+  block-size: 8px;
+  inline-size: 100%;
+  border-radius: 999px;
+  background: var(--mint);
+  overflow: hidden;
+}
+.programme-meter > span {
+  display: block;
+  block-size: 100%;
+  background: var(--green);
+  border-radius: 999px;
+}
+.programme-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 14px;
+}
+.programme-tile {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.programme-tile h3 {
+  margin-block: 6px;
+}
+.programme-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.programme-stats div {
+  display: grid;
+  gap: 2px;
+}
+.programme-stats strong {
+  font-size: 18px;
+}
+.programme-nutrition {
+  display: grid;
+  gap: 8px;
+}
+.programme-nutrition .programme-macro {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.programme-end {
+  border-inline-start: 4px solid var(--green);
+  padding-inline-start: 14px;
+}
+.programme-end.ending {
+  border-inline-start-color: var(--warning-line);
+}
+.programme-timeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr));
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.programme-timeline li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  min-inline-size: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.programme-timeline li.today {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+.programme-timeline li.done {
+  background: var(--mint);
+}
+.programme-timeline li.missed {
+  background: var(--warning-bg);
+}
+.programme-timeline li.rest {
+  color: var(--muted);
+}
+.offer-terms {
+  display: grid;
+  gap: 4px;
+}
+.offer-length {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.offer-length input[type="number"] {
+  inline-size: 110px;
+}
+.voice-addon .button-row {
+  flex-wrap: wrap;
+}
+
+.programme-offer-list {
+  margin-block-start: 16px;
+  display: grid;
+  gap: 8px;
+}
+.programme-offer-list .list-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}

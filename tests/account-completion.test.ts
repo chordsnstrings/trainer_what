@@ -12,7 +12,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import { encodeCBOR } from "@levischuck/tiny-cbor";
 import { z } from "zod";
-import { createDatabase, type Database } from "@trainer/db";
+import { createDatabase, elevated, type Database } from "@trainer/db";
 import { passwordHash, newToken, tokenHash } from "../apps/api/src/auth.ts";
 import { securityRoutes, totpAt } from "../apps/api/src/security.ts";
 import { registerAccountCompletion } from "../apps/api/src/account-completion.ts";
@@ -78,11 +78,13 @@ function req(a: any, path: string, body?: unknown, extraCookie = "") {
   });
 }
 async function linkFor(a: any, purpose = "magic") {
-  const jobs = await db.tenant({ ...a, role: "owner" }, (tx) =>
-    tx.query(
-      "SELECT data FROM jobs WHERE intent_key LIKE $1 AND data->>'to'=$2 ORDER BY created_at DESC",
-      [purpose + ":%", a.email],
-    ),
+  const jobs = await db.tenant(
+    elevated("worker", { tenantId: a.tenantId, role: "owner" }),
+    (tx) =>
+      tx.query(
+        "SELECT data FROM jobs WHERE intent_key LIKE $1 AND data->>'to'=$2 ORDER BY created_at DESC",
+        [purpose + ":%", a.email],
+      ),
   );
   return jobs[0].data.text.split("\n")[0].split("/").pop();
 }

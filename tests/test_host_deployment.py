@@ -156,9 +156,13 @@ class HostDeployment(unittest.TestCase):
             host.ensure_runtime()
         caddyfile = (self.root / "Caddyfile").read_text()
         self.assertIn(self.EDGE_PROXY, caddyfile)
-        self.assertEqual(caddyfile.count("reverse_proxy"), 1)
+        # The platform block and the on-demand coach-domain block both overwrite it.
+        self.assertEqual(caddyfile.count("reverse_proxy"), 2)
+        self.assertEqual(caddyfile.count(self.EDGE_PROXY), 2)
         example = (Path(__file__).resolve().parents[1] / "infra/Caddyfile.example").read_text()
         self.assertIn("reverse_proxy 127.0.0.1:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }", example)
+        self.assertEqual(example.count("reverse_proxy"),
+                         example.count("reverse_proxy 127.0.0.1:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }"))
 
     def test_release_and_rollback_edge_overwrite_forwarded_client_address(self):
         edges = []
@@ -191,12 +195,90 @@ class HostDeployment(unittest.TestCase):
         (release / "infra").mkdir(parents=True)
         (release / "infra/runtime-role.sql").write_text("CREATE ROLE trainer_service LOGIN;\nGRANT trainer_app TO trainer_service;\n")
         with patch.object(host, "compose", return_value=SimpleNamespace(stdout=json.dumps(RENDERED))) as compose:
-            host.runtime_role(release, SHA)
+            host.runtime_role(release, SHA, None)
         args, kwargs = compose.call_args
         self.assertNotIn("fixture_password", " ".join(map(str, args)))
         self.assertIn("fixture_password", kwargs["input"])
         self.assertEqual(kwargs["stderr"], subprocess.PIPE)
         self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertNotIn("set_config", kwargs["input"])
+
+    def test_scope_compatible_controller_applies_tenant_scope_after_grants(self):
+        release = self.root / "release"
+        (release / "infra").mkdir(parents=True)
+        (release / "infra/runtime-role.sql").write_text("GRANT trainer_app TO trainer_service;\n")
+        (release / "infra/tenant-scope.sql").write_text(
+            "REVOKE EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) FROM PUBLIC;\n")
+        with patch.object(host, "compose", return_value=SimpleNamespace(stdout=json.dumps(RENDERED))) as compose:
+            host.runtime_role(release, SHA, None)
+        sql = compose.call_args[1]["input"]
+        self.assertLess(sql.index("PASSWORD"), sql.index("REVOKE EXECUTE ON FUNCTION pg_catalog.set_config"))
+        self.assertLess(sql.index("GRANT trainer_app"), sql.index("REVOKE EXECUTE"))
+
+    # Tenant-scope hardening (docs/features/isolation.md): set_config may be
+    # revoked only while every release that can serve (the running one, which a
+    # failed deployment restores) is scope-compatible.
+    REVOKE = "REVOKE EXECUTE ON FUNCTION pg_catalog.set_config"
+    GRANT_PUBLIC = "GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO PUBLIC"
+
+    def scope_releases(self, compatible, unscoped=()):
+        for sha in compatible + tuple(unscoped):
+            release = self.root / "releases" / sha
+            (release / "infra").mkdir(parents=True, exist_ok=True)
+            (release / "infra/runtime-role.sql").write_text("GRANT trainer_app TO trainer_service;\n")
+            if sha in compatible:
+                (release / "infra/tenant-scope.sql").write_text(self.REVOKE + "(text,text,boolean) FROM PUBLIC;\n")
+        common.atomic_json(self.root / "endpoint.json", {"url": ENDPOINT})
+        (self.root / "Caddyfile").write_text("old configuration")
+        calls = []
+
+        def compose(release, sha, *args, **kwargs):
+            calls.append((sha, args, kwargs))
+            return SimpleNamespace(stdout=json.dumps(RENDERED))
+
+        self.stack.enter_context(patch.object(host, "compose", side_effect=compose))
+        self.stack.enter_context(patch.object(host, "approved_head", return_value=SHA))
+        ready = self.stack.enter_context(patch.object(host, "wait_ready"))
+        return calls, ready
+
+    @staticmethod
+    def psql_inputs(calls):
+        return [kwargs["input"] for _, args, kwargs in calls if args[:1] == ("exec",) and "psql" in args]
+
+    def test_deploy_while_unscoped_release_serves_after_rollback_never_revokes_set_config(self):
+        older = "c" * 40
+        calls, ready = self.scope_releases((SHA, PREVIOUS), unscoped=(older,))
+        # PREVIOUS is the scope-compatible controller; an operator rollback serves the older release.
+        common.atomic_json(self.root / "release-state.json", {"current": PREVIOUS, "previous": older, "serving": older})
+        ready.side_effect = lambda url, **kwargs: (_ for _ in ()).throw(common.DeploymentError("bad readiness")) \
+            if kwargs.get("expected_sha") == SHA else None
+        with self.assertRaises(common.DeploymentError):
+            host.deploy(SHA, Mock())
+        self.assertEqual([sha for sha, args, _ in calls if "--force-recreate" in args], [SHA, older])
+        [sql] = self.psql_inputs(calls)
+        self.assertNotIn(self.REVOKE, sql)
+        self.assertIn(self.GRANT_PUBLIC, sql)
+        self.assertEqual(json.loads((self.root / "release-state.json").read_text())["serving"], older)
+
+    def test_deploy_while_scope_compatible_release_serves_revokes_set_config(self):
+        calls, _ = self.scope_releases((SHA, PREVIOUS))
+        common.atomic_json(self.root / "release-state.json", {"current": PREVIOUS})
+        self.assertTrue(host.deploy(SHA, Mock()))
+        [sql] = self.psql_inputs(calls)
+        self.assertIn(self.REVOKE, sql)
+        self.assertNotIn(self.GRANT_PUBLIC, sql)
+
+    def test_switch_to_unscoped_release_restores_set_config_before_it_starts(self):
+        calls, _ = self.scope_releases((SHA,), unscoped=(PREVIOUS,))
+        common.atomic_json(self.root / "release-state.json", {"current": SHA, "previous": PREVIOUS})
+        self.assertTrue(host.switch_release(PREVIOUS))
+        order = [("psql" if "psql" in args else args[0], sha) for sha, args, _ in calls if args[0] in ("exec", "up")]
+        self.assertEqual(order, [("psql", PREVIOUS), ("up", PREVIOUS)])
+        self.assertEqual(self.psql_inputs(calls), [self.GRANT_PUBLIC + ";\n"])
+        # Returning to the scope-compatible release changes no database privilege.
+        calls.clear()
+        self.assertTrue(host.switch_release(SHA))
+        self.assertEqual(self.psql_inputs(calls), [])
 
     def test_host_network_cannot_bypass_port_boundary(self):
         rendered = copy.deepcopy(RENDERED)

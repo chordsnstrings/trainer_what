@@ -166,10 +166,10 @@
   margin: 20px 0 26px;
 }
 .capture-aside ol {
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 .capture-aside li {
-  padding-left: 7px;
+  padding-inline-start: 7px;
   margin: 22px 0;
   font-size: 0.87rem;
 }
@@ -212,7 +212,7 @@
   display: none;
 }
 .capture-questions {
-  border-left: 3px solid var(--accent, #35513b);
+  border-inline-start: 3px solid var(--accent, #35513b);
   padding: 6px 20px;
   margin: 24px 0;
   background: var(--accent-soft, #f2f5ef);

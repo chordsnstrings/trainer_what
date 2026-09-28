@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -9,7 +10,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { canonicalCoaching } from "../../../packages/domain/src/coaching-completion.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { memberAccess } from "./entitlements.ts";
 import { notifyUser } from "./notifications.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 
@@ -91,11 +92,11 @@ function normalizeSchedule(b: z.infer<typeof scheduleSchema>, now: Date) {
 async function context(tx: Tx, a: Actor, target: string) {
   if (!(await targetExists(tx, a, target)))
     return { reason: "The client is no longer a member of this workspace" };
-  const paid = await currentPaidSubscription(tx, target);
-  if (!paid)
+  const access = await memberAccess(tx, target);
+  if (!access.active)
     return {
       reason:
-        "The client no longer has an active paid membership or grace period",
+        "The client no longer has an active paid or complimentary membership or grace period",
     };
   const [consent] = await tx.query(
     "SELECT id,granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -132,9 +133,12 @@ async function context(tx: Tx, a: Actor, target: string) {
     "SELECT id,version,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY id",
     [target],
   );
+  // Paid access pins the subscription exactly as before; complimentary-only
+  // access pins the grant, so ending it invalidates the scheduled follow-up.
   const pinned = {
     consentId: consent.id,
-    subscriptionId: paid.id,
+    subscriptionId: access.subscription?.id ?? null,
+    ...(access.subscription ? {} : { complimentaryId: access.grant?.id }),
     facts,
     programs,
   };
@@ -355,112 +359,140 @@ export async function deliverCoachingFollowup(
   key: string,
   now = new Date(),
 ) {
-  return db.tenant(
-    { tenantId, userId: "00000000-0000-0000-0000-000000000000", role: "owner" },
-    async (tx) => {
-      await workspaceLock(tx, tenantId);
-      const [initial] = await tx.query(
-        "SELECT * FROM records WHERE id=$1 AND kind='coaching_followup'",
-        [key],
-      );
-      if (
-        !initial ||
-        initial.status !== "scheduled" ||
-        Date.parse(initial.data.dueAt) > now.getTime()
-      )
-        return "skipped";
+  return db.system(
+    async (service) => {
+      const worker = elevated("worker", { tenantId, role: "owner" });
+      const initial = await service.tenant(worker, async (tx) => {
+        await workspaceLock(tx, tenantId);
+        const [row] = await tx.query(
+          "SELECT * FROM records WHERE id=$1 AND kind='coaching_followup'",
+          [key],
+        );
+        if (
+          !row ||
+          row.status !== "scheduled" ||
+          Date.parse(row.data.dueAt) > now.getTime()
+        )
+          return null;
+        // Transaction-level locks: held through the author's scope below.
+        await lock(
+          tx,
+          {
+            tenantId,
+            userId: row.data.authorUserId,
+            role: row.data.authorRole,
+          },
+          row.owner_user_id,
+        );
+        return row;
+      });
+      if (!initial) return "skipped";
       const a: Actor = {
         tenantId,
         userId: initial.data.authorUserId,
         role: initial.data.authorRole,
       };
-      await lock(tx, a, initial.owner_user_id);
-      await tx.query("SELECT set_config('app.user_id',$1,true)", [a.userId]);
-      const r = await record(tx, key);
-      const senderCurrent = await currentCoach(tx, a);
-      const c = senderCurrent
-        ? await context(tx, a, r.owner_user_id)
-        : { reason: "The author's coaching permissions or workspace changed" };
-      const reason =
-        c.reason ??
-        (c.digest !== r.data.contextDigest
-          ? "The client's profile, instructions or reviewed safety context changed"
-          : now.getTime() - Date.parse(r.data.dueAt) > 86400_000
-            ? "The scheduled time was missed by more than a day"
-            : undefined);
-      if (reason) {
-        await tx.query(
-          "UPDATE records SET status='review_required',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-          [
-            key,
-            JSON.stringify({
-              reviewReason: reason,
-              reviewRequiredAt: now.toISOString(),
-            }),
-          ],
-        );
-        // A revoked author's job must not create new notifications in a closed workspace.
-        if (senderCurrent)
-          await notifyUser(tx, a, {
-            userId: a.userId,
-            category: "coaching",
-            dedupeKey: `coaching-followup-review:${key}:${r.version}`,
-            title: "A scheduled follow-up needs your review",
-            body:
-              reason +
-              ". Review and reschedule it from the client's conversation.",
-            href: "/trainer/messages",
-            source: { type: "coaching_followup", id: key, phase: "review" },
-          });
-        await event(tx, a, "coaching.followup_review_required", key, {
-          reason,
-          revision: r.version + 1,
-        });
-        return "review_required";
-      }
-      const message = await putRecord(
-        tx,
-        a,
-        "message",
-        {
-          text: r.data.text,
-          author: "trainer",
-          authorUserId: a.userId,
-          subscriberId: r.owner_user_id,
-          followupId: key,
-          followupRevision: r.version,
-          scheduled: true,
-          scheduledFor: r.data.dueAt,
-          timezone: r.data.timezone,
-        },
-        { ownerId: r.owner_user_id, status: "sent" },
+      // The follow-up is sent in its author's own verified scope. An author
+      // who left, changed role or whose workspace closed is not current: the
+      // worker scope then only returns the follow-up to review.
+      const [author] = await service.query(
+        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND t.lifecycle_state='active'",
+        [tenantId, a.userId],
       );
-      await tx.query(
-        "UPDATE records SET status='delivered',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [
-          key,
-          JSON.stringify({
-            deliveredAt: now.toISOString(),
-            messageId: message.id,
-          }),
-        ],
-      );
-      await notifyUser(tx, a, {
-        userId: r.owner_user_id,
-        category: "coaching",
-        dedupeKey: `coaching-followup:${key}`,
-        title: "Your coach sent a follow-up",
-        body: "Open your coaching conversation to read the scheduled message from your trainer.",
-        href: "/app/chat",
-        source: { type: "coaching_followup", id: key, phase: "delivered" },
-      });
-      await event(tx, a, "coaching.followup_delivered", key, {
-        messageId: message.id,
-        revision: r.version,
-      });
-      return "delivered";
+      const scope =
+        author?.role === a.role && ["owner", "staff"].includes(a.role)
+          ? a
+          : worker;
+      return service.tenant(scope, (tx) => deliverAs(tx, a, key, now));
     },
+    { tenantId },
   );
+}
+async function deliverAs(tx: Tx, a: Actor, key: string, now: Date) {
+  const r = await record(tx, key);
+  const senderCurrent = await currentCoach(tx, a);
+  const c = senderCurrent
+    ? await context(tx, a, r.owner_user_id)
+    : { reason: "The author's coaching permissions or workspace changed" };
+  const reason =
+    c.reason ??
+    (c.digest !== r.data.contextDigest
+      ? "The client's profile, instructions or reviewed safety context changed"
+      : now.getTime() - Date.parse(r.data.dueAt) > 86400_000
+        ? "The scheduled time was missed by more than a day"
+        : undefined);
+  if (reason) {
+    await tx.query(
+      "UPDATE records SET status='review_required',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+      [
+        key,
+        JSON.stringify({
+          reviewReason: reason,
+          reviewRequiredAt: now.toISOString(),
+        }),
+      ],
+    );
+    // A revoked author's job must not create new notifications in a closed workspace.
+    if (senderCurrent)
+      await notifyUser(tx, a, {
+        userId: a.userId,
+        category: "coaching",
+        dedupeKey: `coaching-followup-review:${key}:${r.version}`,
+        title: "A scheduled follow-up needs your review",
+        body:
+          reason + ". Review and reschedule it from the client's conversation.",
+        href: "/trainer/messages",
+        templateKey: "coaching-followup-review",
+        source: { type: "coaching_followup", id: key, phase: "review" },
+      });
+    await event(tx, a, "coaching.followup_review_required", key, {
+      reason,
+      revision: r.version + 1,
+    });
+    return "review_required";
+  }
+  const message = await putRecord(
+    tx,
+    a,
+    "message",
+    {
+      text: r.data.text,
+      author: "trainer",
+      authorUserId: a.userId,
+      subscriberId: r.owner_user_id,
+      followupId: key,
+      followupRevision: r.version,
+      scheduled: true,
+      scheduledFor: r.data.dueAt,
+      timezone: r.data.timezone,
+    },
+    { ownerId: r.owner_user_id, status: "sent" },
+  );
+  await tx.query(
+    "UPDATE records SET status='delivered',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+    [
+      key,
+      JSON.stringify({
+        deliveredAt: now.toISOString(),
+        messageId: message.id,
+      }),
+    ],
+  );
+  await notifyUser(tx, a, {
+    userId: r.owner_user_id,
+    category: "coaching",
+    dedupeKey: `coaching-followup:${key}`,
+    title: "Your coach sent a follow-up",
+    body: "Open your coaching conversation to read the scheduled message from your trainer.",
+    href: "/app/chat",
+    templateKey: "coaching-followup",
+    source: { type: "coaching_followup", id: key, phase: "delivered" },
+  });
+  await event(tx, a, "coaching.followup_delivered", key, {
+    messageId: message.id,
+    revision: r.version,
+  });
+  return "delivered";
 }
 export async function processCoachingFollowups(
   db: Database,
@@ -468,7 +500,7 @@ export async function processCoachingFollowups(
   now = new Date(),
 ) {
   const due = await db.tenant(
-    { tenantId, userId: "00000000-0000-0000-0000-000000000000", role: "owner" },
+    elevated("worker", { tenantId, role: "owner" }),
     (tx) =>
       tx.query(
         "SELECT id FROM records WHERE kind='coaching_followup' AND status='scheduled' AND data->>'dueAt'<=$1 ORDER BY data->>'dueAt',id LIMIT 25",

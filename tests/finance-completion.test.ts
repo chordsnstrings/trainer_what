@@ -427,12 +427,13 @@ test("paid bookings use one-time checkout, signed exact-price confirmation and a
     );
     return { slot, booking };
   });
-  const payment = await db.tenant({ ...client, role: "staff" }, async (tx) => {
+  // Runs in the reserving follower's own scope and never changes it.
+  const payment = await db.tenant(client, async (tx) => {
     const p = await preparePaidBooking(tx, client, slot, booking);
     const [role] = await tx.query(
-      "SELECT current_setting('app.role',true) AS role",
+      "SELECT current_setting('app.role',true) AS role,current_user AS db_role",
     );
-    assert.equal(role.role, "staff");
+    assert.deepEqual(role, { role: "subscriber", db_role: "trainer_app" });
     return p;
   });
   let remote: any,
@@ -991,30 +992,32 @@ test("finance job failures remain blocked and stale workers cannot overwrite a n
   assert.equal(stored.leased_until, null);
 });
 
-test("premium voice is an optional feature of the two existing tiers and only a verified offer enables it", async () => {
+test("premium voice is an add-on of the two existing tiers; an older offer that included it keeps it only through a verified offer mapping", async () => {
   const { productSchema } = await import("@trainer/contracts");
   const base = {
     name: "Fixture voice offer",
     description: "Coaching membership",
     priceMinor: 12000,
   };
-  assert.equal(productSchema.parse(base).premiumVoice, false);
+  // Voice is no longer sold as part of an offer: an offer prices the add-on
+  // members buy with their membership (docs/features/programme.md).
+  assert.equal("premiumVoice" in productSchema.parse(base), false);
   assert.equal(
-    productSchema.parse({ ...base, premiumVoice: true, tier: "workout" })
-      .premiumVoice,
-    true,
+    productSchema.safeParse({ ...base, premiumVoice: true }).success,
+    false,
   );
+  assert.equal(productSchema.parse(base).voiceAddOnMinor, null);
   assert.equal(
     productSchema.parse({
       ...base,
-      premiumVoice: true,
+      voiceAddOnMinor: 4900,
       tier: "workout_nutrition",
       baseProductId: randomUUID(),
-    }).premiumVoice,
-    true,
+    }).voiceAddOnMinor,
+    4900,
   );
   assert.equal(
-    productSchema.safeParse({ ...base, premiumVoice: "true" }).success,
+    productSchema.safeParse({ ...base, voiceAddOnMinor: "4900" }).success,
     false,
   );
   assert.equal(

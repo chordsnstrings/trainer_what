@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, event, putRecord } from "@trainer/db";
-import { safetySignal } from "@trainer/domain";
+import { screenForSafety } from "./safety-policy.ts";
 import { openTrainingHold } from "./coaching-completion.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
@@ -54,8 +54,11 @@ export function operationsRoutes(
       // Support threads reach the trainer too, so a member's red-flag report
       // here pauses training and escalates exactly as chat does.
       const report = b.subject + "\n" + b.message;
-      if (a.role === "subscriber" && safetySignal(report))
-        await openTrainingHold(tx, a, a.userId, report);
+      if (a.role === "subscriber") {
+        const screen = await screenForSafety(tx, report);
+        if (screen.hold)
+          await openTrainingHold(tx, a, a.userId, report, undefined, screen);
+      }
       const r = await putRecord(
         tx,
         a,
@@ -93,8 +96,11 @@ export function operationsRoutes(
       if (!r) throw fail(404, "NOT_FOUND", "Conversation unavailable");
       if (r.data.messages.length >= 100)
         throw fail(409, "THREAD_LIMIT", "Start a new support conversation");
-      if (a.role === "subscriber" && safetySignal(b.message))
-        await openTrainingHold(tx, a, a.userId, b.message);
+      if (a.role === "subscriber") {
+        const screen = await screenForSafety(tx, b.message);
+        if (screen.hold)
+          await openTrainingHold(tx, a, a.userId, b.message, undefined, screen);
+      }
       r.data.messages.push({
         text: b.message,
         authorId: a.userId,

@@ -364,8 +364,10 @@ test("disable, personal erasure and sign-out remove subscriptions and stop queue
   });
   assert.equal(calls, 0);
   await enable();
-  await db.tenant(owner, (tx) =>
-    privacyHooks.eraseAdditional!(tx, owner.userId),
+  await db.tenant(
+    owner,
+    (tx) => privacyHooks.eraseAdditional!(tx, owner.userId),
+    { privacyErasure: true },
   );
   assert.equal((await request("/notifications/push")).json().devices.length, 0);
   await enable();

@@ -79,7 +79,8 @@ const PUSH_OPEN_PATH = "/api/v1/notifications/push/open";
 self.addEventListener("push", (event) => {
   // Deliberately ignore payloads and never fetch inbox details for a shared screen.
   event.waitUntil(
-    self.registration.showNotification("Trainer Brain", {
+    // A neutral title: member apps carry their trainer's brand.
+    self.registration.showNotification("Coaching update", {
       body: "You have an update. Open the app to view your inbox.",
       tag: "trainer-updates",
       data: { url: PUSH_OPEN_PATH },

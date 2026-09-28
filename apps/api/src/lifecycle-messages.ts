@@ -9,6 +9,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { currentPaidSubscription } from "./finance-billing.ts";
+import {
+  activeComplimentaryGrant,
+  hasMemberAccess,
+} from "./entitlements.ts";
 import { trainingAdherence } from "../../../packages/domain/src/client-twin.ts";
 import { addTrainingDays } from "../../../packages/domain/src/coaching-completion.ts";
 import {
@@ -75,37 +79,35 @@ async function scoped<T>(
       "SELECT DISTINCT ON (key) id,key,version,title,effective_at FROM admin_documents WHERE kind='legal' AND key=ANY($1::text[]) AND status='published' AND effective_at<=now() ORDER BY key,effective_at DESC,version DESC",
       [keys],
     );
+    // The workspace's current owner, verified again by the db package.
     const actor = { tenantId, userId: owner.user_id, role: "owner" };
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-      [tenantId, owner.user_id],
-    );
     let state: ReturnType<typeof onboardingState> | undefined;
-    return fn({
-      tx,
-      tenant,
-      actor,
-      members,
-      onboarding: () =>
-        (state ??= onboardingState(
-          tx,
-          { ...actor, emailVerified: owner.email_verified },
-          tenant,
-          {
-            approved: runtimeConfig().LEGAL_APPROVED === "true",
-            documents: keys.map(
-              (k) =>
-                documents.find((d) => d.key === k) ?? {
-                  key: k,
-                  version: null,
-                  title: k,
-                },
-            ),
-          },
-        )),
-    });
-  });
+    return tx.tenant(actor, (tx) =>
+      fn({
+        tx,
+        tenant,
+        actor,
+        members,
+        onboarding: () =>
+          (state ??= onboardingState(
+            tx,
+            { ...actor, emailVerified: owner.email_verified },
+            tenant,
+            {
+              approved: runtimeConfig().LEGAL_APPROVED === "true",
+              documents: keys.map(
+                (k) =>
+                  documents.find((d) => d.key === k) ?? {
+                    key: k,
+                    version: null,
+                    title: k,
+                  },
+              ),
+            },
+          )),
+      }),
+    );
+  }, { tenantId: tenantId });
 }
 
 async function record(tx: Tx, id: string, kind: string, userId?: string) {
@@ -133,7 +135,7 @@ async function noTrainingHold(tx: Tx, userId: string) {
 }
 async function paidMembers(tx: Tx) {
   const rows = await tx.query(
-    "SELECT s.user_id FROM subscriptions s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id WHERE m.role='subscriber' AND ((s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now())) OR (s.status='past_due' AND s.data->>'graceUntil' IS NOT NULL AND (s.data->>'graceUntil')::timestamptz>now())) AND EXISTS(SELECT 1 FROM journals j WHERE j.data->>'userId'=s.user_id::text AND j.source_key LIKE 'stripe-invoice:%' AND (j.data->>'grossMinor')::numeric>0) ORDER BY s.user_id LIMIT 25",
+    "SELECT s.user_id FROM subscriptions s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id WHERE m.role='subscriber' AND ((s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now())) OR (s.status='past_due' AND s.data->>'graceUntil' IS NOT NULL AND (s.data->>'graceUntil')::timestamptz>now())) AND EXISTS(SELECT 1 FROM journals j WHERE j.data->>'userId'=s.user_id::text AND (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND coalesce(j.data->>'purpose','')<>'voice_addon' AND (j.data->>'grossMinor')::numeric>0) ORDER BY s.user_id LIMIT 25",
   );
   let count = 0;
   // Stop at the largest supported milestone. No estimated lifetime value or
@@ -360,10 +362,16 @@ async function current(
   if (s.trigger === "paid-milestone")
     return (await paidMembers(tx)) >= s.milestone;
   if (s.trigger === "review-queue") return (await pendingReviews(tx)) >= 8;
+  if (s.trigger === "intake" && s.complimentaryId) {
+    // Trainer-granted access: the nudge stays relevant while that grant is
+    // the member's open access and no intake is complete.
+    const grant = await activeComplimentaryGrant(tx, userId);
+    return grant?.id === s.complimentaryId && (await needsIntake(tx, userId));
+  }
   if (s.trigger === "intake") {
     const paid = await currentPaidSubscription(tx, userId);
     const [charge] = await tx.query(
-      "SELECT id FROM journals WHERE id=$1 AND source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$2 AND (data->>'grossMinor')::numeric>0",
+      "SELECT id FROM journals WHERE id=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND coalesce(data->>'purpose','')<>'voice_addon' AND data->>'userId'=$2 AND (data->>'grossMinor')::numeric>0",
       [s.chargeId, userId],
     );
     return (
@@ -383,7 +391,7 @@ async function current(
       r.status === "assigned" &&
       r.version === s.recordVersion &&
       !!schedule &&
-      !!(await currentPaidSubscription(tx, userId)) &&
+      (await hasMemberAccess(tx, userId)) &&
       (await noTrainingHold(tx, userId))
     );
   }
@@ -412,7 +420,7 @@ async function current(
     if (
       !policy.data.enabled ||
       policy.version !== s.policyVersion ||
-      !(await currentPaidSubscription(tx, userId)) ||
+      !(await hasMemberAccess(tx, userId)) ||
       !(await noTrainingHold(tx, userId))
     )
       return false;
@@ -499,7 +507,7 @@ async function current(
     const r = await record(tx, s.id, "refund", userId);
     if (!r || r.status !== s.status) return false;
     const [charge] = await tx.query(
-      "SELECT id FROM journals WHERE id=$1 AND source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$2",
+      "SELECT id FROM journals WHERE id=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND data->>'userId'=$2",
       [r.data.journalId, userId],
     );
     if (!charge) return false;
@@ -664,7 +672,7 @@ export async function scheduleLifecycleMessages(
         );
 
       const paid = await tx.query(
-        "SELECT s.id,s.user_id,j.id charge_id,j.created_at FROM subscriptions s JOIN LATERAL (SELECT id,created_at FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND data->>'userId'=s.user_id::text AND (data->>'grossMinor')::numeric>0 ORDER BY created_at,id LIMIT 1) j ON true WHERE j.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=s.user_id AND r.status='complete') ORDER BY j.created_at LIMIT $2",
+        "SELECT s.id,s.user_id,j.id charge_id,j.created_at FROM subscriptions s JOIN LATERAL (SELECT id,created_at FROM journals WHERE (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND coalesce(data->>'purpose','')<>'voice_addon' AND data->>'userId'=s.user_id::text AND (data->>'grossMinor')::numeric>0 ORDER BY created_at,id LIMIT 1) j ON true WHERE j.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=s.user_id AND r.status='complete') ORDER BY j.created_at LIMIT $2",
         [since, LIMIT],
       );
       for (const p of paid) {
@@ -681,6 +689,29 @@ export async function scheduleLifecycleMessages(
             href: "/app/intake",
           },
           { subscriptionId: p.id, chargeId: p.charge_id },
+        );
+      }
+      // Complimentary members need an intake too; paid members already get
+      // the payment-based prompt above.
+      const complimentary = await tx.query(
+        "SELECT c.id,c.user_id,c.created_at FROM complimentary_access c WHERE c.closed_at IS NULL AND c.starts_at<=now() AND (c.ends_at IS NULL OR c.ends_at>now()) AND c.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=c.user_id AND r.status='complete') ORDER BY c.created_at,c.id LIMIT $2",
+        [since, LIMIT],
+      );
+      for (const g of complimentary) {
+        if (await currentPaidSubscription(tx, g.user_id)) continue;
+        const phase =
+          now.getTime() - time(g.created_at) >= 24 * HOUR ? "24h" : "initial";
+        await emit(
+          "intake",
+          `complimentary:${g.id}:${phase}`,
+          g.user_id,
+          {
+            category: "coaching",
+            title: "Complete your coaching intake",
+            body: "Your coach gave you complimentary access. Complete your intake so your coach has the information needed to prepare your program.",
+            href: "/app/intake",
+          },
+          { complimentaryId: g.id },
         );
       }
       const programs = await tx.query(

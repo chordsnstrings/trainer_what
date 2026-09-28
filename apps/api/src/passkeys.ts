@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { strictSecurity } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
+import { platformName } from "@trainer/contracts";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { type Actor, type Database, type Tx } from "@trainer/db";
@@ -20,6 +24,7 @@ import {
   insertAccountSession,
   setAccountCookie,
 } from "./account-completion.ts";
+import { signInMembership } from "./account-self-service.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -190,7 +195,8 @@ export function registerPasskeys(
         );
       });
       const options = await generateRegistrationOptions({
-        rpName: "Trainer Brain",
+        // Shown by the device during passkey setup: the platform name.
+        rpName: platformName(runtimeConfig().APP_NAME),
         rpID: new URL(host.origin).hostname,
         userName: a.email,
         userDisplayName: a.name ?? a.email,
@@ -379,7 +385,7 @@ export function registerPasskeys(
           "Verify yourself with the passkey to sign in",
         );
       const result = await db.system(async (tx) => {
-        const selected = await accountMembership(tx, credential.user_id, host);
+        const selected = await signInMembership(tx, credential.user_id, host);
         await workspaceLock(tx, selected.tenant_id);
         await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
           credential.user_id,
@@ -420,6 +426,7 @@ export function registerPasskeys(
             credential.user_id,
             m.tenant_id,
             true,
+            "passkey",
           ),
           role: m.role,
           platformRole: m.platform_role,

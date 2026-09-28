@@ -38,6 +38,7 @@ import {
   enforceHostTenant,
   allowedRequestOrigin,
 } from "../apps/api/src/host-routing.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database,
   app: ReturnType<typeof Fastify>,
@@ -689,7 +690,7 @@ async function seedConnection(
   a: Actor,
   options: { expired?: boolean; status?: string } = {},
 ) {
-  await db.tenant({ ...a, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(a), async (tx) => {
     await tx.query(
       "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'wearable:whoop','fixture',true)",
       [randomUUID(), a.tenantId, a.userId],
@@ -733,12 +734,35 @@ test("custom-domain OAuth callback relays only stored state to its verified orig
   assert.equal(start.statusCode, 200, start.body);
   const state = new URL(start.json().url).searchParams.get("state")!,
     calls = tokenCalls;
-  const relay = await request(
-    `/integrations/whoop/callback?state=${state}&code=fixture-custom-code`,
-    "GET",
-    undefined,
-    null,
-  );
+  // The session-less relay reads only the stored origin, through the
+  // integration_oauth_relay() definer in a service transaction bound to the
+  // state's workspace: it opens no tenant scope, elevated or otherwise
+  // (docs/features/isolation.md).
+  const scopes: unknown[] = [],
+    bindings: unknown[] = [];
+  const { tenant: tenantScope, system: service } = db;
+  db.tenant = ((actor, fn, options) => {
+    scopes.push(actor);
+    return tenantScope(actor, fn, options);
+  }) as Database["tenant"];
+  db.system = ((fn, options) => {
+    bindings.push(options?.tenantId);
+    return service(fn, options);
+  }) as Database["system"];
+  let relay;
+  try {
+    relay = await request(
+      `/integrations/whoop/callback?state=${state}&code=fixture-custom-code`,
+      "GET",
+      undefined,
+      null,
+    );
+  } finally {
+    db.tenant = tenantScope;
+    db.system = service;
+  }
+  assert.deepEqual(scopes, []);
+  assert.equal(bindings[0], a.tenantId);
   assert.equal(relay.statusCode, 302, relay.body);
   assert.equal(relay.headers["referrer-policy"], "no-referrer");
   assert.equal(tokenCalls, calls);
@@ -915,7 +939,7 @@ test("closed workspaces and removed members cannot synchronize but queued revoca
   );
   await fixture(() => processIntegrationJobs(db));
   assert.equal(tokenCalls, calls);
-  await db.tenant({ ...a, role: "owner" }, (tx) =>
+  await db.tenant(seedScope(a), (tx) =>
     disableUserIntegrations(tx, a.userId, "wearable"),
   );
   await db.system((tx) =>
@@ -927,7 +951,7 @@ test("closed workspaces and removed members cannot synchronize but queued revoca
   const before = revokeCalls;
   await fixture(() => processIntegrationJobs(db));
   assert.equal(revokeCalls, before + 1);
-  const [r] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  const [r] = await db.tenant(seedScope(a), (tx) =>
     tx.query(
       "SELECT status,credentials FROM integration_connections WHERE user_id=$1",
       [a.userId],

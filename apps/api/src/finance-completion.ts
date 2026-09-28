@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Database, event } from "@trainer/db";
+import { elevated, type Database, event } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import { publishFinancePolicy } from "./finance-policy.ts";
@@ -22,18 +22,23 @@ function owner(req: FastifyRequest, write = true) {
   if (write) requireRecentMfa(a);
   return a;
 }
-function operator(req: FastifyRequest, write = true) {
+function operator(req: FastifyRequest, _write = true) {
   const a = identity(req);
   if (!["admin", "finance"].includes(a.platformRole))
     throw fail(403, "FINANCE_REQUIRED", "Platform finance access required");
-  if (write) requireRecentMfa(a);
+  // Finance controls, statements included, need a fresh authenticator in
+  // every environment, like the other platform finance routes.
+  requireRecentMfa(a, true);
   return {
     ...a,
-    tenantId: z
-      .string()
-      .uuid()
-      .parse((req.params as any).tenantId),
-    role: "finance",
+    ...elevated("platform-operator", {
+      tenantId: z
+        .string()
+        .uuid()
+        .parse((req.params as any).tenantId),
+      userId: a.userId,
+      role: "finance",
+    }),
   };
 }
 export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
@@ -130,7 +135,9 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
   app.get(prefix + "/controls", (req) => dashboard(operator(req, false)));
   app.get(prefix + "/statements/:period", (req) =>
     db.tenant(operator(req, false), (tx) =>
-      financialStatement(tx, (req.params as any).period),
+      financialStatement(tx, (req.params as any).period, {
+        platformView: true,
+      }),
     ),
   );
   app.post(prefix + "/policies", (req) => {

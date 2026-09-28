@@ -86,6 +86,10 @@ export async function verifyRuntimeAccess(client) {
     infrastructure_execution_policies: ["SELECT", "INSERT"],
     infrastructure_worker_control: ["SELECT", "UPDATE"],
     infrastructure_actions: ["SELECT", "INSERT", "UPDATE"],
+    host_status: ["SELECT", "INSERT", "UPDATE"],
+    host_monitor_policies: ["SELECT", "INSERT"],
+    host_action_requests: ["SELECT", "INSERT", "UPDATE"],
+    tls_issuance_allowances: ["SELECT", "INSERT", "UPDATE"],
     acquisition_events: ["SELECT", "INSERT", "DELETE"],
     acquisition_consents: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     privacy_erasure_registry: ["SELECT", "INSERT"],
@@ -93,11 +97,25 @@ export async function verifyRuntimeAccess(client) {
     mfa_recovery_codes: ["SELECT", "INSERT", "DELETE"],
     auth_passkeys: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     auth_passkey_challenges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_identities: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    oidc_sign_in_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    email_change_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_recovery_grants: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    account_notices: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     brand_media: ["SELECT"],
     coach_galleries: ["SELECT"],
     coach_gallery_photos: ["SELECT"],
     coach_sites: ["SELECT"],
     coach_design_drafts: ["SELECT"],
+    complimentary_access_directory: ["SELECT"],
+    workspace_suspensions: ["SELECT", "INSERT", "UPDATE"],
+    account_locks: ["SELECT", "INSERT", "UPDATE"],
+    platform_alerts: ["SELECT", "INSERT", "UPDATE"],
+    platform_alert_deliveries: ["SELECT", "INSERT"],
+    coach_directory_profiles: ["SELECT"],
+    workspace_app_icons: ["SELECT", "INSERT"],
+    tenant_slug_redirects: ["SELECT", "INSERT", "UPDATE"],
+    early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -148,6 +166,15 @@ export async function verifyRuntimeAccess(client) {
     "notifications",
     "push_subscriptions",
     "chat_attachments",
+    "membership_exits",
+    "complimentary_access",
+    "healthkit_devices",
+    "healthkit_sync_batches",
+    // Voice-led sessions (065): tenant tables, no direct service grants.
+    "voice_session_styles",
+    "voice_sessions",
+    "voice_session_clips",
+    "registrar_operations",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -183,10 +210,48 @@ export async function verifyRuntimeAccess(client) {
     "training_actor_is_current(uuid,uuid,text)",
     "integration_actor_is_current(uuid,uuid)",
     "published_notification_template(text)",
+    "published_safety_policy()",
+    "notification_workspace_name()",
     "export_personal_chat_media(uuid)",
     "erase_personal_chat_media(uuid)",
     "expire_unattached_chat_media()",
     "erase_workspace_chat_media()",
+    // Trigger-only: writes the operator directory's keys and dates.
+    "complimentary_access_directory_sync()",
+    "current_workspace_state()",
+    // Migration 061: narrow helpers that replace in-transaction elevation of
+    // follower requests (docs/features/isolation.md).
+    "notification_recipient(uuid,text,text)",
+    "enqueue_notification(uuid,uuid,text,text,text,text,text,text,jsonb)",
+    "notification_team()",
+    "membership_exit_blockers(uuid)",
+    "booking_slot_taken(uuid)",
+    "booking_fee_policy()",
+    "checkout_promotion(text,uuid)",
+    "member_charges()",
+    "member_charge(text)",
+    "model_usage_today(text[],uuid)",
+    "voice_guidance_spent_today()",
+    "guided_voice()",
+    "coach_wearable_policy()",
+    "withdraw_accepted_invitation_emails(uuid,text)",
+    "personal_export_records(uuid)",
+    "personal_export_followups(uuid)",
+    "personal_export_usage(uuid)",
+    "personal_export_audit(uuid)",
+    "erase_brand_theme_media(text[])",
+    "member_nutrition_foods()",
+    "member_nutrition_recipes()",
+    "member_nutrition_recipe_options()",
+    "member_nutrition_ingredients()",
+    "member_material(text)",
+    "member_takeover_active()",
+    "workspace_member_role(uuid)",
+    "member_policy_review_append(jsonb,jsonb,integer)",
+    // Migration 063: a follower's own plan-generation state (docs/features/brain-plans.md).
+    "member_plan_status()",
+    // Migration 065: the trainer's current voice-session style for members.
+    "voice_session_style()",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -215,20 +280,196 @@ export async function verifyRuntimeAccess(client) {
       `${name}: runtime must not own privileged helpers`,
     );
   }
+  // The public discovery predicate runs with the caller's own rights: the
+  // service role may execute it, PUBLIC may not, and it must not be a definer.
+  const [discovery] = await query(
+    "SELECT has_function_privilege('trainer_service','public_discovery_tenant(uuid)','EXECUTE') AS service,prosecdef,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid='public_discovery_tenant(uuid)'::regprocedure",
+  );
+  assert.deepEqual(
+    discovery,
+    { service: true, prosecdef: false, public_execute: false },
+    "public_discovery_tenant(uuid) must be a service-executable invoker function",
+  );
+  await query(
+    "SELECT public_discovery_tenant('00000000-0000-0000-0000-000000000000')",
+  );
+  // Bearer-secret lookups (migration 061): definers only the service role may
+  // execute, in a workspace-bound service transaction; never the tenant role
+  // or PUBLIC.
+  const serviceDefiners = [
+    "healthkit_device_for_token(text)",
+    "integration_oauth_relay(text,text)",
+  ];
+  for (const name of serviceDefiners) {
+    const [r] = await query(
+      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant,prosecdef,pg_get_userbyid(proowner)<>'trainer_service' AS foreign_owner,EXISTS(SELECT 1 FROM aclexplode(coalesce(proacl,acldefault('f',proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid=$1::regprocedure",
+      [name],
+    );
+    assert.deepEqual(
+      r,
+      {
+        service: true,
+        tenant: false,
+        prosecdef: true,
+        foreign_owner: true,
+        public_execute: false,
+      },
+      `${name}: expected a service-only definer lookup`,
+    );
+  }
+  // An unbound service transaction gets no answer from them.
+  for (const statement of [
+    "SELECT * FROM healthkit_device_for_token(repeat('0',64))",
+    "SELECT integration_oauth_relay(repeat('0',64),'whoop')",
+  ]) {
+    await client.query("BEGIN");
+    let refused = false;
+    try {
+      await client.query(statement);
+    } catch (error) {
+      refused = error.code === "42501";
+    }
+    await client.query("ROLLBACK");
+    assert.equal(refused, true, `Unbound lookup must be refused: ${statement}`);
+  }
+  // Trigger-only definers (the ledger balance check fires at COMMIT, after the
+  // scope settings are cleared): no runtime role may execute them directly.
+  const triggerDefiners = ["balanced_journal()"];
+  for (const name of triggerDefiners) {
+    const [r] = await query(
+      "SELECT has_function_privilege('trainer_service',$1,'EXECUTE') AS service,has_function_privilege('trainer_app',$1,'EXECUTE') AS tenant,prosecdef,prorettype='trigger'::regtype AS trigger FROM pg_proc WHERE oid=$1::regprocedure",
+      [name],
+    );
+    assert.deepEqual(
+      r,
+      { service: false, tenant: false, prosecdef: true, trigger: true },
+      `${name}: expected a trigger-only definer`,
+    );
+  }
   const definerFunctions = await query(
     "SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef",
   );
   assert.deepEqual(
     definerFunctions
-      .filter(({ signature }) => !functions.includes(signature))
+      .filter(
+        ({ signature }) =>
+          !functions.includes(signature) &&
+          !triggerDefiners.includes(signature) &&
+          !serviceDefiners.includes(signature),
+      )
       .map(({ signature }) => signature),
     [],
     "Classify new privileged helpers in the runtime permission gate",
   );
+  // Tenant scope is fixed once a transaction becomes trainer_app: only the
+  // service role (scope entry, before SET ROLE) may call set_config.
+  const [setConfig] = await query(
+    "SELECT has_function_privilege('trainer_app','pg_catalog.set_config(text,text,boolean)','EXECUTE') AS tenant,has_function_privilege('trainer_service','pg_catalog.set_config(text,text,boolean)','EXECUTE') AS service,EXISTS(SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE p.oid='pg_catalog.set_config(text,text,boolean)'::regprocedure AND acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute",
+  );
+  assert.deepEqual(
+    setConfig,
+    { tenant: false, service: true, public_execute: false },
+    "Only the service role may set scope settings (infra/tenant-scope.sql)",
+  );
+  // Service tables that carry a workspace deny the tenant role every row and
+  // honour a service transaction's workspace binding (app.service_tenant_id).
+  const boundTables = [
+    "sessions",
+    "one_time_tokens",
+    "provider_objects",
+    "acquisition_consents",
+    "acquisition_events",
+    "auth_passkey_challenges",
+    "complimentary_access_directory",
+    "email_change_requests",
+    "oidc_sign_in_requests",
+    "privacy_erasure_registry",
+    "support_preview_grants",
+    "tls_issuance_allowances",
+    "workspace_lifecycle_requests",
+    "workspace_suspensions",
+    "tenants",
+    "memberships",
+    "domain_mappings",
+    "tenant_slug_redirects",
+  ];
+  for (const table of boundTables) {
+    const [r] = await query(
+      "SELECT c.relrowsecurity,c.relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=$1 AND p.permissive='PERMISSIVE' AND p.qual LIKE '%app.service_tenant_id%' AND p.qual LIKE '%trainer_app%') AS bound FROM pg_class c WHERE c.oid=$1::regclass",
+      [table],
+    );
+    assert.deepEqual(
+      r,
+      { relrowsecurity: true, relforcerowsecurity: true, bound: true },
+      `${table}: service rows must be workspace-bindable and hidden from the tenant role`,
+    );
+  }
+  // A bound service transaction sees only its own workspace.
+  await client.query("BEGIN");
+  try {
+    await client.query("SELECT set_config('app.service_tenant_id',$1,true)", [
+      "00000000-0000-0000-0000-000000000000",
+    ]);
+    for (const table of boundTables) {
+      const key = table === "tenants" ? "id" : "tenant_id";
+      const [r] = await query(
+        `SELECT count(*)::int AS n FROM public.${table} WHERE ${key}<>'00000000-0000-0000-0000-000000000000'`,
+      );
+      assert.equal(
+        r.n,
+        0,
+        `${table}: a bound transaction saw another workspace`,
+      );
+    }
+    await client.query("ROLLBACK");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+  await client.query("BEGIN");
+  try {
+    await client.query(
+      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$1,true),set_config('app.role','subscriber',true)",
+      ["00000000-0000-0000-0000-000000000000"],
+    );
+    await client.query("SET LOCAL ROLE trainer_app");
+    // Neither the role nor any scope setting can change from a tenant scope.
+    for (const statement of [
+      "SELECT set_config('role','none',true)",
+      "SELECT set_config('app.tenant_id','00000000-0000-0000-0000-000000000001',true)",
+      "SELECT set_config('app.role','owner',true)",
+    ]) {
+      await client.query("SAVEPOINT scope_probe");
+      let refused = false;
+      try {
+        await client.query(statement);
+      } catch (error) {
+        refused = error.code === "42501";
+      }
+      await client.query("ROLLBACK TO SAVEPOINT scope_probe");
+      assert.equal(refused, true, `Tenant scope must refuse: ${statement}`);
+    }
+    const [scope] = await query(
+      "SELECT current_user AS role,current_setting('app.role',true) AS app_role",
+    );
+    assert.deepEqual(
+      scope,
+      { role: "trainer_app", app_role: "subscriber" },
+      "Tenant scope changed during the probes",
+    );
+    await client.query("ROLLBACK");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
   await client.query("BEGIN");
   try {
     await client.query("SET LOCAL ROLE trainer_app");
     for (const table of [
+      "schema_migrations",
+      "tenants",
+      "provider_objects",
+      "provider_events",
       "sessions",
       "one_time_tokens",
       "user_security",
@@ -243,6 +484,10 @@ export async function verifyRuntimeAccess(client) {
       "infrastructure_observations",
       "infrastructure_policies",
       "infrastructure_recommendations",
+      "host_status",
+      "host_monitor_policies",
+      "host_action_requests",
+      "tls_issuance_allowances",
       "acquisition_events",
       "acquisition_consents",
       "mfa_recovery_codes",
@@ -250,6 +495,19 @@ export async function verifyRuntimeAccess(client) {
       "auth_passkey_challenges",
       "privacy_erasure_registry",
       "workspace_lifecycle_requests",
+      "account_identities",
+      "oidc_sign_in_requests",
+      "email_change_requests",
+      "account_recovery_grants",
+      "account_notices",
+      "complimentary_access_directory",
+      "workspace_suspensions",
+      "account_locks",
+      "platform_alerts",
+      "platform_alert_deliveries",
+      "workspace_app_icons",
+      "tenant_slug_redirects",
+      "early_access_requests",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
@@ -283,7 +541,7 @@ export async function verifyRuntimeAccess(client) {
       );
       assert.equal(r.allowed, false, `Tenant actor must not set ${column}`);
     }
-    for (const table of ["payouts", "subscriptions"]) {
+    for (const table of ["payouts", "subscriptions", "membership_exits"]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'DELETE') AS allowed",
         [table],
@@ -297,6 +555,7 @@ export async function verifyRuntimeAccess(client) {
       "coach_gallery_photos",
       "coach_sites",
       "coach_design_drafts",
+      "coach_directory_profiles",
     ])
       await query(`SELECT * FROM public.${table} LIMIT 0`);
     await client.query("ROLLBACK");
@@ -309,6 +568,9 @@ export async function verifyRuntimeAccess(client) {
     systemTables: Object.keys(systemTables).length,
     scopedTables: scopedTables.length,
     helpers: functions.length,
+    serviceLookups: serviceDefiners.length,
+    workspaceBoundServiceTables: boundTables.length,
+    tenantScopeFixed: true,
   };
 }
 if (

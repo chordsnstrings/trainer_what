@@ -2,6 +2,8 @@ import {
   type Actor,
   type Database,
   type Tx,
+  actingAs,
+  elevated,
   putRecord,
   event,
 } from "@trainer/db";
@@ -9,12 +11,16 @@ import { requireCommerce, stripeClient } from "@trainer/providers";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { journal } from "./finance.ts";
-import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
+import { recordFirstPaidAcquisition } from "./acquisition.ts";
+import { bookingFeePolicy, feeInMinor } from "./finance-policy.ts";
 import { notifyUser } from "./notifications.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
-/** Called only while reservation holds its slot row lock. No external calls. */
-async function preparePaidBookingScoped(
+/**
+ * Called only while reservation holds its slot row lock, in the reserving
+ * follower's own scope (its booking and booking_payment rows). No external calls.
+ */
+export async function preparePaidBooking(
   tx: Tx,
   a: Actor,
   slot: any,
@@ -43,7 +49,9 @@ async function preparePaidBookingScoped(
       "Reconcile the previous payment before making another reservation",
     );
   }
-  const policy = await effectiveFinancePolicy(tx);
+  // Only the booking fee of the effective policy (booking_fee_policy(),
+  // migration 061): the reserving follower cannot read finance policies.
+  const policy = await bookingFeePolicy(tx);
   const expiresAt = new Date(Date.now() + 35 * 60000).toISOString();
   const r = await putRecord(
     tx,
@@ -67,75 +75,60 @@ async function preparePaidBookingScoped(
   );
   return r;
 }
-export async function preparePaidBooking(
-  tx: Tx,
-  a: Actor,
-  slot: any,
-  booking: any,
-) {
-  const [context] = await tx.query(
-    "SELECT current_setting('app.role',true) AS role",
-  );
-  await tx.query("SELECT set_config('app.role','owner',true)");
-  try {
-    return await preparePaidBookingScoped(tx, a, slot, booking);
-  } finally {
-    await tx
-      .query("SELECT set_config('app.role',$1,true)", [context.role])
-      .catch(() => {});
-  }
-}
 export async function startBookingCheckout(
   db: Database,
   a: Actor,
   bookingId: string,
   stripe = requireCommerce(),
 ) {
-  const r = await db.tenant({ ...a, role: "owner" }, async (tx) => {
-    const [p] = await tx.query(
-      "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 AND owner_user_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE",
-      [z.string().uuid().parse(bookingId), a.userId],
-    );
-    if (!p)
-      throw fail("BOOKING_PAYMENT_REQUIRED", "Paid reservation unavailable");
-    if (
-      p.status === "open" &&
-      p.data.checkoutUrl &&
-      Date.parse(p.data.expiresAt) > Date.now()
-    )
-      return p;
-    if (p.status !== "pending")
-      throw fail(
-        "BOOKING_PAYMENT_UNRESOLVED",
-        "Check the original checkout before creating another payment",
+  const r = await db.tenant(
+    actingAs(a, "owner", "coach-workflow"),
+    async (tx) => {
+      const [p] = await tx.query(
+        "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 AND owner_user_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE",
+        [z.string().uuid().parse(bookingId), a.userId],
       );
-    if (Date.parse(p.data.expiresAt) <= Date.now() + 30 * 60000) {
-      // No request was ever dispatched while this intent remained pending.
+      if (!p)
+        throw fail("BOOKING_PAYMENT_REQUIRED", "Paid reservation unavailable");
+      if (
+        p.status === "open" &&
+        p.data.checkoutUrl &&
+        Date.parse(p.data.expiresAt) > Date.now()
+      )
+        return p;
+      if (p.status !== "pending")
+        throw fail(
+          "BOOKING_PAYMENT_UNRESOLVED",
+          "Check the original checkout before creating another payment",
+        );
+      if (Date.parse(p.data.expiresAt) <= Date.now() + 30 * 60000) {
+        // No request was ever dispatched while this intent remained pending.
+        await tx.query(
+          "UPDATE records SET status='expired',updated_at=now() WHERE id=$1",
+          [p.id],
+        );
+        await tx.query(
+          "UPDATE bookings SET status='canceled',payment_status='expired',hold_expires_at=NULL WHERE id=$1 AND status='payment_pending'",
+          [bookingId],
+        );
+        return { ...p, status: "expired" };
+      }
+      const [b] = await tx.query(
+        "SELECT * FROM bookings WHERE id=$1 AND user_id=$2",
+        [bookingId, a.userId],
+      );
+      if (!b || b.status !== "payment_pending")
+        throw fail(
+          "BOOKING_CANCELED",
+          "This reservation is no longer awaiting payment",
+        );
       await tx.query(
-        "UPDATE records SET status='expired',updated_at=now() WHERE id=$1",
+        "UPDATE records SET status='creating',updated_at=now() WHERE id=$1",
         [p.id],
       );
-      await tx.query(
-        "UPDATE bookings SET status='canceled',payment_status='expired',hold_expires_at=NULL WHERE id=$1 AND status='payment_pending'",
-        [bookingId],
-      );
-      return { ...p, status: "expired" };
-    }
-    const [b] = await tx.query(
-      "SELECT * FROM bookings WHERE id=$1 AND user_id=$2",
-      [bookingId, a.userId],
-    );
-    if (!b || b.status !== "payment_pending")
-      throw fail(
-        "BOOKING_CANCELED",
-        "This reservation is no longer awaiting payment",
-      );
-    await tx.query(
-      "UPDATE records SET status='creating',updated_at=now() WHERE id=$1",
-      [p.id],
-    );
-    return p;
-  });
+      return p;
+    },
+  );
   if (r.status === "expired")
     throw fail(
       "BOOKING_HOLD_EXPIRED",
@@ -181,7 +174,7 @@ export async function startBookingCheckout(
     );
     if (!remote.id || !remote.url)
       throw new Error("Checkout did not return a payment reference");
-    await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), async (tx) => {
       await tx.query(
         "UPDATE records SET status='open',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status='creating'",
         [
@@ -195,7 +188,7 @@ export async function startBookingCheckout(
     });
     return { url: remote.url, checkoutUrl: remote.url, status: "open" };
   } catch (error) {
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
       tx.query(
         "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
         [r.id],
@@ -210,45 +203,48 @@ export async function refundCanceledBooking(
   bookingId: string,
   stripe?: ReturnType<typeof stripeClient>,
 ) {
-  const intent: any = await db.tenant({ ...a, role: "owner" }, async (tx) => {
-    const [b] = await tx.query(
-      "SELECT * FROM bookings WHERE id=$1 FOR UPDATE",
-      [bookingId],
-    );
-    if (!b || b.status !== "canceled") return null;
-    const [p] = await tx.query(
-      "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE",
-      [bookingId],
-    );
-    if (!p) return null;
-    if (p.status === "pending") {
+  const intent: any = await db.tenant(
+    actingAs(a, "owner", "coach-workflow"),
+    async (tx) => {
+      const [b] = await tx.query(
+        "SELECT * FROM bookings WHERE id=$1 FOR UPDATE",
+        [bookingId],
+      );
+      if (!b || b.status !== "canceled") return null;
+      const [p] = await tx.query(
+        "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE",
+        [bookingId],
+      );
+      if (!p) return null;
+      if (p.status === "pending") {
+        await tx.query(
+          "UPDATE records SET status='canceled',updated_at=now() WHERE id=$1",
+          [p.id],
+        );
+        await tx.query(
+          "UPDATE bookings SET payment_status='canceled',hold_expires_at=NULL WHERE id=$1",
+          [bookingId],
+        );
+        return null;
+      }
+      if (p.status === "open") return { ...p, expire: true };
+      if (p.status !== "paid") return null;
+      if (!p.data.paymentIntentId)
+        throw fail(
+          "PAYMENT_REFERENCE_REQUIRED",
+          "Reconcile the original payment reference before refunding",
+        );
       await tx.query(
-        "UPDATE records SET status='canceled',updated_at=now() WHERE id=$1",
+        "UPDATE records SET status='refund_submitting',updated_at=now() WHERE id=$1",
         [p.id],
       );
       await tx.query(
-        "UPDATE bookings SET payment_status='canceled',hold_expires_at=NULL WHERE id=$1",
+        "UPDATE bookings SET payment_status='refunding' WHERE id=$1",
         [bookingId],
       );
-      return null;
-    }
-    if (p.status === "open") return { ...p, expire: true };
-    if (p.status !== "paid") return null;
-    if (!p.data.paymentIntentId)
-      throw fail(
-        "PAYMENT_REFERENCE_REQUIRED",
-        "Reconcile the original payment reference before refunding",
-      );
-    await tx.query(
-      "UPDATE records SET status='refund_submitting',updated_at=now() WHERE id=$1",
-      [p.id],
-    );
-    await tx.query(
-      "UPDATE bookings SET payment_status='refunding' WHERE id=$1",
-      [bookingId],
-    );
-    return { ...p, expire: false };
-  });
+      return { ...p, expire: false };
+    },
+  );
   if (!intent) return { status: "held_or_complete" };
   if (intent.expire) {
     try {
@@ -283,7 +279,7 @@ export async function refundCanceledBooking(
       { idempotencyKey: "booking-refund:" + intent.id },
     );
     if (!refund.id) throw new Error("Refund reference missing");
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
       tx.query(
         "UPDATE records SET status='refund_pending',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status='refund_submitting'",
         [intent.id, JSON.stringify({ refundId: refund.id })],
@@ -291,7 +287,7 @@ export async function refundCanceledBooking(
     );
     return { status: "refunding" };
   } catch (error) {
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
       tx.query(
         "UPDATE records SET status='refund_unknown',updated_at=now() WHERE id=$1 AND status='refund_submitting'",
         [intent.id],
@@ -308,6 +304,40 @@ export async function processBookingStripeEvent(
 ) {
   const object = e.data?.object;
   if (!object) return false;
+  // Stripe also sends charge.refunded for a refunded session payment. Its
+  // refunds carry the booking instruction, so apply each through the same
+  // idempotent refund path instead of the subscription ledger, which has no
+  // record of booking charges.
+  if (e.type === "charge.refunded") {
+    const intent =
+      typeof object.payment_intent === "string"
+        ? object.payment_intent
+        : object.payment_intent?.id;
+    if (!intent) return false;
+    const [booking] = await db.system((tx) =>
+      tx.query(
+        "SELECT 1 FROM provider_objects WHERE provider='stripe' AND external_id=$1 AND kind='booking_payment_intent'",
+        [intent],
+      ),
+    );
+    if (!booking) return false;
+    if (object.refunds?.has_more)
+      throw fail(
+        "BOOKING_REFUND_PAGE",
+        "Refund page incomplete; reconciliation must retrieve all refunds",
+      );
+    for (const refund of object.refunds?.data ?? [])
+      await processBookingStripeEvent(
+        db,
+        {
+          type: "refund.updated",
+          id: `${e.id}:${refund.id}`,
+          data: { object: { ...refund, payment_intent: refund.payment_intent ?? intent } },
+        },
+        refundClient,
+      );
+    return true;
+  }
   if (
     ![
       "checkout.session.completed",
@@ -335,11 +365,13 @@ export async function processBookingStripeEvent(
     if (m) {
       tenantId = m.tenant_id;
       userId = m.user_id;
-      const [r] = await db.tenant({ tenantId, userId, role: "owner" }, (tx) =>
-        tx.query(
-          "SELECT id FROM records WHERE tenant_id=$1 AND kind='booking_payment' AND data->>'paymentIntentId'=$2",
-          [m.tenant_id, pi],
-        ),
+      const [r] = await db.tenant(
+        elevated("provider-callback", { tenantId, role: "owner" }),
+        (tx) =>
+          tx.query(
+            "SELECT id FROM records WHERE tenant_id=$1 AND kind='booking_payment' AND data->>'paymentIntentId'=$2",
+            [m.tenant_id, pi],
+          ),
       );
       paymentId = r?.id;
     }
@@ -353,10 +385,12 @@ export async function processBookingStripeEvent(
       "BOOKING_MAPPING_REQUIRED",
       "Booking tenant and user identity are required",
     );
-  const [p] = await db.tenant({ tenantId, userId, role: "owner" }, (tx) =>
-    tx.query("SELECT * FROM records WHERE id=$1 AND kind='booking_payment'", [
-      z.string().uuid().parse(paymentId),
-    ]),
+  const [p] = await db.tenant(
+    elevated("provider-callback", { tenantId, role: "owner" }),
+    (tx) =>
+      tx.query("SELECT * FROM records WHERE id=$1 AND kind='booking_payment'", [
+        z.string().uuid().parse(paymentId),
+      ]),
   );
   if (!p)
     throw fail(
@@ -373,12 +407,18 @@ export async function processBookingStripeEvent(
       "BOOKING_MAPPING_CONFLICT",
       "Payment user does not match the reservation",
     );
-  const a = { tenantId: p.tenant_id, userId: p.owner_user_id, role: "owner" };
+  // The provider acted, not the member: a service identity scopes the
+  // projection; the member stays the subject of its rows and notices.
+  const memberId = p.owner_user_id as string;
+  const a = elevated("provider-callback", {
+    tenantId: p.tenant_id,
+    role: "owner",
+  });
   if (pi)
     await db.system(async (tx) => {
       await tx.query(
         "INSERT INTO provider_objects(provider,external_id,tenant_id,user_id,kind) VALUES('stripe',$1,$2,$3,'booking_payment_intent') ON CONFLICT DO NOTHING",
-        [pi, a.tenantId, a.userId],
+        [pi, a.tenantId, memberId],
       );
       const [prior] = await tx.query(
         "SELECT * FROM provider_objects WHERE provider='stripe' AND external_id=$1",
@@ -386,14 +426,15 @@ export async function processBookingStripeEvent(
       );
       if (
         prior &&
-        (prior.tenant_id !== a.tenantId || prior.user_id !== a.userId)
+        (prior.tenant_id !== a.tenantId || prior.user_id !== memberId)
       )
         throw fail(
           "PAYMENT_OWNER_CONFLICT",
           "Provider payment already maps to a different owner",
         );
     });
-  let compensation = false;
+  let compensation = false,
+    paidMember: string | undefined;
   await db.tenant(a, async (tx) => {
     const [slot] = await tx.query(
       "SELECT * FROM booking_slots WHERE id=$1 FOR UPDATE",
@@ -491,6 +532,7 @@ export async function processBookingStripeEvent(
         [b.id, canConfirm ? "confirmed" : "canceled"],
       );
       compensation = !canConfirm;
+      if (canConfirm) paidMember = b.user_id;
       await event(
         tx,
         a,
@@ -511,6 +553,10 @@ export async function processBookingStripeEvent(
           ? "Your payment is confirmed and your coaching session is reserved. Open your bookings for its current details."
           : "The original session could not be reserved after payment. A refund review has been opened; check your booking for the latest status.",
         href: "/app/bookings",
+        transactional: true,
+        templateKey: canConfirm
+          ? "booking-payment-confirmed"
+          : "booking-payment-compensation",
       });
     } else {
       if (
@@ -585,9 +631,19 @@ export async function processBookingStripeEvent(
         title: "Your session refund is confirmed",
         body: "The payment provider confirmed the refund for your canceled coaching session. Open your booking for the details.",
         href: "/app/bookings",
+        transactional: true,
+        templateKey: "booking-refund",
       });
     }
   });
+  // A confirmed paid session can be a workspace's first member payment.
+  // Analytics never affects the payment outcome.
+  if (paidMember)
+    try {
+      await recordFirstPaidAcquisition(db, a.tenantId, paidMember);
+    } catch {
+      console.warn("Payment acquisition conversion could not be recorded");
+    }
   if (compensation)
     await refundCanceledBooking(
       db,
@@ -603,7 +659,7 @@ export async function reconcileBookingPayment(
   bookingId: string,
   stripe?: ReturnType<typeof stripeClient>,
 ) {
-  const [p] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  const [p] = await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
     tx.query(
       "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 AND ($2<>'subscriber' OR owner_user_id=$3) ORDER BY created_at DESC,id DESC LIMIT 1",
       [z.string().uuid().parse(bookingId), a.role, a.userId],
@@ -611,7 +667,7 @@ export async function reconcileBookingPayment(
   );
   if (!p) throw fail("BOOKING_PAYMENT_REQUIRED", "Booking payment unavailable");
   if (p.status === "pending" && Date.parse(p.data.expiresAt) <= Date.now()) {
-    await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), async (tx) => {
       await tx.query("SELECT id FROM booking_slots WHERE id=$1 FOR UPDATE", [
         p.data.slotId,
       ]);
@@ -645,7 +701,7 @@ export async function reconcileBookingPayment(
         "BOOKING_PAYMENT_UNRESOLVED",
         "No matching checkout is confirmed in the provider history; the existing instruction remains held",
       );
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
       tx.query(
         "UPDATE records SET data=data||$2::jsonb,updated_at=now() WHERE id=$1",
         [
@@ -667,7 +723,7 @@ export async function reconcileBookingPayment(
       provider,
     );
     if (remote.status === "open")
-      await db.tenant({ ...a, role: "owner" }, (tx) =>
+      await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
         tx.query(
           "UPDATE records SET status='open',updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
           [p.id],

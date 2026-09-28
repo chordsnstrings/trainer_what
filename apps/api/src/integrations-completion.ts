@@ -4,6 +4,8 @@ import { domainToASCII } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  actingAs,
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -11,6 +13,8 @@ import {
   type Tx,
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
+import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
   exchangeWearableToken,
@@ -26,7 +30,13 @@ import {
 import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { memberAccess } from "./entitlements.ts";
+import {
+  readCoachWearablePolicy,
+  revokeHealthKitDevices,
+} from "./healthkit-sync.ts";
+import { permitCertificateIssuance } from "./host-operations.ts";
+import { coachHostTenant, platformRoot } from "./host-routing.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -37,6 +47,15 @@ import {
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
+// The local mock-provider sandbox answers domain lookups from a loopback DNS
+// double; everywhere else (sandboxResolver() is null) the system resolver runs.
+const txtLookup = (dependencies: Deps): typeof resolveTxt =>
+  dependencies.txt ??
+  ((name: string) => (sandboxResolver() ?? { resolveTxt }).resolveTxt(name));
+const cnameLookup = (dependencies: Deps): typeof resolveCname =>
+  dependencies.cname ??
+  ((name: string) =>
+    (sandboxResolver() ?? { resolveCname }).resolveCname(name));
 const id = z.string().uuid(),
   providerSchema = z.enum(["whoop", "zepp"]);
 const fail = (statusCode: number, code: string, message: string) =>
@@ -69,7 +88,10 @@ function admin(req: FastifyRequest) {
   requireRecentMfa(a, true);
   return a;
 }
-const internal = (a: Actor) => ({ ...a, role: "owner" });
+// A follower's wearable and guided-session work runs in its own subscriber
+// scope (its connections, records and audio; the trainer voice facts come
+// from guided_voice(), migration 061); team members keep their own role.
+const internal = (a: Actor) => actingAs(a, "owner", "coach-workflow");
 async function lock(tx: Tx, a: Actor, area = "integrations") {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":" + area + ":" + a.userId,
@@ -126,15 +148,13 @@ async function workspacePermission(tx: Tx, a: Actor) {
   );
   return r?.active === true;
 }
-const workerActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "owner",
-});
+const workerActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "owner" });
 // System roles must not bypass tenant RLS. Admin listing and workers select the
 // non-sensitive workspace directory, then enter an explicit scoped transaction.
 async function scopedAdminRows(
   db: Database,
+  operator: { userId: string },
   table: "trainer_voices" | "domain_orders",
   recordId?: string,
   tenantId?: string,
@@ -149,13 +169,20 @@ async function scopedAdminRows(
   );
   const result: any[] = [];
   for (const tenant of tenants) {
-    const rows = await db.tenant(workerActor(tenant.id), (tx) =>
+    // The Super admin's own listing, after the route's platform-role and
+    // step-up checks: a platform-operator scope, never the worker's.
+    const operatorScope = elevated("platform-operator", {
+      tenantId: tenant.id,
+      userId: operator.userId,
+      role: "owner",
+    });
+    const rows = await db.tenant(operatorScope, (tx) =>
       tx.query(
         table === "trainer_voices"
           ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
               (includeSample ? ",sample" : "") +
               " FROM trainer_voices WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100"
-          : "SELECT * FROM domain_orders WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
+          : "SELECT * FROM domain_orders WHERE mode='manual' AND ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
         [recordId ?? null],
       ),
     );
@@ -232,6 +259,7 @@ export async function disableUserIntegrations(
       "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE owner_user_id=$1 AND kind='wearable'",
       [userId],
     );
+    await revokeHealthKitDevices(tx, userId, "consent");
   }
   if (kind !== "wearable") {
     await tx.query(
@@ -240,6 +268,15 @@ export async function disableUserIntegrations(
     );
     await tx.query(
       "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
+      [userId],
+    );
+    // Voice-led session audio (migration 065) stops with the voice.
+    await tx.query(
+      "UPDATE voice_session_clips SET status='revoked',audio=NULL,updated_at=now() WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND status<>'revoked'",
+      [userId],
+    );
+    await tx.query(
+      "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND audio_status<>'revoked'",
       [userId],
     );
   }
@@ -462,7 +499,13 @@ export async function processIntegrationJobs(db: Database) {
       ),
     );
     for (const row of pending) {
-      const a = { tenantId: tenant.id, userId: row.user_id, role: "owner" };
+      // Each connection is synchronized or revoked as its own member, in that
+      // member's subscriber scope (a former member only reaches its own rows).
+      const a = {
+        tenantId: tenant.id,
+        userId: row.user_id,
+        role: "subscriber",
+      };
       try {
         if (row.status === "active") {
           await syncWearableConnection(db, a, row.provider);
@@ -508,7 +551,9 @@ export async function processIntegrationJobs(db: Database) {
         "DELETE FROM integration_oauth_states WHERE expires_at<now()-interval '1 day'",
       );
       return tx.query(
-        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE expires_at<=now() AND status='active' RETURNING hostname",
+        // Automatic orders lapse through the web address worker, which also
+        // notifies the trainer and ends the yearly subscription.
+        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE expires_at<=now() AND status='active' AND mode='manual' RETURNING hostname",
       );
     });
     if (expiredHosts.length)
@@ -521,6 +566,10 @@ export async function processIntegrationJobs(db: Database) {
   }
 }
 
+/** Export-file import sources (POST /wearables/import) and the history length shown. */
+export const FILE_IMPORT_SOURCES = ["apple_health", "manual_import"];
+export const IMPORT_HISTORY_LIMIT = 50;
+
 export function registerIntegrationCompletion(
   app: FastifyInstance,
   db: Database,
@@ -528,7 +577,11 @@ export function registerIntegrationCompletion(
 ) {
   app.get("/api/v1/integrations/connections", async (req) => {
     const a = identity(req);
+    // The coach's policy "none" (No wearable imports) refuses the Apple
+    // export import, so the import panel can explain that before a file is chosen.
+    const policy = await readCoachWearablePolicy(db, a);
     return db.tenant(a, async (tx) => ({
+      coachAllowsImports: policy !== "none",
       connections: (
         await tx.query(
           "SELECT id,provider,status,version,scopes,summary,last_synced_at,next_sync_at FROM integration_connections WHERE user_id=$1",
@@ -538,6 +591,14 @@ export function registerIntegrationCompletion(
       imports: await tx.query(
         "SELECT data->>'source' AS source,count(*)::integer AS batches,sum(coalesce((data->>'count')::integer,0))::integer AS observations,min(created_at) AS first_import,max(updated_at) AS latest_import FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' GROUP BY data->>'source'",
         [a.userId],
+      ),
+      // The member's own export-file import batches, newest first, so one
+      // batch can be deleted (DELETE /wearables/:id). The bounded bootstrap
+      // does not carry wearable records; this is the list that names them.
+      // Provider sync and HealthKit days have their own revoke/delete controls.
+      importHistory: await tx.query(
+        "SELECT id,data->>'source' AS source,coalesce((data->>'count')::integer,0) AS observations,created_at AS imported_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'source'=ANY($2::text[]) ORDER BY created_at DESC,id DESC LIMIT $3",
+        [a.userId, FILE_IMPORT_SOURCES, IMPORT_HISTORY_LIMIT],
       ),
     }));
   });
@@ -618,18 +679,24 @@ export function registerIntegrationCompletion(
         })
         .parse(req.query);
     const tenantId = id.parse(q.state.split(".")[0]);
-    const [relay] = await db.tenant(workerActor(tenantId), (tx) =>
-      tx.query(
-        "SELECT origin FROM integration_oauth_states WHERE state_hash=$1 AND provider=$2 AND expires_at>now() AND consumed_at IS NULL",
-        [tokenHash(q.state), provider],
-      ),
+    // The provider's redirect carries no session for this site yet: only the
+    // initiating origin is read, by the integration_oauth_relay() definer
+    // (migration 061) in a service transaction bound to the state's workspace.
+    const [found] = await db.system(
+      (tx) =>
+        tx.query<{ origin: string | null }>(
+          "SELECT integration_oauth_relay($1,$2) AS origin",
+          [tokenHash(q.state), provider],
+        ),
+      { tenantId },
     );
-    if (!relay)
+    if (!found?.origin)
       throw fail(
         400,
         "OAUTH_STATE",
         "This authorization link is expired or already used.",
       );
+    const relay = { origin: found.origin };
     reply
       .header("Cache-Control", "no-store")
       .header("Referrer-Policy", "no-referrer");
@@ -637,15 +704,14 @@ export function registerIntegrationCompletion(
       // A provider has one registered callback. Relay its one-time code back to
       // the verified initiating site before checking that site's session cookie.
       const registered = new URL(wearableContract(provider).redirect);
-      const [mapping] = await db.system((tx) =>
-        tx.query(
-          "SELECT tenant_id FROM domain_mappings WHERE hostname=$1 AND active=true AND verified_at IS NOT NULL",
-          [new URL(relay.origin).host],
-        ),
+      // A coach domain or a workspace subdomain of the platform root.
+      const mappedTenant = await coachHostTenant(
+        db,
+        new URL(relay.origin).host,
       );
       if (
         origin(req) !== registered.origin ||
-        mapping?.tenant_id !== tenantId ||
+        mappedTenant !== tenantId ||
         new URL(relay.origin).protocol !== "https:"
       )
         throw fail(
@@ -776,6 +842,9 @@ export function registerIntegrationCompletion(
         "UPDATE records SET status='permission_revoked',data=jsonb_set(data,'{allowedUses}','[\"render\"]'),updated_at=now() WHERE kind='wearable' AND owner_user_id=$1 AND data->>'source'=$2",
         [a.userId, provider],
       );
+      // Apple Health use covers both the export import and automatic sync.
+      if (provider === "apple_health")
+        await revokeHealthKitDevices(tx, a.userId, "source_revoked");
       await event(tx, a, "wearable.revoked", undefined, { provider });
       return {
         ok: true,
@@ -796,8 +865,9 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
       "This workspace or membership is no longer active.",
     );
   await lock(tx, a, "training");
-  const subscription = await currentPaidSubscription(tx, a.userId);
-  if (!subscription)
+  // Paid or complimentary access; premium voice is a paid product capability.
+  const access = await memberAccess(tx, a.userId);
+  if (!access.active)
     throw fail(
       402,
       "MEMBERSHIP_REQUIRED",
@@ -807,21 +877,29 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
     "SELECT * FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
     [workoutId, a.userId],
   );
+  // The follower's own scope sees its held workouts; a takeover is asked for.
   const [hold] = await tx.query(
-    "SELECT id FROM records WHERE owner_user_id=$1 AND ((kind='workout' AND status='safety_hold') OR (kind='takeover' AND status='active')) LIMIT 1",
+    "SELECT (EXISTS(SELECT 1 FROM records WHERE owner_user_id=$1 AND kind='workout' AND status='safety_hold') OR member_takeover_active()) AS held",
     [a.userId],
   );
-  if (!workout || workout.status !== "active" || hold)
+  if (!workout || workout.status !== "active" || hold?.held)
     throw fail(
       409,
       "GUIDANCE_PAUSED",
       "Guided sessions are paused. Resolve the workout hold or coach takeover first.",
     );
   const exercises = workout.data.program?.exercises ?? [];
+  // The trainer's cue is the exercise's `cue` field (trainingExerciseSchema);
+  // programs never carried `notes`, so the cue was silently dropped before.
+  // It is spoken in the trainer's voice, so it gets the voice session's cue
+  // checks (red flags, medical, prescription changes, unsafe technique,
+  // numbers outside tempo); a cue that fails is left out.
+  const spokenCue = (cue: unknown) =>
+    typeof cue === "string" && cue.trim() && !cueIssues(cue).length ? " " + cue.trim() : "";
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
-    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${ex.notes ? " " + ex.notes : ""} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
+    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${spokenCue(ex.cue)} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
     restSeconds: Math.max(
       0,
       Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),
@@ -832,9 +910,7 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   return {
     workout,
     segments,
-    premium:
-      subscription.data?.modules?.includes("voice") === true ||
-      subscription.data?.premiumVoice === true,
+    premium: access.premiumVoice,
   };
 }
 function voicePublic(r: any) {
@@ -940,6 +1016,15 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         "UPDATE guided_audio SET status='revoked',audio=NULL WHERE voice_id=$1",
         [r.id],
       );
+      // A new enrollment version replaces every clip made with the old one.
+      await tx.query(
+        "UPDATE voice_session_clips SET status='revoked',audio=NULL,updated_at=now() WHERE voice_id=$1 AND status<>'revoked'",
+        [r.id],
+      );
+      await tx.query(
+        "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE voice_id=$1 AND audio_status<>'revoked'",
+        [r.id],
+      );
       await event(tx, a, "voice.enrollment_requested", r.id);
       return voicePublic(r);
     });
@@ -959,9 +1044,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     });
   });
   app.get("/api/v1/admin/integrations/voices", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       undefined,
       z
@@ -974,9 +1060,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
   app.get(
     "/api/v1/admin/integrations/voices/:id/sample",
     async (req, reply) => {
-      admin(req);
+      const operator = admin(req);
       const [r] = await scopedAdminRows(
         db,
+        operator,
         "trainer_voices",
         id.parse((req.params as any).id),
         undefined,
@@ -1001,13 +1088,18 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     voiceContract();
     const [row] = await scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       id.parse((req.params as any).id),
     );
     if (!row)
       throw fail(404, "VOICE_NOT_FOUND", "Voice enrollment was not found.");
     return db.tenant(
-      { tenantId: row.tenant_id, userId: operator.userId, role: "owner" },
+      elevated("platform-operator", {
+        tenantId: row.tenant_id,
+        userId: operator.userId,
+        role: "owner",
+      }),
       async (tx) => {
         const [r] = await tx.query(
           "UPDATE trainer_voices SET status='verified',verified_by=$3,verified_at=now(),evidence=evidence||$4::jsonb,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='pending' RETURNING *",
@@ -1041,9 +1133,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a,
         id.parse((req.params as any).workoutId),
       );
-      const [voice] = await tx.query(
-        "SELECT id,status,version FROM trainer_voices WHERE status='verified'",
-      );
+      const [voice] = await tx.query("SELECT id,version FROM guided_voice()");
       let available = false;
       try {
         voiceContract();
@@ -1051,7 +1141,8 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       } catch {}
       return {
         workoutId: m.workout.id,
-        name: m.workout.data.program?.name ?? "Workout",
+        // Programs are titled (trainingProgramSchema.title), not named.
+        name: m.workout.data.program?.title ?? "Workout",
         segments: m.segments,
         premium: m.premium,
         audioAvailable: available && !!voice && m.premium,
@@ -1087,10 +1178,12 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "GUIDANCE_SEGMENT",
           "This guided segment is not available.",
         );
+      // The verified voice's playback facts only (no sample), with the
+      // trainer's current voice consent (guided_voice(), migration 061).
       const [voice] = await tx.query(
-        "SELECT * FROM trainer_voices WHERE status='verified'",
+        "SELECT id,version,provider_voice_id,consented FROM guided_voice()",
       );
-      if (!voice || !(await latestConsent(tx, voice.user_id, "voice")))
+      if (!voice || !voice.consented)
         throw fail(
           409,
           "VOICE_UNAVAILABLE",
@@ -1116,7 +1209,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a.tenantId + ":voice-budget",
       ]);
       const [spent] = await tx.query(
-        "SELECT coalesce(sum(coalesce(cost_usd,(pricing->>'reservedCostUsd')::numeric)),0) AS total FROM cost_events WHERE task='voice.guidance' AND created_at>=date_trunc('day',now())",
+        "SELECT voice_guidance_spent_today() AS total",
       );
       const estimatedCost = (segment.text.length * pricing.price) / 1000;
       if (Number(spent.total) + estimatedCost > pricing.cap)
@@ -1181,13 +1274,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           await db.tenant(internal(a), async (tx) => {
             await guidedMaterial(tx, a, workoutId);
             const [voice] = await tx.query(
-              "SELECT id FROM trainer_voices WHERE id=$1 AND version=$2 AND status='verified'",
+              "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2 AND consented",
               [reservation.voice.id, reservation.voice.version],
             );
-            if (
-              !voice ||
-              !(await latestConsent(tx, reservation.voice.user_id, "voice"))
-            )
+            if (!voice)
               throw fail(
                 409,
                 "VOICE_REVOKED",
@@ -1207,7 +1297,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       );
       return await db.tenant(internal(a), async (tx) => {
         const [voice] = await tx.query(
-          "SELECT id FROM trainer_voices WHERE id=$1 AND version=$2 AND status='verified'",
+          "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2",
           [reservation.voice.id, reservation.voice.version],
         );
         const [r] = await tx.query(
@@ -1262,7 +1352,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     const a = identity(req);
     const audio = await db.tenant(internal(a), async (tx) => {
       const [r] = await tx.query(
-        "SELECT g.* FROM guided_audio g JOIN trainer_voices v ON v.id=g.voice_id AND v.version=g.voice_version WHERE g.id=$1 AND g.user_id=$2 AND g.status='ready' AND v.status='verified'",
+        "SELECT g.* FROM guided_audio g JOIN guided_voice() v ON v.id=g.voice_id AND v.version=g.voice_version WHERE g.id=$1 AND g.user_id=$2 AND g.status='ready'",
         [id.parse((req.params as any).id), a.userId],
       );
       if (!r?.audio)
@@ -1293,9 +1383,12 @@ export function normalizeDomain(value: string) {
       "DOMAIN_NAME",
       "Enter a public domain name without a protocol, path or port.",
     );
+  const root = platformRoot();
   if (
     hostname ===
-    new URL(runtimeConfig().PUBLIC_APP_URL ?? "http://localhost:3000").hostname
+      new URL(runtimeConfig().PUBLIC_APP_URL ?? "http://localhost:3000")
+        .hostname ||
+    (root && (hostname === root || hostname.endsWith("." + root)))
   )
     throw fail(
       400,
@@ -1313,10 +1406,20 @@ function domainEnabled() {
     );
 }
 async function domainActor(db: Database, operator: Identity, orderId: string) {
-  const [row] = await scopedAdminRows(db, "domain_orders", orderId);
+  const [row] = await scopedAdminRows(db, operator, "domain_orders", orderId);
   if (!row)
     throw fail(404, "DOMAIN_NOT_FOUND", "Domain request was not found.");
-  return { row, a: { ...operator, tenantId: row.tenant_id, role: "owner" } };
+  return {
+    row,
+    a: {
+      ...operator,
+      ...elevated("platform-operator", {
+        tenantId: row.tenant_id,
+        userId: operator.userId,
+        role: "owner",
+      }),
+    },
+  };
 }
 async function dnsProof(
   hostname: string,
@@ -1347,6 +1450,35 @@ async function dnsProof(
     clearTimeout(timer);
   }
 }
+/**
+ * A manual domain order as its trainer sees it: the status, the exact price
+ * quote and the verification token. Operator evidence (registrar and payment
+ * references, the quote's provider reference) never reaches a trainer.
+ */
+export function trainerDomainView(row: Record<string, any>) {
+  const q = row.quote;
+  return {
+    id: row.id,
+    hostname: row.hostname,
+    status: row.status,
+    token: row.token,
+    version: row.version,
+    alreadyOwned: row.evidence?.alreadyOwned === true,
+    quote: q
+      ? {
+          amountMinor: q.amountMinor,
+          renewalMinor: q.renewalMinor,
+          currency: q.currency,
+          termMonths: q.termMonths,
+          expiresAt: q.expiresAt,
+        }
+      : null,
+    verified_at: row.verified_at ?? null,
+    expires_at: row.expires_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 function registerDomainRoutes(
   app: FastifyInstance,
   db: Database,
@@ -1354,9 +1486,12 @@ function registerDomainRoutes(
 ) {
   app.get("/api/v1/domains", async (req) => {
     const a = owner(req);
-    return db.tenant(a, (tx) =>
-      tx.query("SELECT * FROM domain_orders ORDER BY created_at DESC"),
+    const rows = await db.tenant(a, (tx) =>
+      tx.query(
+        "SELECT * FROM domain_orders WHERE mode='manual' ORDER BY created_at DESC",
+      ),
     );
+    return rows.map(trainerDomainView);
   });
   app.post("/api/v1/domains", async (req) => {
     const a = owner(req);
@@ -1387,7 +1522,7 @@ function registerDomainRoutes(
           "This domain already has an active connection request.",
         );
       await event(tx, a, "domain.requested", row.id, { hostname });
-      return row;
+      return trainerDomainView(row);
     });
   });
   app.post("/api/v1/domains/:id/approve", async (req) => {
@@ -1404,7 +1539,7 @@ function registerDomainRoutes(
       .parse(req.body);
     return db.tenant(a, async (tx) => {
       const [row] = await tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 FOR UPDATE",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' FOR UPDATE",
         [id.parse((req.params as any).id)],
       );
       if (
@@ -1430,7 +1565,7 @@ function registerDomainRoutes(
         amountMinor: b.amountMinor,
         currency: b.currency,
       });
-      return updated;
+      return trainerDomainView(updated);
     });
   });
   app.post("/api/v1/domains/:id/verify", async (req) => {
@@ -1440,12 +1575,12 @@ function registerDomainRoutes(
       .parse(req.body);
     const [row] = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND status IN ('owned','verified') AND version=$2",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' AND status IN ('owned','verified') AND version=$2",
         [id.parse((req.params as any).id), b.revision],
       ),
     );
     if (!row) throw conflict();
-    await dnsProof(row.hostname, row.token, dependencies.txt ?? resolveTxt);
+    await dnsProof(row.hostname, row.token, txtLookup(dependencies));
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
         "UPDATE domain_orders SET status='verified',verified_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 RETURNING *",
@@ -1453,7 +1588,7 @@ function registerDomainRoutes(
       );
       if (!r) throw conflict();
       await event(tx, a, "domain.ownership_verified", row.id);
-      return r;
+      return trainerDomainView(r);
     });
   });
   app.post("/api/v1/domains/:id/cancel", async (req) => {
@@ -1461,7 +1596,7 @@ function registerDomainRoutes(
       b = z.object({ revision: z.number().int().positive() }).parse(req.body);
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
-        "UPDATE domain_orders SET status='cancelled',version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status NOT IN ('cancelled','expired') RETURNING *",
+        "UPDATE domain_orders SET status='cancelled',version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND mode='manual' AND status NOT IN ('cancelled','expired') RETURNING *",
         [id.parse((req.params as any).id), b.revision],
       );
       if (!r) throw conflict();
@@ -1470,13 +1605,14 @@ function registerDomainRoutes(
         [r.hostname, a.tenantId],
       );
       await event(tx, a, "domain.disconnected", r.id);
-      return r;
+      return trainerDomainView(r);
     });
   });
   app.get("/api/v1/admin/integrations/domains", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "domain_orders",
       undefined,
       z
@@ -1585,7 +1721,7 @@ function registerDomainRoutes(
       Date.parse(b.expiresAt) <= Date.now()
     )
       throw conflict();
-    await dnsProof(row.hostname, row.token, dependencies.txt ?? resolveTxt);
+    await dnsProof(row.hostname, row.token, txtLookup(dependencies));
     const approvedTarget = runtimeConfig().DOMAIN_CNAME_TARGET;
     if (
       !approvedTarget ||
@@ -1598,7 +1734,7 @@ function registerDomainRoutes(
       );
     let names: string[];
     try {
-      names = await (dependencies.cname ?? resolveCname)(row.hostname);
+      names = await cnameLookup(dependencies)(row.hostname);
     } catch {
       throw fail(409, "DOMAIN_TARGET", "The domain CNAME is not visible yet.");
     }
@@ -1614,34 +1750,38 @@ function registerDomainRoutes(
         "DOMAIN_TARGET",
         "The domain CNAME does not point to the approved ingress.",
       );
+    // Let the edge obtain this domain's certificate for the HTTPS check below.
+    await permitCertificateIssuance(db, {
+      hostname: row.hostname,
+      tenantId: row.tenant_id,
+      orderId: row.id,
+      actorId: operator.userId,
+    });
     await integrationRequest("https://" + row.hostname + "/", {
       method: "HEAD",
       signal: AbortSignal.timeout(10000),
     });
     // Mapping writes are service-only; the order update stays tenant-scoped.
     return db.system(async (tx) => {
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-        [a.tenantId, a.userId, a.role],
-      );
-      const [r] = await tx.query(
-        "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
-        [
-          row.id,
-          b.revision,
-          b.expiresAt,
-          JSON.stringify({
-            dnsTarget: b.dnsTarget,
-            registrarReference: b.registrarReference,
-            tlsCheckedAt: new Date().toISOString(),
-            reconciledBy: operator.userId,
-          }),
-        ],
-      );
-      if (!r) throw conflict();
-      await event(tx, a, "domain.activated", row.id);
-      await tx.query("RESET ROLE");
+      const r = await tx.tenant(a, async (tx) => {
+        const [r] = await tx.query(
+          "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
+          [
+            row.id,
+            b.revision,
+            b.expiresAt,
+            JSON.stringify({
+              dnsTarget: b.dnsTarget,
+              registrarReference: b.registrarReference,
+              tlsCheckedAt: new Date().toISOString(),
+              reconciledBy: operator.userId,
+            }),
+          ],
+        );
+        if (!r) throw conflict();
+        await event(tx, a, "domain.activated", row.id);
+        return r;
+      });
       await tx.query(
         "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES($1,$2,now(),true) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true",
         [r.hostname, r.tenant_id],

@@ -1,10 +1,10 @@
-import type { Database } from "@trainer/db";
+import { elevated, type Database } from "@trainer/db";
 import { sendEmail } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { notificationDeliveryDecision } from "../../api/src/notifications.ts";
 /** Account links are bearer credentials: keep them only while they may be sent. */
 const scrubbed =
-  "CASE WHEN data->>'sensitive'='true' THEN data-'text' ELSE data END";
+  "CASE WHEN data->>'sensitive'='true' THEN data-'text'-'html' ELSE data END";
 const configurationWait = 24 * 60 * 60 * 1000;
 /** A crash or ambiguous provider result must not produce an automatic second email. */
 export async function executeEmailDelivery(
@@ -13,11 +13,8 @@ export async function executeEmailDelivery(
   job: any,
   send = sendEmail,
 ) {
-  const a = {
-      tenantId,
-      userId: job.data.userId ?? "00000000-0000-0000-0000-000000000000",
-      role: "owner",
-    },
+  // The outbox worker is a service identity: never the recipient's own id.
+  const a = elevated("worker", { tenantId, role: "owner" }),
     decision = await notificationDeliveryDecision(db, tenantId, job);
   const finish = async (
     status: string,
@@ -103,7 +100,12 @@ export async function executeEmailDelivery(
   );
   if (!dispatched.length) return;
   try {
-    await send(job.data.to, job.data.subject, job.data.text);
+    await send(
+      job.data.to,
+      job.data.subject,
+      job.data.text,
+      typeof job.data.html === "string" ? job.data.html : undefined,
+    );
     await db.tenant(a, async (tx) => {
       const [r] = await tx.query(
         `UPDATE jobs SET status='completed',last_error=NULL,leased_until=NULL,data=${scrubbed}||'{"deliveryState":"delivered"}'::jsonb WHERE id=$1 AND status='blocked' AND attempts=$2 AND leased_until=$3 RETURNING id`,

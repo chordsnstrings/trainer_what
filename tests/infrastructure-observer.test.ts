@@ -9,6 +9,7 @@ import {
   registerInfrastructureObserver,
   type InfrastructureObservationInput,
 } from "../apps/api/src/infrastructure-observer.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database;
 const app = Fastify();
@@ -177,7 +178,7 @@ test("actual API hooks persist bounded request metrics and scoped aggregate queu
     [anotherTenant, "blocked", "-1 hour", null],
     [closedTenant, "pending", "-2 hours", null],
   ] as const)
-    await db.tenant({ ...operator, tenantId }, (tx) =>
+    await db.tenant(seedScope({ tenantId }), (tx) =>
       tx.query(
         "INSERT INTO jobs(id,tenant_id,kind,intent_key,data,status,available_at,leased_until,last_error) VALUES($1::uuid,$2,'fixture',$1::text,$3,$4,now()+$5::interval,CASE WHEN $6::text IS NULL THEN NULL ELSE now()+$6::interval END,'private-error-text')",
         [

@@ -11,6 +11,16 @@ import {
   eraseChatAttachments,
   closeChatAttachments,
 } from "./chat-attachments.ts";
+import {
+  exportComplimentaryAccess,
+  eraseComplimentaryAccess,
+  closeWorkspaceComplimentaryAccess,
+} from "./complimentary-access.ts";
+import {
+  exportHealthKitData,
+  eraseHealthKitData,
+  closeHealthKitData,
+} from "./healthkit-sync.ts";
 async function exists(tx: Tx, table: string) {
   return !!(
     await tx.query("SELECT to_regclass($1) name", ["public." + table])
@@ -56,6 +66,11 @@ export async function withdrawIntegrations(
       "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
       [userId],
     );
+    if (await exists(tx, "voice_session_clips"))
+      await tx.query(
+        "UPDATE voice_session_clips SET status='revoked',audio=NULL WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND status<>'revoked'",
+        [userId],
+      );
     await tx.query(
       "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,version=version+1 WHERE user_id=$1",
       [userId],
@@ -88,7 +103,7 @@ export const privacyHooks: PrivacyHooks = {
           tx,
           "domain_orders",
           "id",
-          "status NOT IN ('cancelled','expired')",
+          "status NOT IN ('cancelled','expired','failed')",
           [],
         );
     return [
@@ -103,7 +118,11 @@ export const privacyHooks: PrivacyHooks = {
   async exportAdditional(tx, userId) {
     return {
       coachingFollowups: await exportCoachingFollowups(tx, userId),
+      complimentaryAccess: await exportComplimentaryAccess(tx, userId),
       chatAttachments: await exportChatAttachments(tx, userId),
+      healthKitSync: (await exists(tx, "healthkit_devices"))
+        ? await exportHealthKitData(tx, userId)
+        : null,
       connections: await rows(
         tx,
         "integration_connections",
@@ -122,6 +141,14 @@ export const privacyHooks: PrivacyHooks = {
         tx,
         "guided_audio",
         "id,workout_id,status,text_content,data,created_at",
+        "user_id=$1",
+        [userId],
+      ),
+      // Voice-led sessions: scripts and outcomes; generated audio is not exported.
+      voiceSessions: await rows(
+        tx,
+        "voice_sessions",
+        "id,workout_id,planned_session_id,mode,status,audio_status,script,outcomes,events,started_at,ended_at,end_reason,created_at",
         "user_id=$1",
         [userId],
       ),
@@ -162,9 +189,23 @@ export const privacyHooks: PrivacyHooks = {
     await eraseCoachingFeedbackDerivedData(tx, userId);
     await eraseCoachingFollowups(tx, userId);
     await eraseChatAttachments(tx, userId);
+    await eraseComplimentaryAccess(tx, userId);
+    if (await exists(tx, "healthkit_devices"))
+      await eraseHealthKitData(tx, userId);
     if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);
     // Remove guided audio before workout records because the audio has an FK to
     // its workout. Provider revocation/purge remains an explicit evidence task.
+    if (await exists(tx, "voice_sessions")) {
+      await tx.query(
+        "DELETE FROM voice_session_clips WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
+        [userId],
+      );
+      await tx.query("DELETE FROM voice_sessions WHERE user_id=$1", [userId]);
+      await tx.query(
+        "UPDATE voice_session_styles SET updated_by=NULL WHERE updated_by=$1",
+        [userId],
+      );
+    }
     if (await exists(tx, "trainer_voices")) {
       await tx.query(
         "DELETE FROM guided_audio WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
@@ -188,7 +229,12 @@ export const privacyHooks: PrivacyHooks = {
   async closeAdditional(tx) {
     await eraseCoachingFollowups(tx);
     await closeChatAttachments(tx);
+    await closeWorkspaceComplimentaryAccess(tx);
+    if (await exists(tx, "healthkit_devices")) await closeHealthKitData(tx);
     for (const table of [
+      "voice_session_clips",
+      "voice_sessions",
+      "voice_session_styles",
       "guided_audio",
       "integration_oauth_states",
       "trainer_voices",

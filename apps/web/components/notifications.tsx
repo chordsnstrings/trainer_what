@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { parseLanguage } from "../document-language";
+import { rememberMemberLanguage } from "./document-direction";
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -40,7 +42,16 @@ export function NotificationPreferences() {
             e.preventDefault();
             setBusy(true);
             try {
-              setValue(await api("/notifications/preferences", "PUT", value));
+              const { options, ...body } = value;
+              const saved = await api(
+                "/notifications/preferences",
+                "PUT",
+                body,
+              );
+              setValue({ ...saved, options });
+              // The saved language also sets the workspace direction.
+              const language = parseLanguage(saved.data?.language);
+              if (language) rememberMemberLanguage(language);
               setError("Preferences saved.");
             } catch (e) {
               setError((e as Error).message);
@@ -53,6 +64,9 @@ export function NotificationPreferences() {
             ["email", "Email reminders"],
             ["bookings", "Booking notifications"],
             ["workouts", "Workout reminders"],
+            ...(value.options?.inquiries
+              ? [["inquiries", "Website inquiry alerts by email and device"]]
+              : []),
             ["marketing", "Optional product news"],
           ].map(([key, label]) => (
             <label className="check-field" key={key}>
@@ -69,6 +83,27 @@ export function NotificationPreferences() {
               {label}
             </label>
           ))}
+          <label className="field">
+            <span>Message language</span>
+            <select
+              value={value.data.language ?? "en"}
+              onChange={(e) =>
+                setValue({
+                  ...value,
+                  data: { ...value.data, language: e.target.value },
+                })
+              }
+            >
+              <option value="en">English</option>
+              <option value="ar" lang="ar">
+                العربية (Arabic)
+              </option>
+            </select>
+          </label>
+          <small>
+            Messages use reviewed Arabic wording where it is published and
+            English otherwise. Arabic also arranges the app from right to left.
+          </small>
           <label className="field">
             <span>Time zone</span>
             <input
@@ -118,12 +153,20 @@ export function NotificationInbox() {
     [more, setMore] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  async function load(offset = 0) {
+  // Older pages continue after the last notification shown (a keyset
+  // cursor), so a notice arriving meanwhile neither repeats nor hides one.
+  async function load(before?: string) {
     setLoading(true);
     setError("");
     try {
-      const d = await api(`/notifications?offset=${offset}`);
-      setRows((v) => (offset ? [...v, ...d] : d));
+      const d: any[] = await api(
+        before
+          ? `/notifications?before=${encodeURIComponent(before)}`
+          : "/notifications",
+      );
+      setRows((v) =>
+        before ? [...v, ...d.filter((n) => !v.some((r) => r.id === n.id))] : d,
+      );
       setMore(d.length === 50);
     } finally {
       setLoading(false);
@@ -164,8 +207,11 @@ export function NotificationInbox() {
             {n.category} · {new Date(n.created_at).toLocaleString()}
             {n.read_at ? " · Read" : " · New"}
           </small>
-          <h2>{n.title}</h2>
-          <p style={{ whiteSpace: "pre-wrap" }}>{n.body}</p>
+          {/* Reviewed Arabic templates read right to left in any layout. */}
+          <h2 dir="auto">{n.title}</h2>
+          <p style={{ whiteSpace: "pre-wrap" }} dir="auto">
+            {n.body}
+          </p>
           <div className="actions">
             {n.href && (
               <Link className="button secondary" href={n.href}>
@@ -201,7 +247,9 @@ export function NotificationInbox() {
           className="button secondary"
           disabled={loading}
           onClick={() =>
-            void load(rows.length).catch((e) => setError(e.message))
+            void load(rows[rows.length - 1]?.id).catch((e) =>
+              setError(e.message),
+            )
           }
         >
           Load earlier notifications

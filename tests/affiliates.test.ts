@@ -2,7 +2,12 @@ import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
-import { createDatabase, type Database, type Actor } from "@trainer/db";
+import {
+  createDatabase,
+  elevated,
+  type Database,
+  type Actor,
+} from "@trainer/db";
 import {
   registerAffiliates,
   pendingAffiliateClawbacks,
@@ -154,8 +159,9 @@ test("aggregate receipts are idempotent, policy-pinned and isolated with no spen
   assert.equal((await current()).earnedMinor, 0);
   assert.equal(
     (
-      await db.tenant({ ...owner, tenantId: foreign }, (tx) =>
-        tx.query("SELECT * FROM affiliate_receipts"),
+      await db.tenant(
+        elevated("worker", { tenantId: foreign, role: "owner" }),
+        (tx) => tx.query("SELECT * FROM affiliate_receipts"),
       )
     ).length,
     0,
@@ -169,7 +175,7 @@ test("aggregate receipts are idempotent, policy-pinned and isolated with no spen
     0,
   );
   await assert.rejects(
-    db.tenant(finance, (tx) =>
+    db.tenant(elevated("platform-operator", finance), (tx) =>
       tx.query("UPDATE affiliate_receipts SET amount_minor=1 WHERE id=$1", [
         receipt.id,
       ]),
@@ -255,7 +261,13 @@ test("post-settlement reversals hold payout eligibility until verified signed ba
     ).statusCode,
     409,
   );
-  assert.equal(await db.tenant(finance, pendingAffiliateClawbacks), true);
+  assert.equal(
+    await db.tenant(
+      elevated("platform-operator", finance),
+      pendingAffiliateClawbacks,
+    ),
+    true,
+  );
   r = await request("/statements", {
     contractId: contract.id,
     period: "2026-09",
@@ -269,7 +281,13 @@ test("post-settlement reversals hold payout eligibility until verified signed ba
     evidenceReference: "Verified bank debit reversing provider payment",
   });
   assert.equal(r.statusCode, 200, r.body);
-  assert.equal(await db.tenant(finance, pendingAffiliateClawbacks), false);
+  assert.equal(
+    await db.tenant(
+      elevated("platform-operator", finance),
+      pendingAffiliateClawbacks,
+    ),
+    false,
+  );
   const summary = await current();
   assert.equal(summary.earnedMinor, 0);
   assert.equal(summary.accounts.bank_cash, 0);

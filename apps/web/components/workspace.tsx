@@ -1,9 +1,16 @@
 "use client";
 import { Field } from "./field";
 import { TeamControls } from "./team-controls";
+import { CoachSwitcher, FollowerInvitations, InvitationJoin } from "./joining";
+import {
+  AdminComplimentaryAccess,
+  ComplimentaryAccessManager,
+  MemberAccessCard,
+} from "./complimentary-access";
 import { Affiliates } from "./affiliates";
 import { InfrastructureActions } from "./infrastructure-actions";
 import { NotificationPreferences, NotificationInbox } from "./notifications";
+import { SafetyReviewDue } from "./safety-review-due";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
 import { KnowledgeImportReview } from "./ingestion-review";
@@ -12,8 +19,10 @@ import {
   GuidedSession,
   IntegrationOperations,
 } from "./integration-center";
+import { VoiceSessionRunner } from "./voice-session";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { CoachingStudio } from "./coaching-studio";
+import { BrainPlans, PlanIntakeNotice } from "./brain-plans";
 import {
   ExceptionCorrection,
   CoachingFeedbackQueue,
@@ -38,7 +47,15 @@ import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
-import { MarketingPage } from "./marketing-pages";
+import { HostOperations } from "./host-operations";
+import { MarketingFooter } from "./marketing/frame";
+import { PublicHeader } from "./public-header";
+import { PlatformLogo } from "./brand-logo";
+import {
+  FollowerEstimate,
+  ShareYourLink,
+  TrainerGrowth,
+} from "./trainer-growth";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
@@ -46,15 +63,22 @@ import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
 import { AccountExtras, MagicAccess } from "./account-completion";
+import { AccountSettings } from "./account-settings";
+import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
+import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
+import { OperatorRecovery } from "./operator-recovery";
+import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
-import {
-  GalleryStudio,
-  WebsiteStudio,
-  CoachWebsite,
-  ClientCoachManifest,
-} from "./coach-site";
+import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
+import { MemberAppManifest } from "./member-app-install";
+import { MemberLanguage } from "./document-direction";
+import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
+import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
+import { ProgrammeToday, ProgrammeTimeline } from "./programme-today";
+import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
+import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
   TrainerDesign,
   TrainerTheme,
@@ -64,8 +88,33 @@ import {
   CoachStory,
   ClientHomeSections,
 } from "./trainer-design";
-import { resolveBrandDesign, setSchema } from "@trainer/contracts";
+import {
+  BRAND_COPY,
+  DEFAULT_PLATFORM_NAME,
+  appInitials,
+  isMarketingPath,
+  resolveBrandDesign,
+  setSchema,
+  usesBrandIdentity,
+} from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
+import { WorkspaceGovernance } from "./workspace-governance";
+import { BusinessMetrics } from "./business-metrics";
+import { PlatformAlerts } from "./platform-alerts";
+import { WorkspaceSuspended } from "./workspace-suspended";
+import {
+  appendPage,
+  appendRelated,
+  canLoadMore,
+  mergePages,
+  needsWorkoutSets,
+  urgentFirst,
+  nextPagePath,
+  pageInfo,
+  pageKey,
+  type ExtraPages,
+} from "./workspace-paging";
+import { GovernanceLinks } from "./governance-shared";
 import {
   clearLocalData,
   discardRejected,
@@ -81,6 +130,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   type ReactNode,
   type FormEvent,
@@ -119,7 +169,7 @@ import {
   Palette,
   Camera,
 } from "lucide-react";
-import { money, projectedCommission } from "@trainer/domain";
+import { money } from "@trainer/domain";
 type Row = {
   id: string;
   kind: string;
@@ -136,6 +186,7 @@ type State = {
   sets: any[];
   members?: any[];
   subscriptions: any[];
+  complimentary?: any[];
   integrations: any[];
   events?: any[];
   finance?: any;
@@ -145,11 +196,49 @@ type State = {
   usageStatements?: any[];
   consents: any[];
   environment?: string;
+  providerSandbox?: string | null;
   platform?: { name?: string; supportEmail?: string };
+  /** First-page positions: { hasMore, cursor } per collection (records per kind). */
+  pages?: Record<string, any>;
+  /** Exact counts, independent of how many rows are loaded. */
+  totals?: Record<string, any>;
 };
+type More = {
+  has: (collection: string, kind?: string) => boolean;
+  load: (collection: string, kind?: string) => Promise<void>;
+  loading: string;
+};
+/** Shown while a paged list has rows beyond those loaded. */
+function LoadMore({
+  more,
+  collection,
+  kind,
+  label = "Load more",
+}: {
+  more: More;
+  collection: string;
+  kind?: string;
+  label?: string;
+}) {
+  if (!more.has(collection, kind)) return null;
+  const loading = more.loading === pageKey(collection, kind);
+  return (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loading}
+        onClick={() => void more.load(collection, kind)}
+      >
+        {loading ? "Loading…" : label}
+      </button>
+    </div>
+  );
+}
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
   ["Setup", "/trainer/onboarding/account", CheckCircle],
+  ["Followers & growth", "/trainer/growth", Users],
   ["My Brain", "/trainer/brain", Brain],
   ["Subscribers", "/trainer/subscribers", Users],
   ["Programs", "/trainer/programs", Layers],
@@ -172,6 +261,7 @@ const nav = [
 const subNav = [
   ["Today", "/app", LayoutDashboard],
   ["My program", "/app/program", Layers],
+  ["Programme timeline", "/app/timeline", Layers],
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
   ["Coach chat", "/app/chat", MessageCircle],
@@ -274,6 +364,16 @@ function Empty({
     </div>
   );
 }
+/** Trainer-facing wording for a compiled rule's flags (text-screen.ts). */
+const RULE_FLAG_TEXT: Record<string, string> = {
+  medical_advice: "it gives medicine, dose or diagnosis advice",
+  red_flag_not_stopped:
+    "it names a red flag but does not stop the session and send the member to you or to help",
+  link: "it contains a link or email address",
+  contact: "it contains a phone number",
+  approval_claim: "it claims your approval or tells the Brain to skip review",
+  guarantee: "it guarantees results or tells the member not to check with you",
+};
 function Badge({
   children,
   tone = "",
@@ -351,7 +451,11 @@ function WorkspaceSwitcher({
   if (choices.length < 2) return null;
   return (
     <label className="workspace-switcher">
-      <span>Switch workspace</span>
+      <span>
+        {choices.find((c) => c.current)?.role === "subscriber"
+          ? "Switch coach"
+          : "Switch workspace"}
+      </span>
       <select
         value={current}
         disabled={busy}
@@ -408,7 +512,25 @@ function PlainShell({
   return <div className={className}>{children}</div>;
 }
 
-export default function Workspace() {
+/** Platform identity the server passes down for the public pages. */
+export type WorkspacePlatform = {
+  name: string;
+  initials: string;
+  registrationOpen: boolean;
+};
+const defaultPlatform: WorkspacePlatform = {
+  name: DEFAULT_PLATFORM_NAME,
+  initials: appInitials(DEFAULT_PLATFORM_NAME),
+  registrationOpen: true,
+};
+export default function Workspace({
+  platform = defaultPlatform,
+  coachSlug = null,
+}: {
+  platform?: WorkspacePlatform;
+  /** Set on a trainer's own domain or subdomain (x-trainer-site-slug). */
+  coachSlug?: string | null;
+}) {
   const path = usePathname(),
     router = useRouter();
   const [state, setState] = useState<State | null>(null),
@@ -418,24 +540,27 @@ export default function Workspace() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
-    [online, setOnline] = useState(true);
+    [online, setOnline] = useState(true),
+    [suspended, setSuspended] = useState(false),
+    // Pages loaded beyond the bootstrap's first page. Cleared whenever the
+    // bootstrap reloads, so a changed row is never shown from an old page.
+    [extra, setExtra] = useState<ExtraPages>({}),
+    [moreLoading, setMoreLoading] = useState("");
+  const generation = useRef(0);
+  const shown = useMemo(
+    () => (state ? mergePages(state, extra) : null),
+    [state, extra],
+  );
   const publicPath =
-    path === "/" ||
-    [
-      "/how-it-works",
-      "/demo",
-      "/pricing",
-      "/faq",
-      "/terms",
-      "/privacy",
-      "/ai-disclosure",
-      "/login",
-      "/signup",
-    ].includes(path) ||
+    isMarketingPath(path) ||
+    ["/login", "/signup"].includes(path) ||
     path === "/forgot-password" ||
     path === "/magic-link" ||
     path.startsWith("/magic-link/") ||
     path === "/recover-authenticator" ||
+    path === "/sign-in/verify" ||
+    path.startsWith("/verify-email-change/") ||
+    path.startsWith("/account-recovery/") ||
     path.startsWith("/reset-password/") ||
     path.startsWith("/verify-email/") ||
     path.startsWith("/join-coach/") ||
@@ -444,7 +569,10 @@ export default function Workspace() {
   const load = useCallback(async () => {
     try {
       const next = await api("/bootstrap");
+      generation.current++;
+      setExtra({});
       setState(next);
+      setSuspended(false);
       setBootstrapError("");
       if (next.user.role === "subscriber")
         localStorage.setItem(
@@ -463,6 +591,13 @@ export default function Workspace() {
           }),
         );
     } catch (e) {
+      if ((e as any).code === "WORKSPACE_SUSPENDED") {
+        // A platform suspension: show its status instead of the workspace.
+        setState(null);
+        setBootstrapError("");
+        setSuspended(true);
+        return;
+      }
       if ((e as any).status === 401) {
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
@@ -538,9 +673,18 @@ export default function Workspace() {
     return (
       <Public
         path={path}
+        platform={platform}
+        coachSlug={coachSlug}
         onAuthenticated={async () => {
           await load();
-          const s = await api("/bootstrap");
+          const s = await api("/bootstrap").catch(async (e) => {
+            if ((e as any).code !== "WORKSPACE_SUSPENDED") throw e;
+            // Signed in to a suspended workspace: open its status screen.
+            const status = await api("/workspace/status");
+            router.push(status.role === "subscriber" ? "/app" : "/trainer");
+            return null;
+          });
+          if (!s) return;
           router.push(
             s.user.role === "subscriber"
               ? "/app"
@@ -548,6 +692,16 @@ export default function Workspace() {
                 ? "/trainer/onboarding/identity"
                 : "/trainer",
           );
+        }}
+      />
+    );
+  if (suspended)
+    return (
+      <WorkspaceSuspended
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {});
+          clearLocalData(localStorage, { keepQueues: true });
+          router.push("/login");
         }}
       />
     );
@@ -581,7 +735,9 @@ export default function Workspace() {
   if (loading || !state)
     return (
       <main className="loading-screen">
-        <div className="brand-mark">b.</div>
+        {/* Neutral: a member app may carry its trainer's brand, which is
+            not known until the workspace has loaded. */}
+        <div className="loading-indicator" aria-hidden="true" />
         <p>Opening your workspace…</p>
       </main>
     );
@@ -601,11 +757,35 @@ export default function Workspace() {
                 "Photos & galleries",
                 "Website",
                 "Team",
+                "Followers & growth",
               ].includes(item[0]),
           )
         : nav;
-  const records = (kind: string) =>
-    state.records.filter((x) => x.kind === kind);
+  const view = shown ?? state;
+  const records = (kind: string) => view.records.filter((x) => x.kind === kind);
+  const more: More = {
+    has: (collection, kind) =>
+      canLoadMore(pageInfo(state.pages, extra, collection, kind)),
+    loading: moreLoading,
+    load: async (collection, kind) => {
+      const info = pageInfo(state.pages, extra, collection, kind),
+        key = pageKey(collection, kind),
+        started = generation.current;
+      if (!info || !canLoadMore(info)) return;
+      setMoreLoading(key);
+      try {
+        const page = await api(nextPagePath(collection, info, kind));
+        if (started === generation.current)
+          setExtra((current) =>
+            appendRelated(appendPage(current, key, page), page.related),
+          );
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setMoreLoading("");
+      }
+    },
+  };
   const firstName = state.user.name.split(" ")[0];
   const activeNavUrl = [...items]
     .sort((a, b) => b[1].length - a[1].length)
@@ -617,12 +797,28 @@ export default function Workspace() {
   const topTitle = path.startsWith("/admin")
     ? "Platform operations"
     : (items.find((x) => x[1] === path)?.[0] ?? "Your workspace");
-  const props = { state, records, action, busy, path, onSaved: load };
+  const props = {
+    state: view,
+    records,
+    action,
+    busy,
+    path,
+    onSaved: load,
+    more,
+  };
+  // Subscribers see their trainer's Design Studio brand; trainers, their
+  // team and operators work in the platform's own identity (light and dark).
   const Shell = subscriber ? TrainerTheme : PlainShell;
-  const platformName = state.platform?.name || "Trainer Brain";
+  const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
   return (
-    <Shell className="workspace" theme={state.tenant.theme}>
-      {subscriber && <ClientCoachManifest tenant={state.tenant} />}
+    <Shell
+      className={subscriber ? "workspace" : "workspace platform-ui"}
+      theme={state.tenant.theme}
+    >
+      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+      {!path.startsWith("/admin") && (
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+      )}
       <aside className={"sidebar " + (mobile ? "is-open" : "")}>
         <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
           {subscriber ? (
@@ -632,10 +828,7 @@ export default function Workspace() {
               compact
             />
           ) : (
-            <>
-              <span className="brand-mark">b.</span>
-              <span>{platformName}</span>
-            </>
+            <PlatformLogo name={platformName} />
           )}
         </Link>
         <button
@@ -670,13 +863,9 @@ export default function Workspace() {
                 ? resolveBrandDesign(state.tenant.theme).programLabel
                 : label}
               {label === "Exceptions" &&
-                records("exception").filter((x) => x.status === "open").length >
-                  0 && (
+                openExceptionCount(state, records) > 0 && (
                   <span className="nav-count">
-                    {
-                      records("exception").filter((x) => x.status === "open")
-                        .length
-                    }
+                    {openExceptionCount(state, records)}
                   </span>
                 )}
             </Link>
@@ -739,6 +928,13 @@ export default function Workspace() {
             <strong>{topTitle}</strong>
           </div>
           <div className="topbar-right">
+            {subscriber && (
+              <CoachSwitcher
+                current={state.user.tenantId}
+                userId={state.user.userId}
+                variant="compact"
+              />
+            )}
             <span className="connection-dot" />
             <span>
               {state.tenant.published ? "Published" : "Private workspace"}
@@ -747,6 +943,7 @@ export default function Workspace() {
           </div>
         </header>
         <div className="content">
+          <ProviderSandboxBanner mode={state.providerSandbox} />
           {state.environment === "development" && (
             <div className="dev-banner">
               Development environment · payment connections are gated · demo
@@ -805,6 +1002,8 @@ export default function Workspace() {
                 </Link>
                 <AccountSecurity />
                 <AccountExtras />
+                <AccountSettings returnTo="/admin/account-security" />
+                <OperatorRecovery />
               </>
             ) : (
               <PlatformSettings
@@ -823,12 +1022,31 @@ export default function Workspace() {
             )
           ) : path === "/admin/affiliates" ? (
             <Affiliates />
+          ) : path === "/trainer/growth" ? (
+            state.user.role === "owner" ? (
+              <TrainerGrowth
+                slug={state.tenant.slug}
+                published={!!state.tenant.published}
+              />
+            ) : (
+              <div className="notice">
+                Followers and growth is available to the workspace owner.
+              </div>
+            )
           ) : path === "/trainer/affiliates" ? (
             <Affiliates trainer />
           ) : path === "/admin/infrastructure/observer" ? (
             <InfrastructureObserver />
           ) : path === "/admin/infrastructure/actions" ? (
             <InfrastructureActions />
+          ) : path === "/admin/alerts" ? (
+            <PlatformAlerts platformRole={state.user.platformRole} />
+          ) : path === "/admin/metrics" ? (
+            <BusinessMetrics platformRole={state.user.platformRole} />
+          ) : path === "/admin/governance" ? (
+            <WorkspaceGovernance platformRole={state.user.platformRole} />
+          ) : path === "/admin/infrastructure/host" ? (
+            <HostOperations />
           ) : path.startsWith("/admin/settings") ||
             path.startsWith("/admin/integrations") ? (
             <PlatformSettings
@@ -861,6 +1079,15 @@ export default function Workspace() {
                 path={path}
                 platformRole={state.user.platformRole}
               />
+              {path === "/admin/support" &&
+                ["admin", "support"].includes(state.user.platformRole) && (
+                  <OperatorRecovery />
+                )}
+              {path === "/admin/subscribers" && (
+                <AdminComplimentaryAccess
+                  platformRole={state.user.platformRole}
+                />
+              )}
             </>
           ) : path.startsWith("/admin") ? (
             adminRoute(path) === "overview" ? (
@@ -904,7 +1131,10 @@ export default function Workspace() {
               path === "/trainer/galleries" ? (
                 <GalleryStudio />
               ) : path === "/trainer/website" ? (
-                <WebsiteStudio tenant={state.tenant} />
+                <>
+                  <WebsiteStudio tenant={state.tenant} />
+                  <DirectoryListingSettings />
+                </>
               ) : (
                 <CoachWebsite
                   preview
@@ -929,26 +1159,43 @@ export default function Workspace() {
           ) : path.includes("/bookings") ? (
             <Bookings role={state.user.role} />
           ) : path.includes("/support") ? (
-            <Support records={records("support")} action={action} busy={busy} />
+            <>
+              <Support
+                records={records("support")}
+                action={action}
+                busy={busy}
+              />
+              <LoadMore
+                more={more}
+                collection="records"
+                kind="support"
+                label="Load older support conversations"
+              />
+            </>
           ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
               path,
             ) ? (
             <CoachingStudio key={path} path={path} />
+          ) : path === "/trainer/brain/plans" ? (
+            <BrainPlans role={state.user.role} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
-            <ClientTwin
-              userId={path.split("/")[3]}
-              name={
-                state.members?.find((m) => m.id === path.split("/")[3])?.name
-              }
-            />
+            <SubscriberDetail state={state} userId={path.split("/")[3]} />
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
             <ClientTwin userId={state.user.userId} subscriber />
           ) : path.startsWith("/app/guided/") ? (
             <GuidedSession workoutId={path.split("/")[3]} />
+          ) : path.startsWith("/app/voice-session/") ? (
+            <VoiceSessionRunner
+              {...(path.split("/")[3] === "planned"
+                ? { plannedSessionId: path.split("/")[4] }
+                : { workoutId: path.split("/")[3] })}
+              tenantId={state.user.tenantId}
+              userId={state.user.userId}
+            />
           ) : path.includes("/program") ? (
             <TrainingPrograms state={state} />
           ) : path.includes("/workouts") ? (
@@ -983,18 +1230,30 @@ export default function Workspace() {
               <TrainerAnalytics />
               {state.user.role === "owner" && <RetentionPanel />}
             </>
+          ) : path === "/app/timeline" ? (
+            <ProgrammeTimeline />
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
           ) : (
-            <Overview {...props} />
+            <>
+              {subscriber && (
+                <CoachSwitcher
+                  current={state.user.tenantId}
+                  userId={state.user.userId}
+                />
+              )}
+              <Overview {...props} />
+            </>
           )}
         </div>
         <footer className="workspace-footer">
           <span>
-            {subscriber ? state.tenant.name : platformName} · Your coaching,
-            amplified.
+            {subscriber ? state.tenant.name : platformName} ·{" "}
+            {!subscriber && usesBrandIdentity(platformName)
+              ? BRAND_COPY.line
+              : "Your coaching, amplified."}
           </span>
           {state.platform?.supportEmail && (
             <a href={`mailto:${state.platform.supportEmail}`}>
@@ -1007,6 +1266,35 @@ export default function Workspace() {
     </Shell>
   );
 }
+/** A follower's name, read from the server when outside the first page. */
+function SubscriberDetail({ state, userId }: { state: State; userId: string }) {
+  const known = state.members?.find((m) => m.id === userId)?.name;
+  const [name, setName] = useState<string | undefined>(known);
+  useEffect(() => {
+    if (known) {
+      setName(known);
+      return;
+    }
+    let active = true;
+    api(
+      `/workspace/pages/members?role=subscriber&userId=${encodeURIComponent(userId)}`,
+    ).then(
+      (r) => active && setName(r.items[0]?.name),
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [known, userId]);
+  return (
+    <>
+      <ClientTwin userId={userId} name={name} />
+      {state.user.role === "owner" && (
+        <FollowerRemoval userId={userId} name={name} />
+      )}
+    </>
+  );
+}
 type ViewProps = {
   state: State;
   records: (kind: string) => Row[];
@@ -1014,28 +1302,50 @@ type ViewProps = {
   busy: boolean;
   path: string;
   onSaved?: () => Promise<void>;
+  more: More;
 };
+/** Exact when the bootstrap sent totals; otherwise the loaded rows. */
+const total = (state: State, key: string, fallback: number): number =>
+  typeof state.totals?.[key] === "number" ? state.totals[key] : fallback;
+const kindTotal = (state: State, kind: string, fallback: number): number =>
+  typeof state.totals?.records?.[kind] === "number"
+    ? state.totals.records[kind]
+    : fallback;
+const openExceptionCount = (state: State, records: ViewProps["records"]) =>
+  total(
+    state,
+    "openExceptions",
+    records("exception").filter((x) => x.status === "open").length,
+  );
 
 function Overview({ state, records }: ViewProps) {
   const sub = state.user.role === "subscriber";
   const rules = records("rule").filter((x) => x.status === "confirmed"),
-    exceptions = records("exception").filter((x) => x.status === "open"),
+    exceptions = urgentFirst(
+      records("exception").filter((x) => x.status === "open"),
+    ),
     programs = records("program"),
     workouts = records("workout");
+  const confirmedRules = total(state, "confirmedRules", rules.length),
+    programCount = kindTotal(state, "program", programs.length);
   const steps = [
     ["Shape your identity", !!state.tenant.theme?.bio, "/trainer/brand"],
     [
       "Teach your coaching rules",
-      rules.length > 0,
+      confirmedRules > 0,
       "/trainer/brain/constitution",
     ],
     [
       "Add your source material",
-      records("source").length > 0,
+      kindTotal(state, "source", records("source").length) > 0,
       "/trainer/brain/knowledge",
     ],
-    ["Create your first program", programs.length > 0, "/trainer/programs"],
-    ["Prepare your offer", records("product").length > 0, "/trainer/products"],
+    ["Create your first program", programCount > 0, "/trainer/programs"],
+    [
+      "Prepare your offer",
+      kindTotal(state, "product", records("product").length) > 0,
+      "/trainer/products",
+    ],
   ] as const;
   return (
     <>
@@ -1063,46 +1373,70 @@ function Overview({ state, records }: ViewProps) {
       />
       {sub && (
         <>
+          <ProgrammeToday />
           <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
           <ClientHomeSections theme={state.tenant.theme} />
         </>
+      )}
+      {state.user.role === "owner" && (
+        <section className="card" aria-labelledby="growth-nudge-h">
+          <h2 id="growth-nudge-h">What could your followers be worth?</h2>
+          <p>
+            Estimate how many followers could become paying subscribers when
+            you share your link, from published benchmarks and your own
+            numbers. An estimate, never a promise.
+          </p>
+          <Link className="button secondary" href="/trainer/growth">
+            Followers and growth <ArrowUpRight size={14} />
+          </Link>
+        </section>
       )}
       <div className="stats-grid">
         {(sub
           ? [
               [
                 "Completed workouts",
-                workouts.filter((w) => w.status === "completed").length,
+                total(
+                  state,
+                  "completedWorkouts",
+                  workouts.filter((w) => w.status === "completed").length,
+                ),
                 "Every session counts",
               ],
-              ["Sets recorded", state.sets.length, "Your actual training log"],
-              ["My programs", programs.length, "Created by your trainer"],
+              [
+                "Sets recorded",
+                total(state, "sets", state.sets.length),
+                "Your actual training log",
+              ],
+              ["My programs", programCount, "Created by your trainer"],
               [
                 "Coach messages",
-                records("message").length,
+                kindTotal(state, "message", records("message").length),
                 "Personal and digital coaching",
               ],
             ]
           : [
               [
                 "Subscribers",
-                state.members?.filter((m) => m.role === "subscriber").length ??
-                  0,
+                total(
+                  state,
+                  "subscribers",
+                  state.members?.filter((m) => m.role === "subscriber")
+                    .length ?? 0,
+                ),
                 "People in your coaching space",
               ],
               [
                 state.finance ? "Trainer earnings" : "Programs",
-                state.finance
-                  ? money(state.finance.earnedMinor)
-                  : programs.length,
+                state.finance ? money(state.finance.earnedMinor) : programCount,
                 state.finance
                   ? "Reconciled ledger balance"
                   : "Training blocks in this workspace",
               ],
-              ["Confirmed rules", rules.length, "Your methodology, captured"],
+              ["Confirmed rules", confirmedRules, "Your methodology, captured"],
               [
                 "Need your attention",
-                exceptions.length,
+                total(state, "openExceptions", exceptions.length),
                 "Open coaching exceptions",
               ],
             ]
@@ -1278,6 +1612,14 @@ function OnboardingView(props: ViewProps) {
     <Finance {...props} path="/trainer/products" />
   ) : step === "payout" ? (
     <PayoutView {...props} />
+  ) : step === "share" ? (
+    <>
+      <ShareYourLink
+        slug={props.state.tenant.slug}
+        published={!!props.state.tenant.published}
+      />
+      <FollowerEstimate compact />
+    </>
   ) : null;
   return (
     <Onboarding
@@ -1303,7 +1645,15 @@ function Brand({ state, onSaved }: ViewProps) {
   );
 }
 
-function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
+function BrainView({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  onSaved,
+  more,
+}: ViewProps) {
   const [tab, setTab] = useState(
     path.includes("constitution")
       ? "rules"
@@ -1336,6 +1686,7 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
           ["actions", "Routine actions"],
           ["checks", "Independent checks"],
           ["autonomy", "Activation"],
+          ["plans", "Plans"],
         ].map(([key, label]) => (
           <Link
             key={key}
@@ -1367,7 +1718,9 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
         <div className="two-columns wide-left">
           <Card>
             <p className="eyebrow">
-              CONVERSATION {Math.min(answers.length + 1, 20)} OF 20
+              CONVERSATION{" "}
+              {Math.min(kindTotal(state, "interview", answers.length) + 1, 20)}{" "}
+              OF 20
             </p>
             <h2>{question}</h2>
             <p className="muted">
@@ -1476,7 +1829,11 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
           <Card>
             <div className="card-heading">
               <h2>Sources</h2>
-              <Badge>{sources.length}</Badge>
+              <Badge>
+                {more.has("records", "source")
+                  ? `${sources.length} loaded`
+                  : sources.length}
+              </Badge>
             </div>
             <SourceCompilation
               sources={sources}
@@ -1522,6 +1879,18 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                   </form>
                 </div>
               ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="source"
+              label="Load older sources"
+            />
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="conflict"
+              label="Load older conflicts"
+            />
             {!sources.length && (
               <Empty
                 title="Your knowledge starts here"
@@ -1614,18 +1983,34 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                   </p>
                   <p>{r.data.directive}</p>
                   {r.data.reason && <p className="muted">{r.data.reason}</p>}
+                  {r.status !== "confirmed" && r.data.flags?.length > 0 && (
+                    <p role="alert">
+                      <Badge tone="amber">Check before confirming</Badge>{" "}
+                      The compiler flagged this draft:{" "}
+                      {(r.data.flags as string[])
+                        .map((f) => RULE_FLAG_TEXT[f] ?? f.replaceAll("_", " "))
+                        .join("; ")}
+                      . Correct it, or confirm it only if it is your method.
+                    </p>
+                  )}
                   {r.status !== "confirmed" && (
                     <Button
                       secondary
                       disabled={busy}
                       onClick={() =>
                         void action(
-                          () => api(`/brain/rules/${r.id}/confirm`, "POST", {}),
+                          () =>
+                            api(`/brain/rules/${r.id}/confirm`, "POST", {
+                              acknowledgeFlags: r.data.flags?.length > 0,
+                            }),
                           "Rule confirmed",
                         )
                       }
                     >
-                      Confirm this rule <Check size={16} />
+                      {r.data.flags?.length > 0
+                        ? "Confirm despite the warning"
+                        : "Confirm this rule"}{" "}
+                      <Check size={16} />
                     </Button>
                   )}
                 </Card>
@@ -1638,6 +2023,12 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 />
               </Card>
             )}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="rule"
+              label="Load older rules"
+            />
           </div>
         </div>
       )}
@@ -1697,6 +2088,12 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 <Badge>Held out</Badge>
               </div>
             ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="scenario"
+              label="Load older scenarios"
+            />
             {!records("scenario").length && (
               <Empty
                 title="No scenarios yet"
@@ -1713,12 +2110,19 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
             <div className="readiness-row">
               <span>Confirmed coaching rules</span>
               <strong>
-                {rules.filter((r) => r.status === "confirmed").length}
+                {total(
+                  state,
+                  "confirmedRules",
+                  rules.filter((r) => r.status === "confirmed").length,
+                )}
               </strong>
             </div>
             <div className="readiness-row">
               <span>Held-out scenarios</span>
-              <strong>{records("scenario").length} / 20 minimum</strong>
+              <strong>
+                {kindTotal(state, "scenario", records("scenario").length)} / 20
+                minimum
+              </strong>
             </div>
             <div className="readiness-row">
               <span>Model connection</span>
@@ -1800,6 +2204,18 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
                 )}
               </Card>
             ))}
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="evaluation"
+              label="Load older evaluations"
+            />
+            <LoadMore
+              more={more}
+              collection="records"
+              kind="brain_release"
+              label="Load older releases"
+            />
           </div>
         </div>
       )}
@@ -1807,13 +2223,84 @@ function BrainView({ state, records, action, busy, path, onSaved }: ViewProps) {
   );
 }
 
-function Members({ state, records, action, busy }: ViewProps) {
-  const [invite, setInvite] = useState(""),
-    [query, setQuery] = useState("");
-  const members = (state.members ?? []).filter(
-    (m) =>
-      m.role === "subscriber" &&
-      `${m.name} ${m.email}`.toLowerCase().includes(query.toLowerCase()),
+type MemberPage = { items: any[]; hasMore: boolean; cursor: string | null };
+/** Subscribers page from the server: search and "load more" reach everyone. */
+function Members({ state }: ViewProps) {
+  const [query, setQuery] = useState(""),
+    [list, setList] = useState<MemberPage | null>(null),
+    [loading, setLoading] = useState(false),
+    [listError, setListError] = useState("");
+  const currentQuery = useRef("");
+  const fetchPage = useCallback(
+    (q: string, cursor?: string | null): Promise<MemberPage> => {
+      const params = new URLSearchParams({ role: "subscriber" });
+      // One value per word: the web proxy's signed request proof does not
+      // accept a space inside a query value.
+      for (const term of q.split(/\s+/).filter(Boolean).slice(0, 5))
+        params.append("q", term);
+      if (cursor) params.set("cursor", cursor);
+      return api(`/workspace/pages/members?${params}`);
+    },
+    [],
+  );
+  // Reloads with each bootstrap refresh (a new `pages` object) and search.
+  useEffect(() => {
+    const q = query.trim();
+    currentQuery.current = q;
+    let active = true;
+    const timer = setTimeout(
+      () => {
+        setLoading(true);
+        fetchPage(q)
+          .then(
+            (page) => {
+              if (!active) return;
+              setList(page);
+              setListError("");
+            },
+            (e) => active && setListError((e as Error).message),
+          )
+          .finally(() => active && setLoading(false));
+      },
+      q ? 250 : 0,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query, fetchPage, state.pages]);
+  const loadMore = async () => {
+    if (!list?.cursor) return;
+    const q = currentQuery.current;
+    setLoading(true);
+    try {
+      const page = await fetchPage(q, list.cursor);
+      if (currentQuery.current !== q) return;
+      setList((prev) =>
+        prev
+          ? {
+              items: [
+                ...prev.items,
+                ...page.items.filter(
+                  (m) => !prev.items.some((p) => p.id === m.id),
+                ),
+              ],
+              hasMore: page.hasMore,
+              cursor: page.cursor,
+            }
+          : page,
+      );
+    } catch (e) {
+      setListError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const members = list?.items ?? [];
+  const subscriberTotal = total(
+    state,
+    "subscribers",
+    (state.members ?? []).filter((m) => m.role === "subscriber").length,
   );
   return (
     <>
@@ -1831,6 +2318,16 @@ function Members({ state, records, action, busy }: ViewProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {listError && (
+            <p className="notice error" role="alert">
+              {listError}
+            </p>
+          )}
+          {list && !query.trim() && subscriberTotal > 0 && (
+            <p className="muted" role="status">
+              Showing {members.length} of {subscriberTotal} subscribers
+            </p>
+          )}
           {members.length ? (
             <div className="table-wrap">
               <table>
@@ -1848,20 +2345,15 @@ function Members({ state, records, action, busy }: ViewProps) {
                         <Link href={`/trainer/subscribers/${m.id}`}>
                           <strong>{m.name}</strong>
                         </Link>
-                        <small>{m.email}</small>
+                        <small>
+                          <span dir="ltr">{m.email}</span>
+                        </small>
                       </td>
-                      <td>
-                        {
-                          records("program").filter(
-                            (p) => p.owner_user_id === m.id,
-                          ).length
-                        }{" "}
-                        assigned
-                      </td>
+                      <td>{m.programs ?? 0} assigned</td>
                       <td>
                         <Badge>
-                          {state.subscriptions.find((s) => s.user_id === m.id)
-                            ?.status ?? "Invited"}
+                          {m.subscription_status ??
+                            (m.complimentary ? "Complimentary" : "No plan")}
                         </Badge>
                       </td>
                     </tr>
@@ -1869,52 +2361,33 @@ function Members({ state, records, action, busy }: ViewProps) {
                 </tbody>
               </table>
             </div>
+          ) : !list || loading ? (
+            <p role="status">Loading subscribers…</p>
+          ) : query.trim() ? (
+            <p className="muted">No subscriber matches this search.</p>
           ) : (
             <Empty
               title="Make room for your first subscriber"
-              detail="Invite someone into your coaching space. Paid access starts through your configured membership offer."
+              detail="Invite someone into your coaching space. Access starts with a paid membership offer or complimentary access you grant."
             />
           )}
-        </Card>
-        <Card>
-          <h2>Invite a subscriber</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/invitations", "POST", {
-                    email: f.get("email"),
-                    role: "subscriber",
-                  }),
-                "Invitation created",
-              ).then((r) => {
-                if (r) setInvite(r.url);
-              });
-            }}
-          >
-            <Field label="Email address">
-              <input type="email" name="email" required />
-            </Field>
-            <Button type="submit" disabled={busy}>
-              Create invitation <ArrowUpRight size={16} />
-            </Button>
-          </form>
-          {invite && (
-            <div className="invite-result">
-              <p>Share this single-use invitation:</p>
-              <input value={invite} readOnly aria-label="Invitation link" />
-              <Button
-                secondary
-                onClick={() => void navigator.clipboard.writeText(invite)}
+          {list?.hasMore && (
+            <div className="button-row load-more">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={loading}
+                onClick={() => void loadMore()}
               >
-                Copy link
-              </Button>
+                {loading ? "Loading…" : "Load more subscribers"}
+              </button>
             </div>
           )}
         </Card>
+        <FollowerInvitations role={state.user.role} />
       </div>
+      <FormerFollowers />
+      <ComplimentaryAccessManager role={state.user.role} />
     </>
   );
 }
@@ -2112,7 +2585,7 @@ function Programs({ state, records, action, busy }: ViewProps) {
             }
             detail={
               sub
-                ? "Your trainer will assign a program built around your intake."
+                ? "Your trainer's Brain prepares a program built around your intake."
                 : "Create a useful training block, then assign it to a subscriber."
             }
           />
@@ -2122,10 +2595,79 @@ function Programs({ state, records, action, busy }: ViewProps) {
   );
 }
 
+/** Every set log of one workout (at most 500), newest first. */
+async function workoutSets(workoutId: string) {
+  const sets: any[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 5; page++) {
+    const params = new URLSearchParams({ workoutId });
+    if (cursor) params.set("cursor", cursor);
+    const r = await api(`/workspace/pages/sets?${params}`);
+    sets.push(...r.items);
+    if (!r.hasMore) break;
+    cursor = r.cursor;
+  }
+  return sets;
+}
+/**
+ * An older workout outside the bootstrap's first page is fetched by address,
+ * with its set logs, so every session in the history can still be opened; a
+ * listed workout gets its set logs the same way when the bootstrap's recent
+ * set logs do not cover it.
+ */
+function useListedOrFetchedWorkout(
+  listed: Row | undefined,
+  workoutId: string,
+  fetchListedSets: boolean,
+) {
+  const [fetched, setFetched] = useState<{
+    id: string;
+    workout?: Row;
+    sets: any[];
+  } | null>(null);
+  const isListed = !!listed;
+  useEffect(() => {
+    if (!workoutId || !navigator.onLine) return;
+    if (isListed && !fetchListedSets) return;
+    let active = true;
+    void (async () => {
+      try {
+        const workout = isListed
+          ? undefined
+          : await api(`/workspace/records/${workoutId}`);
+        if (workout && workout.kind !== "workout") return;
+        const sets = await workoutSets(workoutId);
+        if (active) setFetched({ id: workoutId, workout, sets });
+      } catch {
+        // The empty state below explains that the workout is unavailable;
+        // a listed workout keeps the set logs the bootstrap carried.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // Set logs are append-only, so a bootstrap reload does not refetch them.
+  }, [isListed, fetchListedSets, workoutId]);
+  const mine = fetched?.id === workoutId ? fetched : null;
+  return listed
+    ? { workout: listed, sets: mine?.sets ?? ([] as any[]) }
+    : mine?.workout
+      ? { workout: mine.workout, sets: mine.sets }
+      : { workout: undefined, sets: [] as any[] };
+}
 function Workout({ state, records, action, busy, path }: ViewProps) {
-  const workout = records("workout").find(
-    (w) => w.id === path.split("/").pop(),
+  const workoutId = path.split("/").pop() ?? "";
+  const listedWorkout = records("workout").find((w) => w.id === workoutId);
+  const found = useListedOrFetchedWorkout(
+    listedWorkout,
+    workoutId,
+    !!listedWorkout &&
+      needsWorkoutSets(listedWorkout, state.user, !state.pages?.sets?.hasMore),
   );
+  const workout = found.workout,
+    loggedSets = found.sets.length
+      ? [...state.sets, ...found.sets]
+      : state.sets;
   const [queued, setQueued] = useState(0),
     [notice, setNotice] = useState(""),
     [rejected, setRejected] = useState<RejectedEntry<WorkoutQueueItem>[]>([]);
@@ -2220,9 +2762,14 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
       />
       {workout.status === "active" && (
-        <Link className="text-link" href={`/app/guided/${workout.id}`}>
-          Open guided session with exercise cues and rest timers
-        </Link>
+        <>
+          <Link className="text-link" href={`/app/voice-session/${workout.id}`}>
+            Start a voice-led session (hands-free, set by set)
+          </Link>
+          <Link className="text-link" href={`/app/guided/${workout.id}`}>
+            Open guided session with exercise cues and rest timers
+          </Link>
+        </>
       )}
       {queued > 0 && (
         <div className="notice">
@@ -2314,7 +2861,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             const done =
               pendingHere ||
               localDone.includes(logicalKey) ||
-              state.sets.some(
+              loggedSets.some(
                 (s) =>
                   s.workout_id === workout.id &&
                   s.data.exercise === ex.name &&
@@ -2627,8 +3174,19 @@ function Messages({ state, records, action, busy }: ViewProps) {
   );
 }
 
-function Exceptions({ records, state, action, busy }: ViewProps) {
-  const exceptions = records("exception").filter((e) => e.status === "open");
+/**
+ * The decision an exception quotes. The bootstrap pins the decisions of the
+ * exceptions it sends and every older attention-list page carries its own, so
+ * no card needs a request of its own.
+ */
+function DecisionQuote({ known }: { known?: Row }) {
+  const message = known?.data?.message;
+  return message ? <blockquote>{message}</blockquote> : null;
+}
+function Exceptions({ records, state, action, busy, more }: ViewProps) {
+  const exceptions = urgentFirst(
+    records("exception").filter((e) => e.status === "open"),
+  );
   return (
     <>
       <TrainingHoldReview
@@ -2652,13 +3210,13 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
               </span>
             </div>
             <h3>{e.data.description}</h3>
+            <SafetyReviewDue record={e} />
             {e.data.decisionId && (
-              <blockquote>
-                {
-                  records("decision").find((d) => d.id === e.data.decisionId)
-                    ?.data.message
-                }
-              </blockquote>
+              <DecisionQuote
+                known={records("decision").find(
+                  (d) => d.id === e.data.decisionId,
+                )}
+              />
             )}
             <form
               onSubmit={(ev) => {
@@ -2705,12 +3263,24 @@ function Exceptions({ records, state, action, busy }: ViewProps) {
           />
         </Card>
       )}
+      {exceptions.length > 0 && (
+        <p className="muted" role="status">
+          Showing {exceptions.length} of{" "}
+          {total(state, "openExceptions", exceptions.length)} open items
+        </p>
+      )}
+      <LoadMore
+        more={more}
+        collection="records"
+        kind="exception"
+        label="Load older open items"
+      />
       <CoachingFeedbackQueue owner={state.user.role === "owner"} />
     </>
   );
 }
 
-function Finance({ state, records, action, busy, path }: ViewProps) {
+function Finance({ state, records, action, busy, path, more }: ViewProps) {
   const [promotionCode, setPromotionCode] = useState("");
   const [checkout, setCheckout] = useState<{
     status: string;
@@ -2746,6 +3316,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
       {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
+          <MemberAccessCard />
           {!membership && (
             <Field label="Discount code (optional)">
               <input
@@ -2761,7 +3332,12 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                 ? "Your current plan"
                 : "Choose your coaching membership"}
             </h2>
-            {membership ? (
+            {membership?.data?.billing === "upfront" ? (
+              <UpfrontMembership
+                membership={membership}
+                offers={records("product")}
+              />
+            ) : membership ? (
               <>
                 <div className="membership-price">
                   {money(membership.price_minor)}
@@ -2845,10 +3421,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                     <div>
                       <h3>{p.data.name}</h3>
                       <p>{p.data.description}</p>
-                      {p.data.premiumVoice === true && (
-                        <p>Premium guided voice included</p>
-                      )}
-                      <strong>{money(p.data.priceMinor)} / month</strong>
+                      <OfferTerms data={p.data} />
                     </div>
                     <Button
                       disabled={busy}
@@ -2865,12 +3438,15 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                         })
                       }
                     >
-                      Join this plan
+                      {p.data.billing === "upfront"
+                        ? "Buy this programme"
+                        : "Join this plan"}
                     </Button>
                   </div>
                 ))
             )}
           </Card>
+          <VoiceAddOnCard />
           <Card>
             <h2>Checkout status</h2>
             <p className="muted">
@@ -2922,22 +3498,36 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
           <div className="stats-grid">
             <Card className="stat">
               <span className="small-label">Trainer payable</span>
-              <strong>{money(state.finance?.earnedMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">{money(state.finance?.earnedMinor ?? 0)}</span>
+              </strong>
               <span className="muted">After booked adjustments</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Allocated to payouts</span>
-              <strong>{money(state.finance?.reservedMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.reservedMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Held or in progress</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Available to allocate</span>
-              <strong>{money(state.finance?.availableMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.availableMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Funding and eligibility still apply</span>
             </Card>
             <Card className="stat">
               <span className="small-label">Platform commission</span>
-              <strong>{money(state.finance?.commissionMinor ?? 0)}</strong>
+              <strong>
+                <span dir="ltr">
+                  {money(state.finance?.commissionMinor ?? 0)}
+                </span>
+              </strong>
               <span className="muted">Marginal subscriber bands</span>
             </Card>
           </div>
@@ -2968,6 +3558,11 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   </tbody>
                 </table>
               </div>
+              <LoadMore
+                more={more}
+                collection="usageStatements"
+                label="Load earlier months"
+              />
             </Card>
           )}
           <div className="tabs">
@@ -2994,69 +3589,11 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
             <div className="two-columns">
               <Card>
                 <h2>A clear offer</h2>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    void action(
-                      () =>
-                        api("/products", "POST", {
-                          name: f.get("name"),
-                          description: f.get("description"),
-                          priceMinor: Math.round(Number(f.get("price")) * 100),
-                          tier: f.get("tier"),
-                          premiumVoice: f.get("premiumVoice") === "on",
-                          ...(f.get("baseProductId")
-                            ? { baseProductId: f.get("baseProductId") }
-                            : {}),
-                        }),
-                      "Offer saved",
-                    );
-                  }}
-                >
-                  <Field label="Plan name">
-                    <input name="name" required />
-                  </Field>
-                  <Field label="Subscription tier">
-                    <select name="tier">
-                      <option value="workout">Workout only</option>
-                      <option value="workout_nutrition">
-                        Workout + nutrition
-                      </option>
-                    </select>
-                  </Field>
-                  <label>
-                    <input type="checkbox" name="premiumVoice" />
-                    Include premium guided voice in this offer
-                  </label>
-                  <Field label="Comparable workout offer (required for the combined tier)">
-                    <select name="baseProductId">
-                      <option value="">Choose for combined tier</option>
-                      {records("product")
-                        .filter((p) => (p.data.tier ?? "workout") === "workout")
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.data.name} · {money(p.data.priceMinor)}
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                  <Field label="What is included">
-                    <textarea name="description" rows={3} />
-                  </Field>
-                  <Field label="Monthly price (AED)">
-                    <input
-                      name="price"
-                      type="number"
-                      min={1}
-                      step={0.01}
-                      required
-                    />
-                  </Field>
-                  <Button type="submit" disabled={busy}>
-                    Create offer
-                  </Button>
-                </form>
+                <OfferForm
+                  products={records("product")}
+                  busy={busy}
+                  action={action}
+                />
               </Card>
               <div className="card-stack">
                 {records("product").map((p) => (
@@ -3068,14 +3605,9 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                         ? "Workout + nutrition"
                         : "Workout only"}
                     </p>
-                    {p.data.premiumVoice === true && (
-                      <p>Premium guided voice included</p>
-                    )}
-                    <div className="membership-price">
-                      {money(p.data.priceMinor)}
-                      <span>/ month</span>
-                    </div>
+                    <OfferTerms data={p.data} />
                     <p>{p.data.description}</p>
+                    <OfferVoicePrice product={p} busy={busy} action={action} />
                     {p.status !== "published" && (
                       <Button
                         secondary
@@ -3175,6 +3707,12 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                   detail="Eligible subscriber requests will appear here for your decision."
                 />
               )}
+              <LoadMore
+                more={more}
+                collection="records"
+                kind="refund"
+                label="Load older refund requests"
+              />
             </Card>
           ) : (offer as any) === "payouts" || path.includes("payout") ? (
             <PayoutView
@@ -3183,6 +3721,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
               action={action}
               busy={busy}
               path={path}
+              more={more}
             />
           ) : (
             <Card>
@@ -3207,17 +3746,28 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
                           <td>{new Date(j.created_at).toLocaleDateString()}</td>
                           <td>{j.description}</td>
                           <td>
-                            {j.data.grossMinor ? money(j.data.grossMinor) : "—"}
+                            <span dir="ltr">
+                              {j.data.grossMinor
+                                ? money(j.data.grossMinor)
+                                : "—"}
+                            </span>
                           </td>
                           <td>
-                            {j.data.commissionMinor
-                              ? money(j.data.commissionMinor)
-                              : "—"}
+                            <span dir="ltr">
+                              {j.data.commissionMinor
+                                ? money(j.data.commissionMinor)
+                                : "—"}
+                            </span>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  <LoadMore
+                    more={more}
+                    collection="journals"
+                    label="Load earlier ledger entries"
+                  />
                 </div>
               ) : (
                 <Empty
@@ -3233,7 +3783,7 @@ function Finance({ state, records, action, busy, path }: ViewProps) {
   );
 }
 
-function PayoutView({ state, records, action, busy }: ViewProps) {
+function PayoutView({ state, records, action, busy, more }: ViewProps) {
   return (
     <div className="two-columns">
       <Card>
@@ -3242,7 +3792,9 @@ function PayoutView({ state, records, action, busy }: ViewProps) {
           <div className="list-row" key={b.id}>
             <div>
               <strong>{b.data.name}</strong>
-              <p>{b.data.maskedIban}</p>
+              <p>
+                <span dir="ltr">{b.data.maskedIban}</span>
+              </p>
             </div>
             <Badge>{b.status}</Badge>
           </div>
@@ -3267,7 +3819,12 @@ function PayoutView({ state, records, action, busy }: ViewProps) {
             ["city", "City"],
           ].map(([name, label]) => (
             <Field key={name} label={label}>
-              <input name={name} required autoComplete="off" />
+              <input
+                name={name}
+                required
+                autoComplete="off"
+                dir={name === "iban" ? "ltr" : undefined}
+              />
             </Field>
           ))}
           <p className="muted">
@@ -3321,6 +3878,11 @@ function PayoutView({ state, records, action, busy }: ViewProps) {
             detail="Monthly statements and confirmed bank outcomes will appear here."
           />
         )}
+        <LoadMore
+          more={more}
+          collection="payouts"
+          label="Load earlier payouts"
+        />
       </Card>
     </div>
   );
@@ -3434,6 +3996,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       />
       <AccountSecurity />
       <AccountExtras />
+      <AccountSettings returnTo={sub ? "/app/profile" : "/trainer/settings"} />
       <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
@@ -3441,6 +4004,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       {sub && (
         <Card>
           <h2>Help your coach understand you</h2>
+          <PlanIntakeNotice />
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -3579,12 +4143,17 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
   );
 }
 
-function Analytics({ state, records }: ViewProps) {
-  const completed = records("workout").filter((w) => w.status === "completed"),
-    count = state.sets.length,
-    volume = state.sets.reduce(
-      (sum, s) => sum + s.data.reps * s.data.loadKg,
-      0,
+function Analytics({ state, records, more }: ViewProps) {
+  const completed = total(
+      state,
+      "completedWorkouts",
+      records("workout").filter((w) => w.status === "completed").length,
+    ),
+    count = total(state, "sets", state.sets.length),
+    volume = total(
+      state,
+      "setVolumeKg",
+      state.sets.reduce((sum, s) => sum + s.data.reps * s.data.loadKg, 0),
     );
   return (
     <>
@@ -3596,7 +4165,7 @@ function Analytics({ state, records }: ViewProps) {
       <div className="stats-grid">
         <Card className="stat">
           <span className="small-label">Completed workouts</span>
-          <strong>{completed.length}</strong>
+          <strong>{completed}</strong>
         </Card>
         <Card className="stat">
           <span className="small-label">Recorded sets</span>
@@ -3612,7 +4181,11 @@ function Analytics({ state, records }: ViewProps) {
         <Card className="stat">
           <span className="small-label">Active subscriptions</span>
           <strong>
-            {state.subscriptions.filter((s) => s.status === "active").length}
+            {total(
+              state,
+              "activeSubscriptions",
+              state.subscriptions.filter((s) => s.status === "active").length,
+            )}
           </strong>
         </Card>
       </div>
@@ -3636,6 +4209,12 @@ function Analytics({ state, records }: ViewProps) {
             detail="Log workouts consistently to build a useful picture of progress."
           />
         )}
+        <LoadMore
+          more={more}
+          collection="records"
+          kind="workout"
+          label="Load older workouts"
+        />
       </Card>
       {state.costs && (
         <Card>
@@ -3675,6 +4254,7 @@ function Analytics({ state, records }: ViewProps) {
               shown as unpriced, never as free.
             </p>
           )}
+          <LoadMore more={more} collection="costs" label="Load older usage" />
         </Card>
       )}
     </>
@@ -3696,13 +4276,51 @@ function AdminNotFound() {
 }
 function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
   const [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [loadingMore, setLoadingMore] = useState(false);
   const financeRole = ["admin", "finance"].includes(state.user.platformRole);
   useEffect(() => {
     api("/admin/overview")
       .then(setData)
       .catch((e) => setError(e.message));
   }, []);
+  // Workspaces arrive a page at a time; each page is inspected (and audited)
+  // only when an operator asks for it.
+  async function loadMoreWorkspaces() {
+    if (!data?.cursor) return;
+    setLoadingMore(true);
+    try {
+      const next = await api(
+        `/admin/overview?cursor=${encodeURIComponent(data.cursor)}`,
+      );
+      setData((current: any) => ({
+        ...next,
+        tenants: [
+          ...current.tenants,
+          ...next.tenants.filter(
+            (t: any) => !current.tenants.some((c: any) => c.id === t.id),
+          ),
+        ],
+      }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+  const moreWorkspaces = data?.hasMore ? (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loadingMore}
+        onClick={() => void loadMoreWorkspaces()}
+      >
+        {loadingMore ? "Loading…" : "Load more workspaces"}
+      </button>
+    </div>
+  ) : null;
+  const openCount = (t: any) => t.openExceptions ?? t.exceptions.length;
   if (finance)
     return (
       <>
@@ -3722,6 +4340,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
             <FinancePolicyConsole tenants={data.tenants} />
             <FinanceAutomationConsole tenants={data.tenants} />
             <FinanceOperations tenants={data.tenants} />
+            {moreWorkspaces}
           </>
         ) : (
           <p>Loading platform finance…</p>
@@ -3751,6 +4370,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           </Link>
         </nav>
       )}
+      <GovernanceLinks platformRole={state.user.platformRole} />
       {error && <div className="notice error">{error}</div>}
       {data ? (
         <>
@@ -3763,25 +4383,32 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           <div className="stats-grid">
             <Card className="stat">
               <span className="small-label">Trainer workspaces</span>
-              <strong>{data.tenants.length}</strong>
+              <strong>{data.totals?.workspaces ?? data.tenants.length}</strong>
             </Card>
             <Card className="stat">
               <span className="small-label">Published</span>
               <strong>
-                {data.tenants.filter((t: any) => t.published).length}
+                {data.totals?.published ??
+                  data.tenants.filter((t: any) => t.published).length}
               </strong>
             </Card>
             <Card className="stat">
-              <span className="small-label">Open exceptions</span>
+              <span className="small-label">
+                Open exceptions
+                {data.hasMore ? ` (${data.tenants.length} loaded)` : ""}
+              </span>
               <strong>
                 {data.tenants.reduce(
-                  (s: number, t: any) => s + t.exceptions.length,
+                  (s: number, t: any) => s + openCount(t),
                   0,
                 )}
               </strong>
             </Card>
             <Card className="stat">
-              <span className="small-label">Trainer liabilities</span>
+              <span className="small-label">
+                Trainer liabilities
+                {data.hasMore ? ` (${data.tenants.length} loaded)` : ""}
+              </span>
               <strong>
                 {money(
                   data.tenants.reduce(
@@ -3824,12 +4451,13 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                           ? money(t.finance.earnedMinor)
                           : "Restricted"}
                       </td>
-                      <td>{t.exceptions.length}</td>
+                      <td>{openCount(t)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {moreWorkspaces}
           </Card>
         </>
       ) : (
@@ -3841,15 +4469,19 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
 
 function Public({
   path,
+  platform,
+  coachSlug,
   onAuthenticated,
 }: {
   path: string;
+  platform: WorkspacePlatform;
+  /** The trainer whose own domain or subdomain serves this page, if any. */
+  coachSlug: string | null;
   onAuthenticated: () => Promise<void>;
 }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [count, setCount] = useState(100),
-    [price, setPrice] = useState(199),
+    [slugHint, setSlugHint] = useState(""),
     [store, setStore] = useState<any>(null);
   const enroll = path.startsWith("/join-coach/");
   const join = path.startsWith("/join/"),
@@ -3862,54 +4494,49 @@ function Public({
       join ||
       enroll,
     signup = path === "/signup";
+  // A /coach/ page, or any page on a trainer's own address (sign in,
+  // recovery, joining), carries that trainer's identity, not the platform's.
+  const coachPage = path.startsWith("/coach/");
+  const siteSlug = coachPage ? path.split("/")[2] || null : coachSlug;
   useEffect(() => {
-    if (path.startsWith("/coach/"))
-      api("/public/trainers/" + path.split("/").pop())
-        .then(setStore)
-        .catch((e) => setError(e.message));
+    if (!siteSlug) return;
+    api("/public/trainers/" + encodeURIComponent(siteSlug))
+      .then(setStore)
+      // On a coach address the sign-in page works without the trainer's
+      // details; only the /coach/ page itself reports them missing.
+      .catch((e) => coachPage && setError(e.message));
+  }, [siteSlug, coachPage]);
+  useEffect(() => {
+    // A name typed in the address preview arrives as ?slug=.
+    if (path !== "/signup") return;
+    const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
+    if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
   }, [path]);
-  const fees = projectedCommission(count, price * 100);
-  const Shell = path.startsWith("/coach/") ? TrainerTheme : PlainShell;
+  const coach = !!siteSlug;
+  const Shell = coach ? TrainerTheme : PlainShell;
   return (
-    <Shell className="public" theme={store?.trainer?.theme}>
-      <header className="public-header">
-        <Link href="/" className="wordmark">
-          {path.startsWith("/coach/") && store ? (
-            <CoachIdentity
-              name={store.trainer.name}
-              theme={store.trainer.theme}
-              compact
-            />
-          ) : (
-            <>
-              <span className="brand-mark">b.</span>
-              <span>
-                trainer<span className="wordmark-light">brain</span>
-              </span>
-            </>
-          )}
-        </Link>
-        <nav>
-          <Link href="/how-it-works">How it works</Link>
-          <Link href="/demo">Demo</Link>
-          <Link href="/pricing">The economics</Link>
-          <Link href="/login">Sign in</Link>
-        </nav>
-        <Link
-          className="button"
-          href={
-            path.startsWith("/coach/")
-              ? `/join-coach/${store?.trainer?.slug ?? path.split("/").pop()}`
-              : "/signup"
-          }
-        >
-          {path.startsWith("/coach/") ? "Join coaching" : "Build my Brain"}{" "}
-          <ArrowUpRight size={16} />
-        </Link>
-      </header>
-      {path === "/magic-link" ||
-      path.startsWith("/magic-link/") ||
-      path === "/recover-authenticator" ? (
+    <Shell
+      className={coach ? "public" : "public platform-ui"}
+      theme={store?.trainer?.theme}
+    >
+      <PublicHeader
+        path={path}
+        platform={platform}
+        coach={
+          siteSlug
+            ? { slug: siteSlug, host: !coachPage, trainer: store?.trainer }
+            : null
+        }
+      />
+      {path === "/sign-in/verify" ? (
+        <SocialSignInVerify />
+      ) : path.startsWith("/verify-email-change/") ? (
+        <EmailChangeConfirm token={path.split("/").pop() ?? ""} />
+      ) : path.startsWith("/account-recovery/") ? (
+        <RecoveryLinkReset token={path.split("/").pop() ?? ""} />
+      ) : path === "/magic-link" ||
+        path.startsWith("/magic-link/") ||
+        path === "/recover-authenticator" ? (
         <MagicAccess path={path} />
       ) : path.startsWith("/reset-password/") ||
         path.startsWith("/verify-email/") ||
@@ -3958,7 +4585,14 @@ function Public({
                 {error}
               </div>
             )}
+            {join && (
+              <InvitationJoin
+                token={path.split("/").pop() ?? ""}
+                onAuthenticated={onAuthenticated}
+              />
+            )}
             <form
+              hidden={join}
               onSubmit={async (e) => {
                 e.preventDefault();
                 setBusy(true);
@@ -4037,9 +4671,11 @@ function Public({
                   <div className="input-affix">
                     <span>/coach/</span>
                     <input
+                      key={slugHint}
                       name="slug"
                       pattern="[a-z][a-z0-9-]{2,39}"
                       placeholder="your-name"
+                      defaultValue={slugHint}
                       required
                     />
                   </div>
@@ -4095,6 +4731,13 @@ function Public({
                 <ArrowRight size={16} />
               </Button>
             </form>
+            {(path === "/login" || join || enroll) && (
+              <SocialSignIn
+                intent={join ? "invite" : enroll ? "join" : "sign_in"}
+                coachSlug={enroll ? path.split("/").pop() : undefined}
+                inviteToken={join ? path.split("/").pop() : undefined}
+              />
+            )}
             {path === "/login" && (
               <>
                 <div className="divider" />
@@ -4109,15 +4752,33 @@ function Public({
                 </p>
               </>
             )}
-            <div className="divider" />
-            <p className="muted">
-              {signup
-                ? "Already have a coaching space?"
-                : "New to Trainer Brain?"}{" "}
-              <Link href={signup ? "/login" : "/signup"}>
-                {signup ? "Sign in" : "Get started"}
-              </Link>
-            </p>
+            {coach ? (
+              // A coach address refuses /signup; new members join the coach.
+              !join &&
+              !enroll && (
+                <>
+                  <div className="divider" />
+                  <p className="muted">
+                    New here?{" "}
+                    <Link href={`/join-coach/${store?.trainer?.slug ?? siteSlug}`}>
+                      Join coaching
+                    </Link>
+                  </p>
+                </>
+              )
+            ) : (
+              <>
+                <div className="divider" />
+                <p className="muted">
+                  {signup
+                    ? "Already have a coaching space?"
+                    : `New to ${platform.name}?`}{" "}
+                  <Link href={signup ? "/login" : "/signup"}>
+                    {signup ? "Sign in" : "Get started"}
+                  </Link>
+                </p>
+              </>
+            )}
           </Card>
         </main>
       ) : path.startsWith("/coach/") ? (
@@ -4142,7 +4803,7 @@ function Public({
                 <Card key={p.id}>
                   <h2>{p.data.name}</h2>
                   <p>{p.data.description}</p>
-                  <strong>{money(p.data.priceMinor)} / month</strong>
+                  <OfferTerms data={p.data} />
                   <p>
                     <Link
                       className="button"
@@ -4158,226 +4819,23 @@ function Public({
             <p>{error || "Loading coaching page…"}</p>
           )}
         </main>
-      ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
-        <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
         <PublishedLegal
           documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
         />
-      ) : (
-        <>
-          <section className="hero">
-            <div className="hero-copy">
-              <p className="eyebrow">
-                <span className="tiny-line" />
-                FOR COACHES WITH A METHOD OF THEIR OWN
-              </p>
-              <h1>
-                Put your
-                <br />
-                coaching mind
-                <br />
-                <em>online.</em>
-              </h1>
-              <p className="hero-description">
-                Your programs. Your judgment. Your brand.
-                <br />
-                Build a digital coaching practice around the experience only you
-                can bring.
-              </p>
-              <div className="button-row">
-                <Link className="button large" href="/signup">
-                  Build my coaching Brain <ArrowUpRight size={18} />
-                </Link>
-                <a className="text-link" href="#how">
-                  See how it works <ArrowRight size={17} />
-                </a>
-              </div>
-              <div className="hero-notes">
-                <span>
-                  <Check size={14} />
-                  Your method stays yours
-                </span>
-                <span>
-                  <Check size={14} />
-                  You stay in control
-                </span>
-              </div>
-            </div>
-            <div className="hero-art">
-              <div className="art-label">THE VALUE IS IN YOUR JUDGMENT.</div>
-              <div className="orb orb-one" />
-              <div className="orb orb-two" />
-              <div className="floating-rule">
-                <div className="card-heading">
-                  <span className="small-label">
-                    A COACHING RULE, MADE CLEAR
-                  </span>
-                  <span className="rule-dot" />
-                </div>
-                <h3>
-                  Good technique
-                  <br />
-                  before more weight.
-                </h3>
-                <div className="rule-condition">
-                  <span>WHEN</span>
-                  <p>A beginner is still finding consistency.</p>
-                </div>
-                <div className="rule-condition">
-                  <span>MY APPROACH</span>
-                  <p>
-                    Build confidence in the movement.
-                    <br />
-                    Then progress the load.
-                  </p>
-                </div>
-                <div className="rule-bottom">
-                  <CheckCircle size={16} />
-                  Illustrative trainer-confirmed rule
-                </div>
-              </div>
-              <div className="art-bottom">
-                <span>YOUR EXPERIENCE</span>
-                <ArrowRight size={20} />
-                <span>A TEACHABLE METHOD</span>
-              </div>
-            </div>
-          </section>
-          <div className="principle-strip">
-            <span>THE COACH IS THE PRODUCT.</span>
-            <span>Technology should make that clearer.</span>
-            <ArrowUpRight size={23} />
+      ) : null}
+      {coach ? (
+        <footer className="public-footer">
+          <span>{platform.name}</span>
+          <div>
+            <Link href="/terms">Terms</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/ai-disclosure">Digital coaching</Link>
           </div>
-          <section className="public-section" id="how">
-            <div className="section-intro">
-              <p className="eyebrow">FROM EXPERIENCE TO EVERYDAY COACHING</p>
-              <h2>
-                Teach it. Shape it.
-                <br />
-                Make it yours.
-              </h2>
-            </div>
-            <div className="three-columns">
-              {[
-                [
-                  "01",
-                  "Teach your method",
-                  "Talk through real decisions. Add your own material. Turn the why behind your coaching into clear, reviewable rules.",
-                ],
-                [
-                  "02",
-                  "Keep your judgment",
-                  "Test scenarios, correct assumptions and decide what can run automatically. Your Brain earns your confidence.",
-                ],
-                [
-                  "03",
-                  "Build your business",
-                  "Publish your brand, create your membership and coach through a clear program, workout log and personal conversation.",
-                ],
-              ].map(([n, title, body]) => (
-                <div className="step-card" key={n}>
-                  <span className="step-number">{n}</span>
-                  <h3>{title}</h3>
-                  <p>{body}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="economics public-section" id="economics">
-            <div>
-              <p className="eyebrow">GROW WITH ROOM TO GROW</p>
-              <h2>
-                A share that gets
-                <br />
-                lighter as you scale.
-              </h2>
-              <p className="muted lead">
-                Transparent marginal commission. Each new band applies to the
-                subscribers in that band.
-              </p>
-              <div className="fee-bands">
-                <span>
-                  1–100 <strong>25%</strong>
-                </span>
-                <span>
-                  101–300 <strong>20%</strong>
-                </span>
-                <span>
-                  301–1,000 <strong>15%</strong>
-                </span>
-                <span>
-                  1,001+ <strong>10%</strong>
-                </span>
-              </div>
-            </div>
-            <Card className="calculator">
-              <div className="card-heading">
-                <h3>Imagine your coaching business</h3>
-                <Badge>Illustration</Badge>
-              </div>
-              <Field label={`Paying subscribers: ${count}`}>
-                <input
-                  type="range"
-                  min={1}
-                  max={1500}
-                  value={count}
-                  onChange={(e) => setCount(Number(e.target.value))}
-                />
-              </Field>
-              <Field label="Monthly membership (AED)">
-                <input
-                  type="number"
-                  min={1}
-                  max={10000}
-                  value={price}
-                  onChange={(e) =>
-                    setPrice(
-                      Math.max(1, Math.min(10000, Number(e.target.value))),
-                    )
-                  }
-                />
-              </Field>
-              <div className="readiness-row">
-                <span>Subscription revenue</span>
-                <strong>{money(count * price * 100)}</strong>
-              </div>
-              <div className="readiness-row">
-                <span>Platform commission</span>
-                <strong>{money(fees)}</strong>
-              </div>
-              <div className="calculator-total">
-                <span>Before other costs and tax</span>
-                <strong>{money(count * price * 100 - fees)}</strong>
-              </div>
-              <p className="muted fine-print">
-                Illustrative arithmetic, not an earnings promise. Payment
-                processing, AI, voice, bank fees, refunds and applicable tax are
-                additional.
-              </p>
-            </Card>
-          </section>
-          <section className="closing public-section">
-            <p className="eyebrow">YOU ALREADY HAVE THE EXPERIENCE.</p>
-            <h2>
-              Give it somewhere
-              <br />
-              new to go.
-            </h2>
-            <Link className="button large" href="/signup">
-              Build my coaching Brain <ArrowUpRight size={18} />
-            </Link>
-          </section>
-        </>
+        </footer>
+      ) : (
+        <MarketingFooter appName={platform.name} initials={platform.initials} />
       )}
-      <footer className="public-footer">
-        <span>Trainer Brain · Built around your judgment.</span>
-        <div>
-          <Link href="/terms">Terms</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/ai-disclosure">Digital coaching</Link>
-        </div>
-      </footer>
     </Shell>
   );
 }

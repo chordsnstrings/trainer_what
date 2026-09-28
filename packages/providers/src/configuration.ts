@@ -2,6 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
+import {
+  isLoopbackHostname,
+  isSandboxLoopbackAddress,
+  sandboxAllowsEndpoint,
+  sandboxOverride,
+  sandboxResolver,
+} from "./sandbox.ts";
 
 export type RuntimeConfig = Record<string, string | undefined>;
 const runtime = new AsyncLocalStorage<RuntimeConfig>();
@@ -119,6 +126,25 @@ export function integrationCapability(
         Number(config.VOICE_DAILY_USD_LIMIT) > 0,
     };
   }
+  if (id === "speech_to_text") {
+    const configured = has(
+      "STT_PROVIDER",
+      "STT_BASE_URL",
+      "STT_API_KEY",
+      "STT_MODEL",
+      "STT_PRICE_VERSION",
+      "STT_USD_PER_HOUR",
+    );
+    return {
+      configured,
+      approved:
+        configured &&
+        config.STT_CONTRACT_VERIFIED === "true" &&
+        config.STT_PROVIDER === "elevenlabs" &&
+        Number.isFinite(Number(config.STT_USD_PER_HOUR)) &&
+        Number(config.STT_USD_PER_HOUR) >= 0,
+    };
+  }
   if (id === "lean") {
     // The connection check validates only the public endpoint; no read-only
     // account request exists in the verified contract. Activation therefore
@@ -133,6 +159,35 @@ export function integrationCapability(
       approved: configured && config.LEAN_CONTRACT_VERIFIED === "true",
     };
   }
+  if (id === "web_addresses") {
+    const registrar = (config.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+    const contact = [
+      "WEB_ADDRESS_REGISTRANT_FIRST_NAME",
+      "WEB_ADDRESS_REGISTRANT_LAST_NAME",
+      "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
+      "WEB_ADDRESS_REGISTRANT_ADDRESS",
+      "WEB_ADDRESS_REGISTRANT_CITY",
+      "WEB_ADDRESS_REGISTRANT_STATE",
+      "WEB_ADDRESS_REGISTRANT_POSTAL_CODE",
+      "WEB_ADDRESS_REGISTRANT_COUNTRY",
+      "WEB_ADDRESS_REGISTRANT_PHONE",
+      "WEB_ADDRESS_REGISTRANT_EMAIL",
+    ];
+    const configured =
+      has(...contact) &&
+      (registrar === "generic" ||
+        (registrar === "namecheap" &&
+          has(
+            "NAMECHEAP_API_USER",
+            "NAMECHEAP_API_KEY",
+            "NAMECHEAP_USERNAME",
+            "NAMECHEAP_CLIENT_IP",
+          )));
+    return {
+      configured,
+      approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
+    };
+  }
   if (id === "domains") {
     const configured =
       has("DOMAIN_CNAME_TARGET") &&
@@ -142,6 +197,17 @@ export function integrationCapability(
     return {
       configured,
       approved: configured && config.DOMAIN_OPERATIONS_ENABLED === "true",
+    };
+  }
+  if (id === "instagram") {
+    const configured = has(
+      "INSTAGRAM_APP_ID",
+      "INSTAGRAM_APP_SECRET",
+      "INSTAGRAM_REDIRECT_URI",
+    );
+    return {
+      configured,
+      approved: configured && config.INSTAGRAM_APP_REVIEW_APPROVED === "true",
     };
   }
   return undefined;
@@ -155,6 +221,11 @@ export type IntegrationField = {
   options?: Array<{ value: string; label: string }>;
   help?: string;
   defaultValue?: string;
+  /**
+   * Earlier defaults that now mean "not chosen": a saved or environment value
+   * equal to one of these (after trimming) reads as defaultValue.
+   */
+  supersededValues?: string[];
 };
 export type IntegrationDefinition = {
   id: string;
@@ -166,8 +237,14 @@ export type IntegrationDefinition = {
     | "intelligence"
     | "communications"
     | "health"
-    | "branding";
+    | "branding"
+    | "marketing";
   implemented: boolean;
+  /**
+   * Operator controls rather than a provider connection: always enabled, no
+   * connection test, cannot be disconnected (like the application settings).
+   */
+  controls?: boolean;
   fields: IntegrationField[];
   setupNotes?: string;
 };
@@ -184,12 +261,20 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     name: "Application settings",
     category: "platform",
     implemented: true,
+    controls: true,
     description: "Platform identity, reviewed policies and feature controls.",
     setupNotes:
       "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Legal document versions come from the published documents registry, not from this page. Infrastructure secrets stay outside this page.",
     fields: [
+      // Equal to DEFAULT_PLATFORM_NAME in packages/contracts (a test keeps
+      // them in step); docs/features/brand.md.
+      // The old default "Trainer Brain" (SUPERSEDED_PLATFORM_NAMES) reads
+      // as unset, so a platform that saved the settings form before the
+      // rename shows trainsyou; any other chosen name is kept.
       field("APP_NAME", "Platform name", "text", {
-        defaultValue: "Trainer Brain",
+        defaultValue: "trainsyou",
+        supersededValues: ["Trainer Brain"],
+        help: "trainsyou shows the trainsyou logo and icons. Any other name is shown as text, with icons drawn from its initials. Trainers' own websites and apps keep their Design Studio branding.",
       }),
       field("SUPPORT_EMAIL", "Support email", "text"),
       field("LEGAL_APPROVED", "Legal documents approved", "boolean", {
@@ -215,6 +300,175 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         defaultValue: "false",
         help: "Looks up products in Open Food Facts. Food labels and portions require subscriber confirmation; coverage varies.",
       }),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_DAY",
+        "Follower invitation emails per workspace per day",
+        "number",
+        {
+          defaultValue: "50",
+          help: "Whole number, 0 to 10000. Includes resends. Copy-link invitations are not limited by this.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PER_ADDRESS",
+        "Invitation emails to one address per day",
+        "number",
+        {
+          defaultValue: "3",
+          help: "Whole number, 1 to 20, counted across all workspaces over 24 hours.",
+        },
+      ),
+      field(
+        "FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY",
+        "Follower invitation emails per day, whole platform",
+        "number",
+        {
+          defaultValue: "1000",
+          help: "Whole number, 0 to 100000. 0 pauses invitation emails; copy-link invitations keep working.",
+        },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_DAYS",
+        "Longest complimentary access period (days)",
+        "number",
+        { defaultValue: "365", help: "Whole number, 1 to 3650." },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_OPEN_ENDED",
+        "Allow complimentary access until revoked",
+        "boolean",
+        { defaultValue: "true" },
+      ),
+      field(
+        "COMPLIMENTARY_ACCESS_MAX_ACTIVE",
+        "Active complimentary members per workspace",
+        "number",
+        {
+          defaultValue: "25",
+          help: "Whole number, 0 to 100000. 0 switches complimentary access off. Complimentary members create no revenue or commission; AI and voice usage stays attributed to the trainer.",
+        },
+      ),
+      field(
+        "COACH_DIRECTORY_ENABLED",
+        "Open the public coach directory",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Lists only published coaches who opted in from their website settings. Turning this off hides /coaches and its sitemap entry; coaches keep their choice.",
+        },
+      ),
+    ],
+  },
+  {
+    id: "marketing",
+    name: "Marketing estimates",
+    category: "marketing",
+    implemented: true,
+    controls: true,
+    description:
+      "Assumptions behind the public follower calculator, and public company details.",
+    setupNotes:
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
+    fields: [
+      field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
+        defaultValue: "2026-09-28.2",
+        help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
+      }),
+      field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
+        help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
+      }),
+      field("FOLLOWER_REACH_UP_TO_5K_LOW", "Story reach, up to 5,000 followers: low (%)", "number", {
+        defaultValue: "9.55",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_5K_HIGH", "Story reach, up to 5,000 followers: high (%)", "number", {
+        defaultValue: "10.4",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_10K_LOW", "Story reach, 5,001 to 10,000 followers: low (%)", "number", {
+        defaultValue: "3.5",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_10K_HIGH", "Story reach, 5,001 to 10,000 followers: high (%)", "number", {
+        defaultValue: "4.2",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_50K_LOW", "Story reach, 10,001 to 50,000 followers: low (%)", "number", {
+        defaultValue: "1.35",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_50K_HIGH", "Story reach, 10,001 to 50,000 followers: high (%)", "number", {
+        defaultValue: "2",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_100K_LOW", "Story reach, 50,001 to 100,000 followers: low (%)", "number", {
+        defaultValue: "0.55",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_100K_HIGH", "Story reach, 50,001 to 100,000 followers: high (%)", "number", {
+        defaultValue: "0.65",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_ABOVE_100K_LOW", "Story reach, above 100,000 followers: low (%)", "number", {
+        defaultValue: "0.5",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_ABOVE_100K_HIGH", "Story reach, above 100,000 followers: high (%)", "number", {
+        defaultValue: "0.65",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_LINK_CLICK_LOW", "Link-sticker click-through: low (%)", "number", {
+        defaultValue: "1",
+        help: "Chance that a Story viewer opens one link Story. Repeat Stories reach mostly the same viewers, so the calculator uses 1 − (1 − rate)^Stories. No industry benchmark exists; creators report 1-5%.",
+      }),
+      field("FOLLOWER_LINK_CLICK_HIGH", "Link-sticker click-through: high (%)", "number", {
+        defaultValue: "5",
+      }),
+      field("FOLLOWER_PURCHASE_LOW", "Visit to paid subscriber: low (%)", "number", {
+        defaultValue: "0.72",
+        help: "Share of people who visit that subscribe. Default: Dynamic Yield luxury and jewellery (high-consideration retail). Retail e-commerce purchase rates; no published benchmark exists for coaching subscriptions.",
+      }),
+      field("FOLLOWER_PURCHASE_HIGH", "Visit to paid subscriber: high (%)", "number", {
+        defaultValue: "2.89",
+        help: "Default: Dynamic Yield e-commerce conversion, EMEA average (the UAE is in EMEA).",
+      }),
+      field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
+        defaultValue: "0.48",
+        help: "A trainer's own engagement rate is compared with this to scale reach. Default: Socialinsider 2025.",
+      }),
+      field("FOLLOWER_ENGAGEMENT_FACTOR_MAX", "Largest engagement scaling (times)", "number", {
+        defaultValue: "2",
+        help: "Reach is scaled by at most this factor up, and its inverse down. 1 to 10.",
+      }),
+      field("COMPANY_DETAILS", "Public company details", "text", {
+        help: "Registered name, licence and address shown on /about. Leave blank until confirmed; nothing is shown then.",
+      }),
+    ],
+  },
+  {
+    id: "instagram",
+    name: "Instagram (follower estimates)",
+    category: "marketing",
+    implemented: true,
+    description:
+      "Lets trainers connect an Instagram professional account to fill the follower calculator with their follower count and recent engagement.",
+    setupNotes:
+      "Uses the Instagram API with Instagram Login (professional accounts only, instagram_business_basic). Set the redirect URI in your Meta app to /api/v1/trainer/instagram/callback on the public application address. Access is read once and not stored. Stays off until Meta app review is recorded as approved.",
+    fields: [
+      field("INSTAGRAM_APP_ID", "Instagram app ID", "text", { required: true }),
+      field("INSTAGRAM_APP_SECRET", "Instagram app secret", "secret", {
+        required: true,
+      }),
+      field("INSTAGRAM_REDIRECT_URI", "Redirect URI", "url", {
+        required: true,
+        help: "https://<your application address>/api/v1/trainer/instagram/callback",
+      }),
+      field(
+        "INSTAGRAM_APP_REVIEW_APPROVED",
+        "Meta app review approved for instagram_business_basic",
+        "boolean",
+        { defaultValue: "false" },
+      ),
     ],
   },
   {
@@ -370,6 +624,44 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "google_signin",
+    name: "Sign in with Google",
+    category: "platform",
+    implemented: true,
+    description:
+      "Google accounts as a sign-in method (OpenID Connect with PKCE) for existing members, public joins and invitations.",
+    setupNotes:
+      "Create an OAuth web client in Google Cloud and register <public app address>/api/v1/auth/oidc/google/callback as an authorized redirect URI. The connection check reads Google's discovery document and signing keys and confirms the client credentials without signing anyone in. Sign-in stays off until this connection is enabled and checked. New accounts are still limited to public joins and invitations under the legal approval gate.",
+    fields: [
+      field("GOOGLE_SIGNIN_CLIENT_ID", "OAuth client ID", "text", {
+        required: true,
+      }),
+      field("GOOGLE_SIGNIN_CLIENT_SECRET", "OAuth client secret", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
+    id: "apple_signin",
+    name: "Sign in with Apple",
+    category: "platform",
+    implemented: true,
+    description:
+      "Apple IDs as a sign-in method (OpenID Connect with PKCE and an ES256 client secret).",
+    setupNotes:
+      "Create a Services ID with Sign in with Apple, register <public app address>/api/v1/auth/oidc/apple/callback as the return URL, and create a Sign in with Apple key. Paste the .p8 key contents (line breaks are removed automatically). The connection check reads Apple's discovery document and signing keys and confirms the client secret without signing anyone in.",
+    fields: [
+      field("APPLE_SIGNIN_SERVICES_ID", "Services ID (client ID)", "text", {
+        required: true,
+      }),
+      field("APPLE_SIGNIN_TEAM_ID", "Team ID", "text", { required: true }),
+      field("APPLE_SIGNIN_KEY_ID", "Key ID", "text", { required: true }),
+      field("APPLE_SIGNIN_PRIVATE_KEY", "Private key (.p8)", "secret", {
+        required: true,
+      }),
+    ],
+  },
+  {
     id: "whoop",
     name: "WHOOP",
     category: "health",
@@ -402,15 +694,24 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     category: "health",
     implemented: true,
     description:
-      "User-provided health exports through the existing import flow.",
+      "User-provided health exports and, when enabled, automatic sync from the HealthKit companion app.",
     setupNotes:
-      "Manual import needs no Apple API credential. Import approval and user consent apply. Native HealthKit synchronization requires a companion app and is not available.",
+      "Manual import needs no Apple API credential. Import approval and user consent apply. Automatic HealthKit sync needs the native companion app, which is not part of this release; keep it off until that app is approved and published. Trainers must also allow sync in their wearable policy.",
     fields: [
       field(
         "APPLE_IMPORTS_ENABLED",
         "Enable Apple Health file import",
         "boolean",
         { defaultValue: "true" },
+      ),
+      field(
+        "HEALTHKIT_SYNC_ENABLED",
+        "Enable automatic sync from the HealthKit companion app",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Accepts device pairing and background uploads from the companion iPhone app. The import approval and Apple Health file import switch also apply.",
+        },
       ),
     ],
   },
@@ -496,6 +797,47 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "speech_to_text",
+    name: "Speech-to-text",
+    category: "intelligence",
+    implemented: true,
+    description:
+      "Spoken replies (done, reps, pause, pain) during voice-led workout sessions.",
+    setupNotes:
+      "ElevenLabs speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app; turn on zero retention when the provider account supports it. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the provider model list; no audio is sent.",
+    fields: [
+      field("STT_PROVIDER", "Provider name", "text", {
+        required: true,
+        defaultValue: "elevenlabs",
+      }),
+      field("STT_BASE_URL", "API base URL", "url", {
+        required: true,
+        defaultValue: "https://api.elevenlabs.io/v1",
+      }),
+      field("STT_API_KEY", "API key", "secret", { required: true }),
+      field("STT_MODEL", "Approved transcription model ID", "text", {
+        required: true,
+        defaultValue: "scribe_v1",
+      }),
+      field("STT_PRICE_VERSION", "Reviewed price version", "text", {
+        required: true,
+      }),
+      field("STT_USD_PER_HOUR", "Estimated USD / hour of audio", "number", {
+        required: true,
+      }),
+      field("STT_ZERO_RETENTION", "Request zero retention", "boolean", {
+        defaultValue: "false",
+        help: "Sends enable_logging=false. Only enable when the provider account supports zero-retention mode.",
+      }),
+      field(
+        "STT_CONTRACT_VERIFIED",
+        "Account contract and audio processing approved",
+        "boolean",
+        { defaultValue: "false" },
+      ),
+    ],
+  },
+  {
     id: "domains",
     name: "Custom domains",
     category: "branding",
@@ -520,6 +862,135 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
 ];
+
+/** Namecheap (or the generic registrar) for autonomous trainer domains. */
+INTEGRATION_CATALOG.push({
+  id: "web_addresses",
+  name: "Web addresses and registrar",
+  category: "branding",
+  implemented: true,
+  description:
+    "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
+  setupNotes:
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price in AED, which is the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+  fields: [
+    field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
+      required: true,
+      defaultValue: "namecheap",
+      options: [
+        { value: "namecheap", label: "Namecheap" },
+        {
+          value: "generic",
+          label: "Generic registrar API (Custom domains settings)",
+        },
+      ],
+    }),
+    field("NAMECHEAP_API_USER", "Namecheap API user", "text"),
+    field("NAMECHEAP_API_KEY", "Namecheap API key", "secret"),
+    field("NAMECHEAP_USERNAME", "Namecheap account username", "text"),
+    field("NAMECHEAP_CLIENT_IP", "Whitelisted client IPv4 address", "text", {
+      help: "The public IPv4 address of this server, added to the API whitelist in the Namecheap account.",
+    }),
+    field(
+      "NAMECHEAP_SANDBOX",
+      "Use the Namecheap test environment",
+      "boolean",
+      {
+        defaultValue: "true",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_FIRST_NAME",
+      "Registrant first name",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_LAST_NAME", "Registrant last name", "text", {
+      required: true,
+    }),
+    field(
+      "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
+      "Registrant organization (the platform company)",
+      "text",
+      {
+        required: true,
+        help: "The platform company always holds the domains it buys for trainers.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_ADDRESS",
+      "Registrant street address",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_CITY", "Registrant city", "text", {
+      required: true,
+    }),
+    field(
+      "WEB_ADDRESS_REGISTRANT_STATE",
+      "Registrant state or emirate",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_POSTAL_CODE",
+      "Registrant postal code",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_COUNTRY",
+      "Registrant country (two letters)",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field(
+      "WEB_ADDRESS_REGISTRANT_PHONE",
+      "Registrant phone (+971.501234567)",
+      "text",
+      {
+        required: true,
+      },
+    ),
+    field("WEB_ADDRESS_REGISTRANT_EMAIL", "Registrant email", "text", {
+      required: true,
+    }),
+    field("WEB_ADDRESS_MARGIN_AED", "Yearly margin (AED)", "number", {
+      defaultValue: "25",
+    }),
+    field("WEB_ADDRESS_USD_TO_AED", "USD to AED rate", "number", {
+      defaultValue: "3.6725",
+    }),
+    field("WEB_ADDRESS_TLDS", "Offered endings", "text", {
+      defaultValue: "com,net,org,co",
+      help: "Comma-separated, at most 12.",
+    }),
+    field(
+      "WEB_ADDRESS_TARGET_IPV4",
+      "Server IPv4 address for domain DNS",
+      "text",
+      {
+        help: "Optional. When blank, the address the platform's own name resolves to is used.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_PURCHASES_ENABLED",
+      "Enable automatic purchases and renewals",
+      "boolean",
+      { defaultValue: "false" },
+    ),
+  ],
+});
 
 export class ConfigurationError extends Error {
   constructor(message: string) {
@@ -572,6 +1043,8 @@ function endpointUrl(value: string): URL {
   } catch {
     throw new ConfigurationError("Use a valid HTTPS endpoint");
   }
+  // Local mock-provider sandbox only (see sandbox.ts): HTTPS loopback mocks.
+  if (sandboxAllowsEndpoint(url)) return url;
   const host = url.hostname
     .toLowerCase()
     .replace(/^\[|\]$/g, "")
@@ -591,6 +1064,18 @@ function endpointUrl(value: string): URL {
     );
   return url;
 }
+/**
+ * Whole-number settings whose runtime reader only honours this range. Saving
+ * an out-of-range value is refused so the value shown is the value in force.
+ */
+export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
+  {
+    FOLLOWER_INVITE_EMAILS_PER_DAY: [0, 10000],
+    FOLLOWER_INVITE_EMAILS_PER_ADDRESS: [1, 20],
+    FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
+    COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
+    COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+  };
 export function validateIntegrationValues(
   id: string,
   values: Record<string, unknown>,
@@ -629,6 +1114,16 @@ export function validateIntegrationValues(
         throw new ConfigurationError(
           `${entry.label} must be a nonnegative number up to 1000000`,
         );
+      const range = INTEGER_SETTING_RANGES[key];
+      if (
+        range &&
+        (!Number.isInteger(Number(text)) ||
+          Number(text) < range[0] ||
+          Number(text) > range[1])
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a whole number from ${range[0]} to ${range[1]}`,
+        );
       if (
         (key === "MODEL_MAX_DAILY_CALLS" ||
           key === "MODEL_MAX_DAILY_CALLS_PER_SUBSCRIBER") &&
@@ -654,6 +1149,58 @@ export function validateIntegrationValues(
           `${entry.label} has an unsupported selection`,
         );
       if (
+        (key === "NAMECHEAP_CLIENT_IP" || key === "WEB_ADDRESS_TARGET_IPV4") &&
+        (isIP(text) !== 4 || !isPublicAddress(text))
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a public IPv4 address`,
+        );
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_COUNTRY" &&
+        !/^[A-Za-z]{2}$/.test(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be two letters`);
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_PHONE" &&
+        !/^\+\d{1,3}\.\d{4,14}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must look like +971.501234567`,
+        );
+      if (
+        key === "WEB_ADDRESS_REGISTRANT_EMAIL" &&
+        !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be an email address`);
+      if (
+        key === "WEB_ADDRESS_TLDS" &&
+        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,11}\s*$/i.test(
+          text,
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be up to 12 comma-separated endings such as com,net`,
+        );
+      if (
+        key === "WEB_ADDRESS_USD_TO_AED" &&
+        !(Number(text) >= 1 && Number(text) <= 10)
+      )
+        throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+      if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
+        throw new ConfigurationError(`${entry.label} must be at most 10000`);
+      if (
+        /^FOLLOWER_(REACH_|LINK_CLICK_|PURCHASE_|ENGAGEMENT_BENCHMARK)/.test(
+          key,
+        ) &&
+        Number(text) > 100
+      )
+        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+      if (
+        key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
+        (Number(text) < 1 || Number(text) > 10)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 1 to 10`);
+      if (
         (key === "SUPPORT_EMAIL" || key === "EMAIL_FROM") &&
         !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
       )
@@ -672,6 +1219,27 @@ export async function validatePublicEndpoint(
 ): Promise<{ url: URL; addresses: ResolvedAddress[] }> {
   const url = endpointUrl(value),
     hostname = url.hostname.replace(/^\[|\]$/g, "");
+  // Sandbox mocks listen on loopback; this is unreachable outside the sandbox.
+  if (sandboxAllowsEndpoint(url) && isLoopbackHostname(hostname))
+    return {
+      url,
+      addresses: [
+        hostname === "::1"
+          ? { address: "::1", family: 6 }
+          : { address: "127.0.0.1", family: 4 },
+      ],
+    };
+  // Sandbox only: a name the loopback DNS double answers with loopback
+  // addresses (a simulated coach domain served by the local TLS edge).
+  const sandboxDns = isIP(hostname) ? null : sandboxResolver();
+  if (sandboxDns) {
+    const answers = await sandboxDns.resolve4(hostname).catch(() => []);
+    if (answers.length && answers.every(isSandboxLoopbackAddress))
+      return {
+        url,
+        addresses: answers.map((address) => ({ address, family: 4 })),
+      };
+  }
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const addresses = isIP(hostname)
@@ -789,7 +1357,10 @@ export async function providerRequest(
       reject(new ConfigurationError("Provider could not be reached")),
     );
     if (init.body !== undefined && init.body !== null) {
-      if (typeof init.body !== "string") {
+      if (
+        typeof init.body !== "string" &&
+        !(init.body instanceof Uint8Array)
+      ) {
         req.destroy();
         reject(new ConfigurationError("Unsupported provider request body"));
         return;
@@ -824,7 +1395,9 @@ export async function testIntegration(
       whoop: "WHOOP_CONTRACT_VERIFIED",
       zepp: "ZEPP_CONTRACT_VERIFIED",
       voice: "VOICE_CONTRACT_VERIFIED",
+      speech_to_text: "STT_CONTRACT_VERIFIED",
       domains: "DOMAIN_OPERATIONS_ENABLED",
+      instagram: "INSTAGRAM_APP_REVIEW_APPROVED",
     };
     if (contractFlags[id] && config[contractFlags[id]] !== "true")
       return {
@@ -849,6 +1422,80 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "web_addresses") {
+      // Read-only: the account balance. Works before purchases are enabled so
+      // the API access and the IP whitelist can be proven first.
+      const registrar = (fields.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+      const {
+        NamecheapRegistrar,
+        namecheapSettings,
+        RegistrarError,
+        paymentModeProblem,
+        registrarSandboxSetting,
+        stripeKeyMode,
+      } = await import("./registrar.ts");
+      // Stripe's mode must match the registrar environment: purchases are
+      // refused otherwise, and this check says so.
+      const stripeMode = stripeKeyMode(config);
+      const modeProblem = stripeMode
+        ? paymentModeProblem(
+            stripeMode === "live",
+            registrarSandboxSetting({ ...config, ...fields }),
+          )
+        : null;
+      const modeNote = modeProblem
+        ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
+        : "";
+      if (registrar !== "namecheap")
+        return {
+          status: "validated",
+          message:
+            "The generic registrar uses the Custom domains API URL and key; its account is read on the first search. No domain was bought." +
+            modeNote,
+          checkedAt,
+          details: {
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
+          },
+        };
+      const settings = namecheapSettings(fields);
+      try {
+        const balance = await new NamecheapRegistrar(settings).balance();
+        return {
+          status: "verified",
+          message:
+            "Namecheap API access verified from the whitelisted address. No domain was bought." +
+            (Number(balance.available) < 20
+              ? " The available balance is low: purchases and renewals are paid from it."
+              : "") +
+            modeNote,
+          checkedAt,
+          details: {
+            environment: settings.sandbox ? "sandbox" : "production",
+            currency: balance.currency,
+            availableBalance: balance.available,
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
+          },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message:
+            error instanceof RegistrarError && error.outcome === "definitive"
+              ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
+              : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
+    if (id === "google_signin" || id === "apple_signin") {
+      const { checkOidcConnection } = await import("./oidc.ts");
+      return await checkOidcConnection(
+        id === "google_signin" ? "google" : "apple",
+        config,
+      );
+    }
     if (id === "push") {
       const { pushConfiguration } = await import("./push.ts");
       pushConfiguration(config);
@@ -859,7 +1506,13 @@ export async function testIntegration(
         checkedAt,
       };
     }
-    if (id === "whoop" || id === "zepp" || id === "voice" || id === "domains") {
+    if (
+      id === "whoop" ||
+      id === "zepp" ||
+      id === "voice" ||
+      id === "domains" ||
+      id === "instagram"
+    ) {
       if (
         id === "zepp" &&
         fields.ZEPP_ADAPTER_CONTRACT !== "canonical-observations-v1"
@@ -882,9 +1535,47 @@ export async function testIntegration(
         checkedAt,
       };
     }
+    if (id === "speech_to_text") {
+      if (fields.STT_PROVIDER !== "elevenlabs")
+        throw new ConfigurationError(
+          "Choose the implemented elevenlabs speech-to-text provider.",
+        );
+      // Read-only: the model list proves the key and base URL; no audio is sent.
+      const response = await providerRequest(
+        fields.STT_BASE_URL.replace(/\/$/, "") + "/models",
+        {
+          headers: {
+            "xi-api-key": fields.STT_API_KEY,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      if (!response.ok)
+        return {
+          status: "failed",
+          message: `The speech provider rejected the account check (HTTP ${response.status}). Check the base URL and key permissions.`,
+          checkedAt,
+        };
+      const models = (await response.json().catch(() => null)) as any;
+      if (!Array.isArray(models))
+        throw new ConfigurationError(
+          "The speech provider returned an unexpected model list",
+        );
+      return {
+        status: "verified",
+        message:
+          "Speech provider access verified without sending audio. Transcription quality, languages and zero retention need a separate check with consenting testers.",
+        checkedAt,
+        details: { models: models.length },
+      };
+    }
     if (id === "stripe") {
       const response = await providerRequest(
-        "https://api.stripe.com/v1/account",
+        new URL(
+          "/v1/account",
+          sandboxOverride("STRIPE_API_BASE_URL") ?? "https://api.stripe.com",
+        ).toString(),
         {
           headers: { Authorization: `Bearer ${fields.STRIPE_SECRET_KEY}` },
           signal: AbortSignal.timeout(15000),
@@ -963,7 +1654,7 @@ export async function testIntegration(
       status: "validated",
       message:
         id === "apple"
-          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; native sync is unavailable."
+          ? "Manual file import requires no API connection. Import approval and subscriber consent still apply; automatic sync also needs the companion app and its switch."
           : "Application settings are valid. Approval controls represent your recorded review decision.",
       checkedAt,
     };

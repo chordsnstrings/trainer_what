@@ -5,6 +5,7 @@ import {
   providerRequest,
   runtimeConfig,
 } from "./configuration.ts";
+import { sandboxOverride } from "./sandbox.ts";
 
 type FixtureTransport = (value: string, init: RequestInit) => Promise<Response>;
 const fixtureTransport = new AsyncLocalStorage<FixtureTransport>();
@@ -115,16 +116,15 @@ export function wearableContract(provider: WearableProvider) {
     throw new ConfigurationError(
       "An approved Zepp partner must implement the documented canonical-observations-v1 adapter contract.",
     );
-  const base =
-    provider === "whoop" ? "https://api.prod.whoop.com" : c.ZEPP_API_BASE_URL;
+  // Only the local mock-provider sandbox (sandbox.ts) can replace the WHOOP host.
+  const whoop = (
+    sandboxOverride("WHOOP_API_BASE_URL")?.origin ?? "https://api.prod.whoop.com"
+  ).replace(/\/$/, "");
+  const base = provider === "whoop" ? whoop : c.ZEPP_API_BASE_URL;
   const authorize =
-    provider === "whoop"
-      ? "https://api.prod.whoop.com/oauth/oauth2/auth"
-      : c.ZEPP_AUTHORIZE_URL;
+    provider === "whoop" ? whoop + "/oauth/oauth2/auth" : c.ZEPP_AUTHORIZE_URL;
   const token =
-    provider === "whoop"
-      ? "https://api.prod.whoop.com/oauth/oauth2/token"
-      : c.ZEPP_TOKEN_URL;
+    provider === "whoop" ? whoop + "/oauth/oauth2/token" : c.ZEPP_TOKEN_URL;
   if (!base || !authorize || !token)
     throw new ConfigurationError(
       "The approved partner endpoint configuration is incomplete.",
@@ -385,6 +385,108 @@ export async function generateTrainerVoice(
       response.headers.get("request-id") ??
       response.headers.get("x-request-id"),
     estimatedCost: (text.length * c.price) / 1000,
+    priceVersion: c.priceVersion,
+  };
+}
+
+/** Approved speech-to-text account (ElevenLabs), or ConfigurationError. */
+export function speechToTextContract() {
+  const c = runtimeConfig();
+  if (
+    c.STT_CONTRACT_VERIFIED !== "true" ||
+    c.STT_PROVIDER !== "elevenlabs" ||
+    !c.STT_API_KEY ||
+    !c.STT_MODEL ||
+    !c.STT_PRICE_VERSION ||
+    !c.STT_BASE_URL
+  )
+    throw new ConfigurationError(
+      "Spoken replies need an approved speech-to-text account, model, price and audio processing contract.",
+    );
+  const pricePerHour = Number(c.STT_USD_PER_HOUR);
+  if (!Number.isFinite(pricePerHour) || pricePerHour < 0)
+    throw new ConfigurationError("A reviewed speech-to-text price is required.");
+  return {
+    base: c.STT_BASE_URL.replace(/\/$/, ""),
+    key: c.STT_API_KEY,
+    model: c.STT_MODEL,
+    pricePerHour,
+    priceVersion: c.STT_PRICE_VERSION,
+    zeroRetention: c.STT_ZERO_RETENTION === "true",
+  };
+}
+export const SPEECH_AUDIO_TYPES = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+} as const;
+export type SpeechAudioType = keyof typeof SPEECH_AUDIO_TYPES;
+/**
+ * Sends one short audio chunk for transcription. The audio is held in memory
+ * for this request only; nothing is written to storage or logs.
+ */
+export async function transcribeSpeech(
+  audio: Buffer,
+  type: SpeechAudioType,
+  beforeSend: () => Promise<void>,
+) {
+  const c = speechToTextContract();
+  const boundary = "trainer" + Math.random().toString(36).slice(2, 14);
+  const part = (name: string, value: string) =>
+    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+  const body = Buffer.concat([
+    Buffer.from(
+      part("model_id", c.model) +
+        part("tag_audio_events", "false") +
+        part("diarize", "false") +
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="reply.${SPEECH_AUDIO_TYPES[type]}"\r\nContent-Type: ${type}\r\n\r\n`,
+    ),
+    audio,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const response = await integrationRequest(
+    c.base +
+      "/speech-to-text" +
+      (c.zeroRetention ? "?enable_logging=false" : ""),
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": c.key,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": String(body.length),
+        Accept: "application/json",
+      },
+      body,
+      signal: AbortSignal.timeout(20000),
+    },
+    beforeSend,
+  );
+  if (!response.ok)
+    throw new ConfigurationError(
+      "Transcription could not be confirmed. Use the buttons or say it again.",
+    );
+  const payload = (await response.json().catch(() => null)) as any;
+  if (!payload || typeof payload.text !== "string")
+    throw new ConfigurationError(
+      "The speech provider returned an unexpected result.",
+    );
+  // The end of the last recognised word: a lower bound of the audio the
+  // provider billed, kept for reconciliation.
+  const ends = (Array.isArray(payload.words) ? payload.words : [])
+    .map((w: any) => Number(w?.end))
+    .filter((n: number) => Number.isFinite(n) && n >= 0 && n < 86400);
+  return {
+    text: payload.text.slice(0, 500),
+    durationSeconds: ends.length ? Math.max(...ends) : null,
+    languageCode:
+      typeof payload.language_code === "string"
+        ? payload.language_code.slice(0, 12)
+        : null,
+    requestId:
+      response.headers.get("request-id") ??
+      response.headers.get("x-request-id"),
     priceVersion: c.priceVersion,
   };
 }

@@ -10,22 +10,29 @@ type Permission = {
 };
 function touch() {
   const q = new URLSearchParams(window.location.search);
-  return Object.fromEntries(
-    [
-      ["source", "utm_source"],
-      ["medium", "utm_medium"],
-      ["campaign", "utm_campaign"],
-      ["referral", "ref"],
-    ].flatMap(([key, param]) => {
-      const value = q.get(param);
-      return value && value.length <= 200 ? [[key, value]] : [];
-    }),
-  );
+  // A coach page on the shared address names its workspace, so a coach only
+  // ever sees attribution captured on their own pages.
+  const site = /^\/(?:coach|join-coach)\/([a-z][a-z0-9-]{2,39})(?:\/|$)/.exec(
+    window.location.pathname,
+  )?.[1];
+  return {
+    ...Object.fromEntries(
+      [
+        ["source", "utm_source"],
+        ["medium", "utm_medium"],
+        ["campaign", "utm_campaign"],
+        ["referral", "ref"],
+      ].flatMap(([key, param]) => {
+        const value = q.get(param);
+        return value && value.length <= 200 ? [[key, value]] : [];
+      }),
+    ),
+    ...(site ? { site } : {}),
+  };
 }
-const publicPage = (path: string) =>
-  ["/", "/pricing", "/how-it-works", "/demo", "/faq", "/signup"].includes(
-    path,
-  ) ||
+const publicPage = (path: string, marketing: readonly string[]) =>
+  marketing.includes(path) ||
+  path === "/signup" ||
   /^\/coach\//.test(path) ||
   /^\/join-coach\//.test(path);
 async function call(path: string, method = "GET", body?: unknown) {
@@ -102,8 +109,16 @@ function ExperimentCopy({ slot }: { slot: string }) {
   ) : null;
 }
 
-/** Mount once in the root layout. No analytics ID or event is created before opt-in. */
-export function AcquisitionConsent() {
+/**
+ * Mount once in the root layout. No analytics ID or event is created before
+ * opt-in. The layout passes the marketing paths, so the page registry stays
+ * out of the client bundle.
+ */
+export function AcquisitionConsent({
+  marketingPaths = [],
+}: {
+  marketingPaths?: readonly string[];
+}) {
   const path = usePathname() || "/";
   const [permission, setPermission] = useState<Permission | null>(null),
     [open, setOpen] = useState(false),
@@ -132,9 +147,9 @@ export function AcquisitionConsent() {
     };
   }, []);
   useEffect(() => {
-    if (permission?.granted && publicPage(path))
+    if (permission?.granted && publicPage(path, marketingPaths))
       void call("acquisition/visit", "POST", touch()).catch(() => {});
-  }, [path, permission?.granted]);
+  }, [path, permission?.granted, marketingPaths]);
   useEffect(() => {
     let current = true;
     const refresh = () => {
@@ -185,11 +200,12 @@ export function AcquisitionConsent() {
     <>
       {permission.granted && slot && <ExperimentCopy key={slot} slot={slot} />}
       <aside
+        className="acquisition-consent"
         aria-label="Optional analytics preferences"
         style={{
           position: "fixed",
           bottom: 16,
-          right: 16,
+          insetInlineEnd: 16,
           zIndex: 45,
           maxWidth: "min(390px,calc(100vw - 32px))",
         }}

@@ -27,6 +27,7 @@ import {
   coachActionSchema,
   addTrainingDays,
 } from "../packages/domain/src/coaching-completion.ts";
+import { seedScope } from "./scope-fixtures.ts";
 let db: Database, app: Awaited<ReturnType<typeof buildApp>>;
 const sessions = new Map<string, string>();
 const originalFetch = globalThis.fetch;
@@ -50,7 +51,7 @@ async function member(tenantId: string, role = "subscriber"): Promise<Actor> {
       [tokenHash(token), a.userId, tenantId],
     );
   });
-  await db.tenant({ ...a, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(a), async (tx) => {
     if (role === "subscriber") {
       await tx.query(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching','fixture',true)",
@@ -721,14 +722,17 @@ test("outcome references stay with the corrected client and personal erasure rem
       exported.records.some((r) => r.kind === kind),
       kind,
     );
-  await db.tenant(f.coach, (tx) =>
-    erasePersonalData(
-      tx,
-      f.coach,
-      f.client.userId,
-      f.client.userId + "@example.test",
-      { eraseAdditional: eraseCoachingFeedbackDerivedData },
-    ),
+  await db.tenant(
+    f.coach,
+    (tx) =>
+      erasePersonalData(
+        tx,
+        f.coach,
+        f.client.userId,
+        f.client.userId + "@example.test",
+        { eraseAdditional: eraseCoachingFeedbackDerivedData },
+      ),
+    { privacyErasure: true },
   );
   assert.equal(
     (

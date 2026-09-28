@@ -63,15 +63,25 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
           <div className="stats-grid">
             <div>
               <small>Unsettled Stripe receivable</small>
-              <h3>{money(data.summary.accounts.stripe_receivable ?? 0)}</h3>
+              <h3>
+                <span dir="ltr">
+                  {money(data.summary.accounts.stripe_receivable ?? 0)}
+                </span>
+              </h3>
             </div>
             <div>
               <small>Reconciled bank funds</small>
-              <h3>{money(data.summary.accounts.bank_cash ?? 0)}</h3>
+              <h3>
+                <span dir="ltr">
+                  {money(data.summary.accounts.bank_cash ?? 0)}
+                </span>
+              </h3>
             </div>
             <div>
               <small>Trainer payable</small>
-              <h3>{money(data.summary.earnedMinor)}</h3>
+              <h3>
+                <span dir="ltr">{money(data.summary.earnedMinor)}</span>
+              </h3>
             </div>
           </div>
           <details>

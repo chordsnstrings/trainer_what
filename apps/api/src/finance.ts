@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type Actor, type Tx, event } from "@trainer/db";
 import { assertPayoutTransition } from "@trainer/domain";
 import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
+import { assertWorkspacePayoutsAllowed } from "./workspace-state.ts";
 export async function journal(
   tx: Tx,
   actor: Actor,
@@ -29,6 +30,37 @@ export async function journal(
   await event(tx, actor, "ledger.posted", entry.id, { source });
   return entry;
 }
+/**
+ * The member's stable commission rank, assigned once at the first positive
+ * charge (a membership invoice or an upfront programme payment) as the next
+ * number after every stored rank; payers ranked together are ordered by first
+ * paid date and user ID. Call under the workspace lock, after the member's
+ * subscription row exists.
+ */
+export async function assignCommissionRank(
+  tx: Tx,
+  userId: string,
+  current: any,
+  firstPaidAt: string | undefined,
+  method: string,
+) {
+  let rank = Number(current?.data?.commissionRank);
+  if (Number.isSafeInteger(rank) && rank >= 1) return rank;
+  const assigned = await tx.query(
+    "WITH top AS (SELECT coalesce(max((data->>'commissionRank')::int),0) AS n FROM subscriptions WHERE data ? 'commissionRank'), pending AS (SELECT s.id,row_number() OVER (ORDER BY coalesce((s.data->>'firstPaidAt')::timestamptz,$3::timestamptz),s.user_id) AS n FROM subscriptions s WHERE NOT s.data ? 'commissionRank' AND (s.user_id=$1 OR (s.data ? 'firstPaidAt' AND EXISTS(SELECT 1 FROM journals j WHERE (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND j.data->>'userId'=s.user_id::text AND (j.data->>'grossMinor')::numeric>0)))) UPDATE subscriptions s SET data=$2::jsonb||jsonb_build_object('commissionRank',top.n+pending.n)||s.data FROM top,pending WHERE s.id=pending.id RETURNING s.user_id=$1 AS payer,(s.data->>'commissionRank')::int AS rank",
+    [
+      userId,
+      JSON.stringify({ firstPaidAt, commissionRankMethod: method }),
+      firstPaidAt,
+    ],
+  );
+  rank = Number(assigned.find((row) => row.payer)?.rank);
+  if (!Number.isSafeInteger(rank) || rank < 1)
+    throw new Error(
+      "Subscriber commission rank unavailable; retain receipt for reconciliation",
+    );
+  return rank;
+}
 export async function recordCharge(
   tx: Tx,
   actor: Actor,
@@ -49,14 +81,18 @@ export async function recordCharge(
     tx,
     actor,
     source,
-    "Subscription payment",
+    typeof data.description === "string"
+      ? data.description
+      : "Subscription payment",
     [
       { account: "stripe_receivable", amount },
       { account: "trainer_payable", amount: -(amount - fee) },
       { account: "platform_commission", amount: -fee },
     ],
     {
-      ...data,
+      ...Object.fromEntries(
+        Object.entries(data).filter(([key]) => key !== "description"),
+      ),
       grossMinor: amount,
       commissionMinor: fee,
       rank,
@@ -122,6 +158,8 @@ export async function createPayout(
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     actor.tenantId,
   ]);
+  // Suspension takes the same lock and holds payouts until reinstatement.
+  await assertWorkspacePayoutsAllowed(tx);
   const [existing] = await tx.query(
     "SELECT * FROM payouts WHERE tenant_id=$1 AND period=$2 ORDER BY revision DESC LIMIT 1",
     [actor.tenantId, period],
@@ -147,7 +185,8 @@ export async function createPayout(
     [period],
   );
   if (!closed)
-    throw new Error(
+    throw conflict(
+      "PAYOUT_CLOSE_REQUIRED",
       "A reconciled monthly close is required before payout preparation",
     );
   const totals = await financeSummary(tx);
@@ -155,7 +194,7 @@ export async function createPayout(
   // settlement fees) reduce what this close can release; later earnings wait for the next close.
   // A refund or dispute of a charge that itself posted after the cutoff belongs to that later close.
   const [laterPayments] = await tx.query(
-    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND j.created_at >= $1 AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%' OR (l.amount_minor > 0 AND NOT EXISTS (SELECT 1 FROM journals c WHERE c.source_key LIKE 'stripe-invoice:%' AND c.created_at >= $1 AND (c.id::text=j.data->>'originalJournalId' OR (j.source_key LIKE 'dispute-reserve:%' AND c.data->>'chargeId'=j.data->>'chargeId')))))",
+    "SELECT coalesce(sum(l.amount_minor),0)::text AS total FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE l.account='trainer_payable' AND j.created_at >= $1 AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%' OR (l.amount_minor > 0 AND NOT EXISTS (SELECT 1 FROM journals c WHERE (c.source_key LIKE 'stripe-invoice:%' OR c.source_key LIKE 'stripe-programme:%') AND c.created_at >= $1 AND (c.id::text=j.data->>'originalJournalId' OR (j.source_key LIKE 'dispute-reserve:%' AND c.data->>'chargeId'=j.data->>'chargeId')))))",
     [closed.data.cutoff],
   );
   const eligible = Math.max(
@@ -170,7 +209,8 @@ export async function createPayout(
   );
   const amount = Math.min(eligible, totals.availableMinor, funded);
   if (amount <= 0)
-    throw new Error(
+    throw conflict(
+      "PAYOUT_NOTHING_AVAILABLE",
       "No reconciled, funded earnings are available for this period",
     );
   const [payout] = await tx.query(

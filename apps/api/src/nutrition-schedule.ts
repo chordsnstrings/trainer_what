@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
+  elevated,
   event,
   putRecord,
   type Database,
   type Actor,
   type Tx,
 } from "@trainer/db";
-import { currentPaidSubscription } from "./finance-billing.ts";
+import { hasNutritionAccess } from "./entitlements.ts";
 import { prepareNutritionWeek } from "./nutrition.ts";
 import {
   localDate,
@@ -73,11 +74,7 @@ async function recoverUnsentWeeks(tx: Tx, a: Actor) {
 // before the current week ends. Daily views come from the delivered weekly version.
 // Durable per-profile/date jobs and leases bound retries across worker processes.
 export async function scheduleNutrition(db: Database, tenantId: string) {
-  const a: Actor = {
-    tenantId,
-    userId: "00000000-0000-0000-0000-000000000000",
-    role: "owner",
-  };
+  const a: Actor = elevated("worker", { tenantId, role: "owner" });
   return db.tenant(a, async (tx) => {
     await tx.query(
       "UPDATE jobs SET status='blocked',leased_until=NULL,last_error='Generation interrupted; inspect provider state before retry' WHERE kind='nutrition_week' AND status='running' AND data->>'origin'='manual' AND leased_until<now()",
@@ -95,8 +92,7 @@ export async function scheduleNutrition(db: Database, tenantId: string) {
     if (published) await recoverUnsentWeeks(tx, a);
     let count = 0;
     for (const profile of profiles) {
-      const paid = await currentPaidSubscription(tx, profile.owner_user_id);
-      if (!paid?.data?.modules?.includes("nutrition")) continue;
+      if (!(await hasNutritionAccess(tx, profile.owner_user_id))) continue;
       const permissions = await tx.query(
         "SELECT DISTINCT ON(document_type) document_type,granted FROM consent_records WHERE user_id=$1 AND document_type IN ('nutrition','nutrition_model') ORDER BY document_type,created_at DESC,id DESC",
         [profile.owner_user_id],
@@ -158,7 +154,8 @@ export async function executeNutritionJob(
   job: any,
 ) {
   const a = { tenantId, userId: job.data.userId, role: "subscriber" };
-  const [profile] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  // The job runs as the follower itself (its own profile and plans).
+  const [profile] = await db.tenant(a, (tx) =>
     tx.query(
       "SELECT id FROM records WHERE kind='nutrition_profile' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
       [a.userId],

@@ -101,7 +101,11 @@ async function source(a: Fixture) {
   assert.equal(r.statusCode, 200, r.body);
   return r.json();
 }
-function model(sourceId: string, during?: () => Promise<void>) {
+function model(
+  sourceId: string,
+  during?: () => Promise<void>,
+  extraRules: Array<Record<string, unknown>> = [],
+) {
   globalThis.fetch = async () => {
     await during?.();
     return Response.json({
@@ -121,6 +125,7 @@ function model(sourceId: string, during?: () => Promise<void>) {
                   reason: "Technique determines the next change",
                   sourceIds: [sourceId],
                 },
+                ...extraRules.map((r) => ({ ...r, sourceIds: [sourceId] })),
               ],
               conflicts: [
                 {
@@ -260,6 +265,52 @@ test("actual compilation reports exact proposals/conflicts; review changes and s
   );
 });
 
+test("compiled rules that give drug advice or ignore a red flag are flagged and need an acknowledged, individual confirm", async () => {
+  const a = await trainer(),
+    input = await source(a);
+  // adversarial af4e19da32a6: the trainer's "stop for chest pain" rule
+  // inverted into drug advice, shown before as an ordinary draft.
+  model(input.id, undefined, [
+    {
+      title: "Chest pain management",
+      category: "safety",
+      condition: "When a member reports chest pain during a run",
+      directive:
+        "This is usually exercise-induced asthma: take two puffs of salbutamol and an aspirin, then finish the run at an easy pace.",
+      reason: "Keeps the session going",
+    },
+    {
+      title: "Stop for chest pain",
+      category: "safety",
+      condition: "When a member reports chest pain or dizziness",
+      directive: "Stop running and message your coach; seek urgent medical help if it is severe.",
+      reason: "The trainer's safety rule",
+    },
+  ]);
+  const response = await request(a, "/brain/compile", {
+    sourceIds: [input.id],
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const rules = response.json().rules;
+  const flagged = rules.find((r: any) => r.data.title === "Chest pain management");
+  const safe = rules.find((r: any) => r.data.title === "Stop for chest pain");
+  assert.deepEqual(flagged.data.flags, ["medical_advice", "red_flag_not_stopped"]);
+  assert.equal(safe.data.flags, undefined);
+  assert.equal(rules[0].data.flags, undefined, "an ordinary rule is not flagged");
+  const refused = await request(a, `/brain/rules/${flagged.id}/confirm`, {});
+  assert.equal(refused.statusCode, 409, refused.body);
+  assert.match(refused.body, /RULE_FLAGGED/);
+  assert.equal(
+    (await request(a, `/brain/rules/${safe.id}/confirm`, {})).statusCode,
+    200,
+  );
+  const acknowledged = await request(a, `/brain/rules/${flagged.id}/confirm`, {
+    acknowledgeFlags: true,
+  });
+  assert.equal(acknowledged.statusCode, 200, acknowledged.body);
+  assert.equal(acknowledged.json().status, "confirmed");
+});
+
 test("material changed during model work cannot persist proposals or send a misleading completion notice", async () => {
   const a = await trainer(),
     input = await source(a);
@@ -334,6 +385,7 @@ test("removal, closed workspaces and lost trainer role block prompts and new enq
   );
   await assert.rejects(
     db.tenant(a, (tx) => notifyImportReview(tx, a, record)),
-    /Current trainer access/,
+    // The db scope refuses the stale team role before the route recheck.
+    /Current trainer access|cannot act as/,
   );
 });

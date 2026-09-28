@@ -1,0 +1,198 @@
+/* Host operations view. Logical properties only, so a right-to-left pass works. */
+.host-ops .tabs a {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+  padding-block: 13px 16px;
+  padding-inline: 16px;
+  border-block-end: 2px solid transparent;
+}
+.host-ops .tabs a[aria-current="page"] {
+  border-block-end-color: var(--green);
+  color: var(--green);
+  font-weight: 650;
+}
+.host-level {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding-block: 4px;
+  padding-inline: 8px;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-transform: capitalize;
+  background: var(--white);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.host-level-ok {
+  background: var(--mint);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.host-level-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
+  color: var(--warning);
+}
+.host-level-critical {
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
+}
+.host-metrics,
+.host-containers,
+.host-requests,
+.host-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.host-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+.host-metrics li {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+}
+.host-metrics strong {
+  font-size: 18px;
+  font-weight: 600;
+}
+.host-metrics .host-level {
+  justify-self: start;
+}
+.host-metric-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.host-containers li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-block-end: 1px solid var(--line);
+  padding-block: 8px;
+}
+.host-containers li > span:first-child {
+  font-weight: 600;
+  min-inline-size: 72px;
+}
+.host-containers .host-level {
+  margin-inline-start: auto;
+}
+.host-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px 20px;
+  margin: 0 0 16px;
+}
+.host-facts dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.host-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.host-pending {
+  display: block;
+  margin-block-start: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.host-requests li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+}
+.host-requests .card-heading {
+  flex-wrap: wrap;
+  margin-block-end: 8px;
+}
+.host-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 0 16px;
+}
+.host-checks li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-align: start;
+}
+.host-wrap {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.host-ops fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+/* Platform address change: DNS answers, progress, warnings and provider settings. */
+.host-address-result,
+.host-address-progress {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px;
+  min-width: 0;
+}
+.host-address-progress {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.host-address-progress .card-heading {
+  flex-wrap: wrap;
+}
+.host-dns {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  max-inline-size: 100%;
+}
+.host-dns caption {
+  text-align: start;
+  font-size: 12px;
+  color: var(--muted);
+  padding-block-end: 6px;
+}
+.host-dns th,
+.host-dns td {
+  text-align: start;
+  padding-block: 6px;
+  padding-inline: 0 14px;
+  border-block-end: 1px solid var(--line);
+  vertical-align: top;
+}
+.host-provider-updates,
+.host-warnings {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.host-provider-updates code {
+  font-size: 12px;
+}
+.host-ops .checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-block: 10px;
+}

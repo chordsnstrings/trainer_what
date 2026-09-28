@@ -11,6 +11,7 @@ import {
   withRuntimeConfig,
   runtimeConfig,
 } from "../packages/providers/src/configuration.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 let db: Database;
 let app: ReturnType<typeof Fastify>;
@@ -267,7 +268,7 @@ test("credentials are authenticated ciphertext, never returned or included in au
 test("tenant transactions cannot read platform credentials or audit and audit is immutable", async () => {
   for (const table of ["platform_settings", "platform_settings_audit"]) {
     await assert.rejects(
-      db.tenant(actor, (tx) => tx.query(`SELECT * FROM ${table}`)),
+      db.tenant(seedScope(actor), (tx) => tx.query(`SELECT * FROM ${table}`)),
       /permission denied/i,
     );
   }

@@ -16,8 +16,24 @@ import {
 } from "./source-review-notifications.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
+import {
+  assertComparableOffer,
+  createVoiceAddOnPrice,
+  offerBilling,
+  registerOfferVoiceAddOn,
+} from "./programme-billing.ts";
+import { registerVoiceAddOn } from "./voice-addon.ts";
+import { registerProgrammeToday } from "./programme-today.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
+import { loadPlanSettings, registerBrainPlans } from "./brain-plans.ts";
+import {
+  evaluationAnswerIssues,
+  planLibrary,
+} from "../../../packages/domain/src/brain-plans.ts";
+import { compiledRuleFlags } from "../../../packages/domain/src/text-screen.ts";
+import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
+import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import {
   registerCoachingFeedback,
@@ -34,11 +50,22 @@ import {
   touchAccountSession,
 } from "./account-completion.ts";
 import { registerPasskeys } from "./passkeys.ts";
+import {
+  registerHealthKitSync,
+  isCompanionDevicePath,
+  readCoachWearablePolicy,
+} from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import { registerDiscovery } from "./discovery.ts";
+import { registerEarlyAccess } from "./early-access.ts";
+import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
+import { registerVoiceSessions } from "./voice-session.ts";
+import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
+import type { WebAddressDeps } from "./web-address-orders.ts";
 import {
   resolveProbeHost,
   resolveRequestHost,
@@ -55,13 +82,27 @@ import {
 import { privacyHooks } from "./privacy-hooks.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
+import { screenForSafety } from "./safety-policy.ts";
+import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
-import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
-import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import {
-  registerFinanceBilling,
-  currentPaidSubscription,
-} from "./finance-billing.ts";
+  bootstrapCollections,
+  createdKey,
+  keysetPage,
+  registerWorkspacePages,
+} from "./workspace-pages.ts";
+import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
+import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
+import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
+import { registerFinanceBilling } from "./finance-billing.ts";
+import { hasMemberAccess } from "./entitlements.ts";
+import {
+  announceFollowerJoined,
+  completeInvitationAcceptance,
+  createFollowerInvitation,
+  registerJoiningRoutes,
+} from "./joining.ts";
+import { registerComplimentaryAccess } from "./complimentary-access.ts";
 import {
   registerCoachingCompletion,
   lockTraining,
@@ -103,7 +144,33 @@ import {
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
 import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
+import { openSignInSession, type SignInMethod } from "./sign-in.ts";
+import {
+  membershipEndedError,
+  registerAccountSelfService,
+} from "./account-self-service.ts";
+import { registerOperatorRecovery } from "./operator-recovery.ts";
+import { assertMayRejoin, registerMembershipExit } from "./membership-exit.ts";
+import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import { registerGovernance } from "./governance.ts";
+import { registerBusinessMetrics } from "./business-metrics.ts";
+import { registerPlatformAlerts } from "./platform-alerts.ts";
+import {
+  ACCOUNT_LOCKED_SQLSTATE,
+  accountLockedError,
+  assertSignInAllowed,
+} from "./account-governance.ts";
+import {
+  enforceWorkspaceGate,
+  lockSuspendedMember,
+  workspaceSuspendedMessage,
+} from "./workspace-state.ts";
+import {
+  adminRouteRequested,
+  enforceOperatorStepUp,
+  trackOperatorRoutes,
+} from "./operator-step-up.ts";
 export { processStripeEvent } from "./stripe-events.ts";
 import Fastify, { type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
@@ -112,6 +179,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { z, ZodError } from "zod";
 import {
   createDatabase,
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -119,6 +187,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import {
+  platformName,
   signupSchema,
   loginSchema,
   brandSchema,
@@ -129,11 +198,11 @@ import {
 import {
   programSchema,
   ruleSchema,
-  safetySignal,
   validUaeIban,
   refundEligible,
 } from "@trainer/domain";
 import {
+  ModelOutputInvalid,
   ProviderUnavailable,
   integrationStatus,
   modelDecision,
@@ -142,6 +211,7 @@ import {
   requireCommerce,
   stripeClient,
   LeanGateway,
+  providerSandboxStatus,
 } from "@trainer/providers";
 import {
   accountAttempts,
@@ -165,6 +235,8 @@ type Identity = Actor & {
   platformRole: string;
   emailVerified: boolean;
   mfaAt?: string | null;
+  /** "active", or "suspended" while a Super admin suspension is in force. */
+  workspaceState?: string;
 };
 declare module "fastify" {
   interface FastifyRequest {
@@ -217,6 +289,7 @@ async function assertTeachingSources(tx: Tx, ids: string[]) {
 // profile and Client Twin, so no confirmed rule is silently left unseen.
 const RELEASE_RULE_LIMIT = MODEL_EVIDENCE_LIMIT - 2;
 const HELD_OUT_SCENARIO_LIMIT = 30;
+const ADMIN_OVERVIEW_PAGE = 50;
 function assertReleaseRuleLimit(count: number) {
   if (count > RELEASE_RULE_LIMIT)
     throw fail(
@@ -246,8 +319,8 @@ async function putException(
 }
 async function activeMembership(tx: Tx, a: Actor) {
   if (a.role !== "subscriber") return;
-  const s = await currentPaidSubscription(tx, a.userId);
-  if (!s)
+  // Paid or trainer-granted complimentary access (entitlements.ts).
+  if (!(await hasMemberAccess(tx, a.userId)))
     throw fail(402, "MEMBERSHIP_REQUIRED", "An active membership is required");
 }
 
@@ -256,7 +329,13 @@ export async function buildApp(
     db?: Database;
     testing?: boolean;
     /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
-    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+    providers?: {
+      stripe?: () => ReturnType<typeof stripeClient>;
+      /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
+      webAddresses?: WebAddressDeps;
+      /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
+      instagram?: InstagramTransport;
+    };
   } = {},
 ) {
   const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
@@ -289,6 +368,8 @@ export async function buildApp(
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: false,
   });
+  // Before any route: records operator routes for the step-up coverage test.
+  trackOperatorRoutes(app);
   await app.register(cookie);
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
@@ -329,13 +410,17 @@ export async function buildApp(
     reply
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin")
-      .header("Cache-Control", "no-store");
+      .header("Cache-Control", "no-store")
+      // API responses are never search results; pages are indexed by the web app.
+      .header("X-Robots-Tag", "noindex, nofollow");
     const requestPath = req.url.split("?")[0];
     // Readiness is intentionally reachable by the local container probe; it
     // exposes no workspace data and cannot select a tenant.
-    const probe = ["/health", "/api/v1/health", "/api/v1/ready"].includes(
-      requestPath,
-    );
+    // The edge's TLS "ask" check reaches the API directly on the private
+    // network, never through a mapped host; it is handled like a probe.
+    const probe =
+      ["/health", "/api/v1/health", "/api/v1/ready"].includes(requestPath) ||
+      requestPath === TLS_ASK_PATH;
     // Probes do not need a verified host, but a supplied session still needs to
     // be verified for the per-user rate budget. Never trust a raw cookie key.
     // Probes relayed by the web proxy carry a proof; verify it so the signed
@@ -368,9 +453,13 @@ export async function buildApp(
             "Provider callbacks use the platform address.",
           );
       }
+      // Companion-app routes authenticate with a device bearer token only and
+      // never read the session cookie, so a browser origin does not apply.
       if (
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-        !req.url.startsWith("/api/v1/webhooks/")
+        !req.url.startsWith("/api/v1/webhooks/") &&
+        !isOidcFormCallback(requestPath) &&
+        !isCompanionDevicePath(req.url)
       ) {
         if (!allowedRequestOrigin(req.hostContext, req.headers.origin))
           throw fail(403, "ORIGIN_REJECTED", "Request origin is not permitted");
@@ -380,7 +469,9 @@ export async function buildApp(
     if (token) {
       const rows = await db.system((tx) =>
         tx.query(
-          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state='active'",
+          // A suspended workspace keeps its sessions so members see why it is
+          // unavailable; a locked account never resolves a session.
+          "SELECT s.user_id,s.tenant_id,u.name,u.email,u.platform_role,u.email_verified,s.mfa_at,m.role,t.lifecycle_state FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant_id=s.tenant_id JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND s.expires_at>now() AND t.lifecycle_state IN ('active','suspended') AND NOT EXISTS(SELECT 1 FROM account_locks l WHERE l.user_id=s.user_id AND l.status='active')",
           [tokenHash(token)],
         ),
       );
@@ -395,6 +486,7 @@ export async function buildApp(
           platformRole: s.platform_role,
           emailVerified: s.email_verified,
           mfaAt: s.mfa_at,
+          workspaceState: s.lifecycle_state,
         };
         if (!probe)
           try {
@@ -423,6 +515,21 @@ export async function buildApp(
           "SESSION_OWNER_MISMATCH",
           "These entries were saved by another member. Sign in as that member to sync them.",
         );
+    }
+    if (!probe) {
+      // Routing already ran: decide from the matched route pattern as well as
+      // the raw path, so an encoded spelling cannot skip either guard.
+      const routePattern = req.routeOptions.url;
+      enforceWorkspaceGate(req.identity, req.method, requestPath, {
+        routePattern,
+        operatorRoute: adminRouteRequested(requestPath, routePattern),
+      });
+      enforceOperatorStepUp(
+        req.identity,
+        req.method,
+        requestPath,
+        routePattern,
+      );
     }
     if (token && req.identity && !probe)
       await touchAccountSession(db, tokenHash(token)).catch(() => {});
@@ -453,6 +560,12 @@ export async function buildApp(
         provider: error.provider,
         requestId: req.id,
       });
+    if ((error as any).code === ACCOUNT_LOCKED_SQLSTATE) {
+      const locked = accountLockedError();
+      return reply
+        .code(423)
+        .send({ code: locked.code, message: locked.message, requestId: req.id });
+    }
     const e = error as any;
     const status = e.code === "23505" ? 409 : (e.statusCode ?? 500);
     if (status >= 500)
@@ -469,6 +582,20 @@ export async function buildApp(
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
+      // A renamed workspace's previous subdomain names its new address.
+      ...(e.code === "HOST_MOVED" && typeof e.location === "string"
+        ? { location: e.location }
+        : {}),
+      // A domain price that changed since it was shown carries the new
+      // first-year and renewal prices (never the registrar's cost).
+      ...(e.code === "PRICE_CHANGED" &&
+      Number.isSafeInteger(e.firstYearPriceMinor) &&
+      Number.isSafeInteger(e.renewalPriceMinor)
+        ? {
+            firstYearPriceMinor: e.firstYearPriceMinor,
+            renewalPriceMinor: e.renewalPriceMinor,
+          }
+        : {}),
     });
   });
   async function session(
@@ -476,21 +603,29 @@ export async function buildApp(
     userId: string,
     tenantId: string,
     mfa = false,
+    method: SignInMethod = "password",
+    /** Hash of the session this one replaces; its sign-in time carries over. */
+    replaces?: string,
   ) {
-    const token = newToken();
-    await db.system(async (tx) => {
+    const token = await db.system(async (tx) => {
       await workspaceLock(tx, tenantId);
       await tx.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
-      const [membership] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
-        [userId, tenantId],
-      );
-      if (!membership)
-        throw fail(403, "NO_MEMBERSHIP", "No active workspace is available");
-      await tx.query(
-        "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',CASE WHEN $4 THEN now() ELSE NULL END)",
-        [tokenHash(token), userId, tenantId, mfa],
-      );
+      let authenticatedAt: Date | string | null = null;
+      if (replaces) {
+        const [old] = await tx.query(
+          "DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now() RETURNING authenticated_at",
+          [replaces, userId],
+        );
+        if (!old) throw fail(401, "AUTH_REQUIRED", "Please sign in");
+        authenticatedAt = old.authenticated_at;
+      }
+      return openSignInSession(tx, {
+        userId,
+        tenantId,
+        mfa,
+        method,
+        authenticatedAt,
+      });
     });
     reply.setCookie("session", token, {
       path: "/",
@@ -507,23 +642,48 @@ export async function buildApp(
   registerRetention(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
+  registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
+  registerVoiceSessions(app, db);
+  registerWebAddresses(app, db, options.providers?.webAddresses);
+  registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
+  registerVoiceAddOn(app, db, {
+    commerce: commerceProvider,
+    stripe: stripeProvider,
+  });
+  registerProgrammeToday(app, db);
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
   registerAffiliates(app, db, identity);
   registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
+  registerWorkspacePages(app, db, identity);
   registerInfrastructureObserver(app, db, identity, {
     startCollector: !options.testing,
+  });
+  registerHostOperations(app, db, identity, {
+    startSampler: !options.testing,
   });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
   registerAccountCompletion(app, db, identity);
   registerPasskeys(app, db, identity);
+  registerAccountSelfService(app, db, identity);
+  registerOperatorRecovery(app, db, identity);
+  registerOidcSignIn(app, db, identity);
+  registerMembershipExit(app, db, identity, {
+    stripe: options.providers?.stripe,
+  });
   registerCoachSite(app, db);
+  registerDiscovery(app, db);
+  registerMarketing(app, db, {
+    instagramTransport: options.providers?.instagram,
+  });
+  registerEarlyAccess(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
@@ -535,6 +695,15 @@ export async function buildApp(
   operationsRoutes(app, db, identity);
   ingestionRoutes(app, db, trainer);
   registerTeamRoutes(app, db, identity);
+  registerJoiningRoutes(app, db, identity, session, {
+    publicUrl,
+    afterJoin: (req, actor) =>
+      recordSignupAcquisition(db, req, actor, "enroll"),
+  });
+  registerComplimentaryAccess(app, db, identity);
+  registerGovernance(app, db, identity);
+  registerBusinessMetrics(app, db, identity);
+  registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   app.get("/api/v1/public/host", async (req) => {
@@ -543,7 +712,11 @@ export async function buildApp(
   });
   app.get("/api/v1/ready", async () => {
     await db.system((tx) => tx.query("SELECT 1"));
-    return { status: "ready" };
+    const sandbox = providerSandboxStatus();
+    // The local mock-provider sandbox announces itself on every readiness probe.
+    return sandbox.providerSandbox
+      ? { status: "ready", ...sandbox }
+      : { status: "ready" };
   });
   app.post(
     "/api/v1/auth/register",
@@ -560,18 +733,9 @@ export async function buildApp(
         db,
         "registration",
       );
-      if (
-        [
-          "admin",
-          "api",
-          "app",
-          "www",
-          "support",
-          "billing",
-          "trainer",
-        ].includes(b.slug)
-      )
-        throw fail(400, "RESERVED_SLUG", "Please choose another address");
+      // The slug is also the workspace subdomain (<slug>.<root>): reserved
+      // names and a previous slug still redirecting are refused.
+      await assertSlugAvailable(db, b.slug);
       if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
@@ -595,23 +759,21 @@ export async function buildApp(
           "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')",
           [tid, uid],
         );
+        // The owner membership inserted above verifies this scope.
         const a = { tenantId: tid, userId: uid, role: "owner" };
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-          [tid, uid],
-        );
-        await putRecord(tx, a, "onboarding", {
-          steps: { account: true },
-          licenceStatus: "NOT_REQUESTED",
+        await tx.tenant(a, async (tx) => {
+          await putRecord(tx, a, "onboarding", {
+            steps: { account: true },
+            licenceStatus: "NOT_REQUESTED",
+          });
+          await tx.query(
+            "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+            [randomUUID(), tid, uid, registrationVersion],
+          );
+          await event(tx, a, "trainer.signup_completed", uid);
         });
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), tid, uid, registrationVersion],
-        );
-        await event(tx, a, "trainer.signup_completed", uid);
       });
-      await session(reply, uid, tid);
+      await session(reply, uid, tid, false, "registration");
       try {
         await recordSignupAcquisition(db, req, {
           tenantId: tid,
@@ -707,6 +869,9 @@ export async function buildApp(
         const mfa = existing
           ? await consumeMfa(tx, existing.id, b.code)
           : false;
+        // Shared sign-in check once the existing account is fully proven.
+        if (existing) await assertSignInAllowed(tx, existing.id);
+        if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
         if (!existing)
           await tx.query(
@@ -717,24 +882,18 @@ export async function buildApp(
           "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING RETURNING user_id",
           [tenant.id, uid],
         );
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','subscriber',true)",
-          [tenant.id, uid],
-        );
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), tenant.id, uid, registrationVersion],
-        );
-        await event(
-          tx,
-          { tenantId: tenant.id, userId: uid, role: "subscriber" },
-          "subscriber.enrolled",
-          uid,
-        );
+        const joiner = { tenantId: tenant.id, userId: uid, role: "subscriber" };
+        await tx.tenant(joiner, async (tx) => {
+          await tx.query(
+            "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+            [randomUUID(), tenant.id, uid, registrationVersion],
+          );
+          await event(tx, joiner, "subscriber.enrolled", uid);
+          if (membership) await announceFollowerJoined(tx, joiner, "website");
+        });
         return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
-      await session(reply, result.uid, result.tid, result.mfa);
+      await session(reply, result.uid, result.tid, result.mfa, "public_join");
       if (result.joined) {
         try {
           await recordSignupAcquisition(
@@ -773,15 +932,28 @@ export async function buildApp(
       // A chosen workspace must also be the host's workspace on a custom host.
       const [m] = await db.system((tx) =>
         tx.query(
-          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY " +
+          "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) AND ($3::uuid IS NULL OR m.tenant_id=$3) ORDER BY (t.lifecycle_state='active') DESC," +
             recentWorkspaceOrder +
             " LIMIT 1",
           [u.id, req.hostContext?.tenantId ?? null, b.tenantId ?? null],
         ),
       );
-      if (!m) throw fail(403, "NO_MEMBERSHIP", "No active workspace");
+      if (!m) {
+        // A follower whose membership ended learns why, once the password
+        // and any enrolled authenticator have been proven.
+        const ended = await db.system(async (tx) => {
+          const error = await membershipEndedError(
+            tx,
+            u.id,
+            req.hostContext?.tenantId ?? b.tenantId ?? null,
+          );
+          if (error) await consumeMfa(tx, u.id, b.code);
+          return error;
+        });
+        throw ended ?? fail(403, "NO_MEMBERSHIP", "No active workspace");
+      }
       const mfa = await db.system((tx) => consumeMfa(tx, u.id, b.code));
-      await session(reply, u.id, m.tenant_id, mfa);
+      await session(reply, u.id, m.tenant_id, mfa, "password");
       return { ok: true };
     },
   );
@@ -800,7 +972,7 @@ export async function buildApp(
     // A custom host serves only its own workspace; the platform lists them all.
     const workspaces = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id,t.name,t.slug,m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
+        "SELECT m.tenant_id,t.name,t.slug,m.role,t.lifecycle_state FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND t.lifecycle_state IN ('active','suspended') AND ($2::uuid IS NULL OR m.tenant_id=$2) ORDER BY t.name,m.tenant_id",
         [a.userId, req.hostContext?.custom ? req.hostContext.tenantId : null],
       ),
     );
@@ -811,6 +983,7 @@ export async function buildApp(
         name: w.name,
         slug: w.slug,
         role: w.role,
+        state: w.lifecycle_state,
         current: w.tenant_id === a.tenantId,
       })),
     };
@@ -826,17 +999,21 @@ export async function buildApp(
       );
     const [m] = await db.system((tx) =>
       tx.query(
-        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state='active'",
+        "SELECT m.tenant_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=$1 AND m.tenant_id=$2 AND t.lifecycle_state IN ('active','suspended')",
         [a.userId, b.tenantId],
       ),
     );
     if (!m) throw fail(403, "NO_MEMBERSHIP", "Workspace access denied");
-    await db.system((tx) =>
-      tx.query("DELETE FROM sessions WHERE token_hash=$1", [
-        tokenHash(req.cookies.session!),
-      ]),
+    // The old session is replaced in the same transaction and its sign-in
+    // time carries over: switching is not a fresh sign-in.
+    await session(
+      reply,
+      a.userId,
+      b.tenantId,
+      false,
+      "workspace_switch",
+      tokenHash(req.cookies.session ?? ""),
     );
-    await session(reply, a.userId, b.tenantId);
     return { ok: true };
   });
   app.get("/api/v1/bootstrap", async (req) => {
@@ -844,57 +1021,24 @@ export async function buildApp(
     const [tenant] = await db.system((tx) =>
       tx.query("SELECT * FROM tenants WHERE id=$1", [a.tenantId]),
     );
-    return db.tenant(a, async (tx) => ({
-      environment: strictSecurity() ? "production" : "development",
-      user: a,
-      platform: {
-        name: runtimeConfig().APP_NAME || "Trainer Brain",
-        supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
-      },
-      tenant,
-      records: await tx.query(
-        "SELECT * FROM records WHERE kind NOT IN ('twin_snapshot','retention_policy') AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
-      ),
-      sets: await tx.query(
-        "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",
-      ),
-      subscriptions: await tx.query(
-        "SELECT * FROM subscriptions ORDER BY period_end DESC",
-      ),
-      consents: await tx.query(
-        "SELECT * FROM consent_records WHERE user_id=$1 ORDER BY created_at DESC",
-        [a.userId],
-      ),
-      integrations: integrationStatus(),
-      ...(a.role === "subscriber"
-        ? {}
-        : {
-            members: await tx.query(
-              "SELECT u.id,u.name,u.email,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 ORDER BY u.name",
-              [a.tenantId],
-            ),
-            events: await tx.query(
-              "SELECT * FROM events ORDER BY created_at DESC LIMIT 100",
-            ),
-            ...(["owner", "finance"].includes(a.role)
-              ? {
-                  costs: await tx.query(
-                    "SELECT * FROM cost_events ORDER BY created_at DESC LIMIT 100",
-                  ),
-                  payouts: await tx.query(
-                    "SELECT * FROM payouts ORDER BY created_at DESC",
-                  ),
-                  journals: await tx.query(
-                    "SELECT * FROM journals ORDER BY created_at DESC LIMIT 200",
-                  ),
-                  usageStatements: await tx.query(
-                    "SELECT period,total_cost_usd,fx_aed_per_usd,charge_minor,fee_schedule_version FROM usage_statements ORDER BY period DESC",
-                  ),
-                  finance: await financeSummary(tx),
-                }
-              : {}),
-          }),
-    }));
+    // Every collection is a bounded first page with `pages` cursors and exact
+    // `totals` (workspace-pages.ts); later pages use /workspace/pages/*.
+    return db.tenant(a, async (tx) => {
+      const { records, ...collections } = await bootstrapCollections(tx, a);
+      return {
+        environment: strictSecurity() ? "production" : "development",
+        providerSandbox: providerSandboxStatus().providerSandbox,
+        user: a,
+        platform: {
+          name: platformName(runtimeConfig().APP_NAME),
+          supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
+        },
+        tenant,
+        records,
+        integrations: integrationStatus(),
+        ...collections,
+      };
+    });
   });
   app.put("/api/v1/tenant/brand", async (req) => {
     const a = owner(req),
@@ -929,51 +1073,35 @@ export async function buildApp(
     return { trainer: t, products };
   });
 
-  app.post("/api/v1/invitations", async (req) => {
-    const a = owner(req);
-    const b = z
-      .object({
-        email: z.email(),
-        role: z.enum(["staff", "finance", "subscriber"]),
-      })
-      .parse(req.body);
-    if (b.role !== "subscriber")
-      return createTeamInvitation(db, a, b, publicUrl());
-    const token = newToken();
-    await db.system(async (tx) => {
-      await workspaceLock(tx, a.tenantId);
-      const [current] = await tx.query(
-        "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND t.lifecycle_state='active'",
-        [a.tenantId, a.userId],
+  app.post(
+    "/api/v1/invitations",
+    { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      const b = z
+        .object({
+          email: z.email(),
+          role: z.enum(["staff", "finance", "subscriber"]),
+        })
+        .parse(req.body);
+      if (b.role !== "subscriber")
+        return createTeamInvitation(db, a, b, publicUrl());
+      // Follower invitations: optional email delivery, status and cancellation
+      // live in joining.ts; the copy-link result is always returned.
+      return createFollowerInvitation(
+        db,
+        a,
+        req.body,
+        req.hostContext?.origin ?? publicUrl(),
       );
-      if (!current)
-        throw fail(
-          403,
-          "OWNER_REQUIRED",
-          "Current workspace owner access is required",
-        );
-      await tx.query(
-        "INSERT INTO one_time_tokens(token_hash,purpose,tenant_id,payload,expires_at) VALUES($1,'invite',$2,$3,now()+interval '7 days')",
-        [
-          tokenHash(token),
-          a.tenantId,
-          JSON.stringify({ ...b, invitedBy: a.userId }),
-        ],
-      );
-    });
-    await db.tenant(a, (tx) =>
-      event(tx, a, "team.invited", undefined, { role: b.role }),
-    );
-    return {
-      url: `${req.hostContext?.origin ?? publicUrl()}/join/${token}`,
-      expiresInDays: 7,
-    };
-  });
+    },
+  );
   app.post("/api/v1/invitations/accept", async (req, reply) => {
     const b = z
       .object({
         token: z.string().min(20),
-        name: z.string().min(2).max(100),
+        // An existing account joins with its own password; only a new account needs a name.
+        name: z.string().trim().min(2).max(100).optional(),
         email: z.email(),
         password: z.string().min(12).max(128),
         accepted: z.literal(true),
@@ -1035,40 +1163,32 @@ export async function buildApp(
           "Use the password for your existing account",
         );
       const mfa = existing ? await consumeMfa(tx, existing.id, b.code) : false;
+      if (existing) await assertSignInAllowed(tx, existing.id);
       const uid = existing?.id ?? randomUUID();
+      if (!existing && !b.name)
+        throw fail(
+          400,
+          "NAME_REQUIRED",
+          "Enter your name to create your account",
+        );
       if (!existing)
         await tx.query(
           "INSERT INTO users(id,email,name,password_hash,email_verified) VALUES($1,$2,$3,$4,$5)",
           [uid, b.email.toLowerCase(), b.name, hash, false],
         );
-      const [membership] = await tx.query(
-        "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id",
-        [invite.tenant_id, uid, invite.payload.role],
-      );
-      await tx.query(
-        "UPDATE one_time_tokens SET consumed_at=now() WHERE token_hash=$1",
-        [tokenHash(b.token)],
-      );
-      if (membership) {
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-          [invite.tenant_id, uid, invite.payload.role],
-        );
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), invite.tenant_id, uid, registrationVersion],
-        );
-        await tx.query("RESET ROLE");
-      }
+      const joined = await completeInvitationAcceptance(tx, {
+        invite,
+        userId: uid,
+        registrationVersion,
+      });
       return {
         uid,
         tid: invite.tenant_id,
         mfa,
-        joined: !!membership && invite.payload.role === "subscriber",
+        joined: joined && invite.payload.role === "subscriber",
       };
     });
-    await session(reply, result.uid, result.tid, result.mfa);
+    await session(reply, result.uid, result.tid, result.mfa, "invitation");
     if (result.joined) {
       try {
         await recordSignupAcquisition(
@@ -1193,7 +1313,15 @@ export async function buildApp(
       const rules = [],
         conflicts = [],
         batchId = randomUUID();
-      for (const rule of generated.rules)
+      // Warnings the trainer sees on the draft before confirming it (medical
+      // advice, a red flag the directive does not stop for, links, contact
+      // details, approval claims, guarantees).
+      const policy = await activeSafetyPolicy(tx);
+      for (const rule of generated.rules) {
+        const flags = compiledRuleFlags(
+          rule,
+          (text) => screenSafety(text, policy).hold,
+        );
         rules.push(
           await putRecord(
             tx,
@@ -1201,6 +1329,7 @@ export async function buildApp(
             "rule",
             {
               ...rule,
+              ...(flags.length ? { flags } : {}),
               allowedUses: [
                 "render",
                 "model_prompt",
@@ -1212,6 +1341,7 @@ export async function buildApp(
             { status: "draft" },
           ),
         );
+      }
       for (const conflict of generated.conflicts)
         conflicts.push(
           await putRecord(tx, a, "conflict", conflict, { status: "open" }),
@@ -1220,6 +1350,7 @@ export async function buildApp(
         rules: rules.length,
         conflicts: generated.conflicts.length,
         coverage: generated.coverage,
+        flagged: rules.filter((r: any) => r.data.flags?.length).length,
         ruleIds: rules.map((r) => r.id),
         conflictIds: conflicts.map((c) => c.id),
       });
@@ -1320,10 +1451,21 @@ export async function buildApp(
     });
   });
   app.post("/api/v1/brain/rules/:id/confirm", async (req) => {
-    const a = owner(req);
+    const a = owner(req),
+      b = z
+        .object({ acknowledgeFlags: z.boolean().default(false) })
+        .parse(req.body ?? {});
     return db.tenant(a, async (tx) => {
       const r = await findRecord(tx, (req.params as any).id, "rule");
       if (r.status === "confirmed") return r;
+      // A flagged compiled rule is confirmed only one at a time with its
+      // warning shown; correcting the rule clears the flags.
+      if (r.data.flags?.length && !b.acknowledgeFlags)
+        throw fail(
+          409,
+          "RULE_FLAGGED",
+          `This draft rule was flagged (${r.data.flags.join(", ").replaceAll("_", " ")}); correct it, or confirm it with the warning acknowledged`,
+        );
       const [out] = await tx.query(
         "UPDATE records SET status='confirmed',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1 RETURNING *",
         [
@@ -1375,6 +1517,19 @@ export async function buildApp(
         "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT $1",
         [HELD_OUT_SCENARIO_LIMIT + 1],
       ),
+      // The trainer's library and plan bounds grade any program an answer
+      // proposes.
+      plan: {
+        library: planLibrary(
+          await tx.query(
+            "SELECT * FROM records WHERE kind='exercise' AND status='active' ORDER BY data->>'name',id LIMIT 1000",
+          ),
+          await tx.query(
+            "SELECT * FROM records WHERE kind='program' AND status='template' ORDER BY created_at DESC,id LIMIT 100",
+          ),
+        ),
+        bounds: (await loadPlanSettings(tx)).settings.bounds,
+      },
     }));
     // Every held-out scenario is evaluated; none is silently dropped.
     if (material.cases.length > HELD_OUT_SCENARIO_LIMIT)
@@ -1390,18 +1545,55 @@ export async function buildApp(
         "EVAL_COVERAGE",
         "Add at least 20 held-out scenarios before evaluating a release",
       );
-    const outcomes: Array<{ scenarioId: string; passed: boolean }> = [];
+    const outcomes: Array<{
+      scenarioId: string;
+      passed: boolean;
+      error?: string;
+      issues?: string[];
+    }> = [];
     for (const c of material.cases) {
-      const generated = await modelDecision(
-        "held_out_evaluation",
-        c.data.prompt,
-        material.rules.map((r) => ({ id: r.id, data: r.data })),
-        modelAccounting(db, a, "evaluation"),
-      );
-      const passed = c.data.expectEscalation
+      let generated: Awaited<ReturnType<typeof modelDecision>>;
+      try {
+        generated = await modelDecision(
+          "held_out_evaluation",
+          c.data.prompt,
+          material.rules.map((r) => ({ id: r.id, data: r.data })),
+          modelAccounting(db, a, "evaluation"),
+        );
+      } catch (error) {
+        // An invalid answer fails its scenario; the rest of the run and the
+        // calls already paid for are kept. Configuration and network
+        // failures still stop the evaluation.
+        if (!(error instanceof ModelOutputInvalid)) throw error;
+        outcomes.push({
+          scenarioId: c.id,
+          passed: false,
+          error: "invalid_model_answer",
+        });
+        continue;
+      }
+      const routed = c.data.expectEscalation
         ? generated.decision.type === "escalation"
         : generated.decision.evidenceIds.includes(c.data.expectedEvidenceId);
-      outcomes.push({ scenarioId: c.id, passed });
+      // Citing the right rule is not enough: the wording and any program
+      // must also be safe to show a member.
+      const cited = material.rules.filter((r) =>
+        generated.decision.evidenceIds.includes(r.id),
+      );
+      const issues = evaluationAnswerIssues(generated.decision, {
+        ...material.plan,
+        programExpected:
+          !c.data.expectEscalation &&
+          generated.decision.type === "program_build",
+        citedText: cited
+          .map((r) => [r.data.title, r.data.condition, r.data.directive].join(". "))
+          .join(" "),
+      });
+      outcomes.push({
+        scenarioId: c.id,
+        passed: routed && !issues.length,
+        ...(issues.length ? { issues } : {}),
+      });
     }
     const digest = createHash("sha256")
       .update(
@@ -1568,8 +1760,12 @@ export async function buildApp(
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
-      const safety = a.role === "subscriber" && safetySignal(b.text);
-      if (safety) await openTrainingHold(tx, a, target, b.text);
+      // Code floor plus the published policy's tightening terms.
+      const screen =
+        a.role === "subscriber" ? await screenForSafety(tx, b.text) : null;
+      const safety = !!screen?.hold;
+      if (safety)
+        await openTrainingHold(tx, a, target, b.text, undefined, screen!);
       const message = await putRecord(
         tx,
         a,
@@ -1628,6 +1824,7 @@ export async function buildApp(
             "NUTRITION_PRICE",
             "Workout + nutrition must cost more than its workout-only offer.",
           );
+        assertComparableOffer(b, base.data);
       }
       const r = await putRecord(
         tx,
@@ -1665,15 +1862,28 @@ export async function buildApp(
       },
       { idempotencyKey: `product:${product.id}` },
     );
+    // Monthly offers renew every month; an upfront programme is one payment.
+    const upfront = offerBilling(product.data) === "upfront";
     const price = await stripe.prices.create(
       {
         product: remote.id,
         currency: "aed",
         unit_amount: product.data.priceMinor,
-        recurring: { interval: "month" },
+        ...(upfront ? {} : { recurring: { interval: "month" as const } }),
+        metadata: {
+          tenant_id: a.tenantId,
+          product_id: product.id,
+          billing: upfront ? "upfront" : "monthly",
+        },
       },
       { idempotencyKey: `price:${product.id}:v${product.version}` },
     );
+    const voice = product.data.voiceAddOnMinor
+      ? await createVoiceAddOnPrice(stripe, a.tenantId, product, {
+          priceMinor: product.data.voiceAddOnMinor,
+          version: product.version,
+        })
+      : null;
     await db.tenant(a, (tx) =>
       tx.query(
         "UPDATE records SET status='published',data=data||$2::jsonb WHERE id=$1",
@@ -1682,12 +1892,14 @@ export async function buildApp(
           JSON.stringify({
             stripeProductId: remote.id,
             stripePriceId: price.id,
+            ...(voice ?? {}),
           }),
         ],
       ),
     );
     return { ok: true };
   });
+  registerOfferVoiceAddOn(app, db, owner, commerceProvider);
   registerSubscriptionCheckout(app, db, requireNutritionReady);
   app.post("/api/v1/membership/change-plan", async (req) => {
     const a = identity(req),
@@ -1701,7 +1913,7 @@ export async function buildApp(
         "Plan changes await activation of the reviewed billing policy.",
       );
     const stripe = stripeProvider();
-    const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    const context = await db.tenant(a, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
         [a.userId],
@@ -1715,6 +1927,13 @@ export async function buildApp(
       const product = await findRecord(tx, b.productId, "product");
       if (product.status !== "published" || !product.data.stripePriceId)
         throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not active.");
+      // An upfront programme is bought as its own payment, never a plan change.
+      if (offerBilling(product.data) !== "monthly")
+        throw fail(
+          409,
+          "UPFRONT_PLAN",
+          "An upfront programme is bought separately once your current access ends.",
+        );
       if (product.data.tier === "workout_nutrition")
         await requireNutritionReady(tx);
       if (subscription.data.productId === product.id)
@@ -1800,7 +2019,7 @@ export async function buildApp(
         },
       },
     });
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(a, (tx) =>
       event(
         tx,
         a,
@@ -1909,7 +2128,8 @@ export async function buildApp(
   });
   app.post("/api/v1/payout-runs/:id/execute", async (req) => {
     const a = owner(req);
-    requireRecentMfa(a);
+    // Operator authority: a fresh authenticator in every environment.
+    requireRecentMfa(a, true);
     if (a.platformRole !== "finance" && a.platformRole !== "admin")
       throw fail(
         403,
@@ -1929,7 +2149,9 @@ export async function buildApp(
       );
     const rows = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,l.account",
+        // The platform's registrar cost for the trainer's domain is not the
+        // trainer's ledger (docs/features/web-addresses.md).
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
       ),
     );
     reply
@@ -1962,6 +2184,10 @@ export async function buildApp(
         granted: z.boolean(),
       })
       .parse(req.body);
+    // While a workspace is suspended a member can only withdraw permission.
+    const suspended = a.workspaceState === "suspended";
+    if (suspended && b.granted)
+      throw fail(423, "WORKSPACE_SUSPENDED", workspaceSuspendedMessage());
     const consentVersion = await legalAcceptanceVersion(db, b.type);
     return db.tenant(a, async (tx) => {
       if (b.type === "voice" || b.type === "wearable") {
@@ -1978,7 +2204,8 @@ export async function buildApp(
             a.userId,
         ]);
       }
-      if (b.type === "coaching") await lockTraining(tx, a);
+      if (b.type === "coaching")
+        await (suspended ? lockSuspendedMember(tx, a) : lockTraining(tx, a));
       if (b.type === "coaching")
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           a.tenantId + ":training:" + a.userId,
@@ -2075,6 +2302,13 @@ export async function buildApp(
         consent: z.literal(true),
       })
       .parse(req.body);
+    // The coach's wearable policy applies to file imports and automatic sync.
+    if ((await readCoachWearablePolicy(db, a)) === "none")
+      throw fail(
+        403,
+        "WEARABLE_POLICY",
+        "Your coach does not accept health imports.",
+      );
     const importConsentVersion =
       (await legalAcceptanceVersion(db, "wearable")) +
       "|integration-consent:v1";
@@ -2174,16 +2408,36 @@ export async function buildApp(
     const a = identity(req);
     if (!["admin", "finance", "support", "safety"].includes(a.platformRole))
       throw fail(403, "ADMIN_REQUIRED", "Platform access is required");
-    requireRecentMfa(a);
-    const tenants = await db.system((tx) =>
+    requireRecentMfa(a, true);
+    // Workspaces are paged (newest first); only the workspaces on this page
+    // are opened and recorded as inspected.
+    const q = z
+      .object({ cursor: z.string().max(1000).optional() })
+      .parse(req.query);
+    const page = await db.system((tx) =>
+      keysetPage(tx, {
+        select: "id,slug,name,published,created_at",
+        from: "tenants",
+        key: createdKey(),
+        descending: true,
+        cursor: q.cursor,
+        limit: ADMIN_OVERVIEW_PAGE,
+      }),
+    );
+    const [totals] = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC",
+        "SELECT count(*)::int AS workspaces,count(*) FILTER(WHERE published)::int AS published FROM tenants",
       ),
     );
+    const tenants = page.items;
     const results = [];
     for (const t of tenants) {
       const summary = await db.tenant(
-        { ...a, tenantId: t.id, role: "owner" },
+        elevated("platform-operator", {
+          tenantId: t.id,
+          userId: a.userId,
+          role: "owner",
+        }),
         async (tx) => {
           await event(
             tx,
@@ -2200,15 +2454,27 @@ export async function buildApp(
                   ),
                 }
               : {}),
+            // A bounded sample with the exact count.
             exceptions: await tx.query(
-              "SELECT id,status,created_at,data->>'category' AS category FROM records WHERE kind='exception' AND status='open'",
+              "SELECT id,status,created_at,data->>'category' AS category FROM records WHERE kind='exception' AND status='open' ORDER BY created_at DESC,id DESC LIMIT 20",
             ),
+            openExceptions: (
+              await tx.query(
+                "SELECT count(*)::int AS n FROM records WHERE kind='exception' AND status='open'",
+              )
+            )[0].n,
           };
         },
       );
       results.push({ ...t, ...summary });
     }
-    return { tenants: results, integrations: integrationStatus() };
+    return {
+      tenants: results,
+      integrations: integrationStatus(),
+      hasMore: page.hasMore,
+      cursor: page.cursor,
+      totals,
+    };
   });
 
   // Signed provider deliveries have their own per-source budget, separate from

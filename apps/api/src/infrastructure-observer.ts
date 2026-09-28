@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Actor, Database, Tx } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 
@@ -367,11 +367,12 @@ const unavailableSources = [
   {
     source: "Fleet and cloud resources",
     reason:
-      "No cloud inventory or machine monitoring is connected. Host CPU/memory, pods and worker capacity are unavailable.",
+      "Load, memory, disk and container status of this server come from the host controller and appear under Host and backups. No cloud inventory is connected, so other machines and capacity purchases are unavailable.",
   },
   {
     source: "Storage and egress",
-    reason: "No storage-capacity or network-egress measurements are connected.",
+    reason:
+      "This server's disk use appears under Host and backups. Object-storage capacity and network egress are not measured.",
   },
   {
     source: "Infrastructure spend and forecast",
@@ -607,11 +608,7 @@ async function databaseMeasurements(
       failed = 0;
     for (const tenant of tenants) {
       const [q] = await db.tenant(
-        {
-          tenantId: tenant.id,
-          userId: "00000000-0000-0000-0000-000000000000",
-          role: "staff",
-        },
+        elevated("worker", { tenantId: tenant.id, role: "staff" }),
         (tx) =>
           tx.query(
             "SELECT count(*) FILTER(WHERE status='pending')::int AS pending,count(*) FILTER(WHERE status='pending' AND leased_until>now())::int AS leased,count(*) FILTER(WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<=now()))::int AS ready,coalesce(max(extract(epoch FROM(now()-available_at))) FILTER(WHERE status='pending' AND available_at<=now() AND (leased_until IS NULL OR leased_until<=now())),0)::float8 AS oldest,count(*) FILTER(WHERE status IN ('blocked','failed'))::int AS failed FROM jobs",

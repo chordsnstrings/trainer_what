@@ -35,6 +35,7 @@ export async function modelCompletion(
   model: string,
   body: Record<string, unknown>,
   accounting: ModelAccounting,
+  options: { timeoutMs?: number } = {},
 ) {
   const config = runtimeConfig();
   const pricing = {
@@ -62,7 +63,9 @@ export async function modelCompletion(
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(
+          Math.min(300000, Math.max(1000, options.timeoutMs ?? 30000)),
+        ),
         body: JSON.stringify({ ...body, model }),
       },
       async () => {

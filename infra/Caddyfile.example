@@ -1,3 +1,14 @@
+{
+    # Coach custom domains: a certificate is obtained on the first TLS handshake
+    # for a name only when the API answers 200 (an active, verified domain
+    # mapping, or a short allowance created by an operator's activation attempt).
+    # The token is HMAC-SHA256(INTERNAL_PROXY_SECRET, "gymmembership-tls-ask-v1")
+    # in hex; the API refuses the ask endpoint when it arrives through the web proxy.
+    on_demand_tls {
+        ask http://127.0.0.1:4000/api/v1/internal/tls/ask?token=<derived-token>
+    }
+}
+
 coach.example.com {
     encode zstd gzip
     # The web proxy signs this address for per-client API budgets; overwrite any
@@ -6,4 +17,14 @@ coach.example.com {
         header_up X-Forwarded-For {remote_host}
     }
     header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-For {remote_host}
+    }
 }

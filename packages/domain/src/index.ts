@@ -105,7 +105,7 @@ export const decisionSchema = z
 // variants are screened alike; "الأم" (the mother) is set apart before folding
 // so it is not read as "الام" (pains).
 // Boundaries avoid lookbehind because this module is also bundled for browsers.
-function screeningText(text: string) {
+export function screeningText(text: string) {
   return text
     .normalize("NFKC")
     .replace(/[\u064B-\u065F\u0670\u0640]/g, "")

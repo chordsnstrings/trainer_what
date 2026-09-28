@@ -9,6 +9,9 @@ export const trainingExerciseSchema = z
     loadKg: z.number().min(0).max(500).default(0),
     rir: z.number().min(0).max(10).default(2),
     cue: z.string().max(1000).default(""),
+    // Equipment the exercise needs; the Brain's plan validator checks it
+    // against the subscriber's intake (docs/features/brain-plans.md).
+    equipment: z.array(z.string().trim().min(2).max(80)).max(8).optional(),
     demonstrationUrl: z
       .url()
       .refine(

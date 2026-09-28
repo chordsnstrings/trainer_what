@@ -11,6 +11,11 @@ import {
   type Tx,
 } from "@trainer/db";
 import { brandSchema, resolveBrandDesign } from "@trainer/contracts";
+import { notifyUser } from "./notifications.ts";
+import { inquiryAttribution, recordLeadAcquisition } from "./acquisition.ts";
+
+/** At most this many inquiry emails/device alerts per workspace per hour; in-app always. */
+export const INQUIRY_ALERTS_PER_HOUR = 10;
 
 const id = z.string().uuid();
 const fail = (statusCode: number, code: string, message: string) =>
@@ -49,6 +54,11 @@ export const siteSchema = z
     cta: z.string().trim().min(1).max(60).default("Start coaching"),
     seoTitle: z.string().trim().max(100).default(""),
     seoDescription: z.string().trim().max(200).default(""),
+    // The language the coach writes the website in. Arabic lays the public
+    // website out right to left unless the visitor chose a language. Absent
+    // means English (older drafts and published sites), and English is never
+    // stored (see the transform below).
+    language: z.enum(["en", "ar"]).optional(),
     pages: z.array(page).max(100).default([]),
   })
   .strict()
@@ -59,7 +69,13 @@ export const siteSchema = z
         message: "Page addresses must be unique",
         path: ["pages"],
       });
-  });
+  })
+  // Only a website switched to Arabic carries the key. The previous release's
+  // strict schema rejects unknown keys, so an English website saved here stays
+  // readable by it after an operator rollback (rollback_release).
+  .transform(({ language, ...site }) =>
+    language === "ar" ? { ...site, language } : site,
+  );
 function owner(req: FastifyRequest) {
   const a = req.identity;
   if (!a) throw fail(401, "AUTH_REQUIRED", "Please sign in");
@@ -105,55 +121,54 @@ export async function saveCoachBrand(
   a: Actor,
   submitted: z.infer<typeof brandSchema>,
 ) {
-  return db.system(async (tx) => {
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      a.tenantId + ":workspace",
-    ]);
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      a.tenantId + ":brand",
-    ]);
-    // Lock the tenant row as well: onboarding may change the identity independently
-    // of design editing. The current theme and audit event belong to one commit.
-    await tx.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [
-      a.tenantId,
-    ]);
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-      [a.tenantId, a.userId, a.role],
-    );
-    const [row] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
-    if (!row?.tenant)
-      throw fail(
-        403,
-        "OWNER_REQUIRED",
-        "Current owner access to an active workspace is required",
-      );
-    const current = row.tenant,
-      version = Number(current.theme?.brandVersion ?? 0);
-    if (
-      submitted.expectedVersion !== undefined &&
-      submitted.expectedVersion !== version
-    )
-      throw fail(
-        409,
-        "BRAND_VERSION_CONFLICT",
-        "Your design changed in another session. Reload before saving.",
-      );
-    await assertBrandMedia(tx, a, submitted.design);
-    const { expectedVersion, ...data } = submitted;
-    const next = { ...current.theme, ...data, brandVersion: version + 1 };
-    await event(tx, a, "tenant.brand_updated", a.tenantId, {
-      version: version + 1,
-    });
-    await tx.query("RESET ROLE");
-    await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
-      a.tenantId,
-      submitted.name,
-      JSON.stringify(next),
-    ]);
-    return next;
-  });
+  return db.system(
+    async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":workspace",
+      ]);
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brand",
+      ]);
+      // Lock the tenant row as well: onboarding may change the identity independently
+      // of design editing. The current theme and audit event belong to one commit.
+      await tx.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [
+        a.tenantId,
+      ]);
+      const next = await tx.tenant(a, async (tx) => {
+        const [row] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
+        if (!row?.tenant)
+          throw fail(
+            403,
+            "OWNER_REQUIRED",
+            "Current owner access to an active workspace is required",
+          );
+        const current = row.tenant,
+          version = Number(current.theme?.brandVersion ?? 0);
+        if (
+          submitted.expectedVersion !== undefined &&
+          submitted.expectedVersion !== version
+        )
+          throw fail(
+            409,
+            "BRAND_VERSION_CONFLICT",
+            "Your design changed in another session. Reload before saving.",
+          );
+        await assertBrandMedia(tx, a, submitted.design);
+        const { expectedVersion, ...data } = submitted;
+        await event(tx, a, "tenant.brand_updated", a.tenantId, {
+          version: version + 1,
+        });
+        return { ...current.theme, ...data, brandVersion: version + 1 };
+      });
+      await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
+        a.tenantId,
+        submitted.name,
+        JSON.stringify(next),
+      ]);
+      return next;
+    },
+    { tenantId: a.tenantId },
+  );
 }
 function withoutOwnedPhotoReferences(value: any, urls: Set<string>) {
   if (!value?.design || typeof value.design !== "object") return null;
@@ -225,23 +240,11 @@ export async function eraseOwnedBrandMedia(tx: Tx, userId: string) {
       "UPDATE coach_design_drafts SET data=$2,version=version+1,updated_at=now() WHERE tenant_id=$1",
       [tenantId, JSON.stringify(nextDraft)],
     );
-  // tenants is deliberately inaccessible to trainer_app. The active transaction
-  // has already established one workspace and the erasure route's authority.
-  await tx.query("RESET ROLE");
-  const [tenant] = await tx.query(
-    "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
-    [tenantId],
-  );
-  const nextTheme = withoutOwnedPhotoReferences(tenant?.theme, urls);
-  if (nextTheme)
-    await tx.query("UPDATE tenants SET theme=$2 WHERE id=$1", [
-      tenantId,
-      JSON.stringify({
-        ...nextTheme,
-        brandVersion: Number(tenant.theme?.brandVersion ?? 0) + 1,
-      }),
-    ]);
-  await tx.query("SET LOCAL ROLE trainer_app");
+  // tenants is deliberately inaccessible to trainer_app. The erasure scope's
+  // definer helper (migration 061) clears only these photo addresses from the
+  // current workspace's theme and bumps its brand version; the transaction
+  // never leaves its tenant scope.
+  await tx.query("SELECT erase_brand_theme_media($1::text[])", [[...urls]]);
   await tx.query("DELETE FROM brand_media WHERE owner_user_id=$1", [userId]);
 }
 function publicHost(req: FastifyRequest, slug?: string) {
@@ -651,11 +654,24 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
   });
   app.get("/api/v1/tenant/site/inquiries", async (req) => {
     const a = owner(req);
-    return ownerTransaction(db, a, async (tx, tenant) => ({
-      items: await tx.query(
+    const items = await ownerTransaction(db, a, async (tx, tenant) =>
+      tx.query(
         "SELECT * FROM records WHERE kind='website_inquiry' ORDER BY created_at DESC LIMIT 200",
       ),
-    }));
+    );
+    // Campaign/referral attribution exists only for visitors who allowed
+    // optional analytics, and disappears with that permission.
+    const attribution = await inquiryAttribution(
+      db,
+      a.tenantId,
+      items.map((r) => r.id),
+    );
+    return {
+      items: items.map((r) => ({
+        ...r,
+        attribution: attribution.get(r.id) ?? null,
+      })),
+    };
   });
   app.post("/api/v1/tenant/site/inquiries/:id", async (req) => {
     const a = owner(req),
@@ -822,25 +838,52 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           )[0],
       );
       if (!a) throw fail(404, "NOT_FOUND", "Coach unavailable");
-      await ownerTransaction(
-        db,
-        { tenantId: tenant.id, userId: a.user_id, role: "owner" },
-        (tx) =>
-          putRecord(
-            tx,
-            { tenantId: tenant.id, userId: a.user_id, role: "owner" },
-            "website_inquiry",
-            {
-              name: b.name,
-              email: b.email,
-              message: b.message,
-              consent: true,
-              consentVersion: contactVersion,
-              submittedAt: new Date().toISOString(),
-            },
-            { status: "open" },
-          ),
-      );
+      const actor = { tenantId: tenant.id, userId: a.user_id, role: "owner" };
+      const inquiry = await ownerTransaction(db, actor, async (tx) => {
+        const r = await putRecord(
+          tx,
+          actor,
+          "website_inquiry",
+          {
+            name: b.name,
+            email: b.email,
+            message: b.message,
+            consent: true,
+            consentVersion: contactVersion,
+            submittedAt: new Date().toISOString(),
+          },
+          { status: "open" },
+        );
+        // The owner is told about every inquiry in-app. Email and device
+        // alerts follow the owner's preferences and an hourly workspace cap,
+        // so a flood of form posts cannot become a flood of emails.
+        const [recent] = await tx.query(
+          "SELECT count(*)::int AS n FROM notifications WHERE user_id=$1 AND dedupe_key LIKE 'website-inquiry:%' AND created_at>now()-interval '1 hour'",
+          [a.user_id],
+        );
+        const alert = recent.n < INQUIRY_ALERTS_PER_HOUR;
+        await notifyUser(tx, actor, {
+          userId: a.user_id,
+          category: "coaching",
+          topic: "inquiry",
+          dedupeKey: `website-inquiry:${r.id}`,
+          title: "New website inquiry",
+          body: "Someone contacted you through your coaching website. Open your website inquiries to read the message and reply.",
+          href: "/trainer/website",
+          templateKey: "website-inquiry",
+          ...(alert ? {} : { email: false, push: false }),
+          source: { type: "website_inquiry", id: r.id },
+        });
+        await event(tx, actor, "website.inquiry_received", r.id, {
+          alerted: alert,
+        });
+        return r;
+      });
+      try {
+        await recordLeadAcquisition(db, req, tenant.id, inquiry.id);
+      } catch {
+        req.log.warn("Website lead attribution could not be recorded");
+      }
       return { ok: true };
     },
   );

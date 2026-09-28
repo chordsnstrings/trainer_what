@@ -1,4 +1,4 @@
-import type { Actor, Database, Tx } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import {
   encryptionKeyring,
   openSealedValue,
@@ -77,11 +77,8 @@ const tenantColumns: Column[] = [
   },
 ];
 // Scoped owner transactions, as workers use: the runtime role never bypasses RLS.
-const rotationActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "owner",
-});
+const rotationActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "owner" });
 
 export function sealedTotals(report: SealedValueReport): Counts {
   const total: Counts = {

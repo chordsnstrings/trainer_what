@@ -6,6 +6,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { HealthKitSyncPanel } from "./healthkit-sync";
+import { VoiceSessionStyle } from "./voice-session-style";
+import { WebAddressCenter } from "./web-address";
+import { WebAddressOperations } from "./web-address-operations";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -92,25 +96,57 @@ export function IntegrationCenter({
         <nav className="tabs" aria-label="Integration sections">
           <a href="/trainer/integrations">Health connections</a>
           <a href="/trainer/voice">Trainer voice</a>
-          <a href="/trainer/domains">Custom domains</a>
+          <a href="/trainer/domains">Web address</a>
         </nav>
       )}
       {trainer && path.includes("/voice") ? (
-        <VoiceEnrollment />
+        <>
+          <VoiceEnrollment />
+          <VoiceSessionStyle />
+        </>
       ) : trainer && path.includes("/domains") ? (
-        <DomainCenter />
+        <WebAddressCenter manual={<DomainCenter />} />
       ) : (
-        <HealthConnections integrations={integrations} />
+        <>
+          <HealthConnections integrations={integrations} trainer={trainer} />
+          <HealthKitSyncPanel role={role} />
+        </>
       )}
     </div>
   );
 }
 
-function HealthConnections({ integrations }: { integrations: any[] }) {
+/** Shown when the coach's wearable policy is "No wearable imports". */
+export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
+  return (
+    <p>
+      <span className="badge amber">Not accepted</span>{" "}
+      {trainer ? (
+        <>
+          Your coaching data policy is “No wearable imports”. Change your{" "}
+          <a href="/trainer/onboarding/wearables">wearable policy</a> to accept
+          Apple Health exports.
+        </>
+      ) : (
+        "Your coach does not accept health imports, so an Apple Health export cannot be imported."
+      )}
+    </p>
+  );
+}
+
+function HealthConnections({
+  integrations,
+  trainer = false,
+}: {
+  integrations: any[];
+  trainer?: boolean;
+}) {
   const [data, setData] = useState<any>({ connections: [], imports: [] }),
     [observations, setObservations] = useState<any[]>([]),
     [consent, setConsent] = useState(false),
     [fileName, setFileName] = useState("");
+  // The coach's policy "No wearable imports" refuses export imports.
+  const importsRefused = data.coachAllowsImports === false;
   const refresh = useCallback(
       async () => setData(await api("/integrations/connections")),
       [],
@@ -269,11 +305,12 @@ function HealthConnections({ integrations }: { integrations: any[] }) {
           Supported numeric observations retain their source, unit and
           measurement time.
         </p>
+        {importsRefused && <ImportRefusedNotice trainer={trainer} />}
         <input
           type="file"
           accept=".xml"
           aria-label="Apple Health export XML"
-          disabled={action.busy}
+          disabled={action.busy || importsRefused}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file)
@@ -282,7 +319,7 @@ function HealthConnections({ integrations }: { integrations: any[] }) {
               );
           }}
         />
-        {observations.length > 0 && (
+        {observations.length > 0 && !importsRefused && (
           <div>
             <p>
               {fileName} · {observations.length.toLocaleString()} observations ·{" "}
@@ -358,9 +395,36 @@ function HealthConnections({ integrations }: { integrations: any[] }) {
         ) : (
           <p className="muted">No active imported observations.</p>
         )}
+        {(data.importHistory ?? []).map((batch: any) => (
+          <div className="list-row" key={batch.id}>
+            <div>
+              <strong>
+                {batch.source === "apple_health"
+                  ? "Apple Health export"
+                  : "Manual import"}
+              </strong>
+              <p>
+                {batch.observations} observations · Imported{" "}
+                {new Date(batch.imported_at).toLocaleString()}
+              </p>
+            </div>
+            <button
+              disabled={action.busy}
+              onClick={() =>
+                void action.run(
+                  () => api(`/wearables/${batch.id}`, "DELETE"),
+                  "Import deleted",
+                )
+              }
+            >
+              Delete import
+            </button>
+          </div>
+        ))}
         <p className="muted">
-          Revoking stops further use. Request an export or deletion from your
-          privacy settings.
+          Revoking stops further use. Deleting an import removes its
+          observations. Request an export or full deletion from your privacy
+          settings.
         </p>
       </Panel>
     </>
@@ -747,8 +811,7 @@ function DomainCenter() {
           )}
           {order.status === "requested" && (
             <p>
-              A platform operator will obtain an exact registrar quote for your
-              approval.
+              The platform team will send you an exact price for your approval.
             </p>
           )}
           {order.status === "quoted" && (
@@ -823,7 +886,9 @@ function DomainCenter() {
                     api(`/domains/${order.id}/cancel`, "POST", {
                       revision: order.version,
                     }),
-                  "Domain disconnected; registrar registration remains yours",
+                  order.alreadyOwned
+                    ? "Domain disconnected; your own registration is not affected"
+                    : "Domain disconnected",
                 )
               }
             >
@@ -861,6 +926,7 @@ export function IntegrationOperations() {
         </p>
       </div>
       <Notice value={action.message} />
+      <WebAddressOperations />
       {voices.map((voice) => (
         <Panel title={`${voice.name} · Voice ${voice.status}`} key={voice.id}>
           <p>{voice.evidence.rightsStatement}</p>
