@@ -121,55 +121,54 @@ export async function saveCoachBrand(
   a: Actor,
   submitted: z.infer<typeof brandSchema>,
 ) {
-  return db.system(async (tx) => {
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      a.tenantId + ":workspace",
-    ]);
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      a.tenantId + ":brand",
-    ]);
-    // Lock the tenant row as well: onboarding may change the identity independently
-    // of design editing. The current theme and audit event belong to one commit.
-    await tx.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [
-      a.tenantId,
-    ]);
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-      [a.tenantId, a.userId, a.role],
-    );
-    const [row] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
-    if (!row?.tenant)
-      throw fail(
-        403,
-        "OWNER_REQUIRED",
-        "Current owner access to an active workspace is required",
-      );
-    const current = row.tenant,
-      version = Number(current.theme?.brandVersion ?? 0);
-    if (
-      submitted.expectedVersion !== undefined &&
-      submitted.expectedVersion !== version
-    )
-      throw fail(
-        409,
-        "BRAND_VERSION_CONFLICT",
-        "Your design changed in another session. Reload before saving.",
-      );
-    await assertBrandMedia(tx, a, submitted.design);
-    const { expectedVersion, ...data } = submitted;
-    const next = { ...current.theme, ...data, brandVersion: version + 1 };
-    await event(tx, a, "tenant.brand_updated", a.tenantId, {
-      version: version + 1,
-    });
-    await tx.query("RESET ROLE");
-    await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
-      a.tenantId,
-      submitted.name,
-      JSON.stringify(next),
-    ]);
-    return next;
-  });
+  return db.system(
+    async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":workspace",
+      ]);
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":brand",
+      ]);
+      // Lock the tenant row as well: onboarding may change the identity independently
+      // of design editing. The current theme and audit event belong to one commit.
+      await tx.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [
+        a.tenantId,
+      ]);
+      const next = await tx.tenant(a, async (tx) => {
+        const [row] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
+        if (!row?.tenant)
+          throw fail(
+            403,
+            "OWNER_REQUIRED",
+            "Current owner access to an active workspace is required",
+          );
+        const current = row.tenant,
+          version = Number(current.theme?.brandVersion ?? 0);
+        if (
+          submitted.expectedVersion !== undefined &&
+          submitted.expectedVersion !== version
+        )
+          throw fail(
+            409,
+            "BRAND_VERSION_CONFLICT",
+            "Your design changed in another session. Reload before saving.",
+          );
+        await assertBrandMedia(tx, a, submitted.design);
+        const { expectedVersion, ...data } = submitted;
+        await event(tx, a, "tenant.brand_updated", a.tenantId, {
+          version: version + 1,
+        });
+        return { ...current.theme, ...data, brandVersion: version + 1 };
+      });
+      await tx.query("UPDATE tenants SET name=$2,theme=$3 WHERE id=$1", [
+        a.tenantId,
+        submitted.name,
+        JSON.stringify(next),
+      ]);
+      return next;
+    },
+    { tenantId: a.tenantId },
+  );
 }
 function withoutOwnedPhotoReferences(value: any, urls: Set<string>) {
   if (!value?.design || typeof value.design !== "object") return null;
@@ -241,23 +240,11 @@ export async function eraseOwnedBrandMedia(tx: Tx, userId: string) {
       "UPDATE coach_design_drafts SET data=$2,version=version+1,updated_at=now() WHERE tenant_id=$1",
       [tenantId, JSON.stringify(nextDraft)],
     );
-  // tenants is deliberately inaccessible to trainer_app. The active transaction
-  // has already established one workspace and the erasure route's authority.
-  await tx.query("RESET ROLE");
-  const [tenant] = await tx.query(
-    "SELECT theme FROM tenants WHERE id=$1 FOR UPDATE",
-    [tenantId],
-  );
-  const nextTheme = withoutOwnedPhotoReferences(tenant?.theme, urls);
-  if (nextTheme)
-    await tx.query("UPDATE tenants SET theme=$2 WHERE id=$1", [
-      tenantId,
-      JSON.stringify({
-        ...nextTheme,
-        brandVersion: Number(tenant.theme?.brandVersion ?? 0) + 1,
-      }),
-    ]);
-  await tx.query("SET LOCAL ROLE trainer_app");
+  // tenants is deliberately inaccessible to trainer_app. The erasure scope's
+  // definer helper (migration 061) clears only these photo addresses from the
+  // current workspace's theme and bumps its brand version; the transaction
+  // never leaves its tenant scope.
+  await tx.query("SELECT erase_brand_theme_media($1::text[])", [[...urls]]);
   await tx.query("DELETE FROM brand_media WHERE owner_user_id=$1", [userId]);
 }
 function publicHost(req: FastifyRequest, slug?: string) {

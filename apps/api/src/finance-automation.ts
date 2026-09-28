@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  elevated,
   type Actor,
   type Database,
   type Tx,
@@ -424,11 +425,14 @@ export function registerFinanceAutomation(app: FastifyInstance, db: Database) {
     requireRecentMfa(a, true);
     return {
       ...a,
-      tenantId: z
-        .string()
-        .uuid()
-        .parse((req.params as any).tenantId),
-      role: "finance",
+      ...elevated("platform-operator", {
+        tenantId: z
+          .string()
+          .uuid()
+          .parse((req.params as any).tenantId),
+        userId: a.userId,
+        role: "finance",
+      }),
     };
   };
   const prefix = "/api/v1/admin/tenants/:tenantId/finance/automation";
@@ -579,11 +583,7 @@ export async function persistFinanceJobOutcome(
   job: any,
   result: { status: string; code?: string },
 ) {
-  const a: Actor = {
-    tenantId,
-    userId: "00000000-0000-0000-0000-000000000000",
-    role: "finance",
-  };
+  const a: Actor = elevated("worker", { tenantId, role: "finance" });
   const status = result.status === "completed" ? "completed" : "blocked";
   const code =
     status === "blocked"

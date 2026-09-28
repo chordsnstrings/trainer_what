@@ -2,6 +2,7 @@ import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
+  actingAs,
   createDatabase,
   putRecord,
   type Actor,
@@ -18,6 +19,7 @@ import { workspaceLock } from "../apps/api/src/privacy-lifecycle.ts";
 import { buildApp } from "../apps/api/src/app.ts";
 import { tokenHash } from "../apps/api/src/auth.ts";
 import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
+import { privacyOperator, seedScope } from "./scope-fixtures.ts";
 
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
@@ -45,7 +47,7 @@ async function member(tenantId: string, role = "subscriber"): Promise<Actor> {
       [tokenHash(token), a.userId, tenantId],
     );
   });
-  await db.tenant({ ...a, role: "owner" }, async (tx) => {
+  await db.tenant(seedScope(a), async (tx) => {
     if (role === "subscriber") {
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end) VALUES($1,$2,$3,'active',now()+interval '120 days')",
@@ -346,17 +348,32 @@ test("due delivery commits one human message, inbox notice and queued email acro
 test("delivery notification failure rolls back the message and status; one later retry completes the transaction", async () => {
   const client = await member(owner.tenantId),
     r = await schedule(client);
+  // Delivery runs in a service transaction with tenant scopes inside it; the
+  // notification is written through enqueue_notification().
   const failing: Database = {
     ...db,
-    tenant: (actor, fn) =>
-      db.tenant(actor, (tx) =>
-        fn({
-          query: async <T>(sql: string, values?: any[]) => {
-            if (sql.startsWith("INSERT INTO notifications"))
-              throw new Error("Synthetic notification transaction failure");
-            return tx.query<T>(sql, values);
-          },
-        }),
+    system: (fn, options) =>
+      db.system(
+        (tx) =>
+          fn({
+            ...tx,
+            tenant: (actor, inner, scopeOptions) =>
+              tx.tenant(
+                actor,
+                (scoped) =>
+                  inner({
+                    query: async <T>(sql: string, values?: any[]) => {
+                      if (sql.includes("enqueue_notification("))
+                        throw new Error(
+                          "Synthetic notification transaction failure",
+                        );
+                      return scoped.query<T>(sql, values);
+                    },
+                  }),
+                scopeOptions,
+              ),
+          }),
+        options,
       ),
   };
   await assert.rejects(
@@ -532,17 +549,23 @@ test("privacy export includes authorship; author and target erasure remove draft
     new Set(exported.map((r) => r.id)),
     new Set([draft.id, sent.id]),
   );
-  const hookExport = await db.tenant({ ...author, role: "owner" }, (tx) =>
-    privacyHooks.exportAdditional!(tx, author.userId),
+  const hookExport = await db.tenant(
+    actingAs(author, "owner", "member-self-service"),
+    (tx) => privacyHooks.exportAdditional!(tx, author.userId),
   );
   assert.deepEqual(
     (hookExport.coachingFollowups as any[]).map((r) => r.id),
     exported.map((r) => r.id),
   );
-  await db.tenant({ ...author, role: "owner" }, async (tx) => {
-    await workspaceLock(tx, owner.tenantId);
-    await privacyHooks.eraseAdditional!(tx, author.userId);
-  });
+  // Erasure runs in the operator's privacy erasure scope, as eraseMember does.
+  await db.tenant(
+    await privacyOperator(db, owner.tenantId),
+    async (tx) => {
+      await workspaceLock(tx, owner.tenantId);
+      await privacyHooks.eraseAdditional!(tx, author.userId);
+    },
+    { privacyErasure: true },
+  );
   assert.equal(await stored(draft.id), undefined);
   assert.equal(await stored(sent.id), undefined);
   assert.deepEqual(await output(sent.id), {

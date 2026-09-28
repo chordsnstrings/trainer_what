@@ -1,4 +1,4 @@
-import type { Database } from "@trainer/db";
+import { elevated, type Database } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import {
   sendWebPush,
@@ -18,7 +18,9 @@ export async function executePushDelivery(
     beforeSend: () => Promise<void>,
   ) => Promise<{ status: number; retryAfter?: string | null }> = sendWebPush,
 ) {
-  const a = { tenantId, userId: job.data.userId, role: "owner" };
+  // The outbox worker is a service identity: never the recipient's own id.
+  const a = elevated("worker", { tenantId, role: "owner" });
+  const recipient: string = job.data.userId;
   const finish = async (status: string, error: string | null) =>
     db.tenant(a, (tx) =>
       tx.query(
@@ -60,27 +62,29 @@ export async function executePushDelivery(
       "push",
       "Device notification settings need attention",
     );
+  // The recipient must still be a member of an active workspace (a service
+  // fact, read before the worker's tenant scope) with a current device.
   const currentSubscription = async () =>
-    db.tenant(a, async (tx) => {
-      const [m] = await tx.query(
-        "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
-        [tenantId, a.userId],
-      );
-      if (!m) return null;
-      const [active] = await tx.query(
-        "SELECT training_actor_is_current($1,$2,$3) AS current",
-        [tenantId, a.userId, m.role],
-      );
-      if (!active?.current) return null;
-      return (
-        (
-          await tx.query(
-            "SELECT id,encrypted_endpoint FROM push_subscriptions WHERE id=$1 AND user_id=$2 AND expires_at>clock_timestamp() AND vapid_key_id=$3",
-            [job.data.subscriptionId, a.userId, config.keyId],
-          )
-        )[0] ?? null
-      );
-    });
+    db.system(
+      async (service) => {
+        const [m] = await service.query(
+          "SELECT m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND t.lifecycle_state='active'",
+          [tenantId, recipient],
+        );
+        if (!m) return null;
+        return service.tenant(
+          a,
+          async (tx) =>
+            (
+              await tx.query(
+                "SELECT id,encrypted_endpoint FROM push_subscriptions WHERE id=$1 AND user_id=$2 AND expires_at>clock_timestamp() AND vapid_key_id=$3",
+                [job.data.subscriptionId, recipient, config.keyId],
+              )
+            )[0] ?? null,
+        );
+      },
+      { tenantId },
+    );
   const subscription = await currentSubscription();
   if (!subscription) {
     await finish(
@@ -90,7 +94,7 @@ export async function executePushDelivery(
     return;
   }
   const endpoint = openIntegrationSecret<string>(
-    `push:${tenantId}:${a.userId}:${subscription.id}`,
+    `push:${tenantId}:${recipient}:${subscription.id}`,
     subscription.encrypted_endpoint,
   );
   let dispatched = false;
@@ -119,7 +123,7 @@ export async function executePushDelivery(
             job.attempts,
             job.leased_until,
             subscription.id,
-            a.userId,
+            recipient,
             config.keyId,
           ],
         ),
@@ -175,7 +179,7 @@ export async function executePushDelivery(
       if (saved && expired)
         await tx.query(
           "DELETE FROM push_subscriptions WHERE id=$1 AND user_id=$2",
-          [subscription.id, a.userId],
+          [subscription.id, recipient],
         );
     });
   } catch (error) {

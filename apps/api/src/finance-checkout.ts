@@ -3,6 +3,7 @@ import {
   type Actor,
   type Database,
   type Tx,
+  elevated,
   event,
   putRecord,
 } from "@trainer/db";
@@ -26,7 +27,7 @@ type CheckoutOptions = {
   origin: string;
   nutritionReady: (tx: Tx) => Promise<unknown>;
 };
-async function checkoutLock(tx: Tx, a: Actor) {
+async function checkoutLock(tx: Tx, a: Pick<Actor, "tenantId" | "userId">) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":workspace",
   ]);
@@ -42,16 +43,21 @@ async function unresolvedCheckout(tx: Tx, a: Actor) {
   );
   return r;
 }
-/** Subscription state comes from Stripe evidence; elapsed local time cannot close a checkout. */
-async function settleCheckoutSubscriptionScoped(
+/**
+ * Subscription state comes from Stripe evidence; elapsed local time cannot
+ * close a checkout. Runs in the provider callback's finance scope, which may
+ * read checkout intents (migration 061 finance_record_scope); `memberId` is
+ * the subscription's member.
+ */
+export async function settleCheckoutSubscription(
   tx: Tx,
-  a: Actor,
+  memberId: string,
   subscription: any,
 ) {
   const intentId = subscription.metadata?.intent_id;
   const rows = await tx.query(
     "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->>'subscriptionId'=$2 OR id::text=$3) FOR UPDATE",
-    [a.userId, subscription.id, intentId ?? ""],
+    [memberId, subscription.id, intentId ?? ""],
   );
   for (const r of rows) {
     if (r.data.subscriptionId && r.data.subscriptionId !== subscription.id)
@@ -74,23 +80,6 @@ async function settleCheckoutSubscriptionScoped(
         }),
       ],
     );
-  }
-}
-export async function settleCheckoutSubscription(
-  tx: Tx,
-  a: Actor,
-  subscription: any,
-) {
-  const [context] = await tx.query(
-    "SELECT current_setting('app.role',true) AS role",
-  );
-  await tx.query("SELECT set_config('app.role','owner',true)");
-  try {
-    await settleCheckoutSubscriptionScoped(tx, a, subscription);
-  } finally {
-    await tx
-      .query("SELECT set_config('app.role',$1,true)", [context.role])
-      .catch(() => {});
   }
 }
 /** Entry is restricted to signed webhook payloads or authenticated provider reads. */
@@ -119,11 +108,10 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
       "CHECKOUT_MAPPING_REQUIRED",
       "Checkout tenant and user identity are required",
     );
-  const providerActor = {
+  const providerActor = elevated("provider-callback", {
     tenantId: remote.metadata.tenant_id,
-    userId: remote.metadata.user_id,
     role: "owner",
-  };
+  });
   const [r] = await db.tenant(providerActor, (tx) =>
     tx.query("SELECT * FROM records WHERE id=$1 AND kind='checkout'", [
       intentId,
@@ -162,9 +150,15 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
       "CHECKOUT_STATE_MISMATCH",
       "Provider has not confirmed a completed subscription checkout",
     );
-  const a = { tenantId: r.tenant_id, userId: r.owner_user_id, role: "owner" };
+  // The provider acted: a service identity scopes the projection, and the
+  // checkout lock and subscription read use the checkout's member.
+  const member = { tenantId: r.tenant_id, userId: r.owner_user_id as string };
+  const a = elevated("provider-callback", {
+    tenantId: r.tenant_id,
+    role: "owner",
+  });
   await db.tenant(a, async (tx) => {
-    await checkoutLock(tx, a);
+    await checkoutLock(tx, member);
     const [current] = await tx.query(
       "SELECT * FROM records WHERE id=$1 FOR UPDATE",
       [r.id],
@@ -198,7 +192,7 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
         );
       const [s] = await tx.query(
         "SELECT provider_id,status FROM subscriptions WHERE user_id=$1",
-        [a.userId],
+        [member.userId],
       );
       const status =
         current.status === "closed" ||
@@ -344,7 +338,7 @@ async function reconcileIntent(
         "CHECKOUT_UNRESOLVED",
         "Provider has not supplied an open checkout link",
       );
-    await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    await db.tenant(a, async (tx) => {
       await checkoutLock(tx, a);
       await tx.query(
         "UPDATE records SET status='open',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown','open')",
@@ -376,7 +370,7 @@ export async function reconcileMembershipCheckout(
       statusCode: 403,
       code: "SUBSCRIBER_REQUIRED",
     });
-  const [r] = await db.tenant({ ...a, role: "owner" }, (tx) =>
+  const [r] = await db.tenant(a, (tx) =>
     tx.query(
       "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1",
       [a.userId],
@@ -425,80 +419,82 @@ export async function createMembershipCheckout(
           statusCode: 403,
           code: "SUBSCRIBER_REQUIRED",
         });
-      // Keep lifecycle/membership admission and intent reservation in one transaction,
-      // then use the same restricted tenant role as all other financial record access.
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-        [a.tenantId, a.userId],
-      );
-      const [s] = await tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
-        [a.userId],
-      );
-      if (s && !terminalSubscription(s.status))
-        throw fail(
-          "ALREADY_SUBSCRIBED",
-          "Manage or reconcile the existing subscription before buying another membership",
-        );
-      const old = await unresolvedCheckout(tx, a);
-      if (old) {
-        const same =
-          old.data.productId === input.productId &&
-          (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
-        if (
-          old.status === "open" &&
-          old.data.checkoutUrl &&
-          Date.parse(old.data.expiresAt) > Date.now()
-        ) {
-          if (!same)
-            throw fail(
-              "CHECKOUT_OPEN",
-              "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
-            );
-          return { existing: true, ready: true, intent: old };
-        }
-        if (
-          old.status === "creating" &&
-          Date.now() - new Date(old.created_at).getTime() < 120000
-        )
-          throw fail(
-            "CHECKOUT_PENDING",
-            "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
+      // Keep lifecycle/membership admission and intent reservation in one
+      // transaction; the reservation runs in the buyer's own subscriber scope
+      // (its subscription and checkout rows, published products and the
+      // checkout_promotion() lookup, migration 061).
+      return tx.tenant(
+        { tenantId: a.tenantId, userId: a.userId, role: "subscriber" },
+        async (tx) => {
+          const [s] = await tx.query(
+            "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
+            [a.userId],
           );
-        return { existing: true, ready: false, intent: old, same };
-      }
-      const [product] = await tx.query(
-        "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
-        [input.productId],
-      );
-      if (!product?.data.stripePriceId)
-        throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
-      if (product.data.tier === "workout_nutrition")
-        await options.nutritionReady(tx);
-      const offerTerms = await checkoutOfferTerms(
-        tx,
-        a,
-        product,
-        input.promotionCode,
-      );
-      const intent = await putRecord(
-        tx,
-        a,
-        "checkout",
-        {
-          productId: product.id,
-          offerTerms,
-          priceId: product.data.stripePriceId,
-          email: member.email,
-          expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+          if (s && !terminalSubscription(s.status))
+            throw fail(
+              "ALREADY_SUBSCRIBED",
+              "Manage or reconcile the existing subscription before buying another membership",
+            );
+          const old = await unresolvedCheckout(tx, a);
+          if (old) {
+            const same =
+              old.data.productId === input.productId &&
+              (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
+            if (
+              old.status === "open" &&
+              old.data.checkoutUrl &&
+              Date.parse(old.data.expiresAt) > Date.now()
+            ) {
+              if (!same)
+                throw fail(
+                  "CHECKOUT_OPEN",
+                  "Finish the original checkout or wait for its provider-confirmed expiry before choosing another offer",
+                );
+              return { existing: true, ready: true, intent: old };
+            }
+            if (
+              old.status === "creating" &&
+              Date.now() - new Date(old.created_at).getTime() < 120000
+            )
+              throw fail(
+                "CHECKOUT_PENDING",
+                "Your original checkout is being prepared; its provider outcome must be confirmed before another request",
+              );
+            return { existing: true, ready: false, intent: old, same };
+          }
+          const [product] = await tx.query(
+            "SELECT * FROM records WHERE id=$1 AND kind='product' AND status='published'",
+            [input.productId],
+          );
+          if (!product?.data.stripePriceId)
+            throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
+          if (product.data.tier === "workout_nutrition")
+            await options.nutritionReady(tx);
+          const offerTerms = await checkoutOfferTerms(
+            tx,
+            a,
+            product,
+            input.promotionCode,
+          );
+          const intent = await putRecord(
+            tx,
+            a,
+            "checkout",
+            {
+              productId: product.id,
+              offerTerms,
+              priceId: product.data.stripePriceId,
+              email: member.email,
+              expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+            },
+            { ownerId: a.userId, status: "creating" },
+          );
+          await event(tx, a, "checkout.reserved", intent.id, {
+            productId: product.id,
+          });
+          return { existing: false, intent };
         },
-        { ownerId: a.userId, status: "creating" },
       );
-      await event(tx, a, "checkout.reserved", intent.id, {
-        productId: product.id,
-      });
-      return { existing: false, intent };
     });
     if (context.existing) {
       if (context.ready)
@@ -551,7 +547,7 @@ export async function createMembershipCheckout(
           "CHECKOUT_UNRESOLVED",
           "Provider did not return a confirmed open checkout; reconcile the existing instruction",
         );
-      const [saved] = await db.tenant({ ...a, role: "owner" }, async (tx) => {
+      const [saved] = await db.tenant(a, async (tx) => {
         await checkoutLock(tx, a);
         return tx.query(
           "UPDATE records SET status='open',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status='creating' RETURNING id",
@@ -572,7 +568,7 @@ export async function createMembershipCheckout(
         );
       return { url: remote.url, intentId: intent.id };
     } catch (error) {
-      await db.tenant({ ...a, role: "owner" }, (tx) =>
+      await db.tenant(a, (tx) =>
         tx.query(
           "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
           [intent.id],

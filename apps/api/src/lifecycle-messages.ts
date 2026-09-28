@@ -79,37 +79,35 @@ async function scoped<T>(
       "SELECT DISTINCT ON (key) id,key,version,title,effective_at FROM admin_documents WHERE kind='legal' AND key=ANY($1::text[]) AND status='published' AND effective_at<=now() ORDER BY key,effective_at DESC,version DESC",
       [keys],
     );
+    // The workspace's current owner, verified again by the db package.
     const actor = { tenantId, userId: owner.user_id, role: "owner" };
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-      [tenantId, owner.user_id],
-    );
     let state: ReturnType<typeof onboardingState> | undefined;
-    return fn({
-      tx,
-      tenant,
-      actor,
-      members,
-      onboarding: () =>
-        (state ??= onboardingState(
-          tx,
-          { ...actor, emailVerified: owner.email_verified },
-          tenant,
-          {
-            approved: runtimeConfig().LEGAL_APPROVED === "true",
-            documents: keys.map(
-              (k) =>
-                documents.find((d) => d.key === k) ?? {
-                  key: k,
-                  version: null,
-                  title: k,
-                },
-            ),
-          },
-        )),
-    });
-  });
+    return tx.tenant(actor, (tx) =>
+      fn({
+        tx,
+        tenant,
+        actor,
+        members,
+        onboarding: () =>
+          (state ??= onboardingState(
+            tx,
+            { ...actor, emailVerified: owner.email_verified },
+            tenant,
+            {
+              approved: runtimeConfig().LEGAL_APPROVED === "true",
+              documents: keys.map(
+                (k) =>
+                  documents.find((d) => d.key === k) ?? {
+                    key: k,
+                    version: null,
+                    title: k,
+                  },
+              ),
+            },
+          )),
+      }),
+    );
+  }, { tenantId: tenantId });
 }
 
 async function record(tx: Tx, id: string, kind: string, userId?: string) {

@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  event,
+  type Actor,
+  type Database,
+  type SystemTx,
+  type Tx,
+} from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import {
   runtimeConfig,
@@ -175,7 +181,7 @@ function displayName(claims: OidcClaims) {
   return local.length >= 2 ? local : "Member";
 }
 /** Security notice to the account's address when a sign-in method is added. */
-async function linkedEmail(tx: Tx, a: Actor, providerName: string) {
+async function linkedEmail(tx: SystemTx, a: Actor, providerName: string) {
   if (!emailDeliveryConfigured()) return;
   const [u] = await tx.query("SELECT email FROM users WHERE id=$1", [a.userId]);
   await queueAccountEmail(
@@ -187,13 +193,6 @@ async function linkedEmail(tx: Tx, a: Actor, providerName: string) {
     "identity-linked:" + randomUUID(),
   );
 }
-async function asTenant(tx: Tx, a: Actor) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-    [a.tenantId, a.userId, a.role],
-  );
-}
 
 /**
  * Resolves the verified identity to an account and workspace, applying the
@@ -202,7 +201,7 @@ async function asTenant(tx: Tx, a: Actor) {
  * needs its code.
  */
 async function complete(
-  tx: Tx,
+  tx: SystemTx,
   row: RequestRow,
   claims: OidcClaims,
   host: HostContext,
@@ -464,16 +463,16 @@ async function complete(
     joined = !!inserted && role === "subscriber";
     if (inserted) {
       const actor = { tenantId, userId, role };
-      await asTenant(tx, actor);
-      await tx.query(
-        "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-        [randomUUID(), tenantId, userId, registrationVersion],
-      );
-      if (row.intent === "join")
-        await event(tx, actor, "subscriber.enrolled", userId, {
-          method: `oidc_${provider}`,
-        });
-      await tx.query("RESET ROLE");
+      await tx.tenant(actor, async (scoped) => {
+        await scoped.query(
+          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+          [randomUUID(), tenantId, userId, registrationVersion],
+        );
+        if (row.intent === "join")
+          await event(scoped, actor, "subscriber.enrolled", userId, {
+            method: `oidc_${provider}`,
+          });
+      });
     }
   }
   await tx.query(

@@ -10,6 +10,7 @@ import {
   type Actor,
   event,
   putRecord,
+  elevated,
 } from "@trainer/db";
 import { stripeClient } from "@trainer/providers";
 import { recordCharge, journal } from "./finance.ts";
@@ -132,16 +133,20 @@ export async function processStripeEvent(
   // subscription's remaining provider events must still reach the ledger.
   const [former] = member
     ? []
-    : await db.tenant({ tenantId, userId, role: "finance" }, (tx) =>
-        tx.query("SELECT id FROM membership_exits WHERE user_id=$1 LIMIT 1", [
-          userId,
-        ]),
+    : await db.tenant(
+        elevated("provider-callback", { tenantId, role: "finance" }),
+        (tx) =>
+          tx.query("SELECT id FROM membership_exits WHERE user_id=$1 LIMIT 1", [
+            userId,
+          ]),
       );
   if (!member && !former)
     throw new Error(
       "Payment event refers to an unknown subscriber relationship",
     );
-  const a = { tenantId, userId, role: "finance" };
+  // The provider acted, not the member: the projection runs as an allowlisted
+  // service identity; the member is the subject of its rows.
+  const a = elevated("provider-callback", { tenantId, role: "finance" });
   const eventTime = Number(e.created ?? 0);
   if (e.type === "invoice.paid" && !chargeId && object.amount_paid > 0) {
     // Journals are immutable, so the charge link must be known before money is posted.
@@ -417,7 +422,7 @@ export async function processStripeEvent(
           throw new Error(
             "A different active provider subscription requires reconciliation before replacing the current membership",
           );
-        await settleCheckoutSubscription(tx, a, object);
+        await settleCheckoutSubscription(tx, userId, object);
         await event(tx, a, "subscription.historical_terminal", object.id, {
           providerEventId: e.id,
           status: object.status,
@@ -456,7 +461,7 @@ export async function processStripeEvent(
           JSON.stringify(data),
         ],
       );
-      await settleCheckoutSubscription(tx, a, object);
+      await settleCheckoutSubscription(tx, userId, object);
       await event(tx, a, "subscription.updated", object.id, {
         status: object.status,
         providerEventId: e.id,
@@ -480,10 +485,10 @@ export async function processStripeEvent(
         providerEventId: e.id,
       });
     } else if (e.type.startsWith("refund."))
-      await applyRefund(tx, a, object, chargeId, e.id);
+      await applyRefund(tx, a, userId, object, chargeId, e.id);
     else if (e.type === "charge.refunded") {
       for (const refund of object.refunds?.data ?? [])
-        await applyRefund(tx, a, refund, object.id, e.id);
+        await applyRefund(tx, a, userId, refund, object.id, e.id);
       if (object.refunds?.has_more)
         throw new Error(
           "Refund page incomplete; reconciliation must retrieve all refunds",
@@ -571,6 +576,8 @@ export async function processStripeEvent(
 async function applyRefund(
   tx: Tx,
   a: Actor,
+  /** The refunded member (the provider callback acts as a service identity). */
+  memberId: string,
   refund: any,
   chargeId: string | undefined,
   eventId: string,
@@ -633,7 +640,7 @@ async function applyRefund(
       refundAmountMinor: amount,
       commissionReversalMinor: fee,
       chargeId,
-      userId: a.userId,
+      userId: memberId,
     },
   );
   await event(tx, a, "refund.succeeded", refund.id, {

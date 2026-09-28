@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -68,6 +69,8 @@ type Device = {
   revoked_at: string | null;
   created_at: string;
 };
+/** What a companion token identifies before the member's own scope is entered. */
+type DeviceKey = Pick<Device, "id" | "tenant_id" | "user_id" | "status">;
 const fail = (
   statusCode: number,
   code: string,
@@ -84,19 +87,18 @@ const fail = (
 const uuid = z.string().uuid();
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
-const workerActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "owner",
-});
+const workerActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "owner" });
 /**
- * Scoped owner access for one member's own sync work: reading the coach's
- * wearable policy and writing the member's own records, like wearable sync.
+ * One member's own sync work, in that member's subscriber scope (any member
+ * may act on its own rows as a subscriber). The coach's wearable policy is
+ * read through coach_wearable_policy() (migration 061), never by raising the
+ * member to the owner role.
  */
 const memberScope = (tenantId: string, userId: string): Actor => ({
   tenantId,
   userId,
-  role: "owner",
+  role: "subscriber",
 });
 
 export type Availability = {
@@ -144,10 +146,9 @@ function requireAvailable() {
 
 /** The coach's saved wearable policy; needs a transaction that may read it. */
 export async function coachWearablePolicy(tx: Tx) {
-  const [row] = await tx.query(
-    "SELECT status,data->'values'->>'policy' AS policy FROM records WHERE kind='onboarding_step' AND data->>'step'='wearables'",
-  );
-  return row?.status === "saved" ? (row.policy as string | null) : null;
+  // Only the saved policy value, for any member of the workspace.
+  const [row] = await tx.query("SELECT coach_wearable_policy() AS policy");
+  return (row?.policy as string | null) ?? null;
 }
 /** Reads the policy for a member of any role in a separate scoped read. */
 export function readCoachWearablePolicy(db: Database, a: Actor) {
@@ -751,16 +752,27 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     const tenantId = TOKEN.exec(token)?.[1];
     const invalid = () => failures.failed(source);
     if (!tenantId) throw invalid();
-    const [tenant] = await db.system((tx) =>
-      tx.query(
-        "SELECT id,name,coalesce(to_jsonb(t)->>'lifecycle_state','active') AS lifecycle_state FROM tenants t WHERE id=$1",
-        [tenantId],
-      ),
+    // The member is unknown until the token matches, so the device is found
+    // by the healthkit_device_for_token() definer (migration 061) in a service
+    // transaction bound to the token's workspace; everything after this runs
+    // in the member's own subscriber scope.
+    const found = await db.system(
+      async (tx) => {
+        const [tenant] = await tx.query(
+          "SELECT id,name,coalesce(to_jsonb(t)->>'lifecycle_state','active') AS lifecycle_state FROM tenants t WHERE id=$1",
+          [tenantId],
+        );
+        if (!tenant) return null;
+        const [device] = (await tx.query(
+          "SELECT id,tenant_id,user_id,status FROM healthkit_device_for_token($1)",
+          [digest],
+        )) as DeviceKey[];
+        return { tenant, device };
+      },
+      { tenantId },
     );
-    if (!tenant) throw invalid();
-    const [device] = (await db.tenant(workerActor(tenantId), (tx) =>
-      tx.query("SELECT * FROM healthkit_devices WHERE token_hash=$1", [digest]),
-    )) as Device[];
+    if (!found) throw invalid();
+    const { tenant, device } = found;
     if (!device) throw invalid();
     if (device.status !== "active")
       throw fail(
@@ -784,7 +796,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     return { device, tenant, digest };
   }
   /** Records why uploads stop, so support can see it; never throws. */
-  async function noteError(device: Device, code: string) {
+  async function noteError(device: DeviceKey, code: string) {
     await db
       .tenant(memberScope(device.tenant_id, device.user_id), (tx) =>
         tx.query(
@@ -804,7 +816,7 @@ export function registerHealthKitSync(app: FastifyInstance, db: Database) {
     "IMPORT_REVIEW_PENDING",
     "APPLE_IMPORTS_DISABLED",
   ]);
-  async function uploadGate(tx: Tx, device: Device) {
+  async function uploadGate(tx: Tx, device: DeviceKey) {
     if (!(await actorIsCurrent(tx, device.tenant_id, device.user_id)))
       throw fail(
         403,

@@ -1,7 +1,7 @@
 // Shared synthetic fixtures for the accounts-* test files. Not a test file.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { createDatabase, type Database } from "@trainer/db";
+import { createDatabase, elevated, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { passwordHash, newToken, tokenHash } from "../apps/api/src/auth.ts";
 import { totpAt } from "../apps/api/src/security.ts";
@@ -144,7 +144,11 @@ export async function accountsContext(
       if (!o.tenantId)
         await tx.query(
           "INSERT INTO tenants(id,slug,name,published) VALUES($1,$2,$3,true)",
-          [tenantId, "acct-" + tenantId.slice(0, 8), "Studio " + tenantId.slice(0, 6)],
+          [
+            tenantId,
+            "acct-" + tenantId.slice(0, 8),
+            "Studio " + tenantId.slice(0, 6),
+          ],
         );
       await tx.query(
         "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,$3)",
@@ -184,17 +188,15 @@ export async function accountsContext(
     return code(offset);
   }
   async function emailJobs(tenantId: string, to: string, prefix: string) {
-    return db.tenant(
-      { tenantId, userId: randomUUID(), role: "owner" },
-      (tx) =>
-        tx.query(
-          "SELECT intent_key,data FROM jobs WHERE intent_key LIKE $1 AND lower(data->>'to')=lower($2) ORDER BY created_at DESC",
-          [prefix + ":%", to],
-        ),
+    return db.tenant(elevated("worker", { tenantId, role: "owner" }), (tx) =>
+      tx.query(
+        "SELECT intent_key,data FROM jobs WHERE intent_key LIKE $1 AND lower(data->>'to')=lower($2) ORDER BY created_at DESC",
+        [prefix + ":%", to],
+      ),
     );
   }
   async function events(tenantId: string, name: string, subject?: string) {
-    return db.tenant({ tenantId, userId: randomUUID(), role: "owner" }, (tx) =>
+    return db.tenant(elevated("worker", { tenantId, role: "owner" }), (tx) =>
       tx.query(
         "SELECT actor_id,subject_id,data FROM events WHERE name=$1 AND ($2::text IS NULL OR subject_id=$2) ORDER BY created_at",
         [name, subject ?? null],

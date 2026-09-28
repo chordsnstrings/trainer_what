@@ -4,10 +4,12 @@ import { randomUUID, createHash } from "node:crypto";
 import sharp from "sharp";
 import {
   createDatabase,
+  elevated,
   putRecord,
   type Database,
   type Actor,
 } from "@trainer/db";
+import { privacyOperator } from "./scope-fixtures.ts";
 import { buildApp } from "../apps/api/src/app.ts";
 import {
   bindChatAttachments,
@@ -485,18 +487,28 @@ test("personal export and erasure include private drafts, sent files and author 
   assert.ok(attachments.some((r: any) => r.id === own.id && r.content_base64));
   assert.ok(attachments.some((r: any) => r.id === addressed.id));
   assert.ok(!attachments.some((r: any) => r.id === unrelated.id));
+  // A follower cannot claim the owner role, and its own scope exports only
+  // its own attachments.
   await assert.rejects(
     db.tenant({ ...client, role: "owner" }, (tx) =>
       exportChatAttachments(tx, second.userId),
     ),
+    /cannot act as owner/,
+  );
+  await assert.rejects(
+    db.tenant(client, (tx) => exportChatAttachments(tx, second.userId)),
     /requester/,
   );
   await assert.rejects(
     db.tenant(coach, (tx) => eraseChatAttachments(tx, client.userId)),
     /privacy operator/,
   );
-  await db.tenant({ ...staff, role: "owner" }, (tx) =>
-    privacyHooks.eraseAdditional!(tx, staff.userId),
+  // A privacy operator erases in the operator's privacy erasure scope, as
+  // eraseMember does.
+  await db.tenant(
+    await privacyOperator(db, staff.tenantId),
+    (tx) => privacyHooks.eraseAdditional!(tx, staff.userId),
+    { privacyErasure: true },
   );
   const [message] = await db.tenant(coach, (tx) =>
     tx.query("SELECT data FROM records WHERE id=$1", [staffMessage.id]),
@@ -508,8 +520,10 @@ test("personal export and erasure include private drafts, sent files and author 
       coach.userId,
     ]),
   );
-  await db.tenant(coach, (tx) =>
-    privacyHooks.eraseAdditional!(tx, client.userId),
+  await db.tenant(
+    coach,
+    (tx) => privacyHooks.eraseAdditional!(tx, client.userId),
+    { privacyErasure: true },
   );
   assert.equal(
     (
@@ -537,8 +551,15 @@ test("personal export and erasure include private drafts, sent files and author 
     ),
   );
   assert.ok(priorForeign.n > 0);
-  await db.tenant({ ...coach, tenantId: foreign.tenantId }, (tx) =>
-    privacyHooks.closeAdditional!(tx),
+  // Workspace closure runs as the platform operator in its erasure scope.
+  await db.tenant(
+    elevated("platform-operator", {
+      tenantId: foreign.tenantId,
+      userId: coach.userId,
+      role: "owner",
+    }),
+    (tx) => privacyHooks.closeAdditional!(tx),
+    { privacyErasure: true },
   );
   assert.equal(
     (

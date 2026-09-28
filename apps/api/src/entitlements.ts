@@ -49,7 +49,7 @@ export function grantIsActive(grant: any, now = Date.now()) {
 }
 export async function activeComplimentaryGrant(tx: Tx, userId: string) {
   const [grant] = await tx.query(
-    "SELECT * FROM complimentary_access WHERE user_id=$1 AND tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND closed_at IS NULL AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 1",
+    "SELECT * FROM complimentary_access WHERE user_id=$1 AND tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid AND closed_at IS NULL AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) AND NOT EXISTS(SELECT 1 FROM membership_exits e WHERE e.user_id=complimentary_access.user_id AND e.created_at>=complimentary_access.created_at) ORDER BY created_at DESC LIMIT 1",
     [userId],
   );
   return grant;

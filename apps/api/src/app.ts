@@ -158,6 +158,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { z, ZodError } from "zod";
 import {
   createDatabase,
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -712,21 +713,19 @@ export async function buildApp(
           "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')",
           [tid, uid],
         );
+        // The owner membership inserted above verifies this scope.
         const a = { tenantId: tid, userId: uid, role: "owner" };
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-          [tid, uid],
-        );
-        await putRecord(tx, a, "onboarding", {
-          steps: { account: true },
-          licenceStatus: "NOT_REQUESTED",
+        await tx.tenant(a, async (tx) => {
+          await putRecord(tx, a, "onboarding", {
+            steps: { account: true },
+            licenceStatus: "NOT_REQUESTED",
+          });
+          await tx.query(
+            "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+            [randomUUID(), tid, uid, registrationVersion],
+          );
+          await event(tx, a, "trainer.signup_completed", uid);
         });
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), tid, uid, registrationVersion],
-        );
-        await event(tx, a, "trainer.signup_completed", uid);
       });
       await session(reply, uid, tid, false, "registration");
       try {
@@ -837,27 +836,15 @@ export async function buildApp(
           "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'subscriber') ON CONFLICT DO NOTHING RETURNING user_id",
           [tenant.id, uid],
         );
-        await tx.query("SET LOCAL ROLE trainer_app");
-        await tx.query(
-          "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','subscriber',true)",
-          [tenant.id, uid],
-        );
-        await tx.query(
-          "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
-          [randomUUID(), tenant.id, uid, registrationVersion],
-        );
-        await event(
-          tx,
-          { tenantId: tenant.id, userId: uid, role: "subscriber" },
-          "subscriber.enrolled",
-          uid,
-        );
-        if (membership)
-          await announceFollowerJoined(
-            tx,
-            { tenantId: tenant.id, userId: uid, role: "subscriber" },
-            "website",
+        const joiner = { tenantId: tenant.id, userId: uid, role: "subscriber" };
+        await tx.tenant(joiner, async (tx) => {
+          await tx.query(
+            "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'registration',$4,true)",
+            [randomUUID(), tenant.id, uid, registrationVersion],
           );
+          await event(tx, joiner, "subscriber.enrolled", uid);
+          if (membership) await announceFollowerJoined(tx, joiner, "website");
+        });
         return { uid, tid: tenant.id, mfa, joined: !!membership };
       });
       await session(reply, result.uid, result.tid, result.mfa, "public_join");
@@ -1792,7 +1779,7 @@ export async function buildApp(
         "Plan changes await activation of the reviewed billing policy.",
       );
     const stripe = stripeProvider();
-    const context = await db.tenant({ ...a, role: "owner" }, async (tx) => {
+    const context = await db.tenant(a, async (tx) => {
       const [subscription] = await tx.query(
         "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
         [a.userId],
@@ -1891,7 +1878,7 @@ export async function buildApp(
         },
       },
     });
-    await db.tenant({ ...a, role: "owner" }, (tx) =>
+    await db.tenant(a, (tx) =>
       event(
         tx,
         a,
@@ -2303,7 +2290,11 @@ export async function buildApp(
     const results = [];
     for (const t of tenants) {
       const summary = await db.tenant(
-        { ...a, tenantId: t.id, role: "owner" },
+        elevated("platform-operator", {
+          tenantId: t.id,
+          userId: a.userId,
+          role: "owner",
+        }),
         async (tx) => {
           await event(
             tx,

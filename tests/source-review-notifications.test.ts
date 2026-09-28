@@ -334,6 +334,7 @@ test("removal, closed workspaces and lost trainer role block prompts and new enq
   );
   await assert.rejects(
     db.tenant(a, (tx) => notifyImportReview(tx, a, record)),
-    /Current trainer access/,
+    // The db scope refuses the stale team role before the route recheck.
+    /Current trainer access|cannot act as/,
   );
 });

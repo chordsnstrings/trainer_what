@@ -8,7 +8,13 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { event, type Actor, type Database, type Tx } from "@trainer/db";
+import {
+  elevated,
+  event,
+  type Actor,
+  type Database,
+  type Tx,
+} from "@trainer/db";
 import { lockTraining } from "./coaching-completion.ts";
 
 const MAX_FILE = 5 * 1024 * 1024,
@@ -293,7 +299,7 @@ async function removeReference(
 }
 export async function expireChatAttachments(db: Database, tenantId: string) {
   return db.tenant(
-    { tenantId, userId: "00000000-0000-0000-0000-000000000000", role: "owner" },
+    elevated("worker", { tenantId, role: "owner" }),
     async (tx) => {
       // DELETE visibility also needs SELECT access; worker expiry is a narrow
       // definer operation scoped to the current tenant, including private drafts.

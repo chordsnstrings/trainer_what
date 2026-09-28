@@ -4,6 +4,8 @@ import { domainToASCII } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  actingAs,
+  elevated,
   event,
   putRecord,
   type Actor,
@@ -84,7 +86,10 @@ function admin(req: FastifyRequest) {
   requireRecentMfa(a, true);
   return a;
 }
-const internal = (a: Actor) => ({ ...a, role: "owner" });
+// A follower's wearable and guided-session work runs in its own subscriber
+// scope (its connections, records and audio; the trainer voice facts come
+// from guided_voice(), migration 061); team members keep their own role.
+const internal = (a: Actor) => actingAs(a, "owner", "coach-workflow");
 async function lock(tx: Tx, a: Actor, area = "integrations") {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     a.tenantId + ":" + area + ":" + a.userId,
@@ -141,15 +146,13 @@ async function workspacePermission(tx: Tx, a: Actor) {
   );
   return r?.active === true;
 }
-const workerActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "owner",
-});
+const workerActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "owner" });
 // System roles must not bypass tenant RLS. Admin listing and workers select the
 // non-sensitive workspace directory, then enter an explicit scoped transaction.
 async function scopedAdminRows(
   db: Database,
+  operator: { userId: string },
   table: "trainer_voices" | "domain_orders",
   recordId?: string,
   tenantId?: string,
@@ -164,7 +167,14 @@ async function scopedAdminRows(
   );
   const result: any[] = [];
   for (const tenant of tenants) {
-    const rows = await db.tenant(workerActor(tenant.id), (tx) =>
+    // The Super admin's own listing, after the route's platform-role and
+    // step-up checks: a platform-operator scope, never the worker's.
+    const operatorScope = elevated("platform-operator", {
+      tenantId: tenant.id,
+      userId: operator.userId,
+      role: "owner",
+    });
+    const rows = await db.tenant(operatorScope, (tx) =>
       tx.query(
         table === "trainer_voices"
           ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
@@ -478,7 +488,13 @@ export async function processIntegrationJobs(db: Database) {
       ),
     );
     for (const row of pending) {
-      const a = { tenantId: tenant.id, userId: row.user_id, role: "owner" };
+      // Each connection is synchronized or revoked as its own member, in that
+      // member's subscriber scope (a former member only reaches its own rows).
+      const a = {
+        tenantId: tenant.id,
+        userId: row.user_id,
+        role: "subscriber",
+      };
       try {
         if (row.status === "active") {
           await syncWearableConnection(db, a, row.provider);
@@ -638,18 +654,24 @@ export function registerIntegrationCompletion(
         })
         .parse(req.query);
     const tenantId = id.parse(q.state.split(".")[0]);
-    const [relay] = await db.tenant(workerActor(tenantId), (tx) =>
-      tx.query(
-        "SELECT origin FROM integration_oauth_states WHERE state_hash=$1 AND provider=$2 AND expires_at>now() AND consumed_at IS NULL",
-        [tokenHash(q.state), provider],
-      ),
+    // The provider's redirect carries no session for this site yet: only the
+    // initiating origin is read, by the integration_oauth_relay() definer
+    // (migration 061) in a service transaction bound to the state's workspace.
+    const [found] = await db.system(
+      (tx) =>
+        tx.query<{ origin: string | null }>(
+          "SELECT integration_oauth_relay($1,$2) AS origin",
+          [tokenHash(q.state), provider],
+        ),
+      { tenantId },
     );
-    if (!relay)
+    if (!found?.origin)
       throw fail(
         400,
         "OAUTH_STATE",
         "This authorization link is expired or already used.",
       );
+    const relay = { origin: found.origin };
     reply
       .header("Cache-Control", "no-store")
       .header("Referrer-Policy", "no-referrer");
@@ -831,11 +853,12 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
     "SELECT * FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
     [workoutId, a.userId],
   );
+  // The follower's own scope sees its held workouts; a takeover is asked for.
   const [hold] = await tx.query(
-    "SELECT id FROM records WHERE owner_user_id=$1 AND ((kind='workout' AND status='safety_hold') OR (kind='takeover' AND status='active')) LIMIT 1",
+    "SELECT (EXISTS(SELECT 1 FROM records WHERE owner_user_id=$1 AND kind='workout' AND status='safety_hold') OR member_takeover_active()) AS held",
     [a.userId],
   );
-  if (!workout || workout.status !== "active" || hold)
+  if (!workout || workout.status !== "active" || hold?.held)
     throw fail(
       409,
       "GUIDANCE_PAUSED",
@@ -981,9 +1004,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     });
   });
   app.get("/api/v1/admin/integrations/voices", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       undefined,
       z
@@ -996,9 +1020,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
   app.get(
     "/api/v1/admin/integrations/voices/:id/sample",
     async (req, reply) => {
-      admin(req);
+      const operator = admin(req);
       const [r] = await scopedAdminRows(
         db,
+        operator,
         "trainer_voices",
         id.parse((req.params as any).id),
         undefined,
@@ -1023,13 +1048,18 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     voiceContract();
     const [row] = await scopedAdminRows(
       db,
+      operator,
       "trainer_voices",
       id.parse((req.params as any).id),
     );
     if (!row)
       throw fail(404, "VOICE_NOT_FOUND", "Voice enrollment was not found.");
     return db.tenant(
-      { tenantId: row.tenant_id, userId: operator.userId, role: "owner" },
+      elevated("platform-operator", {
+        tenantId: row.tenant_id,
+        userId: operator.userId,
+        role: "owner",
+      }),
       async (tx) => {
         const [r] = await tx.query(
           "UPDATE trainer_voices SET status='verified',verified_by=$3,verified_at=now(),evidence=evidence||$4::jsonb,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='pending' RETURNING *",
@@ -1063,9 +1093,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a,
         id.parse((req.params as any).workoutId),
       );
-      const [voice] = await tx.query(
-        "SELECT id,status,version FROM trainer_voices WHERE status='verified'",
-      );
+      const [voice] = await tx.query("SELECT id,version FROM guided_voice()");
       let available = false;
       try {
         voiceContract();
@@ -1109,10 +1137,12 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "GUIDANCE_SEGMENT",
           "This guided segment is not available.",
         );
+      // The verified voice's playback facts only (no sample), with the
+      // trainer's current voice consent (guided_voice(), migration 061).
       const [voice] = await tx.query(
-        "SELECT * FROM trainer_voices WHERE status='verified'",
+        "SELECT id,version,provider_voice_id,consented FROM guided_voice()",
       );
-      if (!voice || !(await latestConsent(tx, voice.user_id, "voice")))
+      if (!voice || !voice.consented)
         throw fail(
           409,
           "VOICE_UNAVAILABLE",
@@ -1138,7 +1168,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a.tenantId + ":voice-budget",
       ]);
       const [spent] = await tx.query(
-        "SELECT coalesce(sum(coalesce(cost_usd,(pricing->>'reservedCostUsd')::numeric)),0) AS total FROM cost_events WHERE task='voice.guidance' AND created_at>=date_trunc('day',now())",
+        "SELECT voice_guidance_spent_today() AS total",
       );
       const estimatedCost = (segment.text.length * pricing.price) / 1000;
       if (Number(spent.total) + estimatedCost > pricing.cap)
@@ -1203,13 +1233,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           await db.tenant(internal(a), async (tx) => {
             await guidedMaterial(tx, a, workoutId);
             const [voice] = await tx.query(
-              "SELECT id FROM trainer_voices WHERE id=$1 AND version=$2 AND status='verified'",
+              "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2 AND consented",
               [reservation.voice.id, reservation.voice.version],
             );
-            if (
-              !voice ||
-              !(await latestConsent(tx, reservation.voice.user_id, "voice"))
-            )
+            if (!voice)
               throw fail(
                 409,
                 "VOICE_REVOKED",
@@ -1229,7 +1256,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       );
       return await db.tenant(internal(a), async (tx) => {
         const [voice] = await tx.query(
-          "SELECT id FROM trainer_voices WHERE id=$1 AND version=$2 AND status='verified'",
+          "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2",
           [reservation.voice.id, reservation.voice.version],
         );
         const [r] = await tx.query(
@@ -1284,7 +1311,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     const a = identity(req);
     const audio = await db.tenant(internal(a), async (tx) => {
       const [r] = await tx.query(
-        "SELECT g.* FROM guided_audio g JOIN trainer_voices v ON v.id=g.voice_id AND v.version=g.voice_version WHERE g.id=$1 AND g.user_id=$2 AND g.status='ready' AND v.status='verified'",
+        "SELECT g.* FROM guided_audio g JOIN guided_voice() v ON v.id=g.voice_id AND v.version=g.voice_version WHERE g.id=$1 AND g.user_id=$2 AND g.status='ready'",
         [id.parse((req.params as any).id), a.userId],
       );
       if (!r?.audio)
@@ -1335,10 +1362,20 @@ function domainEnabled() {
     );
 }
 async function domainActor(db: Database, operator: Identity, orderId: string) {
-  const [row] = await scopedAdminRows(db, "domain_orders", orderId);
+  const [row] = await scopedAdminRows(db, operator, "domain_orders", orderId);
   if (!row)
     throw fail(404, "DOMAIN_NOT_FOUND", "Domain request was not found.");
-  return { row, a: { ...operator, tenantId: row.tenant_id, role: "owner" } };
+  return {
+    row,
+    a: {
+      ...operator,
+      ...elevated("platform-operator", {
+        tenantId: row.tenant_id,
+        userId: operator.userId,
+        role: "owner",
+      }),
+    },
+  };
 }
 async function dnsProof(
   hostname: string,
@@ -1496,9 +1533,10 @@ function registerDomainRoutes(
     });
   });
   app.get("/api/v1/admin/integrations/domains", async (req) => {
-    admin(req);
+    const operator = admin(req);
     return scopedAdminRows(
       db,
+      operator,
       "domain_orders",
       undefined,
       z
@@ -1649,28 +1687,25 @@ function registerDomainRoutes(
     });
     // Mapping writes are service-only; the order update stays tenant-scoped.
     return db.system(async (tx) => {
-      await tx.query("SET LOCAL ROLE trainer_app");
-      await tx.query(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true)",
-        [a.tenantId, a.userId, a.role],
-      );
-      const [r] = await tx.query(
-        "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
-        [
-          row.id,
-          b.revision,
-          b.expiresAt,
-          JSON.stringify({
-            dnsTarget: b.dnsTarget,
-            registrarReference: b.registrarReference,
-            tlsCheckedAt: new Date().toISOString(),
-            reconciledBy: operator.userId,
-          }),
-        ],
-      );
-      if (!r) throw conflict();
-      await event(tx, a, "domain.activated", row.id);
-      await tx.query("RESET ROLE");
+      const r = await tx.tenant(a, async (tx) => {
+        const [r] = await tx.query(
+          "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
+          [
+            row.id,
+            b.revision,
+            b.expiresAt,
+            JSON.stringify({
+              dnsTarget: b.dnsTarget,
+              registrarReference: b.registrarReference,
+              tlsCheckedAt: new Date().toISOString(),
+              reconciledBy: operator.userId,
+            }),
+          ],
+        );
+        if (!r) throw conflict();
+        await event(tx, a, "domain.activated", row.id);
+        return r;
+      });
       await tx.query(
         "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES($1,$2,now(),true) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true",
         [r.hostname, r.tenant_id],

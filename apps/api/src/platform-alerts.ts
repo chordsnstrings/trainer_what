@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { Actor, Database, Tx } from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { notifyUser } from "./notifications.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
@@ -120,11 +120,7 @@ async function loadTenantSignals(db: Database, now: Date) {
   for (const t of tenants)
     signals.push(
       await db.tenant(
-        {
-          tenantId: t.id,
-          userId: "00000000-0000-0000-0000-000000000000",
-          role: "owner",
-        },
+        elevated("worker", { tenantId: t.id, role: "owner" }),
         async (tx) => ({
           tenantId: t.id,
           name: t.name,

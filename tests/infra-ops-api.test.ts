@@ -15,6 +15,7 @@ import {
   signHostResult,
   signHostStatus,
 } from "../apps/api/src/host-operations.ts";
+import { seedScope } from "./scope-fixtures.ts";
 
 // Synthetic fixture secret; never a deployment value.
 const SECRET = "synthetic-host-operations-secret-with-more-than-32-bytes";
@@ -201,7 +202,9 @@ test("host operations require a current platform administrator with fresh MFA", 
   );
   assert.equal(r.statusCode, 403, r.body);
   await assert.rejects(
-    db.tenant(operator, (tx) => tx.query("SELECT * FROM host_action_requests")),
+    db.tenant(seedScope(operator), (tx) =>
+      tx.query("SELECT * FROM host_action_requests"),
+    ),
     /permission denied/,
   );
 });

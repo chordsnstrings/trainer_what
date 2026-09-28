@@ -7,6 +7,7 @@ import {
   putRecord,
   type Actor,
   type Database,
+  type SystemTx,
   type Tx,
 } from "@trainer/db";
 import { integrationStatus } from "@trainer/providers";
@@ -216,12 +217,9 @@ const baseRegistry = [
     true,
   ],
 ] as const;
-async function context(tx: Tx, a: Actor) {
-  await tx.query("SET LOCAL ROLE trainer_app");
-  await tx.query(
-    "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-    [a.tenantId, a.userId],
-  );
+/** The owner's verified tenant scope inside the service transaction. */
+function context<T>(tx: SystemTx, a: Actor, fn: (tx: Tx) => Promise<T>) {
+  return tx.tenant({ ...a, role: "owner" }, fn);
 }
 export async function onboardingState(
   tx: Tx,
@@ -682,8 +680,7 @@ export function onboardingRoutes(
         a.tenantId,
       ]);
       const legal = await legalSnapshot(tx);
-      await context(tx, a);
-      return onboardingState(tx, a, tenant, legal);
+      return context(tx, a, (tx) => onboardingState(tx, a, tenant, legal));
     });
   app.get("/api/v1/onboarding", (req) => load(owner(req)));
   app.put("/api/v1/onboarding/:step", async (req) => {
@@ -732,80 +729,88 @@ export function onboardingRoutes(
         .parse(b.values);
     if (b.defer && !["wearables", "voice"].includes(step))
       throw fail(400, "REQUIRED_STEP", "This step cannot be deferred");
-    return db.system(async (tx) => {
+    return db.system(
+      async (tx) => {
+        const [tenant] = await tx.query(
+          "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
+          [a.tenantId],
+        );
+        const legal = await legalSnapshot(tx);
+        return context(tx, a, async (tx) => {
+          const [prior] = await tx.query(
+            "SELECT * FROM records WHERE kind='onboarding_step' AND data->>'step'=$1 FOR UPDATE",
+            [step],
+          );
+          if ((prior?.version ?? 0) !== b.version)
+            throw fail(
+              409,
+              "STALE_ONBOARDING",
+              "This step changed in another session. Reload it before saving.",
+            );
+          if (step === "preview") {
+            const state = await onboardingState(tx, a, tenant, legal);
+            if ((values as { digest: string }).digest !== state.previewDigest)
+              throw fail(
+                409,
+                "PREVIEW_CHANGED",
+                "Your setup changed after this preview loaded. Refresh and review the current version before continuing.",
+              );
+            values = {
+              digest: state.previewDigest,
+              reviewedAt: new Date().toISOString(),
+            };
+          }
+          const data = { step, values, licenceStatus: "NOT_REQUESTED" },
+            status = b.defer ? "deferred" : "saved";
+          const row = prior
+            ? (
+                await tx.query(
+                  "UPDATE records SET data=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+                  [prior.id, JSON.stringify(data), status],
+                )
+              )[0]
+            : await putRecord(tx, a, "onboarding_step", data, { status });
+          await event(tx, a, "onboarding.step_saved", row.id, {
+            step,
+            version: row.version,
+            status,
+          });
+          return { version: row.version, values: row.data.values };
+        });
+      },
+      { tenantId: a.tenantId },
+    );
+  });
+}
+export async function publishStorefront(db: Database, a: Owner) {
+  requireRecentMfa(a);
+  const result = await db.system(
+    async (tx) => {
       const [tenant] = await tx.query(
         "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
         [a.tenantId],
       );
       const legal = await legalSnapshot(tx);
-      await context(tx, a);
-      const [prior] = await tx.query(
-        "SELECT * FROM records WHERE kind='onboarding_step' AND data->>'step'=$1 FOR UPDATE",
-        [step],
-      );
-      if ((prior?.version ?? 0) !== b.version)
-        throw fail(
-          409,
-          "STALE_ONBOARDING",
-          "This step changed in another session. Reload it before saving.",
-        );
-      if (step === "preview") {
+      const state = await context(tx, a, async (tx) => {
         const state = await onboardingState(tx, a, tenant, legal);
-        if ((values as { digest: string }).digest !== state.previewDigest)
+        if (state.gates.length)
           throw fail(
             409,
-            "PREVIEW_CHANGED",
-            "Your setup changed after this preview loaded. Refresh and review the current version before continuing.",
+            "PUBLISH_GATES",
+            state.gates.map((g) => g.reason).join(" "),
           );
-        values = {
-          digest: state.previewDigest,
-          reviewedAt: new Date().toISOString(),
-        };
-      }
-      const data = { step, values, licenceStatus: "NOT_REQUESTED" },
-        status = b.defer ? "deferred" : "saved";
-      const row = prior
-        ? (
-            await tx.query(
-              "UPDATE records SET data=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-              [prior.id, JSON.stringify(data), status],
-            )
-          )[0]
-        : await putRecord(tx, a, "onboarding_step", data, { status });
-      await event(tx, a, "onboarding.step_saved", row.id, {
-        step,
-        version: row.version,
-        status,
+        await event(tx, a, "storefront.published", a.tenantId, {
+          previewDigest: state.previewDigest,
+        });
+        return state;
       });
-      return { version: row.version, values: row.data.values };
-    });
-  });
-}
-export async function publishStorefront(db: Database, a: Owner) {
-  requireRecentMfa(a);
-  const result = await db.system(async (tx) => {
-    const [tenant] = await tx.query(
-      "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
-      [a.tenantId],
-    );
-    const legal = await legalSnapshot(tx);
-    await context(tx, a);
-    const state = await onboardingState(tx, a, tenant, legal);
-    if (state.gates.length)
-      throw fail(
-        409,
-        "PUBLISH_GATES",
-        state.gates.map((g) => g.reason).join(" "),
-      );
-    await event(tx, a, "storefront.published", a.tenantId, {
-      previewDigest: state.previewDigest,
-    });
-    await tx.query("RESET ROLE");
-    await tx.query("UPDATE tenants SET published=true WHERE id=$1", [
-      a.tenantId,
-    ]);
-    return { ok: true, path: state.storefrontPath };
-  });
+      await tx.query("UPDATE tenants SET published=true WHERE id=$1", [
+        a.tenantId,
+      ]);
+      return { ok: true, path: state.storefrontPath };
+    },
+    { tenantId: a.tenantId },
+  );
   try {
     await recordPublishAcquisition(db, a.tenantId);
   } catch {

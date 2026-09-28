@@ -284,7 +284,31 @@ def validate_exposure(rendered, release=None):
             raise DeploymentError("Compose networks must be private bridge networks")
 
 
-def runtime_role(release, sha):
+TENANT_SCOPE_SQL = "infra/tenant-scope.sql"
+# The pre-hardening default: releases without infra/tenant-scope.sql call
+# set_config after SET ROLE trainer_app (docs/features/isolation.md).
+UNSCOPED_SET_CONFIG = "GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO PUBLIC;\n"
+
+
+def scope_compatible(sha):
+    """Whether a deployed release sets tenant scope before SET ROLE (it ships infra/tenant-scope.sql)."""
+    return (ROOT / "releases" / valid_sha(sha) / TENANT_SCOPE_SQL).is_file()
+
+
+def admin_sql(release, sha, sql):
+    compose(release, sha, "exec", "-T", "database", "psql", "-q", "-v", "ON_ERROR_STOP=1",
+            "-U", "trainer_migrations", "-d", "trainer", input=sql, text=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+
+def runtime_role(release, sha, serving):
+    """Grant the runtime role for `release` while `serving` (None on a first deployment) keeps serving.
+
+    `serving` is also what a failed deployment restores, so the tenant-scope
+    hardening (no set_config for trainer_app) is applied only when that release
+    is scope-compatible too; while an older release serves, the pre-hardening
+    grant is restored instead so that release keeps working.
+    """
     # Rendered Compose config contains secrets: keep it in memory and never print it.
     result = compose(release, sha, "config", "--format", "json", capture_output=True, text=True)
     config = json.loads(result.stdout)
@@ -303,9 +327,14 @@ def runtime_role(release, sha):
     grants = (release / "infra/runtime-role.sql").read_text()
     grants = "\n".join(line for line in grants.splitlines() if not line.startswith("CREATE ROLE"))
     sql += grants + "\nALTER ROLE trainer_service WITH LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '" + quoted + "';\n"
-    compose(release, sha, "exec", "-T", "database", "psql", "-q", "-v", "ON_ERROR_STOP=1",
-            "-U", "trainer_migrations", "-d", "trainer", input=sql, text=True,
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    # A controller older than tenant scoping never reaches this step; after an
+    # operator rollback this controller can run while an older release serves.
+    scope = release / TENANT_SCOPE_SQL
+    if serving and not scope_compatible(serving):
+        sql += UNSCOPED_SET_CONFIG
+    elif scope.is_file():
+        sql += scope.read_text()
+    admin_sql(release, sha, sql)
 
 
 BACKUPS_KEPT = 7
@@ -413,7 +442,7 @@ def deploy(sha, github):
             raise
     # Failed migrations do not replace the currently running application.
     compose(release, sha, "run", "--rm", "--no-deps", "migrate")
-    runtime_role(release, sha)
+    runtime_role(release, sha, running)
     endpoint = json.loads((ROOT / "endpoint.json").read_text())["url"]
     ask = edge_ask()
 
@@ -490,6 +519,11 @@ def switch_release(target):
     rendered = compose(release, target, "config", "--format", "json", capture_output=True, text=True)
     validate_exposure(json.loads(rendered.stdout), release)
     endpoint = endpoint_url()
+    if not scope_compatible(target):
+        # A release older than tenant scoping calls set_config after SET ROLE:
+        # restore the pre-hardening grant before it serves. The next deployment
+        # from a scope-compatible serving release hardens the database again.
+        admin_sql(release, target, UNSCOPED_SET_CONFIG)
     try:
         start_release(target, endpoint)
     except Exception:

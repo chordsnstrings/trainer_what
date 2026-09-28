@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  elevated,
   type Actor,
   type Database,
   type Tx,
@@ -321,7 +322,14 @@ export function financeOperations(
       .string()
       .uuid()
       .parse((req.params as any).tenantId);
-    return { ...a, tenantId, role: "finance" };
+    return {
+      ...a,
+      ...elevated("platform-operator", {
+        tenantId,
+        userId: a.userId,
+        role: "finance",
+      }),
+    };
   }
   const prefix = "/api/v1/admin/tenants/:tenantId/finance";
   app.get(prefix, async (req) => {

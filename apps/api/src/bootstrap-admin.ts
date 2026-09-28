@@ -47,16 +47,10 @@ export async function bootstrapAdmin(db: Database, input: unknown) {
       "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')",
       [tenantId, userId],
     );
-    await tx.query("SET LOCAL ROLE trainer_app");
-    await tx.query(
-      "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role','owner',true)",
-      [tenantId, userId],
-    );
-    await event(
-      tx,
-      { tenantId, userId, role: "owner" },
-      "platform.admin_bootstrapped",
-      userId,
+    // The owner membership inserted above verifies this scope.
+    const owner = { tenantId, userId, role: "owner" };
+    await tx.tenant(owner, (scoped) =>
+      event(scoped, owner, "platform.admin_bootstrapped", userId),
     );
     return { userId, tenantId };
   });

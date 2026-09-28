@@ -1,5 +1,5 @@
 import { runClaimedFinanceJob } from "../../api/src/finance-automation.ts";
-import { type Actor, type Database } from "@trainer/db";
+import { elevated, type Actor, type Database } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { executePushDelivery } from "./push-delivery.ts";
@@ -18,11 +18,8 @@ export const defaultHandlers: JobHandlers = {
   push: (db, tenantId, job) => executePushDelivery(db, tenantId, job),
   email: (db, tenantId, job) => executeEmailDelivery(db, tenantId, job),
 };
-const workerActor = (tenantId: string): Actor => ({
-  tenantId,
-  userId: "00000000-0000-0000-0000-000000000000",
-  role: "staff",
-});
+const workerActor = (tenantId: string): Actor =>
+  elevated("worker", { tenantId, role: "staff" });
 // Model spending caps reset at the start of the next Asia/Dubai day. The request
 // was refused before dispatch, so the wait does not consume a delivery attempt.
 const MODEL_LIMIT_CODES = new Set(["MODEL_DAILY_LIMIT", "MODEL_USER_LIMIT"]);

@@ -427,12 +427,13 @@ test("paid bookings use one-time checkout, signed exact-price confirmation and a
     );
     return { slot, booking };
   });
-  const payment = await db.tenant({ ...client, role: "staff" }, async (tx) => {
+  // Runs in the reserving follower's own scope and never changes it.
+  const payment = await db.tenant(client, async (tx) => {
     const p = await preparePaidBooking(tx, client, slot, booking);
     const [role] = await tx.query(
-      "SELECT current_setting('app.role',true) AS role",
+      "SELECT current_setting('app.role',true) AS role,current_user AS db_role",
     );
-    assert.equal(role.role, "staff");
+    assert.deepEqual(role, { role: "subscriber", db_role: "trainer_app" });
     return p;
   });
   let remote: any,

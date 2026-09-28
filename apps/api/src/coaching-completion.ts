@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   event,
+  putPrivateRecord,
   putRecord,
   type Actor,
   type Database,
@@ -697,7 +698,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         "SUBSCRIBER_REQUIRED",
         "Use the coach evaluation workspace to test your Brain",
       );
-    const material = await db.tenant({ ...a, role: "staff" }, async (tx) => {
+    const material = await db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       // Safety screening precedes the paid gate: a lapsed or past-due member's
       // red-flag report is still held and escalated. The reply is the fixed
@@ -716,9 +717,9 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         { text: b.message, author: "subscriber", subscriberId: a.userId },
         { status: "sent" },
       );
-      const [takeover] = await tx.query(
-        "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
-        [a.userId],
+      // The follower's own scope cannot read takeovers or review items.
+      const [{ takeover }] = await tx.query(
+        "SELECT member_takeover_active() AS takeover",
       );
       if (safety)
         await openTrainingHold(tx, a, a.userId, b.message, undefined, screen);
@@ -729,7 +730,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         await openPersonalReview(tx, a, a.userId, b.message, screen);
       if (safety || hold || takeover || personalReview) {
         if (!safety && !hold && !personalReview)
-          await putRecord(
+          await putPrivateRecord(
             tx,
             a,
             "exception",
@@ -768,8 +769,10 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "COACHING_CONSENT_REQUIRED",
           "Digital coaching permission is not active. You can message your trainer personally.",
         );
+      // The published Brain is read by name; the follower's scope cannot
+      // list the coach's material.
       const [release] = await tx.query(
-        "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM member_material('brain_release')",
       );
       if (!release)
         throw fail(
@@ -815,7 +818,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       evidence,
       modelAccounting(db, a, "coaching"),
     );
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
+    return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       await activeMembership(tx, a);
       await assertTrainingOpen(tx, a.userId);
@@ -824,7 +827,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         [a.userId],
       );
       const [release] = await tx.query(
-        "SELECT id FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM member_material('brain_release')",
       );
       if (!consent?.granted || release?.id !== material.release!.id)
         throw fail(
@@ -838,11 +841,11 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "COACHING_CHANGED",
           "Your profile or training record changed during generation; the response was withheld",
         );
-      const [takeover] = await tx.query(
-        "SELECT id FROM records WHERE kind='takeover' AND owner_user_id=$1 AND status='active'",
-        [a.userId],
+      const [{ takeover }] = await tx.query(
+        "SELECT member_takeover_active() AS takeover",
       );
-      const d = await putRecord(
+      // Review items about the follower are written without being read back.
+      const d = await putPrivateRecord(
         tx,
         a,
         "decision",
@@ -854,7 +857,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         },
         { status: "pending_review" },
       );
-      await putRecord(
+      await putPrivateRecord(
         tx,
         a,
         "exception",

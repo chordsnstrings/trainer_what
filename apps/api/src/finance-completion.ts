@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { type Database, event } from "@trainer/db";
+import { elevated, type Database, event } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import { publishFinancePolicy } from "./finance-policy.ts";
@@ -31,11 +31,14 @@ function operator(req: FastifyRequest, _write = true) {
   requireRecentMfa(a, true);
   return {
     ...a,
-    tenantId: z
-      .string()
-      .uuid()
-      .parse((req.params as any).tenantId),
-    role: "finance",
+    ...elevated("platform-operator", {
+      tenantId: z
+        .string()
+        .uuid()
+        .parse((req.params as any).tenantId),
+      userId: a.userId,
+      role: "finance",
+    }),
   };
 }
 export function registerFinanceCompletion(app: FastifyInstance, db: Database) {

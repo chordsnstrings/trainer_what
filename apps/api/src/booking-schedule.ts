@@ -266,9 +266,9 @@ export function registerBookingRoutes(
   };
   app.get("/api/v1/bookings", async (req) => {
     const a = allowed(req);
-    return db.tenant({ ...a, role: "staff" }, async (tx) => {
+    return db.tenant(a, async (tx) => {
       const slots = await tx.query(
-        "SELECT s.*,count(b.id) FILTER(WHERE b.status='confirmed' OR (b.status='payment_pending' AND b.hold_expires_at>now()))::int AS booked FROM booking_slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.tenant_id=s.tenant_id WHERE s.ends_at>now()-interval '30 days' GROUP BY s.id ORDER BY s.starts_at LIMIT 500",
+        "SELECT s.*,booking_slot_taken(s.id) AS booked FROM booking_slots s WHERE s.ends_at>now()-interval '30 days' ORDER BY s.starts_at LIMIT 500",
       );
       const bookings = await tx.query(
         "SELECT b.*,u.name FROM bookings b JOIN users u ON u.id=b.user_id WHERE ($1<>'subscriber' OR b.user_id=$2) ORDER BY b.created_at DESC LIMIT 1000",
@@ -475,7 +475,7 @@ export function registerBookingRoutes(
         "Sign in as a subscriber to reserve.",
       );
     const slotId = id.parse((req.params as any).id);
-    const result = await db.tenant({ ...a, role: "staff" }, async (tx) => {
+    const result = await db.tenant(a, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         a.tenantId + ":booking-subscriber:" + a.userId,
       ]);
@@ -528,10 +528,9 @@ export function registerBookingRoutes(
           "PAYMENT_RECONCILIATION",
           "Complete the existing payment or refund review before booking again.",
         );
-      const [count] = await tx.query(
-        "SELECT count(*)::int AS n FROM bookings WHERE slot_id=$1 AND (status='confirmed' OR (status='payment_pending' AND hold_expires_at>now()))",
-        [slotId],
-      );
+      const [count] = await tx.query("SELECT booking_slot_taken($1) AS n", [
+        slotId,
+      ]);
       if (count.n >= slot.capacity)
         throw fail(409, "SLOT_FULL", "This session is full.");
       const conflicts = await tx.query(

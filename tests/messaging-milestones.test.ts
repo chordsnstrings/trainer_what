@@ -98,7 +98,8 @@ async function paySession(coach: any, member: any, id: string) {
     );
     return { slot, booking };
   });
-  await db.tenant({ ...member, role: "staff" }, (tx) =>
+  // In the reserving follower's own scope, as the booking route runs it.
+  await db.tenant(member, (tx) =>
     preparePaidBooking(tx, member, slot, booking),
   );
   let remote: any;

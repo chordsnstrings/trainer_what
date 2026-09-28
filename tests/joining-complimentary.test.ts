@@ -87,6 +87,8 @@ const grant = (body: any, who = coach) =>
   request("/complimentary-access", "POST", body, who);
 const ownerTx = (fn: (tx: any) => Promise<any>, who = coach): Promise<any> =>
   db.tenant({ ...who, role: "owner" }, fn);
+const erasureTx = (fn: (tx: any) => Promise<any>): Promise<any> =>
+  db.tenant({ ...coach, role: "owner" }, fn, { privacyErasure: true });
 before(async () => {
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true });
@@ -601,7 +603,8 @@ test("export includes grants; erasure and workspace closure end them and remove 
     exportComplimentaryAccess(tx, a.userId),
   );
   assert.ok(exported.some((r: any) => r.reason === "Second short trial"));
-  await ownerTx((tx) => eraseComplimentaryAccess(tx, a.userId));
+  // Erasure and closure run in the privacy erasure scope (db option).
+  await erasureTx((tx) => eraseComplimentaryAccess(tx, a.userId));
   const erased = await ownerTx((tx) =>
     tx.query(
       "SELECT reason,close_note,closed_at,close_reason FROM complimentary_access WHERE user_id=$1",
@@ -629,7 +632,7 @@ test("export includes grants; erasure and workspace closure end them and remove 
       ),
     ),
   );
-  await ownerTx((tx) => closeWorkspaceComplimentaryAccess(tx));
+  await erasureTx((tx) => closeWorkspaceComplimentaryAccess(tx));
   const all = await ownerTx((tx) =>
     tx.query("SELECT reason,closed_at FROM complimentary_access"),
   );
@@ -780,7 +783,10 @@ test("the grant notice shows the end date in the member's time zone", async () =
     reason: "Time zone check",
   });
   assert.equal(r.statusCode, 200, r.body);
-  const notice = await noticeFor(c.userId, `complimentary-granted:${r.json().id}`);
+  const notice = await noticeFor(
+    c.userId,
+    `complimentary-granted:${r.json().id}`,
+  );
   assert.ok(notice.body.includes(`until ${messageDate(r.json().endsAt, tz)}`));
   const revoked = await request(
     `/complimentary-access/${r.json().id}/revoke`,
@@ -838,7 +844,9 @@ test("operators page grants across workspaces by grant, with workspace, follower
   );
   assert.equal(seen.length, total.n);
   assert.equal(new Set(seen).size, seen.length, "No grant repeats");
-  const ended = await list(`status=ended&follower=${encodeURIComponent("CompOther@Example.test")}`);
+  const ended = await list(
+    `status=ended&follower=${encodeURIComponent("CompOther@Example.test")}`,
+  );
   assert.equal(ended.json().grants.length, 25);
   assert.ok(
     ended
