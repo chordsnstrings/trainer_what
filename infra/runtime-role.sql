@@ -70,6 +70,10 @@ GRANT SELECT ON coach_directory_profiles TO trainer_service;
 GRANT SELECT,INSERT ON workspace_app_icons TO trainer_service;
 GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 
+-- Early access (067): platform-scoped requests from the public site, written
+-- by the public endpoint and listed, exported or erased by the Super admin.
+GRANT SELECT,INSERT,UPDATE,DELETE ON early_access_requests TO trainer_service;
+
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 

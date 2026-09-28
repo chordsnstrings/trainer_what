@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INDEXABLE_MARKETING_PAGES } from "./marketing.ts";
 
 /**
  * Public discovery vocabulary and route policy shared by the API (sitemaps,
@@ -8,17 +9,13 @@ import { z } from "zod";
 export const DIRECTORY_PATH = "/coaches";
 export const DIRECTORY_PAGE_SIZE = 24;
 
-/** Platform marketing pages that search engines may index. */
-export const PUBLIC_MARKETING_PATHS = [
-  "/",
-  "/how-it-works",
-  "/demo",
-  "/pricing",
-  "/faq",
-  "/terms",
-  "/privacy",
-  "/ai-disclosure",
-] as const;
+/**
+ * Platform marketing pages that search engines may index, derived from the
+ * marketing registry (packages/contracts/src/marketing.ts) so the sitemap,
+ * robots metadata and pages never drift apart.
+ */
+export const PUBLIC_MARKETING_PATHS: readonly string[] =
+  INDEXABLE_MARKETING_PAGES.map((page) => page.path);
 
 /**
  * First path segments of private app and authentication routes. They are
@@ -319,9 +316,21 @@ export const PLATFORM_THEME = {
   theme: "#254d42",
 } as const;
 
-/** The platform install manifest; public/manifest.webmanifest must match it. */
+/** Where the API serves the platform's generated icons (initials of the name). */
+export const PLATFORM_ICON_BASE = "/api/v1/public/platform/icon/";
+/**
+ * The platform install manifest, served by apps/web/app/manifest.ts at
+ * /manifest.webmanifest and by the API to anonymous visitors. The name is
+ * the configured APP_NAME and the icons are drawn from its initials.
+ */
 export function platformManifest(appName = "Trainer Brain") {
   const name = appName.trim() || "Trainer Brain";
+  const icon = (file: string, sizes: string, purpose: "any" | "maskable") => ({
+    src: PLATFORM_ICON_BASE + file,
+    sizes,
+    type: "image/png",
+    purpose,
+  });
   return {
     name,
     short_name: shortAppName(name, 15),
@@ -331,30 +340,9 @@ export function platformManifest(appName = "Trainer Brain") {
     background_color: PLATFORM_THEME.background,
     theme_color: PLATFORM_THEME.theme,
     icons: [
-      {
-        src: "/icons/icon-192.png",
-        sizes: "192x192",
-        type: "image/png",
-        purpose: "any",
-      },
-      {
-        src: "/icons/icon-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "any",
-      },
-      {
-        src: "/icons/maskable-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-      {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
-        purpose: "any",
-      },
+      icon("192.png", "192x192", "any"),
+      icon("512.png", "512x512", "any"),
+      icon("maskable-512.png", "512x512", "maskable"),
     ],
   };
 }

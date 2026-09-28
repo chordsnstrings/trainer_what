@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { AcquisitionConsent } from "../components/acquisition";
 import { documentLanguage } from "../components/public-website";
+import { publicPlatform } from "../components/marketing/platform";
+import { MARKETING_PAGES } from "@trainer/contracts";
+
+const MARKETING_SITE_PATHS = MARKETING_PAGES.filter(
+  (page) => page.renderer !== "workspace",
+).map((page) => page.path);
 import "./globals.css";
 import "./nutrition.css";
 import "./platform-settings.css";
@@ -17,19 +23,33 @@ import "./programme.css";
 import "./brain-plans.css";
 import "./voice-session.css";
 import "./web-address.css";
-export const metadata: Metadata = {
-  manifest: "/manifest.webmanifest",
-  // Real PNG sizes for install surfaces; iOS ignores SVG home-screen icons.
+import "./marketing.css";
+export async function generateMetadata(): Promise<Metadata> {
+  // The platform name comes from the Super admin settings (APP_NAME).
+  const { name } = await publicPlatform();
+  return {
+    ...metadata,
+    title: { default: name, template: "%s | " + name },
+    applicationName: name,
+  };
+}
+// app/manifest.ts serves /manifest.webmanifest from the configured name;
+// the icons are PLATFORM_ICON_BASE files drawn from its initials.
+const metadata: Metadata = {
+  // Real PNG sizes for install surfaces, drawn from the configured name's
+  // initials; iOS ignores SVG home-screen icons.
   icons: {
     icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      {
+        url: "/api/v1/public/platform/icon/192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
     ],
-    apple: { url: "/icons/apple-touch-icon.png", sizes: "180x180" },
+    apple: { url: "/api/v1/public/platform/icon/180.png", sizes: "180x180" },
   },
-  title: "Trainer Brain — Your coaching, amplified",
   description:
-    "Build a digital coaching practice around your own methods, judgment and brand.",
+    "Build an AI trainer from your own coaching method and sell personalised, day-by-day coaching to your followers, priced in AED.",
 };
 export const viewport: Viewport = { themeColor: "#254d42" };
 export default async function Layout({
@@ -47,7 +67,7 @@ export default async function Layout({
     <html lang={lang} dir={dir}>
       <body>
         {children}
-        <AcquisitionConsent />
+        <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
       </body>
     </html>
   );

@@ -234,6 +234,17 @@ function readback(row?: Consent) {
     : { granted: false };
 }
 
+/**
+ * The consenting visitor and their first tagged touch, for platform-scoped
+ * records such as early access requests. Null without analytics permission.
+ */
+export async function consentedVisitor(tx: Tx, req: RequestContext) {
+  const row = await consentFor(tx, req);
+  return row
+    ? { visitorId: row.visitor_id, touch: visible(row.first_touch) }
+    : null;
+}
+
 const slots: Record<string, "landing" | "onboarding"> = {
   "landing-welcome": "landing",
   "onboarding-welcome": "onboarding",

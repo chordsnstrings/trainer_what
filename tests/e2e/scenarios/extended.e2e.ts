@@ -586,15 +586,16 @@ async function publicPages(ctx: E2EContext, layla: TrainerSeed) {
   });
   await ctx.reporter.step(P, "Home page earnings calculator", "the public site renders the illustrative earnings calculator", async () => {
     const pages = await Promise.all(["/", "/pricing"].map((path) => anon.request("GET", path)));
-    const hit = pages.find((p) => /Imagine your coaching business/.test(p.text));
-    assert.ok(hit, "calculator heading rendered on the home or pricing page");
-    return pages.map((p, i) => ["/", "/pricing"][i] + ":" + /Imagine your coaching business/.test(p.text)).join(" ");
+    const hit = pages.find((p) => /Earnings calculator|Commission by band/.test(p.text));
+    assert.ok(hit, "calculator rendered on the home or pricing page");
+    return pages.map((p, i) => ["/", "/pricing"][i] + ":" + /Earnings calculator|Commission by band/.test(p.text)).join(" ");
   });
   await ctx.reporter.step(P, "Install the app on a phone (platform-branded)", "platform manifest and icon", async () => {
     const manifest = await anon.request("GET", "/manifest.webmanifest");
     assert.equal(manifest.status, 200);
     assert.ok(JSON.parse(manifest.text).name);
-    assert.equal((await anon.request("GET", "/icon.svg")).status, 200);
+    const icon = JSON.parse(manifest.text).icons[0].src;
+    assert.equal((await anon.request("GET", icon)).status, 200);
   });
 }
 

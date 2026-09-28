@@ -116,6 +116,52 @@ function IdentityForm({ step, onSaved }: { step: any; onSaved: () => void }) {
     </form>
   );
 }
+const SHARE_CHANNELS = [
+  ["instagram_bio", "Instagram bio"],
+  ["instagram_story", "Instagram Stories"],
+  ["other", "Somewhere else (WhatsApp, email, another network)"],
+] as const;
+function ShareChannels({
+  busy,
+  saved,
+  onSave,
+}: {
+  busy: boolean;
+  saved: string[];
+  onSave: (channels: string[]) => void;
+}) {
+  const [channels, setChannels] = useState<string[]>(saved);
+  return (
+    <fieldset className="share-channels">
+      <legend>Where did you share your link?</legend>
+      {SHARE_CHANNELS.map(([key, label]) => (
+        <label className="check-field" key={key}>
+          <input
+            type="checkbox"
+            checked={channels.includes(key)}
+            onChange={(e) =>
+              setChannels((current) =>
+                e.target.checked
+                  ? [...current, key]
+                  : current.filter((c) => c !== key),
+              )
+            }
+          />
+          {label}
+        </label>
+      ))}
+      <button
+        type="button"
+        className="button"
+        disabled={busy || !channels.length}
+        onClick={() => onSave(channels)}
+      >
+        I’ve shared my link
+      </button>
+    </fieldset>
+  );
+}
+
 export function Onboarding({
   stepKey,
   revision,
@@ -282,7 +328,21 @@ export function Onboarding({
         </section>
       )}
       <section className="card">
-        {stepKey === "identity" ? (
+        {stepKey === "share" ? (
+          <>
+            <p>
+              Your coaching address:{" "}
+              <code className="ltr-data">{data.storefrontPath}</code>. Copy the
+              tagged links below into your Instagram bio and Stories, then
+              record where you shared it.
+            </p>
+            <ShareChannels
+              busy={busy}
+              saved={(step.values?.channels as string[] | undefined) ?? []}
+              onSave={(channels) => void save({ channels })}
+            />
+          </>
+        ) : stepKey === "identity" ? (
           <IdentityForm step={step} onSaved={refresh} />
         ) : stepKey === "account" ? (
           <>

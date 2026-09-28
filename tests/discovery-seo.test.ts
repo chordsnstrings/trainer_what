@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import sharp from "sharp";
+import { PLATFORM_LOGO_PATH } from "@trainer/contracts";
 import {
   COACH_HOST_PLATFORM_SEGMENTS,
   COACH_SITE_MAX_URLS,
@@ -15,6 +16,7 @@ import {
   isIndexablePlatformPath,
   isPrivatePath,
   platformManifest,
+  PLATFORM_ICON_BASE,
   robotsPolicy,
   sitemapIndexXml,
   sitemapUrlSetXml,
@@ -334,28 +336,35 @@ test("a connected coach domain serves its own crawler files", () => {
   assert.equal(customHostPath("/robots.txt", "Bad Slug"), null);
 });
 
-test("the static platform manifest matches the shared definition and its PNG icons are real sizes", async () => {
-  const publicDir = new URL("../apps/web/public/", import.meta.url);
-  const manifest = JSON.parse(
-    await readFile(new URL("manifest.webmanifest", publicDir), "utf8"),
+test("the platform manifest follows the configured name and its generated PNG icons are real sizes", async () => {
+  // No static manifest can drift from the configured name any more.
+  await assert.rejects(
+    readFile(new URL("../apps/web/public/manifest.webmanifest", import.meta.url), "utf8"),
   );
-  assert.deepEqual(manifest, platformManifest());
+  const generated = await readFile(new URL("../apps/web/app/manifest.ts", import.meta.url), "utf8");
+  assert.match(generated, /platformManifest\(name\)/);
+  const manifest = platformManifest("TrainsYou");
+  assert.equal(manifest.name, "TrainsYou");
   const pngs = manifest.icons.filter((i: any) => i.type === "image/png");
   assert.ok(pngs.some((i: any) => i.purpose === "maskable"));
   for (const icon of [
     ...pngs,
-    { src: "/icons/apple-touch-icon.png", sizes: "180x180", purpose: "apple" },
+    { src: PLATFORM_ICON_BASE + "180.png", sizes: "180x180", purpose: "apple" },
   ]) {
+    assert.ok(icon.src.startsWith(PLATFORM_ICON_BASE), icon.src);
     const [w, hgt] = icon.sizes.split("x").map(Number);
-    const meta = await sharp(
-      await readFile(new URL(icon.src.slice(1), publicDir)),
-    ).metadata();
+    const r = await h.app.inject({ url: icon.src, method: "GET" });
+    assert.equal(r.statusCode, 200, icon.src);
+    assert.equal(r.headers["content-type"], "image/png");
+    const meta = await sharp(r.rawPayload).metadata();
     assert.equal(meta.format, "png", icon.src);
     assert.equal(meta.width, w, icon.src);
     assert.equal(meta.height, hgt, icon.src);
     // Home-screen surfaces that crop or fill need an opaque image.
     if (icon.purpose !== "any") assert.equal(meta.hasAlpha, false, icon.src);
   }
+  assert.equal((await h.app.inject({ url: PLATFORM_ICON_BASE + "64.png", method: "GET" })).statusCode, 404);
+  assert.ok(PLATFORM_LOGO_PATH.startsWith(PLATFORM_ICON_BASE));
   assert.equal(platformManifest("  ").name, "Trainer Brain");
   assert.equal(
     platformManifest("A Very Long Platform Name").short_name,

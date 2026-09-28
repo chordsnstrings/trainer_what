@@ -49,6 +49,8 @@ type Integration = {
   description: string;
   category: string;
   implemented: boolean;
+  /** Operator controls: always enabled, no connection test. */
+  controls?: boolean;
   fields: IntegrationField[];
   setupNotes?: string;
   values: Record<string, string>;
@@ -115,6 +117,11 @@ const categories: Record<string, { name: string; description: string }> = {
     name: "Health & activity",
     description: "Bring consented activity data into the coaching experience.",
   },
+  marketing: {
+    name: "Growth & marketing",
+    description:
+      "Public calculator assumptions and the optional Instagram connection for trainers.",
+  },
   branding: {
     name: "Client experience",
     description:
@@ -162,7 +169,7 @@ function displayDate(value: string) {
 }
 
 function statusOf(integration: Integration) {
-  if (integration.id === "application")
+  if (integration.controls)
     return { label: "Platform controls", tone: "neutral" };
   if (
     ["encryption_unavailable", "credentials_unreadable"].includes(
@@ -364,7 +371,7 @@ export function PlatformSettings({
     (integration) => integration.id === selectedId,
   );
   const providers = data.integrations.filter(
-    (integration) => integration.id !== "application",
+    (integration) => !integration.controls,
   );
   const activeCount = providers.filter(
     (integration) => integration.active,
@@ -379,10 +386,10 @@ export function PlatformSettings({
       (filter === "all" ||
         (filter === "active" &&
           integration.active &&
-          integration.id !== "application") ||
+          !integration.controls) ||
         (filter === "attention" &&
           !integration.active &&
-          integration.id !== "application"))
+          !integration.controls))
     );
   });
   const groups = [
@@ -578,7 +585,7 @@ export function PlatformSettings({
                     .map((integration) => (
                       <Link
                         href={`/admin/integrations/${integration.id}`}
-                        className={`ps-integration-card ${integration.id === "application" ? "ps-integration-card--platform" : ""}`}
+                        className={`ps-integration-card ${integration.controls ? "ps-integration-card--platform" : ""}`}
                         key={integration.id}
                       >
                         <div className="ps-card-top">
@@ -589,7 +596,7 @@ export function PlatformSettings({
                         <p>{integration.description}</p>
                         <div className="ps-card-bottom">
                           <span>
-                            {integration.id === "application"
+                            {integration.controls
                               ? "Manage controls"
                               : integration.revision > 0
                                 ? "Manage connection"
@@ -651,7 +658,7 @@ function IntegrationEditor({
   const [acknowledged, setAcknowledged] = useState(false);
   const [showSecurity, setShowSecurity] = useState(false);
   const [applicationOrigin, setApplicationOrigin] = useState("");
-  const controls = integration.id === "application";
+  const controls = !!integration.controls;
   const dirty =
     JSON.stringify(values) !== JSON.stringify(initialValues) ||
     Object.values(secrets).some((value) => value.length > 0) ||

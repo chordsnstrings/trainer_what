@@ -50,6 +50,8 @@ import {
 } from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import { registerDiscovery } from "./discovery.ts";
+import { registerEarlyAccess } from "./early-access.ts";
+import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -322,6 +324,8 @@ export async function buildApp(
       stripe?: () => ReturnType<typeof stripeClient>;
       /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
       webAddresses?: WebAddressDeps;
+      /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
+      instagram?: InstagramTransport;
     };
   } = {},
 ) {
@@ -667,6 +671,10 @@ export async function buildApp(
   });
   registerCoachSite(app, db);
   registerDiscovery(app, db);
+  registerMarketing(app, db, {
+    instagramTransport: options.providers?.instagram,
+  });
+  registerEarlyAccess(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);

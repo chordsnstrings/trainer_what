@@ -2,6 +2,7 @@ import { z } from "zod";
 import { brandDesignSchema } from "./branding.ts";
 export * from "./branding.ts";
 export * from "./discovery.ts";
+export * from "./marketing.ts";
 export const signupSchema = z
   .object({
     name: z.string().trim().min(2).max(100),
@@ -93,3 +94,4 @@ export const productSchema = z
         message: "An upfront programme needs a length in days",
       });
   });
+export * from "./marketing-features.ts";

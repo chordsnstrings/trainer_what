@@ -1,6 +1,6 @@
 import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { cache } from "react";
 import type { Metadata, Viewport } from "next";
 import {
@@ -10,8 +10,14 @@ import {
 import {
   DIRECTORY_PATH,
   isIndexablePlatformPath,
+  isUnknownMarketingChild,
+  marketingMetadata,
+  marketingPage,
+  marketingRedirect,
   resolveBrandDesign,
 } from "@trainer/contracts";
+import { MarketingSite } from "../../components/marketing/site";
+import { publicPlatform } from "../../components/marketing/platform";
 import {
   CoachDirectory,
   CoachDirectoryClosed,
@@ -84,19 +90,39 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { path = [] } = await params;
   const { origin, coachHost } = await requestOrigin();
+  const route = "/" + path.join("/");
+  const marketing = coachHost ? undefined : marketingPage(route);
+  if (marketing) {
+    const platform = await publicPlatform();
+    const m = marketingMetadata(marketing, {
+      origin,
+      appName: platform.name,
+      followerModel: platform.followerModel,
+    });
+    return {
+      title: { absolute: m.title },
+      description: m.description,
+      alternates: { canonical: m.canonical },
+      robots: m.robots,
+      openGraph: m.openGraph,
+      twitter: m.twitter,
+    };
+  }
   if (!coachHost && path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {
     const query = directoryQuery(await searchParams);
     const data = await directory(query);
     if (!data || data === "closed")
       return {
-        title:
-          data === "closed"
-            ? "The coach directory is closed"
-            : "Coach directory unavailable",
+          title: {
+          absolute:
+            data === "closed"
+              ? "The coach directory is closed"
+              : "Coach directory unavailable",
+        },
         robots: { index: false, follow: false },
       };
     return {
-      title: `Find a coach — ${data.platformName}`,
+      title: { absolute: `Find a coach | ${data.platformName}` },
       description:
         "Browse independent coaches who chose to be listed, by specialty and language, and visit their websites.",
       alternates: { canonical: origin + DIRECTORY_PATH },
@@ -113,17 +139,25 @@ export async function generateMetadata({
   const data = await website(path[1]);
   if (!data)
     return {
-      title: "Coaching website unavailable",
+      title: { absolute: "Coaching website unavailable" },
       robots: { index: false, follow: false },
     };
   const page = data.site.pages.find(
     (p: any) => p.visible && p.slug === path[2],
   );
   return {
-    title: page
-      ? `${page.title} — ${data.tenant.name}`
-      : data.site.seoTitle || data.tenant.name,
-    description: data.site.seoDescription || data.site.introduction,
+    // A coach website carries the coach's brand, never the platform's: its
+    // name, its own description, and never the platform's B2B description.
+    title: {
+      absolute: page
+        ? `${page.title} — ${data.tenant.name}`
+        : data.site.seoTitle || data.tenant.name,
+    },
+    applicationName: data.tenant.name,
+    description:
+      data.site.seoDescription ||
+      data.site.introduction ||
+      `Personal coaching with ${data.tenant.name}.`,
     manifest: `/api/v1/public/sites/${data.tenant.slug}/manifest.webmanifest`,
     icons: {
       icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
@@ -139,6 +173,26 @@ export default async function Page({
   searchParams: Promise<SearchParams>;
 }) {
   const { path = [] } = await params;
+  const route = "/" + path.join("/");
+  if (path[0] !== "coach") {
+    const marketing = marketingPage(route);
+    if (marketing && marketing.renderer !== "workspace") {
+      const { origin, coachHost } = await requestOrigin();
+      if (!coachHost)
+        return (
+          <MarketingSite
+            page={marketing}
+            platform={await publicPlatform()}
+            origin={origin}
+          />
+        );
+    }
+    // Retired marketing addresses move permanently; unknown feature,
+    // specialty, UAE and guide addresses are missing pages, not the app.
+    const moved = marketingRedirect(route);
+    if (moved) permanentRedirect(moved);
+    if (isUnknownMarketingChild(route)) notFound();
+  }
   if (path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {
     // The directory belongs to the platform address; coach domains never
     // reach this branch because the proxy maps their paths under /coach/.
@@ -184,5 +238,14 @@ export default async function Page({
     const moved = await movedCoachSlug(path[1]);
     if (moved) redirect("/join-coach/" + moved);
   }
-  return <Workspace />;
+  const platform = await publicPlatform();
+  return (
+    <Workspace
+      platform={{
+        name: platform.name,
+        initials: platform.initials,
+        registrationOpen: platform.registrationOpen,
+      }}
+    />
+  );
 }

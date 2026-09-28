@@ -97,6 +97,7 @@ const destinations: Record<string, Array<{ label: string; href: string }>> = {
   ],
   voice: [{ label: "Set up trainer voice", href: "/trainer/voice" }],
   domain: [{ label: "Manage custom domains", href: "/trainer/domains" }],
+  share: [{ label: "Followers and growth", href: "/trainer/growth" }],
 };
 
 type Owner = Actor & { emailVerified: boolean; mfaAt?: string | null };
@@ -119,7 +120,8 @@ const identityDraft = identityFields.partial().extend({
   category: z.string().max(100).optional(),
   audience: z.string().max(500).optional(),
 });
-const baseRegistry = [
+/** The setup checklist; SETUP_CHECKLIST in packages/contracts mirrors it. */
+export const baseRegistry = [
   [
     "account",
     "Account",
@@ -215,6 +217,12 @@ const baseRegistry = [
     "Publish",
     "Launch after the server verifies product, coaching, legal and financial readiness.",
     true,
+  ],
+  [
+    "share",
+    "Share your link",
+    "Put your tagged coaching link in your Instagram bio and Stories. Followers who never see your offer can’t subscribe.",
+    false,
   ],
 ] as const;
 /** The owner's verified tenant scope inside the service transaction. */
@@ -521,6 +529,7 @@ export async function onboardingState(
     domain: !!tenant.slug,
     preview: saved.preview?.data.values?.digest === previewDigest,
     publish: tenant.published,
+    share: tenant.published && saved.share?.status === "saved",
     "nutrition-cases":
       nutrition.coverage.every((c) => c.covered) && !learning.conflicts.length,
     "nutrition-recipes":
@@ -556,6 +565,9 @@ export async function onboardingState(
   else if (!bankReady)
     blockers.payout =
       "A verified payout destination and completed bank-change hold are required.";
+  if (!tenant.published)
+    blockers.share =
+      "Launch first, then share your link so followers can subscribe.";
   if (!voiceReady)
     blockers.voice =
       !voiceProvider.configured || !voiceProvider.approved
@@ -686,7 +698,14 @@ export function onboardingRoutes(
   app.put("/api/v1/onboarding/:step", async (req) => {
     const a = owner(req),
       step = z
-        .enum(["identity", "brain-intro", "wearables", "voice", "preview"])
+        .enum([
+          "identity",
+          "brain-intro",
+          "wearables",
+          "voice",
+          "preview",
+          "share",
+        ])
         .parse((req.params as any).step);
     const b = z
       .object({
@@ -711,6 +730,16 @@ export function onboardingRoutes(
             "permitted_imports",
             "permitted_imports_and_sync",
           ]),
+        })
+        .strict()
+        .parse(b.values);
+    else if (step === "share")
+      values = z
+        .object({
+          channels: z
+            .array(z.enum(["instagram_bio", "instagram_story", "other"]))
+            .min(1)
+            .max(3),
         })
         .strict()
         .parse(b.values);

@@ -30,10 +30,9 @@ function touch() {
     ...(site ? { site } : {}),
   };
 }
-const publicPage = (path: string) =>
-  ["/", "/pricing", "/how-it-works", "/demo", "/faq", "/signup"].includes(
-    path,
-  ) ||
+const publicPage = (path: string, marketing: readonly string[]) =>
+  marketing.includes(path) ||
+  path === "/signup" ||
   /^\/coach\//.test(path) ||
   /^\/join-coach\//.test(path);
 async function call(path: string, method = "GET", body?: unknown) {
@@ -110,8 +109,16 @@ function ExperimentCopy({ slot }: { slot: string }) {
   ) : null;
 }
 
-/** Mount once in the root layout. No analytics ID or event is created before opt-in. */
-export function AcquisitionConsent() {
+/**
+ * Mount once in the root layout. No analytics ID or event is created before
+ * opt-in. The layout passes the marketing paths, so the page registry stays
+ * out of the client bundle.
+ */
+export function AcquisitionConsent({
+  marketingPaths = [],
+}: {
+  marketingPaths?: readonly string[];
+}) {
   const path = usePathname() || "/";
   const [permission, setPermission] = useState<Permission | null>(null),
     [open, setOpen] = useState(false),
@@ -140,9 +147,9 @@ export function AcquisitionConsent() {
     };
   }, []);
   useEffect(() => {
-    if (permission?.granted && publicPage(path))
+    if (permission?.granted && publicPage(path, marketingPaths))
       void call("acquisition/visit", "POST", touch()).catch(() => {});
-  }, [path, permission?.granted]);
+  }, [path, permission?.granted, marketingPaths]);
   useEffect(() => {
     let current = true;
     const refresh = () => {
