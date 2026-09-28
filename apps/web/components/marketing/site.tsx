@@ -29,10 +29,14 @@ import {
 } from "@trainer/contracts";
 import {
   aedWhole as aed,
-  displayRange,
+  DEFAULT_FOLLOWER_INPUTS,
+  FOLLOWER_SCENARIOS,
+  displayCount,
   estimateEarnings,
   estimateFollowerConversion,
   followerModelAdjustments,
+  type FollowerRateKey,
+  type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
 import { claimCta, MarketingFooter, MarketingHeader, type Cta } from "./frame";
 import {
@@ -303,45 +307,45 @@ function PageTiles({
 const childrenOf = (path: string) =>
   MARKETING_PAGES.filter((p) => p.parent === path && p.indexable);
 
-/** Three example accounts, computed live from the assumptions in use. */
+/** Three example accounts in the strong case, computed live from the assumptions in use. */
 function FollowerExamples({ platform }: { platform: PublicPlatform }) {
-  const accounts: Array<[number, number]> = [
-    [2000, 8],
-    [8000, 8],
-    [30000, 12],
-  ];
+  const accounts = [3000, 7000, 30000];
   const whole = (n: number) => n.toLocaleString("en-AE");
-  const span = (r: { low: number; high: number }) =>
-    r.low === r.high ? whole(r.low) : `${whole(r.low)}–${whole(r.high)}`;
+  const count = (n: number) => {
+    const c = displayCount(n);
+    return c === null ? "< 1" : whole(c);
+  };
   return (
     <div className="mk-table-wrap">
       <table className="mk-table">
         <caption>
-          Estimate ranges at AED 199 a month (assumptions version{" "}
+          Strong case, a best case for an engaged, growing audience and not a
+          typical result: AED 199 a month, 8 link Stories and 4 keyword Reels
+          a month, 30% yearly cancellations (assumptions version{" "}
           {platform.followerModel.version})
         </caption>
         <thead>
           <tr>
             <th scope="col">Followers</th>
-            <th scope="col">Link Stories a month</th>
-            <th scope="col">People who see your Stories</th>
             <th scope="col">New subscribers, first month</th>
-            <th scope="col">After twelve months</th>
+            <th scope="col">Active after 12 months</th>
+            <th scope="col">Sign-ups over 12 months</th>
+            <th scope="col">A month at month 12</th>
           </tr>
         </thead>
         <tbody>
-          {accounts.map(([followers, stories]) => {
+          {accounts.map((followers) => {
             const e = estimateFollowerConversion(
-              { followers, linkStoriesPerMonth: stories, priceAed: 199 },
+              { ...DEFAULT_FOLLOWER_INPUTS, followers },
               platform.followerModel,
-            );
+            ).scenarios.strong;
             return (
               <tr key={followers}>
                 <td>{whole(followers)}</td>
-                <td>{stories}</td>
-                <td>{span(displayRange(e.storyViewers))}</td>
-                <td>{span(displayRange(e.subscribers))}</td>
-                <td>{span(displayRange(e.twelveMonthSubscribers))}</td>
+                <td>{count(e.month1New)}</td>
+                <td>{count(e.activeMonth12)}</td>
+                <td>{count(e.signups12)}</td>
+                <td>{aed(e.revenueMonth12Minor)}</td>
               </tr>
             );
           })}
@@ -386,6 +390,59 @@ function WorkedExample() {
   );
 }
 
+const SCENARIO_NAMES: Record<FollowerScenario, string> = {
+  cautious: "Cautious",
+  typical: "Typical",
+  strong: "Strong case",
+};
+/** One rate row on /methodology: the per-scenario values and their basis. */
+const RATE_ROWS: Array<{
+  key: FollowerRateKey;
+  label: string;
+  basis: string;
+  sources: Array<[string, string]>;
+}> = [
+  {
+    key: "linkClickPct",
+    label: "Link-sticker click, per viewer per link Story",
+    basis: "Creator reports 1-5%, no industry benchmark (rule of thumb); IQFluence median 4.1%, strong creators 6-7% (vendor data)",
+    sources: [["creatorflow-link-sticker", "Creatorflow"], ["iqfluence-story-links", "IQFluence"]],
+  },
+  {
+    key: "dmOpenPct",
+    label: "Keyword commenters who open the DM link",
+    basis: "Vendor claims, no dataset",
+    sources: [["communipass-auto-dm", "CommuniPass"], ["chatautodm-2026", "ChatAutoDM"]],
+  },
+  {
+    key: "broadcastClickPct",
+    label: "Broadcast members who open one link message",
+    basis: "Email click medians for sports, health and fitness, all industries (measured; used as a proxy)",
+    sources: [["mailerlite-benchmarks", "MailerLite"]],
+  },
+  {
+    key: "bioClickPct",
+    label: "Profile visitors who open the bio link in a month (only when you enter visits)",
+    basis: "Rule of thumb, 1-3%",
+    sources: [["hopp-bio-link", "Hopp by Wix"]],
+  },
+  {
+    key: "paidPct",
+    label: "Visit to paid subscriber",
+    basis: "Luxury retail; Health & Fitness app downloads that turn paid within 35 days, median and upper quartile (measured; used as a proxy: an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions",
+    sources: [
+      ["dynamicyield-conversion", "Dynamic Yield"],
+      ["revenuecat-state-2026", "RevenueCat"],
+    ],
+  },
+  {
+    key: "audienceRenewalPct",
+    label: "New people each month: share of each audience new to your link",
+    basis: "Cautious: the same people all year. Typical: about the yearly follower growth Socialinsider measured on brand accounts, 11-22% by tier, about 1-1.7% a month (measured; our rounding). Strong: our assumption for a growing audience, new followers plus people Instagram starts showing your content to; above the default monthly cancellations (2.9%), so more sharing never lowers month-12 subscribers",
+    sources: [["socialinsider-engagement", "Socialinsider"]],
+  },
+];
+
 function Methodology({ platform }: { platform: PublicPlatform }) {
   const m = platform.followerModel;
   const adjusted = new Set(followerModelAdjustments(m).map((a) => a.field));
@@ -399,26 +456,50 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
   // A value the operator changed no longer rests on the cited source.
   const Source = ({
     fields,
-    href,
-    label,
+    links,
   }: {
     fields: string[];
-    href: string;
-    label: string;
-  }) =>
-    fields.some((f) => adjusted.has(f)) ? (
+    links: Array<[string, string]>;
+  }) => {
+    const list = links.map(([id, label], i) => (
+      <span key={id}>
+        {i > 0 && ", "}
+        <a href={"#" + id}>{label}</a>
+      </span>
+    ));
+    return fields.some((f) => adjusted.has(f)) ? (
       <span>
         <span className="badge amber">Adjusted by the operator</span> version{" "}
-        {m.version}; differs from the cited source (
-        <a href={href}>{label}</a>)
+        {m.version}; differs from the cited source ({list})
       </span>
     ) : (
-      <a href={href}>{label}</a>
+      <span>{list}</span>
     );
+  };
+  const worked = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS, m);
+  const count = (n: number) => {
+    const c = displayCount(n);
+    return c === null ? "fewer than 1" : c.toLocaleString("en-AE");
+  };
+  const strong = m.scenarios.strong;
+  const perStory = Math.round(strong.linkClickPct * strong.paidPct) / 100;
+  const signupShare =
+    Math.round(
+      (worked.scenarios.strong.signups12 / DEFAULT_FOLLOWER_INPUTS.followers) * 1000,
+    ) / 10;
   return (
     <>
       <section className="mk-section" id="follower-assumptions" aria-labelledby="fa-h">
         <h2 id="fa-h">Follower calculator assumptions (version {m.version})</h2>
+        <p className="mk-body">
+          The calculator runs three scenarios with the same arithmetic. Cautious
+          and typical use published averages. The strong case is a best case
+          for an engaged, growing audience and weekly sharing, from the top
+          values found in the research and our stated assumptions. It is not a typical result and not a promise, and you
+          may get fewer subscribers than the cautious figure. The calculator
+          headline shows the strong case and the other two sit under How we
+          estimate.
+        </p>
         {adjusted.size > 0 && (
           <p className="mk-body">
             <strong>Operator note:</strong>{" "}
@@ -427,67 +508,185 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
         )}
         <div className="mk-table-wrap">
           <table className="mk-table">
-            <caption>Values in use now; the platform operator can review them</caption>
+            <caption>
+              Story audience: % of followers who see at least one of your
+              Stories a month (your own Story views replace it)
+            </caption>
             <thead>
               <tr>
-                <th scope="col">Assumption</th>
-                <th scope="col">Low</th>
-                <th scope="col">High</th>
-                <th scope="col">Source</th>
+                <th scope="col">Followers</th>
+                <th scope="col">Cautious</th>
+                <th scope="col">Typical</th>
+                <th scope="col">Strong case</th>
+                <th scope="col">Basis and label</th>
               </tr>
             </thead>
             <tbody>
               {m.tiers.map((tier, i) => (
                 <tr key={i}>
-                  <td>Story reach, {tierLabel(i)} followers</td>
-                  <td>{tier.reachLowPct}%</td>
-                  <td>{tier.reachHighPct}%</td>
+                  <td>{tierLabel(i)}</td>
+                  <td>{tier.storyPct.cautious}%</td>
+                  <td>{tier.storyPct.typical}%</td>
+                  <td>{tier.storyPct.strong}%</td>
                   <td>
+                    {i === 0
+                      ? "Cautious and typical: Socialinsider image and video reach (measured, brand accounts). Strong: our assumption, the 20.5% a six-frame Story sequence reached (measured on brand accounts of all sizes) used as a monthly audience. "
+                      : i === 1
+                        ? "Cautious: image reach, 3.5% (measured, brand accounts). Typical: the 5% vendor floor, above the measured 4.2% video reach (vendor claim). Strong: our assumption, the six-frame 20.5% used as a monthly audience, against a measured reach of 3.5-4.2% for this tier; HypeAuditor finds accounts of 1,000-10,000 followers engage most (vendor data). "
+                        : "Image reach (measured); at least 5% (vendor claim); strong: the IQFluence 5-8% band, lower for larger accounts (vendor claim, no dataset). "}
                     <Source
-                      fields={[`tiers.${i}.reachLowPct`, `tiers.${i}.reachHighPct`]}
-                      href="#socialinsider-stories"
-                      label="Socialinsider"
+                      fields={FOLLOWER_SCENARIOS.map((s) => `tiers.${i}.storyPct.${s}`)}
+                      links={
+                        i === 0
+                          ? [["socialinsider-stories", "Socialinsider"]]
+                          : i === 1
+                            ? [
+                                ["socialinsider-stories", "Socialinsider"],
+                                ["iqfluence-engagement", "IQFluence"],
+                                ["hypeauditor-2025", "HypeAuditor"],
+                              ]
+                            : [
+                                ["socialinsider-stories", "Socialinsider"],
+                                ["iqfluence-engagement", "IQFluence"],
+                              ]
+                      }
                     />
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>Rates per scenario</caption>
+            <thead>
               <tr>
-                <td>Link-sticker click-through, per viewer per link Story</td>
-                <td>{m.linkClickLowPct}%</td>
-                <td>{m.linkClickHighPct}%</td>
+                <th scope="col">Assumption</th>
+                <th scope="col">Cautious</th>
+                <th scope="col">Typical</th>
+                <th scope="col">Strong case</th>
+                <th scope="col">Basis and label</th>
+              </tr>
+            </thead>
+            <tbody>
+              {RATE_ROWS.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td>{m.scenarios.cautious[row.key]}%</td>
+                  <td>{m.scenarios.typical[row.key]}%</td>
+                  <td>{m.scenarios.strong[row.key]}%</td>
+                  <td>
+                    {row.basis}.{" "}
+                    <Source
+                      fields={FOLLOWER_SCENARIOS.map((s) => `scenarios.${s}.${row.key}`)}
+                      links={row.sources}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>Other assumptions</caption>
+            <thead>
+              <tr>
+                <th scope="col">Assumption</th>
+                <th scope="col">Value</th>
+                <th scope="col">Basis and label</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Reach of one call-to-action Reel or post, by tier</td>
                 <td>
+                  Cautious (feed posts):{" "}
+                  {m.tiers.map((t) => t.reelPct.cautious + "%").join(" / ")}. Typical
+                  and strong (Reels):{" "}
+                  {m.tiers.map((t) => t.reelPct.strong + "%").join(" / ")}
+                </td>
+                <td>
+                  Measured, brand accounts.{" "}
                   <Source
-                    fields={["linkClickLowPct", "linkClickHighPct"]}
-                    href="#creatorflow-link-sticker"
-                    label="Creator reports"
+                    fields={m.tiers.flatMap((_, i) =>
+                      FOLLOWER_SCENARIOS.map((s) => `tiers.${i}.reelPct.${s}`),
+                    )}
+                    links={[
+                      ["socialinsider-reach", "Socialinsider"],
+                      ["socialinsider-reels", "Socialinsider"],
+                    ]}
                   />
                 </td>
               </tr>
               <tr>
+                <td>Comments per Reel view, by tier</td>
+                <td>{m.tiers.map((t) => t.commentsPerViewPct + "%").join(" / ")}</td>
                 <td>
-                  Visit to paid subscriber (retail e-commerce purchase rates; no
-                  published benchmark exists for coaching subscriptions)
-                </td>
-                <td>{m.purchaseLowPct}%</td>
-                <td>{m.purchaseHighPct}%</td>
-                <td>
+                  Measured, brand accounts; our division of published medians.{" "}
                   <Source
-                    fields={["purchaseLowPct", "purchaseHighPct"]}
-                    href="#dynamicyield-conversion"
-                    label="Dynamic Yield"
+                    fields={m.tiers.map((_, i) => `tiers.${i}.commentsPerViewPct`)}
+                    links={[["socialinsider-engagement", "Socialinsider"]]}
                   />
                 </td>
               </tr>
               <tr>
-                <td>Average engagement (for scaling reach)</td>
-                <td colSpan={2}>
+                <td>Keyword comments per view</td>
+                <td>Comments per view × {m.keywordCommentFactor}</td>
+                <td>
+                  Measured (+202.78% comments with a comment call to action);
+                  treating the extra comments as keyword comments is our
+                  inference.{" "}
+                  <Source
+                    fields={["keywordCommentFactor"]}
+                    links={[["metricool-2026", "Metricool"]]}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td>How channels overlap</td>
+                <td>
+                  Cautious: Reels reach the same people as Stories. Typical and
+                  strong: each Reel reaches new people. Stories and broadcast
+                  are nested in every scenario
+                </td>
+                <td>
+                  Our assumption, from a platform statement.{" "}
+                  <Source fields={[]} links={[["meta-instagram-ranking", "Instagram"]]} />
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Average engagement (scales Story reach and comments; the strong
+                  Story share only down, as it already assumes an engaged
+                  audience)
+                </td>
+                <td>
                   {m.engagementBenchmarkPct}%, scaling at most ×{m.engagementFactorMax}
                 </td>
                 <td>
+                  Measured, brand accounts.{" "}
                   <Source
                     fields={["engagementBenchmarkPct", "engagementFactorMax"]}
-                    href="#socialinsider-engagement"
-                    label="Socialinsider"
+                    links={[["socialinsider-engagement", "Socialinsider"]]}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td>Members who cancel per year</td>
+                <td>Your input, 5-80%; 30% unless you change it</td>
+                <td>
+                  Owner assumption. Published data show more cancellations: 32-54%
+                  of Health &amp; Fitness app subscribers leave after the first
+                  month (measured), and 45% of online coaching clients remain at
+                  month 12 (vendor data).{" "}
+                  <Source
+                    fields={[]}
+                    links={[
+                      ["revenuecat-renewals", "RevenueCat"],
+                      ["coachway-2026", "Coachway"],
+                    ]}
                   />
                 </td>
               </tr>
@@ -495,12 +694,116 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
           </table>
         </div>
       </section>
+      <section className="mk-section" id="strong-case" aria-labelledby="sc-h">
+        <h2 id="sc-h">How the strong case is calibrated</h2>
+        <p className="mk-body">
+          The strong case is a best case for an engaged, growing audience and
+          weekly sharing. It is not a typical result and not a promise.
+        </p>
+        <ul className="mk-list">
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Per link Story, {strong.linkClickPct}% of viewers tap and{" "}
+              {strong.paidPct}% of them pay: about {perStory}% of the people
+              who see it each time. Each month {strong.audienceRenewalPct}% of
+              the audience is new to your link, so sign-ups keep coming and
+              active subscribers are still growing at month 12. [Our
+              assumption; measured proxies]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Over 12 months the worked example below signs up about{" "}
+              {signupShare}% of its followers, far above published creator
+              averages. Passion.io’s course benchmarks put conversion at
+              0.1-1% of an audience (low), 1.5-5% (mid) and 0.52-1.1% for
+              higher-priced courses, and Stan’s creators with 1,000-10,000
+              followers sell about USD 273 a month on average, against{" "}
+              {aed(worked.scenarios.strong.revenueMonth12Minor)} a month in the
+              strong case. [Rule of thumb; vendor data]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Our founder’s reading of creator sales, a fitness creator selling
+              a USD 20 plan to roughly 0.5-1.5% of one video’s viewers, is an
+              unverified example with no public source, so it is not used as
+              evidence. Per view, the strong case’s {perStory}% is below it; the
+              12-month figure adds repeat chances for the same viewers and the
+              new people each month. [Unverified founder example]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              The strong rates are the top values found in the research:{" "}
+              {strong.linkClickPct}% link clicks (creator reports),{" "}
+              {strong.dmOpenPct}% of keyword commenters opening the DM link
+              (vendor claims) and {strong.paidPct}% visit to paid, the upper
+              quartile of Health &amp; Fitness apps (measured; an app install
+              shows more intent than a Story tap, so it may overstate). The
+              Story audience up to 10,000 followers and the new people each
+              month are our assumptions. [Measured; vendor claims; our
+              assumption]
+            </span>
+          </li>
+        </ul>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>
+              Worked example: {DEFAULT_FOLLOWER_INPUTS.followers.toLocaleString("en-AE")}{" "}
+              followers, AED {DEFAULT_FOLLOWER_INPUTS.priceAed},{" "}
+              {DEFAULT_FOLLOWER_INPUTS.linkStoriesPerMonth} link Stories and{" "}
+              {DEFAULT_FOLLOWER_INPUTS.ctaReelsPerMonth} keyword Reels a month,{" "}
+              {DEFAULT_FOLLOWER_INPUTS.yearlyCancelPct}% yearly cancellations
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Scenario</th>
+                <th scope="col">First month</th>
+                <th scope="col">Active after 12 months</th>
+                <th scope="col">Sign-ups over 12 months</th>
+                <th scope="col">A month at month 12</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FOLLOWER_SCENARIOS.map((s) => {
+                const r = worked.scenarios[s];
+                return (
+                  <tr key={s}>
+                    <th scope="row">{SCENARIO_NAMES[s]}</th>
+                    <td>{count(r.month1New)}</td>
+                    <td>{count(r.activeMonth12)}</td>
+                    <td>{count(r.signups12)}</td>
+                    <td>{aed(r.revenueMonth12Minor)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="fine-print muted">
+          Before platform commission, payment processing and tax. Trials,
+          discounts, refunds and failed payments are not included; new
+          followers count only through the new people each month.
+        </p>
+      </section>
       <section className="mk-section" id="sources" aria-labelledby="src-h">
         <h2 id="src-h">Sources</h2>
+        <p className="mk-body">
+          Each source is labelled by how much weight it can bear: measured
+          (a dataset with a stated sample), used as a proxy, vendor data or
+          claim, rule of thumb, platform statement, official figure, price
+          guide or press report.
+        </p>
         <ol className="mk-source-list">
           {MARKETING_SOURCES.map((s) => (
             <li key={s.id} id={s.id}>
               <p>
+                <span className="badge">{s.evidence}</span>{" "}
                 <strong>{s.publisher}</strong>,{" "}
                 <a href={s.url} rel="noopener" target="_blank">
                   {s.title}
@@ -535,6 +838,36 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
               luxury and jewellery, high-consideration retail) to 2.89% (EMEA
               average), because a monthly coaching subscription is a considered
               purchase and the UAE is in EMEA.
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.3): three scenarios instead
+              of one range, with the strong case as the headline at our owner’s
+              direction; Reels with a comment keyword, the bio link and a
+              broadcast channel join Stories; cancellations per year (30% unless
+              you change it) give active subscribers after 12 months; your own
+              Story views can replace the reach guess; and tier boundaries no
+              longer lower an estimate (5,001 followers used to give fewer
+              subscribers than 5,000).
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.4): each audience now gains
+              new people every month (typical about measured follower growth,
+              strong our assumption), so sign-ups keep coming and more sharing
+              never lowers the strong case’s month-12 subscribers; strong visit
+              to paid is 6.2%, the Health &amp; Fitness upper quartile, instead
+              of 10.7%, an all-category median for apps that charge before
+              use; engagement no longer raises the strong Story share, which
+              already assumes an engaged audience; keyword Reels count each
+              Reel’s commenters afresh in the typical and strong cases; the
+              monthly amount uses the whole number of subscribers shown; and an
+              unverified creator sales figure is no longer presented as a
+              source.
             </span>
           </li>
           {adjusted.size > 0 && (
@@ -884,8 +1217,9 @@ function Home({ page, platform }: Ctx) {
         <section className="mk-section" aria-labelledby="followers-h">
           <h2 id="followers-h">What could your followers be worth?</h2>
           <p className="mk-body">
-            A quick estimate from published Instagram and conversion benchmarks.
-            Change the numbers to yours.
+            A quick estimate from published Instagram and conversion benchmarks
+            and our stated assumptions. The headline is a strong case for an
+            engaged, growing audience; change the numbers to yours.
           </p>
           <FollowerCalculator model={platform.followerModel} compact headingLevel={3} />
           <p>

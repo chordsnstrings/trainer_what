@@ -89,6 +89,33 @@ async function checkMarketingSite({ page, base }) {
         name: "Follower calculator",
       });
       const figure = calculator.locator(".mk-result-figure");
+      // The headline is the strong case; cautious and typical sit in the
+      // How we estimate table.
+      await calculator.getByText("Strong case", { exact: true }).first().waitFor();
+      if (!/^Up to \d/.test((await figure.innerText()).trim()))
+        throw new Error("The follower headline must read 'Up to N'");
+      const scenarios = calculator.locator("table.mk-scenarios");
+      await scenarios.getByRole("rowheader", { name: "Typical" }).waitFor();
+      await scenarios.getByRole("rowheader", { name: "Cautious" }).waitFor();
+      await calculator.getByText("What raises your number").waitFor();
+      const headline = calculator.locator(".mk-headline li").first();
+      const active = await headline.innerText();
+      // The strong case keeps growing to month 12, and the levers show the
+      // gain in active subscribers (the headline), not only sign-ups.
+      if (!/^Up to \d[\d,]* active subscribers after 12 months, after 30% yearly cancellations, and still growing/.test(active.trim()))
+        throw new Error(`The active headline must read 'Up to N ... and still growing': ${active}`);
+      await calculator
+        .locator(".mk-levers")
+        .getByText(/active after 12 months/)
+        .first()
+        .waitFor();
+      await calculator.getByLabel(/Members who cancel per year/).fill("60");
+      await page.waitForFunction(
+        ([el, prior]) => el.textContent !== prior,
+        [await headline.elementHandle(), active],
+      );
+      if (!(await headline.innerText()).includes("60% yearly cancellations"))
+        throw new Error("The cancellations input must change the headline");
       const before = await figure.innerText();
       await calculator
         .getByLabel("Instagram followers", { exact: true })

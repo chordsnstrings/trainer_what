@@ -279,6 +279,71 @@ const field = (
   options: Omit<IntegrationField, "key" | "label" | "type"> = {},
 ): IntegrationField => ({ key, label, type, ...options });
 
+/**
+ * Follower calculator assumptions per scenario (Marketing estimates). The
+ * defaults equal DEFAULT_FOLLOWER_MODEL in packages/domain
+ * marketing-calculators.ts; a test keeps them equal.
+ */
+const FOLLOWER_SCENARIO_FIELDS = [
+  ["CAUTIOUS", "cautious"],
+  ["TYPICAL", "typical"],
+  ["STRONG", "strong case"],
+] as const;
+const FOLLOWER_TIER_FIELDS = [
+  ["5K", "up to 5,000 followers"],
+  ["10K", "5,001 to 10,000 followers"],
+  ["50K", "10,001 to 50,000 followers"],
+  ["100K", "50,001 to 100,000 followers"],
+  ["ABOVE_100K", "above 100,000 followers"],
+] as const;
+const FOLLOWER_STORY_DEFAULTS: Record<string, string[]> = {
+  CAUTIOUS: ["9.55", "3.5", "1.35", "0.55", "0.5"],
+  TYPICAL: ["10.4", "5", "5", "5", "5"],
+  STRONG: ["20.5", "20.5", "8", "6.5", "5"],
+};
+const FOLLOWER_STORY_HELP: Record<string, string> = {
+  CAUTIOUS: "Share of followers who see at least one Story a month. Default: Socialinsider Stories reach, image (brand accounts).",
+  TYPICAL: "Default: Socialinsider Stories reach, video, at least 5% (IQFluence: Story views above 5-8% of followers are healthy).",
+  STRONG: "Default: 20.5% up to 10,000 followers (our assumption: the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience; the measured 5-10K tier reach is 3.5-4.2%), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
+};
+const FOLLOWER_RATE_FIELDS: Array<
+  [key: string, label: string, defaults: [string, string, string], help: string]
+> = [
+  ["CLICK", "Link-sticker click per viewer per link Story", ["1", "3", "5"], "Creator reports 1-5% (no industry benchmark exists); IQFluence median 4.1%, strong creators 6-7%."],
+  ["DM_OPEN", "Keyword commenters who open the DM link", ["18", "30", "45"], "Vendor claims (CommuniPass, ChatAutoDM); no dataset."],
+  ["BROADCAST_CLICK", "Broadcast members who open one link message", ["1.27", "1.45", "2.09"], "MailerLite email click medians (sports, health and fitness, all industries), used as a proxy."],
+  ["BIO_CLICK", "Profile visitors who open the bio link in a month", ["1", "2", "3"], "Rule of thumb (Hopp by Wix: 1-3%)."],
+  ["PAID", "Visit to paid subscriber", ["0.72", "2.9", "6.2"], "Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions."],
+  ["RENEWAL", "Share of each audience new to your link each month", ["0", "1.5", "8"], "0 to 50. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured (11-22% a year by tier); strong is our assumption for a growing audience. Keep strong at or above the monthly cancellations (2.9% at 30% a year) so more sharing never lowers month-12 subscribers."],
+];
+function followerAssumptionFields(): IntegrationField[] {
+  const fields: IntegrationField[] = [];
+  for (const [scenario, name] of FOLLOWER_SCENARIO_FIELDS)
+    FOLLOWER_TIER_FIELDS.forEach(([tier, tierLabel], i) =>
+      fields.push(
+        field(
+          `FOLLOWER_STORY_${scenario}_${tier}`,
+          `Story audience, ${name}, ${tierLabel} (%)`,
+          "number",
+          {
+            defaultValue: FOLLOWER_STORY_DEFAULTS[scenario][i],
+            ...(i === 0 ? { help: FOLLOWER_STORY_HELP[scenario] } : {}),
+          },
+        ),
+      ),
+    );
+  for (const [key, label, defaults, help] of FOLLOWER_RATE_FIELDS)
+    FOLLOWER_SCENARIO_FIELDS.forEach(([scenario, name], i) =>
+      fields.push(
+        field(`FOLLOWER_${key}_${scenario}`, `${label}, ${name} (%)`, "number", {
+          defaultValue: defaults[i],
+          ...(i === 0 ? { help } : {}),
+        }),
+      ),
+    );
+  return fields;
+}
+
 export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
   {
     id: "application",
@@ -392,73 +457,21 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Assumptions behind the public follower calculator, and public company details.",
     setupNotes:
-      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a cautious value above its typical one, or a typical value above its strong one) cannot be saved: to lower a strong value below its typical one, lower typical and cautious too. The strong case is the calculator's headline: a best case for an engaged, growing audience, not a typical result.",
     fields: [
       field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
-        defaultValue: "2026-09-28.2",
+        defaultValue: "2026-09-28.4",
         help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
+        // Earlier published versions read as the current default.
+        supersededValues: ["2026-09-28", "2026-09-28.2", "2026-09-28.3"],
       }),
       field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
         help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
       }),
-      field("FOLLOWER_REACH_UP_TO_5K_LOW", "Story reach, up to 5,000 followers: low (%)", "number", {
-        defaultValue: "9.55",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_5K_HIGH", "Story reach, up to 5,000 followers: high (%)", "number", {
-        defaultValue: "10.4",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_10K_LOW", "Story reach, 5,001 to 10,000 followers: low (%)", "number", {
-        defaultValue: "3.5",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_10K_HIGH", "Story reach, 5,001 to 10,000 followers: high (%)", "number", {
-        defaultValue: "4.2",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_50K_LOW", "Story reach, 10,001 to 50,000 followers: low (%)", "number", {
-        defaultValue: "1.35",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_50K_HIGH", "Story reach, 10,001 to 50,000 followers: high (%)", "number", {
-        defaultValue: "2",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_100K_LOW", "Story reach, 50,001 to 100,000 followers: low (%)", "number", {
-        defaultValue: "0.55",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_100K_HIGH", "Story reach, 50,001 to 100,000 followers: high (%)", "number", {
-        defaultValue: "0.65",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_ABOVE_100K_LOW", "Story reach, above 100,000 followers: low (%)", "number", {
-        defaultValue: "0.5",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_ABOVE_100K_HIGH", "Story reach, above 100,000 followers: high (%)", "number", {
-        defaultValue: "0.65",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_LINK_CLICK_LOW", "Link-sticker click-through: low (%)", "number", {
-        defaultValue: "1",
-        help: "Chance that a Story viewer opens one link Story. Repeat Stories reach mostly the same viewers, so the calculator uses 1 − (1 − rate)^Stories. No industry benchmark exists; creators report 1-5%.",
-      }),
-      field("FOLLOWER_LINK_CLICK_HIGH", "Link-sticker click-through: high (%)", "number", {
-        defaultValue: "5",
-      }),
-      field("FOLLOWER_PURCHASE_LOW", "Visit to paid subscriber: low (%)", "number", {
-        defaultValue: "0.72",
-        help: "Share of people who visit that subscribe. Default: Dynamic Yield luxury and jewellery (high-consideration retail). Retail e-commerce purchase rates; no published benchmark exists for coaching subscriptions.",
-      }),
-      field("FOLLOWER_PURCHASE_HIGH", "Visit to paid subscriber: high (%)", "number", {
-        defaultValue: "2.89",
-        help: "Default: Dynamic Yield e-commerce conversion, EMEA average (the UAE is in EMEA).",
-      }),
+      ...followerAssumptionFields(),
       field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
         defaultValue: "0.48",
-        help: "A trainer's own engagement rate is compared with this to scale reach. Default: Socialinsider 2025.",
+        help: "A trainer's own engagement rate is compared with this to scale Story reach and Reel comments. Default: Socialinsider 2025.",
       }),
       field("FOLLOWER_ENGAGEMENT_FACTOR_MAX", "Largest engagement scaling (times)", "number", {
         defaultValue: "2",
@@ -1390,12 +1403,14 @@ export function validateIntegrationValues(
           `${entry.label} must be a plain domain name such as trainsyou.com`,
         );
       if (
-        /^FOLLOWER_(REACH_|LINK_CLICK_|PURCHASE_|ENGAGEMENT_BENCHMARK)/.test(
+        /^FOLLOWER_(STORY_|CLICK_|DM_OPEN_|BROADCAST_CLICK_|BIO_CLICK_|PAID_|ENGAGEMENT_BENCHMARK)/.test(
           key,
         ) &&
         Number(text) > 100
       )
         throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+      if (/^FOLLOWER_RENEWAL_/.test(key) && Number(text) > 50)
+        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 50`);
       if (
         key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
         (Number(text) < 1 || Number(text) > 10)

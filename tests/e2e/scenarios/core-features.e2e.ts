@@ -156,19 +156,22 @@ async function marketing(ctx: E2EContext) {
       assert.doesNotMatch(text, /namecheap/i, "public pages never name a registrar");
     return `llms.txt ${index.text.length} characters, llms-full.txt ${full.text.length}`;
   });
-  await r.step(P, "Follower calculator", "the public platform endpoint serves the follower model; its estimate is a bounded range", async () => {
+  await r.step(P, "Follower calculator", "the public platform endpoint serves the follower model; its scenarios are ordered and bounded", async () => {
     const platform = await visitor.get("/api/v1/public/platform");
     const model = platform.followerModel;
-    assert.ok(model?.version && Array.isArray(model.tiers) && model.tiers.length, JSON.stringify(platform).slice(0, 300));
-    const estimate = estimateFollowerConversion({ followers: 5000, linkStoriesPerMonth: 8, priceAed: 299 }, model);
+    assert.ok(model?.version && Array.isArray(model.tiers) && model.tiers.length && model.scenarios?.strong, JSON.stringify(platform).slice(0, 300));
+    const estimate = estimateFollowerConversion({ followers: 7000, linkStoriesPerMonth: 8, priceAed: 199 }, model);
     assert.equal(estimate.assumptionsVersion, model.version);
-    for (const range of [estimate.storyViewers, estimate.visitors, estimate.subscribers, estimate.monthlyRevenueMinor])
-      assert.ok(range.low >= 0 && range.low <= range.high, JSON.stringify(range));
-    assert.ok(estimate.subscribers.high > 0 && estimate.subscribers.high <= estimate.ceiling.high);
-    assert.ok(estimate.twelveMonthSubscribers.high <= estimate.ceiling.high + 1e-9, "twelve months never exceed the audience ceiling");
+    const { cautious, typical, strong } = estimate.scenarios;
+    for (const r of [cautious, typical, strong]) {
+      assert.ok(r.month1New >= 0 && r.month1New <= r.signups12 + 1e-9, JSON.stringify(r));
+      assert.ok(r.activeMonth12 <= r.signups12 + 1e-9 && r.signups12 <= r.visitors12 + 1e-9);
+    }
+    assert.ok(cautious.signups12 <= typical.signups12 && typical.signups12 <= strong.signups12, "scenarios are ordered");
+    assert.ok(strong.activeMonth12 > 0);
     const page = pages["/follower-calculator"];
     assert.match(page, /follower/i);
-    return `5,000 followers, 8 link Stories: ${estimate.subscribers.low.toFixed(1)}–${estimate.subscribers.high.toFixed(1)} subscribers in the first month (model ${model.version})`;
+    return `7,000 followers, 8 link Stories, 4 keyword Reels: strong case ${strong.month1New.toFixed(1)} in the first month, ${strong.activeMonth12.toFixed(1)} active after 12 months (typical ${typical.activeMonth12.toFixed(1)}; model ${model.version})`;
   });
 }
 
