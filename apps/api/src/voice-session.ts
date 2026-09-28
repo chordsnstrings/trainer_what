@@ -53,7 +53,7 @@ import { legalAcceptanceVersion } from "./legal.ts";
 import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { modelAccounting } from "./model-accounting.ts";
-import { costEstimated, reserveVoiceCost } from "./cost-accounting.ts";
+import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
 
 const id = z.string().uuid();
 const fail = (statusCode: number, code: string, message: string) =>
@@ -1033,12 +1033,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
             })
             .catch(() => {});
       } catch {
-        await db.tenant(a, (tx) =>
-          tx.query(
-            "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-            [reservation.usageId],
-          ),
-        );
+        // Sent calls are already 'unknown' (marked just before sending); a
+        // call still reserved was never sent and costs nothing.
+        await db.tenant(a, (tx) => costNotSent(tx, reservation.usageId));
         throw fail(502, "SPEECH_UNCONFIRMED", "Your reply could not be heard. Say it again or use the buttons.");
       } finally {
         audio.fill(0);
@@ -1519,16 +1516,15 @@ export async function processVoiceSessionAudio(
         });
         generated++;
       } catch {
-        // Never re-sent automatically: the outcome needs reconciliation.
+        // Never re-sent automatically: the outcome needs reconciliation. A
+        // call still reserved was never sent (the send step marks it
+        // 'unknown' first) and costs nothing.
         await db.tenant(actor, async (tx) => {
           await tx.query(
             "UPDATE voice_session_clips SET status='unknown',updated_at=now() WHERE id=$1 AND status='reserved'",
             [clip.id],
           );
-          await tx.query(
-            "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-            [reservation.usageId],
-          );
+          await costNotSent(tx, reservation.usageId);
         });
       }
     }

@@ -919,8 +919,10 @@ export async function processWebAddressStripeEvent(
         if (
           ["succeeded", "pending"].includes(refund?.status) &&
           refund.amount > 0 &&
-          // A pending snapshot delivered after the refund's failure is stale.
-          !(refund.status === "pending" && (await refundFailed(tx, refund.id)))
+          // Once Stripe reported the refund failed or canceled, any later
+          // pending or succeeded snapshot (refund.updated or charge.refunded
+          // delivered out of order) is stale: the refund is never journaled.
+          !(await refundFailed(tx, refund.id))
         )
           await postRefund(tx, tenantId, order, {
             id: refund.id,
@@ -1006,11 +1008,18 @@ async function reverseFailedRefund(
       providerStatus: String(refund.status).slice(0, 20),
     });
   const [original] = await tx.query(
-    "SELECT j.id,j.data,coalesce(jsonb_agg(jsonb_build_object('account',l.account,'amount',l.amount_minor)) FILTER(WHERE l.id IS NOT NULL),'[]') AS lines FROM journals j LEFT JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.source_key=$1 GROUP BY j.id",
+    "SELECT j.id,j.data,j.currency,coalesce(jsonb_agg(jsonb_build_object('account',l.account,'amount',l.amount_minor)) FILTER(WHERE l.id IS NOT NULL),'[]') AS lines FROM journals j LEFT JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.source_key=$1 GROUP BY j.id",
     ["web-address-refund:" + refund.id],
   );
   if (!original) return;
-  const reversed = await journal(
+  // The reversal is in the refund's own currency (USD once domains are
+  // priced in dollars, core/domain-pricing): the currency option is passed
+  // through whatever journal() version this is merged with. Until then every
+  // journal is AED (migration 001 CHECK), so the option is always AED here.
+  const post = journal as (
+    ...args: [...Parameters<typeof journal>, { currency?: string }?]
+  ) => ReturnType<typeof journal>;
+  const reversed = await post(
     tx,
     actor,
     "web-address-refund-reversal:" + refund.id,
@@ -1028,7 +1037,9 @@ async function reverseFailedRefund(
       failureReason: refund.failure_reason
         ? String(refund.failure_reason).slice(0, 80)
         : null,
+      currency: String(original.currency ?? "AED"),
     },
+    { currency: String(original.currency ?? "AED") },
   );
   if (reversed)
     await update(tx, order.id, {
@@ -3475,7 +3486,12 @@ export async function failOrder(
         refundId: refund?.id ?? null,
       });
       await progress(tx, order.id, "failed", reason);
-      if (refund?.id && Number(refund.amount) > 0)
+      if (
+        refund?.id &&
+        Number(refund.amount) > 0 &&
+        !["failed", "canceled"].includes(refund.status) &&
+        !(await refundFailed(tx, refund.id))
+      )
         await postRefund(tx, tenantId, current, {
           id: refund.id,
           amountMinor: Number(refund.amount),

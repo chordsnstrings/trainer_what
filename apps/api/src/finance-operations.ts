@@ -98,7 +98,24 @@ export async function reconcileModelUsage(
     providerRequestId: input.providerRequestId,
     evidenceReference: input.evidenceReference,
   });
-  return updated;
+  // An invoice correction to a month whose usage was already charged does
+  // not change that charge (correction entries are phase C): the difference
+  // is recorded here and shown next to the statement on /admin/finance.
+  const [charged] = await tx.query(
+    "SELECT s.period,s.charge_minor,s.fx_aed_per_usd::text AS fx FROM usage_statements s WHERE s.period=to_char($1::timestamptz AT TIME ZONE 'Asia/Dubai','YYYY-MM')",
+    [usage.created_at],
+  );
+  if (!charged) return updated;
+  const correction = {
+    period: charged.period,
+    previousStatus: usage.status,
+    previousCostUsd: usage.cost_usd === null ? null : String(usage.cost_usd),
+    costUsd: input.costUsd,
+    statementChargeMinor: Number(charged.charge_minor),
+    statementAedPerUsd: Number(charged.fx),
+  };
+  await event(tx, a, "finance.usage_corrected_after_charge", id, correction);
+  return { ...updated, correctionAfterCharge: correction };
 }
 export function monthCutoff(period: string) {
   periodSchema.parse(period);
@@ -396,9 +413,28 @@ export function financeOperations(
         usageByStatus: await tx.query(
           "SELECT status,count(*)::int AS calls,coalesce(sum(cost_usd),0)::text AS cost_usd,coalesce(sum(estimated_cost_usd) FILTER(WHERE cost_usd IS NULL),0)::text AS unpriced_estimate_usd FROM cost_events GROUP BY status ORDER BY status",
         ),
-        usageStatements: await tx.query(
-          "SELECT * FROM usage_statements ORDER BY period DESC",
-        ),
+        // Each statement beside what its month's priced usage would charge
+        // now at the statement's own rate: invoice corrections after the
+        // charge show here as a difference (not charged; phase C).
+        usageStatements: await (async () => {
+          const out = [];
+          for (const s of await tx.query(
+            "SELECT * FROM usage_statements ORDER BY period DESC",
+          )) {
+            const current = await periodUsage(
+              tx,
+              s.period,
+              Number(s.fx_aed_per_usd),
+            );
+            out.push({
+              ...s,
+              current_chargeable_usd: current.chargeableUsd,
+              current_charge_minor: current.chargeMinor,
+              difference_minor: current.chargeMinor - Number(s.charge_minor),
+            });
+          }
+          return out;
+        })(),
         records: await tx.query(
           "SELECT * FROM records WHERE kind IN ('close','beneficiary','reconciliation','refund') ORDER BY created_at DESC",
         ),
@@ -517,17 +553,56 @@ export function financeOperations(
       .object({ period: periodSchema })
       .parse(req.query);
     const rate = await monthRate(db, period);
-    return db.tenant(a, async (tx) => ({
-      period,
-      rate,
-      usage: await periodUsage(tx, period, rate.aedPerUsd),
-      statement:
-        (
-          await tx.query("SELECT * FROM usage_statements WHERE period=$1", [
-            period,
-          ])
-        )[0] ?? null,
-    }));
+    return db.tenant(a, async (tx) => {
+      // Without a reviewed rate, automatic month close converts at its own
+      // approved rate: the preview shows the rate the charge would use.
+      const [automation] = await tx.query(
+        "SELECT data FROM records WHERE kind='finance_automation'",
+      );
+      const approved =
+        rate.source !== "reviewed" &&
+        automation?.data?.enabled &&
+        automation.data.closeMonthly &&
+        Number(automation.data.fxAedPerUsd) > 0
+          ? Number(automation.data.fxAedPerUsd)
+          : null;
+      const chargeRate = {
+        aedPerUsd: rate.source === "reviewed" ? rate.aedPerUsd : (approved ?? rate.aedPerUsd),
+        source:
+          rate.source === "reviewed"
+            ? "reviewed"
+            : approved !== null
+              ? "automation"
+              : "default",
+      };
+      const [statement] = await tx.query(
+        "SELECT * FROM usage_statements WHERE period=$1",
+        [period],
+      );
+      const usage = await periodUsage(tx, period, chargeRate.aedPerUsd);
+      // A posted statement: what it charged, and what the month's priced
+      // usage comes to now at the statement's rate.
+      const posted = statement
+        ? await periodUsage(tx, period, Number(statement.fx_aed_per_usd))
+        : null;
+      return {
+        period,
+        rate,
+        chargeRate,
+        usage,
+        statement: statement ?? null,
+        postedComparison: statement
+          ? {
+              chargedUsd: statement.total_cost_usd,
+              aedPerUsd: Number(statement.fx_aed_per_usd),
+              chargeMinor: Number(statement.charge_minor),
+              currentChargeableUsd: posted!.chargeableUsd,
+              currentChargeMinor: posted!.chargeMinor,
+              differenceMinor: posted!.chargeMinor - Number(statement.charge_minor),
+            }
+          : null,
+      };
+    });
   });
   // Prices this workspace's unresolved provider calls at their estimate
   // (docs/features/platform-finance.md); the invoice can still correct them.

@@ -38,6 +38,7 @@ behind it read the code on `integrate/round2` (`bb80aa3`); its findings are summ
 | AI and voice used by complimentary members | Charged to the trainer | Settings → Platform finance → "Who pays for AI and voice used by complimentary members", default the trainer |
 | When income is recognised | When paid (upfront programmes and yearly domains are not spread) | Phase D |
 | Budget limits | None beyond the daily AI call limit and the daily voice USD limit | Phase D |
+| Charging calls whose outcome never came back | Not charged until reconciled from the invoice or estimated by an operator | Settings → Platform finance → "Automatic month close estimates unresolved provider usage", default off |
 
 A setting change applies to usage statements posted after it; posted statements never change.
 
@@ -76,25 +77,52 @@ A setting change applies to usage statements posted after it; posted statements 
   supplement for extra provider-timed audio), previews and clones are reserved at their estimate
   from the provider's price settings (Trainer voice, Speech-to-text) and, once the provider
   answers, marked `estimated` at that estimate (`costEstimated` in
-  `apps/api/src/cost-accounting.ts`). A call whose outcome is unknown stays `unknown`; a refused
-  or unsent clone is still released at zero.
+  `apps/api/src/cost-accounting.ts`). A call whose outcome is unknown (sent, no answer) stays
+  `unknown` for the invoice; a call that failed before it was sent (still `reserved`: the send
+  step marks a row `unknown` just before the request) is released at zero (`costNotSent`: status
+  `recorded`, cost 0, `pricing.released = "not_sent"`), like a refused or unsent clone.
 - **Unpriced rows no longer block the month.** An operator can estimate a workspace's unresolved
   rows (Finance operations → "Estimate unpriced usage",
   `POST /api/v1/admin/tenants/:tenantId/finance/usage/estimate`): the stored estimate, or for a
   model call whose answer was lost the average priced cost of the same task and model within 90
   days; rows with no basis stay and are listed. The approved finance automation does the same
-  before its monthly usage charge and close unless Settings → Platform finance → "Automatic month
-  close estimates unresolved provider usage" is off (default on). Reserved rows count as
-  unresolved only after 15 minutes, longer than any provider call may run.
+  before its monthly usage charge and close only when Settings → Platform finance → "Automatic
+  month close estimates unresolved provider usage" is on. It is off by default (review
+  2026-09-28): an estimate is charged and later invoice corrections do not change a posted charge,
+  so until the owner decides, unresolved calls keep blocking automatic close as before. Reserved
+  rows count as unresolved only after 15 minutes, longer than any provider call may run.
+- **Re-running month close.** When a month already has a usage statement, the automation reuses
+  it (its rate and charge) and goes on to close and the payout; it never recalculates, so an
+  invoice correction or a reviewed rate recorded after the charge cannot block a re-run (for
+  example after a payout blocked by the cap or the bank contract). A reviewed rate other than the
+  automation's approved rate is recorded in the job result (`rateOverride`) and as the event
+  `finance.automation_rate_override`.
 - **Invoice corrections.** A single `estimated` row can be reconciled from the invoice as before
-  (the reconciliation keeps the previous status and cost). A provider's whole month can be priced
-  from its usage or invoice total across all workspaces (Payments and payouts → Platform costs,
-  `GET /api/v1/admin/finance/provider-usage`, `POST .../provider-usage/price`): the total less the
-  rows already final is spread over the adjustable rows in proportion to their estimates, each
-  marked `reconciled` with the invoice reference; a changed preview, a total below the priced
-  rows, an open month, calls still running or the same reference with another total are refused;
-  re-running continues an interrupted run. A usage statement already posted keeps its charge (the
-  difference is reported; correction entries are phase C).
+  (the reconciliation keeps the previous status and cost). When the row's month was already
+  charged, the charge does not change: the correction returns `correctionAfterCharge` and records
+  the event `finance.usage_corrected_after_charge`, and Finance operations shows each statement
+  beside what its month's priced usage now comes to at the statement's rate (difference not
+  charged; correction entries are phase C). A provider's whole month can be priced from its usage
+  or invoice total across all workspaces (Payments and payouts → Platform costs,
+  `GET /api/v1/admin/finance/provider-usage/providers`, `GET .../provider-usage`,
+  `POST .../provider-usage/price`): the total less the rows already final is spread over the
+  adjustable rows in proportion to their estimates, each marked `reconciled` with the invoice
+  reference. Shares are rounded cumulatively in one fixed order, so they add up exactly to the
+  amount spread. Refused: a changed preview, a total below the priced rows, an open month, calls
+  still running, the same reference with another total, any call of that provider and month with
+  no estimate (`ROWS_WITHOUT_ESTIMATE`: the total covers it too, so reconcile it first or its cost
+  would be counted twice), a total more than twice or less than half the estimates without an
+  explicit confirmation (`FACTOR_REVIEW_REQUIRED`, `acknowledgeFactor`), and a resumed run whose
+  set of calls changed since the reference was first used (`REFERENCE_SCOPE_CHANGED`). Re-running
+  with the same reference and total continues an interrupted run (preview with the reference).
+  The provider name is matched in lower case. Each run writes a platform audit row before it
+  starts and one when it finishes (evidence, amounts, the workspaces changed and the charged
+  workspaces' differences), and each changed workspace gets the event
+  `finance.provider_usage_priced`. The screen shows a confirmation with the total, the amount
+  already priced, the amount spread, the estimates and the factor (a strong warning outside 0.5-2)
+  before it prices, then the result and each already-charged workspace's charged and current
+  figures. Month filters use a created_at range over the Dubai month, so the
+  (tenant, provider, created_at) index covers them.
 - **Real provider and model.** Model calls record the provider from the new "Provider name for
   cost records" AI model setting, else from the API address (`api.openai.com` is `openai`), and
   are priced at the reviewed `model_prices` price in effect for that provider and model, else at
@@ -106,8 +134,16 @@ A setting change applies to usage statements posted after it; posted statements 
 - **One rate per month.** Business metrics, statements (usage cost in AED) and usage statements
   use the month's reviewed rate; a month without one uses Settings → Platform finance → "Default
   USD to AED rate" (3.6725) and says so. Once a month has a reviewed rate, its usage statements
-  must use it (`FX_RATE_MISMATCH`); the automation uses it instead of its own approved rate.
-  Revisions after statements were posted do not change those statements. Registrar costs keep the
+  must use it (`FX_RATE_MISMATCH`); the automation uses it instead of its own approved rate
+  (recorded as an override). Without a reviewed rate, metrics use the default setting while the
+  automation keeps its own approved rate; the usage-charge preview shows the rate the charge
+  would use (`chargeRate`: reviewed, the automation's, or the default). Revising a month's rate
+  after usage statements were posted at another rate is refused (`POSTED_STATEMENTS_DIFFER`)
+  unless confirmed (`acknowledgePostedStatements`); those statements keep their rate, the audit
+  row records the previous rate, source, revision and the count, and `/admin/metrics` flags the
+  month ("N workspace(s) charged at another rate"). An unchanged rate is audited as
+  `finance.exchange_rate_unchanged`. Rate and model-price audit rows are written in the same
+  transaction as the change. Registrar costs keep the
   quote's rate (web-address code belongs to the domain-pricing job).
 - **Usage charge settings.** The markup and complimentary settings above are applied by one
   calculation (`periodUsage`) used by the manual statement, its preview and the automation; the
@@ -116,12 +152,18 @@ A setting change applies to usage statements posted after it; posted statements 
 ### Screens and exports
 
 - `/admin/metrics`: tiles for voice add-on MRR, current upfront programmes (collected and 30-day
-  equivalent), AI cost with voice cost and the estimated and unpriced parts, domain net sales and
-  card disputes; the monthly series adds platform revenue; a new "Products, costs and domains"
-  table shows memberships, programmes, voice add-on, 1:1 sessions, disputes lost, usage charged
-  back, costs charged and absorbed, AI and voice cost, unpriced calls, the month's rate and
-  domain net sales. The CSV adds every one of these columns. Voice is now only the `voice.*`
-  tasks (the model call that suggests voice wording counts as AI).
+  equivalent), AI cost with voice cost and each one's estimated part and the unpriced estimate,
+  complimentary members' cost, domain net sales and card disputes; the monthly series adds
+  platform revenue; a new "Products, costs and domains" table shows memberships, programmes,
+  voice add-on, 1:1 sessions, disputes lost, usage charged back (posted, usually for the previous
+  month), costs charged (posted) and absorbed (month they are for) in separate columns, AI and
+  voice cost each with its estimated part, complimentary cost, unpriced calls ("about USD X, not
+  included"), AED per USD (with charges at another rate flagged) and domain net sales. USD is
+  shown to four decimals on every finance screen. Domain figures are kept in the currency they
+  were journaled in and never added into AED (`domain…AedMinor` and `domain…UsdCents`), and every
+  other figure reads only AED journals, ready for USD domain journals from `core/domain-pricing`.
+  The CSV adds every one of these columns. Voice is now only the `voice.*` tasks (the model call
+  that suggests voice wording counts as AI).
 - `/admin/finance`: a "Platform costs" section (monthly rates, model prices, pricing a provider's
   month); Finance operations shows usage by pricing status, the estimate action and a usage-charge
   preview that fills in the month's rate and charge; the monthly statement shows what members paid
@@ -142,8 +184,12 @@ is shown the refund at once), and nothing reversed it if Stripe later reported t
 refund posts `web-address-refund-reversal:<refund>` once, with the exact opposite lines of the
 refund journal (whatever accounts it used), and asks an operator on the order to refund again. A
 `pending` snapshot delivered after the failure is ignored (the failure is remembered as the event
-`web_address.refund_failed`). Statements and metrics subtract reversals. No pricing, checkout or
-ledger posting code of the web-address flow changed.
+`web_address.refund_failed`); after the failure no later snapshot (pending, succeeded, or a
+`charge.refunded` payload listing it) and no order-failure refund posts the refund again. The
+reversal is posted in the refund journal's own currency (the `currency` option is passed through
+to whatever `journal()` it merges with; on this branch every journal is AED). Statements and
+metrics subtract reversals. No pricing, checkout or ledger posting code of the web-address flow
+changed.
 
 ### Checks
 

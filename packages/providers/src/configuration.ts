@@ -576,7 +576,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     fields: [
       field("FINANCE_USD_TO_AED", "Default USD to AED rate", "number", {
         defaultValue: "3.6725",
-        help: "Converts provider costs for a month that has no reviewed rate yet. 3.6725 is the UAE dirham's peg to the US dollar. 1 to 10.",
+        help: "Converts provider costs in business metrics and usage previews for a month that has no reviewed rate yet. Automatic month close keeps its own approved rate for such a month. 3.6725 is the UAE dirham's peg to the US dollar. 1 to 10.",
       }),
       field(
         "FINANCE_USAGE_MARKUP_PERCENT",
@@ -605,8 +605,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Automatic month close estimates unresolved provider usage",
         "boolean",
         {
-          defaultValue: "true",
-          help: "Provider calls whose outcome was never confirmed are priced at their stored estimate and marked estimated, so they do not stop the automatic usage charge, month close and payout. A provider invoice can still correct them. Off: automatic close waits until an operator prices or estimates them.",
+          defaultValue: "false",
+          help: "Off (today's behaviour): automatic month close waits until an operator reconciles unresolved provider calls from the invoice, or estimates them (Payments and payouts: Estimate unpriced usage). On: calls whose outcome was never confirmed are priced at their stored estimate, or the average of the same feature and model, and charged at that estimate; a later invoice correction does not change a usage charge already posted. Calls that answered are always priced at their estimate when made, and calls never sent cost nothing.",
         },
       ),
     ],

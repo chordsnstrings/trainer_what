@@ -56,6 +56,27 @@ export const aed = (minor: number | null | undefined) =>
         currency: "AED",
         maximumFractionDigits: 2,
       }).format(minor / 100);
+/**
+ * US dollar amounts on every finance screen: four decimals, so small provider
+ * costs never read 0.00 on one screen and a real amount on another; a
+ * positive amount below 0.0001 shows as "<0.0001".
+ */
+export const usd = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (n > 0 && n < 0.0001) return "USD <0.0001";
+  return "USD " + n.toFixed(4);
+};
+/** US cents (a domain charged in dollars) as dollars. */
+export const usdCents = (cents: number | null | undefined) =>
+  cents === null || cents === undefined
+    ? "—"
+    : new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+      }).format(cents / 100);
 export const percent = (value: number | null | undefined) =>
   value === null || value === undefined
     ? "—"

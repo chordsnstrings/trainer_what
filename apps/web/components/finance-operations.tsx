@@ -260,21 +260,40 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
               </button>
             </form>
             {usagePreview && (
-              <p>
-                {usagePreview.period}: {usagePreview.usage.events} call(s),{" "}
-                {usagePreview.usage.unpriced} unpriced,{" "}
-                {usagePreview.usage.estimated} estimated · USD{" "}
-                {usagePreview.usage.chargeableUsd} chargeable at{" "}
-                {usagePreview.rate.aedPerUsd} AED per USD (
-                {usagePreview.rate.source === "reviewed"
-                  ? "reviewed rate"
-                  : "default rate, not reviewed"}
-                ) with {usagePreview.usage.markupPercent}% markup ={" "}
-                <span dir="ltr">{money(usagePreview.usage.chargeMinor)}</span>
-                {Number(usagePreview.usage.platformBorneUsd) > 0 &&
-                  ` · USD ${usagePreview.usage.platformBorneUsd} of complimentary members' usage borne by the platform`}
-                {usagePreview.statement && " · already posted"}
-              </p>
+              <>
+                <p>
+                  {usagePreview.period}: {usagePreview.usage.events} call(s),{" "}
+                  {usagePreview.usage.unpriced} unpriced,{" "}
+                  {usagePreview.usage.estimated} estimated · USD{" "}
+                  {Number(usagePreview.usage.chargeableUsd).toFixed(4)}{" "}
+                  chargeable at {(usagePreview.chargeRate ?? usagePreview.rate).aedPerUsd}{" "}
+                  AED per USD (
+                  {(usagePreview.chargeRate ?? usagePreview.rate).source === "reviewed"
+                    ? "the month's reviewed rate"
+                    : (usagePreview.chargeRate ?? usagePreview.rate).source === "automation"
+                      ? "the finance automation's approved rate; no reviewed rate yet"
+                      : "default rate, not reviewed"}
+                  ) with {usagePreview.usage.markupPercent}% markup ={" "}
+                  <span dir="ltr">{money(usagePreview.usage.chargeMinor)}</span>
+                  {Number(usagePreview.usage.platformBorneUsd) > 0 &&
+                    ` · USD ${Number(usagePreview.usage.platformBorneUsd).toFixed(4)} of complimentary members' usage borne by the platform`}
+                </p>
+                {usagePreview.postedComparison && (
+                  <p className="notice" role="status">
+                    Already charged for {usagePreview.period}: USD{" "}
+                    {Number(usagePreview.postedComparison.chargedUsd).toFixed(4)} at{" "}
+                    {usagePreview.postedComparison.aedPerUsd} AED per USD ={" "}
+                    <span dir="ltr">{money(usagePreview.postedComparison.chargeMinor)}</span>.
+                    The month&apos;s priced usage now comes to USD{" "}
+                    {Number(usagePreview.postedComparison.currentChargeableUsd).toFixed(4)}{" "}
+                    at that rate ={" "}
+                    <span dir="ltr">{money(usagePreview.postedComparison.currentChargeMinor)}</span>
+                    {usagePreview.postedComparison.differenceMinor
+                      ? <>; difference <span dir="ltr">{money(usagePreview.postedComparison.differenceMinor)}</span>, not charged (correction entries come in a later phase).</>
+                      : "; no difference."}
+                  </p>
+                )}
+              </>
             )}
             <form
               key={usagePreview?.period ?? "usage-statement"}
@@ -316,7 +335,7 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                           ? name === "period"
                             ? usagePreview.period
                             : name === "fxAedPerUsd"
-                              ? usagePreview.rate.aedPerUsd
+                              ? (usagePreview.chargeRate ?? usagePreview.rate).aedPerUsd
                               : name === "chargeMinor"
                                 ? usagePreview.usage.chargeMinor
                                 : undefined
@@ -333,8 +352,20 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
             </form>
             {data.usageStatements?.map((s: any) => (
               <p key={s.id}>
-                {s.period} · {money(Number(s.charge_minor))} ·{" "}
+                {s.period} · charged{" "}
+                <span dir="ltr">{money(Number(s.charge_minor))}</span> at{" "}
+                {Number(s.fx_aed_per_usd)} AED per USD ·{" "}
                 {s.fee_schedule_version}
+                {s.difference_minor ? (
+                  <small className="muted">
+                    {" "}
+                    · priced usage now{" "}
+                    <span dir="ltr">{money(Number(s.current_charge_minor))}</span>{" "}
+                    at that rate (difference{" "}
+                    <span dir="ltr">{money(Number(s.difference_minor))}</span>, not
+                    charged)
+                  </small>
+                ) : null}
               </p>
             ))}
           </details>

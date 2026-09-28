@@ -31,7 +31,7 @@ import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { memberAccess } from "./entitlements.ts";
-import { costEstimated, reserveVoiceCost } from "./cost-accounting.ts";
+import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
 import {
   readCoachWearablePolicy,
   revokeHealthKitDevices,
@@ -1365,15 +1365,14 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         };
       });
     } catch {
+      // A call still reserved was never sent (the send step marks it
+      // 'unknown' first): it costs nothing.
       await db.tenant(internal(a), async (tx) => {
         await tx.query(
           "UPDATE guided_audio SET status='unknown' WHERE id=$1 AND status='reserved'",
           [reservation.id],
         );
-        await tx.query(
-          "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-          [reservation.usageId],
-        );
+        await costNotSent(tx, reservation.usageId);
       });
       return {
         id: reservation.id,

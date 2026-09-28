@@ -4438,9 +4438,9 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                     {financeRole && (
                       <>
                         <th>Commission (all time)</th>
-                        <th>Charged back</th>
-                        <th>AI cost (USD)</th>
-                        <th>Voice cost (USD)</th>
+                        <th>Charged back (all time)</th>
+                        <th>AI cost (USD, all time)</th>
+                        <th>Voice cost (USD, all time)</th>
                       </>
                     )}
                     <th>Exceptions</th>
@@ -4477,9 +4477,9 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                             const c = t.costSummary?.[kind];
                             return (
                               <td key={kind}>
-                                {c ? c.costUsd.toFixed(2) : "0.00"}
+                                {(c?.costUsd ?? 0).toFixed(4)}
                                 {c?.estimatedUsd > 0 && (
-                                  <small> {c.estimatedUsd.toFixed(2)} estimated</small>
+                                  <small> {c.estimatedUsd.toFixed(4)} estimated</small>
                                 )}
                                 {c?.unpriced > 0 && (
                                   <small> {c.unpriced} unpriced</small>

@@ -2458,26 +2458,36 @@ export async function buildApp(
             ...(["admin", "finance"].includes(a.platformRole)
               ? {
                   finance: await financeSummary(tx),
-                  costs: await tx.query(
-                    "SELECT task,count(*)::int AS requests,sum(cost_usd) AS cost_usd FROM cost_events GROUP BY task",
-                  ),
-                  // All-time AI and voice cost in USD, split by what is
-                  // priced at an estimate and what is still unpriced.
-                  costSummary: Object.fromEntries(
-                    (
-                      await tx.query(
-                        `SELECT CASE WHEN ${VOICE_TASK_SQL} THEN 'voice' ELSE 'ai' END AS kind,count(*)::int AS requests,coalesce(sum(cost_usd),0)::text AS cost_usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events GROUP BY 1`,
-                      )
-                    ).map((r) => [
-                      r.kind,
-                      {
+                  // One scan: per-task figures, and the all-time AI and
+                  // voice cost in USD split by what is priced at an
+                  // estimate and what is still unpriced.
+                  ...(await (async () => {
+                    const rows = await tx.query(
+                      `SELECT task,(${VOICE_TASK_SQL}) AS voice,count(*)::int AS requests,sum(cost_usd) AS cost_usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events GROUP BY task`,
+                    );
+                    const costSummary: Record<
+                      "ai" | "voice",
+                      { requests: number; costUsd: number; estimatedUsd: number; unpriced: number }
+                    > = {
+                      ai: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
+                      voice: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
+                    };
+                    for (const r of rows) {
+                      const c = costSummary[r.voice ? "voice" : "ai"];
+                      c.requests += r.requests;
+                      c.costUsd += Number(r.cost_usd ?? 0);
+                      c.estimatedUsd += Number(r.estimated_usd);
+                      c.unpriced += r.unpriced;
+                    }
+                    return {
+                      costs: rows.map((r) => ({
+                        task: r.task,
                         requests: r.requests,
-                        costUsd: Number(r.cost_usd),
-                        estimatedUsd: Number(r.estimated_usd),
-                        unpriced: r.unpriced,
-                      },
-                    ]),
-                  ),
+                        cost_usd: r.cost_usd,
+                      })),
+                      costSummary,
+                    };
+                  })()),
                 }
               : {}),
             // A bounded sample with the exact count.

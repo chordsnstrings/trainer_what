@@ -8,6 +8,12 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PGlite } from "@electric-sql/pglite";
+import { applyMigrations } from "../packages/db/src/migrations.ts";
 import { governanceFixture, type Person } from "./governance-fixtures.ts";
 import {
   withRuntimeConfig,
@@ -17,6 +23,7 @@ import { modelCompletion } from "../packages/providers/src/model-accounting.ts";
 import { modelAccounting } from "../apps/api/src/model-accounting.ts";
 import {
   costEstimated,
+  costNotSent,
   costProduct,
   estimateUnresolvedUsage,
   monthRate,
@@ -460,16 +467,54 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
   );
   const posted = await route({ ...statement, fxAedPerUsd: 3.68, chargeMinor: 3680 });
   assert.equal(posted.statusCode, 200, posted.body);
-  // April has no reviewed rate: an operator's rate is accepted, as before.
+  // April has no reviewed rate: an operator's rate is accepted, as before,
+  // and the preview says the default rate converts it.
+  const aprilPreview = await f.call(
+    `/admin/tenants/${owner.tenantId}/finance/usage-preview?period=2026-04`,
+    { cookie: fin.cookie },
+  );
+  assert.deepEqual(aprilPreview.json().chargeRate, { aedPerUsd: 3.6725, source: "default" });
   const april = await route({ ...statement, period: "2026-04", fxAedPerUsd: 3.67, chargeMinor: 3670 });
   assert.equal(april.statusCode, 200, april.body);
+  // A posted statement shows what it charged beside the month's current
+  // priced usage at that statement's rate.
+  const postedPreview = await f.call(
+    `/admin/tenants/${owner.tenantId}/finance/usage-preview?period=2026-04`,
+    { cookie: fin.cookie },
+  );
+  assert.deepEqual(
+    [postedPreview.json().postedComparison.chargeMinor, postedPreview.json().postedComparison.currentChargeMinor, postedPreview.json().postedComparison.differenceMinor],
+    [3670, 3670, 0],
+  );
+  // Revising March after its usage was charged at 3.68 needs a confirmation;
+  // the charge keeps its rate and metrics flag the month.
+  const revised = await set(3.7);
+  assert.equal(revised.statusCode, 409, revised.body);
+  assert.equal(revised.json().code, "POSTED_STATEMENTS_DIFFER");
+  assert.equal((await monthRate(f.db, "2026-03")).revision, 2);
+  const confirmed = await f.call("/admin/finance/exchange-rates", {
+    cookie: fin.cookie,
+    body: { month: "2026-03", aedPerUsd: 3.7, source: "Synthetic central bank rate", acknowledgePostedStatements: true },
+  });
+  assert.equal(confirmed.statusCode, 200, confirmed.body);
+  assert.deepEqual([confirmed.json().revision, confirmed.json().usageStatementsAtOtherRate], [3, 1]);
+  const flagged = await computeBusinessMetrics(f.db, { ...fin, role: "finance" }, {
+    months: 2,
+    now: new Date("2026-04-15T12:00:00Z"),
+  });
+  assert.ok(flagged.series[0].usageChargedAtOtherRate >= 1);
   const audit = await f.db.system((tx) =>
     tx.query(
-      "SELECT action FROM admin_operations_audit WHERE actor_id=$1 AND action LIKE 'finance.exchange_rate%' ORDER BY created_at",
+      "SELECT action,data FROM admin_operations_audit WHERE actor_id=$1 AND action LIKE 'finance.exchange_rate%' ORDER BY created_at",
       [fin.userId],
     ),
   );
-  assert.ok(audit.some((r) => r.action === "finance.exchange_rate_set"));
+  assert.ok(audit.some((r) => r.action === "finance.exchange_rate_unchanged"));
+  const last = audit.filter((r) => r.action === "finance.exchange_rate_set").at(-1)!;
+  assert.deepEqual(
+    [last.data.aedPerUsd, last.data.previousAedPerUsd, last.data.previousRevision, last.data.source, last.data.usageStatementsAtOtherRate],
+    [3.7, 3.68, 2, "Synthetic central bank rate", 1],
+  );
 });
 
 test("the usage markup and who pays for complimentary members are settings whose defaults keep today's charge", async () => {
@@ -499,7 +544,7 @@ test("a provider's month is priced from its usage total across workspaces, in pr
   const stale = await f.operator("admin", false);
   const one = await f.person({ name: "Owner Provider One" });
   const two = await f.person({ name: "Owner Provider Two" });
-  const [estimatedOne, unknownOne] = await costs(one.tenantId, [
+  const [estimatedOne, unknownOne, , , noEstimate] = await costs(one.tenantId, [
     { task: "voice.session", provider: "cartesia", status: "estimated", cost: 0.3, estimate: 0.3, at: "2026-06-03T10:00:00Z" },
     { task: "voice.transcription", provider: "cartesia", status: "unknown", estimate: 0.1, at: "2026-06-04T10:00:00Z" },
     { task: "voice.clone", provider: "cartesia", status: "recorded", cost: 0.05, estimate: 0.05, at: "2026-06-05T10:00:00Z" },
@@ -519,8 +564,12 @@ test("a provider's month is priced from its usage total across workspaces, in pr
       evidenceReference: "Synthetic usage evidence",
     }),
   );
-  const preview = async () => {
-    const r = await f.call("/admin/finance/provider-usage?period=2026-06&provider=cartesia", { cookie: admin.cookie });
+  const preview = async (reference?: string) => {
+    const r = await f.call(
+      "/admin/finance/provider-usage?period=2026-06&provider=Cartesia" +
+        (reference ? "&invoiceReference=" + reference : ""),
+      { cookie: admin.cookie },
+    );
     assert.equal(r.statusCode, 200, r.body);
     return r.json();
   };
@@ -528,10 +577,15 @@ test("a provider's month is priced from its usage total across workspaces, in pr
     (await f.call("/admin/finance/provider-usage?period=2026-06&provider=cartesia", { cookie: stale.cookie })).json().code,
     "MFA_STEP_UP",
   );
+  // The provider list for the month (for the screen's selector).
+  const listed = await f.call("/admin/finance/provider-usage/providers?period=2026-06", { cookie: admin.cookie });
+  assert.equal(listed.statusCode, 200, listed.body);
+  assert.ok(listed.json().providers.some((p: any) => p.provider === "cartesia" && p.workspaces >= 2));
+  // The provider name is matched case-insensitively.
   const p = await preview();
   assert.deepEqual(
-    [p.adjustableRows, p.adjustableEstimateUsd, p.fixedRows, p.fixedUsd, p.withoutEstimate, p.usageStatementsPosted],
-    [3, "1.00000000", 1, "0.05000000", 1, 1],
+    [p.provider, p.adjustableRows, p.adjustableEstimateUsd, p.fixedRows, p.fixedUsd, p.withoutEstimate, p.usageStatementsPosted],
+    ["cartesia", 3, "1.00000000", 1, "0.05000000", 1, 1],
   );
   const price = (body: Record<string, unknown>) =>
     f.call("/admin/finance/provider-usage/price", {
@@ -539,7 +593,7 @@ test("a provider's month is priced from its usage total across workspaces, in pr
       body: {
         period: "2026-06",
         provider: "cartesia",
-        usageTotalUsd: "1.55",
+        usageTotalUsd: "1.75",
         invoiceReference: "INV-CARTESIA-2026-06",
         evidenceReference: "Synthetic provider usage report",
         expectedRows: 3,
@@ -547,17 +601,44 @@ test("a provider's month is priced from its usage total across workspaces, in pr
         ...body,
       },
     });
+  // The total also covers the call with no estimate: pricing waits until it
+  // is reconciled, so its cost is never counted twice.
+  const blocked = await price({});
+  assert.equal(blocked.json().code, "ROWS_WITHOUT_ESTIMATE", blocked.body);
+  assert.equal((await row(one.tenantId, estimatedOne)).status, "estimated");
+  await f.db.tenant(finance(one), (tx) =>
+    reconcileModelUsage(tx, finance(one), noEstimate, {
+      costUsd: "0.2",
+      providerRequestId: "invoice-line-no-estimate",
+      evidenceReference: "Provider invoice line fixture",
+    }),
+  );
+  const ready = await preview();
+  assert.deepEqual(
+    [ready.adjustableRows, ready.fixedRows, ready.fixedUsd, ready.withoutEstimate],
+    [3, 2, "0.25000000", 0],
+  );
   assert.equal((await price({ expectedRows: 2 })).json().code, "PREVIEW_CHANGED");
   assert.equal((await price({ usageTotalUsd: "0.01" })).json().code, "TOTAL_BELOW_PRICED");
+  // A mistyped total far from the estimates needs an explicit confirmation.
+  const typo = await price({ usageTotalUsd: "150.25" });
+  assert.equal(typo.json().code, "FACTOR_REVIEW_REQUIRED", typo.body);
   const month = new Date().toISOString().slice(0, 7);
   assert.equal((await price({ period: month })).json().code, "PERIOD_OPEN");
   const r = await price({});
   assert.equal(r.statusCode, 200, r.body);
+  // 1.75 less the 0.25 already priced = 1.50 over estimates of 1.00.
   assert.deepEqual(
-    [r.json().priced, r.json().allocatedUsd, r.json().usageStatementsPosted],
-    [3, "1.50000000", 1],
+    [r.json().priced, r.json().allocatedUsd, r.json().allocatedThisRunUsd, r.json().allocatedTotalUsd, r.json().factor, r.json().usageStatementsPosted],
+    [3, "1.50000000", "1.50000000", "1.50000000", 1.5, 1],
   );
   assert.ok(r.json().note);
+  // Workspace two was charged 0.6 USD (220 fils); its priced usage is now
+  // 0.9 USD (331 fils): the difference is reported, not charged.
+  assert.deepEqual(
+    r.json().chargedWorkspaces.map((w: any) => [w.tenantId, w.chargeMinor, w.currentChargeableUsd, w.currentChargeMinor, w.differenceMinor]),
+    [[two.tenantId, 220, "0.90000000", 331, 111]],
+  );
   const after = await Promise.all([
     row(one.tenantId, estimatedOne),
     row(one.tenantId, unknownOne),
@@ -572,12 +653,49 @@ test("a provider's month is priced from its usage total across workspaces, in pr
     ],
   );
   assert.equal(after[1].reconciliation.previousStatus, "unknown");
-  // Running again with the same reference continues (nothing left to price);
-  // a different total under that reference is refused.
+  // The provider's month now equals its invoice: nothing counted twice.
+  const monthTotal = async () => {
+    let total = 0;
+    for (const t of [one, two])
+      for (const x of await f.db.tenant(finance(t), (tx) =>
+        tx.query("SELECT coalesce(sum(cost_usd),0)::text AS usd FROM cost_events WHERE provider='cartesia' AND created_at>='2026-06-01' AND created_at<'2026-07-01'"),
+      ))
+        total += Number(x.usd);
+    return Math.round(total * 1e8) / 1e8;
+  };
+  assert.equal(await monthTotal(), 1.75);
+  // Audited before and after, and each changed workspace has its own event.
+  const audit = await f.db.system((tx) =>
+    tx.query(
+      "SELECT action,data FROM admin_operations_audit WHERE actor_id=$1 AND action LIKE 'finance.provider_usage_pric%' ORDER BY created_at",
+      [admin.userId],
+    ),
+  );
+  assert.ok(audit.some((x) => x.action === "finance.provider_usage_pricing_started" && x.data.evidenceReference));
+  const done = audit.find((x) => x.action === "finance.provider_usage_priced")!;
+  assert.equal(done.data.allocatedTotalUsd, "1.50000000");
+  assert.deepEqual(done.data.workspaces.map((w: any) => w.tenantId).sort(), [one.tenantId, two.tenantId].sort());
+  const [workspaceEvent] = await f.db.tenant(finance(one), (tx) =>
+    tx.query("SELECT data FROM events WHERE name='finance.provider_usage_priced'"),
+  );
+  assert.deepEqual([workspaceEvent.data.rows, workspaceEvent.data.allocatedUsd], [2, "0.60000000"]);
+  // A preview with the reference shows the calls it priced, so re-running
+  // with the same reference continues (nothing left to price); a preview
+  // without it shows nothing left to price.
+  assert.equal((await preview()).adjustableRows, 0);
+  const resumed = await preview("INV-CARTESIA-2026-06");
+  assert.deepEqual([resumed.adjustableRows, resumed.pricedByReference], [3, 3]);
   const again = await price({});
   assert.equal(again.statusCode, 200, again.body);
   assert.deepEqual([again.json().priced, again.json().alreadyPriced], [0, 3]);
   assert.equal((await price({ usageTotalUsd: "2.00" })).json().code, "INVOICE_CONFLICT");
+  // A call estimated after the reference was used cannot join that run: its
+  // shares were already written for the calls it saw.
+  await costs(two.tenantId, [
+    { task: "voice.guidance", provider: "cartesia", status: "estimated", cost: 0.1, estimate: 0.1, at: "2026-06-20T10:00:00Z" },
+  ]);
+  const grown = await price({ expectedRows: 4, expectedEstimateUsd: "1.10000000" });
+  assert.equal(grown.json().code, "REFERENCE_SCOPE_CHANGED", grown.body);
   // The other provider's row is untouched.
   const other = await f.db.tenant(f.scoped(one.tenantId, "finance"), (tx) =>
     tx.query("SELECT status FROM cost_events WHERE provider='elevenlabs'"),
@@ -588,13 +706,164 @@ test("a provider's month is priced from its usage total across workspaces, in pr
   assert.equal(usdText(usdUnits("0.000000005")), "0.00000001");
 });
 
-test("automatic month close estimates unresolved usage instead of stopping, unless the setting is off", async () => {
+test("provider pricing shares add up exactly to the amount spread", async () => {
+  const admin = await f.operator("admin");
+  const one = await f.person({ name: "Owner Rounding One" });
+  const two = await f.person({ name: "Owner Rounding Two" });
+  const rows = [
+    ...(await costs(one.tenantId, [
+      { task: "voice.session", provider: "rounding-fixture", status: "estimated", cost: 0.1, estimate: 0.1, at: "2026-01-10T10:00:00Z" },
+      { task: "voice.session", provider: "rounding-fixture", status: "estimated", cost: 0.1, estimate: 0.1, at: "2026-01-11T10:00:00Z" },
+    ])).map((id) => [one.tenantId, id]),
+    ...(await costs(two.tenantId, [
+      { task: "voice.session", provider: "rounding-fixture", status: "estimated", cost: 0.1, estimate: 0.1, at: "2026-01-12T10:00:00Z" },
+    ])).map((id) => [two.tenantId, id]),
+  ];
+  const r = await f.call("/admin/finance/provider-usage/price", {
+    cookie: admin.cookie,
+    body: {
+      period: "2026-01",
+      provider: "rounding-fixture",
+      usageTotalUsd: "0.2",
+      invoiceReference: "INV-ROUNDING-2026-01",
+      evidenceReference: "Synthetic provider usage report",
+      expectedRows: 3,
+      expectedEstimateUsd: "0.3",
+    },
+  });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.deepEqual([r.json().allocatedUsd, r.json().allocatedThisRunUsd], ["0.20000000", "0.20000000"]);
+  let sum = 0n;
+  for (const [tenantId, id] of rows) sum += usdUnits((await row(tenantId, id)).cost_usd);
+  assert.equal(usdText(sum), "0.20000000");
+});
+
+test("automatic month close waits for unresolved usage by default, estimates it only when turned on, and a re-run after a correction or a new rate keeps the posted charge and reaches the payout", async () => {
   const owner = await f.person({ name: "Owner Automation Estimate" });
   const operator = await f.operator("finance");
-  const [, unknown] = await costs(owner.tenantId, [
+  const [answered, unknown] = await costs(owner.tenantId, [
     { task: "voice.session", provider: "cartesia", status: "estimated", cost: 0.5, estimate: 0.5, at: "2026-07-10T10:00:00Z" },
     { task: "voice.guidance", provider: "cartesia", status: "unknown", estimate: 0.5, at: "2026-07-11T10:00:00Z" },
   ]);
+  // Earnings before July's cutoff, funded, so a payout can be prepared.
+  await post(owner.tenantId, "fixture-earning:2026-07", "2026-07-15T10:00:00Z", [
+    ["bank_cash", 5000],
+    ["trainer_payable", -5000],
+  ]);
+  await f.db.tenant(finance(owner), (tx) =>
+    tx.query(
+      "INSERT INTO records(id,tenant_id,kind,data,status) VALUES($1,$2,'beneficiary',$3,'verified')",
+      [randomUUID(), owner.tenantId, JSON.stringify({ name: "Synthetic payee", providerId: "ben_fixture", holdUntil: "2020-01-01T00:00:00.000Z" })],
+    ),
+  );
+  const a = {
+    tenantId: owner.tenantId,
+    userId: operator.userId,
+    role: "finance",
+    elevation: "platform-operator" as const,
+  };
+  const config = await f.db.tenant(a, (tx) =>
+    configureFinanceAutomation(tx, a, {
+      revision: 0,
+      enabled: true,
+      reconcileStripe: false,
+      closeMonthly: true,
+      preparePayouts: true,
+      executePayouts: true,
+      // A cap below the payout: the run stops before any bank call, as a
+      // real run blocked by the cap or the bank contract would.
+      maxPayoutMinor: 1,
+      fxAedPerUsd: 3.6725,
+      fxEvidence: "Central bank reference rate fixture",
+      reason: "Reviewed synthetic automation fixture",
+    }),
+  );
+  const job = {
+    kind: "finance_monthly",
+    data: { period: "2026-07", configVersion: config.version },
+  };
+  // Default (today's behaviour): the unresolved call blocks the month.
+  await assert.rejects(
+    executeFinanceJob(f.db, owner.tenantId, job),
+    (e: any) => e.code === "USAGE_UNRECONCILED",
+  );
+  assert.equal((await row(owner.tenantId, unknown)).status, "unknown");
+  const on = { FINANCE_ESTIMATE_UNRESOLVED_USAGE: "true" };
+  const result: any = await withRuntimeConfig(on, () =>
+    executeFinanceJob(f.db, owner.tenantId, job),
+  );
+  assert.deepEqual([result.status, result.code], ["blocked", "PAYOUT_CAP_EXCEEDED"]);
+  const estimated = await row(owner.tenantId, unknown);
+  assert.deepEqual(
+    [estimated.status, Number(estimated.cost_usd), estimated.reconciliation.method],
+    ["estimated", 0.5, "automatic_estimate"],
+  );
+  const statement = async () =>
+    (
+      await f.db.tenant(finance(owner), (tx) =>
+        tx.query("SELECT * FROM usage_statements WHERE period='2026-07'"),
+      )
+    )[0];
+  // 1 USD at the automation's approved rate: no reviewed rate for July.
+  const first = await statement();
+  assert.deepEqual([Number(first.charge_minor), first.cost_event_count], [367, 2]);
+  const payouts = async () =>
+    f.db.tenant(finance(owner), (tx) =>
+      tx.query("SELECT id,status FROM payouts WHERE period='2026-07'"),
+    );
+  const [payout] = await payouts();
+  assert.equal(payout.status, "ready");
+  // The invoice corrects the answered call after the charge: the correction
+  // is recorded against the statement, never charged here.
+  const corrected: any = await f.db.tenant(finance(owner), (tx) =>
+    reconcileModelUsage(tx, finance(owner), answered, {
+      costUsd: "0.8",
+      providerRequestId: "invoice-line-after-charge",
+      evidenceReference: "Provider invoice line fixture",
+    }),
+  );
+  assert.deepEqual(
+    [corrected.correctionAfterCharge.period, corrected.correctionAfterCharge.previousCostUsd, corrected.correctionAfterCharge.statementChargeMinor],
+    ["2026-07", "0.50000000", 367],
+  );
+  // Re-run after the correction: the posted statement is kept and the run
+  // reaches the same payout (blocked by the cap again, not by the usage).
+  const rerun: any = await withRuntimeConfig(on, () =>
+    executeFinanceJob(f.db, owner.tenantId, job),
+  );
+  assert.deepEqual([rerun.status, rerun.code], ["blocked", "PAYOUT_CAP_EXCEEDED"]);
+  assert.equal(Number((await statement()).charge_minor), 367);
+  // A reviewed rate recorded for July after the charge: the re-run still
+  // keeps the posted statement.
+  const fin = await f.operator("finance");
+  const rate = await f.call("/admin/finance/exchange-rates", {
+    cookie: fin.cookie,
+    body: { month: "2026-07", aedPerUsd: 3.7, source: "Synthetic central bank rate", acknowledgePostedStatements: true },
+  });
+  assert.equal(rate.statusCode, 200, rate.body);
+  const third: any = await executeFinanceJob(f.db, owner.tenantId, job);
+  assert.deepEqual([third.status, third.code], ["blocked", "PAYOUT_CAP_EXCEEDED"]);
+  const kept = await statement();
+  assert.deepEqual([Number(kept.charge_minor), Number(kept.fx_aed_per_usd)], [367, 3.6725]);
+  assert.deepEqual((await payouts()).map((x: any) => x.id), [payout.id]);
+  const [close] = await f.db.tenant(finance(owner), (tx) =>
+    tx.query("SELECT status FROM records WHERE kind='close' AND data->>'period'='2026-07'"),
+  );
+  assert.equal(close.status, "closed");
+});
+
+test("a month-close run at a reviewed rate other than the approved one records the override", async () => {
+  const owner = await f.person({ name: "Owner Automation Rate" });
+  const operator = await f.operator("finance");
+  await costs(owner.tenantId, [
+    { task: "coaching", provider: "openai", status: "recorded", cost: 1, estimate: 1, at: "2026-08-20T10:00:00Z" },
+  ]);
+  await f.db.system((tx) =>
+    tx.query(
+      "INSERT INTO exchange_rates(id,month,revision,aed_per_usd,source,reviewed_by) SELECT $1,'2026-08',coalesce(max(revision),0)+1,3.7,'Synthetic reviewed rate',$2 FROM exchange_rates WHERE month='2026-08'",
+      [randomUUID(), operator.userId],
+    ),
+  );
   const a = {
     tenantId: owner.tenantId,
     userId: operator.userId,
@@ -615,33 +884,59 @@ test("automatic month close estimates unresolved usage instead of stopping, unle
       reason: "Reviewed synthetic automation fixture",
     }),
   );
-  const job = {
+  const result: any = await executeFinanceJob(f.db, owner.tenantId, {
     kind: "finance_monthly",
-    data: { period: "2026-07", configVersion: config.version },
-  };
-  await assert.rejects(
-    withRuntimeConfig({ FINANCE_ESTIMATE_UNRESOLVED_USAGE: "false" }, () =>
-      executeFinanceJob(f.db, owner.tenantId, job),
-    ),
-    (e: any) => e.code === "USAGE_UNRECONCILED",
-  );
-  assert.equal((await row(owner.tenantId, unknown)).status, "unknown");
-  const result = await executeFinanceJob(f.db, owner.tenantId, job);
+    data: { period: "2026-08", configVersion: config.version },
+  });
   assert.equal(result.status, "completed");
-  const estimated = await row(owner.tenantId, unknown);
+  assert.deepEqual(result.rate, { aedPerUsd: 3.7, source: "reviewed" });
   assert.deepEqual(
-    [estimated.status, Number(estimated.cost_usd), estimated.reconciliation.method],
-    ["estimated", 0.5, "automatic_estimate"],
+    [result.rateOverride.approvedAedPerUsd, result.rateOverride.reviewedAedPerUsd],
+    [3.6725, 3.7],
   );
-  const [statement] = await f.db.tenant(finance(owner), (tx) =>
-    tx.query("SELECT * FROM usage_statements WHERE period='2026-07'"),
+  const [e] = await f.db.tenant(finance(owner), (tx) =>
+    tx.query("SELECT data FROM events WHERE name='finance.automation_rate_override'"),
   );
-  // 1 USD at the automation's approved rate: no reviewed rate for July.
-  assert.deepEqual([Number(statement.charge_minor), statement.cost_event_count], [367, 2]);
-  const [close] = await f.db.tenant(finance(owner), (tx) =>
-    tx.query("SELECT status FROM records WHERE kind='close' AND data->>'period'='2026-07'"),
+  assert.equal(e.data.period, "2026-08");
+});
+
+test("a voice call that fails before it is sent costs nothing; one sent without an answer stays for the invoice", async () => {
+  const owner = await f.person({ name: "Owner Voice Not Sent" });
+  const a = f.scoped(owner.tenantId, "owner");
+  const reserve = async () => {
+    const id = randomUUID();
+    await f.db.tenant(a, (tx) =>
+      reserveVoiceCost(tx, {
+        id,
+        tenantId: owner.tenantId,
+        userId: owner.userId,
+        memberId: null,
+        task: "voice.session",
+        provider: "cartesia",
+        model: "sonic-fixture",
+        priceVersion: "voice-v1",
+        pricing: { basis: "characters", characters: 40, reservedCostUsd: 0.002 },
+        traceId: "clip-not-sent",
+      }),
+    );
+    return id;
+  };
+  const notSent = await reserve();
+  const sent = await reserve();
+  await f.db.tenant(a, (tx) =>
+    tx.query("UPDATE cost_events SET status='unknown' WHERE id=$1", [sent]),
   );
-  assert.equal(close.status, "closed");
+  await f.db.tenant(a, async (tx) => {
+    await costNotSent(tx, notSent);
+    await costNotSent(tx, sent);
+  });
+  const released = await row(owner.tenantId, notSent);
+  assert.deepEqual(
+    [released.status, Number(released.cost_usd), released.pricing.released],
+    ["recorded", 0, "not_sent"],
+  );
+  const pending = await row(owner.tenantId, sent);
+  assert.deepEqual([pending.status, pending.cost_usd], ["unknown", null]);
 });
 
 test("metrics and statements show products, disputes, recovered and absorbed costs, domains, estimated and complimentary cost", async () => {
@@ -686,6 +981,8 @@ test("metrics and statements show products, disputes, recovered and absorbed cos
     { task: "coaching", provider: "openai", status: "recorded", cost: 0.25, estimate: 0.25, at, complimentary: true },
     { task: "voice_session_suggestions", provider: "openai", status: "recorded", cost: 0.05, estimate: 0.05, at },
     { task: "voice.transcription", provider: "cartesia", status: "unknown", estimate: 0.02, at },
+    // An AI call whose lost answer was estimated: AI, never shown as voice.
+    { task: "coaching", provider: "openai", status: "estimated", cost: 0.1, estimate: 0.1, at },
   ]);
   const r = await computeBusinessMetrics(f.db, { ...fin, role: "finance" }, {
     months: 1,
@@ -699,14 +996,18 @@ test("metrics and statements show products, disputes, recovered and absorbed cos
   );
   assert.deepEqual([d("disputesOpenedMinor"), d("disputeLossesMinor")], [4000, 4000]);
   assert.deepEqual([d("usageRecoveryMinor"), d("allocatedRecoveryMinor"), d("costRecoveryMinor"), d("absorbedCostsMinor")], [300, 700, 1000, 2500]);
-  assert.deepEqual([d("domainPaymentsMinor"), d("domainRefundsMinor"), d("domainNetSalesMinor")], [9000, 0, 9000]);
-  // voice_session_suggestions is a model call: AI, not voice.
+  // Domains stay in the currency they were journaled in (AED here); none of
+  // it is in US cents.
+  assert.deepEqual([d("domainPaymentsAedMinor"), d("domainRefundsAedMinor"), d("domainNetSalesAedMinor")], [9000, 0, 9000]);
+  assert.deepEqual([d("domainPaymentsUsdCents"), d("domainRefundsUsdCents"), d("domainNetSalesUsdCents")], [0, 0, 0]);
+  // voice_session_suggestions is a model call: AI, not voice. The estimated
+  // part is split between AI and voice.
   assert.deepEqual(
-    [d("aiCostUsd"), d("voiceCostUsd"), d("estimatedCostUsd"), d("unpricedRequests"), d("unpricedEstimateUsd"), d("complimentaryCostUsd")],
-    [0.3, 0.4, 0.4, 1, 0.02, 0.25],
+    [d("aiCostUsd"), d("voiceCostUsd"), d("estimatedAiCostUsd"), d("estimatedVoiceCostUsd"), d("unpricedRequests"), d("unpricedEstimateUsd"), d("complimentaryCostUsd")],
+    [0.4, 0.4, 0.1, 0.4, 1, 0.02, 0.25],
   );
   const header = metricsCsv(r).split("\n")[0].split(",");
-  for (const field of ["membershipGrossMinor", "disputeLossesMinor", "absorbedCostsMinor", "domainNetSalesMinor", "estimatedCostUsd", "aedPerUsd", "fxSource"])
+  for (const field of ["membershipGrossMinor", "disputeLossesMinor", "absorbedCostsMinor", "domainNetSalesAedMinor", "domainNetSalesUsdCents", "estimatedAiCostUsd", "estimatedVoiceCostUsd", "aedPerUsd", "fxSource", "usageChargedAtOtherRate"])
     assert.ok(header.includes(field), field);
   // The operator statement shows the same month by product, with disputes,
   // domains (refund reversed) and usage by feature at the month's rate.
@@ -719,7 +1020,7 @@ test("metrics and statements show products, disputes, recovered and absorbed cos
   assert.deepEqual([s.webAddresses.paymentsMinor, s.webAddresses.refundsMinor], [9000, 0]);
   assert.deepEqual(
     [s.usageCost.costUsd, s.usageCost.estimatedUsd, s.usageCost.unpricedCalls, s.usageCost.complimentaryUsd, s.usageCost.costAedMinor],
-    [0.7, 0.4, 1, 0.25, 257],
+    [0.8, 0.5, 1, 0.25, 294],
   );
 });
 
@@ -779,9 +1080,36 @@ test("a domain refund that fails after it was journaled is reversed once, and a 
     tx.query("SELECT attention FROM domain_orders WHERE id=$1", [orderId]),
   );
   assert.match(order.attention, /re_fail_fixture\) failed.*reversed/);
-  // Out of order: the failure arrives before the pending snapshot.
+  // The reversal is in the refund journal's own currency.
+  const currencies = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("SELECT source_key,currency,data->>'currency' AS recorded FROM journals WHERE source_key LIKE 'web-address-refund%re_fail_fixture' ORDER BY source_key"),
+  );
+  assert.deepEqual(
+    currencies.map((j) => [j.currency, j.recorded]),
+    [["AED", "AED"], ["AED", null]],
+  );
+  // Out of order: the failure arrives before the pending snapshot, before a
+  // succeeded snapshot, and before a charge.refunded payload listing it.
   await refundEvent("refund.updated", "re_late_fixture", "canceled");
   await refundEvent("refund.created", "re_late_fixture", "pending");
+  await refundEvent("refund.updated", "re_late_fixture", "succeeded");
+  await processWebAddressStripeEvent(f.db, {
+    id: "evt_" + randomUUID(),
+    type: "charge.refunded",
+    data: {
+      object: {
+        id: "ch_refund_fixture",
+        object: "charge",
+        payment_intent: "pi_refund_fixture",
+        metadata,
+        refunds: {
+          data: [
+            { id: "re_late_fixture", object: "refund", status: "succeeded", amount: 9000, payment_intent: "pi_refund_fixture", metadata },
+          ],
+        },
+      },
+    },
+  });
   assert.equal((await journals()).filter((j) => j.source_key.includes("re_late_fixture")).length, 0);
   const period = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
   const statement = await f.db.tenant(
@@ -844,4 +1172,57 @@ test("the Super admin overview shows each trainer's commission, costs charged ba
   assert.equal(-t.finance.accounts.platform_cost_recovery, 150);
   assert.deepEqual(t.costSummary.ai, { requests: 1, costUsd: 1.25, estimatedUsd: 0, unpriced: 0 });
   assert.deepEqual(t.costSummary.voice, { requests: 2, costUsd: 0.5, estimatedUsd: 0.5, unpriced: 1 });
+});
+
+test("migration 073 fills the estimate and product of rows written before it", async () => {
+  // Every migration up to 072 on a fresh embedded database, rows as the
+  // previous release wrote them, then 073.
+  const source = fileURLToPath(new URL("../packages/db/migrations/", import.meta.url));
+  const directory = await mkdtemp(join(tmpdir(), "finance-073-"));
+  const pg = new PGlite();
+  const client = {
+    query: (sql: string, values?: any[]) => pg.query(sql, values),
+    exec: (sql: string) => pg.exec(sql),
+  };
+  try {
+    const files = (await readdir(source)).filter((n) => n.endsWith(".sql")).sort();
+    for (const name of files.filter((n) => n < "073"))
+      await copyFile(join(source, name), join(directory, name));
+    await applyMigrations(client, directory);
+    const tenant = randomUUID();
+    await pg.query("INSERT INTO tenants(id,slug,name) VALUES($1,'migration-fixture','Migration fixture')", [tenant]);
+    const insert = (task: string, status: string, cost: number | null, pricing: unknown) =>
+      pg.query(
+        "INSERT INTO cost_events(id,tenant_id,task,provider,model,cost_usd,status,pricing,created_at) VALUES($1,$2,$3,'fixture','fixture-model',$4,$5,$6,'2026-06-01T10:00:00Z') RETURNING id",
+        [randomUUID(), tenant, task, cost, status, JSON.stringify(pricing)],
+      ).then((r: any) => r.rows[0].id as string);
+    const voiceReserved = await insert("voice.session", "unknown", null, { basis: "characters", reservedCostUsd: 0.0042 });
+    const clonePreview = await insert("voice.preview", "recorded", 0.001, { reservedCostUsd: 0.001 });
+    const recordedModel = await insert("coaching", "recorded", 0.0123, {});
+    const released = await insert("nutrition_week", "recorded", 0, {});
+    const lostModel = await insert("brain_plan", "unknown", null, {});
+    for (const name of files.filter((n) => n >= "073"))
+      await copyFile(join(source, name), join(directory, name));
+    await applyMigrations(client, directory);
+    const { rows } = await pg.query<any>(
+      "SELECT id,estimated_cost_usd::text AS estimate,product,complimentary,status FROM cost_events",
+    );
+    const by = new Map(rows.map((r: any) => [r.id, r]));
+    assert.deepEqual(
+      [voiceReserved, clonePreview, recordedModel, released, lostModel].map((id) => {
+        const r: any = by.get(id);
+        return [r.estimate, r.product, r.complimentary, r.status];
+      }),
+      [
+        ["0.00420000", "voice_addon", false, "unknown"],
+        ["0.00100000", "trainer_setup", false, "recorded"],
+        ["0.01230000", "membership", false, "recorded"],
+        ["0.00000000", "nutrition", false, "recorded"],
+        [null, "membership", false, "unknown"],
+      ],
+    );
+  } finally {
+    await pg.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

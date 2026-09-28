@@ -121,6 +121,21 @@ export async function costEstimated(
   );
 }
 
+/**
+ * A voice call that failed before it was sent costs nothing: the step that
+ * marks a row 'unknown' runs immediately before the provider request, so a
+ * row still 'reserved' when the call fails was never sent. It is released at
+ * zero ('recorded', like voice clones), never estimated or charged. A row
+ * already 'unknown' (sent, outcome unconfirmed) is left for the invoice.
+ */
+export async function costNotSent(tx: Tx, usageId: string | null | undefined) {
+  if (!usageId) return;
+  await tx.query(
+    "UPDATE cost_events SET status='recorded',cost_usd=0,pricing=pricing||$2::jsonb WHERE id=$1 AND status='reserved'",
+    [usageId, JSON.stringify({ released: "not_sent" })],
+  );
+}
+
 /** The reviewed token price in effect for a provider and model, if any. */
 export async function reviewedModelPrice(
   db: Database,
@@ -151,7 +166,12 @@ export type FinanceSettings = {
   complimentaryBearer: "trainer" | "platform";
   estimateUnresolved: boolean;
 };
-/** Owner decisions still pending keep today's behaviour by default. */
+/**
+ * Owner decisions still pending keep today's behaviour by default: trainers
+ * pay usage at cost (0% markup), including their complimentary members', and
+ * automatic month close waits for unresolved provider calls to be priced
+ * (automatic estimation is off unless turned on).
+ */
 export function financeSettings(config = runtimeConfig()): FinanceSettings {
   const rate = Number(config.FINANCE_USD_TO_AED);
   const markup = Number(config.FINANCE_USAGE_MARKUP_PERCENT);
@@ -162,7 +182,7 @@ export function financeSettings(config = runtimeConfig()): FinanceSettings {
       config.FINANCE_COMPLIMENTARY_USAGE_BEARER === "platform"
         ? "platform"
         : "trainer",
-    estimateUnresolved: config.FINANCE_ESTIMATE_UNRESOLVED_USAGE !== "false",
+    estimateUnresolved: config.FINANCE_ESTIMATE_UNRESOLVED_USAGE === "true",
   };
 }
 
@@ -178,6 +198,19 @@ export type MonthRate = {
   reviewedAt: string | null;
 };
 export const periodSchemaText = /^\d{4}-(0[1-9]|1[0-2])$/;
+/**
+ * A Dubai calendar month as a half-open UTC range [from, to). Dubai keeps
+ * UTC+4 all year, so the range selects exactly the rows whose Dubai month is
+ * `period`, and a created_at range can use the (tenant, created_at) indexes.
+ */
+export function dubaiMonthRange(period: string) {
+  if (!periodSchemaText.test(period)) throw new Error("Invalid month");
+  const [year, month] = period.split("-").map(Number);
+  return {
+    from: new Date(Date.UTC(year, month - 1, 1) - 4 * 3600000),
+    to: new Date(Date.UTC(year, month, 1) - 4 * 3600000),
+  };
+}
 /** Each month's current rate: its latest reviewed revision, else the default. */
 export async function monthRates(
   db: Database,
@@ -252,9 +285,16 @@ export async function periodUsage(
   settings = financeSettings(),
 ): Promise<PeriodUsage> {
   const platform = settings.complimentaryBearer === "platform";
+  const range = dubaiMonthRange(period);
   const [usage] = await tx.query(
-    "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,count(*) FILTER(WHERE status='estimated')::int AS estimated,coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)::numeric(18,8)::text AS usd,coalesce(sum(cost_usd) FILTER(WHERE $3 AND complimentary),0)::numeric(18,8)::text AS borne,round(coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)*$2::numeric*(100+$4::numeric))::text AS minor FROM cost_events WHERE to_char(created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')=$1",
-    [period, aedPerUsd, platform, settings.markupPercent],
+    "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,count(*) FILTER(WHERE status='estimated')::int AS estimated,coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)::numeric(18,8)::text AS usd,coalesce(sum(cost_usd) FILTER(WHERE $3 AND complimentary),0)::numeric(18,8)::text AS borne,round(coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)*$2::numeric*(100+$4::numeric))::text AS minor FROM cost_events WHERE created_at>=$1::timestamptz AND created_at<$5::timestamptz",
+    [
+      range.from.toISOString(),
+      aedPerUsd,
+      platform,
+      settings.markupPercent,
+      range.to.toISOString(),
+    ],
   );
   return {
     events: usage.n,
@@ -290,43 +330,41 @@ export async function estimateUnresolvedUsage(
   },
 ) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
+  // The 90-day average is computed only for rows with no stored estimate
+  // (a model call whose answer was lost); CASE evaluates it lazily.
   const rows = await tx.query(
-    "SELECT c.id,c.task,c.model,c.status,c.estimated_cost_usd::text AS estimate,(SELECT avg(p.cost_usd) FROM cost_events p WHERE p.task=c.task AND p.model IS NOT DISTINCT FROM c.model AND p.cost_usd IS NOT NULL AND p.created_at>c.created_at-interval '90 days' AND p.created_at<=c.created_at+interval '90 days')::text AS average FROM cost_events c WHERE c.cost_usd IS NULL AND (c.status='unknown' OR (c.status='reserved' AND c.created_at<now()-interval '15 minutes')) AND ($1::timestamptz IS NULL OR c.created_at<$1) ORDER BY c.created_at LIMIT 5000",
+    "SELECT c.id,c.task,c.model,c.status,c.estimated_cost_usd::text AS estimate,CASE WHEN c.estimated_cost_usd IS NULL THEN (SELECT avg(p.cost_usd) FROM cost_events p WHERE p.task=c.task AND p.model IS NOT DISTINCT FROM c.model AND p.cost_usd IS NOT NULL AND p.created_at>c.created_at-interval '90 days' AND p.created_at<=c.created_at+interval '90 days')::text END AS average FROM cost_events c WHERE c.cost_usd IS NULL AND (c.status='unknown' OR (c.status='reserved' AND c.created_at<now()-interval '15 minutes')) AND ($1::timestamptz IS NULL OR c.created_at<$1) ORDER BY c.created_at LIMIT 5000",
     [input.before?.toISOString() ?? null],
   );
-  let estimated = 0,
-    estimatedUsd = 0;
   const remaining: Array<{ id: string; task: string; model: string | null }> = [];
+  const priced: Array<{ id: string; value: string; basis: string; previous: string }> = [];
   for (const row of rows) {
-    const basis =
-      row.estimate !== null
-        ? "stored_estimate"
-        : row.average !== null
-          ? "average_same_task_model"
-          : null;
-    if (!basis) {
-      remaining.push({ id: row.id, task: row.task, model: row.model });
-      continue;
-    }
-    const [updated] = await tx.query(
-      "UPDATE cost_events SET estimated_cost_usd=coalesce(estimated_cost_usd,round($2::numeric,8)),cost_usd=coalesce(estimated_cost_usd,round($2::numeric,8)),status='estimated',reconciliation=$3 WHERE id=$1 AND cost_usd IS NULL AND status IN ('unknown','reserved') RETURNING cost_usd::text AS cost",
-      [
-        row.id,
-        row.estimate ?? row.average,
-        JSON.stringify({
-          method: input.method === "automation" ? "automatic_estimate" : "operator_estimate",
-          basis,
-          previousStatus: row.status,
-          evidenceReference: input.evidenceReference,
-          estimatedBy: a.userId,
-          estimatedAt: new Date().toISOString(),
-        }),
-      ],
-    );
-    if (!updated) continue;
-    estimated++;
-    estimatedUsd += Number(updated.cost);
+    if (row.estimate !== null)
+      priced.push({ id: row.id, value: row.estimate, basis: "stored_estimate", previous: row.status });
+    else if (row.average !== null)
+      priced.push({ id: row.id, value: row.average, basis: "average_same_task_model", previous: row.status });
+    else remaining.push({ id: row.id, task: row.task, model: row.model });
   }
+  // One set-based update for every row with a basis.
+  const updated = priced.length
+    ? await tx.query(
+        "UPDATE cost_events c SET estimated_cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),status='estimated',reconciliation=$5::jsonb||jsonb_build_object('basis',v.basis,'previousStatus',v.previous) FROM unnest($1::uuid[],$2::numeric[],$3::text[],$4::text[]) AS v(id,value,basis,previous) WHERE c.id=v.id AND c.cost_usd IS NULL AND c.status IN ('unknown','reserved') RETURNING c.cost_usd::text AS cost",
+        [
+          priced.map((r) => r.id),
+          priced.map((r) => r.value),
+          priced.map((r) => r.basis),
+          priced.map((r) => r.previous),
+          JSON.stringify({
+            method: input.method === "automation" ? "automatic_estimate" : "operator_estimate",
+            evidenceReference: input.evidenceReference,
+            estimatedBy: a.userId,
+            estimatedAt: new Date().toISOString(),
+          }),
+        ],
+      )
+    : [];
+  const estimated = updated.length;
+  const estimatedUsd = updated.reduce((n, r) => n + Number(r.cost), 0);
   if (estimated)
     await event(tx, a, "finance.usage_estimated", randomUUID(), {
       rows: estimated,

@@ -407,9 +407,20 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
           </div>
           {data.revenue && (
             <>
-              <h3>What members paid, by product</h3>
-              <div className="table-scroll">
+              <h3 id="statement-products">What members paid, by product</h3>
+              <div
+                className="table-scroll"
+                role="region"
+                aria-labelledby="statement-products"
+                tabIndex={0}
+              >
                 <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Product</th>
+                      <th scope="col">AED</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {[
                       ["membershipMinor", "Memberships"],
@@ -418,7 +429,7 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
                       ["sessionsMinor", "1:1 sessions"],
                     ].map(([key, label]) => (
                       <tr key={key}>
-                        <td>{label}</td>
+                        <th scope="row">{label}</th>
                         <td>
                           <span dir="ltr">{money(data.revenue[key] ?? 0)}</span>
                         </td>
@@ -497,16 +508,21 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
           {data.usageByFeature?.length > 0 && (
             <details>
               <summary>Usage by feature and product</summary>
-              <div className="table-scroll">
+              <div
+                className="table-scroll"
+                role="region"
+                aria-label="Usage by feature and product"
+                tabIndex={0}
+              >
                 <table>
                   <thead>
                     <tr>
-                      <th>Feature</th>
-                      <th>Product</th>
-                      <th>Calls</th>
-                      <th>USD</th>
-                      <th>Estimated USD</th>
-                      <th>Unpriced</th>
+                      <th scope="col">Feature</th>
+                      <th scope="col">Product</th>
+                      <th scope="col">Calls</th>
+                      <th scope="col">USD</th>
+                      <th scope="col">Estimated USD</th>
+                      <th scope="col">Unpriced</th>
                     </tr>
                   </thead>
                   <tbody>
