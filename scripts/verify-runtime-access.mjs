@@ -118,6 +118,9 @@ export async function verifyRuntimeAccess(client) {
     early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     // Domain pricing (071): registrar prices per ending, platform-level.
     registrar_prices: ["SELECT", "INSERT", "UPDATE"],
+    // Platform finance reference data (072, 073): append-only, service only.
+    exchange_rates: ["SELECT", "INSERT"],
+    model_prices: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -586,6 +589,8 @@ export async function verifyRuntimeAccess(client) {
       "tenant_slug_redirects",
       "early_access_requests",
       "registrar_prices",
+      "exchange_rates",
+      "model_prices",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

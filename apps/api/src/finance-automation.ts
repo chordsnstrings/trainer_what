@@ -21,6 +21,12 @@ import {
   postUsageStatement,
 } from "./finance-operations.ts";
 import { createPayout } from "./finance.ts";
+import {
+  estimateUnresolvedUsage,
+  financeSettings,
+  monthRate,
+  periodUsage,
+} from "./cost-accounting.ts";
 import { executePayout } from "./payout-execution.ts";
 import { requireRecentMfa } from "./security.ts";
 const fail = (code: string, message: string) =>
@@ -368,25 +374,82 @@ export async function executeFinanceJob(
     .string()
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
     .parse(job.data.period);
+  // The month's reviewed rate when one is recorded (one rate per month,
+  // docs/features/platform-finance.md), else this automation's approved rate.
+  // A reviewed rate that differs from the approved one is recorded in the
+  // job result and as an event, so the override is never silent.
+  const rate = await monthRate(db, period);
+  const settings = financeSettings();
+  const fx = rate.source === "reviewed" ? rate.aedPerUsd : c.data.fxAedPerUsd;
+  const fxEvidence =
+    rate.source === "reviewed"
+      ? `Reviewed rate for ${period}, revision ${rate.revision}: ${rate.note}`.slice(0, 500)
+      : c.data.fxEvidence;
+  const rateOverride =
+    rate.source === "reviewed" && Number(rate.aedPerUsd) !== Number(c.data.fxAedPerUsd)
+      ? {
+          approvedAedPerUsd: Number(c.data.fxAedPerUsd),
+          reviewedAedPerUsd: Number(rate.aedPerUsd),
+          revision: rate.revision,
+        }
+      : null;
+  // A month whose usage is already charged keeps its statement: a re-run
+  // (after a blocked or failed payout) goes on to close and pay out, whatever
+  // invoice corrections or reviewed rates were recorded since. Differences
+  // are shown on the finance screens, never charged again here.
+  const [alreadyPosted] = await db.tenant(a, (tx) =>
+    tx.query("SELECT id FROM usage_statements WHERE period=$1", [period]),
+  );
+  // Provider calls whose outcome never came back are priced at their stored
+  // estimate and marked estimated only when the setting is on (Settings ->
+  // Platform finance; off by default), in their own transaction.
+  if (settings.estimateUnresolved && !alreadyPosted)
+    await db.tenant(a, (tx) =>
+      estimateUnresolvedUsage(tx, a, {
+        before: monthCutoff(period),
+        evidenceReference: `Automatic month close ${period}: automation ${c.id} revision ${c.version}`,
+        method: "automation",
+      }),
+    );
+  let statementSource: "posted" | "existing" | "none" = "none";
   const payout = await db.tenant(a, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId]);
-    const [usage] = await tx.query(
-      "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unknown,round(coalesce(sum(cost_usd),0)*$2::numeric*100)::text AS minor FROM cost_events WHERE to_char(created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')=$1",
-      [period, c.data.fxAedPerUsd],
+    const [existing] = await tx.query(
+      "SELECT * FROM usage_statements WHERE period=$1",
+      [period],
     );
-    if (usage.unknown)
-      throw fail(
-        "USAGE_UNRECONCILED",
-        "Unknown provider usage blocks automatic month close",
-      );
-    if (usage.n)
-      await postUsageStatement(tx, a, {
-        period,
-        fxAedPerUsd: c.data.fxAedPerUsd,
-        chargeMinor: Number(usage.minor),
-        feeScheduleVersion: `automation:${c.id}:${c.version}`,
-        evidenceReference: c.data.fxEvidence,
-      });
+    if (existing) statementSource = "existing";
+    else {
+      const usage = await periodUsage(tx, period, fx, settings);
+      if (usage.unpriced)
+        throw fail(
+          "USAGE_UNRECONCILED",
+          settings.estimateUnresolved
+            ? "Provider usage with no estimate blocks automatic month close; reconcile it from the provider invoice"
+            : "Unpriced provider usage blocks automatic month close; reconcile it from the provider invoice or estimate it (Estimate unpriced usage), or let automatic close estimate it (Settings -> Platform finance)",
+        );
+      if (usage.events) {
+        await postUsageStatement(
+          tx,
+          a,
+          {
+            period,
+            fxAedPerUsd: fx,
+            chargeMinor: usage.chargeMinor,
+            feeScheduleVersion: `automation:${c.id}:${c.version}`,
+            evidenceReference: fxEvidence,
+          },
+          { rate, settings },
+        );
+        statementSource = "posted";
+        if (rateOverride)
+          await event(tx, a, "finance.automation_rate_override", c.id, {
+            period,
+            ...rateOverride,
+            configurationRevision: c.version,
+          });
+      }
+    }
     await closeMonth(
       tx,
       a,
@@ -438,7 +501,13 @@ export async function executeFinanceJob(
       maxPayoutMinor: c.data.maxPayoutMinor,
     });
   }
-  return { status: "completed", payoutId: payout?.id ?? null };
+  return {
+    status: "completed",
+    payoutId: payout?.id ?? null,
+    usageStatement: statementSource,
+    rate: { aedPerUsd: fx, source: rate.source === "reviewed" ? "reviewed" : "approved" },
+    ...(rateOverride ? { rateOverride } : {}),
+  };
 }
 export function registerFinanceAutomation(app: FastifyInstance, db: Database) {
   const operator = (req: FastifyRequest) => {

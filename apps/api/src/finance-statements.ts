@@ -2,6 +2,7 @@ import { type Actor, type Tx, event, putRecord } from "@trainer/db";
 import { z } from "zod";
 import { journal, financeSummary } from "./finance.ts";
 import { monthCutoff } from "./finance-operations.ts";
+import type { MonthRate } from "./cost-accounting.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 export const allocationSchema = z
@@ -104,7 +105,11 @@ function webAddressSummary(
 export async function financialStatement(
   tx: Tx,
   period: string,
-  options: { platformView?: boolean } = {},
+  options: {
+    platformView?: boolean;
+    /** The month's USD to AED rate (reviewed or default) for cost figures. */
+    rate?: MonthRate;
+  } = {},
 ) {
   const end = monthCutoff(period),
     [year, month] = period.split("-").map(Number);
@@ -123,6 +128,12 @@ export async function financialStatement(
   );
   const usage = await tx.query(
     "SELECT provider,model,status,count(*)::int AS calls,sum(input_tokens)::text AS input_tokens,sum(output_tokens)::text AS output_tokens,sum(cost_usd)::text AS cost_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unresolved FROM cost_events WHERE created_at>=$1 AND created_at<$2 GROUP BY provider,model,status ORDER BY provider,model,status",
+    [start.toISOString(), end.toISOString()],
+  );
+  // Cost by feature and product, with what is priced, estimated or unpriced
+  // (docs/features/platform-finance.md).
+  const usageByFeature = await tx.query(
+    "SELECT task,product,complimentary,count(*)::int AS calls,coalesce(sum(cost_usd),0)::text AS cost_usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,coalesce(sum(estimated_cost_usd) FILTER(WHERE cost_usd IS NULL),0)::text AS unpriced_estimate_usd FROM cost_events WHERE created_at>=$1 AND created_at<$2 GROUP BY task,product,complimentary ORDER BY task,product,complimentary",
     [start.toISOString(), end.toISOString()],
   );
   const [close] = await tx.query(
@@ -175,11 +186,25 @@ export async function financialStatement(
       );
     return figures;
   };
+  // Card disputes, informational (the bridge keeps them in other adjustments):
+  // amounts held when opened, released when won or closed, and lost.
+  const disputes = { openedMinor: 0, releasedMinor: 0, lostMinor: 0 };
+  const lineSum = (entry: any, account: string) =>
+    (entry.lines as any[])
+      .filter((l) => l.account === account)
+      .reduce((n, l) => n + Number(l.amountMinor), 0);
   for (const entry of entries) {
     const payable = (entry.lines as any[])
       .filter((l) => l.account === "trainer_payable")
       .reduce((n, l) => n + Number(l.amountMinor), 0);
     totals.closingPayableMinor -= payable;
+    if (entry.source_key.startsWith("dispute-reserve:"))
+      disputes.openedMinor -= lineSum(entry, "dispute_reserve");
+    else if (entry.source_key.startsWith("dispute-resolution:")) {
+      const lost = -lineSum(entry, "stripe_receivable");
+      if (lost > 0) disputes.lostMinor += lost;
+      else disputes.releasedMinor += lineSum(entry, "dispute_reserve");
+    }
     if (
       entry.source_key.startsWith("stripe-invoice:") ||
       entry.source_key.startsWith("stripe-programme:") ||
@@ -219,6 +244,10 @@ export async function financialStatement(
         figures.paymentsMinor += Number(entry.data.grossMinor ?? 0);
       else if (entry.source_key.startsWith("web-address-refund:"))
         figures.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
+      // A refund that failed or was canceled after it was journaled: its
+      // reversal is in the refund's own currency.
+      else if (entry.source_key.startsWith("web-address-refund-reversal:"))
+        figures.refundsMinor -= Number(entry.data.refundAmountMinor ?? 0);
       else if (entry.source_key.startsWith("web-address-registrar:"))
         figures.registrarCostMinor += (entry.lines as any[])
           .filter((l) => l.account === "registrar_cost")
@@ -241,6 +270,28 @@ export async function financialStatement(
     throw new Error(
       "Financial statement does not reconcile to the immutable ledger",
     );
+  const units = (v: string) => Math.round(Number(v) * 1e8);
+  const costUsd = usageByFeature.reduce((n, r) => n + units(r.cost_usd), 0) / 1e8;
+  const usageCost = {
+    costUsd,
+    estimatedUsd:
+      usageByFeature.reduce((n, r) => n + units(r.estimated_usd), 0) / 1e8,
+    unpricedCalls: usageByFeature.reduce((n, r) => n + r.unpriced, 0),
+    unpricedEstimateUsd:
+      usageByFeature.reduce((n, r) => n + units(r.unpriced_estimate_usd), 0) /
+      1e8,
+    complimentaryUsd:
+      usageByFeature
+        .filter((r) => r.complimentary)
+        .reduce((n, r) => n + units(r.cost_usd), 0) / 1e8,
+    ...(options.rate
+      ? {
+          aedPerUsd: options.rate.aedPerUsd,
+          rateSource: options.rate.source,
+          costAedMinor: Math.round(costUsd * options.rate.aedPerUsd * 100),
+        }
+      : {}),
+  };
   return {
     period,
     currency: "AED",
@@ -248,6 +299,9 @@ export async function financialStatement(
     end: end.toISOString(),
     totals,
     revenue,
+    disputes,
+    usageCost,
+    usageByFeature,
     webAddresses: webAddressSummary(webAddressFigures, options.platformView),
     entries: options.platformView
       ? entries

@@ -7,10 +7,47 @@ import {
   aed,
   governanceApi,
   percent,
+  usd,
+  usdCents,
   when,
 } from "./governance-shared";
 
 type Failure = { message: string; code?: string } | null;
+/** Domain sales in each currency they were charged in, never added together. */
+const domains = (m: any, kind: "Payments" | "Refunds" | "NetSales") => {
+  const parts = [];
+  if (m[`domain${kind}AedMinor`]) parts.push(aed(m[`domain${kind}AedMinor`]));
+  if (m[`domain${kind}UsdCents`]) parts.push(usdCents(m[`domain${kind}UsdCents`]));
+  return parts.length ? parts.join(" + ") : aed(0);
+};
+/** Readable names for the definitions, matching the column labels. */
+const DEFINITION_LABELS: Record<string, string> = {
+  grossMinor: "Gross takings",
+  refundsMinor: "Refunds",
+  commissionMinor: "Commission",
+  platformRevenueMinor: "Platform revenue",
+  takeRate: "Take rate",
+  mrrMinor: "Monthly recurring revenue",
+  upfrontProgrammes: "Upfront programmes",
+  payingMembers: "Paying",
+  churnRate: "Churn",
+  unpaidCancellations: "Unpaid cancellations",
+  trialConversionRate: "Trials converted",
+  costToRevenue: "AI and voice cost vs revenue",
+  aiCostUsd: "AI cost (USD)",
+  voiceCostUsd: "Voice cost (USD)",
+  estimatedAiCostUsd: "AI cost estimated (USD)",
+  estimatedVoiceCostUsd: "Voice cost estimated (USD)",
+  usageChargedAtOtherRate: "Charged at another rate",
+  subscriptionGrossMinor: "Memberships, programmes and voice add-on",
+  disputesOpenedMinor: "Disputes lost / held",
+  costRecoveryMinor: "Usage charged back and costs charged (posted)",
+  absorbedCostsMinor: "Costs absorbed (month they are for)",
+  domainNetSalesAedMinor: "Domains (net)",
+  complimentaryCostUsd: "Complimentary members' cost (USD)",
+  payoutsPaidMinor: "Payouts paid",
+  trainers: "Trainers",
+};
 const monthLabel = (month: string) =>
   month === "total"
     ? "Window total"
@@ -98,6 +135,18 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                   detail={`${t.trialsConverted} of ${t.trialsStarted} trials`} />
                 <Tile label="AI and voice cost vs revenue" value={percent(t.costToRevenue)}
                   detail={`${aed(t.providerCostAedMinor)} of ${aed(t.platformRevenueMinor)}${t.unpricedRequests ? ` · ${t.unpricedRequests} unpriced` : ""}`} />
+                <Tile label="Voice add-on MRR" value={aed(data.snapshot.voiceAddOns?.mrrMinor ?? 0)}
+                  detail={`${data.snapshot.voiceAddOns?.active ?? 0} active add-on(s), included in MRR`} />
+                <Tile label="Upfront programmes (current)" value={aed(data.snapshot.upfrontProgrammes?.collectedMinor ?? 0)}
+                  detail={`${data.snapshot.upfrontProgrammes?.active ?? 0} active · ${aed(data.snapshot.upfrontProgrammes?.monthlyEquivalentMinor ?? 0)} a month equivalent, not MRR`} />
+                <Tile label="AI cost (period)" value={usd(t.aiCostUsd ?? 0)}
+                  detail={`${t.estimatedAiCostUsd ? `${usd(t.estimatedAiCostUsd)} of it estimated · ` : ""}Voice ${usd(t.voiceCostUsd ?? 0)}${t.estimatedVoiceCostUsd ? ` (${usd(t.estimatedVoiceCostUsd)} estimated)` : ""}${t.unpricedEstimateUsd ? ` · about ${usd(t.unpricedEstimateUsd)} unpriced, not included` : ""}`} />
+                <Tile label="Complimentary members' cost (period)" value={usd(t.complimentaryCostUsd ?? 0)}
+                  detail="AI and voice cost of members with complimentary access; included above and charged to the trainer today (Settings → Platform finance)" />
+                <Tile label="Domains (period)" value={domains(t, "NetSales")}
+                  detail={`Net sales, in the currency charged · ${domains(t, "Payments")} paid, ${domains(t, "Refunds")} refunded; not in platform revenue`} />
+                <Tile label="Card disputes (period)" value={aed(t.disputeLossesMinor ?? 0)}
+                  detail={`Lost · ${aed(t.disputesOpenedMinor ?? 0)} held when opened`} />
               </div>
               <section className="card" aria-labelledby="membership-tiers">
                 <h2 id="membership-tiers">Active memberships by tier</h2>
@@ -149,6 +198,7 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                         <th scope="col">Churn</th>
                         <th scope="col">Trials converted</th>
                         <th scope="col">AI + voice cost</th>
+                        <th scope="col">Platform revenue</th>
                         <th scope="col">Payouts paid</th>
                       </tr>
                     </thead>
@@ -171,7 +221,90 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>{percent(m.churnRate)}</td>
                           <td>{m.trialsConverted}/{m.trialsStarted}</td>
                           <td>{aed(m.providerCostAedMinor)} <small className="muted">{percent(m.costToRevenue)}</small></td>
+                          <td>{aed(m.platformRevenueMinor)}</td>
                           <td>{aed(m.payoutsPaidMinor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              <section className="card" aria-labelledby="monthly-products">
+                <h2 id="monthly-products">Products, costs and domains</h2>
+                <p className="muted">
+                  What members paid for each product, what lost disputes took
+                  back, usage and costs charged back to trainers (in the month
+                  posted: usage is charged the month after it happens), costs
+                  absorbed (in the month they are for), AI and voice cost in US
+                  dollars (estimated part marked) with each month&apos;s rate,
+                  and trainer domain sales in the currency charged. Domain
+                  profit and a full profit and loss come in the next phase.
+                </p>
+                <div className="table-wrap" role="region" aria-labelledby="monthly-products" tabIndex={0}>
+                  <table className="governance-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Month</th>
+                        <th scope="col">Memberships</th>
+                        <th scope="col">Programmes</th>
+                        <th scope="col">Voice add-on</th>
+                        <th scope="col">1:1 sessions</th>
+                        <th scope="col">Disputes lost</th>
+                        <th scope="col">Usage charged back (posted; usually for the previous month)</th>
+                        <th scope="col">Costs charged (posted)</th>
+                        <th scope="col">Costs absorbed (month they are for)</th>
+                        <th scope="col">AI cost (USD)</th>
+                        <th scope="col">Voice cost (USD)</th>
+                        <th scope="col">Complimentary (USD)</th>
+                        <th scope="col">Unpriced calls</th>
+                        <th scope="col">AED per USD</th>
+                        <th scope="col">Domains (net)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...data.series, data.totals].map((m: any) => (
+                        <tr key={m.month} className={m.month === "total" ? "governance-total" : ""}>
+                          <th scope="row">{monthLabel(m.month)}</th>
+                          <td>{aed(m.membershipGrossMinor ?? 0)}</td>
+                          <td>{aed(m.programmeGrossMinor ?? 0)}</td>
+                          <td>{aed(m.voiceAddOnGrossMinor ?? 0)}</td>
+                          <td>{aed(m.bookingGrossMinor ?? 0)}</td>
+                          <td>{aed(m.disputeLossesMinor ?? 0)}</td>
+                          <td>{aed(m.usageRecoveryMinor ?? 0)}</td>
+                          <td>{aed(m.allocatedRecoveryMinor ?? 0)}</td>
+                          <td>{aed(m.absorbedCostsMinor ?? 0)}</td>
+                          <td>
+                            {usd(m.aiCostUsd ?? 0)}
+                            {m.estimatedAiCostUsd ? (
+                              <small className="muted"> ({usd(m.estimatedAiCostUsd)} estimated)</small>
+                            ) : null}
+                          </td>
+                          <td>
+                            {usd(m.voiceCostUsd ?? 0)}
+                            {m.estimatedVoiceCostUsd ? (
+                              <small className="muted"> ({usd(m.estimatedVoiceCostUsd)} estimated)</small>
+                            ) : null}
+                          </td>
+                          <td>{usd(m.complimentaryCostUsd ?? 0)}</td>
+                          <td>
+                            {m.unpricedRequests}
+                            {m.unpricedEstimateUsd ? (
+                              <small className="muted"> (about {usd(m.unpricedEstimateUsd)}, not included)</small>
+                            ) : null}
+                          </td>
+                          <td>
+                            {m.aedPerUsd ?? "—"}
+                            {m.fxSource === "default" ? (
+                              <small className="muted"> default</small>
+                            ) : null}
+                            {m.usageChargedAtOtherRate ? (
+                              <small className="muted">
+                                {" "}
+                                · {m.usageChargedAtOtherRate} workspace(s) charged at another rate
+                              </small>
+                            ) : null}
+                          </td>
+                          <td>{domains(m, "NetSales")}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -197,15 +330,20 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                 <dl className="governance-definitions">
                   {Object.entries(data.definitions).map(([key, text]) => (
                     <div key={key}>
-                      <dt>{key}</dt>
+                      <dt>
+                        {DEFINITION_LABELS[key] ?? key}{" "}
+                        <small className="muted">({key})</small>
+                      </dt>
                       <dd>{String(text)}</dd>
                     </div>
                   ))}
                   <div>
                     <dt>Currency conversion</dt>
                     <dd>
-                      Provider costs in US dollars are converted at {data.fx.aedPerUsd} AED
-                      ({data.fx.basis}).
+                      Provider costs in US dollars are converted at each
+                      month&apos;s rate: {data.fx.basis}. Default rate:{" "}
+                      {data.fx.aedPerUsd} AED per USD. Set a month&apos;s
+                      reviewed rate under Payments and payouts (/admin/finance).
                     </dd>
                   </div>
                 </dl>

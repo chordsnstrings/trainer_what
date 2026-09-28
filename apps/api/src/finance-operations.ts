@@ -18,6 +18,14 @@ import {
   transitionPayout,
 } from "./finance.ts";
 import { requireRecentMfa } from "./security.ts";
+import {
+  estimateUnresolvedUsage,
+  financeSettings,
+  monthRate,
+  periodUsage,
+  type FinanceSettings,
+  type MonthRate,
+} from "./cost-accounting.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -42,7 +50,7 @@ export async function reconcileModelUsage(
     if (
       Number(usage.cost_usd) !== Number(input.costUsd) ||
       usage.trace_id !== input.providerRequestId ||
-      usage.reconciliation.evidenceReference !== input.evidenceReference
+      usage.reconciliation?.evidenceReference !== input.evidenceReference
     )
       throw fail(
         409,
@@ -66,6 +74,8 @@ export async function reconcileModelUsage(
       "USAGE_REFERENCE_MISMATCH",
       "Reconcile the original provider request reference",
     );
+  // Unknown, stale reserved and estimated rows (an invoice correcting the
+  // estimate a call was priced at) can be reconciled; the estimate is kept.
   const [updated] = await tx.query(
     "UPDATE cost_events SET cost_usd=$2,trace_id=$3,status='reconciled',reconciliation=$4 WHERE id=$1 RETURNING *",
     [
@@ -74,6 +84,10 @@ export async function reconcileModelUsage(
       input.providerRequestId,
       JSON.stringify({
         ...input,
+        previousStatus: usage.status,
+        ...(usage.status === "estimated"
+          ? { previousCostUsd: usage.cost_usd }
+          : {}),
         reviewedBy: a.userId,
         reviewedAt: new Date().toISOString(),
       }),
@@ -84,7 +98,24 @@ export async function reconcileModelUsage(
     providerRequestId: input.providerRequestId,
     evidenceReference: input.evidenceReference,
   });
-  return updated;
+  // An invoice correction to a month whose usage was already charged does
+  // not change that charge (correction entries are phase C): the difference
+  // is recorded here and shown next to the statement on /admin/finance.
+  const [charged] = await tx.query(
+    "SELECT s.period,s.charge_minor,s.fx_aed_per_usd::text AS fx FROM usage_statements s WHERE s.period=to_char($1::timestamptz AT TIME ZONE 'Asia/Dubai','YYYY-MM')",
+    [usage.created_at],
+  );
+  if (!charged) return updated;
+  const correction = {
+    period: charged.period,
+    previousStatus: usage.status,
+    previousCostUsd: usage.cost_usd === null ? null : String(usage.cost_usd),
+    costUsd: input.costUsd,
+    statementChargeMinor: Number(charged.charge_minor),
+    statementAedPerUsd: Number(charged.fx),
+  };
+  await event(tx, a, "finance.usage_corrected_after_charge", id, correction);
+  return { ...updated, correctionAfterCharge: correction };
 }
 export function monthCutoff(period: string) {
   periodSchema.parse(period);
@@ -101,6 +132,11 @@ export async function postUsageStatement(
     feeScheduleVersion: string;
     evidenceReference: string;
   },
+  options: {
+    /** The month's rate (read by the caller); a reviewed one must be used. */
+    rate?: MonthRate | null;
+    settings?: FinanceSettings;
+  } = {},
 ) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId]);
   const [existing] = await tx.query(
@@ -122,21 +158,42 @@ export async function postUsageStatement(
   const cutoff = monthCutoff(input.period);
   if (cutoff.getTime() > Date.now())
     throw fail(409, "PERIOD_OPEN", "Wait until the usage month ends");
-  const [usage] = await tx.query(
-    "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,coalesce(sum(cost_usd),0)::text AS usd,round(coalesce(sum(cost_usd),0)*$2::numeric*100)::text AS minor FROM cost_events WHERE to_char(created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')=$1",
-    [input.period, input.fxAedPerUsd],
+  // One reviewed rate per month (docs/features/platform-finance.md): once
+  // recorded, every statement of the month converts at it, so the statement,
+  // business metrics and cost conversions agree.
+  if (
+    options.rate?.source === "reviewed" &&
+    Number(options.rate.aedPerUsd) !== Number(input.fxAedPerUsd)
+  )
+    throw fail(
+      409,
+      "FX_RATE_MISMATCH",
+      `Use the reviewed rate for ${input.period}: ${options.rate.aedPerUsd} AED per USD`,
+    );
+  const settings = options.settings ?? financeSettings();
+  const usage = await periodUsage(
+    tx,
+    input.period,
+    input.fxAedPerUsd,
+    settings,
   );
-  if (!usage.n || usage.unpriced)
+  if (!usage.events)
     throw fail(
       409,
       "USAGE_UNRECONCILED",
-      "Reconcile actual provider usage and missing prices first",
+      "There is no provider usage to charge for this month",
     );
-  if (Number(usage.minor) !== input.chargeMinor)
+  if (usage.unpriced)
+    throw fail(
+      409,
+      "USAGE_UNRECONCILED",
+      `${usage.unpriced} provider call(s) this month are not priced yet: reconcile them from the provider invoice, or estimate them (Estimate unpriced usage)`,
+    );
+  if (usage.chargeMinor !== input.chargeMinor)
     throw fail(
       400,
       "USAGE_AMOUNT_MISMATCH",
-      "The charge must match recorded USD cost converted at the reviewed exchange rate, rounded once to AED minor units",
+      "The charge must match priced USD cost (recorded, reconciled or estimated) converted at the reviewed exchange rate with the usage markup, rounded once to AED minor units",
     );
   const entry = input.chargeMinor
     ? await journal(
@@ -148,7 +205,15 @@ export async function postUsageStatement(
           { account: "trainer_payable", amount: input.chargeMinor },
           { account: "platform_cost_recovery", amount: -input.chargeMinor },
         ],
-        input,
+        {
+          ...input,
+          chargeableUsd: usage.chargeableUsd,
+          estimatedEvents: usage.estimated,
+          markupPercent: usage.markupPercent,
+          complimentaryUsageBearer: usage.complimentaryBearer,
+          platformBorneUsd: usage.platformBorneUsd,
+          rateSource: options.rate?.source ?? "operator",
+        },
       )
     : null;
   const [statement] = await tx.query(
@@ -157,10 +222,10 @@ export async function postUsageStatement(
       randomUUID(),
       a.tenantId,
       input.period,
-      usage.usd,
+      usage.chargeableUsd,
       input.fxAedPerUsd,
       input.chargeMinor,
-      usage.n,
+      usage.events,
       input.feeScheduleVersion,
       input.evidenceReference,
       entry?.id ?? null,
@@ -206,7 +271,9 @@ export async function closeMonth(
     throw fail(
       409,
       "RECONCILIATION_REQUIRED",
-      "Resolve unpriced usage, refunds, reconciliation exceptions and uncertain payments before closing",
+      unpriced.n
+        ? `Price or estimate the ${unpriced.n} unpriced provider call(s) (Estimate unpriced usage), and resolve refunds, reconciliation exceptions and uncertain payments before closing`
+        : "Resolve unpriced usage, refunds, reconciliation exceptions and uncertain payments before closing",
     );
   const missingUsage = await tx.query(
     "SELECT to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') AS period FROM cost_events c LEFT JOIN usage_statements s ON s.tenant_id=c.tenant_id AND s.period=to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') WHERE c.created_at<$1 GROUP BY to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM'),s.cost_event_count HAVING s.cost_event_count IS NULL OR count(c.id)<>s.cost_event_count",
@@ -341,9 +408,33 @@ export function financeOperations(
         unresolvedUsage: await tx.query(
           "SELECT * FROM cost_events WHERE status IN ('reserved','unknown') ORDER BY created_at LIMIT 200",
         ),
-        usageStatements: await tx.query(
-          "SELECT * FROM usage_statements ORDER BY period DESC",
+        // Every row by pricing status: estimated rows are priced at their
+        // estimate until an invoice reconciles them.
+        usageByStatus: await tx.query(
+          "SELECT status,count(*)::int AS calls,coalesce(sum(cost_usd),0)::text AS cost_usd,coalesce(sum(estimated_cost_usd) FILTER(WHERE cost_usd IS NULL),0)::text AS unpriced_estimate_usd FROM cost_events GROUP BY status ORDER BY status",
         ),
+        // Each statement beside what its month's priced usage would charge
+        // now at the statement's own rate: invoice corrections after the
+        // charge show here as a difference (not charged; phase C).
+        usageStatements: await (async () => {
+          const out = [];
+          for (const s of await tx.query(
+            "SELECT * FROM usage_statements ORDER BY period DESC",
+          )) {
+            const current = await periodUsage(
+              tx,
+              s.period,
+              Number(s.fx_aed_per_usd),
+            );
+            out.push({
+              ...s,
+              current_chargeable_usd: current.chargeableUsd,
+              current_charge_minor: current.chargeMinor,
+              difference_minor: current.chargeMinor - Number(s.charge_minor),
+            });
+          }
+          return out;
+        })(),
         records: await tx.query(
           "SELECT * FROM records WHERE kind IN ('close','beneficiary','reconciliation','refund') ORDER BY created_at DESC",
         ),
@@ -451,7 +542,86 @@ export function financeOperations(
         })
         .strict()
         .parse(req.body);
-    return db.tenant(a, (tx) => postUsageStatement(tx, a, b));
+    const rate = await monthRate(db, b.period);
+    return db.tenant(a, (tx) => postUsageStatement(tx, a, b, { rate }));
+  });
+  // What a month's usage statement would charge: the month's rate (reviewed
+  // or default), priced, estimated and unpriced rows and the settings applied.
+  app.get(prefix + "/usage-preview", async (req) => {
+    const a = finance(req);
+    const { period } = z
+      .object({ period: periodSchema })
+      .parse(req.query);
+    const rate = await monthRate(db, period);
+    return db.tenant(a, async (tx) => {
+      // Without a reviewed rate, automatic month close converts at its own
+      // approved rate: the preview shows the rate the charge would use.
+      const [automation] = await tx.query(
+        "SELECT data FROM records WHERE kind='finance_automation'",
+      );
+      const approved =
+        rate.source !== "reviewed" &&
+        automation?.data?.enabled &&
+        automation.data.closeMonthly &&
+        Number(automation.data.fxAedPerUsd) > 0
+          ? Number(automation.data.fxAedPerUsd)
+          : null;
+      const chargeRate = {
+        aedPerUsd: rate.source === "reviewed" ? rate.aedPerUsd : (approved ?? rate.aedPerUsd),
+        source:
+          rate.source === "reviewed"
+            ? "reviewed"
+            : approved !== null
+              ? "automation"
+              : "default",
+      };
+      const [statement] = await tx.query(
+        "SELECT * FROM usage_statements WHERE period=$1",
+        [period],
+      );
+      const usage = await periodUsage(tx, period, chargeRate.aedPerUsd);
+      // A posted statement: what it charged, and what the month's priced
+      // usage comes to now at the statement's rate.
+      const posted = statement
+        ? await periodUsage(tx, period, Number(statement.fx_aed_per_usd))
+        : null;
+      return {
+        period,
+        rate,
+        chargeRate,
+        usage,
+        statement: statement ?? null,
+        postedComparison: statement
+          ? {
+              chargedUsd: statement.total_cost_usd,
+              aedPerUsd: Number(statement.fx_aed_per_usd),
+              chargeMinor: Number(statement.charge_minor),
+              currentChargeableUsd: posted!.chargeableUsd,
+              currentChargeMinor: posted!.chargeMinor,
+              differenceMinor: posted!.chargeMinor - Number(statement.charge_minor),
+            }
+          : null,
+      };
+    });
+  });
+  // Prices this workspace's unresolved provider calls at their estimate
+  // (docs/features/platform-finance.md); the invoice can still correct them.
+  app.post(prefix + "/usage/estimate", async (req) => {
+    const a = finance(req);
+    const b = z
+      .object({
+        before: periodSchema.optional(),
+        evidenceReference: z.string().trim().min(10).max(500),
+      })
+      .strict()
+      .parse(req.body);
+    return db.tenant(a, (tx) =>
+      estimateUnresolvedUsage(tx, a, {
+        before: b.before ? monthCutoff(b.before) : undefined,
+        evidenceReference: b.evidenceReference,
+        method: "operator",
+      }),
+    );
   });
   app.post(prefix + "/close", async (req) => {
     const a = finance(req);

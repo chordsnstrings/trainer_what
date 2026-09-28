@@ -5,7 +5,8 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
   const [tenant, setTenant] = useState(tenants[0]?.id ?? ""),
     [data, setData] = useState<any>(null),
     [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [usagePreview, setUsagePreview] = useState<any>(null);
   async function request(path = "", body?: unknown) {
     const r = await fetch(`/api/v1/admin/tenants/${tenant}/finance${path}`, {
       method: body ? "POST" : "GET",
@@ -123,15 +124,56 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
               </button>
             </form>
           </details>
+          {data.usageByStatus?.length > 0 && (
+            <p className="muted">
+              Provider usage:{" "}
+              {data.usageByStatus
+                .map(
+                  (s: any) =>
+                    `${s.calls} ${s.status} (USD ${Number(s.cost_usd).toFixed(4)}${Number(s.unpriced_estimate_usd) ? `, about USD ${Number(s.unpriced_estimate_usd).toFixed(4)} unpriced` : ""})`,
+                )
+                .join(" · ")}
+              . Estimated calls are priced at their estimate until an invoice
+              reconciles them.
+            </p>
+          )}
           <details>
             <summary>
-              Reconcile unknown AI usage ({data.unresolvedUsage?.length ?? 0})
+              Reconcile unpriced provider usage ({data.unresolvedUsage?.length ?? 0})
             </summary>
             <p className="muted">
               Check the provider request or invoice before recording its actual
               USD cost. Confirmed zero cost also requires evidence. Requests
-              from the last five minutes must finish first.
+              from the last five minutes must finish first. To stop unpriced
+              calls blocking the usage charge and month close, estimate them:
+              each is priced at its stored estimate (or, for an AI call whose
+              answer was lost, the average cost of the same feature and model)
+              and marked estimated; the invoice can still correct it.
             </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                void act("/usage/estimate", {
+                  evidenceReference: f.get("evidenceReference"),
+                  ...(f.get("before") ? { before: f.get("before") } : {}),
+                });
+              }}
+            >
+              <div className="form-grid">
+                <label className="field">
+                  <span>Up to the end of month (blank: all)</span>
+                  <input name="before" type="month" />
+                </label>
+                <label className="field">
+                  <span>Reason and evidence</span>
+                  <input name="evidenceReference" minLength={10} maxLength={500} required />
+                </label>
+              </div>
+              <button className="button secondary" disabled={busy}>
+                Estimate unpriced usage
+              </button>
+            </form>
             {data.unresolvedUsage?.map((u: any) => (
               <form
                 key={u.id}
@@ -190,11 +232,71 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
           <details>
             <summary>Post reviewed usage charges</summary>
             <p className="muted">
-              Convert recorded provider cost at the reviewed exchange rate. The
-              server checks the amount and posts it once against trainer
-              earnings.
+              Convert priced provider cost (recorded, reconciled or estimated)
+              at the month&apos;s exchange rate. The server checks the amount
+              and posts it once against trainer earnings. Preview a month to
+              fill in its rate and charge.
             </p>
             <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const period = String(
+                  new FormData(e.currentTarget).get("period") ?? "",
+                );
+                setBusy(true);
+                setMessage("");
+                request("/usage-preview?period=" + encodeURIComponent(period))
+                  .then(setUsagePreview)
+                  .catch((error) => setMessage(error.message))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              <label className="field">
+                <span>Month to preview</span>
+                <input name="period" type="month" required />
+              </label>
+              <button className="button secondary" disabled={busy}>
+                Preview usage charge
+              </button>
+            </form>
+            {usagePreview && (
+              <>
+                <p>
+                  {usagePreview.period}: {usagePreview.usage.events} call(s),{" "}
+                  {usagePreview.usage.unpriced} unpriced,{" "}
+                  {usagePreview.usage.estimated} estimated · USD{" "}
+                  {Number(usagePreview.usage.chargeableUsd).toFixed(4)}{" "}
+                  chargeable at {(usagePreview.chargeRate ?? usagePreview.rate).aedPerUsd}{" "}
+                  AED per USD (
+                  {(usagePreview.chargeRate ?? usagePreview.rate).source === "reviewed"
+                    ? "the month's reviewed rate"
+                    : (usagePreview.chargeRate ?? usagePreview.rate).source === "automation"
+                      ? "the finance automation's approved rate; no reviewed rate yet"
+                      : "default rate, not reviewed"}
+                  ) with {usagePreview.usage.markupPercent}% markup ={" "}
+                  <span dir="ltr">{money(usagePreview.usage.chargeMinor)}</span>
+                  {Number(usagePreview.usage.platformBorneUsd) > 0 &&
+                    ` · USD ${Number(usagePreview.usage.platformBorneUsd).toFixed(4)} of complimentary members' usage borne by the platform`}
+                </p>
+                {usagePreview.postedComparison && (
+                  <p className="notice" role="status">
+                    Already charged for {usagePreview.period}: USD{" "}
+                    {Number(usagePreview.postedComparison.chargedUsd).toFixed(4)} at{" "}
+                    {usagePreview.postedComparison.aedPerUsd} AED per USD ={" "}
+                    <span dir="ltr">{money(usagePreview.postedComparison.chargeMinor)}</span>.
+                    The month&apos;s priced usage now comes to USD{" "}
+                    {Number(usagePreview.postedComparison.currentChargeableUsd).toFixed(4)}{" "}
+                    at that rate ={" "}
+                    <span dir="ltr">{money(usagePreview.postedComparison.currentChargeMinor)}</span>
+                    {usagePreview.postedComparison.differenceMinor
+                      ? <>; difference <span dir="ltr">{money(usagePreview.postedComparison.differenceMinor)}</span>, not charged (correction entries come in a later phase).</>
+                      : "; no difference."}
+                  </p>
+                )}
+              </>
+            )}
+            <form
+              key={usagePreview?.period ?? "usage-statement"}
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
@@ -228,6 +330,17 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                       type={type}
                       step={name === "fxAedPerUsd" ? "0.00000001" : undefined}
                       min={type === "number" ? 0 : undefined}
+                      defaultValue={
+                        usagePreview
+                          ? name === "period"
+                            ? usagePreview.period
+                            : name === "fxAedPerUsd"
+                              ? (usagePreview.chargeRate ?? usagePreview.rate).aedPerUsd
+                              : name === "chargeMinor"
+                                ? usagePreview.usage.chargeMinor
+                                : undefined
+                          : undefined
+                      }
                       required
                     />
                   </label>
@@ -239,8 +352,20 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
             </form>
             {data.usageStatements?.map((s: any) => (
               <p key={s.id}>
-                {s.period} · {money(Number(s.charge_minor))} ·{" "}
+                {s.period} · charged{" "}
+                <span dir="ltr">{money(Number(s.charge_minor))}</span> at{" "}
+                {Number(s.fx_aed_per_usd)} AED per USD ·{" "}
                 {s.fee_schedule_version}
+                {s.difference_minor ? (
+                  <small className="muted">
+                    {" "}
+                    · priced usage now{" "}
+                    <span dir="ltr">{money(Number(s.current_charge_minor))}</span>{" "}
+                    at that rate (difference{" "}
+                    <span dir="ltr">{money(Number(s.difference_minor))}</span>, not
+                    charged)
+                  </small>
+                ) : null}
               </p>
             ))}
           </details>
