@@ -1334,7 +1334,8 @@ test("monthly close requires reviewed usage charges and their AED posting is ide
   const input = {
     period: "2026-07",
     fxAedPerUsd: 4,
-    chargeMinor: 50,
+    // 0.125 USD at 4 AED with the default 100% markup (owner decision).
+    chargeMinor: 100,
     feeScheduleVersion: "fixture-only",
     evidenceReference: "Synthetic cost and exchange-rate proof",
   };
@@ -1345,12 +1346,12 @@ test("monthly close requires reviewed usage charges and their AED posting is ide
     /charge must match/,
   );
   const result = await db.tenant(b, (tx) => postUsageStatement(tx, b, input));
-  assert.equal(Number(result.charge_minor), 50);
+  assert.equal(Number(result.charge_minor), 100);
   assert.equal(
     (await db.tenant(b, (tx) => postUsageStatement(tx, b, input))).id,
     result.id,
   );
-  assert.equal((await db.tenant(b, financeSummary)).earnedMinor, -50);
+  assert.equal((await db.tenant(b, financeSummary)).earnedMinor, -100);
   const closed = await db.tenant(b, (tx) =>
     closeMonth(tx, b, "2026-07", "Synthetic settlement evidence"),
   );

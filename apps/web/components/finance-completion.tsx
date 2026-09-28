@@ -352,8 +352,12 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
     grossMinor: "Gross collections",
     refundsMinor: "Refunds",
     commissionMinor: "Net platform commission",
-    processingFeesMinor: "Payment processing fees",
-    usageMinor: "AI and voice usage",
+    processingFeesMinor: tenant
+      ? "Stripe fees (paid by the trainer)"
+      : "Stripe fees (paid by you)",
+    usageMinor: tenant
+      ? "AI Coach Service Fee (AI and voice usage with markup)"
+      : "AI Coach Service Fee",
     allocatedCostsMinor: "Allocated charges",
     payoutsMinor: "Bank payouts",
     payoutReturnsMinor: "Returned bank payouts",
@@ -492,7 +496,14 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
                 </p>
               ));
             })()}
-          <h3>Provider usage</h3>
+          {!tenant && (
+            <p>
+              Stripe's card fees are paid by you: they are deducted from your
+              earnings when Stripe settles your members' payments, and shown
+              above as Stripe fees.
+            </p>
+          )}
+          {data.usageCost && <h3>Provider usage</h3>}
           {data.usageCost && (
             <p>
               USD {data.usageCost.costUsd.toFixed(4)} priced
@@ -515,7 +526,7 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
               )}
             </p>
           )}
-          {!data.usage.length ? (
+          {!data.usage ? null : !data.usage.length ? (
             <p>No recorded usage this month.</p>
           ) : (
             data.usage.map((r: any, i: number) => (

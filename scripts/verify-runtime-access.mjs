@@ -121,6 +121,9 @@ export async function verifyRuntimeAccess(client) {
     // Platform finance reference data (072, 073): append-only, service only.
     exchange_rates: ["SELECT", "INSERT"],
     model_prices: ["SELECT", "INSERT"],
+    // Platform finance phase B (075): summary cache and job runs, service only.
+    platform_finance_months: ["SELECT", "INSERT", "UPDATE"],
+    platform_finance_runs: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -591,6 +594,8 @@ export async function verifyRuntimeAccess(client) {
       "registrar_prices",
       "exchange_rates",
       "model_prices",
+      "platform_finance_months",
+      "platform_finance_runs",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

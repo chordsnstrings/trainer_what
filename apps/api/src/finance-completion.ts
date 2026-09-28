@@ -2,9 +2,13 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { elevated, type Database, event } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
-import { publishFinancePolicy } from "./finance-policy.ts";
+import {
+  effectiveFinancePolicy,
+  publishFinancePolicy,
+} from "./finance-policy.ts";
 import { allocateCost, financialStatement } from "./finance-statements.ts";
-import { monthRate } from "./cost-accounting.ts";
+import { monthRate, stripeFeeSettings } from "./cost-accounting.ts";
+import { trainerRevenue } from "./admin-operations.ts";
 import { createPromotion, reconcilePromotion } from "./finance-promotions.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -54,6 +58,37 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
     }));
   }
   app.get("/api/v1/finance/completion", (req) => dashboard(owner(req, false)));
+  // What a member payment leaves the trainer, for the estimate shown before
+  // a price is set: Stripe's fee (paid by the trainer, owner decision of 28
+  // September 2026) and the platform commission bands in effect.
+  app.get("/api/v1/finance/fees", async (req) => {
+    const a = identity(req);
+    if (!["owner", "finance"].includes(a.role))
+      throw fail(403, "FINANCE_REQUIRED", "Finance access required");
+    const policy = await db.tenant(a, (tx) => effectiveFinancePolicy(tx));
+    return {
+      stripe: stripeFeeSettings(),
+      commissionBps: policy.data.commissionBps,
+      bands: ["Members 1–100", "Members 101–300", "Members 301–1,000", "Members 1,001+"],
+      note: "An estimate for a card issued in the UAE. Stripe's fees are paid by you; the actual fee of each payment comes from Stripe and is shown on your monthly statement.",
+    };
+  });
+  // Per Dubai month: Stripe's fees and the AI Coach Service Fee deducted
+  // from the trainer's earnings, shown beside each monthly payout.
+  app.get("/api/v1/finance/deductions", async (req) => {
+    const a = identity(req);
+    if (!["owner", "finance"].includes(a.role))
+      throw fail(403, "FINANCE_REQUIRED", "Finance access required");
+    const months = await db.tenant(a, (tx) => trainerRevenue(tx));
+    return {
+      months: months.map((m) => ({
+        month: m.month,
+        stripeFeesMinor: m.stripe_fees_minor,
+        aiCoachServiceFeeMinor: m.ai_coach_service_fee_minor,
+        otherChargesMinor: m.other_charges_minor,
+      })),
+    };
+  });
   app.get("/api/v1/finance/statements/:period", (req) => {
     const a = identity(req);
     if (!["owner", "finance"].includes(a.role))

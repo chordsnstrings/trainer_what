@@ -81,6 +81,10 @@ GRANT SELECT,INSERT,UPDATE ON registrar_prices TO trainer_service;
 -- token prices are platform reference data, append-only history written and
 -- read by the Super admin and platform finance screens only.
 GRANT SELECT,INSERT ON exchange_rates,model_prices TO trainer_service;
+-- Platform finance phase B (075): the monthly summary cache and the run log
+-- of platform finance jobs, rebuilt and written by the worker and the
+-- Super admin screens only.
+GRANT SELECT,INSERT,UPDATE ON platform_finance_months,platform_finance_runs TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

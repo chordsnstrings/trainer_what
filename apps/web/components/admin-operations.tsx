@@ -37,7 +37,15 @@ function display(value: unknown): string {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function Table({ rows, omit = [] }: { rows: any[]; omit?: string[] }) {
+function Table({
+  rows,
+  omit = [],
+  labels = {},
+}: {
+  rows: any[];
+  omit?: string[];
+  labels?: Record<string, string>;
+}) {
   if (!rows.length) return <p className="muted">No matching records.</p>;
   const columns = Array.from(
     new Set(rows.flatMap((r) => Object.keys(r))),
@@ -49,7 +57,7 @@ function Table({ rows, omit = [] }: { rows: any[]; omit?: string[] }) {
           <tr>
             {columns.map((k) => (
               <th key={k} scope="col">
-                {k.replaceAll("_", " ")}
+                {labels[k] ?? k.replaceAll("_", " ")}
               </th>
             ))}
           </tr>
@@ -76,6 +84,22 @@ function Table({ rows, omit = [] }: { rows: any[]; omit?: string[] }) {
     </div>
   );
 }
+/** The trainer's revenue columns; the usage charge has one name only. */
+const REVENUE_LABELS: Record<string, string> = {
+  month: "Month",
+  gross_minor: "Gross",
+  memberships_minor: "Memberships",
+  programmes_minor: "Programmes",
+  voice_add_on_minor: "Voice add-on",
+  sessions_minor: "1:1 sessions",
+  refunds_minor: "Refunds",
+  platform_commission_minor: "Platform commission",
+  earned_minor: "Earned",
+  ai_coach_service_fee_minor: "AI Coach Service Fee",
+  stripe_fees_minor: "Stripe fees (paid by you)",
+  other_charges_minor: "Other charges",
+  paid_out_minor: "Paid out",
+};
 export function TrainerAnalytics() {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
@@ -111,7 +135,7 @@ export function TrainerAnalytics() {
           <LeadAnalytics leads={data.leads} />
           <section className="card">
             <h2>Revenue by month (AED minor units, Dubai months)</h2>
-            <Table rows={data.revenue} />
+            <Table rows={data.revenue} labels={REVENUE_LABELS} />
           </section>
         </>
       )}

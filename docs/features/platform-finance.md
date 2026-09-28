@@ -29,18 +29,26 @@ behind it read the code on `integrate/round2` (`bb80aa3`); its findings are summ
 - Suspected: a domain refund was journaled while Stripe still reported it `pending`, with no
   reversal if it later failed.
 
-## Owner decisions still open (current behaviour kept)
+## Owner decisions (28 September 2026)
 
-| Decision | Current behaviour | Where it can change |
+The owner decided the questions phase A left open ("Stripe fees paid by the
+trainer with full understanding", "100% markup", "complimentary charged to
+the trainer", "cash basis", "no budget limits: we pay only when we get paid",
+the label "AI Coach Service Fee"; full list in `docs/PROJECT_MEMORY.md`):
+
+| Decision | Behaviour | Where |
 | --- | --- | --- |
-| Who bears Stripe fees | The trainer bears the whole fee of each settlement (`stripe-settlement:` debits `trainer_payable`) | Not a setting yet: splitting a settlement's fee by commission share needs Stripe's per-charge fee (phase C) |
-| AI and voice charged to trainers | At cost, no markup | Settings → Platform finance → "Markup on AI and voice usage charged to trainers (%)", default 0 |
-| AI and voice used by complimentary members | Charged to the trainer | Settings → Platform finance → "Who pays for AI and voice used by complimentary members", default the trainer |
-| When income is recognised | When paid (upfront programmes and yearly domains are not spread) | Phase D |
-| Budget limits | None beyond the daily AI call limit and the daily voice USD limit | Phase D |
-| Charging calls whose outcome never came back | Not charged until reconciled from the invoice or estimated by an operator | Settings → Platform finance → "Automatic month close estimates unresolved provider usage", default off |
+| Who bears Stripe fees | The trainer, shown plainly: an estimate before they set a price (offer form, voice add-on price, paid sessions), the fees deducted each month beside every payout, and "Stripe fees (paid by you)" on the monthly statement and analytics | Settings → Platform finance: "Stripe card fee shown to trainers (%)" 2.9, "Stripe fixed fee per payment shown to trainers (AED)" 1.00, "Extra Stripe fee for cards issued outside the UAE (%)" 1 (Stripe's standard UAE pricing); the fee actually deducted is Stripe's own (settlement, and per payment from phase C) |
+| AI and voice charged to trainers | Twice the provider cost (100% markup), named only "AI Coach Service Fee": one line with the amount, no provider, call, feature or markup detail anywhere a trainer looks (statement, analytics, workspace lists, CSV, the monthly notification) | Settings → Platform finance → "Markup on AI and voice usage charged to trainers (%)", default 100 (0 to 1000); an unset or blank value reads as 100 |
+| AI and voice used by complimentary members | Charged to the trainer | Same settings, default the trainer |
+| When income is recognised | When it is received (cash basis): a payment counts in the month it was journaled; upfront programmes and yearly domains are not spread | Platform finance screen ("basis") |
+| Budget limits | None ("we pay only when we get paid"); the screen and alerts show cost against income and flag costs without matching income instead | Platform finance → Cost against income; alerts in phase D |
+| Charging calls whose outcome never came back | Not charged until reconciled from the invoice or estimated by an operator (unchanged) | Settings → Platform finance → "Automatic month close estimates unresolved provider usage", default off |
+| Marketing | No marketing text changes; AI costs and the markup are never mentioned in marketing | — |
 
-A setting change applies to usage statements posted after it; posted statements never change.
+A setting change applies to usage statements posted after it; posted statements never change
+(a statement posted at 0% keeps its charge; later corrections to its month use the markup it
+was posted with, phase C).
 
 ## Phase A: show what is recorded, fix cost recording (delivered, branch `core/finance-a`)
 
@@ -204,23 +212,75 @@ See `docs/COMPLETION_STAGES.md`, stage 2026-09-28r (formerly recorded on `core/f
 the checks actually run. Phase A is merged into the PR #4 branch (`integrate/round2`), not
 deployed.
 
-## Phase B: the Platform finance screen and domain profit
+## Owner decisions applied (branch `core/finance-bcd`, stage 2026-09-28t)
 
-`core/domain-pricing` (migration 071, web-address pricing and ledger in USD) is merged into the
-same branch, so phase B can build on it:
+- **Markup.** `financeSettings()` reads "Markup on AI and voice usage charged to trainers (%)" with
+  the default 100 (0 to 1000; blank or unset is 100). `periodUsage` (manual statement, preview and
+  automation) charges `round(priced USD × rate × (100 + markup))` fils. Statements posted before
+  keep their charge; each statement's journal records the markup it used.
+- **"AI Coach Service Fee".** New usage journals are described "AI Coach Service Fee"
+  (`AI_COACH_SERVICE_FEE`). Wherever a trainer looks the charge is one line with its amount:
+  the monthly statement (`aiCoachServiceFeeMinor`; the trainer's statement no longer returns
+  `usage`, `usageByFeature` or `usageCost`, and its ledger entries for `usage:` and
+  `usage-adjustment:` carry only `{ period, amountMinor }`), the Payments card ("AI Coach Service
+  Fee" by month, from `usageStatements` now reduced to `period, charge_minor`), the workspace
+  journal list (same sanitising, `trainerEntry`), the trainer analytics revenue table (columns
+  "AI Coach Service Fee", "Stripe fees (paid by you)", "Other charges"), the trainer ledger CSV
+  (new `item` column, formula cells neutralised), the payout list and a new owner notification
+  when the fee is posted ("AI Coach Service Fee for May 2026" / "AI Coach Service Fee: AED
+  12.00. It is deducted from your earnings and shown on your monthly statement.", template
+  `ai-coach-service-fee`, category account, in-app only). The workspace `costs` list now carries
+  only `id, task, status, created_at` (no provider, model or cost), and the "AI usage" card with
+  provider costs was removed from the trainer's progress screen. Operators keep every detail.
+- **Stripe fees, plainly.** `GET /api/v1/finance/fees` (owner and finance) returns the fee
+  parameters and the commission bands in effect; the offer form, the voice add-on price and the
+  paid-session form show what each payment leaves the trainer (`paymentBreakdown` in
+  `@trainer/domain`: AED 199 → Stripe about AED 6.77, abroad about AED 8.76, commission AED
+  49.75 at 25%, you receive about AED 142.48). `GET /api/v1/finance/deductions` gives Stripe
+  fees, the AI Coach Service Fee and other charges per Dubai month, shown beside each payout.
+  The statement labels the settlement fees "Stripe fees (paid by you)" and returns
+  `stripeFeesMinor`.
+- **Marketing** text is unchanged (`apps/web/components/marketing/*`, `packages/contracts`
+  marketing content and the llms files are not touched).
 
-- One screen at `/admin/platform-finance` (admin and finance roles, fresh MFA, audited) with a
-  period picker (month, quarter, year to date, custom; Dubai time) and a CSV per tab:
-  profit and loss (platform revenue by product, direct costs by feature and provider, gross
-  profit and margin; each cost line priced, estimated or unpriced, "incomplete" when a source has
-  no data), trainers (one row each: payments, commission, domain profit, costs charged back, AI
-  and voice cost, contribution and margin, cost per paying member; flags for negative
-  contribution), features and products, providers (estimate against invoice), domains (price
-  paid, registrar cost, profit per order, renewals below cost), payouts across trainers.
-- Domain profit from the USD web-address ledger, and the registrar prepaid balance.
-- A monthly summary table rebuilt by the worker so the screen does not read every workspace per
-  request.
-- Full ledger export across trainers and a cost export for any date range.
+## Phase B: the Platform finance screen (delivered, stage 2026-09-28t)
+
+- **Screen** `/admin/platform-finance` (`apps/web/components/platform-finance.tsx`, linked from
+  the governance links next to Business metrics): period picker (month, quarter, year to date,
+  custom up to 36 months; Asia/Dubai), four tiles (income, costs with the estimated part, profit
+  and margin, flags) and tabs: Profit and loss (every income and cost line per month and for the
+  period, profit, margin, then a monthly summary with the change on the month before, the rate
+  used, estimated cost and unpriced calls, and notes), Trainers (contribution per trainer,
+  lowest first), Features, Providers (estimated, reconciled, unpriced, invoiced), Domains (per
+  currency and per order, registrar charges and the registrar's balance with "Check registrar
+  balance"), Payouts across trainers, and Cost against income. Every tab downloads as CSV, plus
+  the full ledger and every cost row for the period. "Rebuild summary" rebuilds the period.
+- **Income** (AED, cash basis): commission on subscriptions, upfront programmes, the voice
+  add-on and 1:1 sessions (booking fee), affiliate settlements, trainers' domain payments (USD
+  converted at the month's rate), the AI Coach Service Fee, other costs charged to trainers and
+  the Stripe fees trainers paid at settlement. **Costs**: AI provider, voice provider, Stripe
+  fees (the fees recorded at settlement until phase C records Stripe's fee per payment), payout
+  bank fees and platform costs (phase C), domain registrar cost, provider plan and invoice
+  charges (phase C), and refunds and disputes (commission returned, domain refunds and dispute
+  losses). **Profit** is income less costs; unpriced calls are counted apart ("about AED X, not
+  included"), and a month without a reviewed rate says so.
+- **Per trainer**: gross, platform income (net commission, AI Coach Service Fee, costs charged,
+  domain payments), AI and voice cost, domain profit, contribution (income less commission
+  returned, domain refunds, losses and registrar cost, and AI and voice cost), margin, cost per
+  paying member-month, Stripe fees and payouts; flags for negative contribution, cost without
+  income in a month, usage not yet charged (a finished month other than the last with usage and
+  no AI Coach Service Fee posted), unpriced usage and domains below cost. No budget limits.
+- **Summary** (migration 075): `platform_finance_months` holds each trainer workspace's figures
+  per Dubai month (`workspaceMonths` in `apps/api/src/platform-pnl.ts`: ledger lines grouped by
+  source and account, domain orders, cost rows by feature and provider, paying members, payouts,
+  the usage statement), rebuilt by the worker every hour for this and last month (the last 24
+  months on its first run) and by "Rebuild summary"; `platform_finance_runs` records every run
+  (also the later phases' jobs). Months the summary has not covered are named on the screen,
+  never shown as zero. Both tables are service-only (grants in the migration and
+  `infra/runtime-role.sql`, classified in `scripts/verify-runtime-access.mjs`).
+- **Access**: `/api/v1/admin/platform-finance` (GET), `/rebuild`, `/registrar-balance` (POST) and
+  `/export/:tab.csv`: admin and finance platform roles with a fresh authenticator; every read,
+  rebuild, balance check and export writes an `admin_operations_audit` row. Trainers get 403.
 
 ## Phase C: costs not recorded yet
 

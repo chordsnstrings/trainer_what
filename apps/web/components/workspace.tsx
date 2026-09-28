@@ -101,6 +101,7 @@ import {
 import { adminRoute } from "./app-routes";
 import { WorkspaceGovernance } from "./workspace-governance";
 import { BusinessMetrics } from "./business-metrics";
+import { PlatformFinance } from "./platform-finance";
 import { PlatformAlerts } from "./platform-alerts";
 import { WorkspaceSuspended } from "./workspace-suspended";
 import {
@@ -1044,6 +1045,8 @@ export default function Workspace({
             <PlatformAlerts platformRole={state.user.platformRole} />
           ) : path === "/admin/metrics" ? (
             <BusinessMetrics platformRole={state.user.platformRole} />
+          ) : path === "/admin/platform-finance" ? (
+            <PlatformFinance platformRole={state.user.platformRole} />
           ) : path === "/admin/governance" ? (
             <WorkspaceGovernance platformRole={state.user.platformRole} />
           ) : path === "/admin/infrastructure/host" ? (
@@ -3534,26 +3537,22 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           </div>
           {!!state.usageStatements?.length && (
             <Card>
-              <h2>Reviewed monthly usage charges</h2>
+              <h2>AI Coach Service Fee</h2>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Month</th>
-                      <th>Provider cost</th>
-                      <th>AED per USD</th>
-                      <th>Charged to earnings</th>
-                      <th>Fee schedule</th>
+                      <th scope="col">Month</th>
+                      <th scope="col">AI Coach Service Fee</th>
                     </tr>
                   </thead>
                   <tbody>
                     {state.usageStatements.map((s) => (
                       <tr key={s.period}>
                         <td>{s.period}</td>
-                        <td>${Number(s.total_cost_usd).toFixed(4)}</td>
-                        <td>{Number(s.fx_aed_per_usd)}</td>
-                        <td>{money(Number(s.charge_minor))}</td>
-                        <td>{s.fee_schedule_version}</td>
+                        <td>
+                          <span dir="ltr">{money(Number(s.charge_minor))}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -3784,7 +3783,32 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
   );
 }
 
+/**
+ * Stripe's fees and the AI Coach Service Fee deducted from the trainer's
+ * earnings in each Dubai month (owner decision, 28 September 2026: Stripe
+ * fees are paid by the trainer and shown plainly with each payout).
+ */
+function usePayoutDeductions() {
+  const [months, setMonths] = useState<Record<string, any>>({});
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/v1/finance/deductions", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : { months: [] }))
+      .then((d) => {
+        if (live)
+          setMonths(
+            Object.fromEntries((d.months ?? []).map((m: any) => [m.month, m])),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  return months;
+}
 function PayoutView({ state, records, action, busy, more }: ViewProps) {
+  const deductions = usePayoutDeductions();
   return (
     <div className="two-columns">
       <Card>
@@ -3869,6 +3893,27 @@ function PayoutView({ state, records, action, busy, more }: ViewProps) {
               <div>
                 <strong>{money(p.amount_minor)}</strong>
                 <p>{p.period}</p>
+                {deductions[p.period] && (
+                  <p className="muted">
+                    Deducted in {p.period}: Stripe fees (paid by you){" "}
+                    <span dir="ltr">
+                      {money(deductions[p.period].stripeFeesMinor)}
+                    </span>{" "}
+                    · AI Coach Service Fee{" "}
+                    <span dir="ltr">
+                      {money(deductions[p.period].aiCoachServiceFeeMinor)}
+                    </span>
+                    {deductions[p.period].otherChargesMinor > 0 && (
+                      <>
+                        {" "}
+                        · Other charges{" "}
+                        <span dir="ltr">
+                          {money(deductions[p.period].otherChargesMinor)}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
               <Badge>{p.status}</Badge>
             </div>
@@ -4217,47 +4262,7 @@ function Analytics({ state, records, more }: ViewProps) {
           label="Load older workouts"
         />
       </Card>
-      {state.costs && (
-        <Card>
-          <h2>AI usage</h2>
-          {state.costs.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Task</th>
-                  <th>Model</th>
-                  <th>Tokens</th>
-                  <th>Provider cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.costs.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.task}</td>
-                    <td>{c.model}</td>
-                    <td>
-                      {c.input_tokens === null || c.output_tokens === null
-                        ? "Unknown"
-                        : c.input_tokens + c.output_tokens}
-                    </td>
-                    <td>
-                      {c.cost_usd === null
-                        ? "Unpriced"
-                        : `$${Number(c.cost_usd).toFixed(4)}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="muted">
-              No model calls have been recorded. Unconfigured pricing will be
-              shown as unpriced, never as free.
-            </p>
-          )}
-          <LoadMore more={more} collection="costs" label="Load older usage" />
-        </Card>
-      )}
+
     </>
   );
 }

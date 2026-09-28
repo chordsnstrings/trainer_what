@@ -572,7 +572,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Exchange rate and usage-charge rules behind the Super admin's cost and profit figures.",
     setupNotes:
-      "These record operator decisions (docs/features/platform-finance.md). Every default keeps the behaviour the platform had before these settings existed. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
+      "These record the owner's finance decisions of 28 September 2026 (docs/features/platform-finance.md): AI and voice usage charged to trainers with a 100% markup as the \"AI Coach Service Fee\", complimentary members' usage charged to their trainer, Stripe fees paid by the trainer and shown to them plainly, income counted when it is received, and no budget limits. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
     fields: [
       field("FINANCE_USD_TO_AED", "Default USD to AED rate", "number", {
         defaultValue: "3.6725",
@@ -583,8 +583,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Markup on AI and voice usage charged to trainers (%)",
         "number",
         {
-          defaultValue: "0",
-          help: "Owner decision pending. 0 charges trainers at cost, as today. 0 to 100. Applies to usage statements posted after the change.",
+          defaultValue: "100",
+          help: "Owner decision (28 September 2026): 100, so trainers pay twice the provider cost. Trainers see the charge only as one line, \"AI Coach Service Fee\", with the amount (markup included). 0 to 1000. Applies to usage statements posted after the change; statements already posted keep their charge.",
         },
       ),
       field(
@@ -597,7 +597,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
             { value: "trainer", label: "The trainer (in the monthly usage charge)" },
             { value: "platform", label: "The platform (left out of the usage charge)" },
           ],
-          help: "Owner decision pending. The trainer pays today. Applies to usage statements posted after the change.",
+          help: "Owner decision (28 September 2026): the trainer. Applies to usage statements posted after the change.",
         },
       ),
       field(
@@ -607,6 +607,33 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         {
           defaultValue: "false",
           help: "Off (today's behaviour): automatic month close waits until an operator reconciles unresolved provider calls from the invoice, or estimates them (Payments and payouts: Estimate unpriced usage). On: calls whose outcome was never confirmed are priced at their stored estimate, or the average of the same feature and model, and charged at that estimate; a later invoice correction does not change a usage charge already posted. Calls that answered are always priced at their estimate when made, and calls never sent cost nothing.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_FEE_PERCENT",
+        "Stripe card fee shown to trainers (%)",
+        "number",
+        {
+          defaultValue: "2.9",
+          help: "Trainers pay Stripe's fees (owner decision, 28 September 2026). Used for the estimate trainers see before they set a price: Stripe's standard UAE rate for cards issued in the UAE (2.9% plus a fixed fee, stripe.com/ae/pricing). 0 to 20. The actual fee of each payment comes from Stripe.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_FEE_FIXED_AED",
+        "Stripe fixed fee per payment shown to trainers (AED)",
+        "number",
+        {
+          defaultValue: "1.00",
+          help: "The fixed part of Stripe's fee per successful card payment in the estimate (AED 1.00 on Stripe's standard UAE pricing). 0 to 20, at most two decimals.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_INTERNATIONAL_PERCENT",
+        "Extra Stripe fee for cards issued outside the UAE (%)",
+        "number",
+        {
+          defaultValue: "1",
+          help: "Shown to trainers as the extra a card issued abroad can cost on top of the standard fee (1% on Stripe's standard UAE pricing). 0 to 20.",
         },
       ),
     ],
@@ -1473,8 +1500,26 @@ export function validateIntegrationValues(
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
-      if (key === "FINANCE_USAGE_MARKUP_PERCENT" && Number(text) > 100)
-        throw new ConfigurationError(`${entry.label} must be from 0 to 100`);
+      if (
+        key === "FINANCE_USAGE_MARKUP_PERCENT" &&
+        !(Number(text) >= 0 && Number(text) <= 1000)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 0 to 1000`);
+      if (
+        (key === "FINANCE_STRIPE_FEE_PERCENT" ||
+          key === "FINANCE_STRIPE_INTERNATIONAL_PERCENT") &&
+        !(/^\d{1,2}(\.\d{1,3})?$/.test(text) && Number(text) <= 20)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 20 with at most three decimals`,
+        );
+      if (
+        key === "FINANCE_STRIPE_FEE_FIXED_AED" &&
+        !(/^\d{1,2}(\.\d{1,2})?$/.test(text) && Number(text) <= 20)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 20 with at most two decimals`,
+        );
       if (
         key === "MODEL_PROVIDER" &&
         !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())

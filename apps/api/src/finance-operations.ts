@@ -18,7 +18,9 @@ import {
   transitionPayout,
 } from "./finance.ts";
 import { requireRecentMfa } from "./security.ts";
+import { notifyUser } from "./notifications.ts";
 import {
+  AI_COACH_SERVICE_FEE,
   estimateUnresolvedUsage,
   financeSettings,
   monthRate,
@@ -200,7 +202,8 @@ export async function postUsageStatement(
         tx,
         a,
         "usage:" + input.period,
-        "Reviewed coaching usage charge",
+        // Trainers see the charge only under this name (owner decision).
+        AI_COACH_SERVICE_FEE,
         [
           { account: "trainer_payable", amount: input.chargeMinor },
           { account: "platform_cost_recovery", amount: -input.chargeMinor },
@@ -235,7 +238,40 @@ export async function postUsageStatement(
     period: input.period,
     chargeMinor: input.chargeMinor,
   });
+  if (input.chargeMinor > 0) await notifyServiceFee(tx, a, input);
   return statement;
+}
+/**
+ * Tells the workspace owners the month's AI Coach Service Fee: one line with
+ * the amount (markup included), never the provider cost or a breakdown
+ * (owner decision, 28 September 2026).
+ */
+async function notifyServiceFee(
+  tx: Tx,
+  a: Actor,
+  input: { period: string; chargeMinor: number },
+) {
+  const owners = await tx.query(
+    "SELECT user_id FROM memberships WHERE tenant_id=$1 AND role='owner' ORDER BY user_id",
+    [a.tenantId],
+  );
+  const month = new Date(input.period + "-15T00:00:00Z").toLocaleDateString(
+    "en-GB",
+    { month: "long", year: "numeric", timeZone: "UTC" },
+  );
+  const amount = (input.chargeMinor / 100).toFixed(2);
+  for (const o of owners)
+    await notifyUser(tx, a, {
+      userId: o.user_id,
+      category: "account",
+      dedupeKey: `ai-coach-service-fee:${input.period}`,
+      title: `${AI_COACH_SERVICE_FEE} for ${month}`,
+      body: `${AI_COACH_SERVICE_FEE}: AED ${amount}. It is deducted from your earnings and shown on your monthly statement.`,
+      href: "/trainer/finance",
+      templateKey: "ai-coach-service-fee",
+      email: false,
+      source: { kind: "ai_coach_service_fee", period: input.period },
+    });
 }
 export async function closeMonth(
   tx: Tx,

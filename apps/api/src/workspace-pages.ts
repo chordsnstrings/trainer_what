@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { trainerEntry } from "./finance-statements.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { financeSummary } from "./finance.ts";
@@ -543,16 +544,27 @@ export const COLLECTIONS: Record<string, Collection> = {
   },
   costs: {
     roles: FINANCE,
-    page: simple("*", "cost_events", PAGE_SIZES.costs),
+    // Provider cost is platform data (owner decision, 28 September 2026):
+    // trainers see usage only as the monthly "AI Coach Service Fee", so the
+    // workspace list carries what ran and when, never a cost or provider.
+    page: simple(
+      "id,task,status,created_at",
+      "cost_events",
+      PAGE_SIZES.costs,
+    ),
   },
   journals: {
     roles: FINANCE,
     // The registrar's cost of a trainer's domain is the platform's own
     // figure: never listed to the workspace (operators see it elsewhere).
-    page: simple("*", "journals", PAGE_SIZES.journals, () => ({
-      where: ["source_key NOT LIKE 'web-address-registrar:%'"],
-      params: [],
-    })),
+    // The AI Coach Service Fee is listed by its name and amount only.
+    page: async (tx, a, q) => {
+      const page = await simple("*", "journals", PAGE_SIZES.journals, () => ({
+        where: ["source_key NOT LIKE 'web-address-registrar:%'"],
+        params: [],
+      }))(tx, a, q);
+      return { ...page, items: page.items.map(trainerEntry) };
+    },
   },
   payouts: {
     roles: FINANCE,
@@ -562,8 +574,8 @@ export const COLLECTIONS: Record<string, Collection> = {
     roles: FINANCE,
     page: (tx, _a, q) =>
       keysetPage(tx, {
-        select:
-          "period,total_cost_usd,fx_aed_per_usd,charge_minor,fee_schedule_version",
+        // One line per month: the AI Coach Service Fee and its amount.
+        select: "period,charge_minor",
         from: "usage_statements",
         key: [{ sql: "period", cursorSql: "period", type: "text" }],
         descending: true,

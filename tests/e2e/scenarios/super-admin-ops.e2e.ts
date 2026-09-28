@@ -12,14 +12,18 @@ const A = "Super admin" as const;
 const T = "Trainers" as const;
 const FX = "3.6725";
 
-/** PostgreSQL-compatible round(sum(cost_usd) * fx * 100) using exact decimals. */
-function usageChargeMinor(costs: Array<string | number | null>, fx = FX) {
+/**
+ * PostgreSQL-compatible round(sum(cost_usd) * fx * (100 + markup)) using exact
+ * decimals: the AI Coach Service Fee, with the owner's default 100% markup
+ * (28 September 2026).
+ */
+function usageChargeMinor(costs: Array<string | number | null>, fx = FX, markupPercent = 100) {
   const scaled = (value: string, places: number) => {
     const [whole, fraction = ""] = value.split(".");
     return BigInt(whole + fraction.padEnd(places, "0").slice(0, places));
   };
   const sum = costs.reduce<bigint>((acc, c) => acc + scaled(String(c ?? "0"), 8), 0n);
-  const product = sum * scaled(fx, 4) * 100n; // scale 1e12
+  const product = sum * scaled(fx, 4) * BigInt(100 + markupPercent); // scale 1e12
   const unit = 10n ** 12n;
   return Number((product + unit / 2n) / unit);
 }
@@ -118,12 +122,19 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
   await r.step(A, "AI usage cost reconciliation", `${trainer.slug}: every model call is priced from recorded token usage`, async () => {
     const finance = await admin.get(base);
     assert.equal(finance.unresolvedUsage.length, 0, "no reserved or unknown usage");
-    costs = (await trainer.client.get("/api/v1/bootstrap")).costs;
-    assert.ok(costs.length > 0 && costs.every((c: any) => c.cost_usd !== null), "all usage priced");
-    return `${costs.length} priced model calls`;
+    // Trainers see what ran, never its provider cost (owner decision).
+    const listed = (await trainer.client.get("/api/v1/bootstrap")).costs;
+    assert.ok(listed.length > 0, "usage recorded");
+    assert.ok(listed.every((c: any) => !("cost_usd" in c) && !("provider" in c)), "no provider cost on the trainer's list");
+    const byStatus = finance.usageByStatus as any[];
+    assert.ok(byStatus.every((s: any) => ["recorded", "reconciled", "estimated"].includes(s.status)), "all usage priced");
+    costs = byStatus.map((s: any) => s.cost_usd);
+    return `${listed.length} priced model calls`;
   });
   await r.step(A, "Monthly AI usage statements", `${trainer.slug}: usage statement for ${period}`, async () => {
-    const chargeMinor = usageChargeMinor(costs.map((c: any) => c.cost_usd));
+    const chargeMinor = usageChargeMinor(costs);
+    const preview = await admin.get(`${base}/usage-preview?period=${period}`);
+    assert.equal(preview.usage.markupPercent, 100, "the AI Coach Service Fee carries the 100% markup");
     const statement = await admin.post(`${base}/usage-statements`, {
       period,
       fxAedPerUsd: Number(FX),

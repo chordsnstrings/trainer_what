@@ -166,23 +166,51 @@ export type FinanceSettings = {
   complimentaryBearer: "trainer" | "platform";
   estimateUnresolved: boolean;
 };
+/** The trainer-facing name of the monthly usage charge (owner decision). */
+export const AI_COACH_SERVICE_FEE = "AI Coach Service Fee";
+export const DEFAULT_USAGE_MARKUP_PERCENT = 100;
 /**
- * Owner decisions still pending keep today's behaviour by default: trainers
- * pay usage at cost (0% markup), including their complimentary members', and
- * automatic month close waits for unresolved provider calls to be priced
- * (automatic estimation is off unless turned on).
+ * The owner's decisions of 28 September 2026 are the defaults: trainers pay
+ * AI and voice usage with a 100% markup (twice the provider cost), including
+ * their complimentary members' usage, and automatic month close waits for
+ * unresolved provider calls to be priced (automatic estimation is off unless
+ * turned on). An unset or blank markup reads as the default.
  */
 export function financeSettings(config = runtimeConfig()): FinanceSettings {
   const rate = Number(config.FINANCE_USD_TO_AED);
-  const markup = Number(config.FINANCE_USAGE_MARKUP_PERCENT);
+  const markupText = String(config.FINANCE_USAGE_MARKUP_PERCENT ?? "").trim();
+  const markup = markupText === "" ? NaN : Number(markupText);
   return {
     defaultAedPerUsd: rate >= 1 && rate <= 10 ? rate : 3.6725,
-    markupPercent: markup >= 0 && markup <= 100 ? markup : 0,
+    markupPercent:
+      markup >= 0 && markup <= 1000 ? markup : DEFAULT_USAGE_MARKUP_PERCENT,
     complimentaryBearer:
       config.FINANCE_COMPLIMENTARY_USAGE_BEARER === "platform"
         ? "platform"
         : "trainer",
     estimateUnresolved: config.FINANCE_ESTIMATE_UNRESOLVED_USAGE === "true",
+  };
+}
+
+export type StripeFeeSettings = {
+  /** Basis points of the payment (2.9% = 290). */
+  percentBps: number;
+  fixedMinor: number;
+  internationalBps: number;
+};
+/** Stripe fee parameters for the estimates trainers see (Settings → Platform finance). */
+export function stripeFeeSettings(config = runtimeConfig()): StripeFeeSettings {
+  const read = (key: string, fallback: number, max: number) => {
+    const text = String(config[key] ?? "").trim();
+    const n = text === "" ? NaN : Number(text);
+    return n >= 0 && n <= max ? n : fallback;
+  };
+  return {
+    percentBps: Math.round(read("FINANCE_STRIPE_FEE_PERCENT", 2.9, 20) * 100),
+    fixedMinor: Math.round(read("FINANCE_STRIPE_FEE_FIXED_AED", 1, 20) * 100),
+    internationalBps: Math.round(
+      read("FINANCE_STRIPE_INTERNATIONAL_PERCENT", 1, 20) * 100,
+    ),
   };
 }
 
