@@ -98,7 +98,7 @@ export const privacyHooks: PrivacyHooks = {
           tx,
           "domain_orders",
           "id",
-          "status NOT IN ('cancelled','expired')",
+          "status NOT IN ('cancelled','expired','failed')",
           [],
         );
     return [

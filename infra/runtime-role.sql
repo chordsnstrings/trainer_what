@@ -31,6 +31,9 @@ GRANT SELECT,INSERT,UPDATE ON infrastructure_actions TO trainer_service;
 -- migration administrator; the runtime never deletes these rows.
 GRANT SELECT,INSERT,UPDATE ON host_status,host_action_requests,tls_issuance_allowances TO trainer_service;
 GRANT SELECT,INSERT ON host_monitor_policies TO trainer_service;
+-- Web addresses (066): previous slugs of renamed workspaces redirect for a
+-- while; the runtime reclaims one by shortening its window, never deletes it.
+GRANT SELECT,INSERT,UPDATE ON tenant_slug_redirects TO trainer_service;
 GRANT DELETE ON acquisition_events TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON acquisition_consents TO trainer_service;
 

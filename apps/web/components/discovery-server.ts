@@ -43,6 +43,26 @@ export async function signedApiGet(target: string): Promise<Response> {
   );
 }
 
+/**
+ * The current slug of a renamed workspace whose previous slug this is, while
+ * it redirects (platform address only), or null.
+ */
+export async function movedCoachSlug(slug: string): Promise<string | null> {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(slug)) return null;
+  if ((await requestOrigin()).coachHost) return null;
+  try {
+    const response = await signedApiGet("/api/v1/public/slug-redirect/" + slug);
+    if (!response.ok) return null;
+    const body = (await response.json()) as { slug?: unknown };
+    return typeof body.slug === "string" &&
+      /^[a-z0-9][a-z0-9-]{0,62}$/.test(body.slug)
+      ? body.slug
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export type SitemapFile = {
   entries: Array<{ url: string; lastModified?: string }>;
   page: number;

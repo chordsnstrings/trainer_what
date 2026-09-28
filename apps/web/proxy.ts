@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   customHostPath,
   edgeClientIp,
+  movedHostLocation,
   proxyHost,
   verifiedProxyHeaders,
 } from "./host-proxy";
@@ -95,7 +96,20 @@ export async function proxy(request: NextRequest) {
         signal: AbortSignal.timeout(5000),
       },
     );
-    if (!response.ok)
+    if (!response.ok) {
+      // A renamed workspace's previous subdomain redirects to its new one.
+      const moved =
+        response.status === 421
+          ? movedHostLocation(
+              await response.json().catch(() => null),
+              process.env.PLATFORM_ROOT_DOMAIN,
+            )
+          : null;
+      if (moved)
+        return NextResponse.redirect(
+          new URL(request.nextUrl.pathname + request.nextUrl.search, moved),
+          307,
+        );
       return NextResponse.json(
         {
           message:
@@ -103,6 +117,7 @@ export async function proxy(request: NextRequest) {
         },
         { status: 421 },
       );
+    }
     const mapping = await response.json();
     if (
       !mapping.custom ||

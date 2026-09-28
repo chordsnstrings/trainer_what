@@ -1,6 +1,6 @@
 import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import type { Metadata, Viewport } from "next";
 import {
@@ -17,7 +17,11 @@ import {
   CoachDirectoryClosed,
   type DirectoryData,
 } from "../../components/coach-directory";
-import { requestOrigin, signedApiGet } from "../../components/discovery-server";
+import {
+  movedCoachSlug,
+  requestOrigin,
+  signedApiGet,
+} from "../../components/discovery-server";
 type SearchParams = Record<string, string | string[] | undefined>;
 // Only known single-valued filters reach the API; anything else is dropped.
 function directoryQuery(search: SearchParams) {
@@ -147,7 +151,15 @@ export default async function Page({
   }
   if (path[0] === "coach" && path[1]) {
     const data = await website(path[1]);
-    if (!data) notFound();
+    if (!data) {
+      // A renamed workspace's previous address redirects for a while.
+      const moved = await movedCoachSlug(path[1]);
+      if (moved)
+        redirect(
+          "/coach/" + [moved, ...path.slice(2)].map(encodeURIComponent).join("/"),
+        );
+      notFound();
+    }
     const section = path[2];
     if (
       path.length > 3 ||
@@ -167,6 +179,10 @@ export default async function Page({
         language={lang}
       />
     );
+  }
+  if (path[0] === "join-coach" && path[1] && path.length === 2) {
+    const moved = await movedCoachSlug(path[1]);
+    if (moved) redirect("/join-coach/" + moved);
   }
   return <Workspace />;
 }

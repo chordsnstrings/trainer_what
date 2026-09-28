@@ -442,6 +442,73 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
       href: "/admin/alerts",
     },
   ),
+  // Web addresses (docs/features/web-addresses.md): the trainer's own domain.
+  kind(
+    "web-address-live",
+    "trainer",
+    "account",
+    "A bought domain now serves the coaching website",
+    {
+      title: "Your website is live on your own domain",
+      body: "https://laylastrength.com now shows your coaching website and member app sign-in. Your domain renews every year; the next renewal is before 2027-09-28.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-renewed",
+    "trainer",
+    "account",
+    "The yearly domain renewal completed",
+    {
+      title: "Your domain was renewed",
+      body: "laylastrength.com is renewed until 2028-09-28. Nothing else is needed.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-renewal-failed",
+    "trainer",
+    "account",
+    "The yearly domain renewal payment failed",
+    {
+      title: "Your domain renewal payment failed",
+      body: "We could not charge the yearly renewal for laylastrength.com. Update your card in Stripe before 2027-09-28; Stripe retries the payment automatically. If it is not paid, laylastrength.com stops working and your website stays available at https://layla.trainsyou.com.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-renewal-reminder",
+    "trainer",
+    "account",
+    "A domain expires soon without a paid renewal",
+    {
+      title: "Your domain expires in 7 days",
+      body: "The yearly renewal for laylastrength.com is not paid yet. Update your card before 2027-09-28, or your website moves back to https://layla.trainsyou.com.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-lapsed",
+    "trainer",
+    "account",
+    "A domain expired and the website moved back to its subdomain",
+    {
+      title: "Your domain has expired",
+      body: "laylastrength.com was not renewed and no longer shows your website. Your website and member sign-in stay available at https://layla.trainsyou.com. You can buy a domain again from Web address.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-refunded",
+    "trainer",
+    "account",
+    "A paid domain could not be registered and was refunded",
+    {
+      title: "We could not register your domain",
+      body: "laylastrength.com could not be registered: The name was registered by someone else before the purchase completed. Your payment has been refunded to your card. Your website stays available at its current address.",
+      href: "/trainer/domains",
+    },
+  ),
   lifecycle(
     "publish-ready",
     "trainer",

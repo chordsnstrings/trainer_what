@@ -45,6 +45,8 @@ import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
+import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
+import type { WebAddressDeps } from "./web-address-orders.ts";
 import {
   resolveProbeHost,
   resolveRequestHost,
@@ -306,7 +308,11 @@ export async function buildApp(
     db?: Database;
     testing?: boolean;
     /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
-    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+    providers?: {
+      stripe?: () => ReturnType<typeof stripeClient>;
+      /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
+      webAddresses?: WebAddressDeps;
+    };
   } = {},
 ) {
   const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
@@ -553,6 +559,14 @@ export async function buildApp(
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
+      // A renamed workspace's previous subdomain names its new address.
+      ...(e.code === "HOST_MOVED" && typeof e.location === "string"
+        ? { location: e.location }
+        : {}),
+      // A domain price that changed since it was shown carries the new price.
+      ...(e.code === "PRICE_CHANGED" && Number.isSafeInteger(e.priceMinor)
+        ? { priceMinor: e.priceMinor }
+        : {}),
     });
   });
   async function session(
@@ -600,6 +614,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
+  registerWebAddresses(app, db, options.providers?.webAddresses);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);
@@ -678,18 +693,9 @@ export async function buildApp(
         db,
         "registration",
       );
-      if (
-        [
-          "admin",
-          "api",
-          "app",
-          "www",
-          "support",
-          "billing",
-          "trainer",
-        ].includes(b.slug)
-      )
-        throw fail(400, "RESERVED_SLUG", "Please choose another address");
+      // The slug is also the workspace subdomain (<slug>.<root>): reserved
+      // names and a previous slug still redirecting are refused.
+      await assertSlugAvailable(db, b.slug);
       if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,

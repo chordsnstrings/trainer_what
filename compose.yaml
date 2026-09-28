@@ -32,6 +32,7 @@ services:
       API_HOST: 0.0.0.0
       DATABASE_URL: ${DATABASE_URL:?Set the non-owner runtime connection}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the public HTTPS URL}
+      PLATFORM_ROOT_DOMAIN: ${PLATFORM_ROOT_DOMAIN:-}
       INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set a separate proxy signing secret of at least 32 UTF-8 bytes}
       SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Set the account encryption key}
       SECURITY_ENCRYPTION_PREVIOUS_KEYS: ${SECURITY_ENCRYPTION_PREVIOUS_KEYS:-}
@@ -77,6 +78,7 @@ services:
     environment:
       NODE_ENV: production
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the same public HTTPS URL as the API}
+      PLATFORM_ROOT_DOMAIN: ${PLATFORM_ROOT_DOMAIN:-}
       INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set the same proxy signing secret as the API}
       API_INTERNAL_URL: http://api:4000
     ports: ["127.0.0.1:3000:3000"]

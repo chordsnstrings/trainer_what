@@ -35,6 +35,7 @@ import {
   revokeHealthKitDevices,
 } from "./healthkit-sync.ts";
 import { permitCertificateIssuance } from "./host-operations.ts";
+import { coachHostTenant, platformRoot } from "./host-routing.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import {
   encryptionReady,
@@ -180,7 +181,7 @@ async function scopedAdminRows(
           ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
               (includeSample ? ",sample" : "") +
               " FROM trainer_voices WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100"
-          : "SELECT * FROM domain_orders WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
+          : "SELECT * FROM domain_orders WHERE mode='manual' AND ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
         [recordId ?? null],
       ),
     );
@@ -540,7 +541,9 @@ export async function processIntegrationJobs(db: Database) {
         "DELETE FROM integration_oauth_states WHERE expires_at<now()-interval '1 day'",
       );
       return tx.query(
-        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE expires_at<=now() AND status='active' RETURNING hostname",
+        // Automatic orders lapse through the web address worker, which also
+        // notifies the trainer and ends the yearly subscription.
+        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE expires_at<=now() AND status='active' AND mode='manual' RETURNING hostname",
       );
     });
     if (expiredHosts.length)
@@ -679,15 +682,14 @@ export function registerIntegrationCompletion(
       // A provider has one registered callback. Relay its one-time code back to
       // the verified initiating site before checking that site's session cookie.
       const registered = new URL(wearableContract(provider).redirect);
-      const [mapping] = await db.system((tx) =>
-        tx.query(
-          "SELECT tenant_id FROM domain_mappings WHERE hostname=$1 AND active=true AND verified_at IS NOT NULL",
-          [new URL(relay.origin).host],
-        ),
+      // A coach domain or a workspace subdomain of the platform root.
+      const mappedTenant = await coachHostTenant(
+        db,
+        new URL(relay.origin).host,
       );
       if (
         origin(req) !== registered.origin ||
-        mapping?.tenant_id !== tenantId ||
+        mappedTenant !== tenantId ||
         new URL(relay.origin).protocol !== "https:"
       )
         throw fail(
@@ -1342,9 +1344,12 @@ export function normalizeDomain(value: string) {
       "DOMAIN_NAME",
       "Enter a public domain name without a protocol, path or port.",
     );
+  const root = platformRoot();
   if (
     hostname ===
-    new URL(runtimeConfig().PUBLIC_APP_URL ?? "http://localhost:3000").hostname
+      new URL(runtimeConfig().PUBLIC_APP_URL ?? "http://localhost:3000")
+        .hostname ||
+    (root && (hostname === root || hostname.endsWith("." + root)))
   )
     throw fail(
       400,
@@ -1414,7 +1419,9 @@ function registerDomainRoutes(
   app.get("/api/v1/domains", async (req) => {
     const a = owner(req);
     return db.tenant(a, (tx) =>
-      tx.query("SELECT * FROM domain_orders ORDER BY created_at DESC"),
+      tx.query(
+        "SELECT * FROM domain_orders WHERE mode='manual' ORDER BY created_at DESC",
+      ),
     );
   });
   app.post("/api/v1/domains", async (req) => {
@@ -1463,7 +1470,7 @@ function registerDomainRoutes(
       .parse(req.body);
     return db.tenant(a, async (tx) => {
       const [row] = await tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 FOR UPDATE",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' FOR UPDATE",
         [id.parse((req.params as any).id)],
       );
       if (
@@ -1499,7 +1506,7 @@ function registerDomainRoutes(
       .parse(req.body);
     const [row] = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND status IN ('owned','verified') AND version=$2",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' AND status IN ('owned','verified') AND version=$2",
         [id.parse((req.params as any).id), b.revision],
       ),
     );
@@ -1520,7 +1527,7 @@ function registerDomainRoutes(
       b = z.object({ revision: z.number().int().positive() }).parse(req.body);
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
-        "UPDATE domain_orders SET status='cancelled',version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status NOT IN ('cancelled','expired') RETURNING *",
+        "UPDATE domain_orders SET status='cancelled',version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND mode='manual' AND status NOT IN ('cancelled','expired') RETURNING *",
         [id.parse((req.params as any).id), b.revision],
       );
       if (!r) throw conflict();

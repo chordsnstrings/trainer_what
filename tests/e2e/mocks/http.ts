@@ -118,6 +118,57 @@ export class MockServer {
     });
     this.server = undefined;
   }
+  /**
+   * Runs one request through the routes without a network (unit tests'
+   * fixture transport): same matching and handlers, no request log.
+   */
+  async inject(input: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    body?: string;
+  }): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+    const url = new URL(input.url, "https://mock.invalid");
+    const headers = Object.fromEntries(
+      Object.entries(input.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+    const type = String(headers["content-type"] ?? "");
+    const rawBody = input.body ?? "";
+    const request: MockRequest = {
+      method: input.method.toUpperCase(),
+      path: url.pathname,
+      query: url.searchParams,
+      headers,
+      rawBody,
+      params: {},
+    };
+    if (rawBody && type.includes("json"))
+      try {
+        request.json = JSON.parse(rawBody);
+      } catch {}
+    if (type.includes("x-www-form-urlencoded"))
+      request.form = parseNestedForm(rawBody);
+    const route = this.routes.find(
+      (r) => r.method === request.method && r.pattern.test(request.path),
+    );
+    let response: MockResponse;
+    if (!route) response = { status: 404, body: { error: "mock route not found" } };
+    else {
+      const match = route.pattern.exec(request.path)!;
+      route.keys.forEach(
+        (key, i) => (request.params[key] = decodeURIComponent(match[i + 1])),
+      );
+      response = await route.handler(request);
+    }
+    const out = { ...(response.headers ?? {}) };
+    let body = "";
+    if (typeof response.body === "string") body = response.body;
+    else if (response.body !== undefined) {
+      body = JSON.stringify(response.body);
+      out["content-type"] ??= "application/json";
+    }
+    return { status: response.status ?? 200, headers: out, body };
+  }
   requests(method?: string, pathPrefix?: string) {
     return this.log.filter(
       (entry) =>

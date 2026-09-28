@@ -99,6 +99,11 @@ export async function financialStatement(tx: Tx, period: string) {
     otherPayableMovementMinor: 0,
     closingPayableMinor: Number(opening.amount),
   };
+  const webAddresses = {
+    paymentsMinor: 0,
+    refundsMinor: 0,
+    registrarCostMinor: 0,
+  };
   for (const entry of entries) {
     const payable = (entry.lines as any[])
       .filter((l) => l.account === "trainer_payable")
@@ -126,7 +131,19 @@ export async function financialStatement(tx: Tx, period: string) {
       totals.payoutsMinor += payable;
     else if (entry.source_key.startsWith("payout-return:"))
       totals.payoutReturnsMinor -= payable;
-    else totals.otherPayableMovementMinor -= payable;
+    else if (entry.source_key.startsWith("web-address-")) {
+      // The trainer's own domain payments to the platform: outside the
+      // payable balance (no commission, never paid out), shown separately.
+      if (entry.source_key.startsWith("web-address-invoice:"))
+        webAddresses.paymentsMinor += Number(entry.data.grossMinor ?? 0);
+      else if (entry.source_key.startsWith("web-address-refund:"))
+        webAddresses.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
+      else if (entry.source_key.startsWith("web-address-registrar:"))
+        webAddresses.registrarCostMinor += (entry.lines as any[])
+          .filter((l) => l.account === "registrar_cost")
+          .reduce((n, l) => n + Number(l.amountMinor), 0);
+      totals.otherPayableMovementMinor -= payable;
+    } else totals.otherPayableMovementMinor -= payable;
   }
   const bridge =
     totals.openingPayableMinor +
@@ -149,6 +166,7 @@ export async function financialStatement(tx: Tx, period: string) {
     start: start.toISOString(),
     end: end.toISOString(),
     totals,
+    webAddresses,
     entries,
     allocations,
     usage,

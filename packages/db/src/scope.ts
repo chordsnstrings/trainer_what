@@ -56,6 +56,7 @@ export const ELEVATIONS = {
       "apps/api/src/nutrition-schedule.ts",
       "apps/api/src/platform-alerts.ts",
       "apps/api/src/safety-policy.ts",
+      "apps/api/src/web-address-orders.ts",
       "apps/worker/src/dispatch.ts",
       "apps/worker/src/email-delivery.ts",
       "apps/worker/src/push-delivery.ts",
@@ -70,6 +71,8 @@ export const ELEVATIONS = {
       "apps/api/src/finance-bookings.ts",
       "apps/api/src/finance-checkout.ts",
       "apps/api/src/stripe-events.ts",
+      "apps/api/src/web-address-orders.ts",
+      "apps/api/src/web-addresses.ts",
     ],
   },
   "platform-operator": {
@@ -91,6 +94,7 @@ export const ELEVATIONS = {
       "apps/api/src/privacy-lifecycle.ts",
       "apps/api/src/privacy-operations.ts",
       "apps/api/src/support-preview.ts",
+      "apps/api/src/web-addresses.ts",
     ],
   },
   "coach-workflow": {

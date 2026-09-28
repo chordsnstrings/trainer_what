@@ -114,6 +114,7 @@ export async function verifyRuntimeAccess(client) {
     platform_alert_deliveries: ["SELECT", "INSERT"],
     coach_directory_profiles: ["SELECT"],
     workspace_app_icons: ["SELECT", "INSERT"],
+    tenant_slug_redirects: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -168,6 +169,7 @@ export async function verifyRuntimeAccess(client) {
     "complimentary_access",
     "healthkit_devices",
     "healthkit_sync_batches",
+    "registrar_operations",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -380,6 +382,7 @@ export async function verifyRuntimeAccess(client) {
     "tenants",
     "memberships",
     "domain_mappings",
+    "tenant_slug_redirects",
   ];
   for (const table of boundTables) {
     const [r] = await query(
@@ -494,6 +497,7 @@ export async function verifyRuntimeAccess(client) {
       "platform_alerts",
       "platform_alert_deliveries",
       "workspace_app_icons",
+      "tenant_slug_redirects",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

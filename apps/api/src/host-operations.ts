@@ -13,7 +13,12 @@ import { z } from "zod";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
-import { HOST_HEADERS } from "./host-routing.ts";
+import { HOST_HEADERS, platformRoot } from "./host-routing.ts";
+import {
+  RESERVED_SLUGS,
+  subdomainEligible,
+  subdomainHost,
+} from "../../../packages/domain/src/web-address.ts";
 import { requireRecentMfa } from "./security.ts";
 
 /**
@@ -863,6 +868,8 @@ type AskSnapshot = {
   /** Bumped by every new allowance; a set loaded before the bump is stale. */
   generation: number;
   loadedGeneration: number;
+  /** PLATFORM_ROOT_DOMAIN the set was loaded for; another root reloads it. */
+  root: string | null;
 };
 const askSnapshots = new WeakMap<Database, AskSnapshot>();
 /** A permitted name is re-read at least this often (deactivation takes effect). */
@@ -881,6 +888,7 @@ function askSnapshot(db: Database) {
         loading: null,
         generation: 0,
         loadedGeneration: -1,
+        root: null,
       }),
     );
   return snapshot;
@@ -899,6 +907,7 @@ async function reloadAskHosts(
       continue;
     }
     const generation = snapshot.generation;
+    const root = platformRoot();
     snapshot.loading = (async () => {
       try {
         const rows = await db.system((tx) =>
@@ -915,6 +924,28 @@ async function reloadAskHosts(
             Math.max(hosts.get(row.hostname) ?? -Infinity, until),
           );
         }
+        // Workspace subdomains (<slug>.<root>) of published, active
+        // workspaces, and a renamed workspace's previous name while it
+        // redirects. Reserved names never get a certificate.
+        if (root) {
+          const slugs = await db.system((tx) =>
+            tx.query<{ slug: string; until: unknown }>(
+              "SELECT slug,NULL::timestamptz AS until FROM tenants WHERE published=true AND lifecycle_state='active' UNION ALL SELECT r.slug,r.redirect_until FROM tenant_slug_redirects r JOIN tenants t ON t.id=r.tenant_id WHERE r.redirect_until>now() AND t.slug<>r.slug AND t.published=true AND t.lifecycle_state='active' LIMIT " +
+                ASK_HOST_LIMIT,
+            ),
+          );
+          for (const row of slugs) {
+            if (!subdomainEligible(row.slug) || RESERVED_SLUGS.has(row.slug))
+              continue;
+            const name = subdomainHost(row.slug, root);
+            const until = row.until === null ? Infinity : ms(row.until);
+            hosts.set(name, Math.max(hosts.get(name) ?? -Infinity, until));
+          }
+          // www.<root> is redirected to the platform by the edge when the
+          // platform itself is served at the root.
+          if (platformHostname() === root) hosts.set("www." + root, Infinity);
+        }
+        snapshot.root = root;
         snapshot.hosts = hosts;
         snapshot.loadedAt = now;
         snapshot.loadedGeneration = generation;
@@ -970,7 +1001,8 @@ export async function tlsIssuancePermitted(
   if (
     age < 0 ||
     age > ASK_MAX_AGE_MS ||
-    snapshot.loadedGeneration !== snapshot.generation
+    snapshot.loadedGeneration !== snapshot.generation ||
+    snapshot.root !== platformRoot()
   )
     await reloadAskHosts(db, snapshot, now);
   else if (!askAllowed(snapshot, host, now) && age > ASK_MISS_RELOAD_MS)
