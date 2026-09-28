@@ -13,6 +13,7 @@ import { createDatabase, elevated, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { processStripeEvent } from "../apps/api/src/stripe-events.ts";
 import {
+  costOverPrice,
   processWebAddressOrder,
   processWebAddressOrders,
   platformHosts,
@@ -620,6 +621,14 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
   );
   const session = stripe.sessions.values().next().value;
   assert.equal(session.amount_total, FIRST, "USD 19.99 due today");
+  // Both prices again above Stripe's pay button, with the renewal note
+  // (owner decision, 28 September 2026: trainers know before paying).
+  assert.deepEqual(checkout.params.custom_text, {
+    submit: {
+      message:
+        "First year USD 19.99 today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web address. Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+    },
+  });
   assert.equal(checkout.params.metadata.purpose, "web_address");
   // Neutral Stripe wording: never the registrar (owner decision, 28 Sep 2026).
   assert.equal(
@@ -702,8 +711,18 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
     (await request("/public/host", { host: "www.layla.com" })).json().tenantId,
     layla.tenantId,
   );
-  assert.ok(
-    (await notices(layla.tenantId)).some((n) => n.dedupe_key.endsWith(":live")),
+  const live = (await notices(layla.tenantId)).find((n) =>
+    n.dedupe_key.endsWith(":live"),
+  );
+  assert.ok(live);
+  // The renewal price, and the note that it is dearer than the first year.
+  assert.match(
+    live.body,
+    /renews every year at USD 24\.99; the next renewal is before \d{4}-\d{2}-\d{2}\./,
+  );
+  assert.match(
+    live.body,
+    /Note: the yearly renewal \(USD 24\.99\) is USD 5\.00 more than the first year \(USD 19\.99\)\.$/,
   );
 
   // The next visit moves the yearly charge to 30 days before expiry.
@@ -1023,6 +1042,60 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
     mock.commands("domains.renew").length,
     2,
     "no renewal from a replayed invoice",
+  );
+});
+
+test("two weeks before the yearly charge the trainer is told its date and price, once a period", async () => {
+  // Renewed once already (above), so the first-year note is not repeated.
+  const expires = new Date(Date.now() + 40 * 86400000);
+  const charge = new Date(Date.now() + 10 * 86400000);
+  await db.tenant(worker(layla.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=$2,evidence=evidence||$3::jsonb WHERE id=$1",
+      [
+        laylaOrder.id,
+        expires,
+        JSON.stringify({ nextRenewalChargeAt: charge.toISOString() }),
+      ],
+    ),
+  );
+  await step(layla.tenantId, laylaOrder.id);
+  await step(layla.tenantId, laylaOrder.id);
+  const upcoming = (await notices(layla.tenantId)).filter((n) =>
+    n.dedupe_key.includes(":upcoming:"),
+  );
+  assert.equal(upcoming.length, 1, "once per registration period");
+  assert.equal(upcoming[0].title, "Your domain renews soon");
+  assert.equal(
+    upcoming[0].body,
+    `On ${charge.toISOString().slice(0, 10)} we charge USD 24.99 to your card for another year of layla.com, renewed automatically. You can turn renewal off in Web address before that date.`,
+  );
+  const row = await order(layla.tenantId, laylaOrder.id);
+  assert.ok(row.notices[`${expires.toISOString().slice(0, 10)}:upcoming`]);
+  // More than two weeks before the charge nothing is sent yet, and the
+  // worker comes back when it is due.
+  const later = new Date(Date.now() + 80 * 86400000);
+  await db.tenant(worker(layla.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=$2,evidence=evidence||$3::jsonb WHERE id=$1",
+      [
+        laylaOrder.id,
+        new Date(later.getTime() + 30 * 86400000),
+        JSON.stringify({ nextRenewalChargeAt: later.toISOString() }),
+      ],
+    ),
+  );
+  const waiting = await step(layla.tenantId, laylaOrder.id);
+  assert.equal(
+    (await notices(layla.tenantId)).filter((n) =>
+      n.dedupe_key.includes(":upcoming:"),
+    ).length,
+    1,
+  );
+  assert.ok(
+    Date.parse(waiting.next_attempt_at) <=
+      later.getTime() - 14 * 86400000 + 60000,
+    "the worker returns when the notice is due",
   );
 });
 
@@ -2131,17 +2204,51 @@ test("an order quoted in AED before USD pricing keeps its price, checkout, payme
 });
 
 test("no web address notice sent to a trainer names the registrar or its cost", async () => {
-  let seen = 0;
-  for (const who of [layla, omar, sara])
+  let seen = 0,
+    priced = 0;
+  for (const who of [layla, omar, sara]) {
+    // The only amounts a notice may carry are the trainer's own prices
+    // (the renewal price and, in the renewal note, the first year's).
+    const quotes = await db.tenant(worker(who.tenantId), (tx) =>
+      tx.query<{ quote: any }>(
+        "SELECT quote FROM domain_orders WHERE mode='automatic'",
+      ),
+    );
+    const own = new Set(
+      quotes.flatMap(({ quote }) =>
+        [
+          quote?.firstYearPriceMinor,
+          quote?.renewalPriceMinor,
+          quote?.priceMinor,
+        ]
+          .filter((n) => Number.isInteger(n))
+          .map((n: number) => (n / 100).toFixed(2)),
+      ),
+    );
     for (const notice of await notices(who.tenantId)) {
       seen++;
-      assert.doesNotMatch(
-        notice.title + " " + notice.body,
-        /namecheap|registrar|usd|cost/i,
-        notice.dedupe_key,
-      );
+      const text = notice.title + " " + notice.body;
+      assert.doesNotMatch(text, /namecheap|registrar|cost/i, notice.dedupe_key);
+      for (const [, amount] of text.matchAll(/USD (\d+\.\d{2})/g)) {
+        priced++;
+        // Differences in the renewal note are the trainer's prices too.
+        const difference = [...own].some((a) =>
+          [...own].some(
+            (b) =>
+              (Math.round(Number(a) * 100) - Math.round(Number(b) * 100)) /
+                100 ===
+              Number(amount),
+          ),
+        );
+        assert.ok(
+          own.has(amount) || difference,
+          `${notice.dedupe_key}: USD ${amount} is not one of the trainer's prices`,
+        );
+      }
     }
+  }
   assert.ok(seen >= 3, "the scenario sent notices");
+  assert.ok(priced >= 1, "notices name the renewal price");
 });
 
 test("trainer-facing finance never carries the registrar's cost; operators still see it", async () => {
@@ -2339,4 +2446,40 @@ test("a renewal cost rise is flagged two months ahead and when charged; the doma
     /charged USD 30\.18 for the renewal/,
   );
   mock.prices.com = saved;
+});
+
+test("the cost guard keeps the minimum margin; orders quoted before it keep their plain rule", () => {
+  const quoted = (priceRule: object) => ({
+    quote: {
+      currency: "USD",
+      firstYearPriceMinor: 1999,
+      renewalPriceMinor: 2499,
+      registerUsd: "11.4800",
+      renewUsd: "18.6800",
+      priceRule,
+    },
+  });
+  const full = quoted({
+    stepCents: 500,
+    endingCents: 499,
+    capCents: 10000,
+    minMarginCents: 400,
+    cardFeeBp: 290,
+    internationalFeeBp: 100,
+    fixedFeeCents: 28,
+    conversionFeeBp: 100,
+    usdBalance: false,
+  });
+  // Up to 14.73 the USD 19.99 paid still leaves USD 4 after Stripe's fees.
+  assert.equal(costOverPrice(full as any, "register", "14.73"), false);
+  assert.equal(costOverPrice(full as any, "register", "14.74"), true);
+  // An order quoted before the minimum margin stored only the rounding: its
+  // guard holds only past the USD 5 step, as before.
+  const plain = quoted({ stepCents: 500, endingCents: 499, capCents: 10000 });
+  assert.equal(costOverPrice(plain as any, "register", "14.74"), false);
+  assert.equal(costOverPrice(plain as any, "register", "15.00"), false);
+  assert.equal(costOverPrice(plain as any, "register", "15.01"), true);
+  // Renewal 18.68 → 24.99 keeps USD 4.80; up to 19.48 keeps USD 4.00.
+  assert.equal(costOverPrice(full as any, "renew", "19.48"), false);
+  assert.equal(costOverPrice(full as any, "renew", "19.49"), true);
 });

@@ -38,18 +38,19 @@ import {
   SLUG_PROBLEM_MESSAGES,
   SLUG_REDIRECT_DAYS,
   cleanDomainQuery,
+  domainPriceDetails,
   domainSearchPlan,
   isProtectedLabel,
   priceRuleFromSettings,
   protectedLabels,
   purchasableTlds,
+  renewalPriceNote,
   slugProblem,
   splitRegistrableDomain,
   subdomainEligible,
   subdomainHost,
   suggestedTlds,
   trainerDomainPrices,
-  usdCents,
   type PriceRule,
 } from "../../../packages/domain/src/web-address.ts";
 import {
@@ -267,8 +268,9 @@ export function buyingProblem() {
 // ---- Search and prices ---------------------------------------------------------
 
 /**
- * The price rule, the suggested endings, every ending that can be bought and
- * the protected brand names, from Super admin settings. An invalid rule
+ * The price rule (rounding, cap, minimum margin and Stripe's estimated fees),
+ * the suggested endings, every ending that can be bought and the protected
+ * brand names, from Super admin settings. An invalid rule
  * (possible only through the server environment: saved settings are
  * validated) stops buying rather than pricing wrongly.
  */
@@ -285,6 +287,12 @@ function pricing(): {
       step: config.WEB_ADDRESS_PRICE_STEP_USD,
       ending: config.WEB_ADDRESS_PRICE_ENDING_USD,
       cap: config.WEB_ADDRESS_PRICE_CAP_USD,
+      minMargin: config.WEB_ADDRESS_MIN_MARGIN_USD,
+      cardPercent: config.WEB_ADDRESS_STRIPE_PERCENT,
+      internationalPercent: config.WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT,
+      fixedFee: config.WEB_ADDRESS_STRIPE_FIXED_USD,
+      conversionPercent: config.WEB_ADDRESS_STRIPE_CONVERSION_PERCENT,
+      usdBalance: config.WEB_ADDRESS_STRIPE_USD_BALANCE,
     });
   } catch {
     throw fail(
@@ -326,6 +334,19 @@ export function webAddressStripeText(hostname: string) {
     /** The first year's difference from the yearly renewal price. */
     firstYearName: "Custom web address — first-year price",
   };
+}
+/**
+ * The text above Stripe Checkout's pay button: the first-year and renewal
+ * price, and the renewal note when the renewal costs more (at most 1,200
+ * characters, Stripe's limit).
+ */
+export function checkoutNote(firstYearMinor: number, renewalMinor: number) {
+  const money = (minor: number) => `USD ${(minor / 100).toFixed(2)}`;
+  const note = renewalPriceNote(firstYearMinor, renewalMinor);
+  return (
+    `First year ${money(firstYearMinor)} today, then ${money(renewalMinor)} every year, renewed automatically until you turn renewal off in Web address.` +
+    (note ? " " + note : "")
+  ).slice(0, 1200);
 }
 /**
  * What a trainer sees and agrees to for one available name: the first-year
@@ -598,7 +619,9 @@ function operatorRegistrar(deps: { registrar?: Registrar }) {
 /**
  * Every ending trainers can buy, as the cache holds it now: the registrar's
  * one-year costs, the trainer's two prices by the current rule, whether the
- * cap hides it, and the margin before Stripe fees. Operators only.
+ * cap hides it, and for each year the margin before Stripe's fees, Stripe's
+ * estimated card and conversion fees, the net margin after them and whether
+ * the minimum margin moved the price up. Operators only.
  */
 async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
   const settings = pricing();
@@ -614,18 +637,29 @@ async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
     if (!price) return { ...base, state: "unknown" as const };
     if (price.kind === "not_offered")
       return { ...base, state: "not_offered" as const, reason: price.reason };
-    const priced = trainerDomainPrices(price, settings.rule);
+    const priced = domainPriceDetails(price, settings.rule);
+    const year = (detail: typeof priced.firstYear) => ({
+      priceMinor: detail.priceCents,
+      costMinor: detail.costCents,
+      // What is left after the registrar's cost, before Stripe's fees.
+      grossMarginMinor: detail.priceCents - detail.costCents,
+      cardFeeMinor: detail.cardFeeCents,
+      conversionFeeMinor: detail.conversionFeeCents,
+      // What is left after the registrar's cost and Stripe's estimated fees.
+      netMarginMinor: detail.marginCents,
+      raisedForMargin: detail.raisedSteps > 0,
+    });
     return {
       ...base,
       state: priced.offered ? ("offered" as const) : ("over_cap" as const),
       registerUsd: price.registerUsd,
       renewUsd: price.renewUsd,
-      firstYearPriceMinor: priced.firstYearCents,
-      renewalPriceMinor: priced.renewalCents,
-      // What is left of each price after the registrar's cost, before
-      // Stripe's fees (and any currency conversion) are taken.
-      firstYearMarginMinor: priced.firstYearCents - usdCents(price.registerUsd),
-      renewalMarginMinor: priced.renewalCents - usdCents(price.renewUsd),
+      firstYearPriceMinor: priced.firstYear.priceCents,
+      renewalPriceMinor: priced.renewal.priceCents,
+      firstYearMarginMinor: priced.firstYear.priceCents - priced.firstYear.costCents,
+      renewalMarginMinor: priced.renewal.priceCents - priced.renewal.costCents,
+      firstYear: year(priced.firstYear),
+      renewal: year(priced.renewal),
     };
   });
   return {
@@ -1030,6 +1064,9 @@ export function registerWebAddresses(
         // Stripe needs at least 30 minutes; a replay must send identical parameters.
         expiresAt: Math.floor(at / 1000) + 35 * 60,
         email: a.email ?? null,
+        // Both prices again on Stripe's page, above the pay button (owner
+        // decision, 28 September 2026); stored so a replay sends the same.
+        note: checkoutNote(fresh.firstYearPriceMinor, fresh.renewalPriceMinor),
       };
       const created = await db.tenant(a, async (tx) => {
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
@@ -1179,6 +1216,10 @@ export function registerWebAddresses(
             ? { customer_email: c.email }
             : {}),
         ...priced,
+        // Orders created before the note was added replay without it.
+        ...(typeof c.note === "string" && c.note
+          ? { custom_text: { submit: { message: c.note } } }
+          : {}),
         expires_at: c.expiresAt,
         metadata,
         subscription_data: {

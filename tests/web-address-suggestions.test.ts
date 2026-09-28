@@ -47,6 +47,9 @@ const settings = {
   NAMECHEAP_USERNAME: account.username,
   NAMECHEAP_CLIENT_IP: account.clientIp,
   NAMECHEAP_SANDBOX: "true",
+  // .ae is no longer suggested (owner decision, 28 September 2026); an
+  // operator may still sell it when typed. The double does not sell it.
+  WEB_ADDRESS_EXTRA_TLDS: "ae",
 };
 const run = <T>(fn: () => Promise<T>, extra: Record<string, string> = {}) =>
   withRuntimeConfig({ ...settings, ...extra }, fn);
@@ -97,7 +100,7 @@ test("a taken name: the other endings are offered in the configured order, one a
   assert.equal(
     mock.commands("domains.check").at(-1)!.params.DomainList,
     "athena.com,athena.fit,athena.fitness,athena.coach,athena.training,athena.club,athena.pro,athena.app,athena.me",
-    "the name on every suggested ending the registrar sells (.ae is not sold by the double)",
+    "the name on every suggested ending (.ae is not suggested)",
   );
   assert.deepEqual(answer.requested, { domain: "athena.com", status: "taken" });
   assert.deepEqual(
@@ -110,7 +113,9 @@ test("a taken name: the other endings are offered in the configured order, one a
     ]),
     [
       ["athena.fit", 1499, 4499, false, "USD"],
-      ["athena.fitness", 1499, 4499, false, "USD"],
+      // Renewal cost 39.16: 44.99 would keep 3.34 after Stripe's fees, so
+      // the minimum margin moves it to 49.99.
+      ["athena.fitness", 1499, 4999, false, "USD"],
       ["athena.training", 1499, 4499, false, "USD"],
       // Premium USD 40.00 + 0.18 ICANN fee → 49.99 both years.
       ["athena.club", 4999, 4999, true, "USD"],
@@ -458,7 +463,7 @@ test("the worker keeps the suggested endings' prices warm, four a run", async ()
   assert.equal(
     warm.size,
     10,
-    "every suggested ending is cached, .ae as not offered",
+    "every ending that can be bought is cached, .ae (typed only) as not offered",
   );
   // Fresh prices are not asked again.
   const done = pricingCalls();

@@ -1031,7 +1031,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending; if that leaves less than the minimum margin (USD 4.00) after the registrar's cost and Stripe's estimated fees (card percentage, the international card extra, the fixed fee and, unless the Stripe account holds a USD balance, the currency conversion fee), it moves up one price step at a time until it does: with the defaults a USD 11.48 cost is USD 19.99, a USD 18.68 cost is USD 24.99 and a USD 14.90 cost is USD 24.99 (19.99 would leave USD 3.83). A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -1151,16 +1151,74 @@ INTEGRATION_CATALOG.push({
     }),
     field("WEB_ADDRESS_PRICE_ENDING_USD", "Price ending (USD)", "number", {
       defaultValue: "4.99",
-      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 15.00 is 19.99.",
+      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 14.73 is 19.99 (from 14.74 the minimum margin below moves it to 24.99).",
     }),
     field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
       defaultValue: "100.00",
       help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
     }),
+    field(
+      "WEB_ADDRESS_MIN_MARGIN_USD",
+      "Minimum margin per year after Stripe's fees (USD)",
+      "number",
+      {
+        defaultValue: "4.00",
+        help: "What each first-year and renewal price must leave after the registrar's cost and Stripe's estimated fees below. When the rounded price leaves less, it moves up one price step at a time (19.99 to 24.99) until it does. Owner decision: at least USD 4.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_PERCENT",
+      "Stripe card fee (%)",
+      "number",
+      {
+        defaultValue: "2.9",
+        help: "Stripe's percentage per card charge (UAE standard pricing: 2.9% + AED 1.00). 0 to 15, at most two decimals. Used only to keep the minimum margin; Stripe charges its own fee.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT",
+      "Stripe extra for international cards (%)",
+      "number",
+      {
+        defaultValue: "1.0",
+        help: "Stripe adds 1% for a card issued outside the UAE. Counted for every charge so a foreign card still leaves the minimum margin; set 0 to assume UAE cards only. 0 to 15.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_FIXED_USD",
+      "Stripe fixed fee per charge (USD)",
+      "number",
+      {
+        defaultValue: "0.28",
+        help: "Stripe's AED 1.00 per charge in US dollars (1 / 3.6725 = 0.2723, rounded up). 0 to 10.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT",
+      "Stripe currency conversion fee (%)",
+      "number",
+      {
+        defaultValue: "1.0",
+        help: "Trainers pay domains in USD; an account that settles in AED pays Stripe's conversion fee on each charge (1% on UAE pricing). 0 to 15. Not counted when the account holds a USD balance.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_USD_BALANCE",
+      "Stripe account holds a USD balance",
+      "boolean",
+      {
+        defaultValue: "false",
+        help: "Turn on once a USD balance is open in the Stripe dashboard (Balances, add a currency): USD charges then stay in USD and the conversion fee is left out of the margin. Prices are recalculated for new searches and orders only.",
+      },
+    ),
     field("WEB_ADDRESS_TLDS", "Suggested endings, in order", "text", {
-      defaultValue: "com,fit,fitness,coach,training,ae,club,pro,app,me",
-      // The earlier default (offered endings before 28 September 2026).
-      supersededValues: ["com,net,org,co"],
+      defaultValue: "com,fit,fitness,coach,training,club,pro,app,me",
+      // Earlier defaults: the endings offered before 28 September 2026, and
+      // the list with .ae (removed by the owner the same day).
+      supersededValues: [
+        "com,net,org,co",
+        "com,fit,fitness,coach,training,ae,club,pro,app,me",
+      ],
       help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first. Only these endings and the other allowed endings below can be bought.",
     }),
     field(
@@ -1467,6 +1525,33 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(
           `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_MIN_MARGIN_USD" &&
+        !(cents >= 0 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_STRIPE_FIXED_USD" &&
+        !(cents >= 0 && cents <= 1000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 10 with at most two decimals`,
+        );
+      if (
+        (key === "WEB_ADDRESS_STRIPE_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT") &&
+        !(
+          /^\d{1,2}(\.\d{1,2})?$/.test(text) &&
+          Number(text) >= 0 &&
+          Number(text) <= 15
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a percentage from 0 to 15 with at most two decimals`,
         );
       if (
         key === "FINANCE_USD_TO_AED" &&

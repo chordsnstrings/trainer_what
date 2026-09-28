@@ -1,7 +1,10 @@
 // Trainer domain prices and search plans (packages/domain/src/web-address.ts),
-// owner decision of 28 September 2026: the registrar's USD cost rounded up to
+// owner decisions of 28 September 2026: the registrar's USD cost rounded up to
 // the next multiple of USD 5, plus USD 4.99, separately for the first year and
-// the renewal; names over USD 100 for either are hidden; trainers pay in USD.
+// the renewal, then moved up one step at a time until at least USD 4 is left
+// after Stripe's estimated fees (2.9% + 1% international + USD 0.28, plus 1%
+// currency conversion unless the Stripe account holds USD); names over USD
+// 100 for either are hidden; trainers pay in USD; .ae is not suggested.
 // Pure functions: integer cents only.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,8 +12,15 @@ import {
   DEFAULT_PRICE_RULE,
   DEFAULT_SUGGESTED_TLDS,
   cleanDomainQuery,
+  domainPrice,
+  domainPriceDetails,
   domainSearchPlan,
   exactUsdCents,
+  percentBasisPoints,
+  renewalIncrease,
+  renewalPriceNote,
+  storedPriceRule,
+  stripeFeeEstimate,
   isProtectedLabel,
   markupPriceCents,
   priceRuleFromSettings,
@@ -115,8 +125,19 @@ test("first-year and renewal prices, the USD 100 cap and premium names", () => {
   assert.equal(withinPriceCap(10000), true);
   assert.equal(withinPriceCap(10001), false);
   assert.equal(withinPriceCap(Number.NaN), false);
+  // 95.00 → 99.99 would leave less than nothing after Stripe's fees, so it
+  // moves up to 104.99 and is hidden by the cap; 90.00 → 94.99 would keep
+  // USD 0.05, so it moves to 99.99, which keeps the margin and is offered.
   assert.deepEqual(
     trainerDomainPrices({ registerUsd: "95.00", renewUsd: "12.00" }),
+    {
+      firstYearCents: 10499,
+      renewalCents: 1999,
+      offered: false,
+    },
+  );
+  assert.deepEqual(
+    trainerDomainPrices({ registerUsd: "90.00", renewUsd: "12.00" }),
     {
       firstYearCents: 9999,
       renewalCents: 1999,
@@ -157,14 +178,40 @@ test("operator settings for the rule, with the owner's defaults", () => {
     stepCents: 500,
     endingCents: 499,
     capCents: 10000,
+    minMarginCents: 400,
+    cardFeeBp: 290,
+    internationalFeeBp: 100,
+    fixedFeeCents: 28,
+    conversionFeeBp: 100,
+    usdBalance: false,
   });
   assert.deepEqual(
-    priceRuleFromSettings({ step: "10", ending: "9.99", cap: "150" }),
+    priceRuleFromSettings({
+      step: "10",
+      ending: "9.99",
+      cap: "150",
+      minMargin: "5",
+      cardPercent: "3.25",
+      internationalPercent: "0",
+      fixedFee: "0.30",
+      conversionPercent: "2",
+      usdBalance: "true",
+    }),
     {
       stepCents: 1000,
       endingCents: 999,
       capCents: 15000,
+      minMarginCents: 500,
+      cardFeeBp: 325,
+      internationalFeeBp: 0,
+      fixedFeeCents: 30,
+      conversionFeeBp: 200,
+      usdBalance: true,
     },
+  );
+  assert.equal(
+    priceRuleFromSettings({ usdBalance: "false" }).usdBalance,
+    false,
   );
   assert.deepEqual(
     priceRuleFromSettings({ step: " ", ending: "", cap: null }),
@@ -176,6 +223,13 @@ test("operator settings for the rule, with the owner's defaults", () => {
     { ending: "4.999" },
     { cap: "0" },
     { step: "-5" },
+    { minMargin: "-1" },
+    { minMargin: "4.001" },
+    { cardPercent: "15.01" },
+    { cardPercent: "2.999" },
+    { internationalPercent: "abc" },
+    { conversionPercent: "16" },
+    { fixedFee: "10.01" },
   ])
     assert.throws(
       () => priceRuleFromSettings(bad),
@@ -185,13 +239,14 @@ test("operator settings for the rule, with the owner's defaults", () => {
 });
 
 test("search plans: the typed name first, then the suggested endings in order", () => {
+  // Owner decision (28 September 2026): no .ae by default; an operator may
+  // still list it (suggested or typed-only).
   assert.deepEqual(DEFAULT_SUGGESTED_TLDS, [
     "com",
     "fit",
     "fitness",
     "coach",
     "training",
-    "ae",
     "club",
     "pro",
     "app",
@@ -199,6 +254,9 @@ test("search plans: the typed name first, then the suggested endings in order", 
   ]);
   const tlds = suggestedTlds(undefined);
   assert.deepEqual(tlds, DEFAULT_SUGGESTED_TLDS);
+  assert.ok(!tlds.includes("ae"));
+  assert.ok(suggestedTlds("com,ae").includes("ae"), "operators can add .ae");
+  assert.ok(purchasableTlds(tlds, "ae").includes("ae"));
   assert.deepEqual(domainSearchPlan("athena", tlds), {
     label: "athena",
     requested: "athena.com",
@@ -321,4 +379,150 @@ test("the platform's brand is protected on every ending", () => {
 test("orders quoted in AED keep their own rate for the registrar cost", () => {
   assert.equal(usdToAedMinor("10.4600", "3.6725"), 3842);
   assert.equal(usdToAedMinor("0.0001", "3.6725"), 1, "costs round up");
+});
+
+test("minimum margin of USD 4 after Stripe's estimated fees: the owner's cases", () => {
+  const rule = DEFAULT_PRICE_RULE;
+  // 14.90 → the rounding gives 19.99, which would keep 19.99 − 14.90 − 1.26
+  // (0.78 card + 0.28 fixed + 0.20 conversion) = 3.83: one step up, 24.99.
+  assert.deepEqual(domainPrice(1490, rule), {
+    priceCents: 2499,
+    costCents: 1490,
+    cardFeeCents: 126,
+    conversionFeeCents: 25,
+    feesCents: 151,
+    marginCents: 858,
+    raisedSteps: 1,
+  });
+  assert.equal(19_99 - 14_90 - stripeFeeEstimate(1999, rule).totalCents, 383);
+  // 11.48 → 19.99 keeps 7.25.
+  assert.deepEqual(domainPrice(1148, rule), {
+    priceCents: 1999,
+    costCents: 1148,
+    cardFeeCents: 106,
+    conversionFeeCents: 20,
+    feesCents: 126,
+    marginCents: 725,
+    raisedSteps: 0,
+  });
+  // Renewal 18.68 → 24.99 keeps 24.99 − 18.68 − 1.51 = 4.80: unchanged.
+  assert.deepEqual(domainPrice(1868, rule), {
+    priceCents: 2499,
+    costCents: 1868,
+    cardFeeCents: 126,
+    conversionFeeCents: 25,
+    feesCents: 151,
+    marginCents: 480,
+    raisedSteps: 0,
+  });
+  // .com at Namecheap (28 September 2026): 19.99 / 24.99 as before.
+  assert.deepEqual(
+    trainerDomainPrices({ registerUsd: "11.48", renewUsd: "18.68" }),
+    { firstYearCents: 1999, renewalCents: 2499, offered: true },
+  );
+  // The boundary: 14.73 keeps exactly 4.00 at 19.99; one cent more does not.
+  assert.equal(domainPrice(1473, rule).priceCents, 1999);
+  assert.equal(domainPrice(1473, rule).marginCents, 400);
+  assert.equal(domainPrice(1474, rule).priceCents, 2499);
+  // With a USD balance there is no conversion fee: 14.74 stays at 19.99
+  // (19.99 − 14.74 − 1.06 = 4.19), 14.90 too (4.03), 14.94 (3.99) does not.
+  const usd = { ...rule, usdBalance: true };
+  assert.equal(stripeFeeEstimate(1999, usd).conversionCents, 0);
+  assert.equal(domainPrice(1474, usd).priceCents, 1999);
+  assert.equal(domainPrice(1490, usd).priceCents, 1999);
+  assert.equal(domainPrice(1490, usd).marginCents, 403);
+  assert.equal(domainPrice(1494, usd).priceCents, 2499);
+  // The price always keeps the minimum, always ends in .99, and is the
+  // lowest step that does (checked against a plain step-by-step walk).
+  for (const r of [rule, usd, { ...rule, minMarginCents: 1500 }])
+    for (let cost = 1; cost <= 20000; cost += 13) {
+      const got = domainPrice(cost, r);
+      assert.ok(got.marginCents >= r.minMarginCents, `cost ${cost}`);
+      assert.equal(got.priceCents % 100, 99);
+      let walk = markupPriceCents(cost, r);
+      while (
+        walk - cost - stripeFeeEstimate(walk, r).totalCents <
+        r.minMarginCents
+      )
+        walk += r.stepCents;
+      assert.equal(got.priceCents, walk, `cost ${cost}`);
+      assert.equal(
+        got.raisedSteps,
+        (walk - markupPriceCents(cost, r)) / r.stepCents,
+      );
+    }
+  // No minimum and no fees: the owner's rounding alone.
+  const plain = storedPriceRule({
+    stepCents: 500,
+    endingCents: 499,
+    capCents: 10000,
+  });
+  assert.deepEqual(plain, {
+    stepCents: 500,
+    endingCents: 499,
+    capCents: 10000,
+    minMarginCents: 0,
+    cardFeeBp: 0,
+    internationalFeeBp: 0,
+    fixedFeeCents: 0,
+    conversionFeeBp: 0,
+    usdBalance: false,
+  });
+  for (const cost of [1148, 1490, 1500, 9500])
+    assert.equal(domainPrice(cost, plain).priceCents, markupPriceCents(cost));
+  assert.deepEqual(storedPriceRule(DEFAULT_PRICE_RULE), DEFAULT_PRICE_RULE);
+  assert.deepEqual(storedPriceRule(null).minMarginCents, 0);
+});
+
+test("Stripe fee estimate: each percentage rounded up to a whole cent", () => {
+  assert.deepEqual(stripeFeeEstimate(1999, DEFAULT_PRICE_RULE), {
+    cardCents: 106,
+    conversionCents: 20,
+    totalCents: 126,
+  });
+  assert.deepEqual(stripeFeeEstimate(10000, DEFAULT_PRICE_RULE), {
+    cardCents: 418,
+    conversionCents: 100,
+    totalCents: 518,
+  });
+  assert.equal(percentBasisPoints("2.9"), 290);
+  assert.equal(percentBasisPoints("1"), 100);
+  assert.equal(percentBasisPoints("0.25"), 25);
+  for (const bad of ["", "-1", "2.999", "1e2", "abc"])
+    assert.throws(() => percentBasisPoints(bad), RangeError, bad);
+});
+
+test("operators see each year's fees and net margin", () => {
+  const details = domainPriceDetails({
+    registerUsd: "14.90",
+    renewUsd: "18.68",
+  });
+  assert.equal(details.firstYear.priceCents, 2499);
+  assert.equal(details.firstYear.raisedSteps, 1);
+  assert.equal(details.renewal.priceCents, 2499);
+  assert.equal(details.renewal.marginCents, 480);
+  assert.equal(details.offered, true);
+});
+
+test("the renewal note: shown whenever the renewal costs more, stronger when much more", () => {
+  assert.equal(renewalIncrease(2499, 2499), null);
+  assert.equal(renewalIncrease(2999, 2499), null);
+  assert.deepEqual(renewalIncrease(1999, 2499), {
+    moreMinor: 500,
+    much: false,
+  });
+  assert.deepEqual(renewalIncrease(999, 5499), { moreMinor: 4500, much: true });
+  // USD 10 more, or half the first year more, is "much".
+  assert.equal(renewalIncrease(4999, 5999)!.much, true);
+  assert.equal(renewalIncrease(1000, 1500)!.much, true);
+  assert.equal(renewalIncrease(4999, 5998)!.much, false);
+  assert.equal(renewalPriceNote(2499, 2499), null);
+  assert.equal(
+    renewalPriceNote(1999, 2499),
+    "Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+  );
+  assert.equal(
+    renewalPriceNote(999, 5499),
+    "Note: the yearly renewal is much higher than the first year: USD 54.99 a year from the second year, USD 45.00 more than the first year's USD 9.99.",
+  );
 });

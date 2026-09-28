@@ -57,9 +57,10 @@ import {
   type Registrar,
 } from "../../../packages/providers/src/registrar.ts";
 import {
-  DEFAULT_PRICE_RULE,
-  markupPriceCents,
+  domainPrice,
   platformRootDomain,
+  renewalPriceNote,
+  storedPriceRule,
   subdomainEligible,
   subdomainHost,
   usdCents,
@@ -149,6 +150,12 @@ export const RENEWAL_LEAD_DAYS = 30;
 export const RENEWAL_COST_CHECK_DAYS = 60;
 /** Grace notices before expiry when a renewal is not paid. */
 export const GRACE_NOTICE_DAYS = [14, 7, 3, 1] as const;
+/**
+ * This many days before the yearly renewal charge, the trainer is told the
+ * date and the renewal price (with the note when it is higher than the first
+ * year), once per registration period (owner decision, 28 September 2026).
+ */
+export const UPCOMING_RENEWAL_NOTICE_DAYS = 14;
 /**
  * After expiry the subscription is kept this long while Stripe still retries
  * an open renewal invoice (inside the registrar's grace period for the
@@ -432,6 +439,29 @@ export function orderPrices(order: Order) {
     renewalMinor: minor(quote.renewalPriceMinor),
   };
 }
+/** " of USD 24.99" (the order's renewal price), for trainer notices. */
+function renewalPriceText(order: Order, word: "of" | "at" = "of") {
+  const prices = orderPrices(order);
+  return prices.renewalMinor
+    ? ` ${word} ${prices.currency} ${(prices.renewalMinor / 100).toFixed(2)}`
+    : "";
+}
+/**
+ * The renewal note (" Note: the yearly renewal is …") while the domain has
+ * not been renewed yet and its renewal costs more than the first year, for
+ * trainer notices; "" otherwise.
+ */
+function firstRenewalNote(order: Order) {
+  if ((order.progress ?? []).some((p: any) => p?.step === "renewed"))
+    return "";
+  const prices = orderPrices(order);
+  const note = renewalPriceNote(
+    prices.firstYearMinor,
+    prices.renewalMinor,
+    prices.currency,
+  );
+  return note ? " " + note : "";
+}
 /**
  * A premium name's registration or renewal price as quoted (without the
  * ICANN fee), which the registrar's order and renewal must name; undefined
@@ -444,11 +474,12 @@ function premiumPrice(order: Order, which: "registerUsd" | "renewUsd") {
 type CostKind = "register" | "renew";
 /**
  * Whether a registrar cost breaks the order's pricing for that year: its
- * price by the order's own rule (ceil(cost / step) × step + ending) is above
- * what the trainer pays for that year, so the owner's margin is no longer
- * kept (USD orders); for an order quoted in AED, any cost above the quoted
- * one. A rise that stays within the same step keeps the margin and is not
- * flagged.
+ * price by the order's own rule (ceil(cost / step) × step + ending, moved up
+ * while the minimum margin after Stripe's estimated fees is not kept) is
+ * above what the trainer pays for that year, so the owner's margin is no
+ * longer kept (USD orders); for an order quoted in AED, any cost above the
+ * quoted one. A rise that still leaves the minimum margin is not flagged.
+ * Orders quoted before the minimum margin keep their rule without fees.
  */
 export function costOverPrice(
   order: Order,
@@ -465,10 +496,10 @@ export function costOverPrice(
   const prices = orderPrices(order);
   if (prices.currency === "USD") {
     try {
-      const price = markupPriceCents(
+      const price = domainPrice(
         cost,
-        order.quote?.priceRule ?? DEFAULT_PRICE_RULE,
-      );
+        storedPriceRule(order.quote?.priceRule),
+      ).priceCents;
       return (
         price >
         (which === "register" ? prices.firstYearMinor : prices.renewalMinor)
@@ -1061,7 +1092,7 @@ export async function processWebAddressStripeEvent(
         templateKey: "web-address-renewal-failed",
         dedupe: "payment-failed:" + object.id,
         title: "Your domain renewal payment failed",
-        body: `We could not charge the yearly renewal for ${order.hostname}. Update your card in Stripe before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.`,
+        body: `We could not charge the yearly renewal${renewalPriceText(order)} for ${order.hostname}. Update your card in Stripe before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.`,
       });
     });
     return true;
@@ -2977,7 +3008,7 @@ async function verifyAndActivate(
           templateKey: "web-address-live",
           dedupe: "live",
           title: "Your website is live on your own domain",
-          body: `${forwardTarget ? `https://${order.hostname} now forwards visitors to ${forwardTarget}` : `https://${order.hostname} now shows your coaching website and member app sign-in`}. Your domain renews every year${Number.isFinite(expires) ? `; the next renewal is before ${new Date(expires).toISOString().slice(0, 10)}` : ""}.`,
+          body: `${forwardTarget ? `https://${order.hostname} now forwards visitors to ${forwardTarget}` : `https://${order.hostname} now shows your coaching website and member app sign-in`}. Your domain renews every year${renewalPriceText(current, "at")}${Number.isFinite(expires) ? `; the next renewal is before ${new Date(expires).toISOString().slice(0, 10)}` : ""}.${firstRenewalNote(current)}`,
         });
       return row;
     });
@@ -3594,6 +3625,7 @@ async function maintainActive(
     () => true,
   );
   await sendGraceNotice(db, tenantId, order);
+  const upcomingAt = await sendUpcomingRenewalNotice(db, tenantId, order);
   const costCheckAt = expires - RENEWAL_COST_CHECK_DAYS * DAY;
   if (costCheckAt <= Date.now())
     await checkRenewalCost(db, tenantId, order, deps).catch(() => {});
@@ -3610,6 +3642,7 @@ async function maintainActive(
     alignRetryAt,
     ...nextNotice,
     ...(costCheckAt > Date.now() ? [costCheckAt] : []),
+    ...(upcomingAt !== null && upcomingAt > Date.now() ? [upcomingAt] : []),
     ...(checkAfterCharge > Date.now() ? [checkAfterCharge] : []),
     ...(zoneLeft ? [Date.now() + ZONE_RECHECK_DAYS * DAY] : []),
   );
@@ -3651,6 +3684,57 @@ async function checkRenewalCost(
       await recordCostAlert(tx, order, "renew_upcoming", price.renewUsd);
   });
 }
+/**
+ * Tells the trainer, UPCOMING_RENEWAL_NOTICE_DAYS before the yearly charge,
+ * when it happens and what it costs, with the renewal note while the domain
+ * has not been renewed yet (once per registration period). Only while
+ * renewal is on, the subscription still runs and the renewal is not paid.
+ * Returns when this notice is due (for the next visit), or null when none
+ * is due this period.
+ */
+async function sendUpcomingRenewalNotice(
+  db: Database,
+  tenantId: string,
+  order: Order,
+) {
+  const expires = Date.parse(order.expires_at);
+  if (!Number.isFinite(expires) || !order.renewal_enabled) return null;
+  if (
+    ["canceled", "incomplete_expired"].includes(order.billing_status) ||
+    ["paid", "renewing", "failed"].includes(order.renewal_status)
+  )
+    return null;
+  const period = new Date(expires).toISOString().slice(0, 10);
+  const key = `${period}:upcoming`;
+  const sent = order.notices ?? {};
+  if (sent[key]) return null;
+  const recorded = Date.parse(order.evidence?.nextRenewalChargeAt ?? "");
+  const chargeAt = Number.isFinite(recorded)
+    ? recorded
+    : expires - RENEWAL_LEAD_DAYS * DAY;
+  const dueAt = chargeAt - UPCOMING_RENEWAL_NOTICE_DAYS * DAY;
+  if (Date.now() < dueAt) return dueAt;
+  // A charge already past (or a lost event) is for the grace notices.
+  if (chargeAt <= Date.now()) return null;
+  const prices = orderPrices(order);
+  if (!prices.renewalMinor) return null;
+  const chargeDay = new Date(chargeAt).toISOString().slice(0, 10);
+  await db.tenant(workerActor(tenantId), async (tx) => {
+    await notifyOwner(tx, tenantId, order, {
+      templateKey: "web-address-renewal-upcoming",
+      dedupe: `upcoming:${period}`,
+      title: "Your domain renews soon",
+      body: `On ${chargeDay} we charge ${prices.currency} ${(prices.renewalMinor / 100).toFixed(2)} to your card for another year of ${order.hostname}, renewed automatically.${firstRenewalNote(order)} You can turn renewal off in Web address before that date.`,
+    });
+    // Merged in the database: a grace notice sent in the same visit (from
+    // an order read before it) must not be overwritten.
+    await tx.query(
+      "UPDATE domain_orders SET notices=coalesce(notices,'{}'::jsonb)||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1",
+      [order.id, JSON.stringify({ [key]: new Date().toISOString() })],
+    );
+  });
+  return null;
+}
 /** Sends the grace notice due now before expiry (once per period and step). */
 async function sendGraceNotice(db: Database, tenantId: string, order: Order) {
   const expires = Date.parse(order.expires_at);
@@ -3674,8 +3758,8 @@ async function sendGraceNotice(db: Database, tenantId: string, order: Order) {
     const body = !order.renewal_enabled
       ? `Renewal is turned off for ${order.hostname}, so it stops working on ${period}${fallback ? `; your website stays available at ${fallback}` : ""}.${canTurnBackOn ? ` You can turn renewal back on in Web address until ${new Date(switchUntil).toISOString().slice(0, 10)}.` : " To keep this domain, contact platform support."}`
       : pastDue
-        ? `The yearly renewal payment for ${order.hostname} failed. Update your card in Stripe before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.`
-        : `The yearly renewal for ${order.hostname} has not been charged yet. We charge your card before ${period}; make sure it is up to date.`;
+        ? `The yearly renewal payment${renewalPriceText(order)} for ${order.hostname} failed. Update your card in Stripe before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.${firstRenewalNote(order)}`
+        : `The yearly renewal${renewalPriceText(order)} for ${order.hostname} has not been charged yet. We charge your card before ${period}; make sure it is up to date.${firstRenewalNote(order)}`;
     await db.tenant(wa, async (tx) => {
       await notifyOwner(tx, tenantId, order, {
         templateKey: "web-address-renewal-reminder",

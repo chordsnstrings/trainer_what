@@ -141,7 +141,15 @@ test("trainer screens show only the first-year and renewal price, never the regi
   assert.doesNotMatch(html, /registrar|cost price|margin|11\.48|18\.68/i);
   assert.doesNotMatch(html, DNS_HOST);
   // Trainers see and pay in USD (owner decision, 28 September 2026).
-  assert.match(html, /First year USD\s19\.99 · renews at\s+USD\s24\.99 per year/);
+  assert.match(
+    html,
+    /First year<\/span> <strong>USD\s19\.99<\/strong>.*Renewal, every year after<\/span> <strong>USD\s24\.99<\/strong>/s,
+  );
+  // The renewal is dearer than the first year: the note says so.
+  assert.match(
+    html,
+    /Note: the yearly renewal \(USD 24\.99\) is USD 5\.00 more than the first year \(USD 19\.99\)\./,
+  );
   // The forwarding choice names only the trainer's own platform address.
   assert.match(html, /Show my site on this domain/);
   assert.match(html, /Forward to my <span[^>]*>layla\.trainsyou\.com<\/span> address/);
