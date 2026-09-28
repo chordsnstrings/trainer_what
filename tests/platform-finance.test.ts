@@ -241,13 +241,14 @@ test("voice calls are priced at their estimate when made, and unpriced rows are 
     periodUsage(tx, "2026-05", 3.6725),
   );
   assert.equal(usage.unpriced, 0);
-  // 0.005 + 0.02 + 0.05 + 0.01 + 0.03 = 0.115 USD at 3.6725 = 42.23 fils.
+  // 0.005 + 0.02 + 0.05 + 0.01 + 0.03 = 0.115 USD at 3.6725 with the
+  // default 100% markup = 84.47 fils.
   assert.equal(usage.chargeableUsd, "0.11500000");
-  assert.equal(usage.chargeMinor, 42);
+  assert.equal(usage.chargeMinor, 84);
   const statement = await f.db.tenant(finance(owner), (tx) =>
-    postUsageStatement(tx, finance(owner), { ...input, chargeMinor: 42 }),
+    postUsageStatement(tx, finance(owner), { ...input, chargeMinor: 84 }),
   );
-  assert.equal(Number(statement.charge_minor), 42);
+  assert.equal(Number(statement.charge_minor), 84);
   assert.equal(statement.cost_event_count, 5);
   const closed = await f.db.tenant(finance(owner), (tx) =>
     closeMonth(tx, finance(owner), "2026-05", "Synthetic close evidence"),
@@ -466,9 +467,9 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
   assert.equal(preview.statusCode, 200, preview.body);
   assert.deepEqual(
     [preview.json().rate.aedPerUsd, preview.json().usage.chargeMinor],
-    [3.68, 3680],
+    [3.68, 7360],
   );
-  const posted = await route({ ...statement, fxAedPerUsd: 3.68, chargeMinor: 3680 });
+  const posted = await route({ ...statement, fxAedPerUsd: 3.68, chargeMinor: 7360 });
   assert.equal(posted.statusCode, 200, posted.body);
   // April has no reviewed rate: an operator's rate is accepted, as before,
   // and the preview says the default rate converts it.
@@ -477,7 +478,7 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
     { cookie: fin.cookie },
   );
   assert.deepEqual(aprilPreview.json().chargeRate, { aedPerUsd: 3.6725, source: "default" });
-  const april = await route({ ...statement, period: "2026-04", fxAedPerUsd: 3.67, chargeMinor: 3670 });
+  const april = await route({ ...statement, period: "2026-04", fxAedPerUsd: 3.67, chargeMinor: 7340 });
   assert.equal(april.statusCode, 200, april.body);
   // A posted statement shows what it charged beside the month's current
   // priced usage at that statement's rate.
@@ -487,7 +488,7 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
   );
   assert.deepEqual(
     [postedPreview.json().postedComparison.chargeMinor, postedPreview.json().postedComparison.currentChargeMinor, postedPreview.json().postedComparison.differenceMinor],
-    [3670, 3670, 0],
+    [7340, 7340, 0],
   );
   // Revising March after its usage was charged at 3.68 needs a confirmation;
   // the charge keeps its rate and metrics flag the month.
@@ -520,7 +521,7 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
   );
 });
 
-test("the usage markup and who pays for complimentary members are settings whose defaults keep today's charge", async () => {
+test("the usage markup (default 100%) and who pays for complimentary members (the trainer) are settings", async () => {
   const owner = await f.person({ name: "Owner Usage Settings" });
   await costs(owner.tenantId, [
     { task: "coaching", status: "recorded", cost: 1, estimate: 1, at: "2026-04-05T10:00:00Z" },
@@ -530,14 +531,21 @@ test("the usage markup and who pays for complimentary members are settings whose
     withRuntimeConfig(config, () =>
       f.db.tenant(finance(owner), (tx) => periodUsage(tx, "2026-04", 4)),
     );
+  // Owner decisions (28 September 2026): the trainer pays twice the cost,
+  // complimentary members' usage included; blank reads as the default.
   const today = await usage({});
-  assert.deepEqual([today.chargeableUsd, today.chargeMinor, today.platformBorneUsd], ["2.00000000", 800, "0.00000000"]);
+  assert.deepEqual([today.chargeableUsd, today.chargeMinor, today.platformBorneUsd, today.markupPercent], ["2.00000000", 1600, "0.00000000", 100]);
+  assert.equal((await usage({ FINANCE_USAGE_MARKUP_PERCENT: "" })).chargeMinor, 1600);
+  assert.equal((await usage({ FINANCE_USAGE_MARKUP_PERCENT: "0" })).chargeMinor, 800);
   const markup = await usage({ FINANCE_USAGE_MARKUP_PERCENT: "10" });
   assert.equal(markup.chargeMinor, 880);
   const platform = await usage({ FINANCE_COMPLIMENTARY_USAGE_BEARER: "platform" });
-  assert.deepEqual([platform.chargeableUsd, platform.chargeMinor, platform.platformBorneUsd], ["1.00000000", 400, "1.00000000"]);
+  assert.deepEqual([platform.chargeableUsd, platform.chargeMinor, platform.platformBorneUsd], ["1.00000000", 800, "1.00000000"]);
   assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_USD_TO_AED: "20" }), /between 1 and 10/);
-  assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_USAGE_MARKUP_PERCENT: "150" }), /0 to 100/);
+  assert.doesNotThrow(() => validateIntegrationValues("platform_finance", { FINANCE_USAGE_MARKUP_PERCENT: "150" }));
+  assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_USAGE_MARKUP_PERCENT: "1500" }), /0 to 1000/);
+  assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_STRIPE_FEE_PERCENT: "2.99999" }), /0 to 20/);
+  assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_STRIPE_FEE_FIXED_AED: "1.005" }), /0 to 20/);
   assert.throws(() => validateIntegrationValues("platform_finance", { FINANCE_COMPLIMENTARY_USAGE_BEARER: "member" }), /unsupported selection/);
   assert.throws(() => validateIntegrationValues("model", { MODEL_PROVIDER: "Open AI!" }), /short name/);
 });
@@ -562,7 +570,7 @@ test("a provider's month is priced from its usage total across workspaces, in pr
     postUsageStatement(tx, finance(two), {
       period: "2026-06",
       fxAedPerUsd: 3.6725,
-      chargeMinor: 220,
+      chargeMinor: 441,
       feeScheduleVersion: "fixture-v1",
       evidenceReference: "Synthetic usage evidence",
     }),
@@ -636,11 +644,11 @@ test("a provider's month is priced from its usage total across workspaces, in pr
     [3, "1.50000000", "1.50000000", "1.50000000", 1.5, 1],
   );
   assert.ok(r.json().note);
-  // Workspace two was charged 0.6 USD (220 fils); its priced usage is now
-  // 0.9 USD (331 fils): the difference is reported, not charged.
+  // Workspace two was charged 0.6 USD (441 fils with the 100% markup); its
+  // priced usage is now 0.9 USD (661 fils): the difference is reported here.
   assert.deepEqual(
     r.json().chargedWorkspaces.map((w: any) => [w.tenantId, w.chargeMinor, w.currentChargeableUsd, w.currentChargeMinor, w.differenceMinor]),
-    [[two.tenantId, 220, "0.90000000", 331, 111]],
+    [[two.tenantId, 441, "0.90000000", 661, 220]],
   );
   const after = await Promise.all([
     row(one.tenantId, estimatedOne),
@@ -807,9 +815,10 @@ test("automatic month close waits for unresolved usage by default, estimates it 
         tx.query("SELECT * FROM usage_statements WHERE period='2026-07'"),
       )
     )[0];
-  // 1 USD at the automation's approved rate: no reviewed rate for July.
+  // 1 USD at the automation's approved rate with the 100% markup: no
+  // reviewed rate for July.
   const first = await statement();
-  assert.deepEqual([Number(first.charge_minor), first.cost_event_count], [367, 2]);
+  assert.deepEqual([Number(first.charge_minor), first.cost_event_count], [735, 2]);
   const payouts = async () =>
     f.db.tenant(finance(owner), (tx) =>
       tx.query("SELECT id,status FROM payouts WHERE period='2026-07'"),
@@ -827,7 +836,7 @@ test("automatic month close waits for unresolved usage by default, estimates it 
   );
   assert.deepEqual(
     [corrected.correctionAfterCharge.period, corrected.correctionAfterCharge.previousCostUsd, corrected.correctionAfterCharge.statementChargeMinor],
-    ["2026-07", "0.50000000", 367],
+    ["2026-07", "0.50000000", 735],
   );
   // Re-run after the correction: the posted statement is kept and the run
   // reaches the same payout (blocked by the cap again, not by the usage).
@@ -835,7 +844,7 @@ test("automatic month close waits for unresolved usage by default, estimates it 
     executeFinanceJob(f.db, owner.tenantId, job),
   );
   assert.deepEqual([rerun.status, rerun.code], ["blocked", "PAYOUT_CAP_EXCEEDED"]);
-  assert.equal(Number((await statement()).charge_minor), 367);
+  assert.equal(Number((await statement()).charge_minor), 735);
   // A reviewed rate recorded for July after the charge: the re-run still
   // keeps the posted statement.
   const fin = await f.operator("finance");
@@ -847,7 +856,7 @@ test("automatic month close waits for unresolved usage by default, estimates it 
   const third: any = await executeFinanceJob(f.db, owner.tenantId, job);
   assert.deepEqual([third.status, third.code], ["blocked", "PAYOUT_CAP_EXCEEDED"]);
   const kept = await statement();
-  assert.deepEqual([Number(kept.charge_minor), Number(kept.fx_aed_per_usd)], [367, 3.6725]);
+  assert.deepEqual([Number(kept.charge_minor), Number(kept.fx_aed_per_usd)], [735, 3.6725]);
   assert.deepEqual((await payouts()).map((x: any) => x.id), [payout.id]);
   const [close] = await f.db.tenant(finance(owner), (tx) =>
     tx.query("SELECT status FROM records WHERE kind='close' AND data->>'period'='2026-07'"),
@@ -1037,7 +1046,8 @@ test("metrics and statements show products, disputes, recovered and absorbed cos
     otherCurrencies: { AED: { paymentsMinor: 9000, refundsMinor: 0, registrarCostMinor: 0 } },
   });
   assert.deepEqual(
-    [s.usageCost.costUsd, s.usageCost.estimatedUsd, s.usageCost.unpricedCalls, s.usageCost.complimentaryUsd, s.usageCost.costAedMinor],
+    // Only the operator statement carries provider cost.
+    ["usageCost" in s ? s.usageCost.costUsd : null, "usageCost" in s ? s.usageCost.estimatedUsd : null, "usageCost" in s ? s.usageCost.unpricedCalls : null, "usageCost" in s ? s.usageCost.complimentaryUsd : null, "usageCost" in s ? s.usageCost.costAedMinor : null],
     [0.8, 0.5, 1, 0.25, 294],
   );
 });
@@ -1238,7 +1248,9 @@ test("trainer business analytics reads revenue from the journals payments post",
       refunds_minor: 10000,
       platform_commission_minor: 4600,
       earned_minor: 23400,
-      usage_and_fees_minor: 100,
+      ai_coach_service_fee_minor: 100,
+      stripe_fees_minor: 0,
+      other_charges_minor: 0,
       paid_out_minor: 1000,
     },
   ]);

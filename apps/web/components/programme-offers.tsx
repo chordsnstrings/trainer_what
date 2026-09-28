@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { money } from "@trainer/domain";
+import { useEffect, useState } from "react";
+import { money, paymentBreakdown } from "@trainer/domain";
 import { Field } from "./field";
 
 /**
@@ -44,6 +44,125 @@ export function OfferTerms({ data }: { data: any }) {
   );
 }
 
+type FeeTerms = {
+  stripe: { percentBps: number; fixedMinor: number; internationalBps: number };
+  /** Null for staff, who set session prices but not the offer. */
+  commissionBps: number[] | null;
+  bookingFeeBps?: number;
+  note: string;
+};
+let feeTerms: Promise<FeeTerms | null> | null = null;
+/** Stripe's fee terms and the commission bands, read once per page. */
+function useFeeTerms() {
+  const [terms, setTerms] = useState<FeeTerms | null>(null);
+  useEffect(() => {
+    feeTerms ??= fetch("/api/v1/finance/fees", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((t) => {
+        // A failed read is tried again on the next form, not kept.
+        if (!t) feeTerms = null;
+        return t;
+      });
+    let live = true;
+    void feeTerms.then((t) => {
+      if (live) setTerms(t);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return terms;
+}
+/**
+ * What one member payment leaves the trainer (owner decision, 28 September
+ * 2026: trainers pay Stripe's fees and see them plainly before setting a
+ * price). An estimate for a card issued in the UAE, with the abroad case.
+ */
+export function PaymentEstimate({ price }: { price: string }) {
+  const terms = useFeeTerms();
+  const minor = Math.round(Number(price) * 100);
+  const bands = terms?.commissionBps ?? null;
+  const valid = !!terms && !!bands?.length && Number.isSafeInteger(minor) && minor > 0;
+  const first = valid ? paymentBreakdown(minor, terms!.stripe, bands![0]) : null;
+  // One short announcement once typing pauses; the breakdown below is not
+  // read out again on every keystroke.
+  const [spoken, setSpoken] = useState("");
+  const summary = first
+    ? `Each payment of ${money(minor)}: you receive about ${money(first.youReceiveMinor)} after Stripe's fee and the platform commission.`
+    : "";
+  useEffect(() => {
+    const timer = setTimeout(() => setSpoken(summary), 900);
+    return () => clearTimeout(timer);
+  }, [summary]);
+  const live = (
+    <p className="sr-only" role="status" aria-live="polite">
+      {spoken}
+    </p>
+  );
+  if (!valid || !first) return live;
+  const last = paymentBreakdown(minor, terms!.stripe, bands![bands!.length - 1]);
+  const pct = (bps: number) => `${(bps / 100).toLocaleString("en")}%`;
+  const t = terms!;
+  return (
+    <>
+      {live}
+      <div className="notice">
+        <p>
+          <strong>Each payment of <span dir="ltr">{money(minor)}</span>:</strong>{" "}
+          Stripe fee, paid by you, about{" "}
+          <span dir="ltr">{money(first.stripeFeeMinor)}</span> (
+          {pct(t.stripe.percentBps)} + <span dir="ltr">{money(t.stripe.fixedMinor)}</span>
+          ; a card issued outside the UAE about{" "}
+          <span dir="ltr">{money(first.internationalFeeMinor)}</span>). Platform
+          commission <span dir="ltr">{money(first.commissionMinor)}</span> (
+          {pct(bands![0])} for your first 100 paying members, down to{" "}
+          {pct(bands![bands!.length - 1])}).
+        </p>
+        <p>
+          You receive about{" "}
+          <strong>
+            <span dir="ltr">{money(first.youReceiveMinor)}</span>
+          </strong>{" "}
+          (up to <span dir="ltr">{money(last.youReceiveMinor)}</span> in the lowest
+          commission band).
+        </p>
+        <p className="muted">{t.note}</p>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Stripe's fee terms in one sentence, for prices without commission bands;
+ * `bookingFee` adds the platform's booking fee (paid sessions).
+ */
+export function StripeFeeNote({
+  subject,
+  bookingFee = false,
+}: {
+  subject: string;
+  bookingFee?: boolean;
+}) {
+  const terms = useFeeTerms();
+  if (!terms) return null;
+  const pct = (bps: number) => `${(bps / 100).toLocaleString("en")}%`;
+  return (
+    <p className="muted">
+      Stripe's card fee on {subject} is paid by you: about{" "}
+      {pct(terms.stripe.percentBps)} +{" "}
+      <span dir="ltr">{money(terms.stripe.fixedMinor)}</span> per payment, and{" "}
+      {pct(terms.stripe.internationalBps)} more for a card issued outside the
+      UAE.
+      {bookingFee &&
+        (terms.bookingFeeBps
+          ? ` The platform's booking fee is ${pct(terms.bookingFeeBps)} of each paid session.`
+          : " The platform charges no booking fee on sessions.")}{" "}
+      The actual fee is on your monthly statement.
+    </p>
+  );
+}
+
 export function OfferForm({
   products,
   busy,
@@ -55,6 +174,8 @@ export function OfferForm({
 }) {
   const [billing, setBilling] = useState<"monthly" | "upfront">("monthly");
   const [rolling, setRolling] = useState(true);
+  const [price, setPrice] = useState("");
+  const [voicePrice, setVoicePrice] = useState("");
   const upfront = billing === "upfront";
   return (
     <form
@@ -157,11 +278,29 @@ export function OfferForm({
         <textarea name="description" rows={3} />
       </Field>
       <Field label={upfront ? "Programme price (AED)" : "Monthly price (AED)"}>
-        <input name="price" type="number" min={1} step={0.01} required />
+        <input
+          name="price"
+          type="number"
+          min={1}
+          step={0.01}
+          required
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
       </Field>
+      <PaymentEstimate price={price} />
       <Field label="Premium voice add-on, monthly (AED, optional)">
-        <input name="voicePrice" type="number" min={1} max={1000} step={0.01} />
+        <input
+          name="voicePrice"
+          type="number"
+          min={1}
+          max={1000}
+          step={0.01}
+          value={voicePrice}
+          onChange={(e) => setVoicePrice(e.target.value)}
+        />
       </Field>
+      <PaymentEstimate price={voicePrice} />
       <button className="button" type="submit" disabled={busy}>
         Create offer
       </button>
@@ -180,6 +319,9 @@ export function OfferVoicePrice({
   action: (fn: () => Promise<any>, message?: string) => Promise<any>;
 }) {
   const [open, setOpen] = useState(false);
+  const [voicePrice, setVoicePrice] = useState(
+    product.data.voiceAddOnMinor ? String(product.data.voiceAddOnMinor / 100) : "",
+  );
   if (product.data.premiumVoice === true || product.data.voiceIncluded === true)
     return null;
   if (!open)
@@ -228,11 +370,11 @@ export function OfferVoicePrice({
           max={1000}
           step={0.01}
           required
-          defaultValue={
-            product.data.voiceAddOnMinor ? product.data.voiceAddOnMinor / 100 : undefined
-          }
+          value={voicePrice}
+          onChange={(e) => setVoicePrice(e.target.value)}
         />
       </Field>
+      <PaymentEstimate price={voicePrice} />
       <div className="button-row">
         <button className="button" type="submit" disabled={busy}>
           Save price

@@ -18,7 +18,10 @@ import {
   transitionPayout,
 } from "./finance.ts";
 import { requireRecentMfa } from "./security.ts";
+import { notifyUser } from "./notifications.ts";
+import { refreshSummary } from "./platform-finance-runs.ts";
 import {
+  AI_COACH_SERVICE_FEE,
   estimateUnresolvedUsage,
   financeSettings,
   monthRate,
@@ -117,6 +120,10 @@ export async function reconcileModelUsage(
   await event(tx, a, "finance.usage_corrected_after_charge", id, correction);
   return { ...updated, correctionAfterCharge: correction };
 }
+/** The Asia/Dubai month (YYYY-MM) of a time. */
+export function dubaiMonthOf(at: Date | string) {
+  return new Date(new Date(at).getTime() + 4 * 3600000).toISOString().slice(0, 7);
+}
 export function monthCutoff(period: string) {
   periodSchema.parse(period);
   const [year, month] = period.split("-").map(Number);
@@ -200,7 +207,8 @@ export async function postUsageStatement(
         tx,
         a,
         "usage:" + input.period,
-        "Reviewed coaching usage charge",
+        // Trainers see the charge only under this name (owner decision).
+        AI_COACH_SERVICE_FEE,
         [
           { account: "trainer_payable", amount: input.chargeMinor },
           { account: "platform_cost_recovery", amount: -input.chargeMinor },
@@ -235,7 +243,46 @@ export async function postUsageStatement(
     period: input.period,
     chargeMinor: input.chargeMinor,
   });
+  if (input.chargeMinor > 0) await notifyServiceFee(tx, a, input);
   return statement;
+}
+/**
+ * Tells the workspace owners the month's AI Coach Service Fee: one line with
+ * the amount (markup included), never the provider cost or a breakdown
+ * (owner decision, 28 September 2026).
+ */
+async function notifyServiceFee(
+  tx: Tx,
+  a: Actor,
+  input: { period: string; chargeMinor: number },
+) {
+  const owners = await tx.query(
+    "SELECT user_id FROM memberships WHERE tenant_id=$1 AND role='owner' ORDER BY user_id",
+    [a.tenantId],
+  );
+  const name = (period: string) =>
+    new Date(period + "-15T00:00:00Z").toLocaleDateString("en-GB", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  const month = name(input.period);
+  // A month's fee is posted after it ends, so it is on the statement of the
+  // month it is posted in; the notice names that statement.
+  const statementMonth = name(dubaiMonthOf(new Date()));
+  const amount = (input.chargeMinor / 100).toFixed(2);
+  for (const o of owners)
+    await notifyUser(tx, a, {
+      userId: o.user_id,
+      category: "account",
+      dedupeKey: `ai-coach-service-fee:${input.period}`,
+      title: `${AI_COACH_SERVICE_FEE} for ${month}`,
+      body: `${AI_COACH_SERVICE_FEE}: AED ${amount}. It is deducted from your earnings and shown on your ${statementMonth} statement.`,
+      href: "/trainer/finance",
+      templateKey: "ai-coach-service-fee",
+      email: false,
+      source: { kind: "ai_coach_service_fee", period: input.period },
+    });
 }
 export async function closeMonth(
   tx: Tx,
@@ -528,7 +575,10 @@ export function financeOperations(
       })
       .strict()
       .parse(req.body);
-    return db.tenant(a, (tx) => reconcileModelUsage(tx, a, id, input));
+    const row = await db.tenant(a, (tx) => reconcileModelUsage(tx, a, id, input));
+    // The row's month on Platform finance changes (its cost and pricing).
+    await refreshSummary(db, [dubaiMonthOf(row.created_at)], [a.tenantId]);
+    return row;
   });
   app.post(prefix + "/usage-statements", async (req) => {
     const a = finance(req),
@@ -543,7 +593,9 @@ export function financeOperations(
         .strict()
         .parse(req.body);
     const rate = await monthRate(db, b.period);
-    return db.tenant(a, (tx) => postUsageStatement(tx, a, b, { rate }));
+    const statement = await db.tenant(a, (tx) => postUsageStatement(tx, a, b, { rate }));
+    await refreshSummary(db, [b.period, dubaiMonthOf(new Date())], [a.tenantId]);
+    return statement;
   });
   // What a month's usage statement would charge: the month's rate (reviewed
   // or default), priced, estimated and unpriced rows and the settings applied.
@@ -615,13 +667,15 @@ export function financeOperations(
       })
       .strict()
       .parse(req.body);
-    return db.tenant(a, (tx) =>
+    const result = await db.tenant(a, (tx) =>
       estimateUnresolvedUsage(tx, a, {
         before: b.before ? monthCutoff(b.before) : undefined,
         evidenceReference: b.evidenceReference,
         method: "operator",
       }),
     );
+    await refreshSummary(db, result.months, [a.tenantId]);
+    return result;
   });
   app.post(prefix + "/close", async (req) => {
     const a = finance(req);

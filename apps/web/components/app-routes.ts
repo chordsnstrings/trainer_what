@@ -13,6 +13,7 @@ export type AdminRoute =
   | "settings"
   | "alerts"
   | "metrics"
+  | "platform_finance"
   | "governance"
   | "not_found";
 const operationsViews =
@@ -29,6 +30,7 @@ export function adminRoute(path: string): AdminRoute {
   if (clean === "/admin/affiliates") return "affiliates";
   if (clean === "/admin/alerts") return "alerts";
   if (clean === "/admin/metrics") return "metrics";
+  if (clean === "/admin/platform-finance") return "platform_finance";
   if (clean === "/admin/governance") return "governance";
   if (clean === "/admin/infrastructure/observer")
     return "infrastructure_observer";

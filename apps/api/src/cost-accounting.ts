@@ -166,23 +166,51 @@ export type FinanceSettings = {
   complimentaryBearer: "trainer" | "platform";
   estimateUnresolved: boolean;
 };
+/** The trainer-facing name of the monthly usage charge (owner decision). */
+export const AI_COACH_SERVICE_FEE = "AI Coach Service Fee";
+export const DEFAULT_USAGE_MARKUP_PERCENT = 100;
 /**
- * Owner decisions still pending keep today's behaviour by default: trainers
- * pay usage at cost (0% markup), including their complimentary members', and
- * automatic month close waits for unresolved provider calls to be priced
- * (automatic estimation is off unless turned on).
+ * The owner's decisions of 28 September 2026 are the defaults: trainers pay
+ * AI and voice usage with a 100% markup (twice the provider cost), including
+ * their complimentary members' usage, and automatic month close waits for
+ * unresolved provider calls to be priced (automatic estimation is off unless
+ * turned on). An unset or blank markup reads as the default.
  */
 export function financeSettings(config = runtimeConfig()): FinanceSettings {
   const rate = Number(config.FINANCE_USD_TO_AED);
-  const markup = Number(config.FINANCE_USAGE_MARKUP_PERCENT);
+  const markupText = String(config.FINANCE_USAGE_MARKUP_PERCENT ?? "").trim();
+  const markup = markupText === "" ? NaN : Number(markupText);
   return {
     defaultAedPerUsd: rate >= 1 && rate <= 10 ? rate : 3.6725,
-    markupPercent: markup >= 0 && markup <= 100 ? markup : 0,
+    markupPercent:
+      markup >= 0 && markup <= 1000 ? markup : DEFAULT_USAGE_MARKUP_PERCENT,
     complimentaryBearer:
       config.FINANCE_COMPLIMENTARY_USAGE_BEARER === "platform"
         ? "platform"
         : "trainer",
     estimateUnresolved: config.FINANCE_ESTIMATE_UNRESOLVED_USAGE === "true",
+  };
+}
+
+export type StripeFeeSettings = {
+  /** Basis points of the payment (2.9% = 290). */
+  percentBps: number;
+  fixedMinor: number;
+  internationalBps: number;
+};
+/** Stripe fee parameters for the estimates trainers see (Settings → Platform finance). */
+export function stripeFeeSettings(config = runtimeConfig()): StripeFeeSettings {
+  const read = (key: string, fallback: number, max: number) => {
+    const text = String(config[key] ?? "").trim();
+    const n = text === "" ? NaN : Number(text);
+    return n >= 0 && n <= max ? n : fallback;
+  };
+  return {
+    percentBps: Math.round(read("FINANCE_STRIPE_FEE_PERCENT", 2.9, 20) * 100),
+    fixedMinor: Math.round(read("FINANCE_STRIPE_FEE_FIXED_AED", 1, 20) * 100),
+    internationalBps: Math.round(
+      read("FINANCE_STRIPE_INTERNATIONAL_PERCENT", 1, 20) * 100,
+    ),
   };
 }
 
@@ -348,7 +376,7 @@ export async function estimateUnresolvedUsage(
   // One set-based update for every row with a basis.
   const updated = priced.length
     ? await tx.query(
-        "UPDATE cost_events c SET estimated_cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),status='estimated',reconciliation=$5::jsonb||jsonb_build_object('basis',v.basis,'previousStatus',v.previous) FROM unnest($1::uuid[],$2::numeric[],$3::text[],$4::text[]) AS v(id,value,basis,previous) WHERE c.id=v.id AND c.cost_usd IS NULL AND c.status IN ('unknown','reserved') RETURNING c.cost_usd::text AS cost",
+        "UPDATE cost_events c SET estimated_cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),status='estimated',reconciliation=$5::jsonb||jsonb_build_object('basis',v.basis,'previousStatus',v.previous) FROM unnest($1::uuid[],$2::numeric[],$3::text[],$4::text[]) AS v(id,value,basis,previous) WHERE c.id=v.id AND c.cost_usd IS NULL AND c.status IN ('unknown','reserved') RETURNING c.cost_usd::text AS cost,to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') AS month",
         [
           priced.map((r) => r.id),
           priced.map((r) => r.value),
@@ -378,5 +406,7 @@ export async function estimateUnresolvedUsage(
     estimatedUsd: Math.round(estimatedUsd * 1e8) / 1e8,
     remaining: remaining.length,
     remainingRows: remaining.slice(0, 20),
+    /** The Dubai months whose rows were estimated. */
+    months: [...new Set(updated.map((r) => r.month as string))].sort(),
   };
 }

@@ -719,6 +719,17 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "Your refund request has a confirmed update. Open your membership to review it.",
     "/app/membership",
   ),
+  kind(
+    "ai-coach-service-fee",
+    "trainer",
+    "account",
+    "The month's AI Coach Service Fee, posted to the trainer's statement",
+    {
+      title: "AI Coach Service Fee for September 2026",
+      body: "AI Coach Service Fee: AED 42.00. It is deducted from your earnings and shown on your October 2026 statement.",
+      href: "/trainer/finance",
+    },
+  ),
   lifecycle(
     "payout-paid",
     "trainer",

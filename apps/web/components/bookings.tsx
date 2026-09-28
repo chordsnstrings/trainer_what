@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { StripeFeeNote } from "./programme-offers";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/bookings" + path, {
     method: body ? "POST" : "GET",
@@ -170,6 +171,7 @@ export function Bookings({ role }: { role: string }) {
               missing daylight-saving times must be changed before saving. A
               price above zero is a separate session payment.
             </p>
+            <StripeFeeNote subject="each paid session" bookingFee />
             <button className="button" disabled={busy}>
               Add sessions
             </button>

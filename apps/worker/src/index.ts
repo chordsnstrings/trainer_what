@@ -13,6 +13,7 @@ import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
 import { processWebAddressOrders } from "../../api/src/web-address-orders.ts";
 import { refreshSuggestedPrices } from "../../api/src/web-address-prices.ts";
+import { runPlatformFinanceJobs } from "../../api/src/platform-pnl.ts";
 import { assertProviderSandboxBinding } from "../../../packages/providers/src/sandbox.ts";
 // The mock-provider sandbox is refused anywhere but a loopback-only process.
 if (assertProviderSandboxBinding())
@@ -39,6 +40,8 @@ if (!process.env.DATABASE_URL) {
   let webAddressTask: Promise<void> | undefined;
   let lastVoiceCloneTick = 0;
   let voiceCloneTask: Promise<void> | undefined;
+  let lastPlatformFinanceTick = 0;
+  let platformFinanceTask: Promise<void> | undefined;
   async function tick() {
     if (!voiceTask)
       // Trainer-voice audio for prepared sessions, off the delivery path like
@@ -82,6 +85,18 @@ if (!process.env.DATABASE_URL) {
         .catch(() => console.error("Trainer voice clone work needs review"))
         .finally(() => {
           voiceCloneTask = undefined;
+        });
+    }
+    if (!platformFinanceTask && Date.now() - lastPlatformFinanceTick >= 300000) {
+      lastPlatformFinanceTick = Date.now();
+      // Platform finance summary, fees, platform costs and billing imports
+      // (docs/features/platform-finance.md); each job records its own runs
+      // and decides from them whether it is due.
+      platformFinanceTask = runPlatformFinanceJobs(db)
+        .then(() => undefined)
+        .catch(() => console.error("Platform finance jobs need review"))
+        .finally(() => {
+          platformFinanceTask = undefined;
         });
     }
     const purgeMedia = Date.now() - lastMediaPurge >= 60 * 60 * 1000;
@@ -148,9 +163,9 @@ if (!process.env.DATABASE_URL) {
           webAddressTask,
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
-      if (integrationTask || voiceTask || voiceCloneTask)
+      if (integrationTask || voiceTask || voiceCloneTask || platformFinanceTask)
         await Promise.race([
-          Promise.all([integrationTask, voiceTask, voiceCloneTask]),
+          Promise.all([integrationTask, voiceTask, voiceCloneTask, platformFinanceTask]),
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
       await infrastructure.settled().catch(() => {});

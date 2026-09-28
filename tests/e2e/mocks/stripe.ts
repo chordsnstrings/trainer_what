@@ -78,6 +78,8 @@ export class StripeMock {
   charges = new Map<string, Obj>();
   refunds = new Map<string, Obj>();
   disputes = new Map<string, Obj>();
+  /** Balance transactions (Stripe's fee per charge, refund and dispute). */
+  balanceTransactions = new Map<string, Obj>();
   portalConfigurations = new Map<string, Obj>();
   portalSessions = new Map<string, Obj>();
   private idempotent = new Map<string, MockResponse>();
@@ -372,7 +374,26 @@ export class StripeMock {
         return ok(list(rows, "/v1/invoice_payments"));
       }),
     );
-    s.route("GET", "/v1/payment_intents/:id", guard((r) => found(this.paymentIntents, r.params.id, "payment_intent")));
+    // `expand[]=…balance_transaction` embeds the balance transaction, as Stripe does.
+    const expands = (r: MockRequest, path: string) =>
+      [...r.query.entries()].some(([k, v]) => k.startsWith("expand") && v === path);
+    const withBalance = (obj: Obj | undefined, expand: boolean) =>
+      obj && expand && typeof obj.balance_transaction === "string"
+        ? { ...obj, balance_transaction: this.balanceTransactions.get(obj.balance_transaction) ?? obj.balance_transaction }
+        : obj;
+    s.route("GET", "/v1/payment_intents/:id", guard((r) => {
+      const pi = this.paymentIntents.get(r.params.id);
+      if (!pi) return found(this.paymentIntents, r.params.id, "payment_intent");
+      if (!expands(r, "latest_charge.balance_transaction") && !expands(r, "latest_charge")) return ok(pi);
+      const charge = withBalance(this.charges.get(pi.latest_charge), expands(r, "latest_charge.balance_transaction"));
+      return ok({ ...pi, latest_charge: charge ?? pi.latest_charge });
+    }));
+    s.route("GET", "/v1/charges/:id", guard((r) => {
+      const charge = this.charges.get(r.params.id);
+      return charge ? ok(withBalance(charge, expands(r, "balance_transaction"))) : found(this.charges, r.params.id, "charge");
+    }));
+    s.route("GET", "/v1/balance_transactions/:id", guard((r) => found(this.balanceTransactions, r.params.id, "balance_transaction")));
+    s.route("GET", "/v1/disputes/:id", guard((r) => found(this.disputes, r.params.id, "dispute")));
     s.route(
       "GET",
       "/v1/refunds",
@@ -386,7 +407,10 @@ export class StripeMock {
         return ok(list(rows, "/v1/refunds"));
       }),
     );
-    s.route("GET", "/v1/refunds/:id", guard((r) => found(this.refunds, r.params.id, "refund")));
+    s.route("GET", "/v1/refunds/:id", guard((r) => {
+      const refund = this.refunds.get(r.params.id);
+      return refund ? ok(withBalance(refund, expands(r, "balance_transaction"))) : found(this.refunds, r.params.id, "refund");
+    }));
     s.route(
       "POST",
       "/v1/refunds",
@@ -410,6 +434,7 @@ export class StripeMock {
           metadata: f.metadata ?? {},
           created: now(),
         };
+        (refund as Obj).balance_transaction = this.balanceTransaction(-amount, charge.currency, "refund", refund.id, 0).id;
         this.refunds.set(refund.id, refund);
         charge.amount_refunded += amount;
         charge.refunded = charge.amount_refunded === charge.amount;
@@ -703,9 +728,42 @@ export class StripeMock {
       created: now(),
     };
     pi.latest_charge = charge.id;
+    (charge as Obj).balance_transaction = this.balanceTransaction(amount, currency, "charge", charge.id).id;
     this.paymentIntents.set(pi.id, pi);
     this.charges.set(charge.id, charge);
     return { pi, charge };
+  }
+
+  /**
+   * A balance transaction in the account's AED settlement currency, shaped
+   * like Stripe's: a charge pays the mock's standard UAE fee (2.9% + AED 1,
+   * plus 2% for conversion from another currency at 3.6725); a refund's fee
+   * is `fee` (0: Stripe keeps the original fee); a dispute pays `fee`.
+   * Mock figures only.
+   */
+  private balanceTransaction(amount: number, currency: string, type: string, source: string, fee?: number) {
+    const converted = String(currency).toLowerCase() !== "aed";
+    const rate = converted ? 3.6725 : null;
+    const aed = Math.round(amount * (rate ?? 1));
+    const processing =
+      fee ?? (Math.round(Math.abs(aed) * 0.029) + 100 + (converted ? Math.round(Math.abs(aed) * 0.02) : 0));
+    const bt = {
+      id: randomId("txn"),
+      object: "balance_transaction",
+      amount: aed,
+      currency: "aed",
+      fee: processing,
+      net: aed - processing,
+      exchange_rate: rate,
+      type,
+      source,
+      created: now(),
+      fee_details: processing
+        ? [{ amount: processing, currency: "aed", type: "stripe_fee", description: "Stripe processing fees" }]
+        : [],
+    };
+    this.balanceTransactions.set(bt.id, bt);
+    return bt;
   }
 
   private issueInvoice(sub: Obj, amount: number, paid: boolean) {
@@ -922,7 +980,10 @@ export class StripeMock {
       reason: "general",
       metadata: {},
       created: now(),
+      balance_transactions: [] as Obj[],
     };
+    // The disputed amount is withdrawn with the dispute fee (mock AED 55).
+    dispute.balance_transactions.push(this.balanceTransaction(-charge.amount, charge.currency ?? "aed", "adjustment", dispute.id, 5500));
     this.disputes.set(dispute.id, dispute);
     return { dispute, delivery: await this.sendEvent("charge.dispute.created", dispute) };
   }

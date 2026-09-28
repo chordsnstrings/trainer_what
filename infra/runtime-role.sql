@@ -81,6 +81,19 @@ GRANT SELECT,INSERT,UPDATE ON registrar_prices TO trainer_service;
 -- token prices are platform reference data, append-only history written and
 -- read by the Super admin and platform finance screens only.
 GRANT SELECT,INSERT ON exchange_rates,model_prices TO trainer_service;
+-- Platform finance phase B (075): the monthly summary cache and the run log
+-- of platform finance jobs, rebuilt and written by the worker and the
+-- Super admin screens only.
+GRANT SELECT,INSERT,UPDATE ON platform_finance_months,platform_finance_runs TO trainer_service;
+-- Platform finance phase C (076): the platform's own cost ledger, provider
+-- invoices and Stripe's fee per payment are append-only; recurring costs get
+-- a last month set in place.
+GRANT SELECT,INSERT ON platform_costs,provider_invoices,stripe_fees TO trainer_service;
+GRANT SELECT,INSERT,UPDATE ON platform_recurring_costs TO trainer_service;
+-- Platform finance phase D (077): DigitalOcean invoices read once
+-- (append-only) and the current month's estimate, recomputed daily.
+GRANT SELECT,INSERT ON digitalocean_invoices TO trainer_service;
+GRANT SELECT,INSERT,UPDATE ON digitalocean_estimates TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

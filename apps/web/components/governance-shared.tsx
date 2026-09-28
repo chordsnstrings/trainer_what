@@ -97,7 +97,10 @@ export const when = (value: string | null | undefined) =>
 export function GovernanceLinks({ platformRole }: { platformRole: string }) {
   const links: Array<[string, string]> = [["/admin/alerts", "Operator alerts"]];
   if (["admin", "finance"].includes(platformRole))
-    links.push(["/admin/metrics", "Business metrics"]);
+    links.push(
+      ["/admin/metrics", "Business metrics"],
+      ["/admin/platform-finance", "Platform finance"],
+    );
   if (["admin", "support"].includes(platformRole))
     links.push(["/admin/governance", "Workspaces and accounts"]);
   if (platformRole === "none") return null;

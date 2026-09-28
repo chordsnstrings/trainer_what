@@ -121,6 +121,15 @@ export async function startMocks(
   });
   // DigitalOcean DNS double: zones of bought domains (and the platform root).
   const digitalocean = new DigitalOceanMock(material, secrets.digitalocean);
+  // DigitalOcean billing (platform finance phase D): a team whose earlier
+  // invoices hold only another project's items; this month is estimated
+  // from the platform project's droplet.
+  {
+    const now = new Date();
+    const month = (by: number) =>
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + by, 1)).toISOString().slice(0, 7);
+    digitalocean.seedBilling({ months: [month(-2), month(-1)], firstPlatformMonth: month(0) });
+  }
   const all = [stripe, email, lean, model, push, whoop, zepp, voice, cartesia, registrar, food, google, apple, s3, namecheap, digitalocean];
   await Promise.all(all.map((m) => m.start()));
   const dns = new DnsMock();
@@ -303,6 +312,11 @@ export async function startMocks(
     },
     // Bought domains get a zone at the DigitalOcean DNS double and are
     // delegated to it through the Namecheap double.
+    // Platform finance phase D: the billing import reads the same double.
+    digitalocean_billing: {
+      values: { DO_BILLING_PROJECT: "GymMembership", DO_BILLING_IMPORT_ENABLED: "true" },
+      secrets: { DO_BILLING_TOKEN: secrets.digitalocean },
+    },
     dns_hosting: {
       values: {
         DNS_PROVIDER: "digitalocean",
