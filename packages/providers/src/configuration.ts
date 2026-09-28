@@ -1050,7 +1050,7 @@ INTEGRATION_CATALOG.push({
       { help: "Optional. The connection check warns 30 days before." },
     ),
     field("DNS_PLATFORM_ZONE", "Platform root zone", "text", {
-      help: "The platform's own domain (for example trainsyou.com) whose A records Check and repair platform DNS may create: @, www and *. Only this zone and PLATFORM_ROOT_DOMAIN are ever changed there.",
+      help: "The platform's own domain (for example trainsyou.com) whose A records Check and repair platform DNS may create: @, www and *. Only this zone and PLATFORM_ROOT_DOMAIN are ever changed there. A zone that is neither PLATFORM_ROOT_DOMAIN nor the domain of the public app address (a new root prepared before the address change) is repaired only while its @, www and * names point nowhere else.",
     }),
     field("DNS_RECORD_TTL", "Record TTL (seconds)", "number", {
       defaultValue: "1800",
@@ -1563,7 +1563,7 @@ export async function testIntegration(
           const balance = await new OneOhOneRegistrar(
             fields.REGISTRAR_101DOMAIN_API_KEY.trim(),
           ).balance();
-          const ordering = registrarPurchaseProblem(fields);
+          const ordering = registrarPurchaseProblem({ ...config, ...fields });
           return {
             status: "verified",
             message:

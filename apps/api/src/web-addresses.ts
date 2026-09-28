@@ -17,7 +17,9 @@ import { requireCommerce, stripeClient } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
   canRenew,
+  canUseRegistrarDns,
   paymentModeProblem,
+  registrarFor,
   registrarFromConfig,
   registrarPurchaseProblem,
   registrarSandboxSetting,
@@ -311,7 +313,7 @@ export async function searchDomains(
       "DOMAIN_SEARCH",
       `Enter a name, or a full domain ending in ${settings.tlds.map((t) => "." + t).join(", ")}.`,
     );
-  const registrar = deps.registrar ?? registrarFromConfig();
+  const registrar = trainerRegistrar(deps);
   let availability;
   try {
     availability = await checkNames(registrar, candidates);
@@ -348,6 +350,20 @@ export async function searchDomains(
     });
   }
   return out;
+}
+/**
+ * The configured registrar for a trainer's search or checkout. Its
+ * configuration problem names the registrar, so a trainer only hears that
+ * buying is unavailable (owner decision: the registrar is never named to
+ * trainers); operators see the problem in Settings and the connection test.
+ */
+function trainerRegistrar(deps: { registrar?: Registrar }) {
+  if (deps.registrar) return deps.registrar;
+  try {
+    return registrarFromConfig();
+  } catch {
+    throw fail(409, "WEB_ADDRESS_DISABLED", "Buying a domain is not available yet.");
+  }
 }
 function registrarUnavailable(error: unknown) {
   if (error instanceof RegistrarError)
@@ -753,7 +769,7 @@ export function registerWebAddresses(
       const serveMode = b.serveMode ?? "site";
       if (serveMode === "forward") await assertForwardable(db, a.tenantId);
       const client = commerce();
-      const registrar = deps.registrar ?? registrarFromConfig();
+      const registrar = trainerRegistrar(deps);
       // Real money never buys in a test environment, a test payment never
       // buys a real domain.
       const keyMode = stripeKeyMode();
@@ -1037,9 +1053,15 @@ export function registerWebAddresses(
     // A registrar that renews by itself (its API cannot switch that off)
     // would renew the domain at the platform's cost: operators turn its
     // auto-renewal off in the registrar's panel.
+    // The registrar this domain was bought through, not the one chosen for
+    // new purchases.
     let autoRenews = false;
     try {
-      autoRenews = !canRenew(deps.registrar ?? registrarFromConfig());
+      autoRenews = !canRenew(
+        deps.registrar && deps.registrar.id === order.registrar
+          ? deps.registrar
+          : registrarFor(String(order.registrar ?? "")),
+      );
     } catch {
       autoRenews = false;
     }
@@ -1174,6 +1196,16 @@ export function registerWebAddresses(
         "ORDER_STATE",
         "DNS can be set up again only for a registered domain that has not lapsed.",
       );
+    // A registrar whose own DNS cannot be set up through its API would leave
+    // the domain unserved: only the DNS host is offered for it.
+    const wanted =
+      b.provider === "settings" ? dnsHostingSettings().provider : b.provider;
+    if (wanted === "registrar" && !canUseRegistrarDns(String(order.registrar)))
+      throw fail(
+        409,
+        "REGISTRAR_DNS_UNSUPPORTED",
+        "This domain's registrar cannot serve it from its own DNS through its API; use DigitalOcean DNS.",
+      );
     const scope = elevated("platform-operator", {
       tenantId: order.tenant_id,
       userId: operator.userId,
@@ -1181,7 +1213,7 @@ export function registerWebAddresses(
     });
     await db.tenant(scope, async (tx) => {
       const [row] = await tx.query(
-        "UPDATE domain_orders SET status='owned',dns_provider=$2,attention=NULL,attempts=0,next_attempt_at=now(),progress=CASE WHEN jsonb_array_length(progress)>=60 THEN progress ELSE progress||jsonb_build_array(jsonb_build_object('step','dns_again','at',now(),'note',$3::text)) END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('owned','zone','delegating','dns','active') AND (lease_until IS NULL OR lease_until<now()) RETURNING id",
+        "UPDATE domain_orders SET status='owned',dns_provider=$2,attention=NULL,attempts=0,next_attempt_at=now(),evidence=evidence||'{\"delegationStartedAt\":null,\"delegationResets\":0}'::jsonb,progress=CASE WHEN jsonb_array_length(progress)>=60 THEN progress ELSE progress||jsonb_build_array(jsonb_build_object('step','dns_again','at',now(),'note',$3::text)) END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('owned','zone','delegating','dns','active') AND (lease_until IS NULL OR lease_until<now()) RETURNING id",
         [
           order.id,
           b.provider === "settings" ? null : b.provider,

@@ -252,6 +252,9 @@ export async function verifyRuntimeAccess(client) {
     "member_plan_status()",
     // Migration 065: the trainer's current voice-session style for members.
     "voice_session_style()",
+    // Migration 070: whether another open order uses a lapsed domain's name
+    // (the worker, for its own order only).
+    "domain_name_other_order(uuid)",
   ];
   for (const name of functions) {
     const [r] = await query(

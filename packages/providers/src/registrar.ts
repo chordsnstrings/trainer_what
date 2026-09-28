@@ -89,13 +89,34 @@ export type NameserverState = {
   pending?: boolean;
 };
 /** What the registrar's API can do automatically (absent: everything). */
-export type RegistrarCapabilities = { register: boolean; renew: boolean };
+export type RegistrarCapabilities = {
+  register: boolean;
+  renew: boolean;
+  /**
+   * false: a domain cannot be returned to the registrar's own DNS, or given
+   * host records there, through the API (its DNS zone needs a panel action).
+   */
+  registrarDns?: boolean;
+};
 /** Whether this registrar can buy through its API. */
 export const canRegister = (registrar: Registrar) =>
   registrar.capabilities?.register !== false;
 /** Whether this registrar can renew through its API. */
 export const canRenew = (registrar: Registrar) =>
   registrar.capabilities?.renew !== false;
+/**
+ * Registrars whose own DNS cannot be set up through their API: their
+ * domains are served only by the DNS host (DigitalOcean).
+ */
+export const REGISTRARS_WITHOUT_API_DNS: ReadonlySet<string> = new Set([
+  "101domain",
+]);
+/** Whether the registrar's own DNS can serve a domain (set up through its API). */
+export const canUseRegistrarDns = (registrar: Registrar | string) =>
+  typeof registrar === "string"
+    ? !REGISTRARS_WITHOUT_API_DNS.has(registrar)
+    : registrar.capabilities?.registrarDns !== false &&
+      !REGISTRARS_WITHOUT_API_DNS.has(registrar.id);
 /** A fetch-like function; only the isolated Node test runner may inject one. */
 export type RegistrarTransport = (
   url: string,
@@ -879,6 +900,10 @@ export const ONEOHONE_API = "https://api.101domain.com";
  */
 export const ONEOHONE_NO_PRIVACY_TLDS = new Set(["ae"]);
 const ONEOHONE_DNS = /(^|\.)101domain\.com$/;
+/** 101domain order statuses (provisional until the live read-only check). */
+const ONEOHONE_PENDING = ["pending", "processing", "queued", "submitted", "in_progress"];
+const ONEOHONE_DONE = ["completed", "complete", "active", "registered", "success"];
+const ONEOHONE_REFUSED = ["failed", "rejected", "cancelled", "canceled", "declined"];
 const firstArray = (...values: unknown[]) =>
   (values.find((value) => Array.isArray(value)) as any[] | undefined) ?? [];
 const oneYear = (rows: any[]) =>
@@ -916,7 +941,7 @@ export class OneOhOneRegistrar implements Registrar {
     this.transport = testTransport(options.transport);
     this.sandbox = options.sandbox === true;
     const ordering = options.ordering === true;
-    this.capabilities = { register: ordering, renew: ordering };
+    this.capabilities = { register: ordering, renew: ordering, registrarDns: false };
     const override = sandboxOverride("REGISTRAR_101DOMAIN_API_BASE_URL");
     this.base = override ? override.origin : ONEOHONE_API;
   }
@@ -1089,19 +1114,22 @@ export class OneOhOneRegistrar implements Registrar {
     });
     const data = answer?.data ?? {};
     const status = String(data.status ?? data.order_status ?? "").toLowerCase();
-    // An order still being processed is not a registration yet: reconcile it.
-    if (["pending", "processing", "queued", "submitted"].includes(status))
+    const registered =
+      data.registered === true || ONEOHONE_DONE.includes(status);
+    // Only an explicit refusal is a definitive "not registered". An order
+    // still processing, or an answer without a status this adapter knows,
+    // may still become a registration: it is reconciled (pending orders
+    // included) before anything is sent again.
+    if (!registered && !ONEOHONE_REFUSED.includes(status))
       throw new RegistrarError(
-        "101domain accepted the order but has not registered the name yet",
+        ONEOHONE_PENDING.includes(status)
+          ? "101domain accepted the order but has not registered the name yet"
+          : "101domain did not report a final registration status",
         "unknown",
         "PENDING",
       );
     return {
-      registered:
-        data.registered === true ||
-        ["completed", "complete", "active", "registered", "success"].includes(
-          status,
-        ),
+      registered,
       orderId: data.order_number ? String(data.order_number) : undefined,
       domainId: data.domain_id ? String(data.domain_id) : undefined,
       chargedUsd: money(String(data.total ?? data.amount ?? "")),
@@ -1116,9 +1144,7 @@ export class OneOhOneRegistrar implements Registrar {
       ? answer.data
       : firstArray(answer?.data?.orders, answer?.data?.items);
     return rows.some((row: any) =>
-      ["pending", "processing", "queued", "submitted"].includes(
-        String(row?.status ?? "").toLowerCase(),
-      ),
+      ONEOHONE_PENDING.includes(String(row?.status ?? "").toLowerCase()),
     );
   }
   private listed(row: any): ListedDomain {
@@ -1181,9 +1207,24 @@ export class OneOhOneRegistrar implements Registrar {
       { term_years: years },
     );
     const data = answer?.data ?? {};
+    const status = String(data.status ?? data.order_status ?? "").toLowerCase();
+    if (ONEOHONE_REFUSED.includes(status))
+      return { renewed: false };
     const expiresAt = registrarDate(data.expiration_date ?? data.expires_at);
+    // An accepted order without a new expiry (still processing, or a status
+    // this adapter does not know) is reconciled, never counted or refused:
+    // the caller also checks that a reported expiry moved past the old one.
+    if (
+      ONEOHONE_PENDING.includes(status) ||
+      (!expiresAt && data.renewed !== true)
+    )
+      throw new RegistrarError(
+        "101domain accepted the renewal but has not reported the new expiry",
+        "unknown",
+        "PENDING",
+      );
     return {
-      renewed: !!expiresAt || data.renewed === true,
+      renewed: true,
       expiresAt,
       chargedUsd: money(String(data.total ?? data.amount ?? "")),
       orderId: data.order_number ? String(data.order_number) : undefined,
@@ -1344,12 +1385,26 @@ export function registrantFromConfig(config: RuntimeConfig): Registrant {
 }
 /**
  * The configured registrar, or ProviderUnavailable. Purchases additionally
- * require WEB_ADDRESS_PURCHASES_ENABLED (checked by the caller).
+ * require WEB_ADDRESS_PURCHASES_ENABLED (checked by the caller). New
+ * searches and purchases use it; an existing order always uses the
+ * registrar it was bought through (registrarFor).
  */
 export function registrarFromConfig(
   config: RuntimeConfig = runtimeConfig(),
 ): Registrar {
-  const choice = (config.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+  return registrarFor(
+    (config.WEB_ADDRESS_REGISTRAR || "namecheap").trim(),
+    config,
+  );
+}
+/**
+ * One registrar by id from its own settings, whichever registrar is chosen
+ * for new purchases; ProviderUnavailable when its settings are incomplete.
+ */
+export function registrarFor(
+  choice: string,
+  config: RuntimeConfig = runtimeConfig(),
+): Registrar {
   try {
     if (choice === "101domain") {
       const key = config.REGISTRAR_101DOMAIN_API_KEY?.trim();
@@ -1413,7 +1468,13 @@ export function registrarPurchaseProblem(
     choice === "101domain" &&
     config.REGISTRAR_101DOMAIN_ORDERING?.trim() !== "true"
   )
-    return "101domain has not published registration and renewal in its API yet. Buy with Namecheap or the generic registrar, or switch on 101domain ordering once its endpoints are verified.";
+    return "101domain has not published registration and renewal in its API yet. Buy with Namecheap or the generic registrar, or switch on 101domain ordering once its endpoints are verified. Domains already bought keep their own registrar.";
+  // Its own DNS cannot be set up through the API: its domains need the DNS host.
+  if (
+    REGISTRARS_WITHOUT_API_DNS.has(choice) &&
+    (config.DNS_PROVIDER || "registrar").trim() !== "digitalocean"
+  )
+    return `${choice} domains are served only through DigitalOcean DNS: its own DNS cannot be set up through its API. Choose DigitalOcean in DNS hosting first.`;
   return null;
 }
 /** Stripe's mode from the secret key prefix, or null when it cannot be told. */

@@ -202,14 +202,23 @@ address" and is meant to run first; the address change then only has to verify D
   hosting (`DNS_PLATFORM_ZONE`, useful before the address change sets the root). Any other name
   is refused before a request reaches DigitalOcean; the adapter's zone guard enforces the same
   for every call, so the other domains of the owner's DigitalOcean team (the token reaches them
-  all) are never read or changed.
+  all) are never read or changed unless one is saved as the root zone by mistake. A saved zone
+  that is neither `PLATFORM_ROOT_DOMAIN` nor the domain of the public app address (or a parent of
+  either) is treated as a new root being prepared: it is read, but refused (`zone_in_use`, no
+  plan hash, no repair) while any of its `@`, `www` or `*` names already has an A, AAAA or CNAME
+  record pointing elsewhere, because it may be another site of the same team.
 - **Check (read-only).** Lists the records on the managed names (and CAA/NS), the planned changes,
   and problems: zone not allowed, DNS host not configured, server IPv4 not reported (errors that
-  block the repair); a CAA record that allows neither `letsencrypt.org` nor `zerossl.com`, and a DS
-  (DNSSEC) record at the registry (DigitalOcean does not sign zones) as errors the repair does not
-  fix; names with records of other types but no A record (the wildcard does not answer for them,
-  so a workspace with that name would not resolve) and a zone not delegated to DigitalOcean as
-  warnings. The result carries a `planHash` of the zone, the address and the changes.
+  block the repair); CAA `issue` records none of which allows `letsencrypt.org` or `zerossl.com`
+  (the edge obtains one certificate per name, so `issuewild` does not decide), and a DS (DNSSEC)
+  record at the registry (DigitalOcean does not sign zones) as errors the repair does not fix;
+  names that do not reach this server although the wildcard would otherwise answer for them (a
+  name with records but no A, with a CNAME, with an A pointing elsewhere, or with only deeper
+  names under it such as `mg` under `email.mg`), so a workspace with that name would not work,
+  and a zone not delegated to DigitalOcean as warnings. **Records are right** (`ready`) needs no
+  changes, no errors and the zone delegated to DigitalOcean (records at a DNS host the name is not
+  delegated to have no effect). The result carries a `planHash` of the zone, the address and the
+  changes.
 - **Repair.** Requires the same `planHash` (409 `PLATFORM_DNS_CHANGED` with the new plan when
   the zone changed since the check, so nothing added meanwhile is overwritten unseen), a reason
   (10 to 500 characters) and the operator step-up guard like every `/api/v1/admin/*` route. It

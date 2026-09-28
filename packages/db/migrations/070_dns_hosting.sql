@@ -79,5 +79,30 @@ ALTER TABLE registrar_operations ADD CONSTRAINT registrar_operations_registrar_c
 -- owner's choice is applied by the service through the web address routes.
 ALTER TABLE domain_mappings
  ADD COLUMN redirect text CHECK(redirect IS NULL OR redirect IN ('apex','subdomain'));
+-- www.<domain> of a bought domain always goes to the domain, including for
+-- domains that went live before this release.
+UPDATE domain_mappings m SET redirect='apex'
+ FROM domain_orders o
+ WHERE o.mode='automatic' AND m.hostname='www.'||o.hostname AND m.tenant_id=o.tenant_id
+ AND m.redirect IS NULL;
+
+-- 4. A lapsed domain's zone is released (or its records cleared) only while
+-- no other open order, in any workspace, uses the same name (a re-bought
+-- name adopts the existing zone). Orders are workspace-scoped, so the worker
+-- asks through this narrow helper: only the worker, only for its own order,
+-- and only the newer order's zoneWrittenAt (no row: no other open order).
+CREATE FUNCTION domain_name_other_order(p_order uuid) RETURNS TABLE(zone_written_at text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ SELECT coalesce(o.evidence->>'zoneWrittenAt','') FROM public.domain_orders mine
+ JOIN public.domain_orders o ON o.hostname=mine.hostname AND o.id<>mine.id
+ WHERE mine.id=p_order
+ AND mine.tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+ AND current_setting('app.elevation',true)='worker'
+ AND current_setting('app.role',true)='owner'
+ AND o.mode='automatic' AND o.status NOT IN ('cancelled','failed','expired')
+ ORDER BY o.created_at DESC LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION domain_name_other_order(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION domain_name_other_order(uuid) TO trainer_app;
 
 INSERT INTO schema_migrations(version) VALUES('070_dns_hosting');

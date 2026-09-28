@@ -335,6 +335,36 @@ test("search and order status answers carry no registrar name or cost field", as
   );
 });
 
+test("a registrar whose settings are incomplete is not named to a trainer", async () => {
+  // Its configuration message names the registrar ("101domain needs its API
+  // key."): a trainer only hears that buying is unavailable.
+  for (const registrar of ["101domain", "namecheap", "generic"]) {
+    clearWebAddressPriceCache();
+    const error: any = await withRuntimeConfig(
+      {
+        WEB_ADDRESS_REGISTRAR: registrar,
+        REGISTRAR_101DOMAIN_API_KEY: "",
+        REGISTRAR_101DOMAIN_ORDERING: "true",
+        DNS_PROVIDER: "digitalocean",
+        NAMECHEAP_API_KEY: "",
+        DOMAIN_API_KEY: "",
+        WEB_ADDRESS_TLDS: "com",
+        PLATFORM_ROOT_DOMAIN: "trainsyou.com",
+      },
+      () => searchDomains("layla", {}),
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(error, registrar);
+    assert.equal(error.code, "WEB_ADDRESS_DISABLED", registrar);
+    assert.equal(error.provider, undefined);
+    assert.doesNotMatch(String(error.message), REGISTRAR_NAME, registrar);
+    assert.doesNotMatch(String(error.message), /generic registrar|API key/i, registrar);
+  }
+  clearWebAddressPriceCache();
+});
+
 test("the platform company is always the registrant; trainers get no transfer out or auth code", () => {
   const contact = {
     WEB_ADDRESS_REGISTRANT_FIRST_NAME: "Platform",

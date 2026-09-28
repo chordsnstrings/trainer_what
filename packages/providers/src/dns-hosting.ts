@@ -16,11 +16,13 @@
  *  - Records are converged by name and type: only the names and types the
  *    caller manages change; NS, SOA, MX and other records are left alone.
  */
+import { randomInt } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { isIP } from "node:net";
 import { ConfigurationError, runtimeConfig, type RuntimeConfig } from "./configuration.ts";
 import { integrationRequest } from "./integrations.ts";
 import { ProviderUnavailable } from "./index.ts";
-import { sandboxOverride, sandboxResolver } from "./sandbox.ts";
+import { sandboxDnsServer, sandboxOverride, sandboxResolver } from "./sandbox.ts";
 import type { HostRecord, Registrar } from "./registrar.ts";
 
 export type DnsProviderId = "digitalocean" | "registrar";
@@ -103,6 +105,11 @@ export interface DnsProvider {
     desired: DesiredRecord[],
     options?: { replaceTypes?: string[] },
   ): Promise<{ created: number; updated: number; deleted: number; unchanged: number }>;
+  /**
+   * Deletes every record of these names and types (the zone, its SOA and NS
+   * stay); returns how many were deleted.
+   */
+  removeRecords(zone: string, names: string[], types: string[]): Promise<number>;
   /** Deletes the zone; refused while anything still delegates it here. */
   deleteZone(zone: string, evidence: ZoneReleaseEvidence): Promise<void>;
 }
@@ -352,8 +359,14 @@ export class DigitalOceanDns implements DnsProvider {
       // decides. A refusal while it does not means another account holds it.
       const held = await this.getZone(zone);
       if (held) return error.outcome === "unknown" ? "created" : "existing";
-      // DigitalOcean answers 422 when the name already exists in any account.
-      if (error.outcome === "definitive" && error.code === "unprocessable_entity")
+      // DigitalOcean answers 422 "... already exists" when another account
+      // holds the name; any other refusal (an invalid or unsupported name)
+      // is an ordinary failure, never a reason to leave the DNS host.
+      if (
+        error.outcome === "definitive" &&
+        error.code === "unprocessable_entity" &&
+        /already exists|already been taken/i.test(error.message)
+      )
         return "held_elsewhere";
       throw error;
     }
@@ -429,6 +442,21 @@ export class DigitalOceanDns implements DnsProvider {
       deleted: count("delete"),
       unchanged: desired.length - count("create") - count("update"),
     };
+  }
+  async removeRecords(value: string, names: string[], types: string[]) {
+    const zone = this.zone(value);
+    const nameSet = new Set(names.map(recordName));
+    const typeSet = new Set(types.map((type) => type.toUpperCase()));
+    const changes: RecordChange[] = (await this.records(zone))
+      .filter(
+        (record) =>
+          record.id &&
+          nameSet.has(recordName(record.name)) &&
+          typeSet.has(record.type.toUpperCase()),
+      )
+      .map((record) => ({ action: "delete", id: record.id!, record }));
+    await this.applyChanges(zone, changes);
+    return changes.length;
   }
   async deleteZone(value: string, evidence: ZoneReleaseEvidence) {
     const zone = this.zone(value);
@@ -542,6 +570,11 @@ export class RegistrarHostedDns implements DnsProvider {
       );
     return { created: desired.length, updated: 0, deleted: 0, unchanged: 0 };
   }
+  async removeRecords(): Promise<number> {
+    // The registrar's host set is replaced as a whole (upsertRecords); a
+    // lapsed registration is parked by the registrar itself.
+    return 0;
+  }
   async deleteZone() {
     // The registrar's DNS belongs to the registration; nothing to release.
   }
@@ -610,10 +643,50 @@ function normaliseAnswer(type: PublicDnsType, data: string) {
   return type === "NS" ? dnsName(value) || value.toLowerCase() : value;
 }
 /**
+ * One DS question to the local sandbox DNS double over UDP (Node's resolver
+ * cannot ask for DS): its answer count and NXDOMAIN are all the callers use.
+ */
+function sandboxDsQuery(server: string, name: string): Promise<PublicDnsAnswer> {
+  const [address, port] = [server.slice(0, server.lastIndexOf(":")), Number(server.slice(server.lastIndexOf(":") + 1))];
+  const id = randomInt(0, 65536);
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(id, 0);
+  header.writeUInt16BE(0x0100, 2); // recursion desired
+  header.writeUInt16BE(1, 4); // one question
+  const labels = name.split(".").map((label) =>
+    Buffer.concat([Buffer.from([label.length]), Buffer.from(label, "ascii")]),
+  );
+  const question = Buffer.concat([...labels, Buffer.from([0, 0, 43, 0, 1])]);
+  return new Promise((resolve, reject) => {
+    const socket = createSocket("udp4");
+    const done = (error: DnsError | null, answer?: PublicDnsAnswer) => {
+      clearTimeout(timer);
+      socket.close();
+      if (error) reject(error);
+      else resolve(answer!);
+    };
+    const timer = setTimeout(
+      () => done(new DnsError("The sandbox DNS did not answer", "unknown")),
+      2000,
+    );
+    socket.on("error", () => done(new DnsError("The sandbox DNS did not answer", "unknown")));
+    socket.on("message", (message) => {
+      if (message.length < 12 || message.readUInt16BE(0) !== id) return;
+      const rcode = message.readUInt16BE(2) & 0x0f;
+      if (rcode === 3) return done(null, { status: "nxdomain", answers: [] });
+      if (rcode !== 0) return done(new DnsError("The sandbox DNS did not answer", "unknown"));
+      const count = message.readUInt16BE(6);
+      done(null, { status: "ok", answers: Array.from({ length: count }, () => "DS") });
+    });
+    socket.send(Buffer.concat([header, question]), port, address);
+  });
+}
+/**
  * What public resolvers answer for a name: Cloudflare, then Google (JSON DNS
  * over HTTPS). In the local mock-provider sandbox the loopback DNS double
- * answers instead (it has no DS records, so DS is unknown there). Throws a
- * DnsError "unknown" when no resolver gives a usable answer.
+ * answers instead (DS over a raw UDP question). Throws a DnsError "unknown"
+ * when no resolver gives a usable answer: a caller never treats that as "no
+ * DS record".
  */
 export async function publicDnsLookup(
   name: string,
@@ -623,6 +696,7 @@ export async function publicDnsLookup(
   if (!host) throw new DnsError("Invalid DNS name", "definitive");
   const sandbox = sandboxResolver();
   if (sandbox) {
+    if (type === "DS") return sandboxDsQuery(sandboxDnsServer()!, host);
     try {
       const answers =
         type === "A"

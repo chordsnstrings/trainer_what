@@ -86,6 +86,24 @@ export type PlatformDnsPlan = {
   planHash: string | null;
 };
 
+/**
+ * Whether a zone holds the platform's current names: PLATFORM_ROOT_DOMAIN or
+ * the public app address's host, or a parent domain of either. The DNS
+ * hosting root zone may name another zone (a new root prepared before the
+ * address change); such a zone is repaired only while its @, www and *
+ * names point nowhere else (it may be another site of the same team).
+ */
+export function platformOwnZone(zone: string, config = runtimeConfig()) {
+  let appHost = "";
+  try {
+    appHost = dnsName(new URL(config.PUBLIC_APP_URL ?? "").hostname);
+  } catch {
+    appHost = "";
+  }
+  return [platformRootDomain(config.PLATFORM_ROOT_DOMAIN), appHost]
+    .filter((name): name is string => !!name)
+    .some((name) => name === zone || name.endsWith("." + zone));
+}
 /** The zones this module may manage: PLATFORM_ROOT_DOMAIN and the DNS hosting root zone. */
 export function platformDnsZones(config = runtimeConfig()) {
   return [
@@ -197,6 +215,27 @@ export async function planPlatformDns(
   plan.records = existing.filter(
     (r) => managed.has(r.name) || r.type === "CAA" || r.type === "NS",
   );
+  // A zone that is not the platform's current address (a typo, or another
+  // site of the same DigitalOcean team) is never taken over.
+  const inUse = platformOwnZone(zone)
+    ? []
+    : existing.filter(
+        (r) =>
+          managed.has(r.name) &&
+          ["A", "AAAA", "CNAME"].includes(r.type) &&
+          !(r.type === "A" && r.data === ip),
+      );
+  if (inUse.length) {
+    problems.push({
+      key: "zone_in_use",
+      level: "error",
+      message: `${zone} is not the platform's current address (PLATFORM_ROOT_DOMAIN or the public app address), and its names already point elsewhere (${inUse
+        .slice(0, 6)
+        .map(describe)
+        .join(", ")}). It may be another site in the same DigitalOcean team, so it is never repaired from here. If it really is the new platform root, remove those records at the DNS host first.`,
+    });
+    return { plan, host: null, desired };
+  }
   if (!plan.zonePresent)
     plan.changes.push({ action: "create_zone", name: zone, type: "zone", data: zone });
   for (const change of planRecordChanges(existing, desired, REPLACED_TYPES))
@@ -224,32 +263,52 @@ export async function planPlatformDns(
       level: "info",
       message: `The repair removes ${removed.map((c) => `${c.name} ${c.type} ${c.data}`).join(", ")}: this server has no IPv6 address, and a CNAME would send these names elsewhere.`,
     });
-  // CAA: a record that allows neither of the edge's certificate authorities
-  // makes every certificate for the platform and its workspaces fail.
+  // CAA: "issue" records that allow neither of the edge's certificate
+  // authorities make every certificate for the platform and its workspaces
+  // fail. The edge obtains one certificate per name, never a wildcard, so
+  // only "issue" decides ("issuewild" governs wildcard certificates).
   const caa = existing.filter((r) => r.type === "CAA" && r.name === "@");
   const issuers = caa
-    .filter((r) => /\bissue(wild)?\b/i.test(r.data))
-    .map((r) => r.data.toLowerCase());
-  if (issuers.length && !EDGE_CAS.some((ca) => issuers.some((d) => d.includes(ca))))
+    .map((r) => /^\s*\d+\s+([a-z0-9]+)\s+"?([^"]*)"?\s*$/i.exec(r.data))
+    .filter((m): m is RegExpExecArray => !!m && m[1].toLowerCase() === "issue")
+    .map((m) => m[2].split(";")[0].trim().toLowerCase());
+  if (issuers.length && !issuers.some((ca) => EDGE_CAS.includes(ca)))
     problems.push({
       key: "caa",
       level: "error",
       message: `CAA records (${caa.map((r) => r.data).join("; ")}) allow neither Let's Encrypt nor ZeroSSL, so the edge cannot obtain certificates. Add a CAA record 0 issue "letsencrypt.org" (and one for zerossl.com) at the DNS host; the repair does not change CAA records.`,
     });
-  // Names with records of other types but no A record are not answered by
-  // the wildcard: a workspace with that name would not resolve.
-  const byName = new Map<string, Set<string>>();
+  // Workspace names (<slug>.<root>) are answered by the wildcard only where
+  // the name has no records of its own. A name with records but no A, with
+  // a CNAME, with an A pointing elsewhere, or with only deeper names under
+  // it (mg under email.mg) does not reach this server.
+  const byName = new Map<string, DnsRecord[]>();
   for (const record of existing)
-    if (!managed.has(record.name) && !record.name.startsWith("_") && !record.name.includes("."))
-      byName.set(record.name, new Set([...(byName.get(record.name) ?? []), record.type]));
-  const hidden = [...byName]
-    .filter(([, types]) => !types.has("A") && !types.has("CNAME"))
-    .map(([name, types]) => `${name} (${[...types].join(", ")})`);
+    byName.set(record.name, [...(byName.get(record.name) ?? []), record]);
+  const firstLabels = new Set(
+    [...byName.keys()]
+      .filter((name) => name !== "@")
+      .map((name) => name.split(".").pop()!),
+  );
+  const hidden: string[] = [];
+  for (const label of firstLabels) {
+    if (managed.has(label) || label.startsWith("_")) continue;
+    const own = byName.get(label) ?? [];
+    const types = new Set(own.map((r) => r.type));
+    const cname = own.find((r) => r.type === "CNAME");
+    const foreignA = own.find((r) => r.type === "A" && r.data !== ip);
+    if (!own.length) {
+      const deeper = [...byName.keys()].find((name) => name.endsWith("." + label));
+      hidden.push(`${label} (only ${deeper} under it)`);
+    } else if (cname) hidden.push(`${label} (CNAME ${cname.data})`);
+    else if (!types.has("A")) hidden.push(`${label} (${[...types].join(", ")})`);
+    else if (foreignA) hidden.push(`${label} (A ${foreignA.data})`);
+  }
   if (hidden.length)
     problems.push({
       key: "wildcard",
       level: "warning",
-      message: `These names have records but no A record, so the wildcard does not answer for them and a workspace with that name would not resolve: ${hidden.slice(0, 20).join(", ")}.`,
+      message: `These names do not reach this server (the wildcard does not answer for them), so a workspace with that name would not work: ${hidden.slice(0, 20).join(", ")}.`,
     });
   const lookup = deps.publicDns ?? publicDnsLookup;
   try {
@@ -267,9 +326,11 @@ export async function planPlatformDns(
       message: "Whether the registry holds a DS (DNSSEC) record could not be checked.",
     });
   }
+  let delegated = false;
   try {
     const ns = await lookup(zone, "NS");
-    if (ns.status !== "ok" || !delegatesToDigitalOcean(ns.answers))
+    delegated = ns.status === "ok" && delegatesToDigitalOcean(ns.answers);
+    if (!delegated)
       problems.push({
         key: "delegation",
         level: "warning",
@@ -289,8 +350,11 @@ export async function planPlatformDns(
     });
   }
   plan.repairable = true;
+  // Records at the DNS host take effect only while the zone is delegated there.
   plan.ready =
-    plan.changes.length === 0 && !problems.some((p) => p.level === "error");
+    plan.changes.length === 0 &&
+    delegated &&
+    !problems.some((p) => p.level === "error");
   plan.planHash = hashPlan(zone, ip, plan.changes);
   return { plan, host, desired };
 }

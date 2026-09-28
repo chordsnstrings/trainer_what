@@ -38,6 +38,12 @@ import { DigitalOceanMock } from "./e2e/mocks/digitalocean.ts";
 import { NamecheapMock, NAMECHEAP_DNS } from "./e2e/mocks/namecheap.ts";
 import { RegistrarMock } from "./e2e/mocks/registrar.ts";
 import { OneOhOneMock } from "./e2e/mocks/oneohone.ts";
+import { createMockTls } from "./e2e/mocks/tls.ts";
+import { createServer as createHttpsServer } from "node:https";
+import { createServer as createTcpServer, type AddressInfo, type Server } from "node:net";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { httpsProbe } from "../apps/api/src/web-address-orders.ts";
 
 const tls = { key: "unused", cert: "unused" };
 const TOKEN = "dop_v1_fixture_token_0123456789";
@@ -438,7 +444,16 @@ test("registrar and DNS host choice from settings; purchases wait for 101domain 
   assert.throws(() => registrarFromConfig({ WEB_ADDRESS_REGISTRAR: "101domain" }), /API key/);
   assert.equal(registrarSandboxSetting(base), false);
   assert.match(registrarPurchaseProblem(base) ?? "", /not published/);
-  assert.equal(registrarPurchaseProblem({ ...base, REGISTRAR_101DOMAIN_ORDERING: "true" }), null);
+  // 101domain's own DNS cannot be set up through its API: its domains need
+  // DigitalOcean DNS before anything is bought.
+  assert.match(
+    registrarPurchaseProblem({ ...base, REGISTRAR_101DOMAIN_ORDERING: "true" }) ?? "",
+    /DigitalOcean DNS/,
+  );
+  assert.equal(
+    registrarPurchaseProblem({ ...base, REGISTRAR_101DOMAIN_ORDERING: "true", DNS_PROVIDER: "digitalocean" }),
+    null,
+  );
   assert.equal(registrarPurchaseProblem({ WEB_ADDRESS_REGISTRAR: "namecheap" }), null);
   const guard = { mayManage: () => true };
   const registrar = () => registrarFromConfig({ WEB_ADDRESS_REGISTRAR: "generic", DOMAIN_API_URL: "https://registrar.test", DOMAIN_API_KEY: "k" });
@@ -602,4 +617,44 @@ test("public DNS over HTTPS: NS answers, no such domain, fallback to the second 
       ),
     (e: any) => e instanceof DnsError && e.outcome === "unknown",
   );
+});
+
+test("the HTTPS check: any answer (a 301 included) with a valid certificate passes; a wrong certificate or silence fails", async (t) => {
+  if (spawnSync("openssl", ["version"]).status !== 0) return t.skip("openssl is unavailable");
+  const material = createMockTls(tmpdir(), ["shop.test"]);
+  const servers: Server[] = [];
+  const listen = (server: Server) =>
+    new Promise<number>((resolve) => {
+      servers.push(server);
+      server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
+    });
+  try {
+    const loopback = { address: "127.0.0.1", family: 4 };
+    const forwarding = await listen(
+      createHttpsServer({ key: material.domains!.key, cert: material.domains!.cert }, (req, res) => {
+        res.writeHead(301, { location: "https://shop.trainsyou.example/" });
+        res.end();
+      }),
+    );
+    await httpsProbe("shop.test", loopback, { port: forwarding, ca: material.ca, timeoutMs: 5000 });
+    // A certificate for another name (or an untrusted one) never passes.
+    const wrongName = await listen(
+      createHttpsServer({ key: material.key, cert: material.cert }, (req, res) => res.end("ok")),
+    );
+    await assert.rejects(() =>
+      httpsProbe("shop.test", loopback, { port: wrongName, ca: material.ca, timeoutMs: 5000 }),
+    );
+    await assert.rejects(() => httpsProbe("shop.test", loopback, { port: forwarding, timeoutMs: 5000 }));
+    // A server that never answers: the timeout ends the check.
+    const silent = await listen(createTcpServer(() => {}));
+    await assert.rejects(() =>
+      httpsProbe("shop.test", loopback, { port: silent, ca: material.ca, timeoutMs: 300 }),
+    );
+  } finally {
+    for (const server of servers) {
+      (server as any).closeAllConnections?.();
+      server.close();
+    }
+    material.cleanup();
+  }
 });

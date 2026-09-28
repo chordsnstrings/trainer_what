@@ -42,13 +42,16 @@ import {
   type DnsProviderId,
   type PublicDnsAnswer,
   type PublicDnsType,
+  type ZoneReleaseEvidence,
 } from "../../../packages/providers/src/dns-hosting.ts";
 import {
   RegistrarError,
   canRegister,
   canRenew,
+  canUseRegistrarDns,
   paymentModeProblem,
   registrantFromConfig,
+  registrarFor,
   registrarFromConfig,
   type HostRecord,
   type Registrar,
@@ -158,6 +161,25 @@ const LEASE_MINUTES = 10;
 export const ZONE_RELEASE_DAYS = 45;
 const ZONE_RECHECK_DAYS = 7;
 const DNS_ATTENTION_ATTEMPTS = 5;
+/**
+ * How long a registrar that accepted a nameserver change may keep showing
+ * the old list before the change is sent again (101domain answers 202 and
+ * its read-back is not proven to flag the change as pending).
+ */
+const NAMESERVER_SETTLE_MS = 6 * 3600000;
+/** Nameserver changes sent again for one delegation before an operator is asked. */
+const MAX_DELEGATION_RESETS = 3;
+/** Weekly zone-release checks before an operator is asked to decide. */
+const ZONE_RELEASE_ATTENTION_CHECKS = 3;
+/**
+ * A takeover signal an operator should see: it stays through the fallback
+ * to the registrar's DNS and activation until an operator clears it (Retry).
+ */
+const HELD_ELSEWHERE_ATTENTION =
+  "Another DigitalOcean account holds this domain's zone, so it was not delegated there; the registrar's DNS serves it now. Find out who created that zone, then Retry to clear this.";
+/** Clears an order's attention after a successful step, except a takeover signal. */
+const clearedAttention = (attention: unknown) =>
+  attention === HELD_ELSEWHERE_ATTENTION ? HELD_ELSEWHERE_ATTENTION : null;
 /** Statuses in which the platform holds the registration. */
 const REGISTERED = new Set([
   "owned",
@@ -179,8 +201,40 @@ const iso = (value: unknown) =>
 function stripeOf(deps: WebAddressDeps): WebAddressStripe {
   return deps.stripe ?? (stripeClient() as unknown as WebAddressStripe);
 }
-function registrarOf(deps: WebAddressDeps) {
-  return deps.registrar ?? registrarFromConfig();
+/**
+ * The registrar an order was bought through is not configured now (or a
+ * test injected another one). Nothing is sent to a different registrar.
+ */
+export class OrderRegistrarUnavailable extends Error {
+  constructor(readonly registrarId: string) {
+    super(
+      `This domain is registered at ${registrarId}, whose settings are incomplete now. Complete them in Super admin settings: an order always stays with the registrar it was bought through, and nothing was sent to another registrar.`,
+    );
+    this.name = "OrderRegistrarUnavailable";
+  }
+}
+/**
+ * The registrar that holds an order's domain (domain_orders.registrar, set
+ * at checkout and immutable), never simply the one chosen for new
+ * purchases: purchase, reconciliation, renewal, nameservers, host records
+ * and zone release all ask the registrar the name was bought through.
+ */
+function registrarOf(deps: WebAddressDeps, order: Order): Registrar {
+  const bought =
+    typeof order.registrar === "string" && order.registrar
+      ? order.registrar
+      : null;
+  if (deps.registrar) {
+    if (bought && deps.registrar.id !== bought)
+      throw new OrderRegistrarUnavailable(bought);
+    return deps.registrar;
+  }
+  if (!bought) return registrarFromConfig();
+  try {
+    return registrarFor(bought);
+  } catch {
+    throw new OrderRegistrarUnavailable(bought);
+  }
 }
 export function purchasesEnabled() {
   return runtimeConfig().WEB_ADDRESS_PURCHASES_ENABLED === "true";
@@ -1165,7 +1219,7 @@ async function purchase(
         "Automatic purchases are switched off in Super admin settings; the trainer has paid.",
       attempts: Number(order.attempts ?? 0),
     });
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   // Nothing is sent to a registrar whose API cannot register yet.
   if (!canRegister(registrar))
     return release(db, tenantId, order.id, {
@@ -1289,7 +1343,7 @@ async function completeRegistration(
   cost: { usd?: string; estimated: boolean },
   known?: { expiresAt?: string },
 ) {
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   let expiresAt = known?.expiresAt;
   if (!expiresAt)
     try {
@@ -1368,7 +1422,7 @@ async function reconcilePurchase(
   if (settling(operation, deps))
     return afterSettling(db, tenantId, order, operation, deps);
   // sent, failed or unknown: ask the registrar whether the name is ours.
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   let ours;
   try {
     ours = await inOurAccount(registrar, order.hostname);
@@ -1393,6 +1447,24 @@ async function reconcilePurchase(
       estimated: true,
     });
   }
+  // A registrar that registers asynchronously may still be processing our
+  // order while the name still shows as available: never mark the attempt
+  // absent, buy again or refund while it says so (or cannot say).
+  if (registrar.pendingOrder) {
+    let pending = true;
+    try {
+      pending = await registrar.pendingOrder(order.hostname);
+    } catch {
+      pending = true;
+    }
+    if (pending)
+      return retryLater(db, tenantId, order, "Registration still processing", {
+        attention:
+          Number(order.attempts ?? 0) >= 12
+            ? "The registrar still shows the registration order as processing (or could not be asked); check it at the registrar."
+            : undefined,
+      });
+  }
   let availability;
   try {
     [availability] = await registrar.check([order.hostname]);
@@ -1404,23 +1476,6 @@ async function reconcilePurchase(
     availability.premium ||
     availability.earlyAccessFeeUsd
   ) {
-    // A registrar that registers asynchronously may still be processing our
-    // order: never refund while it says so (or cannot say).
-    if (registrar.pendingOrder) {
-      let pending = true;
-      try {
-        pending = await registrar.pendingOrder(order.hostname);
-      } catch {
-        pending = true;
-      }
-      if (pending)
-        return retryLater(db, tenantId, order, "Registration still processing", {
-          attention:
-            Number(order.attempts ?? 0) >= 12
-              ? "The registrar still shows the registration order as processing; check it at the registrar."
-              : undefined,
-        });
-    }
     // Not ours and not available: someone else took it, or the registrar
     // has not shown our registration yet. Look once more before refunding.
     const seen = Number(order.evidence?.unavailableSeen ?? 0) + 1;
@@ -1550,7 +1605,7 @@ function dnsHost(
   };
   if (deps.dns) return deps.dns(guard, provider);
   if (provider === "registrar")
-    return new RegistrarHostedDns(registrarOf(deps), guard);
+    return new RegistrarHostedDns(registrarOf(deps, order), guard);
   const settings = dnsHostingSettings();
   if (!settings.token)
     throw new ProviderUnavailable(
@@ -1567,11 +1622,39 @@ function chosenDnsProvider(order: Order): DnsProviderId {
 }
 const publicDnsOf = (deps: WebAddressDeps) => deps.publicDns ?? publicDnsLookup;
 /**
+ * What a DNS call converges to (compared between attempts of one kind): the
+ * nameservers, zone, records or host set it asked for.
+ */
+function dnsTarget(kind: string, request: any) {
+  const value =
+    kind === "set_nameservers"
+      ? request?.nameservers
+      : kind === "set_records"
+        ? request?.records
+        : kind === "set_hosts"
+          ? request?.hosts
+          : request?.zone;
+  // Stored requests are jsonb (keys reordered): compare with sorted keys.
+  const canonical = (item: unknown): unknown =>
+    Array.isArray(item)
+      ? item.map(canonical)
+      : item && typeof item === "object"
+        ? Object.fromEntries(
+            Object.keys(item)
+              .sort()
+              .map((key) => [key, canonical((item as any)[key])]),
+          )
+        : item;
+  return JSON.stringify(canonical(value ?? null));
+}
+/**
  * Runs one DNS call recorded under a stable intent: the row is written as
  * sent before the call and finished with its outcome. These calls converge
  * to a stated result (they read the current state first), so once one
  * succeeds, earlier attempts of the same kind that never got an answer are
- * recorded as confirmed by that read-back.
+ * settled: confirmed by that read-back when they asked for the same result,
+ * absent (superseded) when they asked for another one. A definitive failure
+ * stays failed.
  */
 async function recordedCall<T>(
   db: Database,
@@ -1612,15 +1695,18 @@ async function recordedCall<T>(
     await db.tenant(wa, async (tx) => {
       await finishOperation(tx, id, "succeeded", outcome);
       const open = await tx.query(
-        "SELECT id FROM registrar_operations WHERE order_id=$1 AND kind=$2 AND id<>$3 AND status IN ('sent','failed','unknown')",
+        "SELECT id,request FROM registrar_operations WHERE order_id=$1 AND kind=$2 AND id<>$3 AND status IN ('sent','unknown')",
         [order.id, input.kind, id],
       );
-      for (const row of open)
-        await finishOperation(tx, row.id, "confirmed", {
+      const target = dnsTarget(input.kind, input.request);
+      for (const row of open) {
+        const same = dnsTarget(input.kind, row.request) === target;
+        await finishOperation(tx, row.id, same ? "confirmed" : "absent", {
           reconciledAt: new Date().toISOString(),
-          via: "read-back",
+          via: same ? "read-back" : "superseded",
           settledBy: id,
         });
+      }
     });
     return { ok: true, value };
   } catch (error) {
@@ -1656,9 +1742,17 @@ async function provisionDns(
   order: Order,
   deps: WebAddressDeps,
 ) {
-  return chosenDnsProvider(order) === "digitalocean"
-    ? provisionZone(db, tenantId, order, deps)
-    : writeHosts(db, tenantId, order, deps);
+  if (chosenDnsProvider(order) === "digitalocean")
+    return provisionZone(db, tenantId, order, deps);
+  // A registrar whose own DNS cannot be set up through its API is never
+  // retried on it: an operator chooses the DNS host instead.
+  if (!canUseRegistrarDns(registrarOf(deps, order)))
+    return release(db, tenantId, order.id, {
+      next_attempt_at: pausedUntil(order),
+      attention:
+        "This domain's registrar cannot serve it from its own DNS through its API. Choose DigitalOcean in DNS hosting, then Re-run DNS setup with DigitalOcean.",
+    });
+  return writeHosts(db, tenantId, order, deps);
 }
 /**
  * The registrar's own DNS: the domain is returned to the registrar's
@@ -1680,7 +1774,7 @@ async function writeHosts(
         "The server IPv4 address for domain DNS is unknown; set it in Super admin settings.",
     });
   }
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   const host = dnsHost(order, deps, "registrar");
   const hosts = platformHosts(ip);
   const wa = workerActor(tenantId);
@@ -1761,7 +1855,7 @@ async function writeHosts(
       status: "dns",
       dns_provider: "registrar",
       attempts: 0,
-      attention: null,
+      attention: clearedAttention(order.attention),
       next_attempt_at: new Date(Date.now() + 30000),
     });
     await mergeEvidence(tx, order.id, {
@@ -1828,11 +1922,17 @@ async function provisionZone(
     );
   if (zone.value === "held_elsewhere") {
     // Delegating to a zone another account holds would hand it the domain.
+    // It is also a takeover signal an operator should look at.
+    const registrar = registrarOf(deps, order);
+    const fallback = canUseRegistrarDns(registrar);
     await db.tenant(wa, async (tx) => {
       await update(tx, order.id, {
-        dns_provider: "registrar",
-        attempts: 0,
-        next_attempt_at: new Date(),
+        ...(fallback
+          ? { dns_provider: "registrar", attempts: 0, next_attempt_at: new Date() }
+          : { next_attempt_at: pausedUntil(order) }),
+        attention: fallback
+          ? HELD_ELSEWHERE_ATTENTION
+          : "Another DigitalOcean account holds this domain's zone, so it was not delegated there, and this registrar's own DNS cannot be set up through its API. Have that zone removed (DigitalOcean support), then Re-run DNS setup.",
       });
       await mergeEvidence(tx, order.id, {
         zoneHeldElsewhere: new Date().toISOString(),
@@ -1904,6 +2004,10 @@ async function provisionZone(
       zoneState: zone.value,
       zoneWrittenAt: new Date().toISOString(),
       zoneReleasedAt: null,
+      zoneHandedOverAt: null,
+      zoneRecordsClearedAt: null,
+      zoneReleaseChecks: 0,
+      zoneReleaseErrors: 0,
     });
     await progress(tx, order.id, "zone");
   });
@@ -1943,19 +2047,30 @@ async function delegate(
     });
     return;
   }
-  let ds: PublicDnsAnswer | null = null;
+  // Never delegated without knowing: a DS record at the registry would make
+  // the unsigned zone fail for every validating resolver.
+  let ds: PublicDnsAnswer;
   try {
     ds = await publicDnsOf(deps)(order.hostname, "DS");
-  } catch {
-    ds = null;
+  } catch (error) {
+    return dnsRetry(
+      db,
+      tenantId,
+      order,
+      "DNSSEC not checked",
+      "Public DNS could not be asked whether the domain has a DS (DNSSEC) record after 5 attempts; nothing was delegated.",
+      error,
+    );
   }
-  if (ds?.status === "ok" && ds.answers.length)
+  const registrar = registrarOf(deps, order);
+  if (ds.status === "ok" && ds.answers.length)
     return release(db, tenantId, order.id, {
-      next_attempt_at: null,
-      attention:
-        "The registry holds a DS (DNSSEC) record for this domain, and the DNS host does not sign zones. Remove DNSSEC at the registrar and Retry, or switch the order to the registrar's DNS.",
+      // Looked at again at expiry, so the domain still lapses on time.
+      next_attempt_at: pausedUntil(order),
+      attention: canUseRegistrarDns(registrar)
+        ? "The registry holds a DS (DNSSEC) record for this domain, and the DNS host does not sign zones. Remove DNSSEC at the registrar and Retry, or switch the order to the registrar's DNS."
+        : "The registry holds a DS (DNSSEC) record for this domain, and the DNS host does not sign zones. Remove DNSSEC at the registrar, then Retry.",
     });
-  const registrar = registrarOf(deps);
   const set = await recordedCall(
     db,
     tenantId,
@@ -1989,6 +2104,7 @@ async function delegate(
       "The registrar did not confirm the DNS host's nameservers after 5 attempts.",
       set.error,
     );
+  const now = new Date().toISOString();
   await db.tenant(wa, async (tx) => {
     await update(tx, order.id, {
       status: "delegating",
@@ -1997,8 +2113,11 @@ async function delegate(
       next_attempt_at: new Date(Date.now() + 60000),
     });
     await mergeEvidence(tx, order.id, {
-      nameserversSetAt: new Date().toISOString(),
-      dnssec: ds ? "absent" : "unknown",
+      // The last change (its read-back may lag) and the first of this
+      // delegation (the 72-hour clock, never restarted by a change sent again).
+      nameserversSetAt: now,
+      delegationStartedAt: order.evidence?.delegationStartedAt ?? now,
+      dnssec: "absent",
     });
     await progress(tx, order.id, "connecting");
   });
@@ -2015,10 +2134,36 @@ async function verifyDelegation(
   deps: WebAddressDeps,
 ) {
   const wa = workerActor(tenantId);
-  const nameservers = dnsHost(order, deps, "digitalocean").nameservers()!;
-  const since = Date.parse(order.evidence?.nameserversSetAt ?? "") || Date.now();
+  const host = dnsHost(order, deps, "digitalocean");
+  const nameservers = host.nameservers()!;
+  const since =
+    Date.parse(
+      order.evidence?.delegationStartedAt ?? order.evidence?.nameserversSetAt ?? "",
+    ) || Date.now();
   const late = Date.now() - since > 72 * 3600000;
-  const registrar = registrarOf(deps);
+  // The zone must still be in the platform's account: a name delegated to
+  // DigitalOcean without it could be claimed by any account.
+  let zone;
+  try {
+    zone = await host.getZone(order.hostname);
+  } catch (error) {
+    return dnsRetry(
+      db,
+      tenantId,
+      order,
+      "DNS zone not read",
+      "The DNS host could not be asked for the domain's zone after 5 attempts.",
+      error,
+    );
+  }
+  if (!zone) {
+    await db.tenant(wa, async (tx) => {
+      await update(tx, order.id, { status: "owned", next_attempt_at: new Date() });
+      await progress(tx, order.id, "zone_missing");
+    });
+    return;
+  }
+  const registrar = registrarOf(deps, order);
   let state;
   try {
     state = await registrar.getNameservers(order.hostname);
@@ -2030,8 +2175,26 @@ async function verifyDelegation(
     });
   }
   if (!state.pending && !sameNameservers(state.nameservers, nameservers)) {
+    // An accepted change the registrar does not show yet: wait before
+    // sending it again (its read-back may lag without saying so).
+    const setAt = Date.parse(order.evidence?.nameserversSetAt ?? "");
+    if (Number.isFinite(setAt) && Date.now() - setAt < NAMESERVER_SETTLE_MS)
+      return retryLater(db, tenantId, order, "Nameserver change not shown yet", {
+        attention: late
+          ? "The registrar does not show the DNS host's nameservers 72 hours after they were set; check the domain at the registrar."
+          : undefined,
+      });
+    // Reset by someone else, or never applied: sent again a bounded number
+    // of times, then an operator decides.
+    const resets = Number(order.evidence?.delegationResets ?? 0) + 1;
+    if (resets > MAX_DELEGATION_RESETS)
+      return retryLater(db, tenantId, order, "Nameservers keep differing", {
+        at: Date.now() + NAMESERVER_SETTLE_MS,
+        attention: `The registrar still shows other nameservers than the DNS host's after ${MAX_DELEGATION_RESETS} changes; check the domain at the registrar (a lock, or someone changing it), then use Re-run DNS setup.`,
+      });
     await db.tenant(wa, async (tx) => {
       await update(tx, order.id, { status: "zone", next_attempt_at: new Date() });
+      await mergeEvidence(tx, order.id, { delegationResets: resets });
       await progress(tx, order.id, "connecting_again");
     });
     return;
@@ -2062,33 +2225,33 @@ async function verifyDelegation(
     await mergeEvidence(tx, order.id, {
       delegatedAt: new Date().toISOString(),
       hostsWrittenAt: new Date().toISOString(),
+      delegationStartedAt: null,
+      delegationResets: 0,
     });
     await progress(tx, order.id, "dns");
   });
 }
+type ZoneRelease =
+  | { state: "release"; evidence: ZoneReleaseEvidence }
+  | { state: "delegated"; evidence: ZoneReleaseEvidence }
+  | { state: "adopted" }
+  | { state: "other_order" }
+  | { state: "error" };
 /**
- * expired, DigitalOcean: deletes the zone of a lapsed domain once nothing
- * delegates the name there any more (neither the registrar, for a name
- * still in the platform's account, nor public DNS), at least
- * ZONE_RELEASE_DAYS after expiry. Until then the zone stays, so no other
- * account can create it and serve the name. Looks again every week.
+ * Whether the zone this order wrote at the DNS host may be deleted now:
+ * never while another open order for the same name may use it (a re-bought
+ * name adopts the existing zone), and never while the registrar (for a name
+ * still in the platform's account) or public DNS delegates the name to the
+ * DNS host, since any account could then claim the zone and serve the name.
  */
-async function releaseZone(
+async function zoneReleaseCheck(
   db: Database,
-  tenantId: string,
   order: Order,
   deps: WebAddressDeps,
-) {
-  const wa = workerActor(tenantId);
-  const expires = Date.parse(order.expires_at);
-  const due = (Number.isFinite(expires) ? expires : Date.now()) + ZONE_RELEASE_DAYS * DAY;
-  if (Date.now() < due)
-    return release(db, tenantId, order.id, { next_attempt_at: new Date(due) });
-  const later = (days: number) =>
-    release(db, tenantId, order.id, {
-      next_attempt_at: new Date(Date.now() + days * DAY),
-    });
-  const registrar = registrarOf(deps);
+): Promise<ZoneRelease> {
+  const other = await otherOrderForName(db, order);
+  if (other) return { state: other };
+  const registrar = registrarOf(deps, order);
   let registrarNameservers: string[] | null;
   let publicNameservers: string[] | "nxdomain";
   try {
@@ -2099,27 +2262,49 @@ async function releaseZone(
     const answer = await publicDnsOf(deps)(order.hostname, "NS");
     publicNameservers = answer.status === "nxdomain" ? "nxdomain" : answer.answers;
   } catch {
-    return later(1);
+    return { state: "error" };
   }
-  if (
-    delegatesToDigitalOcean(registrarNameservers) ||
+  const evidence = { registrarNameservers, publicNameservers };
+  return delegatesToDigitalOcean(registrarNameservers) ||
     (publicNameservers !== "nxdomain" && delegatesToDigitalOcean(publicNameservers))
-  ) {
-    await db.tenant(wa, (tx) =>
-      mergeEvidence(tx, order.id, {
-        zoneReleaseCheckedAt: new Date().toISOString(),
-        zoneReleaseChecks: Number(order.evidence?.zoneReleaseChecks ?? 0) + 1,
-      }),
-    );
-    return later(ZONE_RECHECK_DAYS);
-  }
+    ? { state: "delegated", evidence }
+    : { state: "release", evidence };
+}
+/**
+ * Another open order for the same name (in any workspace): "adopted" once
+ * it wrote its records into the zone after this order did, "other_order"
+ * before that; null when there is none.
+ */
+async function otherOrderForName(db: Database, order: Order) {
+  // Orders are workspace-scoped: a narrow definer helper (migration 070)
+  // answers for the worker's own order only.
+  const [other] = await db.tenant(workerActor(order.tenant_id), (tx) =>
+    tx.query<{ zone_written_at: string }>(
+      "SELECT zone_written_at FROM domain_name_other_order($1)",
+      [order.id],
+    ),
+  );
+  if (!other) return null;
+  return other.zone_written_at &&
+    Date.parse(other.zone_written_at) >
+      (Date.parse(order.evidence?.zoneWrittenAt ?? "") || 0)
+    ? ("adopted" as const)
+    : ("other_order" as const);
+}
+/** Deletes the order's zone (recorded, with the evidence); true when it is gone. */
+async function deleteHeldZone(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+  evidence: ZoneReleaseEvidence,
+) {
   let host: DnsProvider;
   try {
     host = dnsHost(order, deps, "digitalocean");
   } catch {
-    return later(ZONE_RECHECK_DAYS);
+    return false;
   }
-  const evidence = { registrarNameservers, publicNameservers };
   const done = await recordedCall(
     db,
     tenantId,
@@ -2135,20 +2320,165 @@ async function releaseZone(
       return { outcome: { deleted: true }, value: true };
     },
   );
-  if (!done.ok) return later(1);
-  await db.tenant(wa, async (tx) => {
-    await update(tx, order.id, { next_attempt_at: null });
+  if (!done.ok) return false;
+  await db.tenant(workerActor(tenantId), async (tx) => {
     await mergeEvidence(tx, order.id, {
       zoneReleasedAt: new Date().toISOString(),
+      zoneReleaseErrors: 0,
     });
     await progress(tx, order.id, "zone_released");
   });
+  return true;
 }
-/** A lapsed order whose DNS zone is still held at the DNS host. */
+/**
+ * Removes the A records of a zone kept after lapse (the zone itself, its
+ * SOA and NS stay, so no other account can claim the name): a kept zone
+ * never points a lapsed domain at an address the platform may give up. A
+ * late renewal writes them again. True when they are gone.
+ */
+async function clearRetainedRecords(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  let host: DnsProvider;
+  try {
+    host = dnsHost(order, deps, "digitalocean");
+  } catch {
+    return false;
+  }
+  const done = await recordedCall(
+    db,
+    tenantId,
+    order,
+    {
+      kind: "set_records",
+      provider: host.id,
+      prefix: "records",
+      request: { records: [], removed: ["@ A", "www A", "@ AAAA", "www AAAA"] },
+    },
+    async () => {
+      const removed = await host.removeRecords(order.hostname, ["@", "www"], [
+        "A",
+        "AAAA",
+      ]);
+      return { outcome: { removed, verified: true }, value: removed };
+    },
+  );
+  if (!done.ok) return false;
+  await db.tenant(workerActor(tenantId), (tx) =>
+    mergeEvidence(tx, order.id, {
+      zoneRecordsClearedAt: new Date().toISOString(),
+    }),
+  );
+  return true;
+}
+/**
+ * expired: deletes the zone of a lapsed domain once nothing delegates the
+ * name there any more (neither the registrar, for a name still in the
+ * platform's account, nor public DNS), at least ZONE_RELEASE_DAYS after
+ * expiry. Until then the zone stays (without its A records), so no other
+ * account can create it and serve the name. Looks again every week, and
+ * asks an operator when the zone may be blocking a new holder of the name.
+ */
+async function releaseZone(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  const wa = workerActor(tenantId);
+  const later = (days: number) =>
+    release(db, tenantId, order.id, {
+      next_attempt_at: new Date(Date.now() + days * DAY),
+    });
+  // A newer order for the name may already use this zone: its records are
+  // never touched from here.
+  const other = await otherOrderForName(db, order);
+  if (!other && !order.evidence?.zoneRecordsClearedAt)
+    await clearRetainedRecords(db, tenantId, order, deps);
+  const expires = Date.parse(order.expires_at);
+  const due = (Number.isFinite(expires) ? expires : Date.now()) + ZONE_RELEASE_DAYS * DAY;
+  if (Date.now() < due && other !== "adopted")
+    return release(db, tenantId, order.id, { next_attempt_at: new Date(due) });
+  const check: ZoneRelease = other
+    ? { state: other }
+    : await zoneReleaseCheck(db, order, deps);
+  if (check.state === "adopted") {
+    // The name was bought again and its new order uses this zone.
+    await db.tenant(wa, async (tx) => {
+      await update(tx, order.id, { next_attempt_at: null });
+      await mergeEvidence(tx, order.id, {
+        zoneHandedOverAt: new Date().toISOString(),
+      });
+      await progress(tx, order.id, "zone_handed_over");
+    });
+    return;
+  }
+  if (check.state === "other_order") return later(ZONE_RECHECK_DAYS);
+  if (check.state === "error") {
+    const errors = Number(order.evidence?.zoneReleaseErrors ?? 0) + 1;
+    await db.tenant(wa, async (tx) => {
+      await mergeEvidence(tx, order.id, { zoneReleaseErrors: errors });
+      if (errors >= DNS_ATTENTION_ATTEMPTS)
+        await update(tx, order.id, {
+          attention:
+            "The lapsed domain's DNS zone could not be checked for release after 5 daily attempts (registrar or public DNS unreachable); it is kept until a check succeeds.",
+        });
+    });
+    return later(1);
+  }
+  if (check.state === "delegated") {
+    const checks = Number(order.evidence?.zoneReleaseChecks ?? 0) + 1;
+    // Out of the platform's account yet delegated to the DNS host: someone
+    // else may hold the name now, and the kept zone blocks them.
+    const foreign = check.evidence.registrarNameservers === null;
+    await db.tenant(wa, async (tx) => {
+      await mergeEvidence(tx, order.id, {
+        zoneReleaseCheckedAt: new Date().toISOString(),
+        zoneReleaseChecks: checks,
+        zoneReleaseErrors: 0,
+      });
+      if (foreign || checks >= ZONE_RELEASE_ATTENTION_CHECKS)
+        await update(tx, order.id, {
+          attention: foreign
+            ? "The lapsed domain is no longer in the platform's registrar account, but public DNS still delegates it to DigitalOcean, so its kept zone answers for it. If the name has a new holder, delete the zone in DigitalOcean so they can use it; otherwise it is released once the delegation ends."
+            : `The lapsed domain still delegates to DigitalOcean after ${checks} weekly checks, so its zone is kept. Check the nameservers at the registrar.`,
+        });
+    });
+    return later(ZONE_RECHECK_DAYS);
+  }
+  if (!(await deleteHeldZone(db, tenantId, order, deps, check.evidence)))
+    return later(1);
+  await release(db, tenantId, order.id, { next_attempt_at: null });
+}
+/**
+ * An active domain moved to the registrar's DNS still has the zone it had
+ * at the DNS host: released once nothing delegates the name there (checked
+ * at each visit; no waiting period, the name is still the platform's).
+ * True while the zone is still held.
+ */
+async function releaseLeftZone(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  if (order.dns_provider !== "registrar" || !zoneHeld(order)) return false;
+  const check = await zoneReleaseCheck(db, order, deps);
+  if (check.state !== "release") return check.state !== "adopted";
+  return !(await deleteHeldZone(db, tenantId, order, deps, check.evidence));
+}
+/**
+ * An order that wrote a zone at the DNS host which is still there: not
+ * released, not handed over to a newer order for the name. Whatever DNS
+ * host the order uses now (an operator may have moved it to the registrar's).
+ */
 const zoneHeld = (order: Order) =>
-  order.dns_provider === "digitalocean" &&
+  !!order.evidence?.zoneWrittenAt &&
   !order.evidence?.zoneReleasedAt &&
-  !!order.evidence?.zoneWrittenAt;
+  !order.evidence?.zoneHandedOverAt;
 
 /**
  * Proves HTTPS works for the domain (and lets the edge obtain its
@@ -2157,16 +2487,30 @@ const zoneHeld = (order: Order) =>
  * to the public address that was checked.
  */
 async function httpsCheck(hostname: string) {
-  const { url, addresses } = await validatePublicEndpoint("https://" + hostname + "/");
-  const address = addresses[0];
+  const { addresses } = await validatePublicEndpoint("https://" + hostname + "/");
+  await httpsProbe(hostname, addresses[0]);
+}
+/**
+ * One HEAD request to https://<hostname>/ at a pinned address: resolves on
+ * any HTTP answer (a 301 included), rejects on a certificate that is not
+ * valid for the name, a connection error or the timeout. `port` and `ca`
+ * exist for the local test server only.
+ */
+export async function httpsProbe(
+  hostname: string,
+  address: { address: string; family: number },
+  options: { port?: number; ca?: string; timeoutMs?: number } = {},
+) {
   await new Promise<void>((resolve, reject) => {
     const request = httpsRequest(
-      url,
+      "https://" + hostname + "/",
       {
         method: "HEAD",
-        signal: AbortSignal.timeout(15000),
-        lookup: (_name, options, callback) => {
-          if (typeof options === "object" && options?.all)
+        ...(options.port ? { port: options.port } : {}),
+        ...(options.ca ? { ca: options.ca } : {}),
+        signal: AbortSignal.timeout(options.timeoutMs ?? 15000),
+        lookup: (_name, lookupOptions, callback) => {
+          if (typeof lookupOptions === "object" && lookupOptions?.all)
             callback(null, [address] as any);
           else callback(null, address.address, address.family);
         },
@@ -2246,6 +2590,11 @@ async function verifyAndActivate(
     });
   }
   const wa = workerActor(tenantId);
+  // A forwarded domain's live notice names where visitors go.
+  const forwardTarget =
+    order.serve_mode === "forward"
+      ? await fallbackAddress(db, tenantId).catch(() => null)
+      : null;
   await db.system(async (tx) => {
     const activated = await tx.tenant(wa, async (tx) => {
       const [current] = await tx.query(
@@ -2257,7 +2606,7 @@ async function verifyAndActivate(
       const row = await update(tx, order.id, {
         status: "active",
         live_at: current.live_at ?? new Date(),
-        attention: null,
+        attention: clearedAttention(current.attention),
         attempts: 0,
         next_attempt_at: new Date(),
       });
@@ -2272,7 +2621,7 @@ async function verifyAndActivate(
           templateKey: "web-address-live",
           dedupe: "live",
           title: "Your website is live on your own domain",
-          body: `https://${order.hostname} now shows your coaching website and member app sign-in. Your domain renews every year${Number.isFinite(expires) ? `; the next renewal is before ${new Date(expires).toISOString().slice(0, 10)}` : ""}.`,
+          body: `${forwardTarget ? `https://${order.hostname} now forwards visitors to ${forwardTarget}` : `https://${order.hostname} now shows your coaching website and member app sign-in`}. Your domain renews every year${Number.isFinite(expires) ? `; the next renewal is before ${new Date(expires).toISOString().slice(0, 10)}` : ""}.`,
         });
       return row;
     });
@@ -2363,7 +2712,7 @@ async function renewedAtRegistrar(
   deps: WebAddressDeps,
   open?: Order,
 ) {
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   let info;
   try {
     info = await registrar.info(order.hostname);
@@ -2407,7 +2756,7 @@ async function renew(
   deps: WebAddressDeps,
 ) {
   const wa = workerActor(tenantId);
-  const registrar = registrarOf(deps);
+  const registrar = registrarOf(deps, order);
   if (
     await modeStop(
       db,
@@ -2462,6 +2811,23 @@ async function renew(
     });
   }
   const base = order.evidence?.renewalBaseExpiry ?? iso(order.expires_at);
+  // A registrar that renews asynchronously may still be processing an
+  // earlier renewal order: never send another while it says so.
+  if (previous.length && registrar.pendingOrder) {
+    let pending = true;
+    try {
+      pending = await registrar.pendingOrder(order.hostname);
+    } catch {
+      pending = true;
+    }
+    if (pending)
+      return retryLater(db, tenantId, order, "Renewal still processing", {
+        attention:
+          Number(order.attempts ?? 0) >= 12
+            ? "The registrar still shows the renewal order as processing (or could not be asked); check it at the registrar."
+            : undefined,
+      });
+  }
   if (open)
     await db.tenant(wa, (tx) =>
       finishOperation(tx, open.id, "absent", {
@@ -2527,6 +2893,21 @@ async function renew(
     } catch {
       /* Falls back to one year after the previous expiry. */
     }
+  // A renewal counts only when the registrar's expiry moved past the one
+  // this invoice extends; otherwise it is reconciled (never counted, never
+  // sent again while it may still complete).
+  if (expiresAt && !movedPast(expiresAt, base)) {
+    await db.tenant(wa, (tx) =>
+      finishOperation(tx, operationId, "unknown", {
+        error: "The registrar reported an expiry that did not move",
+        expiresAt,
+      }),
+    );
+    return retryLater(db, tenantId, order, "Renewal pending reconciliation", {
+      attempts,
+      at: Date.now() + settleMs(deps) + 5000,
+    });
+  }
   const succeeded = await db.tenant(wa, (tx) =>
     finishOperation(
       tx,
@@ -2716,11 +3097,11 @@ async function lapse(
   const hold = await lapseHold(order, deps);
   let autoRenews = false;
   try {
-    autoRenews = !canRenew(registrarOf(deps));
+    autoRenews = !canRenew(registrarOf(deps, order));
   } catch {
     autoRenews = false;
   }
-  await db.system(async (tx) => {
+  const lapsedNow = await db.system(async (tx) => {
     const lapsed = await tx.tenant(wa, async (tx) => {
       const [current] = await tx.query(
         "SELECT * FROM domain_orders WHERE id=$1 FOR UPDATE",
@@ -2750,10 +3131,11 @@ async function lapse(
             }
           : {}),
       });
-      if (zoneHeld(current))
-        await mergeEvidence(tx, order.id, {
-          zoneRetained: new Date().toISOString(),
-        });
+      await mergeEvidence(tx, order.id, {
+        delegationStartedAt: null,
+        delegationResets: 0,
+        ...(zoneHeld(current) ? { zoneRetained: new Date().toISOString() } : {}),
+      });
       await progress(tx, order.id, "lapsed");
       await event(tx, wa, "web_address.lapsed", order.id);
       await notifyOwner(tx, tenantId, current, {
@@ -2766,10 +3148,19 @@ async function lapse(
     });
     if (lapsed)
       await tx.query(
-        "UPDATE domain_mappings SET active=false WHERE tenant_id=$1 AND hostname=ANY($2::text[])",
+        "UPDATE domain_mappings SET active=false,redirect=NULL WHERE tenant_id=$1 AND hostname=ANY($2::text[])",
         [tenantId, [order.hostname, "www." + order.hostname]],
       );
+    return lapsed;
   });
+  // A kept zone no longer points the lapsed name at the server.
+  if (lapsedNow && zoneHeld(order))
+    await clearRetainedRecords(
+      db,
+      tenantId,
+      { ...order, status: "expired" },
+      deps,
+    ).catch(() => false);
   if (!hold) await cancelSubscription(db, tenantId, order, deps);
 }
 /** An expired order: a late payment renews it; otherwise the subscription ends after its hold. */
@@ -2815,7 +3206,6 @@ async function maintainActive(
       order = (await readOrder(db, tenantId, order.id)) ?? order;
   }
   const expires = Date.parse(order.expires_at);
-  const wa = workerActor(tenantId);
   if (!Number.isFinite(expires))
     return release(db, tenantId, order.id, { next_attempt_at: null });
   // Within the renewal window: a paid renewal invoice whose event was lost.
@@ -2833,6 +3223,35 @@ async function maintainActive(
       });
     return lapse(db, tenantId, order, deps);
   }
+  // A zone left at the DNS host after a move to the registrar's DNS.
+  const zoneLeft = await releaseLeftZone(db, tenantId, order, deps).catch(
+    () => true,
+  );
+  await sendGraceNotice(db, tenantId, order);
+  const daysLeft = Math.ceil((expires - Date.now()) / DAY);
+  // Next visit: alignment retry, the day after the renewal charge (to catch
+  // a lost payment event), the next grace notice, expiry, or the weekly
+  // look at a zone left behind.
+  const checkAfterCharge = expires - (RENEWAL_LEAD_DAYS - 1) * DAY;
+  const nextNotice = GRACE_NOTICE_DAYS.filter((days) => days < daysLeft)
+    .map((days) => expires - days * DAY)
+    .filter((at) => at > Date.now());
+  const next = Math.min(
+    expires,
+    alignRetryAt,
+    ...nextNotice,
+    ...(checkAfterCharge > Date.now() ? [checkAfterCharge] : []),
+    ...(zoneLeft ? [Date.now() + ZONE_RECHECK_DAYS * DAY] : []),
+  );
+  await release(db, tenantId, order.id, {
+    next_attempt_at: new Date(Math.max(next, Date.now() + 60000)),
+  });
+}
+/** Sends the grace notice due now before expiry (once per period and step). */
+async function sendGraceNotice(db: Database, tenantId: string, order: Order) {
+  const expires = Date.parse(order.expires_at);
+  if (!Number.isFinite(expires) || expires <= Date.now()) return;
+  const wa = workerActor(tenantId);
   const daysLeft = Math.ceil((expires - Date.now()) / DAY);
   const due = GRACE_NOTICE_DAYS.filter((days) => daysLeft <= days);
   const period = new Date(expires).toISOString().slice(0, 10);
@@ -2876,21 +3295,51 @@ async function maintainActive(
       });
     });
   }
-  // Next visit: alignment retry, the day after the renewal charge (to catch
-  // a lost payment event), the next grace notice, or expiry.
-  const checkAfterCharge = expires - (RENEWAL_LEAD_DAYS - 1) * DAY;
-  const nextNotice = GRACE_NOTICE_DAYS.filter((days) => days < daysLeft)
-    .map((days) => expires - days * DAY)
-    .filter((at) => at > Date.now());
-  const next = Math.min(
-    expires,
-    alignRetryAt,
-    ...nextNotice,
-    ...(checkAfterCharge > Date.now() ? [checkAfterCharge] : []),
-  );
-  await release(db, tenantId, order.id, {
-    next_attempt_at: new Date(Math.max(next, Date.now() + 60000)),
-  });
+}
+/**
+ * A registered domain whose DNS is being set up (after purchase, a late
+ * renewal, or an operator's re-run on a live domain) still expires on time:
+ * at expiry it lapses as an active one would (mappings off, subscription
+ * ended, zone kept for the release step), and a domain that was live keeps
+ * getting its grace notices. True when the order was handled here.
+ */
+async function expiryBeforeDns(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  const expires = Date.parse(order.expires_at);
+  if (!Number.isFinite(expires)) return false;
+  if (expires > Date.now()) {
+    if (order.live_at) await sendGraceNotice(db, tenantId, order);
+    return false;
+  }
+  // A paid renewal invoice whose event was lost renews instead.
+  if (
+    order.renewal_status !== "failed" &&
+    (await reconcileLatestInvoice(db, tenantId, order, deps))
+  ) {
+    await release(db, tenantId, order.id, { next_attempt_at: new Date() });
+    return true;
+  }
+  if (order.renewal_status === "failed") {
+    await retryLater(db, tenantId, order, "Paid renewal still failing", {
+      attention:
+        "The domain expired while a paid renewal is failing at the registrar; renew at the registrar and use Record registrar state.",
+    });
+    return true;
+  }
+  await lapse(db, tenantId, order, deps);
+  return true;
+}
+/**
+ * When a DNS step that waits for an operator is looked at again: at expiry
+ * (so the domain still lapses on time), or never for a domain without one.
+ */
+function pausedUntil(order: Order) {
+  const expires = Date.parse(order.expires_at);
+  return Number.isFinite(expires) ? new Date(Math.max(expires, Date.now() + 60000)) : null;
 }
 
 /**
@@ -3010,19 +3459,17 @@ export async function processWebAddressOrder(
         await reconcilePurchase(db, tenantId, order, deps);
         break;
       case "owned":
-        if (renewalDue) await renew(db, tenantId, order, deps);
-        else await provisionDns(db, tenantId, order, deps);
-        break;
       case "zone":
-        if (renewalDue) await renew(db, tenantId, order, deps);
-        else await delegate(db, tenantId, order, deps);
-        break;
       case "delegating":
-        if (renewalDue) await renew(db, tenantId, order, deps);
-        else await verifyDelegation(db, tenantId, order, deps);
-        break;
       case "dns":
         if (renewalDue) await renew(db, tenantId, order, deps);
+        else if (await expiryBeforeDns(db, tenantId, order, deps)) break;
+        else if (order.status === "owned")
+          await provisionDns(db, tenantId, order, deps);
+        else if (order.status === "zone")
+          await delegate(db, tenantId, order, deps);
+        else if (order.status === "delegating")
+          await verifyDelegation(db, tenantId, order, deps);
         else await verifyAndActivate(db, tenantId, order, deps);
         break;
       case "active":
@@ -3042,7 +3489,13 @@ export async function processWebAddressOrder(
         } else await release(db, tenantId, order.id, { next_attempt_at: null });
     }
   } catch (error) {
-    await retryLater(db, tenantId, order, "Step failed", {
+    if (error instanceof OrderRegistrarUnavailable)
+      await retryLater(db, tenantId, order, "Registrar not configured", {
+        attention: error.message,
+        attempts: Number(order.attempts ?? 0),
+        at: Date.now() + 3600000,
+      }).catch(() => {});
+    else await retryLater(db, tenantId, order, "Step failed", {
       attention:
         Number(order.attempts ?? 0) >= 5
           ? "This order keeps failing: " +
@@ -3145,7 +3598,14 @@ export async function recordRegistrarState(
     };
   const { order, token } = claimed;
   try {
-    const registrar = registrarOf(deps);
+    let registrar: Registrar;
+    try {
+      registrar = registrarOf(deps, order);
+    } catch (error) {
+      if (error instanceof OrderRegistrarUnavailable)
+        return { recorded: false, reason: error.message };
+      throw error;
+    }
     let info;
     try {
       info = await registrar.info(order.hostname);

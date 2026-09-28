@@ -32,7 +32,7 @@ import {
   signHostRequest,
 } from "../apps/api/src/host-routing.ts";
 import { withIntegrationFixtureTransport } from "../packages/providers/src/integrations.ts";
-import { NamecheapRegistrar } from "../packages/providers/src/registrar.ts";
+import { NamecheapRegistrar, type Registrar } from "../packages/providers/src/registrar.ts";
 import {
   DIGITALOCEAN_NAMESERVERS,
   DigitalOceanDns,
@@ -271,7 +271,7 @@ async function operations(tenantId: string, id: string) {
     ),
   );
 }
-async function step(tenantId: string, id: string) {
+async function step(tenantId: string, id: string, using: WebAddressDeps = deps) {
   await db.tenant(worker(tenantId), (tx) =>
     tx.query(
       "UPDATE domain_orders SET next_attempt_at=now(),lease_until=NULL WHERE id=$1",
@@ -279,9 +279,38 @@ async function step(tenantId: string, id: string) {
     ),
   );
   await withIntegrationFixtureTransport(namecheap.fetch, () =>
-    processWebAddressOrder(db, tenantId, id, deps),
+    processWebAddressOrder(db, tenantId, id, using),
   );
   return order(tenantId, id);
+}
+/** Merges evidence into an order (a time moved into the past, for example). */
+async function evidence(tenantId: string, id: string, values: object) {
+  await db.tenant(worker(tenantId), (tx) =>
+    tx.query("UPDATE domain_orders SET evidence=evidence||$2::jsonb WHERE id=$1", [
+      id,
+      JSON.stringify(values),
+    ]),
+  );
+}
+/** The test registrar with some calls replaced (the rest reach the Namecheap double). */
+function registrarWith(overrides: Partial<Registrar>): Registrar {
+  return new Proxy(registrar, {
+    get(target, prop, receiver) {
+      if (prop in overrides) return (overrides as any)[prop];
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Registrar;
+}
+/** Buys a domain and takes it live through DigitalOcean DNS. */
+async function buyLive(owner: any, domain: string, serveMode?: "site" | "forward") {
+  const id = await buyAndRegister(owner, domain, serveMode);
+  assert.equal((await step(owner.tenantId, id)).status, "zone");
+  assert.equal((await step(owner.tenantId, id)).status, "delegating");
+  assert.equal((await step(owner.tenantId, id)).status, "dns");
+  const live = await step(owner.tenantId, id);
+  assert.equal(live.status, "active", JSON.stringify(live.evidence));
+  return id;
 }
 let eventNumber = 0;
 const stripeEvent = (type: string, object: any) =>
@@ -354,6 +383,7 @@ async function mappings(names: string[]) {
 }
 
 let layla: any, sara: any, omar: any, nadia: any, admin: any;
+let rami: any, huda: any, sami: any, tala: any, wafa: any;
 let laylaOrder = "";
 before(async () => {
   Object.assign(process.env, settings);
@@ -365,6 +395,11 @@ before(async () => {
   omar = await register("omar");
   nadia = await register("nadia");
   admin = await register("dns-ops-admin");
+  rami = await register("rami");
+  huda = await register("huda");
+  sami = await register("sami");
+  tala = await register("tala");
+  wafa = await register("wafa");
   await db.system(async (tx) => {
     await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [admin.userId]);
     await tx.query("UPDATE sessions SET mfa_at=now() WHERE user_id=$1", [admin.userId]);
@@ -489,8 +524,11 @@ test("a zone another DigitalOcean account holds is never delegated: the registra
   assert.equal(fallback.status, "owned");
   assert.equal(fallback.dns_provider, "registrar");
   assert.ok(fallback.evidence.zoneHeldElsewhere);
+  // A takeover signal: an operator is told, and it stays through activation.
+  assert.match(fallback.attention, /Another DigitalOcean account holds/);
   const hosted = await step(omar.tenantId, id);
   assert.equal(hosted.status, "dns");
+  assert.match(hosted.attention, /Another DigitalOcean account holds/);
   assert.deepEqual(
     namecheap.registrations.get("omar.com")!.hosts.map((h) => `${h.name} ${h.type} ${h.address}`),
     [`@ A ${SERVER_IP}`, `www A ${SERVER_IP}`],
@@ -499,6 +537,19 @@ test("a zone another DigitalOcean account holds is never delegated: the registra
   assert.equal(digitalocean.zones.has("omar.com"), false);
   const live = await step(omar.tenantId, id);
   assert.equal(live.status, "active");
+  assert.match(live.attention, /Another DigitalOcean account holds/);
+});
+
+test("DigitalOcean refusing a zone for another reason is a failure, never a move off the DNS host", async () => {
+  // DigitalOcean answers 422 "Name is invalid" (the same error id as "Name
+  // already exists"): only the latter means another account holds the zone.
+  const dns = new DigitalOceanDns(TOKEN, { mayManage: () => true }, { transport: doTransport });
+  await assert.rejects(
+    () => dns.ensureZone("refused-zone.c0m"),
+    (e: any) => e.outcome === "definitive" && /invalid/i.test(e.message),
+  );
+  digitalocean.foreign.add("taken-zone.com");
+  assert.equal(await dns.ensureZone("taken-zone.com"), "held_elsewhere");
 });
 
 test("a domain with a DS (DNSSEC) record at the registry is not delegated to an unsigned zone", async () => {
@@ -507,7 +558,8 @@ test("a domain with a DS (DNSSEC) record at the registry is not delegated to an 
   assert.equal((await step(nadia.tenantId, id)).status, "zone");
   const stopped = await step(nadia.tenantId, id);
   assert.equal(stopped.status, "zone");
-  assert.equal(stopped.next_attempt_at, null);
+  // Paused for an operator, but looked at again at expiry so it still lapses on time.
+  assert.equal(Date.parse(stopped.next_attempt_at), Date.parse(stopped.expires_at));
   assert.match(stopped.attention, /DS \(DNSSEC\)/);
   assert.deepEqual(namecheap.registrations.get("nadia.com")!.nameservers, []);
   // An operator moves it to the registrar's DNS instead.
@@ -671,8 +723,17 @@ test("operators can move a live domain back to the registrar's DNS; nameservers 
     ["set_hosts", "succeeded"],
   ]);
   assert.equal(last[0].request.nameservers, null);
-  // The zone at DigitalOcean is kept (nothing is deleted here).
+  // The zone at DigitalOcean is kept while the move happens...
   assert.ok(digitalocean.zones.has("sara.com"));
+  assert.equal((await step(sara.tenantId, saraOrder)).status, "active");
+  // ...and released once nothing delegates the name there any more.
+  const settled = await step(sara.tenantId, saraOrder);
+  assert.equal(settled.status, "active");
+  assert.equal(digitalocean.zones.has("sara.com"), false);
+  assert.ok(settled.evidence.zoneReleasedAt);
+  const release = (await operations(sara.tenantId, saraOrder)).find((o: any) => o.kind === "delete_zone")!;
+  assert.equal(release.status, "succeeded");
+  assert.deepEqual(release.request.publicNameservers, NAMECHEAP_DNS);
   // Only the known DNS hosts can be chosen.
   const refused = await request(`/admin/web-addresses/${saraOrder}/dns`, {
     method: "POST",
@@ -695,8 +756,11 @@ test("lapse keeps the zone; it is released only once nothing delegates the name 
   assert.ok(digitalocean.zones.has("layla.com"), "the zone stays at lapse");
   assert.deepEqual(await mappings(["layla.com", "www.layla.com"]), [
     { hostname: "layla.com", active: false, redirect: null },
-    { hostname: "www.layla.com", active: false, redirect: "apex" },
+    { hostname: "www.layla.com", active: false, redirect: null },
   ]);
+  // The kept zone no longer points the lapsed name at the server.
+  assert.deepEqual(digitalocean.view("layla.com"), []);
+  assert.ok((await order(layla.tenantId, laylaOrder)).evidence.zoneRecordsClearedAt);
   // Before the release period: nothing is asked or deleted.
   const early = await step(layla.tenantId, laylaOrder);
   assert.equal(early.status, "expired");
@@ -752,4 +816,208 @@ test("the worker picks up orders a previous release paused in the new statuses",
   await withIntegrationFixtureTransport(namecheap.fetch, () => processWebAddressOrders(db, deps));
   const resumed = await order(sara.tenantId, saraOrder);
   assert.equal(resumed.status, "delegating");
+});
+
+test("a nameserver change the registrar shows late is waited for, sent again at most three times, then flagged", async () => {
+  const id = await buyAndRegister(rami, "rami.com");
+  assert.equal((await step(rami.tenantId, id)).status, "zone");
+  // Like 101domain's 202: accepted, while its read-back keeps showing the
+  // old nameservers without saying the change is pending.
+  const sent: string[][] = [];
+  let applied = false;
+  const lagging: WebAddressDeps = {
+    ...deps,
+    registrar: registrarWith({
+      setNameservers: async (_domain: string, nameservers: string[] | null) => {
+        sent.push(nameservers ?? []);
+        return { nameservers: [], usingRegistrarDns: false, pending: true };
+      },
+      getNameservers: async () =>
+        applied
+          ? { nameservers: DO, usingRegistrarDns: false }
+          : { nameservers: NAMECHEAP_DNS, usingRegistrarDns: true },
+    }),
+  };
+  const first = await step(rami.tenantId, id, lagging);
+  assert.equal(first.status, "delegating");
+  const started = first.evidence.delegationStartedAt;
+  for (let i = 0; i < 4; i++) {
+    const waiting = await step(rami.tenantId, id, lagging);
+    assert.equal(waiting.status, "delegating");
+    assert.equal(waiting.evidence.lastNote, "Nameserver change not shown yet");
+    assert.equal(waiting.attention, null);
+  }
+  assert.equal(sent.length, 1, "nothing sent again while the change may still apply");
+  const settled = () =>
+    evidence(rami.tenantId, id, {
+      nameserversSetAt: new Date(Date.now() - 7 * 3600000).toISOString(),
+    });
+  for (let reset = 1; reset <= 3; reset++) {
+    await settled();
+    const again = await step(rami.tenantId, id, lagging);
+    assert.equal(again.status, "zone");
+    assert.equal(again.evidence.delegationResets, reset);
+    const resent = await step(rami.tenantId, id, lagging);
+    assert.equal(resent.status, "delegating");
+    assert.equal(resent.evidence.delegationStartedAt, started, "the 72-hour clock is not restarted");
+  }
+  await settled();
+  const flagged = await step(rami.tenantId, id, lagging);
+  assert.equal(flagged.status, "delegating");
+  assert.match(flagged.attention, /after 3 changes/);
+  assert.ok(Date.parse(flagged.next_attempt_at) > Date.now() + 5 * 3600000);
+  assert.equal(sent.length, 4);
+  assert.equal(
+    (await operations(rami.tenantId, id)).filter((o: any) => o.kind === "set_nameservers").length,
+    4,
+  );
+  assert.ok(flagged.progress.length < 30, "no runaway progress list");
+  // The registry applies it after all: the delegation goes on, the flag clears.
+  applied = true;
+  delegated.set("rami.com", DO);
+  const visible = await step(rami.tenantId, id, lagging);
+  assert.equal(visible.status, "dns");
+  assert.equal(visible.attention, null);
+  assert.equal(visible.evidence.delegationResets, 0);
+  assert.equal(sent.length, 4);
+});
+
+test("a zone deleted during delegation sends the order back to set it up again", async () => {
+  const id = await buyAndRegister(wafa, "wafa-zone.com");
+  assert.equal((await step(wafa.tenantId, id)).status, "zone");
+  hidden.add("wafa-zone.com");
+  assert.equal((await step(wafa.tenantId, id)).status, "delegating");
+  digitalocean.zones.delete("wafa-zone.com");
+  const missing = await step(wafa.tenantId, id);
+  assert.equal(missing.status, "owned");
+  assert.equal(missing.progress.at(-1).step, "zone_missing");
+  assert.equal((await step(wafa.tenantId, id)).status, "zone");
+  assert.ok(digitalocean.zones.has("wafa-zone.com"));
+  hidden.delete("wafa-zone.com");
+});
+
+test("an operator's DNS re-run on a live domain keeps its notices and lapses it at expiry", async () => {
+  const id = await buyLive(huda, "huda.com", "forward");
+  // A forwarded domain's live notice says where visitors go.
+  const [live] = await db.tenant(worker(huda.tenantId), (tx) =>
+    tx.query<{ body: string }>("SELECT body FROM notifications WHERE dedupe_key=$1", [
+      "web-address:" + id + ":live",
+    ]),
+  );
+  assert.match(live.body, new RegExp(`forwards visitors to https://huda\\.${ROOT.replace(".", "\\.")}`));
+  const rerun = await request(`/admin/web-addresses/${id}/dns`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { provider: "settings", reason: "Re-run after a DNS host change" },
+  });
+  assert.equal(rerun.statusCode, 200, rerun.body);
+  assert.equal(rerun.json().status, "owned");
+  // DNSSEC turned on at the registrar meanwhile: the DNS step waits for an operator.
+  dsRecords.set("huda.com", ["2371 13 2 ABCDEF"]);
+  assert.equal((await step(huda.tenantId, id)).status, "zone");
+  const paused = await step(huda.tenantId, id);
+  assert.match(paused.attention, /DS \(DNSSEC\)/);
+  assert.equal(Date.parse(paused.next_attempt_at), Date.parse(paused.expires_at));
+  // Five days before expiry the grace notice still goes out...
+  await db.tenant(worker(huda.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=now()+interval '5 days',renewal_enabled=false WHERE id=$1",
+      [id],
+    ),
+  );
+  const noticed = await step(huda.tenantId, id);
+  assert.equal(noticed.status, "zone");
+  assert.ok(Object.keys(noticed.notices).some((key) => key.endsWith(":7")), JSON.stringify(noticed.notices));
+  // ...and at expiry it lapses: mappings off, subscription ended.
+  await db.tenant(worker(huda.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=now()-interval '1 minute',billing_status='canceled' WHERE id=$1",
+      [id],
+    ),
+  );
+  const lapsed = await step(huda.tenantId, id);
+  assert.equal(lapsed.status, "expired");
+  assert.deepEqual(await mappings(["huda.com", "www.huda.com"]), [
+    { hostname: "huda.com", active: false, redirect: null },
+    { hostname: "www.huda.com", active: false, redirect: null },
+  ]);
+  assert.ok(digitalocean.zones.has("huda.com"), "the zone is kept");
+  assert.deepEqual(digitalocean.view("huda.com"), [], "without its A records");
+  dsRecords.delete("huda.com");
+});
+
+test("a lapsed zone is handed to a newer order for the same name, never deleted under it", async () => {
+  const old = await buyLive(sami, "sami.com");
+  await db.tenant(worker(sami.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=now()-interval '1 minute',renewal_enabled=false,billing_status='canceled' WHERE id=$1",
+      [old],
+    ),
+  );
+  assert.equal((await step(sami.tenantId, old)).status, "expired");
+  assert.ok(digitalocean.zones.has("sami.com"));
+  // The name dropped at the registry and another workspace buys it.
+  namecheap.registrations.delete("sami.com");
+  delegated.delete("sami.com");
+  const fresh = await buyAndRegister(tala, "sami.com");
+  const adopted = await step(tala.tenantId, fresh);
+  assert.equal(adopted.status, "zone");
+  assert.equal(adopted.evidence.zoneState, "existing");
+  // The old order's release comes due: the zone now serves the new order.
+  await db.tenant(worker(sami.tenantId), (tx) =>
+    tx.query("UPDATE domain_orders SET expires_at=now()-interval '50 days' WHERE id=$1", [old]),
+  );
+  const handed = await step(sami.tenantId, old);
+  assert.ok(handed.evidence.zoneHandedOverAt);
+  assert.equal(handed.next_attempt_at, null);
+  assert.ok(digitalocean.zones.has("sami.com"));
+  assert.deepEqual(digitalocean.view("sami.com"), [`@ A ${SERVER_IP}`, `www A ${SERVER_IP}`]);
+  assert.ok(!(await operations(sami.tenantId, old)).some((o: any) => o.kind === "delete_zone"));
+  assert.equal((await step(tala.tenantId, fresh)).status, "delegating");
+});
+
+test("an order stays with the registrar it was bought through; DNSSEC unknown is never delegated", async () => {
+  const id = await buyAndRegister(wafa, "wafa.com");
+  assert.equal((await step(wafa.tenantId, id)).status, "zone");
+  // The configured registrar is another one now: nothing is sent to it.
+  const calls: string[] = [];
+  const other = new Proxy({} as Registrar, {
+    get(_target, prop) {
+      if (prop === "id") return "101domain";
+      if (prop === "sandbox") return true;
+      if (prop === "then") return undefined;
+      return (...args: unknown[]) => {
+        calls.push(String(prop) + " " + JSON.stringify(args));
+        throw new Error("the other registrar must not be called");
+      };
+    },
+  });
+  const switched = await step(wafa.tenantId, id, { ...deps, registrar: other });
+  assert.equal(switched.status, "zone");
+  assert.match(switched.attention, /registered at namecheap/);
+  assert.deepEqual(calls, []);
+  // Public DNS cannot say whether a DS record exists: not delegated, retried.
+  const noDs = await step(wafa.tenantId, id, {
+    ...deps,
+    publicDns: async (name, type) => {
+      if (type === "DS") throw new Error("resolvers unreachable");
+      return deps.publicDns!(name, type);
+    },
+  });
+  assert.equal(noDs.status, "zone");
+  assert.equal(noDs.evidence.lastNote, "DNSSEC not checked");
+  assert.deepEqual(namecheap.registrations.get("wafa.com")!.nameservers, []);
+  // A definitive refusal stays failed after a later success (never "confirmed").
+  namecheap.refuseNext("domains.dns.setCustom", "Nameserver change refused");
+  const refused = await step(wafa.tenantId, id);
+  assert.equal(refused.status, "zone");
+  const delegating = await step(wafa.tenantId, id);
+  assert.equal(delegating.status, "delegating");
+  assert.equal(delegating.attention, null);
+  assert.deepEqual(
+    (await operations(wafa.tenantId, id))
+      .filter((o: any) => o.kind === "set_nameservers")
+      .map((o: any) => o.status),
+    ["failed", "succeeded"],
+  );
 });

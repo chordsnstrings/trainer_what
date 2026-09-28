@@ -1051,7 +1051,7 @@ export function registerPrivacyLifecycle(
           // would let another account take the name over (web-addresses.md,
           // "DNS hosting"). The domain simply stops being served.
           await tx.query(
-            "UPDATE domain_mappings SET active=false,verified_at=NULL WHERE tenant_id=$1",
+            "UPDATE domain_mappings SET active=false,verified_at=NULL,redirect=NULL WHERE tenant_id=$1",
             [a.tenantId],
           );
           await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [

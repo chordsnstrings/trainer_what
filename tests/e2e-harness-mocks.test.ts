@@ -382,6 +382,34 @@ test("the DNS double answers TXT, CNAME and chased A records through a Node reso
   }
 });
 
+test("in the sandbox, public DNS asks the DNS double for DS records (a lookup failure is never read as none)", async () => {
+  const { DnsMock } = await import("./e2e/mocks/dns.ts");
+  const { publicDnsLookup } = await import("../packages/providers/src/dns-hosting.ts");
+  const dns = new DnsMock();
+  await dns.start();
+  const saved = process.env.DOMAIN_DNS_SERVER;
+  process.env.DOMAIN_DNS_SERVER = dns.server;
+  try {
+    dns.set("signed.example", "DS", ["2371 13 2 ABCDEF"]);
+    dns.set("plain.example", "A", ["127.77.0.2"]);
+    assert.deepEqual(await publicDnsLookup("signed.example", "DS"), { status: "ok", answers: ["DS"] });
+    assert.deepEqual(await publicDnsLookup("plain.example", "DS"), { status: "ok", answers: [] });
+    assert.deepEqual(await publicDnsLookup("missing.example", "DS"), { status: "nxdomain", answers: [] });
+  } finally {
+    await dns.stop();
+    if (saved === undefined) delete process.env.DOMAIN_DNS_SERVER;
+    else process.env.DOMAIN_DNS_SERVER = saved;
+  }
+  // No answer at all (the double stopped): unknown, so nothing is delegated.
+  process.env.DOMAIN_DNS_SERVER = dns.server;
+  try {
+    await assert.rejects(() => publicDnsLookup("signed.example", "DS"), (e: any) => e.outcome === "unknown");
+  } finally {
+    if (saved === undefined) delete process.env.DOMAIN_DNS_SERVER;
+    else process.env.DOMAIN_DNS_SERVER = saved;
+  }
+});
+
 test("the OIDC doubles publish discovery and keys and enforce client credentials, PKCE and single-use codes", async () => {
   const { OidcMock } = await import("./e2e/mocks/oidc.ts");
   const { oidcDiscovery, exchangeAuthorizationCode, verifyIdToken, oidcAuthorizationUrl, pkceChallenge, checkOidcConnection, clearOidcCaches } = await import(

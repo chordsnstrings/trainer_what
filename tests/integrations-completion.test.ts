@@ -590,6 +590,17 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
       owner,
     )
   ).json();
+  // A forwarding choice left on this name by an earlier bought domain (of
+  // another workspace) never carries over to a manual connection.
+  const [previous] = await db.system((tx) =>
+    tx.query("SELECT id FROM tenants WHERE id<>$1 ORDER BY id LIMIT 1", [tenantId]),
+  );
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),false,'subdomain')",
+      ["trainer.example.com", previous?.id ?? tenantId],
+    ),
+  );
   const active = (
     await ok(
       `/admin/integrations/domains/${order.id}/activate`,
@@ -604,6 +615,12 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
     )
   ).json();
   assert.equal(active.status, "active");
+  const [mapping] = await db.system((tx) =>
+    tx.query("SELECT tenant_id,active,redirect FROM domain_mappings WHERE hostname=$1", [
+      "trainer.example.com",
+    ]),
+  );
+  assert.deepEqual(mapping, { tenant_id: tenantId, active: true, redirect: null });
   assert.equal(
     (await ok("/domains", "GET", undefined, other)).json().length,
     0,

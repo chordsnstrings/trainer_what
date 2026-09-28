@@ -7,6 +7,15 @@
  * change) and DNS records. Registration and renewal follow the announced,
  * not yet published endpoints and exist here so the adapter's gated path
  * can be exercised. Test-only; it never contacts 101domain.
+ *
+ * Provisional: beyond the published envelope, the fields here (search and
+ * bulk-search rows, `change_status` and `current_nameservers` on the
+ * nameserver calls, the DELETE /records `{ids}` body, `/v1/finance/orders?
+ * domain=`, order statuses) are guesses the adapter shares with this double.
+ * Tests against it prove the adapter and the double agree, not that 101domain
+ * answers this way; the live read-only check must confirm them before 101domain
+ * ordering or delegation is relied on (the worker already waits 6 hours before
+ * trusting a nameserver read-back that lags).
  */
 import { MockServer, bearer, randomId } from "./http.ts";
 

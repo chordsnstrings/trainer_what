@@ -280,3 +280,65 @@ test("the platform address check says when DNS can be set up automatically", asy
   assert.match(info.message, /Check and repair platform DNS/);
   assert.match(r.json().procedure[0], /Check and repair platform DNS/);
 });
+
+test("a saved root zone whose names point elsewhere (another site of the team) is never repaired", async () => {
+  // Settings → DNS hosting names another domain of the same team by mistake.
+  process.env.DNS_PLATFORM_ZONE = "fleetkeel.com";
+  try {
+    const plan = (await call("check", admin, { rootDomain: "fleetkeel.com" })).json();
+    assert.equal(plan.repairable, false);
+    assert.equal(plan.planHash, null);
+    assert.equal(plan.problems[0].key, "zone_in_use");
+    assert.match(plan.problems[0].message, /@ A 192\.0\.2\.10/);
+    const repair = await call("repair", admin, {
+      rootDomain: "fleetkeel.com",
+      planHash: "0".repeat(64),
+      reason: "A mistyped platform root zone",
+    });
+    assert.equal(repair.statusCode, 409);
+    assert.equal(repair.json().code, "PLATFORM_DNS_BLOCKED");
+    assert.deepEqual(mock.view("fleetkeel.com"), ["@ A 192.0.2.10"]);
+    assert.ok(!mock.calls.some((c) => c.method !== "GET" && /fleetkeel/.test(c.path)));
+  } finally {
+    delete process.env.DNS_PLATFORM_ZONE;
+  }
+});
+
+test("readiness: only CAA issue records decide, names that miss the server are listed, delegation is required", async () => {
+  mock.zones.delete(ROOT);
+  mock.seed(ROOT, [
+    { name: "@", type: "A", data: SERVER_IP },
+    { name: "www", type: "A", data: SERVER_IP },
+    { name: "*", type: "A", data: SERVER_IP },
+    { name: "@", type: "CAA", data: "digicert.com", flags: 0, tag: "issue" },
+    { name: "@", type: "CAA", data: "letsencrypt.org", flags: 0, tag: "issuewild" },
+    { name: "shop", type: "CNAME", data: "stores.example." },
+    { name: "blog", type: "A", data: "192.0.2.50" },
+    { name: "email.mg", type: "CNAME", data: "mailgun.org." },
+    { name: "_dmarc", type: "TXT", data: "v=DMARC1; p=none" },
+  ]);
+  ns.set(ROOT, ["ns1.digitalocean.com", "ns2.digitalocean.com", "ns3.digitalocean.com"]);
+  // The edge gets one certificate per name: "issue" decides, "issuewild" does not help.
+  let plan = (await call("check", admin)).json();
+  let keys = Object.fromEntries(plan.problems.map((p: any) => [p.key, p]));
+  assert.equal(keys.caa?.level, "error");
+  assert.equal(plan.ready, false);
+  assert.match(keys.wildcard.message, /shop \(CNAME stores\.example\.?\)/);
+  assert.match(keys.wildcard.message, /blog \(A 192\.0\.2\.50\)/);
+  assert.match(keys.wildcard.message, /mg \(only email\.mg under it\)/);
+  assert.doesNotMatch(keys.wildcard.message, /_dmarc/);
+  const records = mock.zones.get(ROOT)!.filter((r) => r.type === "CAA");
+  records.find((r: any) => r.tag === "issue")!.data = "letsencrypt.org";
+  records.find((r: any) => r.tag === "issuewild")!.data = "digicert.com";
+  plan = (await call("check", admin)).json();
+  keys = Object.fromEntries(plan.problems.map((p: any) => [p.key, p]));
+  assert.equal(keys.caa, undefined, JSON.stringify(plan.problems));
+  assert.equal(plan.ready, true, JSON.stringify(plan.problems));
+  // Right records at a DNS host the name is not delegated to have no effect.
+  ns.set(ROOT, ["dns1.registrar-servers.com", "dns2.registrar-servers.com"]);
+  plan = (await call("check", admin)).json();
+  assert.equal(plan.changes.length, 0);
+  assert.equal(plan.ready, false);
+  assert.equal(plan.problems.find((p: any) => p.key === "delegation").level, "warning");
+  ns.set(ROOT, ["ns1.digitalocean.com", "ns2.digitalocean.com", "ns3.digitalocean.com"]);
+});

@@ -123,15 +123,18 @@ export function WebAddressOperations({
           {order.evidence?.zoneHeldElsewhere && (
             <p className="muted">
               Another DigitalOcean account holds this domain&apos;s zone, so
-              it uses the registrar&apos;s DNS instead.
+              it was never delegated there.
             </p>
           )}
-          {order.status === "expired" &&
-            order.dns_provider === "digitalocean" &&
-            !order.evidence?.zoneReleasedAt && (
+          {order.evidence?.zoneWrittenAt &&
+            !order.evidence?.zoneReleasedAt &&
+            !order.evidence?.zoneHandedOverAt &&
+            (order.status === "expired" ||
+              order.dns_provider === "registrar") && (
               <p className="muted">
-                Its DNS zone is kept until nothing delegates the name to
-                DigitalOcean any more, then deleted automatically.
+                Its DigitalOcean zone is kept (without its A records once
+                lapsed) until nothing delegates the name to DigitalOcean any
+                more, then deleted automatically.
               </p>
             )}
           {(order.attention || order.needsReconciliation) && (
@@ -197,7 +200,9 @@ export function WebAddressOperations({
                 <button name="action" value="dns-settings" disabled={busy}>
                   Re-run DNS setup
                 </button>
-                {order.dns_provider !== "registrar" && (
+                {order.dns_provider !== "registrar" &&
+                  // 101domain's own DNS cannot be set up through its API.
+                  order.registrar !== "101domain" && (
                   <button name="action" value="dns-registrar" disabled={busy}>
                     Use registrar DNS
                   </button>
