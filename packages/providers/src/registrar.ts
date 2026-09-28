@@ -900,10 +900,18 @@ export const ONEOHONE_API = "https://api.101domain.com";
  */
 export const ONEOHONE_NO_PRIVACY_TLDS = new Set(["ae"]);
 const ONEOHONE_DNS = /(^|\.)101domain\.com$/;
-/** 101domain order statuses (provisional until the live read-only check). */
+/**
+ * 101domain order statuses. The live read-only check (28 September 2026)
+ * saw only "processed" (a finished order) in the account's order history;
+ * the others are provisional until registration and renewal are published.
+ */
 const ONEOHONE_PENDING = ["pending", "processing", "queued", "submitted", "in_progress"];
 const ONEOHONE_DONE = ["completed", "complete", "active", "registered", "success"];
 const ONEOHONE_REFUSED = ["failed", "rejected", "cancelled", "canceled", "declined"];
+/** Statuses of a finished order; any other status counts as still open. */
+const ONEOHONE_FINISHED = new Set(["processed", ...ONEOHONE_DONE, ...ONEOHONE_REFUSED]);
+/** How far back the order history is read for an open order of a domain. */
+const ONEOHONE_OPEN_ORDER_DAYS = 45;
 const firstArray = (...values: unknown[]) =>
   (values.find((value) => Array.isArray(value)) as any[] | undefined) ?? [];
 const oneYear = (rows: any[]) =>
@@ -922,6 +930,8 @@ const oneYear = (rows: any[]) =>
  * auto-renewal, which the renewal step recognises from the expiry date.
  * Field names of the unpublished calls follow the announced endpoint and
  * must be checked against the live API reference before enabling them.
+ * The published read calls were checked against the live API on
+ * 28 September 2026 (GET only; docs/features/web-addresses.md).
  */
 export class OneOhOneRegistrar implements Registrar {
   readonly id = "101domain" as const;
@@ -1052,9 +1062,11 @@ export class OneOhOneRegistrar implements Registrar {
     );
     const data = answer?.data ?? {};
     // Endings that need documents (a trade licence, a trademark) cannot be
-    // bought automatically for a trainer.
+    // bought automatically for a trainer. 101domain answers has_requirements
+    // (live: true for .co.ae, false for .com and .ae).
     const requirements = data.registration_requirements ?? data.requirements;
     if (
+      data.has_requirements === true ||
       data.requires_documents === true ||
       (Array.isArray(requirements) && requirements.length > 0)
     )
@@ -1135,16 +1147,52 @@ export class OneOhOneRegistrar implements Registrar {
       chargedUsd: money(String(data.total ?? data.amount ?? "")),
     };
   }
+  /**
+   * Whether an order for this domain is still open. The live order list
+   * ignores every domain filter tried (domain, domain_name, filter[domain],
+   * search) and its rows do not name a domain; only an order's own details
+   * list its items with their domain. So the newest orders are read (newest
+   * first, 50 a page) back to ONEOHONE_OPEN_ORDER_DAYS, and each one that is
+   * not finished is opened. A status this adapter does not know counts as
+   * open. Anything unreadable throws, which the caller treats as "still
+   * processing": never as a reason to buy or renew again.
+   */
   async pendingOrder(domain: string) {
-    const answer = await this.call(
-      "GET",
-      "/v1/finance/orders?domain=" + encodeURIComponent(domain),
-    );
-    const rows = Array.isArray(answer?.data)
-      ? answer.data
-      : firstArray(answer?.data?.orders, answer?.data?.items);
-    return rows.some((row: any) =>
-      ONEOHONE_PENDING.includes(String(row?.status ?? "").toLowerCase()),
+    const name = domain.toLowerCase();
+    const since = Date.now() - ONEOHONE_OPEN_ORDER_DAYS * 86400000;
+    for (let page = 1; page <= 5; page++) {
+      const answer = await this.call(
+        "GET",
+        `/v1/finance/orders?per_page=50&page=${page}`,
+      );
+      if (!Array.isArray(answer?.data))
+        throw new RegistrarError("101domain answer was not readable", "unknown");
+      const rows: any[] = answer.data;
+      for (const row of rows) {
+        if (ONEOHONE_FINISHED.has(String(row?.status ?? "").toLowerCase())) continue;
+        const number = String(row?.order_number ?? "");
+        if (!number) return true;
+        const detail = await this.call(
+          "GET",
+          "/v1/finance/orders/" + encodeURIComponent(number),
+        );
+        const items = detail?.data?.items;
+        if (!Array.isArray(items)) return true;
+        if (
+          items.some(
+            (item: any) => String(item?.domain ?? "").toLowerCase() === name,
+          )
+        )
+          return true;
+      }
+      const pages = Number(answer?.body?.meta?.pagination?.total_pages ?? 1);
+      const oldest = Date.parse(String(rows.at(-1)?.order_date ?? ""));
+      if (!rows.length || page >= pages || oldest < since) return false;
+    }
+    // More orders in the window than are read: it cannot be told.
+    throw new RegistrarError(
+      "101domain has more recent orders than are checked",
+      "unknown",
     );
   }
   private listed(row: any): ListedDomain {
@@ -1182,7 +1230,11 @@ export class OneOhOneRegistrar implements Registrar {
       expiresAt: registrarDate(
         data.expiration_date ?? data.expires_at ?? data.expiry_date,
       ),
-      createdAt: registrarDate(data.registration_date ?? data.created_at),
+      createdAt: registrarDate(
+        data.registration_date ?? data.registered_at ?? data.created_at,
+      ),
+      // The live domain details carry no privacy flag (private registration
+      // is an add-on product id): this reads false there. Nothing depends on it.
       whoisPrivacy:
         data.private_registration === true ||
         data.privacy === true ||
@@ -1233,14 +1285,20 @@ export class OneOhOneRegistrar implements Registrar {
   async balance() {
     const answer = await this.call("GET", "/v1/finance/balance");
     const data = answer?.data ?? {};
+    // Live answer: { amount_due, credit_balance, currency }.
     const available = money(
-      String(data.available_credit ?? data.available ?? data.balance ?? ""),
+      String(
+        data.credit_balance ?? data.available_credit ?? data.available ?? data.balance ?? "",
+      ),
     );
     if (!available)
       throw new RegistrarError("101domain answer was not readable", "unknown");
     return { currency: String(data.currency ?? "USD").toUpperCase(), available };
   }
   async getNameservers(domain: string): Promise<NameserverState> {
+    // Live answer: a plain upper-case list, the nameservers now in force; it
+    // has no pending flag, so a change the registry has not applied yet reads
+    // as the old list (the worker waits before trusting a lagging read-back).
     const answer = await this.call(
       "GET",
       "/v1/dns/" + encodeURIComponent(domain) + "/nameservers",

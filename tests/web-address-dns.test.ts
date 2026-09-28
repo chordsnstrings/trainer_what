@@ -351,9 +351,14 @@ test("101domain: availability, prices, details, balance and nameservers against 
   assert.equal(calls.at(-1)!.path, "/v1/domains/bulk-search");
   assert.deepEqual(await r101.pricing("com"), { tld: "com", registerUsd: "14.99", renewUsd: "19.99" });
   assert.deepEqual(await r101.pricing("ae"), { tld: "ae", registerUsd: "62.99", renewUsd: "71.99" });
+  // Live, 101domain flags an ending that needs documents only with
+  // has_requirements (true for .co.ae): it is refused, never priced.
   await assert.rejects(() => r101.pricing("co.ae"), (e: any) => e.code === "REQUIREMENTS");
   await assert.rejects(() => r101.pricing("zz"), (e: any) => e.outcome === "definitive");
   assert.deepEqual(await r101.balance(), { currency: "USD", available: "250.00" });
+  mock.balance = "0.00";
+  assert.deepEqual(await r101.balance(), { currency: "USD", available: "0.00" }, "an empty balance is still read");
+  mock.balance = "250.00";
   // Registration is not published by 101domain yet: nothing is sent.
   const before = calls.length;
   assert.equal(canRegister(r101), false);
@@ -381,21 +386,35 @@ test("101domain: availability, prices, details, balance and nameservers against 
     (e: any) => e.outcome === "unknown" && e.code === "PENDING",
   );
   assert.equal(await ordering.pendingOrder("slow.com"), true);
+  // The live order list has no domain filter and its rows name no domain:
+  // an open order of another domain is opened and not mistaken for this one.
+  mock.addOrder("other.com", "Registration", "processing");
+  assert.equal(await ordering.pendingOrder("layla.com"), false);
   mock.finishProcessing("slow.com");
+  assert.equal(await ordering.pendingOrder("slow.com"), false);
+  // A status the adapter does not know counts as still open.
+  mock.addOrder("slow.com", "Renewal", "awaiting_registry");
+  assert.equal(await ordering.pendingOrder("slow.com"), true);
+  mock.finishOrders("slow.com");
   assert.equal(await ordering.pendingOrder("slow.com"), false);
   assert.deepEqual((await ordering.list("slow.com")).map((d) => d.domain), ["slow.com"]);
   const info = await ordering.info("layla.com");
-  assert.equal(info.whoisPrivacy, true);
+  // 101domain's domain details carry no privacy flag (an add-on product id).
+  assert.equal(info.whoisPrivacy, false);
   assert.equal(info.usingRegistrarDns, true);
   assert.ok(Date.parse(info.expiresAt!) > Date.now() + 360 * 86400000);
   await assert.rejects(() => ordering.info("nobody.com"), (e: any) => e.outcome === "definitive" && e.code === "NOT_FOUND");
   const renewed = await ordering.renew("layla.com", 1);
   assert.ok(Date.parse(renewed.expiresAt!) > Date.parse(info.expiresAt!) + 360 * 86400000);
-  // Nameservers: 202 while the registry applies the change, then read back.
+  // Nameservers: 202 while the registry applies the change. The read-back
+  // is the list in force (no pending flag): the old one until it is applied.
   mock.registryDelayReads = 1;
   const pending = await ordering.setNameservers("layla.com", DO);
   assert.equal(pending.pending, true);
-  assert.equal((await ordering.getNameservers("layla.com")).pending, true);
+  const lagging = await ordering.getNameservers("layla.com");
+  assert.equal(lagging.pending, false);
+  assert.equal(sameNameservers(lagging.nameservers, DO), false);
+  assert.equal(lagging.usingRegistrarDns, true);
   const applied = await ordering.getNameservers("layla.com");
   assert.equal(applied.pending, false);
   assert.ok(sameNameservers(applied.nameservers, DO));

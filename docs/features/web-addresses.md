@@ -605,10 +605,13 @@ registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
   adapter. Namecheap: `domains.dns.getList`, `domains.dns.setCustom` (comma list), `domains.dns.setDefault`;
   the read-back is the evidence. Generic JSON API: `GET/PUT/DELETE v1/domains/<d>/nameservers`.
   101domain: `GET/PUT /v1/dns/<d>/nameservers` (200 when already set, 202 while the registry
-  applies the change: `pending`, then polled).
+  applies the change: `pending`, then polled). The GET answer (checked live) is a plain upper-case
+  list of the nameservers in force with no pending flag, so a change still at the registry reads as
+  the old list; the worker's 6-hour wait before re-sending covers it.
 - **101domain registrar adapter** (`OneOhOneRegistrar`): availability (`GET /v1/domains/search`
   for one name, `POST /v1/domains/bulk-search` up to 50, `invalid[]`, premium refused), one-year
-  USD prices (`GET /v1/tlds/<tld>`, endings that need documents such as `.co.ae` refused), domain
+  USD prices (`GET /v1/tlds/<tld>`, endings that need documents refused: 101domain marks them with
+`has_requirements`, true for `.co.ae`), domain
   list and details, the finance balance, pending orders, DNS records (only on 101domain
   nameservers). Registration (`POST /v1/domains/registration` with the platform company as every
   contact, private registration except for endings without it such as `.ae`, auto-renew off) and
@@ -617,16 +620,30 @@ registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
   stay off with 101domain (trainers see "not available yet", operators the reason), and a paid
   renewal waits for 101domain's own auto-renewal (about 60 days before expiry), recognised from
   the moved expiry date. An order 101domain is still processing is an unknown outcome: before any
-  "absent", new purchase or refund decision the worker asks `/v1/finance/orders` whether an order
-  for the name is still processing, whatever availability says, and waits while it is (or cannot
-  be asked); the same check comes before sending a renewal again. A registration or renewal answer
+  "absent", new purchase or refund decision the worker asks whether an order for the name is still
+  open, whatever availability says, and waits while it is (or cannot be asked); the same check
+  comes before sending a renewal again. The order list ignores every domain filter and its rows
+  name no domain (checked live), so `pendingOrder` reads the history newest first
+  (`/v1/finance/orders?per_page=50&page=N`, back 45 days, at most 5 pages, otherwise "cannot
+  tell") and opens each order that is not finished (`/v1/finance/orders/<number>`,
+  `items[].domain`); a finished order reads "processed", and any status the adapter does not know
+  counts as open. A registration or renewal answer
   without a final status the adapter knows is unknown (reconciled), never a refusal; only an
   explicit failed/rejected/cancelled status is definitive. A renewal counts only when the reported
-  (or read-back) expiry moved past the one the invoice extends; otherwise it is reconciled. These
-  status and field names, and the 101domain double that mirrors them, are provisional until the
-  live read-only check. The field names of the unpublished calls
-  must be checked against the live API reference (the Live read-only check stage) before that
-  switch is turned on.
+  (or read-back) expiry moved past the one the invoice extends; otherwise it is reconciled.
+- **101domain live read-only check (28 September 2026, GET only).** Confirmed against the live API:
+  single search (one object, upper-case name, `pricing` null when taken), endings
+  (`has_requirements`), domain details and list (`expires_at`, `registered_at`, upper-case
+  nameservers, `auto_renew`, no privacy flag: private registration is an add-on product, so
+  `whoisPrivacy` reads false; nothing depends on it), the balance (`credit_balance`, `amount_due`),
+  the order history and order details, the nameserver read, the records refusal on third-party
+  nameservers (400 `NAMESERVERS_NOT_LOCAL`) and the 404 `NOT_FOUND` for a name outside the account.
+  Three adapter differences were fixed (document requirements, the balance field, the order
+  check); see `docs/COMPLETION_STAGES.md` stage 2026-09-28h. Still provisional and not callable
+  read-only: bulk search, the nameserver PUT answer, record writes, registration and renewal, and
+  the status of an order still being processed. Their field names must be checked against the live
+  API reference (behind a browser challenge at `https://api.101domain.com/api/documentation`)
+  before **101domain registration and renewal API verified** is turned on.
 
 ### States and steps (DigitalOcean path)
 

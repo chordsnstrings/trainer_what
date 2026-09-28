@@ -103,7 +103,7 @@ const mock = new OneOhOneMock({ key: "unused", cert: "unused" }, KEY);
 const digitalocean = new DigitalOceanMock({ key: "unused", cert: "unused" }, TOKEN);
 /** Requests the 101domain adapter sent: "<METHOD> <path>". */
 const sent: string[] = [];
-/** While set, 101domain answers renewals as still processing (and lists the order). */
+/** While set, 101domain answers renewals as still processing (and keeps the order open). */
 let renewalProcessing: string | null = null;
 /** When set, 101domain answers a renewal with this expiry without renewing. */
 let renewalAnswersExpiry: string | null = null;
@@ -119,12 +119,13 @@ const r101 = new OneOhOneRegistrar(KEY, {
         headers: { "content-type": "application/json" },
       });
     if (init.method === "POST" && target.pathname.endsWith("/renew")) {
-      if (renewalProcessing) return json(202, { order_number: "ord_r1", status: "processing" });
+      if (renewalProcessing) {
+        const number = mock.addOrder(renewalProcessing, "Renewal", "processing");
+        return json(202, { order_number: number, status: "processing" });
+      }
       if (renewalAnswersExpiry)
         return json(200, { order_number: "ord_r2", expiration_date: renewalAnswersExpiry });
     }
-    if (target.pathname === "/v1/finance/orders" && renewalProcessing)
-      return json(200, [{ order_number: "ord_r1", status: "processing", domain_name: renewalProcessing }]);
     return mock.fetch(url, init);
   },
 });
@@ -326,6 +327,7 @@ test("a 101domain renewal still processing is not sent again; it counts once the
   assert.equal(count("POST /v1/domains/slow.com/renew"), 1, "renewed once");
   // The registry applies it: recognised from the moved expiry, not sent again.
   renewalProcessing = null;
+  mock.finishOrders("slow.com");
   const stored = mock.registrations.get("slow.com")!;
   stored.expires = new Date(stored.expires.getTime() + 365 * 86400000);
   const renewed = await step(slowOrder);
