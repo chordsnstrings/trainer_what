@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  DomainSearch,
   OrderCard,
   WebAddressCenter,
   type WebAddressState,
@@ -26,15 +27,21 @@ const state: WebAddressState = {
   },
   slugChanges: { used: 1, limit: 3, redirectDays: 90 },
   redirects: [{ slug: "layla-old", until: "2026-12-27T00:00:00.000Z" }],
-  purchases: { enabled: true, endings: ["com", "net"], testEnvironment: true },
+  purchases: {
+    enabled: true,
+    endings: ["com", "fit", "fitness"],
+    testEnvironment: true,
+    priceCapMinor: 10000,
+  },
   orders: [
     {
       id: "o1",
       hostname: "laylastrength.com",
       status: "dns",
       statusLabel: "Waiting for DNS and the security certificate",
-      firstYearPriceMinor: 8400,
-      renewalPriceMinor: 8400,
+      firstYearPriceMinor: 1999,
+      renewalPriceMinor: 2499,
+      currency: "USD",
       expiresAt: "2027-09-28T00:00:00.000Z",
       liveAt: null,
       renewalEnabled: true,
@@ -63,13 +70,100 @@ test("the trainer sees the automatic subdomain, redirects, slug limits and the s
   assert.match(html, /layla-old \(until 2026-12-27\)/);
   assert.match(html, /1 of 3 changes used/);
   assert.match(html, /Test environment: no real domain is registered/);
-  assert.match(html, /\.com \.net/);
+  assert.match(html, /\.com \.fit \.fitness/);
+  assert.match(html, /Only names up to USD\s100\.00 a year are shown/);
   assert.match(
     html,
     /manual-flow/,
     "the manual flow for an owned domain stays available",
   );
-  assert.match(html, /AED/);
+  // Trainers see domain prices in USD (owner decision, 28 September 2026).
+  assert.match(html, /in US dollars/);
+  assert.doesNotMatch(html, /AED/);
+});
+
+test("a taken name shows as taken; the available endings are listed with both USD prices", () => {
+  const html = renderToStaticMarkup(
+    createElement(DomainSearch, {
+      busy: false,
+      testEnvironment: false,
+      endings: ["com", "fit", "fitness"],
+      priceCapMinor: 10000,
+      subdomainHost: "layla.trainsyou.com",
+      onError: () => {},
+      initialAnswer: {
+        requested: { domain: "athena.com", status: "taken" },
+        results: [
+          {
+            domain: "athena.fit",
+            premium: false,
+            firstYearPriceMinor: 1499,
+            renewalPriceMinor: 4499,
+          },
+          {
+            domain: "athena.fitness",
+            premium: true,
+            firstYearPriceMinor: 4999,
+            renewalPriceMinor: 4999,
+          },
+        ],
+        incomplete: true,
+      },
+    }),
+  );
+  assert.match(
+    html,
+    /athena\.com<\/span> <span class="badge red">Taken<\/span>/,
+  );
+  assert.match(html, /athena\.com is taken\./);
+  assert.match(html, /Available on other endings/);
+  assert.match(
+    html,
+    /athena\.fit<\/span>.*First year USD\s14\.99 · renews at\s+USD\s44\.99 per year/s,
+  );
+  assert.match(html, /Premium name/);
+  assert.match(html, /Some endings could not be checked right now/);
+  assert.equal((html.match(/>Choose</g) ?? []).length, 2);
+  // Nothing to offer: a clear message.
+  const none = renderToStaticMarkup(
+    createElement(DomainSearch, {
+      busy: false,
+      testEnvironment: false,
+      endings: ["com"],
+      priceCapMinor: 10000,
+      subdomainHost: null,
+      onError: () => {},
+      initialAnswer: {
+        requested: { domain: "zeus.com", status: "not_offered" },
+        results: [],
+        incomplete: false,
+      },
+    }),
+  );
+  assert.match(none, /zeus\.com cannot be bought here\./);
+  assert.match(
+    none,
+    /No available name for this search up to USD\s100\.00 a year/,
+  );
+});
+
+test("an order placed before USD pricing keeps its AED price on its card", () => {
+  const html = renderToStaticMarkup(
+    createElement(OrderCard, {
+      order: {
+        ...state.orders[0],
+        firstYearPriceMinor: 8400,
+        renewalPriceMinor: 8400,
+        currency: "AED",
+      },
+      busy: false,
+      run: async () => {},
+    }),
+  );
+  assert.match(
+    html,
+    /First year AED\s84\.00 · renews at\s+AED\s84\.00 per year/,
+  );
 });
 
 test("order progress marks the reached steps and the next yearly charge", () => {

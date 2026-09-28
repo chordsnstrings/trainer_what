@@ -3,6 +3,13 @@ import { type Actor, type Tx, event } from "@trainer/db";
 import { assertPayoutTransition } from "@trainer/domain";
 import { effectiveFinancePolicy, feeInMinor } from "./finance-policy.ts";
 import { assertWorkspacePayoutsAllowed } from "./workspace-state.ts";
+/**
+ * Posts one immutable, balanced journal once per source key (null when it
+ * was already posted). Every journal is in one currency: AED, the ledger's
+ * currency, unless `currency` says otherwise; only a trainer's own web
+ * address journals may use another currency (USD, migration 071), and they
+ * never touch AED accounts such as the trainer's payable balance.
+ */
 export async function journal(
   tx: Tx,
   actor: Actor,
@@ -10,16 +17,26 @@ export async function journal(
   description: string,
   lines: Array<{ account: string; amount: number }>,
   data: unknown = {},
+  options: { currency?: string } = {},
 ) {
+  const currency = options.currency ?? "AED";
   if (
     lines.length < 2 ||
     lines.some((x) => !Number.isSafeInteger(x.amount)) ||
     lines.reduce((n, x) => n + x.amount, 0) !== 0
   )
     throw new Error("Unbalanced journal");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Invalid journal currency");
   const [entry] = await tx.query(
-    "INSERT INTO journals(id,tenant_id,source_key,description,data) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,source_key) DO NOTHING RETURNING *",
-    [randomUUID(), actor.tenantId, source, description, JSON.stringify(data)],
+    "INSERT INTO journals(id,tenant_id,source_key,description,data,currency) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source_key) DO NOTHING RETURNING *",
+    [
+      randomUUID(),
+      actor.tenantId,
+      source,
+      description,
+      JSON.stringify(data),
+      currency,
+    ],
   );
   if (!entry) return null;
   for (const line of lines.filter((l) => l.amount !== 0))
@@ -103,16 +120,26 @@ export async function recordCharge(
 }
 export async function financeSummary(tx: Tx) {
   const accounts = await tx.query(
-    "SELECT account,sum(amount_minor)::text AS amount FROM journal_lines GROUP BY account",
+    "SELECT l.account,j.currency,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id GROUP BY l.account,j.currency",
   );
+  // AED is the ledger's currency; a trainer's own web address journals in
+  // USD (migration 071) are kept apart and never mixed into these balances.
   const balance = Object.fromEntries(
-    accounts.map((x) => [x.account, Number(x.amount)]),
+    accounts
+      .filter((x) => x.currency === "AED")
+      .map((x) => [x.account, Number(x.amount)]),
   );
+  const otherCurrencies: Record<string, Record<string, number>> = {};
+  for (const x of accounts.filter((x) => x.currency !== "AED"))
+    (otherCurrencies[x.currency] ??= {})[x.account] = Number(x.amount);
   const pending = await tx.query(
     "SELECT coalesce(sum(amount_minor),0)::text AS total FROM payouts WHERE status IN ('ready','held','submitted','processing','unknown')",
   );
   return {
+    /** AED balances by account. */
     accounts: balance,
+    /** Balances in other currencies ({ USD: { web_address_receivable: … } }). */
+    otherCurrencies,
     earnedMinor: 0 - (balance.trainer_payable ?? 0),
     reservedMinor: Number(pending[0].total),
     availableMinor: Math.max(

@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 /**
- * Trainer web address (subdomain, slug change, domain purchase). Trainer
- * screens show only the first-year and yearly renewal price in AED; they never
- * name the registrar or show its cost (the operator view is
- * web-address-operations.tsx).
+ * Trainer web address (subdomain, slug change, domain search and purchase).
+ * Trainer screens show only the first-year and yearly renewal price, in US
+ * dollars (owner decision, 28 September 2026; orders placed before then keep
+ * their AED price); they never name the registrar or show its cost (the
+ * operator view is web-address-operations.tsx).
  */
 export async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -27,11 +28,12 @@ export async function api(path: string, method = "GET", body?: unknown) {
     );
   return data;
 }
-export const aed = (minor: number) =>
+/** "USD 19.99" from 1999 US cents (or "AED 84.00" for an order priced in AED). */
+export const formatMoney = (minor: number, currency: string = "USD") =>
   new Intl.NumberFormat("en-AE", {
     style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 2,
+    currency,
+    currencyDisplay: "code",
   }).format(minor / 100);
 export const day = (value?: string | null) =>
   value ? new Date(value).toISOString().slice(0, 10) : "";
@@ -74,9 +76,11 @@ export type WebAddressOrder = {
   hostname: string;
   status: string;
   statusLabel: string;
-  /** Charged now (the first year) and at every yearly renewal, in fils. */
+  /** Charged for the first year and at every yearly renewal, in cents. */
   firstYearPriceMinor: number;
   renewalPriceMinor: number;
+  /** USD; AED for an order placed before 28 September 2026. */
+  currency?: string;
   expiresAt?: string | null;
   liveAt?: string | null;
   renewalEnabled: boolean;
@@ -105,15 +109,31 @@ export type WebAddressState = {
     enabled: boolean;
     endings: string[];
     testEnvironment: boolean;
+    /** Names over this first-year or renewal price (US cents) are never shown. */
+    priceCapMinor?: number | null;
   };
   orders: WebAddressOrder[];
 };
+/** One name that can be bought, with its two USD prices. */
 type Result = {
   domain: string;
-  available: boolean;
   premium: boolean;
-  firstYearPriceMinor: number | null;
-  renewalPriceMinor: number | null;
+  firstYearPriceMinor: number;
+  renewalPriceMinor: number;
+};
+type NameStatus = "available" | "taken" | "not_offered" | "unknown";
+/** GET /web-address/search: the name asked about, then the names on offer. */
+export type SearchAnswer = {
+  requested: { domain: string; status: NameStatus };
+  results: Result[];
+  incomplete: boolean;
+  priceCapMinor?: number;
+};
+const REQUESTED_STATUS: Record<NameStatus, string> = {
+  available: "is available",
+  taken: "is taken",
+  not_offered: "cannot be bought here",
+  unknown: "could not be checked right now",
 };
 
 export function WebAddressCenter({
@@ -252,6 +272,7 @@ export function WebAddressCenter({
           busy={busy}
           testEnvironment={state.purchases.testEnvironment}
           endings={state.purchases.endings}
+          priceCapMinor={state.purchases.priceCapMinor ?? null}
           subdomainHost={forwardTarget}
           onError={setMessage}
         />
@@ -327,20 +348,32 @@ export function ServeModeChoice({
   );
 }
 
-function DomainSearch({
+/**
+ * Domain search (owner decision, 28 September 2026): the trainer's name is
+ * checked on every suggested ending at once; the name asked about shows as
+ * taken when it is, and every name that can be bought is listed with its
+ * first-year and yearly renewal price in US dollars (names over the price
+ * limit are never shown).
+ */
+export function DomainSearch({
   busy,
   testEnvironment,
   endings,
+  priceCapMinor = null,
   subdomainHost,
   onError,
+  initialAnswer = null,
 }: {
   busy: boolean;
   testEnvironment: boolean;
   endings: string[];
+  priceCapMinor?: number | null;
   subdomainHost: string | null;
   onError: (message: string) => void;
+  /** Test or server state shown before a search. */
+  initialAnswer?: SearchAnswer | null;
 }) {
-  const [results, setResults] = useState<Result[]>([]),
+  const [answer, setAnswer] = useState<SearchAnswer | null>(initialAnswer),
     [searching, setSearching] = useState(false),
     [chosen, setChosen] = useState<Result | null>(null),
     [paying, setPaying] = useState(false),
@@ -350,8 +383,9 @@ function DomainSearch({
     setChosen(null);
     onError("");
     try {
-      const data = await api("/web-address/search?q=" + encodeURIComponent(q));
-      setResults(data.results);
+      setAnswer(
+        await api("/web-address/search?q=" + encodeURIComponent(q)),
+      );
     } catch (e) {
       onError(e instanceof Error ? e.message : "Search failed.");
     } finally {
@@ -366,6 +400,7 @@ function DomainSearch({
         domain: result.domain,
         firstYearPriceMinor: result.firstYearPriceMinor,
         renewalPriceMinor: result.renewalPriceMinor,
+        currency: "USD",
         accepted: true,
         ...(subdomainHost ? { serveMode } : {}),
       });
@@ -386,16 +421,23 @@ function DomainSearch({
       setPaying(false);
     }
   };
+  const requested = answer?.requested;
   return (
     <Panel title="Your own domain">
       <p>
-        Search a name, see the first-year and yearly renewal price and pay by
-        card. We register the domain, set it up and renew it every year.
-        Endings:{" "}
+        Search a name: we check it on every ending below and list the ones you
+        can have, with the first-year and yearly renewal price in US dollars,
+        paid by card. We register the domain, set it up and renew it every
+        year. Endings:{" "}
         <span className="ltr-data">
           {endings.map((e) => "." + e).join(" ")}
         </span>
       </p>
+      {priceCapMinor ? (
+        <p className="muted small-label">
+          Only names up to {formatMoney(priceCapMinor)} a year are shown.
+        </p>
+      ) : null}
       {testEnvironment && (
         <p className="badge amber">
           Test environment: no real domain is registered.
@@ -424,40 +466,68 @@ function DomainSearch({
           {searching ? "Searching…" : "Search"}
         </button>
       </form>
-      {results.length > 0 && (
-        <ul className="web-address-results">
-          {results.map((result) => (
-            <li key={result.domain}>
-              <span className="ltr-data">{result.domain}</span>
-              {result.available &&
-              result.firstYearPriceMinor &&
-              result.renewalPriceMinor ? (
-                <>
-                  <span>
-                    <Prices
-                      firstYear={result.firstYearPriceMinor}
-                      renewal={result.renewalPriceMinor}
-                    />
-                  </span>
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={paying}
-                    onClick={() => setChosen(result)}
-                  >
-                    Choose
-                  </button>
-                </>
-              ) : (
-                <span className="muted">
-                  {result.premium ? "Premium name, not offered" : "Taken"}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+      {requested && requested.status !== "available" && (
+        <p className="web-address-requested" role="status">
+          <span className="ltr-data">{requested.domain}</span>{" "}
+          <span
+            className={
+              "badge " + (requested.status === "taken" ? "red" : "amber")
+            }
+          >
+            {requested.status === "taken" ? "Taken" : "Not available"}
+          </span>{" "}
+          <span className="muted">
+            {requested.domain} {REQUESTED_STATUS[requested.status]}.
+          </span>
+        </p>
       )}
-      {chosen?.firstYearPriceMinor && chosen.renewalPriceMinor ? (
+      {answer && answer.results.length > 0 && (
+        <>
+          <h3 className="small-label">
+            {requested?.status === "available"
+              ? "Available"
+              : "Available on other endings"}
+          </h3>
+          <ul className="web-address-results">
+            {answer.results.map((result) => (
+              <li key={result.domain}>
+                <span className="ltr-data">{result.domain}</span>
+                {result.premium && (
+                  <span className="badge amber">Premium name</span>
+                )}
+                <span>
+                  <Prices
+                    firstYear={result.firstYearPriceMinor}
+                    renewal={result.renewalPriceMinor}
+                  />
+                </span>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={paying}
+                  onClick={() => setChosen(result)}
+                >
+                  Choose
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {answer && answer.results.length === 0 && (
+        <p className="muted">
+          No available name for this search
+          {priceCapMinor ? ` up to ${formatMoney(priceCapMinor)} a year` : ""}.
+          Try another name.
+        </p>
+      )}
+      {answer?.incomplete && (
+        <p className="muted small-label">
+          Some endings could not be checked right now. Search again in a
+          minute to see them.
+        </p>
+      )}
+      {chosen ? (
         <form
           className="web-address-confirm"
           onSubmit={(event) => {
@@ -467,11 +537,12 @@ function DomainSearch({
         >
           <p>
             <strong className="ltr-data">{chosen.domain}</strong>: first year{" "}
-            <strong>{aed(chosen.firstYearPriceMinor)}</strong>, charged now,
-            then <strong>{aed(chosen.renewalPriceMinor)}</strong> every year
-            until you turn renewal off. The price includes registration, private
-            owner details (WHOIS privacy), DNS and the security certificate. The
-            platform registers and holds the domain for your website.
+            <strong>{formatMoney(chosen.firstYearPriceMinor)}</strong>, charged
+            now, then <strong>{formatMoney(chosen.renewalPriceMinor)}</strong>{" "}
+            every year until you turn renewal off. The price includes
+            registration, private owner details (WHOIS privacy), DNS and the
+            security certificate. The platform registers and holds the domain
+            for your website.
           </p>
           <ServeModeChoice
             value={serveMode}
@@ -482,8 +553,8 @@ function DomainSearch({
           />
           <label className="check-field">
             <input type="checkbox" required /> I agree to pay{" "}
-            {aed(chosen.firstYearPriceMinor)} now and{" "}
-            {aed(chosen.renewalPriceMinor)} every year after, renewed
+            {formatMoney(chosen.firstYearPriceMinor)} now and{" "}
+            {formatMoney(chosen.renewalPriceMinor)} every year after, renewed
             automatically.
           </label>
           <button disabled={paying}>
@@ -499,13 +570,16 @@ function DomainSearch({
 function Prices({
   firstYear,
   renewal,
+  currency = "USD",
 }: {
   firstYear: number;
   renewal: number;
+  currency?: string;
 }) {
   return (
     <>
-      First year {aed(firstYear)} · renews at {aed(renewal)} per year
+      First year {formatMoney(firstYear, currency)} · renews at{" "}
+      {formatMoney(renewal, currency)} per year
     </>
   );
 }
@@ -548,6 +622,7 @@ export function OrderCard({
         <Prices
           firstYear={order.firstYearPriceMinor}
           renewal={order.renewalPriceMinor}
+          currency={order.currency ?? "USD"}
         />
       </p>
       {!["cancelled", "checkout"].includes(order.status) && (

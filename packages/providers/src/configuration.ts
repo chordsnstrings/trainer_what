@@ -980,7 +980,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price in AED, which is the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; registrar prices per ending are cached for 24 hours and refreshed for the chosen name at checkout. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -1094,15 +1094,23 @@ INTEGRATION_CATALOG.push({
     field("WEB_ADDRESS_REGISTRANT_EMAIL", "Registrant email", "text", {
       required: true,
     }),
-    field("WEB_ADDRESS_MARGIN_AED", "Yearly margin (AED)", "number", {
-      defaultValue: "25",
+    field("WEB_ADDRESS_PRICE_STEP_USD", "Price step (USD)", "number", {
+      defaultValue: "5.00",
+      help: "The registrar's cost is rounded up to the next multiple of this amount.",
     }),
-    field("WEB_ADDRESS_USD_TO_AED", "USD to AED rate", "number", {
-      defaultValue: "3.6725",
+    field("WEB_ADDRESS_PRICE_ENDING_USD", "Price ending (USD)", "number", {
+      defaultValue: "4.99",
+      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 15.00 is 19.99.",
     }),
-    field("WEB_ADDRESS_TLDS", "Offered endings", "text", {
-      defaultValue: "com,net,org,co",
-      help: "Comma-separated, at most 12.",
+    field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
+      defaultValue: "100.00",
+      help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
+    }),
+    field("WEB_ADDRESS_TLDS", "Suggested endings, in order", "text", {
+      defaultValue: "com,fit,fitness,coach,training,ae,club,pro,app,me",
+      // The earlier default (offered endings before 28 September 2026).
+      supersededValues: ["com,net,org,co"],
+      help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first; the ending a trainer types is always checked too.",
     }),
     field(
       "WEB_ADDRESS_TARGET_IPV4",
@@ -1354,18 +1362,38 @@ export function validateIntegrationValues(
         throw new ConfigurationError(`${entry.label} must be an email address`);
       if (
         key === "WEB_ADDRESS_TLDS" &&
-        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,11}\s*$/i.test(
+        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,19}\s*$/i.test(
           text,
         )
       )
         throw new ConfigurationError(
-          `${entry.label} must be up to 12 comma-separated endings such as com,net`,
+          `${entry.label} must be up to 20 comma-separated endings such as com,fit`,
+        );
+      // Whole cents: at most two decimals, never rounded.
+      const cents = /^\d{1,7}(\.\d{1,2})?$/.test(text)
+        ? Math.round(Number(text) * 100)
+        : NaN;
+      if (
+        key === "WEB_ADDRESS_PRICE_STEP_USD" &&
+        !(cents >= 1 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
         );
       if (
-        key === "WEB_ADDRESS_USD_TO_AED" &&
-        !(Number(text) >= 1 && Number(text) <= 10)
+        key === "WEB_ADDRESS_PRICE_ENDING_USD" &&
+        !(cents >= 0 && cents <= 100000)
       )
-        throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_PRICE_CAP_USD" &&
+        !(cents >= 1 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
+        );
       if (
         (key === "VOICE_API_VERSION" || key === "STT_API_VERSION") &&
         !/^\d{4}-\d{2}-\d{2}$/.test(text)
@@ -1384,8 +1412,6 @@ export function validateIntegrationValues(
         (key === "VOICE_CLONE_USD" || key === "VOICE_PRO_CLONE_PRICE_AED") &&
         Number(text) > 10000
       )
-        throw new ConfigurationError(`${entry.label} must be at most 10000`);
-      if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
         throw new ConfigurationError(`${entry.label} must be at most 10000`);
       if (
         (key === "DIGITALOCEAN_DNS_TOKEN_EXPIRES" ||

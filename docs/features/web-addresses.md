@@ -109,12 +109,14 @@ Deployment stays separately assigned.
 6. **Super admin → Settings → Web addresses and registrar**: registrar Namecheap; API user,
    API key (stored encrypted), account username, whitelisted client IPv4; keep "Use the Namecheap
    test environment" on for the rehearsal; registrant contact of the platform company
-   (organization required); yearly margin in AED (default 25);
-   USD→AED rate (default 3.6725, the AED peg); offered endings (default `com,net,org,co`);
+   (organization required); the price rule in USD (step 5.00, ending 4.99, cap 100.00) and the
+   suggested endings in order (default `com,fit,fitness,coach,training,ae,club,pro,app,me`; see
+   "Prices in USD and suggestions" below; the AED margin and USD→AED rate settings are gone);
    optionally the server IPv4 for domain DNS. Run **Test connection** (it reads the balance only),
    then switch **Enable automatic purchases and renewals** on and test again: the settings only
    take effect when the row is enabled, approved and tested at the current revision.
-7. **Stripe**: nothing new to create. Checkout uses inline yearly AED prices, and the existing
+7. **Stripe**: nothing new to create. Checkout uses inline yearly USD prices (with a once-only
+   coupon or a one-time line when the first year differs from the renewal), and the existing
    webhook endpoint already receives the events (`checkout.session.*`, `customer.subscription.*`,
    `invoice.paid`, `invoice.payment_failed`, refunds, disputes). `COMMERCE_APPROVED` must be true.
 8. **Rehearse**, then go live. The Stripe mode and the registrar environment must match: with
@@ -173,11 +175,12 @@ Deployment stays separately assigned.
   `packages/domain/src/web-address.ts`), a trailing hyphen and
   a double hyphen (`xn--`) are refused at signup and at a change. Existing workspaces whose slug
   is now reserved keep `/coach/<slug>` and get no subdomain until they change it.
-- **Own domain.** Search a name (or a full domain under an offered ending); each result shows
-  availability, the first-year price and the yearly renewal price in AED (the same amount
-  today, see "Owner decision"). Premium names and names in an early-access phase
-  (Namecheap `EapFee`) are not offered. Choosing one shows
-  both prices again with an explicit "I agree to pay AED … now and AED … every year after,
+- **Own domain.** Search a name (or a full domain); since stage 2026-09-28o the answer shows
+  the typed name's status (available, taken or not offered) and the available names on the
+  suggested endings, each with its first-year price and yearly renewal price in USD, nothing
+  over USD 100 a year (see "Prices in USD and suggestions"). Names in an early-access phase
+  (Namecheap `EapFee`) are not offered; premium names only within the cap. Choosing one shows
+  both prices again with an explicit "I agree to pay USD … now and USD … every year after,
   renewed automatically"; paying opens Stripe Checkout (subscription, the trainer is the
   customer). If the price changed since the search, the order is refused with the new prices and
   must be confirmed again.
@@ -331,11 +334,11 @@ goes `expired` → `owned` and provisions again. See "DNS hosting, delegation an
   expiry, and after a lapse, the subscription's latest paid invoice is applied the same way when
   its event was lost. Such synthetic events go through the same handler, which ignores an
   invoice already journaled.
-- **Price.** `yearlyPriceMinor`: the higher of Namecheap's one-year registration and renewal
-  price (each including the ICANN fee Namecheap adds), times the configured rate, rounded up to
-  whole dirhams, plus the margin; the same price every year. With the test double's prices a `.com`
-  is USD 16.06 → AED 59 + 25 = AED 84. Registrar prices are cached per ending for an hour for
-  search; an order always takes a fresh quote. A later registrar price increase is absorbed at
+- **Price.** Superseded on 28 September 2026 (stage 2026-09-28o): first-year and renewal
+  prices in USD from the owner's rule, see "Prices in USD and suggestions". Before it:
+  `yearlyPriceMinor`, the higher of the registration and renewal price times the USD→AED rate
+  plus an AED margin, the same every year; such orders keep that price. Registrar prices are
+  cached per ending (now in `registrar_prices`, 24 hours); an order always takes a fresh quote. A later registrar price increase is absorbed at
   renewal (the registrar cost journal shows it); changing a running subscription's price is not
   built.
 - **Lapse.** At expiry without a paid renewal: `expired`, both mappings inactive (the subdomain
@@ -369,11 +372,13 @@ workspace):
 | `web-address-invoice:<invoice>` | `web_address_receivable` +amount, `web_address_revenue` −amount; for a payment matching no open order (`kind=unmatched`) `web_address_refund_liability` −amount instead |
 | `web-address-refund:<refund>` | `web_address_revenue` +amount (or `web_address_refund_liability` for a refund of an unmatched payment), `web_address_receivable` −amount |
 | `web-address-dispute:<dispute>` | a lost dispute: `web_address_dispute_loss` +amount, `web_address_receivable` −amount (won or open disputes post nothing and flag the order) |
-| `web-address-registrar:<operation>` | `registrar_cost` +AED, `registrar_prepaid` −AED (USD × rate, rounded up; `estimated` when the registrar did not report a charge, and for renewals or registrations recorded from `getInfo`) |
+| `web-address-registrar:<operation>` | `registrar_cost` +amount, `registrar_prepaid` −amount: in USD cents for orders priced in USD (stage 2026-09-28o), in AED (USD × the order's stored rate, rounded up) for older orders; `estimated` when the registrar did not report a charge, and for renewals or registrations recorded from `getInfo` |
 
-None of them touches `trainer_payable`, `stripe_receivable` or commission, so month close,
-settlement, statements' payable bridge and payouts are unaffected. The trainer's statement adds
-`webAddresses: {paymentsMinor, refundsMinor}`; the operator's statement of the same workspace
+Each journal carries its currency (`journals.currency`): USD for orders priced in USD, AED for
+older ones (migration 071). None of them touches `trainer_payable`, `stripe_receivable` or
+commission, so month close, settlement, statements' payable bridge and payouts are unaffected.
+The trainer's statement adds `webAddresses: {currency: "USD", paymentsMinor, refundsMinor}`
+(older AED entries under `otherCurrencies`); the operator's statement of the same workspace
 also has `registrarCostMinor` and the registrar cost entries, which the trainer's statement and
 ledger export (`/finance/export`) leave out because they would show the platform's margin. Reconciling these receipts
 with Stripe payouts to the company bank is outside the per-workspace settlement flow (a
@@ -422,8 +427,8 @@ category, so the built-in text is always kept).
 | `GET /api/v1/web-address` | Owner | Subdomain, slug, change allowance, redirects, purchase availability, automatic orders |
 | `POST /api/v1/web-address/slug` | Owner, fresh MFA | `{slug, currentSlug}`; 400 `RESERVED_SLUG`/`INVALID_SLUG`, 409 `SLUG_TAKEN`/`SLUG_CHANGED`, 429 `SLUG_CHANGE_LIMIT` |
 | `GET /api/v1/public/slug-redirect/:slug` | Platform web | The current slug of a previous one during its redirect; 404 otherwise and on coach hosts |
-| `GET /api/v1/web-address/search?q=` | Owner | Availability, `firstYearPriceMinor` and `renewalPriceMinor` (AED); 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
-| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, firstYearPriceMinor, renewalPriceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with both prices), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
+| `GET /api/v1/web-address/search?q=` | Owner | `{requested: {domain, status}, results: [{domain, available, premium, firstYearPriceMinor, renewalPriceMinor, currency: "USD", renewsYearly}], incomplete, currency, priceCapMinor}`; 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
+| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, firstYearPriceMinor, renewalPriceMinor, currency?: "USD", accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with both prices), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
 | `POST /api/v1/web-address/orders/:id/checkout` | Owner | Returns to the same open Checkout (idempotent replay) |
 | `GET /api/v1/web-address/orders/:id` | Owner | Progress and the two prices (never the registrar, its cost, the rate or the margin) |
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
@@ -939,8 +944,9 @@ The owner decided that the platform holds trainers' custom domains as a business
   authorisation (EPP) code. The settings page notes the decision.
 - **What trainers and subscribers see.** Never the registrar's name or cost. The trainer screen
   (`apps/web/components/web-address.tsx`) shows only the first-year price and the yearly renewal
-  price in AED ("First year AED 84.00 · renews at AED 84.00 per year"), and the agreement names
-  both. Search results and order status carry `firstYearPriceMinor` and `renewalPriceMinor`
+  price, in USD since stage 2026-09-28o ("First year USD 19.99 · renews at USD 24.99 per year";
+  older orders keep their AED prices), and the agreement names both. The paragraph below
+  describes the AED build before that stage. Search results and order status carry `firstYearPriceMinor` and `renewalPriceMinor`
   only; `PRICE_CHANGED` carries both. The stored quote keeps the registrar, its USD price, the
   rate and the margin for operators. The Checkout subscription charges one yearly price (the
   higher of the registrar's registration and renewal price, converted, plus the margin), so the
@@ -971,6 +977,187 @@ exit 0; `node --import tsx --test tests/web-address-*.test.ts tests/messaging-te
 51 tests, 51 passed (including the 6 new moat tests and 1 new notice test); also
 `logical-css`, `healthkit-ui`, `integrations-completion`, `platform-settings`, `fix-settings`
 and `settings-runtime`: 47 tests, 47 passed (after Prettier on the changed files). Not run: the full suite, `next build`, e2e, a browser.
+
+## Prices in USD and suggestions (stage 2026-09-28o, branch `core/domain-pricing`)
+
+Owner decisions of 28 September 2026 ("1. 19.99 / 2. let's talk in USD for the trainer's ease /
+3. default is those. / 4. hide anything over 100$"). Unchanged: the registrar is never named to
+trainers, the platform company is the registrant, Stripe Checkout charges yearly, renewal and
+lapse, reconciliation and DNS on DigitalOcean.
+
+### The price rule
+
+- **Formula.** For the first year and for the renewal separately: registrar one-year cost in USD
+  (ICANN fee included), rounded up to the next multiple of USD 5, plus USD 4.99. Integer cents
+  only (`markupPriceCents` in `packages/domain/src/web-address.ts`): 11.00 → 19.99,
+  11.48 → 19.99, 15.00 → 19.99, 15.01 → 24.99, 18.68 → 24.99, 20.00 → 24.99, 20.01 → 29.99. A
+  registrar cost becomes whole cents with any fraction of a cent rounded up; a zero, negative
+  or non-numeric cost is refused, never priced at the ending alone. `trainerDomainPrices` answers `{firstYearCents, renewalCents, offered}`; a name whose
+  first-year **or** renewal price is over the cap (USD 100.00) is not offered.
+- **Settings** (Super admin → Web addresses and registrar): `WEB_ADDRESS_PRICE_STEP_USD` (5.00,
+  0.01–1000), `WEB_ADDRESS_PRICE_ENDING_USD` (4.99, 0–1000), `WEB_ADDRESS_PRICE_CAP_USD`
+  (100.00, 0.01–1000), two decimals each. An invalid stored rule turns purchases off
+  (`WEB_ADDRESS_DISABLED`) rather than charging a wrong price. `WEB_ADDRESS_MARGIN_AED` and
+  `WEB_ADDRESS_USD_TO_AED` are removed: saving them is refused and stored values are ignored.
+  The AED rate is not needed for accounting: USD orders are journaled in USD, and an older AED
+  order converts its registrar cost with the rate stored in its own quote (3.6725 if absent).
+- **Live Namecheap prices read on 28 September 2026** (`users.getPricing`, one year, ICANN fee
+  included; read-only) and the resulting trainer prices, first year / renewal: `.com` 11.48 /
+  18.68 → **USD 19.99 / 24.99**; `.fit` 3.18 / 46.18 → 9.99 / 54.99; `.fitness` 3.68 / 55.18 →
+  9.99 / 64.99; `.coach` 12.18 / 96.18 → 19.99 / 104.99, **hidden** (renewal over USD 100);
+  `.training` 9.18 / 54.18 → 14.99 / 59.99; `.club` 5.18 / 25.18 → 14.99 / 34.99; `.pro` 3.68 /
+  34.18 → 9.99 / 39.99; `.app` 11.18 / 23.18 → 19.99 / 29.99; `.me` 10.98 / 23.98 → 19.99 /
+  29.99; `.ae` has no API price at Namecheap (not offered). Several endings have a low first
+  year and a much higher renewal; trainers see both before paying. Registrar promotions change;
+  the cache refreshes daily.
+
+### Suggestions
+
+- **Input.** A name (`athena`) or a full domain (`athena.com`, `Athena.IO`, also with
+  `https://`, `www.` or a path, which are dropped); anything else is a 400 `DOMAIN_SEARCH`. No
+  variations of the name are generated.
+- **Endings.** `WEB_ADDRESS_TLDS`, in order, operator-editable (at most 20; default
+  `com,fit,fitness,coach,training,ae,club,pro,app,me`; the old default `com,net,org,co` is read
+  as the new default). A typed ending is checked first even when it is not in the list; a typed
+  name without an ending is the name on the first suggested ending (`.com` by default).
+- **Answer.** `requested: {domain, status}` with status `available`, `taken`, `not_offered`
+  (the registrar does not sell the ending, the price is over the cap, a premium price cannot be
+  used, or an early-access fee) or `unknown`; `results`: only available names within the cap,
+  the typed name first, then the endings in order; `incomplete` when some ending could not be
+  priced or checked right now (the screen says so); `priceCapMinor`. The platform's own domain
+  is simply not offered.
+- **One availability request.** Every name is checked in one `domains.check` (Namecheap takes
+  50 names a request; more are split). Only names whose ending has a price are checked: live
+  Namecheap refuses the **whole** request when one name is under an ending it does not sell
+  ("Tld for 'athena.ae' is not found", error 2030280, observed 28 September 2026), and a quote
+  now prices the ending before its availability request for the same reason.
+- **Premium names.** Offered only if the marked-up premium registration and premium renewal
+  (each plus the ICANN fee from the check) are both within the cap, and only with a registrar
+  that can pass a premium price on (Namecheap: `IsPremiumDomain`/`PremiumPrice` on
+  `domains.create` and `domains.renew`; 101domain and the generic registrar: never). The order
+  stores the checked premium prices; a renewal names the stored premium renewal price, and if
+  the registrar has changed it the renewal is refused definitively and waits for an operator.
+  Live, taken names also report premium prices (for example a premium registration of USD
+  260.00 with a USD 32.50 renewal), so premium prices differ between years too.
+- **Endings needing registrant documents** (Namecheap extended attributes: `us`, `eu`, `ca`,
+  `co.uk`, `org.uk`, `me.uk`, `nu`, `com.au`, `net.au`, `org.au`, `es`, `nom.es`, `com.es`,
+  `org.es`, `de`, `fr`) are refused as not offered before any request (`REQUIREMENTS`). The list
+  is written from Namecheap's documentation and was not re-read live.
+
+### Price cache and call budget
+
+- `registrar_prices` (migration 071, platform-level, service-only): one row per registrar, test
+  environment and ending with the USD register and renew cost, or `not_offered` with the reason,
+  and `fetched_at`. Fresh for 24 hours; a stale price up to 7 days old is still shown when the
+  call budget is used up; an order always asks the registrar again (and stores the answer).
+- The worker refreshes the suggested endings' prices, at most four a run (missing first, then
+  the oldest), only while purchases are enabled and the registrar settings are complete.
+- A search prices missing endings only while the API process's registrar budget (8 a minute,
+  300 an hour, 3,500 a day) still leaves room for its availability request; otherwise the
+  answer is marked incomplete. Right after start-up the first search may therefore be
+  incomplete until the worker has warmed the cache.
+
+### Checkout, renewal, refunds and ledger in USD
+
+- **Checkout** (`mode=subscription`, currency `usd`): the recurring yearly price is the renewal
+  price. A lower first year gets a once-only `amount_off` coupon for the difference (idempotency
+  key `web-address-first-year:<order>`, `max_redemptions` 1, name "Custom web address —
+  first-year price"); a higher first year adds a one-time line for the difference. So the first
+  invoice is the first-year price and every renewal invoice the renewal price.
+- **First payment** must match the quote's currency and first-year amount, or it is flagged and
+  held as a refund liability, as before. **A renewal payment** of another amount or currency
+  still renews the domain (the trainer has paid) and flags the order: "A renewal payment of …
+  differs from the agreed renewal price of … USD; check the Stripe subscription's price."
+- **Refunds and disputes** use the currency of the payment they refer to.
+- **Ledger.** `journals.currency` may now be any ISO code, but only for web address journals
+  (`source_key LIKE 'web-address-%'`); the deferred balance check refuses a non-AED journal on
+  any account other than `web_address_receivable`, `web_address_revenue`,
+  `web_address_refund_liability`, `web_address_dispute_loss`, `registrar_cost` and
+  `registrar_prepaid`, so USD never reaches `trainer_payable`, settlement or payouts. Finance
+  summaries, business metrics, finance operations and admin operations read AED journals only;
+  the finance summary lists other currencies separately (`otherCurrencies`); the ledger CSV gains
+  a `currency` column; the statement's `webAddresses` is USD with older AED amounts under
+  `otherCurrencies`.
+- **Older orders** (priced in AED before this stage) keep working unchanged: their stored quote
+  (`priceMinor`, `currency` AED, `usdToAed`) drives the order card, Checkout, the payment check
+  and the registrar cost journal.
+- **Stripe settlement.** Charging in USD means Stripe converts to the account's settlement
+  currency and charges its conversion fee, unless the account holds a USD balance. Owner note,
+  not changed in code.
+
+### Migration 071 (`packages/db/migrations/071_domain_pricing_usd.sql`)
+
+- `journals_currency_check`: `currency ~ '^[A-Z]{3}$' AND (currency = 'AED' OR source_key LIKE
+  'web-address-%')`.
+- `balanced_journal()` (SECURITY DEFINER, `REVOKE ALL … FROM PUBLIC`): also refuses a non-AED
+  journal posting to an account outside the web address accounts ("a USD journal cannot post
+  to trainer_payable").
+- `registrar_prices`: primary key (registrar, sandbox, tld), RLS forced with a `service_only`
+  policy, revoked from `PUBLIC` and `trainer_app`; `SELECT, INSERT, UPDATE` for `trainer_service`
+  (`infra/runtime-role.sql`). `scripts/verify-runtime-access.mjs` checks the grants, that no
+  tenant actor reads it, the policy, the currency check and the balance check's account guard.
+- Only additions and a widened check, so the previous release keeps working between migrate and
+  restart (it writes AED only).
+
+### Files (stage 2026-09-28o)
+
+- **New:** `packages/db/migrations/071_domain_pricing_usd.sql`, `apps/api/src/web-address-prices.ts`,
+  `tests/web-address-pricing.test.ts`, `tests/web-address-suggestions.test.ts`.
+- **Changed:** `packages/domain/src/web-address.ts` (price rule, search plan, endings),
+  `packages/providers/src/registrar.ts` (batched checks, premium prices and purchase, extended
+  attributes, generic batch check), `packages/providers/src/configuration.ts` (settings),
+  `apps/api/src/web-addresses.ts` (search, quote, Checkout), `apps/api/src/web-address-orders.ts`
+  (order prices, currency in payments, refunds, disputes, registrar cost, premium register and
+  renew), `apps/api/src/finance.ts` (journal currency, summary), `finance-statements.ts`,
+  `finance-operations.ts`, `business-metrics.ts`, `admin-operations.ts`, the ledger export in
+  `app.ts`, `apps/worker/src/index.ts` (price refresh), `apps/web/components/web-address.tsx`
+  (USD, taken name, suggestions, premium badge, incomplete note, cap),
+  `apps/web/components/web-address-operations.tsx` (quote in USD), `apps/web/app/web-address.css`,
+  `infra/runtime-role.sql`, `scripts/verify-runtime-access.mjs`, the Namecheap, generic
+  registrar, 101domain and Stripe doubles and `tests/e2e/mocks/index.ts`,
+  `tests/e2e/scenarios/core-features.e2e.ts` (expectations only; not run), and the web address,
+  moat, Stripe and DNS test files.
+
+### Checks actually run for this stage (local, 28 September 2026)
+
+After the last code change (the quote prices the ending before its availability request; the
+Namecheap double fails a whole check that names an unsold ending) and after Prettier on the
+changed files that were Prettier-clean at the base and on the new files:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: exit 0.
+- PGlite: every `tests/web-address-*.test.ts` file with `e2e-harness-mocks`, `finance-completion`,
+  `fix-ledger` and `governance-metrics`: 141 tests, 141 passed.
+- `/opt/tools/pg-sandbox.sh 56349 <worktree>` (PostgreSQL 16, restricted `trainer_service`):
+  `{"runtimeAccess":"verified","migrations":63,"systemTables":55,"scopedTables":44,…}` (migration
+  071 applied, the new verifier checks passed), then 18 files (`web-address-orders`, `-stripe`,
+  `-suggestions`, `-dns-orders`, `-dns-registrar`, `-moat`, `-subdomains`, `-registrar`,
+  `finance-completion`, `fix-ledger`, `fix2-finance`, `finance-checkout`, `governance-metrics`,
+  `isolation-elevation`, `platform`, `admin-completion`, `programme-billing`, `fix-payouts`):
+  177 tests, 177 passed, `PG_SELECTED_FAILED_FILES=0`.
+- `python3 -m unittest discover -s tests -p 'test_*deployment.py'`: 151 tests OK, 3 skipped.
+
+Earlier in the stage, before those last changes: PGlite batches of `finance-completion`,
+`fix-ledger`, `fix2-finance`, `finance-checkout`, `platform-settings`, `provider-configuration`,
+`isolation-elevation`, `messaging-templates`, `logical-css`, `e2e-harness-mocks`,
+`e2e-harness-sandbox`, `governance-metrics` and `platform` (133 passed), and of `acquisition`, `admin-completion`, `fix-db`, `fix-nutrition-ops`,
+`fix-payouts`, `fix-settings`, `governance-alerts`, `governance-locks`, `governance-step-up`,
+`governance-suspension`, `governance-web`, `programme-billing`, `programme-voice` (89 passed).
+A first sandbox run of 17 files failed one test in `web-address-suggestions` (the test deleted
+`registrar_prices` rows, which the runtime role may not do; it now ages them instead).
+
+- **Live, read-only** (Namecheap production, the account's API user; only
+  `users.getBalances`, `domains.check` and `users.getPricing`, each through its own curl process
+  with retries for the rotating egress address; nothing bought or renewed): balance USD 50.00;
+  the prices above; `athena` is taken on all nine sold endings (three of them premium); a random
+  name is available on all nine; a check naming `.ae` fails as a whole (error 2030280). The
+  stage's search, replayed from those answers, returned for the random name `.com` 19.99/24.99,
+  `.fit` 9.99/54.99, `.fitness` 9.99/64.99, `.training` 14.99/59.99, `.club` 14.99/34.99, `.pro`
+  9.99/39.99, `.app` 19.99/29.99, `.me` 19.99/29.99 (no `.coach`, over the cap; no `.ae`), and
+  for `athena` "taken" with no results. 32 requests including retries. The scripts are in the
+  session scratchpad, not committed.
+- Not run: the e2e harness (its core web address expectations were updated only), the full
+  PGlite and PostgreSQL suites, `next build`, a browser or 390 px check, anything on the live
+  server, Stripe live or test mode.
 
 ## Checks actually run (local, 28 September 2026, in this worktree)
 

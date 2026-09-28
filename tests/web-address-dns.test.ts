@@ -335,7 +335,15 @@ test("101domain: availability, prices, details, balance and nameservers against 
   mock.taken.add("layla.net");
   mock.premium.add("gold.com");
   const one = await r101.check(["layla.com"]);
-  assert.deepEqual(one, [{ domain: "layla.com", available: true, premium: false, premiumRegisterUsd: undefined }]);
+  assert.deepEqual(one, [
+    {
+      domain: "layla.com",
+      available: true,
+      premium: false,
+      premiumRegisterUsd: undefined,
+      premiumRenewUsd: undefined,
+    },
+  ]);
   assert.equal(calls.at(-1)!.path, "/v1/domains/search?domain_name=layla.com");
   assert.equal(calls.at(-1)!.auth, "Bearer k101-fixture");
   const bulk = await r101.check(["layla.com", "gold.com", "bad_name.com", "layla.fit"]);

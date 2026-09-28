@@ -63,6 +63,40 @@ export async function allocateCost(tx: Tx, a: Actor, raw: unknown) {
   return r;
 }
 /**
+ * The web address block of a statement: USD figures (the currency trainers
+ * pay domains in) and, only when there are any, other currencies (orders
+ * quoted in AED before 28 September 2026). The registrar cost is the
+ * platform's and is shown to operators only.
+ */
+function webAddressSummary(
+  figures: Map<
+    string,
+    { paymentsMinor: number; refundsMinor: number; registrarCostMinor: number }
+  >,
+  platformView?: boolean,
+) {
+  const view = (f: {
+    paymentsMinor: number;
+    refundsMinor: number;
+    registrarCostMinor: number;
+  }) =>
+    platformView
+      ? f
+      : { paymentsMinor: f.paymentsMinor, refundsMinor: f.refundsMinor };
+  const others = [...figures].filter(([currency]) => currency !== "USD");
+  return {
+    currency: "USD" as const,
+    ...view(figures.get("USD")!),
+    ...(others.length
+      ? {
+          otherCurrencies: Object.fromEntries(
+            others.map(([currency, f]) => [currency, view(f)]),
+          ),
+        }
+      : {}),
+  };
+}
+/**
  * `platformView` (operators) includes the platform's registrar cost for the
  * trainer's domains; the trainer's own statement leaves it out, since it
  * would show the platform's margin (docs/features/web-addresses.md).
@@ -115,14 +149,31 @@ export async function financialStatement(
     voiceAddOnMinor: 0,
     sessionsMinor: 0,
   };
-  const webAddresses: {
+  // A trainer's own web address payments to the platform, per currency they
+  // were charged in: USD (owner decision, 28 September 2026), or AED for
+  // orders quoted before. Outside the payable balance, so no AED equivalent
+  // is needed for the statement's bridge.
+  type WebAddressFigures = {
     paymentsMinor: number;
     refundsMinor: number;
-    registrarCostMinor?: number;
-  } = {
-    paymentsMinor: 0,
-    refundsMinor: 0,
-    registrarCostMinor: 0,
+    registrarCostMinor: number;
+  };
+  const webAddressFigures = new Map<string, WebAddressFigures>([
+    ["USD", { paymentsMinor: 0, refundsMinor: 0, registrarCostMinor: 0 }],
+  ]);
+  const figuresIn = (currency: unknown) => {
+    const key = typeof currency === "string" && currency ? currency : "AED";
+    let figures = webAddressFigures.get(key);
+    if (!figures)
+      webAddressFigures.set(
+        key,
+        (figures = {
+          paymentsMinor: 0,
+          refundsMinor: 0,
+          registrarCostMinor: 0,
+        }),
+      );
+    return figures;
   };
   for (const entry of entries) {
     const payable = (entry.lines as any[])
@@ -163,12 +214,13 @@ export async function financialStatement(
     else if (entry.source_key.startsWith("web-address-")) {
       // The trainer's own domain payments to the platform: outside the
       // payable balance (no commission, never paid out), shown separately.
+      const figures = figuresIn(entry.currency);
       if (entry.source_key.startsWith("web-address-invoice:"))
-        webAddresses.paymentsMinor += Number(entry.data.grossMinor ?? 0);
+        figures.paymentsMinor += Number(entry.data.grossMinor ?? 0);
       else if (entry.source_key.startsWith("web-address-refund:"))
-        webAddresses.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
+        figures.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
       else if (entry.source_key.startsWith("web-address-registrar:"))
-        webAddresses.registrarCostMinor! += (entry.lines as any[])
+        figures.registrarCostMinor += (entry.lines as any[])
           .filter((l) => l.account === "registrar_cost")
           .reduce((n, l) => n + Number(l.amountMinor), 0);
       totals.otherPayableMovementMinor -= payable;
@@ -196,12 +248,7 @@ export async function financialStatement(
     end: end.toISOString(),
     totals,
     revenue,
-    webAddresses: options.platformView
-      ? webAddresses
-      : {
-          paymentsMinor: webAddresses.paymentsMinor,
-          refundsMinor: webAddresses.refundsMinor,
-        },
+    webAddresses: webAddressSummary(webAddressFigures, options.platformView),
     entries: options.platformView
       ? entries
       : entries.filter(

@@ -12,6 +12,7 @@ import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
 import { processWebAddressOrders } from "../../api/src/web-address-orders.ts";
+import { refreshSuggestedPrices } from "../../api/src/web-address-prices.ts";
 import { assertProviderSandboxBinding } from "../../../packages/providers/src/sandbox.ts";
 // The mock-provider sandbox is refused anywhere but a loopback-only process.
 if (assertProviderSandboxBinding())
@@ -64,7 +65,9 @@ if (!process.env.DATABASE_URL) {
     if (!webAddressTask && Date.now() - lastWebAddressTick >= 30000) {
       lastWebAddressTick = Date.now();
       // Registrar calls can take tens of seconds; keep them off the main loop.
+      // Orders first, then the suggested endings' prices for trainer searches.
       webAddressTask = processWebAddressOrders(db)
+        .then(() => refreshSuggestedPrices(db))
         .then(() => undefined)
         .catch(() => console.error("Web address processing needs review"))
         .finally(() => {

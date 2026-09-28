@@ -216,6 +216,9 @@ export class StripeMock {
           object: "coupon",
           name: f.name ?? null,
           percent_off: num(f.percent_off) ?? null,
+          // A fixed amount off, in the currency named with it.
+          amount_off: num(f.amount_off) ?? null,
+          currency: f.currency ?? null,
           duration: f.duration,
           applies_to: f.applies_to
             ? { products: [...(f.applies_to.products ?? [])] }
@@ -482,6 +485,22 @@ export class StripeMock {
     const item = f.line_items?.[0] ?? {};
     let amount = 0;
     let priceId: string | undefined;
+    const currency = String(
+      item.price_data?.currency ??
+        (typeof item.price === "string" ? this.prices.get(item.price)?.currency : undefined) ??
+        "aed",
+    );
+    // In subscription mode, one-time lines after the recurring price are
+    // charged on the first invoice only, as Stripe does.
+    let firstInvoiceExtra = 0;
+    for (const extra of (f.line_items ?? []).slice(1)) {
+      if (extra?.price_data?.recurring)
+        return stripeError(400, "The mock supports one recurring line item");
+      if (extra?.price_data && String(extra.price_data.currency) !== currency)
+        return stripeError(400, "All line items must use the same currency");
+      firstInvoiceExtra +=
+        (num(extra?.price_data?.unit_amount) ?? 0) * (num(extra?.quantity) ?? 1);
+    }
     if (typeof item.price === "string") {
       const price = this.prices.get(item.price);
       if (!price) return stripeError(400, "No such price", "resource_missing");
@@ -516,6 +535,7 @@ export class StripeMock {
         priceId = price.id;
       }
     }
+    amount += firstInvoiceExtra;
     // Stripe's amount_subtotal is before discounts; amount_total after them.
     const subtotal = amount;
     const couponId = f.discounts?.[0]?.coupon;
@@ -528,7 +548,11 @@ export class StripeMock {
         return stripeError(400, `The coupon ${couponId} cannot be applied to any of the items in this checkout`, "coupon_not_applicable");
       if (!coupon.valid || (coupon.redeem_by && coupon.redeem_by <= now()) || (coupon.max_redemptions && coupon.times_redeemed >= coupon.max_redemptions))
         return stripeError(400, `The coupon ${couponId} has expired or reached its redemption limit`, "coupon_expired");
-      amount = Math.round(amount * (1 - (coupon.percent_off ?? 0) / 100));
+      if (coupon.amount_off && String(coupon.currency) !== currency)
+        return stripeError(400, `The coupon ${couponId} is in another currency`, "coupon_currency_mismatch");
+      amount = coupon.amount_off
+        ? Math.max(0, amount - coupon.amount_off)
+        : Math.round(amount * (1 - (coupon.percent_off ?? 0) / 100));
     }
     const trialDays = num(f.subscription_data?.trial_period_days);
     const id = "cs_test_" + randomId("x").slice(2);
@@ -544,7 +568,7 @@ export class StripeMock {
       customer_email: f.customer_email ?? null,
       customer: (f.customer ?? null) as string | null,
       metadata: f.metadata ?? {},
-      currency: f.line_items?.[0]?.price_data?.currency ?? "aed",
+      currency,
       amount_total: trialDays ? 0 : amount,
       amount_subtotal: subtotal,
       expires_at: num(f.expires_at) ?? now() + 3600,
@@ -644,12 +668,17 @@ export class StripeMock {
     return { status: response.status, body: (await response.text()).slice(0, 2000) };
   }
 
-  private chargeFor(amount: number, customer: string | null, metadata: Obj = {}) {
+  private chargeFor(
+    amount: number,
+    customer: string | null,
+    metadata: Obj = {},
+    currency = "aed",
+  ) {
     const pi = {
       id: randomId("pi"),
       object: "payment_intent",
       amount,
-      currency: "aed",
+      currency,
       status: "succeeded",
       customer,
       latest_charge: "",
@@ -662,7 +691,7 @@ export class StripeMock {
       amount,
       amount_refunded: 0,
       refunded: false,
-      currency: "aed",
+      currency,
       paid: true,
       status: "succeeded",
       customer,
@@ -679,8 +708,12 @@ export class StripeMock {
 
   private issueInvoice(sub: Obj, amount: number, paid: boolean) {
     const periodEnd = sub.items.data[0].current_period_end;
+    // Invoices are in the subscription price's currency.
+    const currency = String(sub.items.data[0].price.currency ?? "aed");
     const payment =
-      paid && amount > 0 ? this.chargeFor(amount, sub.customer) : undefined;
+      paid && amount > 0
+        ? this.chargeFor(amount, sub.customer, {}, currency)
+        : undefined;
     const created = now();
     const invoice = {
       id: randomId("in"),
@@ -689,7 +722,7 @@ export class StripeMock {
       status: paid ? "paid" : "open",
       amount_paid: paid ? amount : 0,
       amount_due: amount,
-      currency: "aed",
+      currency,
       number: `MOCK-${String(++this.invoiceNumber).padStart(4, "0")}`,
       customer: sub.customer,
       created,
@@ -705,7 +738,7 @@ export class StripeMock {
             id: randomId("il"),
             object: "line_item",
             amount,
-            currency: "aed",
+            currency,
             period: { start: sub.items.data[0].current_period_start, end: periodEnd },
             pricing: {
               type: "price_details",
@@ -789,7 +822,7 @@ export class StripeMock {
               id: randomId("si"),
               object: "subscription_item",
               quantity: 1,
-              price: { id: price.id, object: "price", product: price.product, unit_amount: price.unit_amount, currency: "aed" },
+              price: { id: price.id, object: "price", product: price.product, unit_amount: price.unit_amount, currency: price.currency ?? "aed" },
               current_period_start: start,
               current_period_end: end,
             },
@@ -814,6 +847,7 @@ export class StripeMock {
         x.amount_total,
         customer.id,
         x.payment_intent_data?.metadata ?? {},
+        x.currency ?? "aed",
       );
       x.payment_intent = pi.id;
       result.charge = charge;
@@ -879,7 +913,7 @@ export class StripeMock {
       id: randomId("dp"),
       object: "dispute",
       amount: charge.amount,
-      currency: "aed",
+      currency: charge.currency ?? "aed",
       charge: charge.id,
       payment_intent: charge.payment_intent,
       status: "needs_response",

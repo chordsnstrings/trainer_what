@@ -179,9 +179,9 @@ async function marketing(ctx: E2EContext) {
 
 type Purchase = { orderId: string; domain: string; subscriptionId: string };
 
-/** No registrar name, cost, rate or margin in anything the trainer receives. */
+/** No registrar name or cost (USD 10.46 / 16.06 at the double) in anything the trainer receives. */
 function assertNoRegistrar(text: string, where: string) {
-  assert.doesNotMatch(text, /namecheap|registrar-servers|16\.06|3\.6725/i, `${where} names the registrar or its cost`);
+  assert.doesNotMatch(text, /namecheap|registrar-servers|10\.46|16\.06|registerUsd|renewUsd|priceRule/i, `${where} names the registrar or its cost`);
 }
 
 async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<Purchase | undefined> {
@@ -212,18 +212,49 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     return `home ${home.status}; unknown subdomain refused in the TLS handshake`;
   });
   let found: any;
-  await r.step(T, "Search for a domain", `${layla.slug}: availability and yearly AED prices from the registrar double, without naming it`, async () => {
-    const search = await t.request("GET", "/api/v1/web-address/search?q=laylastrength.com");
-    assert.equal(search.status, 200, search.text);
+  await r.step(T, "Search for a domain", `${layla.slug}: the name on every suggested ending in one registrar request, USD first-year and renewal prices, taken and over-USD-100 names left out, without naming the registrar`, async () => {
+    const nc = ctx.mocks.namecheap;
+    // Someone holds laylastrength.fit; laylastrength.coach is a premium name
+    // over the USD 100 limit; the double does not sell .ae.
+    nc.taken.add("laylastrength.fit");
+    nc.premium.set("laylastrength.coach", "250.00");
+    // Ending prices come from the registrar once a day (the worker keeps
+    // them warm); right after start-up a search may still say some endings
+    // could not be checked yet, and a later one is complete.
+    let search: any;
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      search = await t.request("GET", "/api/v1/web-address/search?q=laylastrength");
+      assert.equal(search.status, 200, search.text);
+      if (!search.body.incomplete) break;
+      await new Promise((done) => setTimeout(done, 15000));
+    }
+    assert.equal(search.body.incomplete, false, "every ending priced and checked");
     assertNoRegistrar(search.text, "search");
-    found = search.body.results.find((x: any) => x.domain === "laylastrength.com");
-    assert.ok(found?.available, JSON.stringify(search.body).slice(0, 400));
-    // USD 16.06 (the higher of 10.28 + 0.18 and 15.88 + 0.18) × 3.6725 → AED 59, + AED 25 margin.
-    assert.equal(found.firstYearPriceMinor, 8400);
-    assert.equal(found.renewalPriceMinor, 8400);
-    assert.equal(found.currency, "AED");
-    assert.ok(ctx.mocks.namecheap.commands("domains.check").length >= 1);
-    return search.body.results.map((x: any) => `${x.domain}:${x.available ? x.firstYearPriceMinor / 100 : "-"}`).join(" ");
+    const checks = nc.commands("domains.check").length;
+    const again = await t.request("GET", "/api/v1/web-address/search?q=Laylastrength");
+    assert.equal(again.status, 200, again.text);
+    assert.ok(nc.commands("domains.check").length <= checks + 1, "at most one availability request for every ending");
+    assert.deepEqual(search.body.requested, { domain: "laylastrength.com", status: "available" });
+    // Owner's rule: the cost rounded up to USD 5, plus USD 4.99.
+    assert.deepEqual(
+      search.body.results.map((x: any) => [x.domain, x.firstYearPriceMinor, x.renewalPriceMinor, x.currency]),
+      [
+        ["laylastrength.com", 1999, 2499, "USD"],
+        ["laylastrength.fitness", 1499, 4499, "USD"],
+        ["laylastrength.training", 1499, 4499, "USD"],
+        ["laylastrength.club", 999, 2499, "USD"],
+        ["laylastrength.pro", 999, 2999, "USD"],
+        ["laylastrength.app", 1999, 2499, "USD"],
+        ["laylastrength.me", 1499, 2999, "USD"],
+      ],
+    );
+    // A typed name that is taken shows as taken, with the other endings offered.
+    const taken = await t.request("GET", "/api/v1/web-address/search?q=laylastrength.fit");
+    assert.equal(taken.status, 200, taken.text);
+    assert.deepEqual(taken.body.requested, { domain: "laylastrength.fit", status: "taken" });
+    assert.equal(taken.body.results[0].domain, "laylastrength.com");
+    found = search.body.results[0];
+    return search.body.results.map((x: any) => `${x.domain}:${x.firstYearPriceMinor / 100}/${x.renewalPriceMinor / 100}`).join(" ");
   });
   if (!found?.available) return undefined;
   let purchase: Purchase | undefined;
@@ -232,6 +263,7 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
       domain: found.domain,
       firstYearPriceMinor: found.firstYearPriceMinor,
       renewalPriceMinor: found.renewalPriceMinor,
+      currency: "USD",
       accepted: true,
     });
     assert.ok(created.orderId && created.url, JSON.stringify(created));
@@ -239,6 +271,11 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     const paid = await ctx.mocks.stripe.completeCheckout(sessionId);
     for (const d of paid.deliveries ?? []) assert.equal(d.status, 200, `${d.type} webhook: ${d.body}`);
     assert.ok(paid.subscription?.id, "a yearly subscription");
+    // USD 24.99 a year, with the first invoice at USD 19.99 (a once-only coupon).
+    assert.equal(paid.session.currency, "usd");
+    assert.equal(paid.invoice.amount_paid, 1999);
+    assert.equal(paid.invoice.currency, "usd");
+    assert.equal(paid.subscription.items.data[0].price.unit_amount, 2499);
     purchase = { orderId: created.orderId, domain: found.domain, subscriptionId: paid.subscription.id };
     const view = await t.request("GET", `/api/v1/web-address/orders/${created.orderId}`);
     assertNoRegistrar(view.text, "order view");
@@ -298,6 +335,8 @@ async function webAddressLifecycle(ctx: E2EContext, layla: TrainerSeed, order: P
   await r.step(T, "Domain renews every year", `${order.domain}: the yearly invoice is paid at the Stripe double and the worker renews it at the registrar once`, async () => {
     const renewed = await ctx.mocks.stripe.renew(order.subscriptionId);
     for (const d of renewed.deliveries) assert.equal(d.status, 200, `${d.type} webhook: ${d.body}`);
+    assert.equal(renewed.invoice.amount_paid, 2499, "renewal charged at USD 24.99");
+    assert.equal(renewed.invoice.currency, "usd");
     const done = await ctx.waitUntil("the renewal is recorded", async () => {
       const o = await orderView();
       return o.renewalStatus === "renewed" && o;

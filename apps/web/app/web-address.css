@@ -40,6 +40,18 @@
   min-inline-size: 0;
   overflow-wrap: anywhere;
 }
+/* The searched name when it cannot be bought (taken, not offered). */
+.web-address-requested {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-block: 12px 4px;
+  overflow-wrap: anywhere;
+}
+.web-address-requested > .ltr-data {
+  font-weight: 650;
+}
 .web-address-confirm {
   display: grid;
   gap: 12px;

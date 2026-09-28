@@ -219,7 +219,7 @@ export async function closeMonth(
       "Post reviewed usage statements before closing trainer earnings",
     );
   const lines = await tx.query(
-    "SELECT l.account,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.created_at<$1 GROUP BY l.account",
+    "SELECT l.account,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.created_at<$1 AND j.currency='AED' GROUP BY l.account",
     [cutoff.toISOString()],
   );
   const accounts = Object.fromEntries(

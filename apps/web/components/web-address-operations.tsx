@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, day, Status } from "./web-address";
+import { api, day, formatMoney, Status } from "./web-address";
 
 /**
  * Operator-only view of automatic domain orders (super admin, Integration
@@ -21,6 +21,19 @@ const DNS_LABELS: Record<string, string> = {
 type OperatorOrder = Record<string, any> & {
   operations?: Array<Record<string, any>>;
 };
+/**
+ * A quoted price: USD for orders from 28 September 2026 (first year and
+ * renewal separately), AED for orders quoted before (one yearly price).
+ */
+function money(quote: Record<string, any>, which: "first" | "renewal") {
+  const currency = quote.currency === "USD" ? "USD" : "AED";
+  const minor = Number(
+    (which === "first" ? quote.firstYearPriceMinor : quote.renewalPriceMinor) ??
+      quote.priceMinor ??
+      0,
+  );
+  return formatMoney(minor, currency);
+}
 type OperatorData = {
   root: string | null;
   registrar: string;
@@ -120,6 +133,16 @@ export function WebAddressOperations({
               : ""}
             {order.serve_mode === "forward" ? " · forwards to the subdomain" : ""}
           </p>
+          {order.quote && (
+            <p className="muted">
+              Trainer pays {money(order.quote, "first")} the first year and{" "}
+              {money(order.quote, "renewal")} a year after
+              {order.quote.registerUsd
+                ? ` · registrar cost USD ${order.quote.registerUsd} / ${order.quote.renewUsd}`
+                : ""}
+              {order.quote.premium ? " · premium name" : ""}
+            </p>
+          )}
           {order.evidence?.zoneHeldElsewhere && (
             <p className="muted">
               Another DigitalOcean account holds this domain&apos;s zone, so

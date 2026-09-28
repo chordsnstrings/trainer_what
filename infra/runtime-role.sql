@@ -73,6 +73,9 @@ GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 -- Early access (067): platform-scoped requests from the public site, written
 -- by the public endpoint and listed, exported or erased by the Super admin.
 GRANT SELECT,INSERT,UPDATE,DELETE ON early_access_requests TO trainer_service;
+-- Domain pricing (071): registrar prices per ending, cached by trainer
+-- searches, checkouts and the worker; refreshed in place, never deleted.
+GRANT SELECT,INSERT,UPDATE ON registrar_prices TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
