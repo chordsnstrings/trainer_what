@@ -40,6 +40,71 @@ async function observe(page) {
 }
 await observe(page);
 
+/** The public site: every key page renders its H1 inside the shared frame. */
+async function checkMarketingSite({ page, base }) {
+  const routes = [
+    "/",
+    "/how-it-works",
+    "/trainer-brain",
+    "/demo",
+    "/features",
+    "/features/safety",
+    "/pricing",
+    "/earnings-calculator",
+    "/follower-calculator",
+    "/security-and-privacy",
+    "/faq",
+    "/about",
+    "/methodology",
+    "/get-started",
+    "/for-trainers",
+    "/for-trainers/strength",
+    "/uae",
+    "/guides",
+    "/guides/instagram-followers-to-clients",
+  ];
+  for (const route of routes) {
+    const response = await page.goto(base + route);
+    if (!response?.ok())
+      throw new Error(`${route} answered ${response?.status()}`);
+    const main = page.locator("main#main.mk-main");
+    const h1 = main.getByRole("heading", { level: 1 });
+    await h1.waitFor();
+    if ((await h1.count()) !== 1 || !(await h1.innerText()).trim())
+      throw new Error(`${route} must show exactly one non-empty H1`);
+    await page.getByRole("navigation", { name: "Main" }).waitFor();
+    await page.getByRole("navigation", { name: "Site map" }).waitFor();
+    if (route === "/demo") {
+      const panel = main.getByRole("tabpanel");
+      await main.getByRole("tab", { name: "New pain", exact: true }).click();
+      await panel.getByText("Workout paused", { exact: true }).waitFor();
+      await panel.getByText(/the trainer is alerted/).waitFor();
+      await main
+        .getByRole("tab", { name: "Outside what it was taught", exact: true })
+        .click();
+      await panel.getByText("Handed to the trainer", { exact: true }).waitFor();
+    }
+    if (route === "/follower-calculator") {
+      const calculator = main.getByRole("region", {
+        name: "Follower calculator",
+      });
+      const figure = calculator.locator(".mk-result-figure");
+      const before = await figure.innerText();
+      await calculator
+        .getByLabel("Instagram followers", { exact: true })
+        .fill("250000");
+      await page.waitForFunction(
+        ([el, prior]) => el.textContent !== prior,
+        [await figure.elementHandle(), before],
+      );
+    }
+  }
+  return {
+    pages: routes.length,
+    demoPainHandoff: true,
+    followerEstimate: true,
+  };
+}
 async function capture(target, options) {
   if (process.env.BROWSER_SCREENSHOTS === "true")
     await target.screenshot(options);
@@ -53,16 +118,7 @@ try {
     path: "test-results/landing-desktop.png",
     fullPage: true,
   });
-  for (const route of ["/how-it-works", "/demo", "/pricing", "/faq"]) {
-    await page.goto(base + route);
-    await page.locator(".marketing-page h1").waitFor();
-    if (route === "/demo") {
-      await page
-        .getByRole("button", { name: "New pain is reported", exact: true })
-        .click();
-      await page.getByText("Workout paused", { exact: true }).waitFor();
-    }
-  }
+  const marketing = await checkMarketingSite({ page, base });
   await page.goto(base + "/login");
   await page.getByLabel("Email address").fill("coach@example.test");
   await page
@@ -75,21 +131,30 @@ try {
     path: "test-results/trainer-desktop.png",
     fullPage: true,
   });
-  for (const route of [
-    "/trainer/brain",
-    "/trainer/subscribers",
-    "/trainer/programs",
-    "/trainer/finance",
-    "/trainer/affiliates",
-    "/trainer/integrations",
-    "/trainer/settings",
-    "/admin",
-    "/admin/affiliates",
-    "/admin/infrastructure/actions",
-    "/admin/infrastructure/host",
+  for (const [route, name] of [
+    ["/trainer/brain"],
+    ["/trainer/brain/plans", "Plans your Brain writes"],
+    ["/trainer/subscribers"],
+    ["/trainer/programs"],
+    ["/trainer/finance"],
+    ["/trainer/affiliates"],
+    ["/trainer/integrations"],
+    ["/trainer/domains", "Your coaching address."],
+    ["/trainer/growth", "Turn followers into subscribers"],
+    ["/trainer/settings"],
+    ["/admin"],
+    ["/admin/affiliates"],
+    ["/admin/infrastructure/actions"],
+    ["/admin/infrastructure/host"],
   ]) {
     await page.goto(base + route);
-    await page.getByRole("heading", { level: 1 }).first().waitFor();
+    await page
+      .getByRole("heading", {
+        level: 1,
+        ...(name ? { name, exact: true } : {}),
+      })
+      .first()
+      .waitFor();
   }
   await page.goto(base + "/trainer/onboarding/identity");
   await page
@@ -123,6 +188,23 @@ try {
       .inputValue()) !== "Morgan Coaching"
   )
     throw new Error("Onboarding did not resume persisted identity");
+  // The optional last setup step hands the trainer their tagged coaching link.
+  await page
+    .getByRole("navigation", { name: "Setup steps" })
+    .getByRole("link", { name: /Share your link/ })
+    .click();
+  await page.waitForURL("**/trainer/onboarding/share");
+  await page
+    .getByRole("heading", { level: 1, name: "Share your link", exact: true })
+    .waitFor();
+  await page
+    .getByText(
+      new URL(base).origin +
+        "/coach/alex-morgan?utm_source=instagram&utm_medium=social&utm_campaign=bio",
+      { exact: true },
+    )
+    .first()
+    .waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + "/trainer");
   await page.getByRole("heading", { level: 1 }).first().waitFor();
@@ -435,8 +517,10 @@ try {
         routes: visitedRoutes.size,
         routePaths: [...visitedRoutes].sort(),
         acquisitionConsent,
+        marketing,
         completionFlows,
         onboardingResume: true,
+        onboardingShareLink: true,
         clientTwin: true,
         mobileWidth: 390,
         overflow,

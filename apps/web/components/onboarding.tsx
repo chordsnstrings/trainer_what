@@ -162,6 +162,34 @@ function ShareChannels({
   );
 }
 
+/** The "Share your link" step: the tagged links, then where they were shared. */
+export function ShareStep({
+  storefrontPath,
+  busy,
+  saved,
+  onSave,
+  children,
+}: {
+  storefrontPath: string;
+  busy: boolean;
+  saved: string[];
+  onSave: (channels: string[]) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <p>
+        Your coaching address:{" "}
+        <code className="ltr-data">{storefrontPath}</code>. Copy the tagged
+        links below into your Instagram bio and Stories, then record where you
+        shared it.
+      </p>
+      {children}
+      <ShareChannels busy={busy} saved={saved} onSave={onSave} />
+    </>
+  );
+}
+
 export function Onboarding({
   stepKey,
   revision,
@@ -329,19 +357,14 @@ export function Onboarding({
       )}
       <section className="card">
         {stepKey === "share" ? (
-          <>
-            <p>
-              Your coaching address:{" "}
-              <code className="ltr-data">{data.storefrontPath}</code>. Copy the
-              tagged links below into your Instagram bio and Stories, then
-              record where you shared it.
-            </p>
-            <ShareChannels
-              busy={busy}
-              saved={(step.values?.channels as string[] | undefined) ?? []}
-              onSave={(channels) => void save({ channels })}
-            />
-          </>
+          <ShareStep
+            storefrontPath={data.storefrontPath}
+            busy={busy}
+            saved={(step.values?.channels as string[] | undefined) ?? []}
+            onSave={(channels) => void save({ channels })}
+          >
+            {children}
+          </ShareStep>
         ) : stepKey === "identity" ? (
           <IdentityForm step={step} onSaved={refresh} />
         ) : stepKey === "account" ? (
