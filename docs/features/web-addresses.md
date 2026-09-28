@@ -78,7 +78,8 @@ Nothing below has been done. Deployment stays separately assigned.
    | A | `*` | `<IP>` | automatic / 30 min |
 
    Remove the registrar's parking records for `@` and `www` (a URL redirect or a `www` CNAME)
-   so they do not shadow these. Add AAAA records only if the server gets an IPv6 address. No CAA
+   so they do not shadow these. Do not add AAAA records: the server has no IPv6 address, and
+   the platform address change refuses to run while any AAAA record exists for these names. No CAA
    record is needed; if one is added it must allow `letsencrypt.org`.
 2. **Runtime settings on the server**: once a controller with the platform address change
    (migration `068_platform_address_change`) runs, use Super admin → Host and backups →

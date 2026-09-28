@@ -728,6 +728,7 @@ test("platform address validation covers format, coach domains, DNS and passkeys
       db,
       "https://app.fixture-platform.test",
       resolver,
+      { serverIpv4: "203.0.113.10" },
     );
     assert.equal(same.valid, true);
     assert.equal(same.changed, false);
@@ -739,7 +740,13 @@ test("platform address validation covers format, coach domains, DNS and passkeys
     });
     assert.equal(ok.statusCode, 200, ok.body);
     const body = ok.json();
-    assert.equal(body.valid, true);
+    // No verified controller report names this server's IPv4 here, so DNS
+    // cannot pass yet (the controller would refuse the request).
+    assert.equal(body.valid, false);
+    assert.match(
+      body.checks.find((c: any) => c.key === "dns").message,
+      /public IPv4 address is not reported yet/,
+    );
     const passkeys = body.checks.find((c: any) => c.key === "passkeys");
     assert.equal(passkeys.ok, false);
     assert.match(passkeys.message, /1 passkey is bound/);

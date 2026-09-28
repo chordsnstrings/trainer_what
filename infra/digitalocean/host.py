@@ -540,14 +540,18 @@ def endpoint_url():
     return json.loads((ROOT / "endpoint.json").read_text())["url"]
 
 
-def start_release(sha, endpoint):
-    """Recreate the application services of one recorded release and verify it."""
+def start_release(sha, endpoint, ready_attempts=None):
+    """Recreate the application services of one recorded release and verify it.
+
+    ``ready_attempts`` bounds each readiness wait (the wait_ready default otherwise).
+    """
     sha = valid_sha(sha)
+    limit = {} if ready_attempts is None else {"attempts": ready_attempts}
     (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask(), edge_root(), edge_moved()))
     compose(ROOT / "releases" / sha, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
             "api", "web", "worker", "edge")
-    wait_ready("http://127.0.0.1:3000/api/v1/ready")
-    wait_ready(endpoint + "/api/v1/ready", expected_sha=sha)
+    wait_ready("http://127.0.0.1:3000/api/v1/ready", **limit)
+    wait_ready(endpoint + "/api/v1/ready", expected_sha=sha, **limit)
 
 
 def switch_release(target):
@@ -588,12 +592,12 @@ def switch_release(target):
     return True
 
 
-def reapply_release():
+def reapply_release(ready_attempts=None):
     """Recreate the serving release with the current runtime settings and edge address."""
     sha = serving_release(read_state())
     if not sha:
         raise DeploymentError("No release has been deployed on this server")
-    start_release(sha, endpoint_url())
+    start_release(sha, endpoint_url(), ready_attempts)
     return sha
 
 

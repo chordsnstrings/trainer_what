@@ -40,6 +40,11 @@ type DnsAnswer = {
   name: string;
   addresses: string[];
   source: string;
+  /** AAAA records (the controller refuses any: this server has no IPv6 address). */
+  ipv6?: string[];
+  ipv6Source?: string;
+  /** What public DNS shows when the server's own resolver has no answer yet. */
+  publicAddresses?: string[];
   ok: boolean;
 };
 type Request = {
@@ -623,6 +628,12 @@ export function AddressChangeProgress({
               />{" "}
               <span className="host-wrap">
                 {d.name}: {d.addresses.join(", ") || "no A record"} ({d.source})
+                {d.publicAddresses?.length
+                  ? `; public DNS already shows ${d.publicAddresses.join(", ")}`
+                  : ""}
+                {d.ipv6?.length
+                  ? `; AAAA ${d.ipv6.join(", ")} (${d.ipv6Source ?? "DNS"}) must be removed`
+                  : ""}
               </span>
             </li>
           ))}

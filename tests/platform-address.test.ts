@@ -43,8 +43,13 @@ const records: Record<string, { a: string[]; aaaa: string[] }> = {
 const resolver = {
   resolve4: async (host: string) =>
     records[host]?.a ??
-    (host.endsWith(".trainsyou.test") ? [SERVER] : ([] as string[])),
-  resolve6: async (host: string) => records[host]?.aaaa ?? [],
+    (host.endsWith(".trainsyou.test") || host.endsWith(".v6root.test")
+      ? [SERVER]
+      : ([] as string[])),
+  // A wildcard AAAA record under v6root.test answers every name below it.
+  resolve6: async (host: string) =>
+    records[host]?.aaaa ??
+    (host.endsWith(".v6root.test") ? ["2001:db8::2"] : ([] as string[])),
 };
 before(async () => {
   db = await createDatabase({ memory: true });
@@ -239,9 +244,28 @@ test("the preview refuses names that do not point only at this server", async ()
     missing.checks.find((c) => c.key === "dns")!.message,
     /no A or AAAA record/,
   );
+  // This server has no IPv6 address: any AAAA record points elsewhere and blocks,
+  // even when every A record is correct (certificate authorities try IPv6 first).
   const v6 = await check("https://v6.elsewhere.test");
-  assert.equal(v6.valid, true, "AAAA records warn but do not block");
-  assert.equal(v6.checks.find((c) => c.key === "dns_ipv6")!.level, "warning");
+  assert.equal(v6.valid, false, "an AAAA record elsewhere blocks the move");
+  const ipv6 = v6.checks.find((c) => c.key === "dns_ipv6")!;
+  assert.equal(ipv6.level, "error");
+  assert.match(ipv6.message, /2001:db8::1/);
+  assert.match(ipv6.message, /This server has no IPv6 address/);
+  assert.match(
+    ipv6.message,
+    /Remove every AAAA record for v6\.elsewhere\.test/,
+  );
+  const wildcard6 = await check("https://v6root.test", "v6root.test");
+  assert.equal(
+    wildcard6.valid,
+    false,
+    "a wildcard AAAA record under the root blocks",
+  );
+  assert.match(
+    wildcard6.checks.find((c) => c.key === "dns_ipv6")!.message,
+    /2001:db8::2.*and \*\.v6root\.test/,
+  );
   // The wildcard record under the root is required.
   const wildcard = await check("https://other.test", "elsewhere.test");
   assert.equal(wildcard.valid, false);
@@ -266,18 +290,20 @@ test("the preview refuses names that do not point only at this server", async ()
     ["https://trainsyou.test/", null],
   ] as const)
     assert.equal((await check(url, root)).valid, false, `${url} ${root}`);
-  // Without a verified server address, the current name's addresses are the reference.
-  const fallback = await checkPlatformAddress(
+  // Without a verified controller report there is no server address to compare
+  // with: the check cannot pass (the controller would refuse the request anyway).
+  const unreported = await checkPlatformAddress(
     db,
     "https://trainsyou.test",
     resolver,
   );
-  assert.equal(fallback.serverIpv4, null);
-  assert.equal(fallback.valid, true);
-  assert.match(
-    fallback.checks.find((c) => c.key === "dns")!.message,
-    /the current address \(203\.0\.113\.10\)/,
-  );
+  assert.equal(unreported.serverIpv4, null);
+  assert.equal(unreported.valid, false);
+  const dns = unreported.checks.find((c) => c.key === "dns")!;
+  assert.equal(dns.ok, false);
+  assert.equal(dns.level, "error");
+  assert.match(dns.message, /public IPv4 address is not reported yet/);
+  assert.equal(unreported.resolution[0].ok, false);
 });
 
 test("an address change request is validated, signed with its parameters and audited", async () => {

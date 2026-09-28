@@ -1304,24 +1304,17 @@ export async function checkPlatformAddress(
   const probe = root
     ? `${DNS_PROBE_PREFIX}${randomUUID().slice(0, 8)}.${root}`
     : null;
-  const [next, existing, wildcard] = await Promise.all([
+  const [next, wildcard] = await Promise.all([
     lookup(resolver, host),
-    !serverIpv4 && current && current.hostname !== "localhost"
-      ? lookup(resolver, current.hostname)
-      : Promise.resolve(null),
     probe ? lookup(resolver, probe) : Promise.resolve(null),
   ]);
-  // The controller requires every A record to be this server's public IPv4.
-  // Without a verified report the check falls back to the current name's addresses.
-  const expected = serverIpv4
-    ? [serverIpv4]
-    : [...(existing?.a ?? []), ...(existing?.aaaa ?? [])];
+  // The controller requires every A record to be this server's public IPv4 and
+  // refuses any AAAA record (the server has no IPv6 address). Without a verified
+  // controller report there is nothing to compare with, so DNS cannot pass yet.
   const pointsHere = (found: Lookup) =>
-    serverIpv4
-      ? found.a.length > 0 && found.a.every((ip) => ip === serverIpv4)
-      : found.a.length + found.aaaa.length > 0 &&
-        (expected.length === 0 ||
-          [...found.a, ...found.aaaa].some((ip) => expected.includes(ip)));
+    !!serverIpv4 &&
+    found.a.length > 0 &&
+    found.a.every((ip) => ip === serverIpv4);
   const describe = (found: Lookup) =>
     found.a.length || found.aaaa.length
       ? [
@@ -1331,11 +1324,9 @@ export async function checkPlatformAddress(
           .filter(Boolean)
           .join("; ")
       : "no A or AAAA record";
-  const here = serverIpv4
-    ? `this server (${serverIpv4})`
-    : expected.length
-      ? `the current address (${expected.join(", ")})`
-      : "this server";
+  const unreported =
+    "This server's public IPv4 address is not reported yet, so DNS cannot be checked. Wait for the next host controller report (about five minutes) and check again.";
+  const here = `this server (${serverIpv4})`;
   const resolution = [
     { ...next, purpose: "New platform address", ok: pointsHere(next) },
     ...(wildcard
@@ -1352,9 +1343,11 @@ export async function checkPlatformAddress(
     key: "dns",
     ok: resolution[0].ok,
     level: "error",
-    message: resolution[0].ok
-      ? `${host} resolves to ${describe(next)}: ${here}.`
-      : `${host} has ${describe(next)}, but it must point only to ${here}. Create or fix the A record and check again (DNS changes can take up to the record's TTL).`,
+    message: !serverIpv4
+      ? `${host} has ${describe(next)}. ${unreported}`
+      : resolution[0].ok
+        ? `${host} resolves to ${describe(next)}: ${here}.`
+        : `${host} has ${describe(next)}, but it must point only to ${here}. Create or fix the A record and check again (DNS changes can take up to the record's TTL).`,
   });
   if (wildcard)
     checks.push({
@@ -1366,12 +1359,14 @@ export async function checkPlatformAddress(
         : `A name under ${root} (${wildcard.name}) has ${describe(wildcard)}. Add a wildcard A record *.${root} pointing to ${serverIpv4 ?? "this server"}.`,
     });
   const v6 = [...next.aaaa, ...(wildcard?.aaaa ?? [])];
+  // The controller report carries no IPv6 address (the droplet is created
+  // without one), so any AAAA record points at another host and blocks the move.
   if (v6.length)
     checks.push({
       key: "dns_ipv6",
       ok: false,
-      level: "warning",
-      message: `AAAA (IPv6) records exist (${[...new Set(v6)].join(", ")}). Certificate authorities and many visitors prefer IPv6, so these must reach this server too; if the server has no IPv6 address, remove them before switching.`,
+      level: "error",
+      message: `AAAA (IPv6) records exist (${[...new Set(v6)].join(", ")}). This server has no IPv6 address, and certificate authorities (and many visitors) try IPv6 first, so they would reach another host. Remove every AAAA record for ${host}${root ? ` and *.${root}` : ""}, then check again.`,
     });
   if (root && currentRoot && root !== currentRoot)
     checks.push({
@@ -1930,9 +1925,9 @@ export function registerHostOperations(
         procedure: [
           "Create an A record for the new name pointing only at this server" +
             (result.serverIpv4 ? ` (${result.serverIpv4})` : "") +
-            ", plus a wildcard A record *.<root domain> when you set one. Remove parking or forwarding records and any AAAA record that does not reach this server. Wait until this check passes.",
+            ", plus a wildcard A record *.<root domain> when you set one. Remove parking or forwarding records and every AAAA (IPv6) record for these names: this server has no IPv6 address. Wait until this check passes.",
           "Tell people with passkeys that they will sign in with password and authenticator once and add a new passkey, and that everyone signs in again at the new address.",
-          "Request 'Change the platform address' here with a reason. Within about five minutes the host controller checks DNS again from the server (system resolver, then public DNS over HTTPS) and refuses without changing anything unless the names resolve only to this server.",
+          "Request 'Change the platform address' here with a reason. Within about five minutes the host controller checks DNS again with the server's own resolver (public DNS over HTTPS is also asked for AAAA records) and refuses without changing anything unless the names resolve only to this server's IPv4 and have no AAAA record.",
           "The controller then writes PUBLIC_APP_URL (and PLATFORM_ROOT_DOMAIN) into runtime.env itself, keeping every other value, mode 600 and a private copy of the previous file; serves the new name with the old one as a permanent redirect; recreates the services; and checks readiness and a valid certificate at the new address. This page is unreachable for a few minutes meanwhile.",
           "If any step fails, the controller restores the previous runtime.env, edge and services automatically and reports the failure here. If that restore also fails, run python3 /opt/gymmembership/releases/<serving release>/infra/digitalocean/hostops.py reapply as root from the DigitalOcean console.",
           "After a successful move, sign in at the new address, update every provider setting listed here, then re-run the live checks. Remove the old-address redirect later with 'Remove old-address redirects' once nothing uses the old name.",

@@ -6,6 +6,7 @@ resolvers and the certificate probe are replaced; files are real (a temporary
 """
 import json
 import os
+import socket
 import shutil
 import stat
 import subprocess
@@ -15,6 +16,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import unittest.mock
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -65,6 +67,11 @@ class AddressBase(Base):
                                               side_effect=lambda name: self.resolved.get(
                                                   name, [SERVER] if name.endswith("." + ROOT_DOMAIN) else [])))
         self.public = self.stack.enter_context(patch.object(hostops, "public_ipv4", return_value=None))
+        # AAAA records: none by default, from the system resolver or public DNS.
+        self.resolved6 = {}
+        self.stack.enter_context(patch.object(hostops, "system_ipv6",
+                                              side_effect=lambda name: self.resolved6.get(name, [])))
+        self.public6 = self.stack.enter_context(patch.object(hostops, "public_ipv6", return_value=None))
         self.certificate = self.stack.enter_context(patch.object(hostops, "certificate_check",
                                                                  return_value=CERTIFICATE))
         self.redirect = self.stack.enter_context(patch.object(hostops, "redirect_check", return_value=True))
@@ -204,11 +211,12 @@ class DnsVerification(AddressBase):
         self.resolved[NEW[8:]] = ["198.51.100.7"]
         handled, result = self.run_request(self.request())
         self.assertEqual(handled[0][1], "failed")
-        self.assertIn("DNS is not ready: trainsyou.com resolves to 198.51.100.7 (system resolver)", result["message"])
+        self.assertIn("DNS is not ready: trainsyou.com resolves to 198.51.100.7.", result["message"])
         self.assertIn("point only to this server, " + SERVER, result["message"])
+        self.assertNotIn("AAAA", result["message"])
         self.assertIn("Nothing was changed", result["message"])
         self.assertEqual(result["details"]["dns"][0], {"name": "trainsyou.com", "addresses": ["198.51.100.7"],
-                                                       "source": "system resolver", "ok": False})
+                                                       "source": "system resolver", "ipv6": [], "ok": False})
         self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
         self.assertEqual((self.root / "Caddyfile").read_text(), self.before_caddyfile)
         self.assertFalse((self.root / hostops.ADDRESS_STATE).exists())
@@ -229,19 +237,60 @@ class DnsVerification(AddressBase):
         self.assertEqual(handled[0][1], "failed")
         probe = result["details"]["dns"][1]
         self.assertRegex(probe["name"], r"^gm-address-check-[0-9a-f]{8}\.trainsyou\.com$")
-        self.assertEqual((probe["addresses"], probe["source"]), ([], "public DNS over HTTPS"))
+        self.assertEqual((probe["addresses"], probe["source"], "publicAddresses" in probe), ([], "system resolver", False))
         self.assertIn("including a wildcard record *.trainsyou.com", result["message"])
         self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
 
-    def test_public_dns_answers_when_the_system_resolver_has_none(self):
+    def test_a_name_only_public_dns_knows_is_refused(self):
+        """Readiness and the certificate check resolve through the server's own resolver,
+        so a name it cannot resolve yet (a cached negative answer) would fail after the switch."""
         self.resolved[NEW[8:]] = []
         self.public.return_value = [SERVER]
-        server, checks = hostops.verify_address_dns(host, "trainsyou.com", None)
-        self.assertEqual((server, checks[0]["source"], checks[0]["ok"]), (SERVER, "public DNS over HTTPS", True))
+        with self.assertRaises(hostops.ActionFailed) as refused:
+            hostops.verify_address_dns(host, "trainsyou.com", None)
+        self.assertIn("trainsyou.com does not resolve on this server yet (public DNS shows " + SERVER
+                      + "; retry after the record's TTL)", str(refused.exception))
+        self.assertEqual(refused.exception.details["dns"][0]["publicAddresses"], [SERVER])
         self.public.return_value = None
         with self.assertRaises(hostops.ActionFailed) as refused:
             hostops.verify_address_dns(host, "trainsyou.com", None)
-        self.assertIn("no resolver answered", str(refused.exception))
+        self.assertIn("trainsyou.com does not resolve.", str(refused.exception))
+
+    def test_any_aaaa_record_is_refused_because_this_server_has_no_ipv6(self):
+        """Certificate authorities validate over IPv6 first, and IPv6 visitors would reach another host."""
+        self.resolved6[NEW[8:]] = ["2001:db8::1"]
+        handled, result = self.run_request(self.request())
+        self.assertEqual(handled[0][1], "failed")
+        self.assertIn("trainsyou.com resolves to " + SERVER + " and has AAAA (IPv6) records 2001:db8::1 (system resolver)",
+                      result["message"])
+        self.assertIn("every AAAA record must be removed: this server has no IPv6 address", result["message"])
+        self.assertIn("Nothing was changed", result["message"])
+        self.assertEqual(result["details"]["dns"][0]["ipv6"], ["2001:db8::1"])
+        self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
+        self.assertFalse((self.root / hostops.ADDRESS_STATE).exists())
+        self.assertEqual(self.calls, [])
+        # An AAAA record only public DNS shows (the server's cache is stale) is refused too,
+        # and so is one under the root that the wildcard probe finds.
+        self.resolved6.clear()
+        self.public6.side_effect = lambda name: ["2001:db8::2"] if name.startswith(hostops.DNS_PROBE_PREFIX) else []
+        with self.assertRaises(hostops.ActionFailed) as refused:
+            hostops.verify_address_dns(host, "trainsyou.com", ROOT_DOMAIN)
+        self.assertRegex(str(refused.exception), r"names under trainsyou\.com \(gm-address-check-[0-9a-f]{8}"
+                         r"\.trainsyou\.com\) resolve to 1\.1\.1\.1 and have AAAA \(IPv6\) records 2001:db8::2 \(public DNS over HTTPS\)")
+        self.public6.side_effect = None
+        self.public6.return_value = []
+        server, checks = hostops.verify_address_dns(host, "trainsyou.com", ROOT_DOMAIN)
+        self.assertEqual((server, [c["ok"] for c in checks]), (SERVER, [True, True]))
+
+    def test_system_resolver_reports_real_aaaa_records_only(self):
+        answers = {socket.AF_INET: [(socket.AF_INET, 1, 6, "", (SERVER, 443))],
+                   socket.AF_INET6: [(socket.AF_INET6, 1, 6, "", ("::ffff:" + SERVER, 443, 0, 0)),
+                                     (socket.AF_INET6, 1, 6, "", ("2001:db8::1%eth0", 443, 0, 0))]}
+        with patch.object(hostops.socket, "getaddrinfo", side_effect=lambda n, p, family, t: answers[family]):
+            self.assertEqual(hostops.system_addresses("trainsyou.com", socket.AF_INET), [SERVER])
+            self.assertEqual(hostops.system_addresses("trainsyou.com", socket.AF_INET6), ["2001:db8::1"])
+        with patch.object(hostops.socket, "getaddrinfo", side_effect=socket.gaierror):
+            self.assertEqual(hostops.system_addresses("trainsyou.com", socket.AF_INET6), [])
 
     def test_unknown_server_address_is_refused(self):
         common.atomic_json(self.root / "endpoint.json", {"url": ENDPOINT, "ip": "10.0.0.5"})
@@ -256,7 +305,8 @@ class DnsOverHttps(unittest.TestCase):
         answers = {"trainsyou.com": {"Status": 0, "Answer": [
             {"name": "trainsyou.com", "type": 5, "data": "edge.trainsyou.com."},
             {"name": "edge.trainsyou.com", "type": 1, "data": SERVER},
-            {"name": "edge.trainsyou.com", "type": 1, "data": "not-an-address"}]},
+            {"name": "edge.trainsyou.com", "type": 1, "data": "not-an-address"},
+            {"name": "edge.trainsyou.com", "type": 28, "data": "2001:db8::1"}]},
             "missing.trainsyou.com": {"Status": 3}}
         seen = []
 
@@ -288,7 +338,11 @@ class DnsOverHttps(unittest.TestCase):
             self.assertEqual(hostops.public_ipv4("trainsyou.com"), [SERVER])
             self.assertEqual(hostops.public_ipv4("missing.trainsyou.com"), [])
             self.assertIsNone(hostops.public_ipv4("servfail.trainsyou.com"))
+            # The fixture answers both types together; each query keeps only its own type.
+            self.assertEqual(hostops.public_ipv6("trainsyou.com"), ["2001:db8::1"])
+            self.assertEqual(hostops.public_ipv6("missing.trainsyou.com"), [])
         self.assertIn(("/resolve?name=trainsyou.com&type=A", "application/dns-json"), seen)
+        self.assertIn(("/resolve?name=trainsyou.com&type=AAAA", "application/dns-json"), seen)
 
 
 class Switching(AddressBase):
@@ -315,7 +369,8 @@ class Switching(AddressBase):
         self.assertNotIn(ENDPOINT + " {\n    encode", caddyfile)
         self.assertEqual(host.endpoint_url(), NEW)
         self.assertEqual([args[0] for _, args in self.calls], ["up"])
-        self.ready.assert_any_call(NEW + "/api/v1/ready", expected_sha=SHA)
+        # Readiness at the new name is bounded so a failed switch leaves time to restore.
+        self.ready.assert_any_call(NEW + "/api/v1/ready", attempts=hostops.SWITCH_READY_ATTEMPTS, expected_sha=SHA)
         self.certificate.assert_called_once_with("trainsyou.com")
         self.redirect.assert_called_once_with(OLD_HOST, NEW)
         self.assertIn("The platform now serves " + NEW, result["message"])
@@ -399,7 +454,7 @@ class Switching(AddressBase):
         self.assertEqual(host.endpoint_url(), ENDPOINT)
         self.assertEqual((self.root / "Caddyfile").read_text(), self.before_caddyfile)
         self.assertEqual([args[0] for _, args in self.calls], ["up", "up"])
-        self.ready.assert_any_call(ENDPOINT + "/api/v1/ready", expected_sha=SHA)
+        self.ready.assert_any_call(ENDPOINT + "/api/v1/ready", attempts=60, expected_sha=SHA)
         self.certificate.assert_not_called()
         state = hostops.address_state(host)
         self.assertEqual((state["inProgress"], state["redirectFrom"], state["lastChange"]["status"]),
@@ -457,6 +512,131 @@ class Switching(AddressBase):
         self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
         self.assertIsNone(hostops.restore_address(host))
 
+    def interrupt(self, **patches):
+        """Start a change and stop it as systemd would, at the step the patches make raise."""
+        row = self.request()
+        with patch.multiple(host, **patches) if "reapply_release" in patches else \
+                patch.object(hostops, "certificate_check", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                hostops.change_platform_address(host, self.values, row)
+        return row
+
+    def test_restore_puts_back_only_the_address_values_and_keeps_operator_edits(self):
+        """Edits made in the console while a change is unfinished survive its restore."""
+        self.interrupt(reapply_release=unittest.mock.Mock(side_effect=KeyboardInterrupt))
+        edited = self.runtime_bytes().decode().replace("LEGAL_APPROVED=false", "LEGAL_APPROVED=true") + "NEW_KEY=kept\n"
+        (self.root / "runtime.env").write_text(edited)
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()):
+            hostops.before_deploy(host)
+        expected = RUNTIME.replace("LEGAL_APPROVED=false", "LEGAL_APPROVED=true") + "NEW_KEY=kept\n"
+        self.assertEqual(self.runtime_bytes(), expected.encode(), "PLATFORM_ROOT_DOMAIN removed, edits kept")
+        self.assertEqual(self.mode(self.root / "runtime.env"), 0o600)
+        self.assertEqual(hostops.address_state(host)["lastChange"]["status"], "rolled_back")
+        # A value the operator set to something else is theirs and stays.
+        pending = {"to": NEW, "rootDomain": ROOT_DOMAIN}
+        current = "PUBLIC_APP_URL=https://chosen.example.test\nPLATFORM_ROOT_DOMAIN=trainsyou.com\nX=1\n"
+        self.assertEqual(hostops.restored_runtime(current, RUNTIME, pending),
+                         "PUBLIC_APP_URL=https://chosen.example.test\nX=1\n")
+        self.assertEqual(hostops.restored_runtime("PUBLIC_APP_URL=" + NEW + "\nPLATFORM_ROOT_DOMAIN=old.test\n",
+                                                  "PUBLIC_APP_URL=" + ENDPOINT + "\nPLATFORM_ROOT_DOMAIN=old.test\n",
+                                                  {"to": NEW, "rootDomain": None}),
+                         "PUBLIC_APP_URL=" + ENDPOINT + "\nPLATFORM_ROOT_DOMAIN=old.test\n")
+
+    def test_interrupted_change_records_its_real_outcome_on_the_request(self):
+        row = self.interrupt(reapply_release=unittest.mock.Mock(side_effect=KeyboardInterrupt))
+        database = FakeDatabase(running=[row["id"]])
+        with patch.object(hostops, "psql", side_effect=database):
+            hostops.before_deploy(host)
+        results = [json.loads(t) for t in database.decoded() if t.startswith('{"details"')]
+        self.assertIn("The switch to " + NEW + " did not finish (the controller stopped before the new address passed "
+                      "readiness). The previous address " + ENDPOINT + " and its settings were restored",
+                      results[0]["message"])
+        self.assertTrue(results[0]["details"]["restored"])
+        transitions = [sql for _, sql in database.sql if "SET status='failed'" in sql]
+        self.assertIn("WHERE id='" + row["id"] + "' AND status='running'", transitions[0])
+
+    def test_change_stopped_after_readiness_is_kept_when_its_certificate_checks_out(self):
+        """Readiness passed over verified HTTPS at the new name: the next cycle only repeats the certificate check."""
+        row = self.interrupt()
+        pending = hostops.address_state(host)["inProgress"]
+        self.assertTrue(pending["switched"])
+        database = FakeDatabase(running=[row["id"]])
+        with patch.object(hostops, "psql", side_effect=database):
+            self.assertIs(hostops.before_deploy(host), True)
+        expected = RUNTIME.replace("PUBLIC_APP_URL=" + ENDPOINT + "\n", "PUBLIC_APP_URL=" + NEW + "\n", 1)
+        self.assertEqual(self.runtime_bytes(), (expected + "PLATFORM_ROOT_DOMAIN=trainsyou.com\n").encode())
+        state = hostops.address_state(host)
+        self.assertEqual((state["inProgress"], state["lastChange"]["status"], state["redirectFrom"]),
+                         (None, "succeeded", [OLD_HOST]))
+        self.assertEqual([args[0] for _, args in self.calls if args[0] == "up"], ["up"], "no rollback re-apply")
+        results = [json.loads(t) for t in database.decoded() if t.startswith('{"details"')]
+        self.assertIn("The platform now serves " + NEW, results[0]["message"])
+        self.assertTrue(any("SET status='succeeded'" in sql for _, sql in database.sql))
+
+    def test_change_stopped_after_readiness_is_rolled_back_when_its_certificate_fails(self):
+        self.interrupt()
+        self.certificate.side_effect = common.DeploymentError("The certificate for trainsyou.com expires within a day")
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()):
+            hostops.before_deploy(host)
+        self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
+        self.assertEqual((self.root / "Caddyfile").read_text(), self.before_caddyfile)
+        self.assertEqual(hostops.address_state(host)["lastChange"]["status"], "rolled_back")
+
+    def test_console_reapply_settles_an_unfinished_change_so_no_cycle_reverts_later(self):
+        self.interrupt(reapply_release=unittest.mock.Mock(side_effect=KeyboardInterrupt))
+        (self.root / "deploy.lock").touch()
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()), \
+                patch.object(hostops.os, "geteuid", return_value=0):
+            self.assertEqual(hostops.cli(["reapply"]), 0)
+        self.assertEqual(self.runtime_bytes(), RUNTIME.encode())
+        self.assertIsNone(hostops.address_state(host)["inProgress"])
+        self.assertIn("did not finish", self.output.getvalue())
+        self.assertEqual([args[0] for _, args in self.calls if args[0] == "up"], ["up"], "the restore itself re-applied once")
+        # The operator now edits runtime.env and re-applies: nothing reverts it.
+        (self.root / "runtime.env").write_text(RUNTIME.replace(ENDPOINT, NEW))
+        with patch.object(hostops, "psql", side_effect=FakeDatabase()), \
+                patch.object(hostops.os, "geteuid", return_value=0):
+            self.assertEqual(hostops.cli(["reapply"]), 0)
+            self.assertIs(hostops.before_deploy(host), False)
+        self.assertEqual(host.endpoint_url(), NEW)
+
+    def test_saved_runtime_copies_can_be_purged_after_rotating_secrets(self):
+        self.run_request(self.request())
+        folder = self.root / hostops.RUNTIME_BACKUPS
+        (folder / "unrelated.txt").write_text("kept")
+        (self.root / "deploy.lock").touch()
+        with patch.object(hostops.os, "geteuid", return_value=0):
+            self.assertEqual(hostops.cli(["purge-runtime-backups"]), 0)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["unrelated.txt"])
+        self.assertIn("Removed 1 saved copies", self.output.getvalue())
+        common.atomic_json(self.root / hostops.ADDRESS_STATE, {"inProgress": {"backup": "x"}})
+        with self.assertRaises(common.DeploymentError):
+            hostops.purge_runtime_backups(host)
+
+    def test_the_worst_case_switch_and_restore_fit_in_one_cycle(self):
+        switch = hostops.reapply_seconds(hostops.SWITCH_READY_ATTEMPTS)
+        restore = hostops.reapply_seconds(hostops.RESTORE_MIN_READY_ATTEMPTS)
+        self.assertLessEqual(hostops.ADDRESS_CHANGE_MIN_SECONDS, host.UNIT_TIMEOUT_SECONDS - 150,
+                             "an address change can still start early in a cycle")
+        left = (hostops.ADDRESS_CHANGE_MIN_SECONDS - hostops.DNS_CHECK_SECONDS - switch
+                - hostops.CERTIFICATE_CHECK_SECONDS)
+        with patch.object(host, "cycle_remaining", return_value=left):
+            attempts = hostops.ready_attempts(host, 60)
+        self.assertEqual(attempts, hostops.RESTORE_MIN_READY_ATTEMPTS)
+        self.assertLessEqual(hostops.reapply_seconds(attempts) + hostops.CYCLE_MARGIN_SECONDS, left)
+        self.assertEqual(switch + restore + hostops.DNS_CHECK_SECONDS + hostops.CERTIFICATE_CHECK_SECONDS
+                         + hostops.CYCLE_MARGIN_SECONDS, hostops.ADDRESS_CHANGE_MIN_SECONDS)
+        with patch.object(host, "cycle_remaining", return_value=1700):
+            self.assertEqual(hostops.ready_attempts(host, 60), 60)
+        with patch.object(host, "cycle_remaining", return_value=10):
+            self.assertEqual(hostops.ready_attempts(host, 60), 1)
+        # A restore in a cycle gets the attempts that fit.
+        self.interrupt(reapply_release=unittest.mock.Mock(side_effect=KeyboardInterrupt))
+        with patch.object(host, "cycle_remaining", return_value=left):
+            hostops.restore_address(host)
+        self.ready.assert_any_call(ENDPOINT + "/api/v1/ready", attempts=hostops.RESTORE_MIN_READY_ATTEMPTS,
+                                   expected_sha=SHA)
+
     def test_old_address_redirects_are_removed_only_by_an_explicit_action(self):
         self.run_request(self.request())
         self.values = host.runtime_values()
@@ -496,6 +676,9 @@ class RuntimeFile(unittest.TestCase):
                          "A=1\n#PUBLIC_APP_URL=x\nPUBLIC_APP_URL=" + NEW + "\n PUBLIC_APP_URL=spaced\nPUBLIC_APP_URL="
                          + NEW + "\nB=2=3\nPLATFORM_ROOT_DOMAIN=" + ROOT_DOMAIN)
         self.assertEqual(hostops.updated_runtime("A=1\n", {"A": "2"}), "A=2\n")
+        # None removes every line of a key.
+        self.assertEqual(hostops.updated_runtime("A=1\nB=2\nA=3\n", {"A": None, "C": None}), "B=2\n")
+        self.assertEqual(hostops.updated_runtime("A=1\n", {"A": None}), "")
 
     def test_private_write_is_atomic_and_private_even_with_a_permissive_umask(self):
         with tempfile_directory() as directory:
