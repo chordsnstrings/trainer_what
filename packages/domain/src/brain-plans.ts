@@ -7,7 +7,9 @@ import { addTrainingDays, canonicalCoaching } from "./coaching-completion.ts";
  * review diff. Nothing here trusts a model number: every bound is checked in
  * code against the trainer's settings and library.
  */
-export const planPromptVersion = "brain-plan-v1";
+// v2: the prompt carries the week-1 starting-load references the validator
+// enforces (logged or library loads, and the start cap without one).
+export const planPromptVersion = "brain-plan-v2";
 export const planAdaptationPromptVersion = "brain-plan-adapt-v1";
 export const planValidatorVersion = "brain-plan-validator-v2";
 export const planConfidenceVersion = "brain-plan-confidence-v1";
@@ -236,6 +238,26 @@ export type LibraryExercise = {
   sourceId: string;
 };
 export type PlanLibrary = Map<string, LibraryExercise>;
+/**
+ * The week-1 starting-load references (kg) the validator enforces, keyed by
+ * the library's exercise name, for the model prompt: the model is told the
+ * numbers it must stay within instead of guessing them. Only exercises in the
+ * library are named (the model may use no other).
+ */
+export function startingLoadsFor(
+  reference: Map<string, number>,
+  library: PlanLibrary,
+  limit = 300,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, load] of reference) {
+    const exercise = library.get(key);
+    if (!exercise || !(load > 0)) continue;
+    out[exercise.name] = load;
+    if (Object.keys(out).length >= limit) break;
+  }
+  return out;
+}
 /** The trainer's allowed exercises: library records and template exercises, with their approved alternatives. */
 export function planLibrary(
   exercises: Array<{ id: string; data: any }>,

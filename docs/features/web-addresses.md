@@ -655,10 +655,11 @@ First pass:
 
 ## Left out, and why
 
-- **E2E scenario.** The Namecheap double is not started by `scripts/e2e/run.mjs` and no
-  harness scenario was added: the harness needs a production web build, which this task did not
-  allow, and an unrun scenario would be unverified. The double is covered by unit tests through
-  its fetch entry point.
+- **E2E scenario.** Added on 28 September 2026: the runner starts the Namecheap double and sets
+  `PLATFORM_ROOT_DOMAIN`, and the harness core suite covers the subdomain, search, purchase,
+  registration with DNS records, yearly renewal and the operator view (docs/E2E_MOCK_PROVIDERS.md).
+  The Live step is not reached locally: the target IPv4 must be public, so the name is never
+  published to the DNS double and no HTTPS check is attempted.
 - **390 px and browser check.** The panel uses wrapping flex rows, `min-inline-size: 0` and
   `overflow-wrap` with logical properties only (the RTL lint passes), but it was not rendered in
   a browser at 390 px.

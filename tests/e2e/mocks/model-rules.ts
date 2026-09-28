@@ -403,7 +403,9 @@ function mealPhoto() {
  * Trainer Brain plan: sessions on spread weekdays from library exercises whose
  * equipment tags the member has (untagged ones last), steady volume, a small
  * weekly load wave and a deload every fourth week, citing the first supplied
- * rule, reviewed example and template.
+ * rule, reviewed example and template. Week-1 loads follow the supplied
+ * starting-load references (logged or library loads); a loaded exercise
+ * without one starts at 20 kg or the trainer's start cap, whichever is lower.
  */
 export function planGeneration(input: any) {
   const profile = input?.profile ?? {};
@@ -419,6 +421,17 @@ export function planGeneration(input: any) {
   const library: any[] = material.library ?? [];
   const eligible = [...library.filter(ok), ...library.filter((e) => !Array.isArray(e.equipment))];
   const experience = profile.experience ?? "beginner";
+  const startingLoads = new Map<string, number>(
+    Object.entries(input?.startingLoads ?? {}).map(([name, load]) => [normalizeTerm(name), Number(load)]),
+  );
+  const cap = Number(bounds.startLoadCapKg?.[experience]);
+  const loaded = (e: any) =>
+    Array.isArray(e.equipment) && e.equipment.some((t: string) => /barbell|dumbbell|kettlebell|machine|cable/i.test(t));
+  const startLoad = (e: any) => {
+    const reference = startingLoads.get(normalizeTerm(e.name));
+    if (reference && reference > 0) return reference;
+    return loaded(e) ? Math.min(20, Number.isFinite(cap) ? cap : 20) : 0;
+  };
   const reps = experience === "advanced" ? 6 : experience === "intermediate" ? 8 : 10;
   const rir = experience === "beginner" ? 3 : 2;
   const rest = Math.min(Math.max(90, Number(bounds.minRestSeconds) || 30), Number(bounds.maxRestSeconds) || 240);
@@ -437,7 +450,7 @@ export function planGeneration(input: any) {
         name: e.name,
         sets: 3,
         reps,
-        loadKg: Array.isArray(e.equipment) && e.equipment.some((t: string) => /barbell|dumbbell|kettlebell|machine|cable/i.test(t)) ? 20 : 0,
+        loadKg: startLoad(e),
         rir,
         restSeconds: rest,
         cue: String(e.cue ?? "").slice(0, 200),

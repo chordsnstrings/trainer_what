@@ -307,6 +307,21 @@ Declined or left: the voice-led session is built in `core/voice-session`, not he
 do not inherit their parent's equipment tags (that would wrongly restrict or permit them); they
 are held for review instead until tagged.
 
+## E2E harness fix (28 September 2026)
+
+Found by the new core suite of the end-to-end harness: the validator enforces week-1 loads against
+a reference (the member's highest logged load in the last 90 days, else the library exercise's
+default load, else the trainer's start cap), but the model was never told those references. A
+trainer whose library has a default load (the harness seed's goblet squat is 16 kg) therefore got a
+validator error ("starts at 20 kg, above the member's reference 16 kg") on every plan that used it,
+and no such plan could be delivered automatically. The prompt input now carries `startingLoads`
+(the same references by library exercise name, `startingLoadsFor` in the domain package) for live
+generation and qualification, the system prompt says to start week 1 at or below them (or at the
+start cap without one), and the prompt version is `brain-plan-v2`, which changes the pinned contract
+(existing qualifications need a new run). The e2e rule responder starts each exercise at its
+reference. Regression test: `tests/brain-plans.test.ts` "the model is told the starting-load
+references the validator enforces"; the whole file passed (19 tests) on PGlite.
+
 ## Checks actually run
 
 After the review fixes (this revision):

@@ -41,7 +41,7 @@ provider, never uses a cloud resource and must never run on a server.
    It exits 1 when a step failed or a provider-dependent feature has neither a scenario nor a stated
    local limit (`LOCAL_LIMITS` in `tests/e2e/harness/report.ts`).
 
-Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,extended`, `--keep` (leave the stack up),
+Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,core,extended`, `--keep` (leave the stack up),
 `--pg-port=N`, `--rebuild`/`--skip-build`, `--features=<inventory.json>` (checks feature names and
 adds per-audience coverage), `--report=<file>`, `--min-steps=N`, and the model options below.
 A run of every suite fails when fewer than `FULL_RUN_MIN_STEPS` (in `scripts/e2e/run.mjs`) steps
@@ -53,7 +53,8 @@ lower `--min-steps` when a suite is knowingly skipped (for example no local Chro
 Requirements: Node 24, PostgreSQL 16+ server binaries (`initdb`, `pg_ctl`), `openssl`, the
 installed dependencies; `python3` for the host-controller cycle; optionally a local Chromium under
 `PLAYWRIGHT_BROWSERS_PATH` for the browser suite; the loopback address `127.77.0.1:443` for the
-coach-domain edge. A full run takes about nine minutes (536 s and 542 s measured for 399 steps) plus a
+coach-domain edge. A full run takes about twelve minutes (693 s and 698 s measured for 430 steps on 28
+September; 536 s and 542 s for the 399 steps before the core suite) plus a
 web build when one is needed, mostly authenticator waits (each fresh code needs a new 30-second
 window) and worker deliveries the suites wait for. The Superadmin sets the worker cycle to one second
 through the reviewed worker-speed operation. A person's session that proved an authenticator code in
@@ -104,7 +105,7 @@ warning at startup and `npm run readiness` reports a finding.
 | `wearables.ts` | WHOOP v2 OAuth, token refresh, paginated recovery/sleep/workout pages and revocation; Zepp partner OAuth with PKCE, canonical observations and revocation |
 | `voice.ts` | ElevenLabs text-to-speech returning a short silent MP3 |
 | `registrar.ts` | domain availability/price, registration and DNS record calls, used as operator evidence by the manual domain flow; also the generic registrar JSON contract of the web address flow (USD pricing, lookup, search, record read-back, renewal, account balance) |
-| `namecheap.ts` | Namecheap XML API commands of the web address flow (`users.getBalances`, `domains.check`, `users.getPricing`, `domains.create`, `domains.getInfo`, `domains.getList`, `domains.dns.setHosts`, `domains.dns.getHosts`, `domains.renew`) with credential and whitelisted-IP checks, `loseNextResponse()` (applied, answered 504), `refuseNext()`, `earlyAccess` (an `EapFee` per name) and `unlisted` (names `domains.getList` does not show yet); serves HTTPS or a fetch function for unit tests. Not started by the runner yet (docs/features/web-addresses.md) |
+| `namecheap.ts` | Namecheap XML API commands of the web address flow (`users.getBalances`, `domains.check`, `users.getPricing`, `domains.create`, `domains.getInfo`, `domains.getList`, `domains.dns.setHosts`, `domains.dns.getHosts`, `domains.renew`) with credential and whitelisted-IP checks, `loseNextResponse()` (applied, answered 504), `refuseNext()`, `earlyAccess` (an `EapFee` per name) and `unlisted` (names `domains.getList` does not show yet); serves HTTPS or a fetch function for unit tests. Started by the runner: `NAMECHEAP_API_BASE_URL` (sandbox-only) points the adapter at it and the Superadmin saves the `web_addresses` settings (Namecheap, test environment on, a platform-company registrant, purchases enabled). The client and target IPv4 in those settings are public-looking values the settings require; nothing connects to them, and written records are not published to the DNS double, so a bought domain never resolves in the run |
 | `food.ts` | Open Food Facts v2 product lookups, including not-found |
 | `oidc.ts` | Google (RS256, query response) and Apple (ES256, form_post response, ES256 client-secret JWT) OpenID Connect issuers: discovery, keys, an authorization endpoint that signs in the person the scenario chose, and a token endpoint that checks client credentials, the redirect address, PKCE and single use of codes |
 | `dns.ts` | UDP DNS double (A, TXT, CNAME, CNAME chasing for A, NXDOMAIN); the registrar double publishes the records an operator saves there |
@@ -169,9 +170,21 @@ Review workflow:
 question and the meal-photo estimate (`npm run e2e -- --model-replay=tests/e2e/reviewed/model-answers.jsonl`).
 Seeded content and the order of compiled rules are deterministic, so every model request that the
 rule responder or a replay file answers hashes identically from run to run (85 of 86 distinct
-requests matched between two runs; the one difference is a scripted guardrail request with a random
-case ID, answered from the queue). If a later change alters a prompt, the replay falls back to the
+requests matched between two runs before the core suite, and 102 of 103 on 28 September with it; the
+one difference each time is a scripted guardrail request with a random case ID, answered from the
+queue). A run now lasts longer than the Brain plan scheduler's 10-minute interval, so its second
+pass visits the seeded workspaces during the extended suite and prepares first plans for seeded
+members who have an intake and no programme (four on 28 September; supervised, so they wait in the
+trainer's queue). Those requests are identical in both runs, but their number depends on timing.
+The rule responder starts each plan exercise at the `startingLoads` reference the prompt carries. If a later change alters a prompt, the replay falls back to the
 rule responder and the report's `model.bySource` shows fewer `replay` answers.
+
+## Automatic subdomains
+
+The runner sets `PLATFORM_ROOT_DOMAIN=coaches.sandbox-platform.example` for API, worker and web, so
+every published workspace is also served at `<slug>.coaches.sandbox-platform.example`. The throwaway
+CA issues the edge certificate for `layla-strength.<root>` and for `no-such-coach.<root>` (so a
+refusal of the second comes from the API's TLS ask, not from a missing certificate).
 
 ## Test clock
 
@@ -181,6 +194,12 @@ the 72-hour bank-change hold after an operator verifies a payout destination, (f
 close) one workspace's journals and model-usage timestamps 40 days back so the previous month has
 ended with its seven-day refund buffer, and (for attendance) one booked class two days back so it has
 finished. Amounts and every other record are untouched; all other data is created through the API.
+
+Scheduler ticks (`ctx.schedulerTick`, also listed under `clockShifts`): the Trainer Brain plan
+scheduler visits a workspace at most every 10 minutes, longer than the part of a run that needs it,
+so the core suite inserts the `brain_plan` job that pass would queue (the same intent key and data:
+an intake's first plan, and a programme's next-week adaptation) and the real worker claims and runs
+it. If the scheduler already queued the same intent, nothing is inserted and the tick says so.
 
 ## Host commands, passkeys and other harness helpers
 
@@ -220,9 +239,35 @@ email changes, operator recovery, leaving and removal, Google and Apple sign-in,
 directory, leads, conversion milestones, analytics expiry, HealthKit sync;
 `operator-completion.e2e.ts`: executive metrics, suspension and reinstatement, account lock and
 unlock, operator alerts, backups and restore check, host actions, platform address check), then the
-browser suite, then the extended suite (`tests/e2e/scenarios/extended.e2e.ts` and
-`extended-accounts.e2e.ts`). The completion suite creates its own new followers for anything that
-ends a membership or changes an account, so the seeded members keep their state.
+browser suite, then the core suite (`core-features.e2e.ts`, below), then the extended suite
+(`tests/e2e/scenarios/extended.e2e.ts` and `extended-accounts.e2e.ts`). The completion suite creates
+its own new followers for anything that ends a membership or changes an account, so the seeded
+members keep their state.
+
+The core suite covers the September 2026 core features on `layla-strength`, with members it creates
+itself: the marketing site (key pages with one H1, canonical link and JSON-LD, a retired doorway page
+redirecting, sitemap and robots, `llms.txt` and `llms-full.txt`, the follower calculator's model from
+`/api/v1/public/platform`, no registrar named anywhere public); web addresses (the automatic
+subdomain through the coach-domain edge, a reserved slug refused, a subdomain nobody has refused in
+the TLS handshake, domain search at AED 84 a year for a `.com`, purchase through Stripe Checkout, the
+worker registering it for the platform company with WHOIS privacy and writing its DNS records at the
+Namecheap double, the yearly renewal paid at the Stripe double and renewed once at the registrar, the
+operator view; no trainer response names the registrar or its cost); Trainer Brain plans (equipment
+tags for every library and template exercise, plans below the 0.8 threshold in the review queue
+before qualification, approve / edit / reject and the members' views, confidence raised by similar
+reviewed plans, the threshold set between the two observed scores, held-out qualification with four
+deliverable, two safety-floor and one low-confidence scenario, automatic delivery on regenerate and
+from the worker's intake job, a low-confidence plan still routed to the trainer after qualification,
+a knee-surgery limitation routed by the safety floor); the programme (an upfront 28-day offer with a
+voice add-on price, bought in Checkout payment mode, Today at Day 1 of 28 before and after the plan,
+the voice add-on added and later set to end); a weekly adaptation (the member completes week 1, the
+worker proposes week-2 changes, which go to the trainer because no adaptation scenarios were held
+out, and approval rewrites week 2); and the voice-led session (Brain wording suggestions, a script
+prepared ahead from a week-2 session with its audio made by the worker, spoken replies through the
+speech-to-text double, and a spoken pain report stopping the session and opening a training hold).
+The Brain is left in supervised mode at the end. The domain's Live step (DNS visible, HTTPS) is not
+reached locally, because the target address the settings require is public and the name is never
+published to the DNS double.
 
 The extended suite changes state on purpose, so it runs last: it erases one unpaid member, closes the
 `yasmin-pilates` workspace after an ownership transfer, grants and revokes an operator role, resets

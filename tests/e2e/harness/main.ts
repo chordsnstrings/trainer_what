@@ -15,8 +15,9 @@ import { operatorCompletionScenarios } from "../scenarios/operator-completion.e2
 import { memberCompletionScenarios } from "../scenarios/member-completion.e2e.ts";
 import { browserScenarios } from "../scenarios/browser.e2e.ts";
 import { providerRecoveryScenarios } from "../scenarios/provider-recovery.e2e.ts";
+import { coreFeatureScenarios } from "../scenarios/core-features.e2e.ts";
 
-export const SUITES = ["super-admin", "trainer", "follower", "public-join", "completion", "browser", "extended"] as const;
+export const SUITES = ["super-admin", "trainer", "follower", "public-join", "completion", "browser", "core", "extended"] as const;
 
 export async function runHarness(input: {
   publicUrl: string;
@@ -73,6 +74,8 @@ export async function runHarness(input: {
     }
     // Browser-only behaviour with the local headless Chromium (offline sync, screens).
     if (suites.has("browser")) await phase("browser (local headless Chromium)", () => browserScenarios(ctx));
+    // Trainer Brain plans, programmes, the voice-led session, web addresses and the marketing site.
+    if (suites.has("core")) await phase("core features (Brain plans, programme, voice session, web addresses, marketing)", () => coreFeatureScenarios(ctx));
     // Runs last: it erases a member, closes a workspace and reconnects a provider.
     if (suites.has("extended")) await phase("extended coverage", () => extendedScenarios(ctx));
   } finally {

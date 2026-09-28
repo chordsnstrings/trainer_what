@@ -530,10 +530,13 @@ async function followerData(ctx: E2EContext, trained?: FollowerSeed, nutrition?:
     await r.step(F, "Connections page with import history and delete", `${c.label}: import history listed; the Apple import is deleted`, async () => {
       const view = await c.get("/api/v1/integrations/connections");
       assert.ok(view.imports.length >= 1, JSON.stringify(view).slice(0, 300));
-      const imported = (await c.get("/api/v1/bootstrap")).records.find((x: any) => x.kind === "wearable" && x.status === "imported");
-      assert.ok(imported, "an imported batch");
+      // The bounded bootstrap carries catalog kinds only (no wearable records);
+      // the connections page lists the export batches with their ids.
+      const imported = view.importHistory?.find((x: any) => x.source === "apple_health");
+      assert.ok(imported, "an imported Apple batch in the history: " + JSON.stringify(view.importHistory).slice(0, 300));
       await c.del(`/api/v1/wearables/${imported.id}`);
       const after = await c.get("/api/v1/integrations/connections");
+      assert.ok(!after.importHistory.some((x: any) => x.id === imported.id), "the batch left the history");
       assert.ok(after.imports.reduce((n: number, i: any) => n + i.batches, 0) < view.imports.reduce((n: number, i: any) => n + i.batches, 0));
     });
     await r.step(F, "Trainer photo galleries", `${c.label}: the coach's galleries with photos`, async () => {

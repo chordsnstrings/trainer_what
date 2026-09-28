@@ -28,6 +28,7 @@ import {
   planWeeksFor,
   ruleCoverage,
   spotCheckSample,
+  startingLoadsFor,
   validateAdaptedWeek,
   validatePlan,
   type AdaptationWeek,
@@ -640,6 +641,8 @@ type Prepared = {
   twin: unknown;
   previousWeek: Array<{ key: string; exercises: ExpandedExercise[] }>;
   loadReference: Map<string, number>;
+  /** The same references by library exercise name, for the model prompt. */
+  startingLoads: Record<string, number>;
   retrieval: ReturnType<typeof retrievePlanMaterial>;
   settings: PlanSettings;
 };
@@ -836,6 +839,7 @@ async function prepareGeneration(
       twin,
       previousWeek,
       loadReference: reference,
+      startingLoads: startingLoadsFor(reference, material.library),
       retrieval,
       settings,
     },
@@ -901,6 +905,7 @@ export async function generateMemberPlan(
         twin: p.twin,
         previous: p.previousWeek.length ? { lastWeek: p.previousWeek } : null,
         material: p.retrieval.material,
+        startingLoads: p.startingLoads,
       },
       modelAccounting(db, a, "brain_plan"),
     );
@@ -1778,6 +1783,7 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
         twin: null,
         previous: null,
         material: retrieval.material,
+        startingLoads: startingLoadsFor(references, material.library),
       },
       modelAccounting(db, a, "brain_plan_qualification"),
     );

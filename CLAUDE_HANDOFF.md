@@ -6,6 +6,8 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
 
 Eleven completion and hardening packages are merged on `integrate/round2` and pushed to `claude/repository-overview-osejlw` (PR #3, not merged to `main`; the live server is unchanged). See `docs/COMPLETION_STAGES.md` stage 2026-09-28 and `docs/features/*.md`. The owner clarified the product concept on 28 September (recorded in `docs/PROJECT_MEMORY.md`): the Trainer Brain generates and adapts plans and escalates only when not confident; trainer-set programme length; voice add-on that runs the session. Those packages, automatic web addresses and the marketing site are merged too (stage 2026-09-28b). Merging to `main` deploys automatically, so ask the owner first.
 
+Stage 2026-09-28c (branch `core/e2e-ai`, unmerged): the e2e harness gained a 30-step core suite for Brain plans, programmes, the voice-led session, web addresses and the marketing site; the failing connections step was fixed in the application (`importHistory` on the connections endpoint); a Brain plan prompt defect (starting-load references never sent to the model) was fixed (`brain-plan-v2`). Full harness: 430 passed, 0 failed on two runs. Details and remaining work in `docs/COMPLETION_STAGES.md` stage 2026-09-28c.
+
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what

@@ -448,7 +448,7 @@ test("confidence is deterministic, explained and raised by similar reviewed plan
 test("the e2e rule responder answers both prompt kinds with schema-valid output, and long programmes get a larger budget", () => {
   const body = (system: string, input: any) => ({ messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }] });
   const retrieval = retrievePlanMaterial({ tenantId: "t", segment: planSegment({ goal: "Build strength", experience: "beginner", daysPerWeek: 3, equipment: "Dumbbells, bench" }), goal: "Build strength", rules: [], cases: [], learning: [], templates: [], library });
-  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v1.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
+  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v2.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
   assert.equal(plan.kind, "plan_generation");
   assert.deepEqual(validatePlan(plan.content as PlanDraft, ctx).errors, []);
   const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v1.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
@@ -481,7 +481,7 @@ test("supervised generation goes to review with its audit record, and approval d
   const gen = await generation(r.generationId, coach.tenantId);
   assert.equal(gen.status, "pending_review");
   assert.equal(gen.owner_user_id, client.userId);
-  assert.equal(gen.data.promptVersion, "brain-plan-v1");
+  assert.equal(gen.data.promptVersion, "brain-plan-v2");
   assert.match(gen.data.inputsDigest, /^[0-9a-f]{64}$/);
   assert.ok(gen.data.brainReleaseId);
   assert.equal(gen.data.inputs.programmeDays, 14);
@@ -736,6 +736,42 @@ test("first-week loads without a reference are capped, and logged history is the
   } finally {
     override = undefined;
   }
+});
+
+// Found by the end-to-end harness: the validator enforced week-1 loads against
+// the library's default load (and the member's logged loads), but the prompt
+// never told the model those references, so a trainer whose library has a
+// default load could not get a plan delivered automatically. The prompt now
+// carries them as `startingLoads`.
+test("the model is told the starting-load references the validator enforces, so a library or logged load is respected", async () => {
+  const coach = await qualifiedCoach("start-loads");
+  const made = await req("/training/exercises", "POST", { name: "Dumbbell floor press", sets: 3, reps: 10, restSeconds: 90, loadKg: 14, rir: 2, cue: "Elbows at forty-five degrees", equipment: ["dumbbells"] }, coach);
+  assert.equal(made.statusCode, 200, made.body);
+  const fresh = await member(coach, "Library Load Client");
+  const r = await generate(coach, fresh);
+  const prompt = prompts.filter((p) => p.kind === "plan_generation").at(-1)!;
+  assert.equal(prompt.input.startingLoads["Dumbbell floor press"], 14);
+  const g = await generation(r.generationId, coach.tenantId);
+  assert.deepEqual(g.data.validation.errors, []);
+  const week1 = g.data.draft.sessions.flatMap((s: any) => s.exercises).filter((e: any) => e.name === "Dumbbell floor press");
+  assert.ok(week1.length >= 1 && week1.every((e: any) => e.loadKg === 14), JSON.stringify(week1));
+  assert.equal(r.status, "delivered", JSON.stringify(g.data.routeReasons));
+  // A member's logged load is the reference instead (and reaches the prompt by name).
+  const trained = await member(coach, "Logged Load Client");
+  await asWorker(coach, (tx) =>
+    tx.query("INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data) VALUES($1,$2,$3,$4,$5,$6)", [
+      randomUUID(), coach.tenantId, trained.userId, randomUUID(), randomUUID(), JSON.stringify({ exercise: "Goblet squat", set: 1, reps: 8, loadKg: 30, rir: 2 }),
+    ]),
+  );
+  const second = await generation((await generate(coach, trained)).generationId, coach.tenantId);
+  const secondPrompt = prompts.filter((p) => p.kind === "plan_generation").at(-1)!;
+  assert.equal(secondPrompt.input.startingLoads["Goblet squat"], 30);
+  assert.deepEqual(second.data.validation.errors, []);
+  // Qualification sends the library references too.
+  const before = prompts.length;
+  assert.equal((await qualify(coach)).status, "passed");
+  const qualification = prompts.slice(before).filter((p) => p.kind === "plan_generation");
+  assert.ok(qualification.length >= 1 && qualification.every((p) => p.input.startingLoads["Dumbbell floor press"] === 14));
 });
 
 test("weekly adjustments: automatic when qualified, spot-checked while young, and rechecked for safety after the model call", async () => {
