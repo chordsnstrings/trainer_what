@@ -463,3 +463,84 @@ test("Stripe's fee per charge, refund and dispute is read once from its balance 
   const trainer = pnl.trainers.find((t: any) => t.tenantId === owner.tenantId);
   assert.equal(trainer?.stripeFeesMinor, 677 + 459 + 5500);
 });
+
+// ---- Phase D -------------------------------------------------------------------
+
+test("DigitalOcean billing: only the project's items, a month estimate from its resources, replaced by the invoice, read-only and idempotent", async () => {
+  const { DigitalOceanMock } = await import("./e2e/mocks/digitalocean.ts");
+  const { DigitalOceanBilling, projectItems } = await import("../packages/providers/src/digitalocean-billing.ts");
+  const { importDigitalOceanBilling } = await import("../apps/api/src/digitalocean-costs.ts");
+  const token = DigitalOceanMock.token();
+  const mock = new DigitalOceanMock({ key: "unused", cert: "unused" }, token);
+  mock.seedBilling({ months: ["2026-07", "2026-08"], firstPlatformMonth: "2026-09" });
+  const client = new DigitalOceanBilling(token, { transport: mock.fetch });
+  const now = new Date("2026-09-28T12:00:00Z");
+  const first = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now });
+  // July and August: invoices of the team, none of the platform's items.
+  assert.deepEqual(first.invoicesImported.map((i: any) => [i.month, i.items]), [["2026-08", 0], ["2026-07", 0]]);
+  // September: the droplet from 27 September 08:00, hourly to the month end,
+  // with weekly backups (+20%); the domain is free.
+  const hours = (Date.parse("2026-10-01T00:00:00Z") - Date.parse("2026-09-27T08:00:00Z")) / 3600000;
+  assert.equal(first.estimate!.projectedUsd, Number((0.03571 * hours * 1.2).toFixed(4)));
+  assert.deepEqual(first.estimate!.notEstimated, []);
+  // Only GET requests, only the platform project's resources.
+  assert.ok(mock.calls.every((c) => c.method === "GET"));
+  assert.ok(!mock.calls.some((c) => c.path.includes("500000009")));
+  let pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09" });
+  const estimate = pnl.platformCosts.find((c: any) => c.source === "estimate");
+  assert.ok(estimate && estimate.estimated && estimate.amountMinor === Math.round(first.estimate!.projectedUsd * 100));
+  // A repeat reads the invoices again but records nothing twice.
+  const again = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now });
+  assert.deepEqual(again.invoicesImported, []);
+  // September's invoice arrives: its project items replace the estimate.
+  mock.seedBilling({ months: ["2026-07", "2026-08", "2026-09"], firstPlatformMonth: "2026-09" });
+  const later = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now: new Date("2026-10-02T12:00:00Z") });
+  assert.deepEqual(later.invoicesImported.map((i: any) => [i.month, i.items, i.usd]), [["2026-09", 2, "3.72"]]);
+  pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09" });
+  const september = pnl.platformCosts.filter((c: any) => c.vendor === "DigitalOcean");
+  assert.deepEqual(september.map((c: any) => [c.source, c.amountMinor, c.estimated]).sort(), [["digitalocean", 310, false], ["digitalocean", 62, false]]);
+  // Unrelated projects never reach the platform's costs.
+  const items = projectItems(mock.billing.items.get("20260900-0000-4000-8000-000000000001")!, "gymmembership");
+  assert.equal(items.length, 2);
+  const [row] = await f.db.system((tx) => tx.query("SELECT count(*)::int AS n FROM platform_costs WHERE source='digitalocean' AND description LIKE '%shop%'"));
+  assert.equal(row.n, 0);
+  // The adapter refuses anything but GET, and never echoes the token.
+  mock.failNext("GET", /^\/v2\/customers\/my\/invoices$/, 401);
+  const failed = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now }).catch((e: Error) => e);
+  assert.ok(failed instanceof Error && !String(failed.message).includes(token));
+});
+
+test("the Super admin DigitalOcean import route, the billing settings and the finance alerts", async () => {
+  const { DigitalOceanMock } = await import("./e2e/mocks/digitalocean.ts");
+  const { validateIntegrationValues } = await import("../packages/providers/src/configuration.ts");
+  const { evaluatePlatformAlerts, platformAlertRules } = await import("../apps/api/src/platform-alerts.ts");
+  const { startRun, finishRun } = await import("../apps/api/src/platform-finance-runs.ts");
+  assert.doesNotThrow(() => validateIntegrationValues("digitalocean_billing", { DO_BILLING_PROJECT: "GymMembership" }));
+  assert.throws(() => validateIntegrationValues("digitalocean_billing", { DO_BILLING_PROJECT: "x".repeat(200) }), /project/i);
+  const fin = await f.operator("finance");
+  // Without a token the import is refused with a clear status, nothing sent.
+  const missing = await f.call("/admin/platform-finance/digitalocean/import", { cookie: fin.cookie, body: {} });
+  assert.equal(missing.statusCode, 503, missing.body);
+  // Alerts: a failed import, a low registrar balance and cost without income.
+  const ids = platformAlertRules().map((r) => r.id);
+  for (const id of ["finance.cost_without_income", "finance.usage_unpriced_aging", "finance.digitalocean_import", "finance.registrar_balance_low"])
+    assert.ok(ids.includes(id), id);
+  const run = await startRun(f.db, "digitalocean", null);
+  await finishRun(f.db, run, { error: "DigitalOcean answered HTTP 401: Unable to authenticate you." });
+  const reading = await startRun(f.db, "registrar_balance", null);
+  await finishRun(f.db, reading, { result: { currency: "USD", available: "3.50", registrar: "namecheap" } });
+  const owner = await f.person({ name: "Owner Alert Cost" });
+  const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  await costs(owner.tenantId, [{ task: "coaching", provider: "openai", status: "recorded", cost: 4, estimate: 4, at: new Date().toISOString() }]);
+  await rebuildPlatformSummary(f.db, [month]);
+  const rules = platformAlertRules().filter((r) => r.id.startsWith("finance.") && ["finance.cost_without_income", "finance.digitalocean_import", "finance.registrar_balance_low"].includes(r.id));
+  await evaluatePlatformAlerts(f.db, { rules });
+  const alerts = await f.db.system((tx) => tx.query("SELECT rule,severity,dedupe_key FROM platform_alerts WHERE status<>'resolved' AND rule LIKE 'finance.%'"));
+  assert.ok(alerts.some((a: any) => a.rule === "finance.digitalocean_import"));
+  assert.ok(alerts.some((a: any) => a.rule === "finance.registrar_balance_low" && a.severity === "critical"));
+  assert.ok(alerts.some((a: any) => a.rule === "finance.cost_without_income" && a.dedupe_key.includes(owner.tenantId)));
+  // Month over month trends for each cost line.
+  const pnl = await f.call(`/admin/platform-finance?from=${month}&to=${month}`, { cookie: fin.cookie });
+  assert.ok(Array.isArray(pnl.json().trends));
+  void DigitalOceanMock;
+});

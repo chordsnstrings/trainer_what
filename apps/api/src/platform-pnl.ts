@@ -4,6 +4,7 @@ import { z } from "zod";
 import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { registrarFromConfig } from "../../../packages/providers/src/registrar.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 import {
   VOICE_TASK_SQL,
@@ -37,7 +38,14 @@ import {
 import { importProviderInvoice, postUsageCorrections } from "./provider-invoices.ts";
 import { sweepStripeFees, type StripeFeeClient } from "./stripe-fees.ts";
 import { monthCutoff } from "./finance-operations.ts";
-import { stripeClient } from "../../../packages/providers/src/index.ts";
+import { ProviderUnavailable, stripeClient } from "../../../packages/providers/src/index.ts";
+import {
+  digitalOceanBillingFromConfig,
+  digitalOceanBillingSettings,
+} from "../../../packages/providers/src/digitalocean-billing.ts";
+import { importDigitalOceanBilling } from "./digitalocean-costs.ts";
+// Phase D alert rules register with the platform alert engine at load.
+import "./platform-finance-alerts.ts";
 
 // Platform finance phase B (docs/features/platform-finance.md): the Super
 // admin's profit and loss across every trainer workspace. Each workspace's
@@ -492,6 +500,10 @@ export async function rebuildPlatformSummary(
   }
 }
 
+/** Throws ProviderUnavailable when no registrar is configured (nothing is sent). */
+function readRegistrarBalanceCheck() {
+  registrarFromConfig();
+}
 /** Records one registrar balance reading as a run; a failure is recorded too. */
 export async function checkRegistrarBalance(db: Database, actorId: string | null) {
   const run = await startRun(db, "registrar_balance", actorId);
@@ -1019,8 +1031,27 @@ export async function platformPnl(
     p.bankFeeCurrency = fee ? fee.currency : null;
   }
 
+  // Month over month, per line (phase D trends).
+  const trends = (["income", "costs"] as const).flatMap((side) =>
+    (pnl[0]?.[side] ?? []).map((l) => ({
+      side,
+      key: l.key,
+      label: l.label,
+      series: pnl.map((m, i) => {
+        const value = m[side].find((x) => x.key === l.key)?.aedMinor ?? 0;
+        const before = i > 0 ? (pnl[i - 1][side].find((x) => x.key === l.key)?.aedMinor ?? 0) : null;
+        return {
+          month: m.month,
+          aedMinor: value,
+          changeMinor: before === null ? null : value - before,
+          changePercent: before ? Math.round(((value - before) / Math.abs(before)) * 1000) / 10 : null,
+        };
+      }),
+    })),
+  );
   return {
     range: { from: months[0], to: months.at(-1)!, months },
+    trends,
     currency: "AED",
     timezone: "Asia/Dubai",
     basis:
@@ -1322,6 +1353,35 @@ export function registerPlatformPnl(
     await audit(a, "platform_finance.stripe_fees_swept", {});
     return runStripeFeeSweep(db, stripeFees?.() ?? null, a.userId);
   });
+  // ---- Phase D: DigitalOcean billing, read-only ----
+  app.post(prefix + "/digitalocean/import", async (req) => {
+    const a = access(req);
+    z.object({}).strict().parse(req.body ?? {});
+    const { client, settings } = digitalOceanBillingFromConfig();
+    await audit(a, "platform_finance.digitalocean_import", { project: settings.project });
+    return importDigitalOceanBilling(db, { client, project: settings.project, actorId: a.userId }).catch(
+      (error: Error) => {
+        throw fail(502, "DIGITALOCEAN_BILLING_FAILED", String(error.message).slice(0, 300));
+      },
+    );
+  });
+  app.get(prefix + "/digitalocean", async (req) => {
+    const a = access(req);
+    const settings = digitalOceanBillingSettings();
+    const [invoices, estimates] = await db.system(async (tx) => [
+      await tx.query("SELECT invoice_uuid,month,team_amount_usd::text AS team_usd,project_name,project_items,project_amount_usd::text AS project_usd,imported_at FROM digitalocean_invoices ORDER BY month DESC LIMIT 24"),
+      await tx.query("SELECT month,project_name,amount_usd::text AS amount_usd,to_date_usd::text AS to_date_usd,resources,computed_at FROM digitalocean_estimates ORDER BY month DESC LIMIT 6"),
+    ]);
+    await audit(a, "platform_finance.digitalocean_read", {});
+    return {
+      configured: !!settings.token,
+      enabled: settings.enabled,
+      project: settings.project,
+      lastRun: await lastRun(db, "digitalocean"),
+      invoices,
+      estimates,
+    };
+  });
   const send = (reply: FastifyReply, name: string, body: string) =>
     reply
       .header("Content-Type", "text/csv; charset=utf-8")
@@ -1422,5 +1482,22 @@ registerPlatformFinanceJob({
   async run(db, now) {
     if (await ranWithin(db, "stripe_fees", HOUR, now, true)) return { skipped: "ran_recently" };
     return runStripeFeeSweep(db, null);
+  },
+});
+
+/** The registrar's balance, read once a day when a registrar is configured. */
+registerPlatformFinanceJob({
+  id: "registrar_balance",
+  async run(db, now) {
+    if (await ranWithin(db, "registrar_balance", 20 * HOUR, now)) return { skipped: "ran_recently" };
+    if (await ranWithin(db, "registrar_balance", HOUR, now, true)) return { skipped: "ran_recently" };
+    try {
+      readRegistrarBalanceCheck();
+    } catch (error) {
+      if (error instanceof ProviderUnavailable) return { skipped: "not_configured" };
+      throw error;
+    }
+    if (process.env.NODE_TEST_CONTEXT) return { skipped: "test_runner" };
+    return checkRegistrarBalance(db, null).catch((e: Error) => ({ error: e.message }));
   },
 });

@@ -42,6 +42,7 @@ export async function operatorScenarios(ctx: E2EContext) {
   if (sara) await monthCloseAndPayout(ctx, sara);
   else r.skip(A, "Month close", "month close and payout", "sara-mobility did not launch");
   if (layla) await domains(ctx, layla);
+  await platformFinance(ctx);
   await r.step(A, "Infrastructure observer", "API and worker observations are reported", async () => {
     const infra = await admin.get("/api/v1/admin/infrastructure");
     assert.ok(JSON.stringify(infra).includes("worker"), JSON.stringify(infra).slice(0, 300));
@@ -50,6 +51,46 @@ export async function operatorScenarios(ctx: E2EContext) {
     const security = await admin.get("/api/v1/admin/operations/security");
     assert.ok(security.rows.length > 0);
     assert.ok(security.summary.operators.some((o: any) => o.platform_role === "admin" && o.mfa_enabled));
+  });
+}
+
+/**
+ * Platform finance (docs/features/platform-finance.md, phases B-D): the
+ * DigitalOcean billing import against the double, Stripe's fee per payment
+ * from the Stripe double's balance transactions, the profit and loss built
+ * from the summary and the full ledger export.
+ */
+async function platformFinance(ctx: E2EContext) {
+  const { admin, reporter: r } = ctx;
+  const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  await admin.stepUp();
+  await r.step(A, "Platform finance", "DigitalOcean billing: only the platform project's items; this month estimated from its droplet", async () => {
+    const result = await admin.post("/api/v1/admin/platform-finance/digitalocean/import", {});
+    assert.equal(result.projectFound, true);
+    // The worker's daily import may have read the invoices first: check what is recorded.
+    const status = await admin.get("/api/v1/admin/platform-finance/digitalocean");
+    assert.ok(status.invoices.length >= 2, JSON.stringify(status.invoices));
+    assert.ok(status.invoices.every((i: any) => i.project_items === 0), "earlier invoices hold only another project's items");
+    assert.ok(result.estimate?.projectedUsd > 0, JSON.stringify(result.estimate));
+    return `estimate USD ${result.estimate.projectedUsd} for ${result.estimate.month}`;
+  });
+  await r.step(A, "Platform finance", "Stripe's fee per payment is read from the balance transactions", async () => {
+    const swept = await admin.post("/api/v1/admin/platform-finance/stripe-fees/sweep", {});
+    const costs = await admin.get(`/api/v1/admin/platform-finance/costs?from=${previousPeriod()}&to=${month}`);
+    assert.ok(costs.stripeFees.count > 0, JSON.stringify(swept));
+    return `${costs.stripeFees.count} fee record(s)`;
+  });
+  await r.step(A, "Platform finance", "profit and loss per month with the AI Coach Service Fee, costs and the ledger export", async () => {
+    await admin.post("/api/v1/admin/platform-finance/rebuild", { from: previousPeriod(), to: month });
+    const pnl = await admin.get(`/api/v1/admin/platform-finance?from=${previousPeriod()}&to=${month}`);
+    assert.deepEqual(pnl.summary.missingMonths, []);
+    assert.ok(pnl.months[0].income.some((l: any) => l.key === "aiCoachServiceFee"));
+    assert.ok(pnl.platformCosts.some((c: any) => c.vendor === "DigitalOcean" && c.estimated), "DigitalOcean estimate counted");
+    assert.ok(pnl.trainers.length > 0);
+    const ledger = await admin.request("GET", `/api/v1/admin/platform-finance/export/ledger.csv?from=${previousPeriod()}&to=${month}`);
+    assert.equal(ledger.status, 200);
+    assert.match(ledger.text, /^tenant_id,workspace,month,created_at,journal_id,source_key/);
+    return `${pnl.trainers.length} trainer(s), profit AED ${(pnl.total.profitMinor / 100).toFixed(2)}`;
   });
 }
 

@@ -38,6 +38,20 @@ export class DigitalOceanMock {
   readonly calls: Array<{ method: string; path: string; body?: any }> = [];
   /** Publishes a zone's records to a DNS double, as DigitalOcean's nameservers would. */
   onZone?: (zone: string, records: MockRecord[] | null) => void;
+  /**
+   * Billing (read-only routes, docs/features/platform-finance.md phase D):
+   * the team's final invoices with their items (every project of the team,
+   * as DigitalOcean splits by project only on invoices), its projects,
+   * each project's resources, and droplet and volume details with prices.
+   */
+  readonly billing = {
+    invoices: [] as Array<{ invoice_uuid: string; invoice_id: string; amount: string; invoice_period: string; updated_at: string }>,
+    items: new Map<string, any[]>(),
+    projects: [] as Array<{ id: string; name: string; is_default?: boolean }>,
+    resources: new Map<string, Array<{ urn: string; assigned_at: string; status: string }>>(),
+    droplets: new Map<string, any>(),
+    volumes: new Map<string, any>(),
+  };
   private nextId = 1000;
   private failures: Array<{ method: string; path: RegExp; status: number; times: number; apply: boolean }> = [];
   constructor(
@@ -82,6 +96,57 @@ export class DigitalOceanMock {
       this.zones.set(name, records);
       this.onZone?.(name, records);
       return { status: 201, body: { domain: { name, ttl: 1800, zone_file: null } } };
+    });
+    // A page of a list, with DigitalOcean's links.pages.next and meta.total.
+    const paged = (r: any, key: string, rows: any[], path: string, extra: Record<string, unknown> = {}) => {
+      const perPage = Math.min(200, Math.max(1, Number(r.query.get("per_page") ?? 20)));
+      const page = Math.max(1, Number(r.query.get("page") ?? 1));
+      const pages = Math.max(1, Math.ceil(rows.length / perPage));
+      const base = `https://api.digitalocean.com${path}?per_page=${perPage}`;
+      return {
+        body: {
+          [key]: rows.slice((page - 1) * perPage, page * perPage),
+          ...extra,
+          links: page < pages ? { pages: { next: `${base}&page=${page + 1}`, last: `${base}&page=${pages}` } } : {},
+          meta: { total: rows.length },
+        },
+      };
+    };
+    s.route("GET", "/v2/customers/my/invoices", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      return paged(r, "invoices", this.billing.invoices, "/v2/customers/my/invoices", {
+        invoice_preview: { invoice_uuid: "preview", amount: "0.00", invoice_period: new Date().toISOString().slice(0, 7), updated_at: new Date().toISOString() },
+      });
+    });
+    s.route("GET", "/v2/customers/my/invoices/:uuid", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      const items = this.billing.items.get(r.params.uuid);
+      return items ? paged(r, "invoice_items", items, `/v2/customers/my/invoices/${r.params.uuid}`) : notFound;
+    });
+    s.route("GET", "/v2/projects", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      return paged(r, "projects", this.billing.projects, "/v2/projects");
+    });
+    s.route("GET", "/v2/projects/:id/resources", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      const resources = this.billing.resources.get(r.params.id);
+      return resources ? paged(r, "resources", resources, `/v2/projects/${r.params.id}/resources`) : notFound;
+    });
+    s.route("GET", "/v2/droplets/:id", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      const droplet = this.billing.droplets.get(r.params.id);
+      return droplet ? { body: { droplet } } : notFound;
+    });
+    s.route("GET", "/v2/volumes/:id", (r) => {
+      const denied = auth(r);
+      if (denied) return denied;
+      const volume = this.billing.volumes.get(r.params.id);
+      return volume ? { body: { volume } } : notFound;
     });
     s.route("GET", "/v2/domains/:name", (r) => {
       const denied = auth(r);
@@ -251,6 +316,56 @@ export class DigitalOceanMock {
       .filter((r) => !["NS", "SOA"].includes(r.type))
       .map((r) => `${r.name} ${r.type} ${r.data}`)
       .sort();
+  }
+  /**
+   * A team like the platform's: the project "GymMembership" with one
+   * s-2vcpu-4gb droplet (USD 24 a month, weekly backups) and a domain, and an
+   * unrelated project with its own droplet; final invoices for `months`
+   * (oldest first) carrying both projects' items, the platform's from
+   * `firstPlatformMonth` on.
+   */
+  seedBilling(options: { months: string[]; firstPlatformMonth: string; project?: string }) {
+    const project = options.project ?? "GymMembership";
+    const platform = { id: "4e1a7d1c-0000-4000-8000-00000000a001", name: project };
+    const other = { id: "4e1a7d1c-0000-4000-8000-00000000b002", name: "Unrelated Shop" };
+    this.billing.projects.splice(0, this.billing.projects.length, other, platform);
+    this.billing.resources.set(platform.id, [
+      { urn: "do:droplet:604000001", assigned_at: "2026-09-27T08:00:00Z", status: "ok" },
+      { urn: "do:domain:platform.example", assigned_at: "2026-09-28T08:00:00Z", status: "ok" },
+    ]);
+    this.billing.resources.set(other.id, [{ urn: "do:droplet:500000009", assigned_at: "2025-01-01T00:00:00Z", status: "ok" }]);
+    this.billing.droplets.set("604000001", {
+      id: 604000001,
+      name: "gymmembership-app",
+      size_slug: "s-2vcpu-4gb",
+      size: { slug: "s-2vcpu-4gb", price_monthly: 24, price_hourly: 0.03571 },
+      features: ["backups", "monitoring"],
+      created_at: "2026-09-27T08:00:00Z",
+    });
+    this.billing.droplets.set("500000009", {
+      id: 500000009,
+      name: "shop",
+      size_slug: "s-1vcpu-1gb",
+      size: { slug: "s-1vcpu-1gb", price_monthly: 6, price_hourly: 0.00893 },
+      features: [],
+      created_at: "2025-01-01T00:00:00Z",
+    });
+    this.billing.invoices.splice(0, this.billing.invoices.length);
+    for (const month of [...options.months].reverse()) {
+      const uuid = month.replace("-", "") + "00-0000-4000-8000-000000000001";
+      const items: any[] = [
+        { product: "Droplets", resource_uuid: "shop-uuid", group_description: "shop (s-1vcpu-1gb)", description: "shop", amount: "6.00", duration: "744", duration_unit: "Hours", start_time: month + "-01T00:00:00Z", end_time: month + "-28T00:00:00Z", project_name: other.name, category: "iaas" },
+      ];
+      if (month >= options.firstPlatformMonth)
+        items.push(
+          { product: "Droplets", resource_uuid: "gm-uuid", group_description: "gymmembership-app (s-2vcpu-4gb)", description: "gymmembership-app", amount: "3.10", duration: "87", duration_unit: "Hours", start_time: month + "-27T08:00:00Z", end_time: month + "-30T23:59:59Z", project_name: project, category: "iaas" },
+          { product: "Backups", resource_uuid: "gm-uuid", group_description: "gymmembership-app backups", description: "Backups", amount: "0.62", duration: "87", duration_unit: "Hours", start_time: month + "-27T08:00:00Z", end_time: month + "-30T23:59:59Z", project_name: project, category: "iaas" },
+        );
+      const total = items.reduce((n, i) => n + Number(i.amount), 0);
+      this.billing.invoices.push({ invoice_uuid: uuid, invoice_id: "10" + month.replace("-", ""), amount: total.toFixed(2), invoice_period: month, updated_at: month + "-28T00:00:00Z" });
+      this.billing.items.set(uuid, items);
+    }
+    return { platform, other };
   }
   static token() {
     return randomId("dop_v1_mock");

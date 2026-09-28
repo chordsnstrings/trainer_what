@@ -1248,6 +1248,19 @@ A first sandbox run of 17 files failed one test in `web-address-suggestions` (th
   PGlite and PostgreSQL suites, `next build`, a browser or 390 px check, anything on the live
   server, Stripe live or test mode.
 
+## Domain profit and the registrar balance (platform finance, stages 2026-09-28t to 28v)
+
+Operators see domain profit on Platform finance → Domains (`docs/features/platform-finance.md`):
+per currency and per order, what the trainer paid, what was refunded, what the registrar charged
+(the `web-address-registrar:` journals) and the profit, with orders the registrar charged more
+than the price kept flagged "below cost". Registrar top-ups are recorded as platform costs
+(category "Registrar top-up", a prepayment), so the screen shows top-ups less registrar charges as
+the registrar's book balance next to the balance the registrar reports ("Check registrar
+balance", and read daily by the worker when a registrar is configured; read-only). The alert
+`finance.registrar_balance_low` fires below "Alert when the registrar balance is below (USD)"
+(Settings → Platform finance, default 20). Trainers never see any of this. The domain price rule
+itself is unchanged here (the parallel domain margin track owns it).
+
 ## Checks actually run (local, 28 September 2026, in this worktree)
 
 Second pass (review fixes), after the last code change:

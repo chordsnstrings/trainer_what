@@ -367,11 +367,23 @@ export async function postUsageCorrections(
       if (done) return { skipped: "already_adjusted" };
       const settings = financeSettings();
       const data = statement.journal_data ?? {};
+      // The statement's own markup: recorded on its journal; a statement that
+      // charged nothing has no journal and follows today's setting; one
+      // posted before markups existed was charged at cost.
+      const markup =
+        data.markupPercent !== undefined && Number.isFinite(Number(data.markupPercent))
+          ? Number(data.markupPercent)
+          : statement.journal_id
+            ? 0
+            : settings.markupPercent;
       const usage = await periodUsage(tx, period, Number(statement.fx_aed_per_usd), {
         ...settings,
-        // A statement posted before markups existed was charged at cost.
-        markupPercent: Number.isFinite(Number(data.markupPercent)) ? Number(data.markupPercent) : 0,
-        complimentaryBearer: data.complimentaryUsageBearer === "platform" ? "platform" : "trainer",
+        markupPercent: markup,
+        complimentaryBearer:
+          data.complimentaryUsageBearer === "platform" ||
+          (!statement.journal_id && settings.complimentaryBearer === "platform")
+            ? "platform"
+            : "trainer",
       });
       if (usage.unpriced) return { skipped: "unpriced_calls" };
       const [adjusted] = await tx.query(

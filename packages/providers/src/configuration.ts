@@ -205,6 +205,15 @@ export function integrationCapability(
       approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
     };
   }
+  if (id === "digitalocean_billing") {
+    const configured = has("DO_BILLING_TOKEN");
+    return {
+      configured,
+      approved:
+        configured &&
+        (config.DO_BILLING_IMPORT_ENABLED ?? "true").trim() !== "false",
+    };
+  }
   if (id === "dns_hosting") {
     // The registrar's own DNS needs nothing; DigitalOcean needs its token.
     const configured =
@@ -616,6 +625,24 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         {
           defaultValue: "0",
           help: "The email provider's price per message, counted for every delivered email in the Platform finance profit and loss. 0 counts only the email plan, entered as a recurring platform cost. 0 to 1, up to six decimals.",
+        },
+      ),
+      field(
+        "FINANCE_REGISTRAR_LOW_BALANCE_USD",
+        "Alert when the registrar balance is below (USD)",
+        "number",
+        {
+          defaultValue: "20",
+          help: "Platform alert (finance) when the registrar's last reported balance is below this; critical below a quarter of it. The balance is read daily and by Check registrar balance.",
+        },
+      ),
+      field(
+        "FINANCE_UNPRICED_ALERT_DAYS",
+        "Alert on unpriced provider usage after (days)",
+        "number",
+        {
+          defaultValue: "7",
+          help: "Platform alert when provider calls of an ended month are still unpriced this many days after it ended (critical after 30). No budget limits apply: costs are compared with income instead.",
         },
       ),
       field(
@@ -1269,6 +1296,37 @@ INTEGRATION_CATALOG.push({
   ],
 });
 
+/** DigitalOcean billing for the platform's server costs (platform finance phase D). */
+INTEGRATION_CATALOG.push({
+  id: "digitalocean_billing",
+  name: "DigitalOcean billing",
+  category: "platform",
+  implemented: true,
+  description:
+    "Imports the platform's server costs from DigitalOcean into Platform finance, once a day.",
+  setupNotes:
+    "Read-only: the import only reads invoices, projects, their resources and droplet and volume sizes; it never creates, changes or deletes anything at DigitalOcean. A DigitalOcean token reaches its whole team, and other projects may share the bill, so only invoice items of the project named here become platform costs. DigitalOcean splits costs by project only on final monthly invoices, so the current month is an estimate from that project's resources (droplets hourly up to their monthly price, backups +20%, volumes USD 0.10 per GiB-month) until its invoice arrives. The token needs read access to billing, projects, droplets and volumes (the owner approved using the existing token on 28 September 2026). Credentials stay in these encrypted settings, never in the repository.",
+  fields: [
+    field("DO_BILLING_TOKEN", "DigitalOcean API token (read)", "secret", {
+      required: true,
+      help: "A personal access token that can read billing, projects, droplets and volumes.",
+    }),
+    field("DO_BILLING_PROJECT", "Project to import", "text", {
+      defaultValue: "GymMembership",
+      help: "Only invoice items and resources of this DigitalOcean project count as platform costs.",
+    }),
+    field(
+      "DO_BILLING_IMPORT_ENABLED",
+      "Import daily",
+      "boolean",
+      {
+        defaultValue: "true",
+        help: "The worker imports once a day; Platform finance → Platform costs → Import now runs it at once.",
+      },
+    ),
+  ],
+});
+
 export class ConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -1522,6 +1580,18 @@ export function validateIntegrationValues(
         throw new ConfigurationError(
           `${entry.label} must be from 0 to 20 with at most three decimals`,
         );
+      if (key === "DO_BILLING_PROJECT" && !(text.length >= 1 && text.length <= 175))
+        throw new ConfigurationError(`${entry.label} must be a DigitalOcean project name (1 to 175 characters)`);
+      if (
+        key === "FINANCE_REGISTRAR_LOW_BALANCE_USD" &&
+        !(/^\d{1,6}(\.\d{1,2})?$/.test(text) && Number(text) <= 100000)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 0 to 100000 US dollars`);
+      if (
+        key === "FINANCE_UNPRICED_ALERT_DAYS" &&
+        !(/^\d{1,2}$/.test(text) && Number(text) >= 1 && Number(text) <= 90)
+      )
+        throw new ConfigurationError(`${entry.label} must be a whole number of days from 1 to 90`);
       if (
         key === "FINANCE_EMAIL_USD_PER_MESSAGE" &&
         !(/^\d(\.\d{1,6})?$/.test(text) && Number(text) <= 1)
@@ -1997,6 +2067,30 @@ export async function testIntegration(
             error instanceof RegistrarError && error.outcome === "definitive"
               ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
               : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
+    if (id === "digitalocean_billing") {
+      const { DigitalOceanBilling } = await import("./digitalocean-billing.ts");
+      try {
+        // Read-only: lists the team's projects and finds the configured one.
+        const client = new DigitalOceanBilling(fields.DO_BILLING_TOKEN);
+        const projects = await client.projects();
+        const name = (fields.DO_BILLING_PROJECT || "GymMembership").trim().toLowerCase();
+        const found = projects.some((p) => p.name.trim().toLowerCase() === name);
+        return {
+          status: found ? "verified" : "failed",
+          message: found
+            ? `DigitalOcean billing access verified; the project was found among ${projects.length} project${projects.length === 1 ? "" : "s"} of the team. Only its invoice items and resources are imported.`
+            : "The token works, but no project with this name was found in its team.",
+          checkedAt,
+          details: { projectsVisible: projects.length, projectFound: found },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message: `DigitalOcean billing could not be read: ${(error as Error).message}`.slice(0, 300),
           checkedAt,
         };
       }

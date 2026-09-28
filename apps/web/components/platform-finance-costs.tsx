@@ -429,6 +429,96 @@ export function PlatformCostsView({
               Read Stripe fees now
             </button>
           </p>
+          <DigitalOceanBillingView onChanged={async () => { await load(); await onChanged(); }} />
+        </>
+      )}
+    </>
+  );
+}
+
+/**
+ * DigitalOcean billing (phase D): the configured project's invoice items and
+ * this month's estimate from its resources; "Import now" runs the daily
+ * import at once. Read-only at DigitalOcean.
+ */
+export function DigitalOceanBillingView({ onChanged }: { onChanged: () => Promise<void> | void }) {
+  const [data, setData] = useState<any>(null),
+    [error, setError] = useState<Failure>(null),
+    [busy, setBusy] = useState(false),
+    [notice, setNotice] = useState("");
+  const load = useCallback(async () => {
+    setData(await governanceApi("/admin/platform-finance/digitalocean"));
+  }, []);
+  useEffect(() => {
+    load().catch(setError);
+  }, [load]);
+  return (
+    <>
+      <h3>DigitalOcean billing</h3>
+      <GovernanceError error={error} />
+      {notice && (
+        <p className="notice success" role="status">
+          {notice}
+        </p>
+      )}
+      {data && (
+        <>
+          <p>
+            {data.configured
+              ? `Project "${data.project}": only its invoice items and resources are imported, once a day${data.enabled ? "" : " (daily import is off)"}.`
+              : "Not configured: save a read-only DigitalOcean token under Settings → DigitalOcean billing."}{" "}
+            Last import:{" "}
+            {data.lastRun
+              ? `${data.lastRun.status} ${when(data.lastRun.finished_at ?? data.lastRun.started_at)}${data.lastRun.error ? " (" + data.lastRun.error + ")" : ""}`
+              : "never"}
+            .{" "}
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy || !data.configured}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                setNotice("");
+                try {
+                  const r = await governanceApi("/admin/platform-finance/digitalocean/import", "POST", {});
+                  await load();
+                  await onChanged();
+                  setNotice(
+                    `Imported ${r.invoicesImported.length} new invoice(s)` +
+                      (r.estimate ? `; ${r.estimate.month} estimate ${usd(r.estimate.projectedUsd)}.` : "."),
+                  );
+                } catch (e) {
+                  setError(e as Failure);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Import now
+            </button>
+          </p>
+          {data.estimates.length > 0 && (
+            <ul>
+              {data.estimates.map((e: any) => (
+                <li key={e.month}>
+                  {e.month}: about {usd(e.amount_usd)} for the month ({usd(e.to_date_usd)} so far), estimated{" "}
+                  {when(e.computed_at)} from {e.resources.length} resource(s)
+                  {data.invoices.some((i: any) => i.month === e.month) ? " · replaced by the invoice" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {data.invoices.length > 0 && (
+            <ul>
+              {data.invoices.map((i: any) => (
+                <li key={i.invoice_uuid}>
+                  Invoice {i.month}: {i.project_items} item(s) of the project, {usd(i.project_usd)} (the whole team{" "}
+                  {usd(i.team_usd)}, not counted)
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </>

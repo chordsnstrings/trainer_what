@@ -314,7 +314,8 @@ tab (`apps/web/components/platform-finance-costs.tsx`) and a bank-fee form on th
 - **Corrections for months already charged**: posted usage statements are never rewritten. For
   every workspace charged for the month, `postUsageCorrections` computes what its priced usage
   comes to now at that statement's own rate, markup and complimentary rule (a statement posted
-  before markups existed was at cost), less what was charged (the statement plus earlier
+  before markups existed was at cost; one that charged nothing, and so has no journal, follows
+  today's settings), less what was charged (the statement plus earlier
   adjustments), and posts the difference once per reference as a journal
   `usage-adjustment:<month>:<reference>` (debit or credit of the trainer's payable balance against
   `platform_cost_recovery`), described "AI Coach Service Fee adjustment", with an owner
@@ -341,13 +342,60 @@ tab (`apps/web/components/platform-finance-costs.tsx`) and a bank-fee form on th
 - **Not done**: a suggested split of each Stripe payout by workspace (settlements stay entered by
   hand); per-provider voice price rows (voice prices stay in the provider settings).
 
-## Phase D: automation
+## Phase D: automation (delivered, stage 2026-09-28v)
 
-- DigitalOcean billing import with a new read-only billing token the owner creates and stores as a
-  secret (the credentials pasted in earlier chat must not be used; the job changes no
-  DigitalOcean resource; depends on the separately assigned deployment work).
-- Budgets per platform or trainer, per category and month, and alerts: spend spikes, budgets
-  reached, negative contribution two months running, costs unpriced too long, domain renewals
-  below cost, low registrar balance, invoice differences over 5%, daily limits hit.
-- Trends, and optionally spreading programme and yearly domain income over their term (owner
-  decision).
+Migration 077 (service-only tables, grants in the migration and `infra/runtime-role.sql`,
+classified in the runtime verifier).
+
+- **DigitalOcean billing import** (`packages/providers/src/digitalocean-billing.ts`,
+  `apps/api/src/digitalocean-costs.ts`). Settings → "DigitalOcean billing" (encrypted token,
+  never in Git; project, default "GymMembership"; "Import daily", default on; a read-only
+  connection check lists the team's projects and confirms the project). The owner approved using
+  the existing DigitalOcean token (28 September 2026). The adapter sends GET only (no other
+  method exists in it) to `/v2/customers/my/invoices`, `/v2/customers/my/invoices/{uuid}`,
+  `/v2/projects`, `/v2/projects/{id}/resources`, `/v2/droplets/{id}`, `/v2/volumes/{id}`, and
+  never echoes the token. The token is team-wide and other projects share the bill, so:
+  - each final monthly invoice is read once (`digitalocean_invoices`, recorded even with none of
+    the project's items) and only items whose `project_name` is the configured project become
+    platform costs (`platform_costs`, category server, source `digitalocean`, keyed by invoice
+    uuid, item position and a hash of the item; credits may be negative);
+  - the month without an invoice yet is estimated from the project's own resources
+    (`digitalocean_estimates`, recomputed on every import): each droplet hourly from its creation
+    or the month start to the month end, capped at its monthly price, +20% with weekly backups;
+    volumes USD 0.10 per GiB-month; domains free; anything else listed as not estimated. The
+    profit and loss shows the estimate (marked estimated) until the month's invoice is imported,
+    then the invoice's items only. DigitalOcean invoice periods are UTC months.
+  - the worker imports once a day (a failed attempt is retried after an hour); Platform finance
+    → Platform costs → "Import now" (`POST /api/v1/admin/platform-finance/digitalocean/import`,
+    admin and finance, fresh MFA, audited) runs it at once; `GET .../digitalocean` shows the
+    invoices read, the estimates and the last run.
+- **Trends**: the Profit and loss tab shows each income and cost line's change on the month
+  before (AED and %), and the monthly summary its profit change; the API returns `trends` per
+  line.
+- **Alerts** (`apps/api/src/platform-finance-alerts.ts`, through the platform alert engine,
+  finance scope; no budget limits): `finance.cost_without_income` (a trainer's AI and voice cost
+  in this or last month with no platform income from them in that month),
+  `finance.usage_unpriced_aging` (calls of an ended month still unpriced after "Alert on unpriced
+  provider usage after (days)", default 7, critical after 30; estimated cost of months over 60
+  days old not confirmed by an invoice, info), `finance.digitalocean_import` (the last import
+  failed, or none succeeded for 48 hours while configured) and `finance.registrar_balance_low`
+  (the registrar's last reported balance below "Alert when the registrar balance is below
+  (USD)", default 20; critical below a quarter of it). The worker reads the registrar's balance
+  once a day when a registrar is configured (read-only).
+- **Mocks and tests**: the DigitalOcean double (`tests/e2e/mocks/digitalocean.ts`) now serves the
+  billing routes with a seeded team (the platform project with one s-2vcpu-4gb droplet and a
+  domain, an unrelated project with its own droplet, invoices carrying both); the e2e harness
+  saves the billing settings against it and its Super admin scenario imports, sweeps Stripe fees,
+  rebuilds and reads the profit and loss and exports the ledger.
+- **Live read-only smoke (28 September 2026)**: the importer ran against DigitalOcean with the
+  owner's token through a transport that refused anything but GET to the six read paths, writing
+  only to a throwaway in-memory database. 14 requests, all GET, all 200; nothing written at
+  DigitalOcean. The project GymMembership was found; the team's 10 final invoices (2025-06,
+  2025-12 and 2026-01 to 2026-08) carry no GymMembership item, as expected before September
+  2026, so nothing was imported from them. The September estimate, from the project's resources
+  (the droplet `604067976`, s-2vcpu-4gb at USD 24 a month without the backups feature, and the
+  free trainsyou.com domain), is USD 3.07 for the month (USD 1.10 so far), which the profit and
+  loss would show as an estimated platform cost until September's invoice arrives.
+- **Not done**: budgets (the owner decided against them); spreading upfront programme or yearly
+  domain income (the owner chose cash basis); reserved IPs, load balancers, databases, Spaces and
+  snapshots are listed as not estimated (none are in the project today).

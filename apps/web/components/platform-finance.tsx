@@ -344,6 +344,29 @@ function PnlView({ data }: { data: any }) {
           </tr>
         ))}
       </Table>
+      {data.trends?.length > 0 && months.length > 1 && (
+        <>
+          <h3>Trends: change on the month before</h3>
+          <Table label="Month over month change per line" head={["Line", ...months.slice(1).map((m) => monthLabel(m.month))]}>
+            {data.trends
+              .filter((t: any) => t.series.some((x: any) => x.aedMinor !== 0))
+              .map((t: any) => (
+                <tr key={t.side + t.key}>
+                  <th scope="row">
+                    {t.side === "income" ? "Income: " : "Cost: "}
+                    {t.label}
+                  </th>
+                  {t.series.slice(1).map((x: any) => (
+                    <td key={x.month}>
+                      <span dir="ltr">{signed(x.changeMinor)}</span>
+                      {x.changePercent !== null && ` (${x.changePercent > 0 ? "+" : ""}${x.changePercent}%)`}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+          </Table>
+        </>
+      )}
       {months.some((m) => m.notes.length) && (
         <>
           <h3>Notes</h3>
