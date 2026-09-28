@@ -94,6 +94,7 @@ import {
 } from "./workspace-pages.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
+import type { PlatformDnsDeps } from "./platform-dns.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
 import { hasMemberAccess } from "./entitlements.ts";
@@ -334,6 +335,8 @@ export async function buildApp(
       stripe?: () => ReturnType<typeof stripeClient>;
       /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
       webAddresses?: WebAddressDeps;
+      /** DNS host doubles for Check and repair platform DNS. */
+      platformDns?: PlatformDnsDeps;
       /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
       instagram?: InstagramTransport;
     };
@@ -669,6 +672,7 @@ export async function buildApp(
   });
   registerHostOperations(app, db, identity, {
     startSampler: !options.testing,
+    platformDns: options.providers?.platformDns,
   });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);

@@ -31,7 +31,10 @@ import {
 } from "../apps/web/components/web-address.tsx";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const REGISTRAR_NAME = /namecheap/i;
+/** Every registrar the platform can buy through. */
+const REGISTRAR_NAME = /namecheap|101domain|one-?oh-?one/i;
+/** Where a trainer's domain is hosted is not the trainer's business either. */
+const DNS_HOST = /digitalocean|nameserver|dns[_ ]?provider|dns host/i;
 /** Web files that may name the registrar: super admin operator screens only. */
 const OPERATOR_ONLY_WEB_FILES = new Set([
   "apps/web/components/web-address-operations.tsx",
@@ -133,7 +136,13 @@ test("trainer screens show only the first-year and renewal price, never the regi
     );
   assert.doesNotMatch(html, REGISTRAR_NAME);
   assert.doesNotMatch(html, /registrar|USD|cost price|margin/i);
+  assert.doesNotMatch(html, DNS_HOST);
   assert.match(html, /First year AED\s84\.00 · renews at AED\s91\.00 per year/);
+  // The forwarding choice names only the trainer's own platform address.
+  assert.match(html, /Show my site on this domain/);
+  assert.match(html, /Forward to my <span[^>]*>layla\.trainsyou\.com<\/span> address/);
+  // The trainer's web address component never names a DNS host.
+  assert.doesNotMatch(read("apps/web/components/web-address.tsx"), DNS_HOST);
 });
 
 test("message templates never name the registrar", () => {
@@ -279,10 +288,18 @@ test("search and order status answers carry no registrar name or cost field", as
     renewal_enabled: true,
     version: 3,
   };
-  const view = trainerOrderView(order);
+  const view = trainerOrderView({
+    ...order,
+    registrar: "101domain",
+    dns_provider: "digitalocean",
+    serve_mode: "forward",
+    evidence: { ...order.evidence, zoneState: "created", dnsTarget: "203.0.113.7" },
+  });
   assert.equal(view.firstYearPriceMinor, 8400);
   assert.equal(view.renewalPriceMinor, 8400);
+  assert.equal(view.serveMode, "forward");
   assert.doesNotMatch(JSON.stringify(view), REGISTRAR_NAME);
+  assert.doesNotMatch(JSON.stringify(view), DNS_HOST);
   assert.deepEqual(
     keys(view).filter((key) => COST_KEY.test(key)),
     [],
@@ -316,6 +333,36 @@ test("search and order status answers carry no registrar name or cost field", as
     keys(manual).filter((key) => /registrar|reference|evidence/i.test(key)),
     [],
   );
+});
+
+test("a registrar whose settings are incomplete is not named to a trainer", async () => {
+  // Its configuration message names the registrar ("101domain needs its API
+  // key."): a trainer only hears that buying is unavailable.
+  for (const registrar of ["101domain", "namecheap", "generic"]) {
+    clearWebAddressPriceCache();
+    const error: any = await withRuntimeConfig(
+      {
+        WEB_ADDRESS_REGISTRAR: registrar,
+        REGISTRAR_101DOMAIN_API_KEY: "",
+        REGISTRAR_101DOMAIN_ORDERING: "true",
+        DNS_PROVIDER: "digitalocean",
+        NAMECHEAP_API_KEY: "",
+        DOMAIN_API_KEY: "",
+        WEB_ADDRESS_TLDS: "com",
+        PLATFORM_ROOT_DOMAIN: "trainsyou.com",
+      },
+      () => searchDomains("layla", {}),
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(error, registrar);
+    assert.equal(error.code, "WEB_ADDRESS_DISABLED", registrar);
+    assert.equal(error.provider, undefined);
+    assert.doesNotMatch(String(error.message), REGISTRAR_NAME, registrar);
+    assert.doesNotMatch(String(error.message), /generic registrar|API key/i, registrar);
+  }
+  clearWebAddressPriceCache();
 });
 
 test("the platform company is always the registrant; trainers get no transfer out or auth code", () => {

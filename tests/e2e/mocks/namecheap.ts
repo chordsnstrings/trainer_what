@@ -3,7 +3,11 @@
  * commands the web address flow uses with the response shapes of Namecheap's
  * published API examples: users.getBalances, domains.check, users.getPricing,
  * domains.create, domains.getInfo, domains.getList, domains.dns.setHosts,
- * domains.dns.getHosts and domains.renew. Credentials and the whitelisted
+ * domains.dns.getHosts, domains.renew and the nameserver commands
+ * domains.dns.getList, domains.dns.setCustom and domains.dns.setDefault
+ * (host records are refused while custom nameservers are set, as Namecheap
+ * does; the attribute names of those three answers follow Namecheap's
+ * published examples and are read leniently). Credentials and the whitelisted
  * client address are checked like the real service. Error numbers are
  * illustrative. Test-only; it never contacts Namecheap.
  *
@@ -27,7 +31,11 @@ type Registration = {
   whoisguard: boolean;
   hosts: Host[];
   contact: Record<string, string>;
+  /** Custom nameservers (domains.dns.setCustom); empty while Namecheap's DNS is used. */
+  nameservers: string[];
 };
+/** Namecheap's own DNS (BasicDNS), reported while no custom nameservers are set. */
+export const NAMECHEAP_DNS = ["dns1.registrar-servers.com", "dns2.registrar-servers.com"];
 const CONTACT_FIELDS = [
   "FirstName",
   "LastName",
@@ -86,6 +94,8 @@ export class NamecheapMock {
   >();
   /** Publishes written host records to a DNS double, as Namecheap's name servers would. */
   onHosts?: (domain: string, hosts: Host[]) => void;
+  /** Publishes a delegation change to a DNS double, as the registry would. */
+  onNameservers?: (domain: string, nameservers: string[]) => void;
 
   constructor(
     tlsMaterial: { key: string; cert: string },
@@ -333,6 +343,7 @@ export class NamecheapMock {
           contact: Object.fromEntries(
             CONTACT_FIELDS.map((f) => [f, params.get("Registrant" + f) ?? ""]),
           ),
+          nameservers: [],
         };
         this.registrations.set(domain, registration);
         return `<DomainCreateResult${attrs({
@@ -356,7 +367,7 @@ export class NamecheapMock {
           OwnerName: this.account.username,
           IsOwner: true,
           IsPremium: false,
-        })}><DomainDetails><CreatedDate>${usDate(r.created)}</CreatedDate><ExpiredDate>${usDate(r.expires)}</ExpiredDate><NumYears>0</NumYears></DomainDetails><LockDetails /><Whoisguard Enabled="${r.whoisguard ? "True" : "False"}"><ID>${r.id}</ID><ExpiredDate>${usDate(r.expires)}</ExpiredDate></Whoisguard><DnsDetails ProviderType="FREE" IsUsingOurDNS="true" HostCount="${r.hosts.length}" EmailType="FWD" DynamicDNSStatus="false" IsFailover="false"><Nameserver>dns1.registrar-servers.com</Nameserver><Nameserver>dns2.registrar-servers.com</Nameserver></DnsDetails></DomainGetInfoResult>`;
+        })}><DomainDetails><CreatedDate>${usDate(r.created)}</CreatedDate><ExpiredDate>${usDate(r.expires)}</ExpiredDate><NumYears>0</NumYears></DomainDetails><LockDetails /><Whoisguard Enabled="${r.whoisguard ? "True" : "False"}"><ID>${r.id}</ID><ExpiredDate>${usDate(r.expires)}</ExpiredDate></Whoisguard><DnsDetails ProviderType="${r.nameservers.length ? "CUSTOM" : "FREE"}" IsUsingOurDNS="${r.nameservers.length ? "false" : "true"}" HostCount="${r.hosts.length}" EmailType="FWD" DynamicDNSStatus="false" IsFailover="false">${(r.nameservers.length ? r.nameservers : NAMECHEAP_DNS).map((ns) => `<Nameserver>${escapeXml(ns)}</Nameserver>`).join("")}</DnsDetails></DomainGetInfoResult>`;
       }
       case "domains.getList": {
         const term = (params.get("SearchTerm") ?? "").toLowerCase();
@@ -389,6 +400,11 @@ export class NamecheapMock {
         const domain =
           `${params.get("SLD") ?? ""}.${params.get("TLD") ?? ""}`.toLowerCase();
         const r = this.owned(domain);
+        if (r.nameservers.length)
+          this.refuse(
+            "2030288",
+            "Cannot complete this command as this domain is not using proper DNS servers",
+          );
         const hosts: Host[] = [];
         for (let n = 1; params.has("HostName" + n); n++)
           hosts.push({
@@ -425,6 +441,35 @@ export class NamecheapMock {
               })} />`,
           )
           .join("")}</DomainDNSGetHostsResult>`;
+      }
+      case "domains.dns.getList": {
+        const domain =
+          `${params.get("SLD") ?? ""}.${params.get("TLD") ?? ""}`.toLowerCase();
+        const r = this.owned(domain);
+        const custom = r.nameservers.length > 0;
+        return `<DomainDNSGetListResult Domain="${escapeXml(domain)}" IsUsingOurDNS="${custom ? "false" : "true"}">${(custom ? r.nameservers : NAMECHEAP_DNS).map((ns) => `<Nameserver>${escapeXml(ns)}</Nameserver>`).join("")}</DomainDNSGetListResult>`;
+      }
+      case "domains.dns.setCustom": {
+        const domain =
+          `${params.get("SLD") ?? ""}.${params.get("TLD") ?? ""}`.toLowerCase();
+        const r = this.owned(domain);
+        const list = (params.get("Nameservers") ?? "")
+          .split(",")
+          .map((n) => n.trim().toLowerCase())
+          .filter(Boolean);
+        if (list.length < 2 || list.length > 12)
+          this.refuse("2011280", "Parameter Nameservers is invalid");
+        r.nameservers = list;
+        this.onNameservers?.(domain, list);
+        return `<DomainDNSSetCustomResult Domain="${escapeXml(domain)}" Updated="true" />`;
+      }
+      case "domains.dns.setDefault": {
+        const domain =
+          `${params.get("SLD") ?? ""}.${params.get("TLD") ?? ""}`.toLowerCase();
+        const r = this.owned(domain);
+        r.nameservers = [];
+        this.onNameservers?.(domain, NAMECHEAP_DNS);
+        return `<DomainDNSSetDefaultResult Domain="${escapeXml(domain)}" Updated="true" />`;
       }
       case "domains.renew": {
         const r = this.owned(params.get("DomainName") ?? "");

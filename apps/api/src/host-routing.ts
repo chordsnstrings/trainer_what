@@ -23,6 +23,12 @@ export type HostContext = {
   custom: boolean;
   /** A workspace subdomain of the platform root (same rules as a custom domain). */
   subdomain?: boolean;
+  /**
+   * A bought domain that is not served here: the https origin page requests
+   * redirect to permanently (www to the domain, or a forwarded domain to the
+   * workspace's current subdomain). API requests are never redirected.
+   */
+  redirect?: string;
   verifiedProxy: boolean;
   // Edge-observed client address, present only inside a verified proxy proof.
   clientIp?: string;
@@ -244,7 +250,7 @@ export async function resolveRequestHost(
   // suspension notice; its public pages refuse because they require 'active'.
   const [mapping] = await db.system((tx) =>
     tx.query(
-      "SELECT m.tenant_id,t.slug FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.hostname=$1 AND m.active=true AND m.verified_at IS NOT NULL AND t.published=true AND COALESCE(to_jsonb(t)->>'lifecycle_state','active') IN ('active','suspended')",
+      "SELECT m.tenant_id,t.slug,to_jsonb(m)->>'redirect' AS redirect FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.hostname=$1 AND m.active=true AND m.verified_at IS NOT NULL AND t.published=true AND COALESCE(to_jsonb(t)->>'lifecycle_state','active') IN ('active','suspended')",
       [host],
     ),
   );
@@ -254,6 +260,7 @@ export async function resolveRequestHost(
       "UNKNOWN_HOST",
       "This address is not connected to a published coaching website.",
     );
+  const redirect = mappingRedirect(mapping.redirect, host, mapping.slug, root);
   return {
     host,
     origin: "https://" + host,
@@ -261,8 +268,34 @@ export async function resolveRequestHost(
     tenantSlug: mapping.slug,
     custom: true,
     verifiedProxy,
+    ...(redirect ? { redirect } : {}),
     ...client,
   };
+}
+/**
+ * Where a mapped name redirects: www.<domain> to <domain> ("apex"), or a
+ * forwarded domain to the workspace's current <slug>.<root> ("subdomain",
+ * read at request time so a renamed workspace forwards to its new name).
+ * Without a usable subdomain the site is served instead.
+ */
+export function mappingRedirect(
+  kind: unknown,
+  host: string,
+  slug: string,
+  root: string | null,
+) {
+  if (kind === "apex")
+    return host.startsWith("www.") && host.length > 4
+      ? "https://" + host.slice(4)
+      : undefined;
+  if (
+    kind === "subdomain" &&
+    root &&
+    subdomainEligible(slug) &&
+    !RESERVED_SLUGS.has(slug)
+  )
+    return "https://" + subdomainHost(slug, root);
+  return undefined;
 }
 export function enforceHostTenant(
   context: HostContext,

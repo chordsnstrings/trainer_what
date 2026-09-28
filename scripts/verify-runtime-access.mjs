@@ -295,6 +295,9 @@ export async function verifyRuntimeAccess(client) {
     // provider deletions across workspaces, and the settings guard's counts.
     "voice_provider_deletions_outstanding(integer)",
     "voice_provider_work_outstanding()",
+    // Migration 070: whether another open order uses a lapsed domain's name
+    // (the worker, for its own order only).
+    "domain_name_other_order(uuid)",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -577,7 +580,9 @@ export async function verifyRuntimeAccess(client) {
       },
       "Tenant actors must not reassign or create domain mappings",
     );
-    for (const column of ["hostname", "tenant_id", "verified_at"]) {
+    // redirect (070) decides whether a mapped name forwards elsewhere: only
+    // the service sets it, from the owner's audited choice.
+    for (const column of ["hostname", "tenant_id", "verified_at", "redirect"]) {
       const [r] = await query(
         "SELECT has_column_privilege(current_user,'domain_mappings',$1,'UPDATE') AS allowed",
         [column],

@@ -19,6 +19,7 @@ import { DnsMock } from "./dns.ts";
 import { OidcMock } from "./oidc.ts";
 import { S3Mock } from "./s3.ts";
 import { NamecheapMock } from "./namecheap.ts";
+import { DigitalOceanMock } from "./digitalocean.ts";
 
 /** Loopback address of the harness edge for simulated coach domains (port 443). */
 export const COACH_DOMAIN_EDGE_ADDRESS = "127.77.0.1";
@@ -38,8 +39,11 @@ export const COACH_DOMAIN_NAMES = [
 /**
  * Public IPv4 values the web address settings require (the settings refuse
  * private addresses). Nothing ever connects to them: the Namecheap double only
- * compares the whitelisted client address, and records written there are not
- * published to the DNS double, so a bought domain never resolves in the run.
+ * compares the whitelisted client address. The DigitalOcean DNS double
+ * publishes a bought domain's zone and the Namecheap double its delegation
+ * to the DNS double, so delegation is verified in the run; the domain then
+ * resolves to the target address, which no edge serves, so HTTPS (Live)
+ * stays pending in the sandbox.
  */
 export const WEB_ADDRESS_SANDBOX_IPV4 = { client: "198.51.101.10", target: "198.51.101.20" };
 
@@ -87,6 +91,7 @@ export async function startMocks(
     cartesia: token("sk_car_mock_"),
     registrar: token("reg_mock_"),
     namecheapKey: token("nc_mock_"),
+    digitalocean: token("dop_v1_mock_"),
   };
   const modelName = "mock-coach-1";
   const stripe = new StripeMock(material, secrets.stripeSecret, secrets.stripeWebhook);
@@ -114,10 +119,25 @@ export async function startMocks(
     username: "sandboxplatform",
     clientIp: WEB_ADDRESS_SANDBOX_IPV4.client,
   });
-  const all = [stripe, email, lean, model, push, whoop, zepp, voice, cartesia, registrar, food, google, apple, s3, namecheap];
+  // DigitalOcean DNS double: zones of bought domains (and the platform root).
+  const digitalocean = new DigitalOceanMock(material, secrets.digitalocean);
+  const all = [stripe, email, lean, model, push, whoop, zepp, voice, cartesia, registrar, food, google, apple, s3, namecheap, digitalocean];
   await Promise.all(all.map((m) => m.start()));
   const dns = new DnsMock();
   await dns.start();
+  // What public resolvers would answer: a zone's records at the DNS host,
+  // and the delegation the registrar set.
+  digitalocean.onZone = (zone, records) => {
+    const names = new Set([zone, `www.${zone}`]);
+    for (const name of names) dns.set(name, "A", []);
+    for (const record of records ?? []) {
+      if (!["A", "AAAA", "TXT", "CNAME"].includes(record.type)) continue;
+      const owner = record.name === "@" ? zone : `${record.name}.${zone}`;
+      const same = (records ?? []).filter((r) => r.name === record.name && r.type === record.type).map((r) => r.data);
+      dns.set(owner, record.type as "A" | "AAAA" | "TXT" | "CNAME", same);
+    }
+  };
+  namecheap.onNameservers = (domain, nameservers) => dns.set(domain, "NS", nameservers);
   // The platform's approved CNAME target resolves to the local edge.
   dns.set("edge.sandbox-platform.example", "A", [COACH_DOMAIN_EDGE_ADDRESS]);
   registrar.onRecords = (domain, records) => {
@@ -269,6 +289,16 @@ export async function startMocks(
       },
       secrets: { NAMECHEAP_API_KEY: secrets.namecheapKey },
     },
+    // Bought domains get a zone at the DigitalOcean DNS double and are
+    // delegated to it through the Namecheap double.
+    dns_hosting: {
+      values: {
+        DNS_PROVIDER: "digitalocean",
+        DNS_PLATFORM_ZONE: PLATFORM_ROOT_DOMAIN,
+        DNS_RECORD_TTL: "300",
+      },
+      secrets: { DIGITALOCEAN_DNS_TOKEN: secrets.digitalocean },
+    },
   };
   /**
    * Cartesia voice and speech-to-text settings (docs/features/trainer-voice.md).
@@ -320,6 +350,7 @@ export async function startMocks(
     APPLE_OIDC_ISSUER: apple.issuer,
     DOMAIN_DNS_SERVER: dns.server,
     NAMECHEAP_API_BASE_URL: namecheap.url,
+    DIGITALOCEAN_API_BASE_URL: digitalocean.url,
     PLATFORM_ROOT_DOMAIN,
     NODE_EXTRA_CA_CERTS: tls.caFile,
   };
@@ -340,6 +371,7 @@ export async function startMocks(
     cartesia,
     registrar,
     namecheap,
+    digitalocean,
     food,
     google,
     apple,

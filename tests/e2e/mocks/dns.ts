@@ -1,6 +1,7 @@
 /**
  * Loopback DNS double for custom coach domains (UDP, RFC 1035 subset). It
- * answers A, TXT and CNAME questions from an in-memory zone the scenarios
+ * answers A, AAAA, NS, DS, TXT and CNAME questions from an in-memory zone
+ * (NS as a resolver would report a delegation) the scenarios
  * fill the way an operator would at the registrar (ownership TXT record,
  * CNAME to the platform target, address of the local TLS edge). Unknown
  * names get NXDOMAIN. The application reaches it only through the
@@ -8,7 +9,20 @@
  */
 import { createSocket, type Socket } from "node:dgram";
 
-const TYPES = { A: 1, CNAME: 5, TXT: 16 } as const;
+// NS carries the delegation a registrar double publishes (checked by the
+// delegation step); AAAA and DS let scenarios show IPv6 and DNSSEC problems.
+const TYPES = { A: 1, NS: 2, CNAME: 5, TXT: 16, AAAA: 28, DS: 43 } as const;
+function ipv6Bytes(value: string) {
+  const [head, tail = ""] = value.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = value.includes("::")
+    ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
+    : left;
+  const out = Buffer.alloc(16);
+  groups.slice(0, 8).forEach((g, i) => out.writeUInt16BE(parseInt(g || "0", 16), i * 2));
+  return out;
+}
 type RecordType = keyof typeof TYPES;
 export type DnsQuery = { at: string; name: string; type: string; answered: number; rcode: number };
 
@@ -34,7 +48,17 @@ function encodeName(name: string) {
 }
 function rdata(type: RecordType, value: string) {
   if (type === "A") return Buffer.from(value.split(".").map(Number));
-  if (type === "CNAME") return encodeName(value);
+  if (type === "CNAME" || type === "NS") return encodeName(value);
+  if (type === "AAAA") return ipv6Bytes(value);
+  if (type === "DS") {
+    // "<key tag> <algorithm> <digest type> <hex digest>"
+    const [tag, algorithm, digestType, digest = ""] = value.split(/\s+/);
+    const fixed = Buffer.alloc(4);
+    fixed.writeUInt16BE(Number(tag) & 0xffff, 0);
+    fixed.writeUInt8(Number(algorithm) & 0xff, 2);
+    fixed.writeUInt8(Number(digestType) & 0xff, 3);
+    return Buffer.concat([fixed, Buffer.from(digest, "hex")]);
+  }
   const chunks: Buffer[] = [];
   for (let i = 0; i < value.length || i === 0; i += 255) {
     const piece = Buffer.from(value.slice(i, i + 255), "utf8");

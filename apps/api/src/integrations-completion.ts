@@ -1815,7 +1815,9 @@ function registerDomainRoutes(
         return r;
       });
       await tx.query(
-        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES($1,$2,now(),true) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true",
+        // A manually connected domain shows the site: a forwarding choice
+        // left from an earlier automatic order never carries over.
+        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),true,NULL) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true,redirect=NULL",
         [r.hostname, r.tenant_id],
       );
       return r;

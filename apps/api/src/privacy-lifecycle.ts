@@ -1052,8 +1052,12 @@ export function registerPrivacyLifecycle(
             "UPDATE tenants SET lifecycle_state='closed',closed_at=now(),published=false,name='Closed workspace',theme='{}'::jsonb WHERE id=$1",
             [a.tenantId],
           );
+          // A bought domain's DNS zone at the DNS host is deliberately kept:
+          // deleting it while the registry still delegates the name there
+          // would let another account take the name over (web-addresses.md,
+          // "DNS hosting"). The domain simply stops being served.
           await tx.query(
-            "UPDATE domain_mappings SET active=false,verified_at=NULL WHERE tenant_id=$1",
+            "UPDATE domain_mappings SET active=false,verified_at=NULL,redirect=NULL WHERE tenant_id=$1",
             [a.tenantId],
           );
           await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [

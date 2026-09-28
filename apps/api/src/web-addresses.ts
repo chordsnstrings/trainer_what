@@ -16,8 +16,12 @@ import {
 import { requireCommerce, stripeClient } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
+  canRenew,
+  canUseRegistrarDns,
   paymentModeProblem,
+  registrarFor,
   registrarFromConfig,
+  registrarPurchaseProblem,
   registrarSandboxSetting,
   RegistrarError,
   stripeKeyMode,
@@ -25,6 +29,7 @@ import {
   type Registrar,
   type TldPrice,
 } from "../../../packages/providers/src/registrar.ts";
+import { dnsHostingSettings } from "../../../packages/providers/src/dns-hosting.ts";
 import {
   RESERVED_SLUGS,
   SLUG_CHANGES_PER_YEAR,
@@ -46,6 +51,7 @@ import { normalizeDomain } from "./integrations-completion.ts";
 import {
   cancelSubscription,
   failOrder,
+  mappingRedirects,
   processWebAddressOrder,
   purchasesEnabled,
   recordRegistrarState,
@@ -136,6 +142,23 @@ async function slugState(db: Database, tenantId: string) {
   });
 }
 
+/** Forwarding needs a live workspace subdomain to forward to. */
+async function assertForwardable(db: Database, tenantId: string) {
+  const root = platformRoot();
+  const { tenant } = await slugState(db, tenantId);
+  if (
+    !root ||
+    !tenant ||
+    !subdomainEligible(tenant.slug) ||
+    RESERVED_SLUGS.has(tenant.slug)
+  )
+    throw fail(
+      409,
+      "FORWARD_UNAVAILABLE",
+      "Forwarding needs your platform web address. Choose an address first, or show your site on the domain.",
+    );
+}
+
 async function slugChangesThisYear(tx: Tx) {
   const [row] = await tx.query(
     "SELECT count(*)::int AS n FROM events WHERE name='web_address.slug_changed' AND created_at>now()-interval '365 days'",
@@ -200,6 +223,10 @@ export function configuredModeProblem() {
   return mode
     ? paymentModeProblem(mode === "live", registrarSandboxSetting())
     : null;
+}
+/** Why no domain can be bought right now (operators see the reason), or null. */
+export function buyingProblem() {
+  return configuredModeProblem() ?? registrarPurchaseProblem();
 }
 
 // ---- Search and prices ---------------------------------------------------------
@@ -286,7 +313,7 @@ export async function searchDomains(
       "DOMAIN_SEARCH",
       `Enter a name, or a full domain ending in ${settings.tlds.map((t) => "." + t).join(", ")}.`,
     );
-  const registrar = deps.registrar ?? registrarFromConfig();
+  const registrar = trainerRegistrar(deps);
   let availability;
   try {
     availability = await checkNames(registrar, candidates);
@@ -323,6 +350,20 @@ export async function searchDomains(
     });
   }
   return out;
+}
+/**
+ * The configured registrar for a trainer's search or checkout. Its
+ * configuration problem names the registrar, so a trainer only hears that
+ * buying is unavailable (owner decision: the registrar is never named to
+ * trainers); operators see the problem in Settings and the connection test.
+ */
+function trainerRegistrar(deps: { registrar?: Registrar }) {
+  if (deps.registrar) return deps.registrar;
+  try {
+    return registrarFromConfig();
+  } catch {
+    throw fail(409, "WEB_ADDRESS_DISABLED", "Buying a domain is not available yet.");
+  }
 }
 function registrarUnavailable(error: unknown) {
   if (error instanceof RegistrarError)
@@ -389,6 +430,8 @@ const TRAINER_STEPS: Record<string, string> = {
   paid: "Paid; registering your domain",
   purchasing: "Registering your domain",
   owned: "Registered; setting up DNS",
+  zone: "Registered; setting up DNS",
+  delegating: "Connecting your domain to your website",
   dns: "Waiting for DNS and the security certificate",
   active: "Live",
   expired: "Expired",
@@ -416,6 +459,9 @@ export function trainerOrderView(order: Record<string, any>) {
     renewalStatus: order.renewal_status,
     billingStatus: order.billing_status,
     nextRenewalChargeAt: order.evidence?.nextRenewalChargeAt ?? null,
+    // "site" shows the website on the domain; "forward" sends visitors to
+    // the workspace subdomain. Never which DNS host serves it.
+    serveMode: order.serve_mode === "forward" ? "forward" : "site",
     progress: (order.progress ?? []).map((p: any) => ({
       step: p.step,
       at: p.at,
@@ -457,10 +503,12 @@ async function operatorOrders(db: Database, operator: Identity, id?: string) {
         tenant_name: tenant.name,
         tenant_slug: tenant.slug,
         // A request sent moments ago may still be running: it is shown as
-        // in flight, not as an item to reconcile.
+        // in flight, not as an item to reconcile. DNS calls converge on
+        // their next attempt (they read the current state back), so only
+        // purchases and renewals wait for reconciliation.
         needsReconciliation: (order.operations ?? []).some(
           (op: any) =>
-            op.kind !== "set_hosts" &&
+            ["register", "renew"].includes(op.kind) &&
             (["failed", "unknown"].includes(op.status) ||
               (op.status === "sent" &&
                 Date.now() - Date.parse(op.created_at) >= SETTLE_MS)),
@@ -536,7 +584,7 @@ export function registerWebAddresses(
         .filter((r: any) => Date.parse(r.redirect_until) > Date.now())
         .map((r: any) => ({ slug: r.slug, until: r.redirect_until })),
       purchases: {
-        enabled: purchasesEnabled() && !configuredModeProblem(),
+        enabled: purchasesEnabled() && !buyingProblem(),
         currency: "AED",
         endings: allowedTlds(config.WEB_ADDRESS_TLDS),
         testEnvironment: registrarSandboxSetting(config),
@@ -544,6 +592,42 @@ export function registerWebAddresses(
       orders: orders.map(trainerOrderView),
     };
   });
+  // The owner decides how a bought domain is served: the website itself, or
+  // a permanent redirect to the workspace's subdomain (path and query kept).
+  // Applied at once to an active domain's mapping; www always redirects to
+  // the domain.
+  app.post(
+    "/api/v1/web-address/orders/:id/serve-mode",
+    { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      requireRecentMfa(a);
+      const id = uuid.parse((req.params as any).id);
+      const b = z
+        .object({ mode: z.enum(["site", "forward"]) })
+        .strict()
+        .parse(req.body);
+      if (b.mode === "forward") await assertForwardable(db, a.tenantId);
+      return db.system(async (tx) => {
+        const row = await tx.tenant(a, async (tx) => {
+          const [row] = await tx.query(
+            "UPDATE domain_orders SET serve_mode=$2,version=version+1,updated_at=now() WHERE id=$1 AND mode='automatic' AND status NOT IN ('cancelled','failed') RETURNING *",
+            [id, b.mode],
+          );
+          if (!row) throw fail(404, "NOT_FOUND", "Order not found.");
+          await event(tx, a, "web_address.serve_mode", id, { mode: b.mode });
+          return row;
+        });
+        // Only this workspace's mapping of this domain changes.
+        const [apex] = mappingRedirects(row.hostname, row.serve_mode);
+        await tx.query(
+          "UPDATE domain_mappings SET redirect=$3 WHERE hostname=$1 AND tenant_id=$2",
+          [apex.hostname, a.tenantId, apex.redirect],
+        );
+        return trainerOrderView(row);
+      });
+    },
+  );
 
   app.post(
     "/api/v1/web-address/slug",
@@ -646,7 +730,7 @@ export function registerWebAddresses(
     { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } },
     async (req) => {
       owner(req);
-      if (!purchasesEnabled())
+      if (!purchasesEnabled() || registrarPurchaseProblem())
         throw fail(
           409,
           "WEB_ADDRESS_DISABLED",
@@ -663,7 +747,7 @@ export function registerWebAddresses(
     async (req) => {
       const a = owner(req);
       requireRecentMfa(a);
-      if (!purchasesEnabled())
+      if (!purchasesEnabled() || registrarPurchaseProblem())
         throw fail(
           409,
           "WEB_ADDRESS_DISABLED",
@@ -675,13 +759,17 @@ export function registerWebAddresses(
           firstYearPriceMinor: z.number().int().positive().max(10000000),
           renewalPriceMinor: z.number().int().positive().max(10000000),
           accepted: z.literal(true),
+          // Show the website on the domain (default) or forward to the subdomain.
+          serveMode: z.enum(["site", "forward"]).optional(),
         })
         .strict()
         .parse(req.body);
       const domain = normalizeDomain(b.domain);
       assertNotPlatformName(domain);
+      const serveMode = b.serveMode ?? "site";
+      if (serveMode === "forward") await assertForwardable(db, a.tenantId);
       const client = commerce();
-      const registrar = deps.registrar ?? registrarFromConfig();
+      const registrar = trainerRegistrar(deps);
       // Real money never buys in a test environment, a test payment never
       // buys a real domain.
       const keyMode = stripeKeyMode();
@@ -735,7 +823,7 @@ export function registerWebAddresses(
           "SELECT stripe_customer_id FROM domain_orders WHERE mode='automatic' AND stripe_customer_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
         );
         const [row] = await tx.query(
-          "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,mode,registrar,quote,progress,next_attempt_at) VALUES($1,$2,$3,'checkout',$4,$5,'automatic',$6,$7,$8,now()+interval '2 hours') ON CONFLICT DO NOTHING RETURNING *",
+          "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,mode,registrar,quote,progress,next_attempt_at,serve_mode) VALUES($1,$2,$3,'checkout',$4,$5,'automatic',$6,$7,$8,now()+interval '2 hours',$9) ON CONFLICT DO NOTHING RETURNING *",
           [
             orderId,
             a.tenantId,
@@ -758,6 +846,7 @@ export function registerWebAddresses(
             JSON.stringify([
               { step: "checkout", at: new Date(at).toISOString(), note: null },
             ]),
+            serveMode,
           ],
         );
         if (!row)
@@ -935,7 +1024,7 @@ export function registerWebAddresses(
     const b = z.object({ enabled: z.boolean() }).strict().parse(req.body);
     const [order] = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','dns','active')",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','zone','delegating','dns','active')",
         [id],
       ),
     );
@@ -961,11 +1050,33 @@ export function registerWebAddresses(
         idempotencyKey: `web-address-renewal:${id}:${b.enabled}:${order.version}`,
       },
     );
+    // A registrar that renews by itself (its API cannot switch that off)
+    // would renew the domain at the platform's cost: operators turn its
+    // auto-renewal off in the registrar's panel.
+    // The registrar this domain was bought through, not the one chosen for
+    // new purchases.
+    let autoRenews = false;
+    try {
+      autoRenews = !canRenew(
+        deps.registrar && deps.registrar.id === order.registrar
+          ? deps.registrar
+          : registrarFor(String(order.registrar ?? "")),
+      );
+    } catch {
+      autoRenews = false;
+    }
     return db.tenant(a, async (tx) => {
       const [row] = await tx.query(
         // The switch time lets an older Stripe event never undo this choice.
-        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-        [id, b.enabled, Math.floor(Date.now() / 1000)],
+        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),attention=CASE WHEN $4::text IS NOT NULL THEN $4 ELSE attention END,next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+        [
+          id,
+          b.enabled,
+          Math.floor(Date.now() / 1000),
+          autoRenews && !b.enabled
+            ? "The trainer turned renewal off. The registrar renews its domains by itself about 60 days before expiry: turn auto-renewal off for this domain in the registrar's panel."
+            : null,
+        ],
       );
       await event(
         tx,
@@ -988,6 +1099,8 @@ export function registerWebAddresses(
       testEnvironment: registrarSandboxSetting(config),
       purchasesEnabled: purchasesEnabled(),
       modeProblem: configuredModeProblem(),
+      purchaseProblem: registrarPurchaseProblem(),
+      dnsProvider: dnsHostingSettings().provider,
       orders,
       attention: orders.filter((o) => o.attention || o.needsReconciliation)
         .length,
@@ -1054,6 +1167,68 @@ export function registerWebAddresses(
       );
       await event(tx, scope, "web_address.operator_retry", order.id, {
         reason,
+      });
+    });
+    return (await operatorOrders(db, identity(req), order.id))[0];
+  });
+  // Sets the domain's DNS up again at the chosen DNS host ("digitalocean",
+  // "registrar", or "settings" for the current DNS hosting setting). The
+  // worker then converges the zone or host records and the nameservers,
+  // each recorded under its own intent; nothing is deleted here.
+  app.post("/api/v1/admin/web-addresses/:id/dns", async (req) => {
+    const operator = admin(req);
+    const b = z
+      .object({
+        reason: z.string().trim().min(10).max(500),
+        provider: z.enum(["digitalocean", "registrar", "settings"]),
+      })
+      .strict()
+      .parse(req.body);
+    const [order] = await operatorOrders(
+      db,
+      operator,
+      uuid.parse((req.params as any).id),
+    );
+    if (!order) throw fail(404, "NOT_FOUND", "Order not found.");
+    if (!["owned", "zone", "delegating", "dns", "active"].includes(order.status))
+      throw fail(
+        409,
+        "ORDER_STATE",
+        "DNS can be set up again only for a registered domain that has not lapsed.",
+      );
+    // A registrar whose own DNS cannot be set up through its API would leave
+    // the domain unserved: only the DNS host is offered for it.
+    const wanted =
+      b.provider === "settings" ? dnsHostingSettings().provider : b.provider;
+    if (wanted === "registrar" && !canUseRegistrarDns(String(order.registrar)))
+      throw fail(
+        409,
+        "REGISTRAR_DNS_UNSUPPORTED",
+        "This domain's registrar cannot serve it from its own DNS through its API; use DigitalOcean DNS.",
+      );
+    const scope = elevated("platform-operator", {
+      tenantId: order.tenant_id,
+      userId: operator.userId,
+      role: "owner",
+    });
+    await db.tenant(scope, async (tx) => {
+      const [row] = await tx.query(
+        "UPDATE domain_orders SET status='owned',dns_provider=$2,attention=NULL,attempts=0,next_attempt_at=now(),evidence=evidence||'{\"delegationStartedAt\":null,\"delegationResets\":0}'::jsonb,progress=CASE WHEN jsonb_array_length(progress)>=60 THEN progress ELSE progress||jsonb_build_array(jsonb_build_object('step','dns_again','at',now(),'note',$3::text)) END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('owned','zone','delegating','dns','active') AND (lease_until IS NULL OR lease_until<now()) RETURNING id",
+        [
+          order.id,
+          b.provider === "settings" ? null : b.provider,
+          b.provider,
+        ],
+      );
+      if (!row)
+        throw fail(
+          409,
+          "ORDER_STATE",
+          "This order changed or the worker is on it; try again in a minute.",
+        );
+      await event(tx, scope, "web_address.operator_dns", order.id, {
+        reason: b.reason,
+        provider: b.provider,
       });
     });
     return (await operatorOrders(db, identity(req), order.id))[0];

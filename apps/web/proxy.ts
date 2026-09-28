@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   customHostPath,
   edgeClientIp,
+  FORWARD_CACHE_CONTROL,
+  forwardLocation,
   movedHostLocation,
   proxyHost,
   verifiedProxyHeaders,
@@ -128,6 +130,22 @@ export async function proxy(request: NextRequest) {
         { message: "This coaching address is unavailable." },
         { status: 421 },
       );
+    // A bought domain set to forward (and every www name) redirects
+    // permanently, keeping the path and query. Its certificate still exists,
+    // so the redirect is served over HTTPS.
+    const forward = forwardLocation(
+      mapping.redirect,
+      host,
+      process.env.PLATFORM_ROOT_DOMAIN,
+    );
+    if (forward) {
+      const redirect = NextResponse.redirect(
+        new URL(request.nextUrl.pathname + request.nextUrl.search, forward),
+        301,
+      );
+      redirect.headers.set("Cache-Control", FORWARD_CACHE_CONTROL);
+      return redirect;
+    }
     const path = customHostPath(request.nextUrl.pathname, mapping.tenantSlug);
     if (!path)
       return NextResponse.json(
