@@ -106,32 +106,84 @@ Styles: `app/marketing.css`, logical properties only (checked by
 
 ### Calculators (`packages/domain/src/marketing-calculators.ts`)
 
-Follower estimate (version `2026-09-28.2`), as a low-high range:
+Follower estimate (version `2026-09-28.3`, stage 2026-09-28k): three
+scenarios from the same arithmetic. **The headline always shows the strong
+case** ("Strong case: an engaged audience and weekly sharing"), at the
+owner's direction; cautious and typical appear only in the "How we estimate"
+table. The research behind cautious and typical is the proposal of 28
+September (Socialinsider, Metricool, IQFluence, vendor DM claims, MailerLite,
+RevenueCat, Dynamic Yield); the strong case is calibrated to creator sales.
+
+Inputs: followers F, price, link Stories a month k (8), call-to-action Reels
+or posts a month n (4), comment-keyword DMs on/off (on), members who cancel
+per year (30%, 5-80%), and optional profile visits a month (the bio link
+counts only when entered), broadcast members and link messages a month (4),
+own average Story views (replaces the Story audience guess) and engagement
+rate.
 
 ```
-V (people who see your Stories) = followers × Story reach(tier) [× engagement]
-p(k)  = 1 − (1 − click-through)^k            (k link Stories a month)
-first month  = V × p(k)   × conversion
-twelve months = V × p(12k) × conversion       (same audience, no turnover)
-ceiling      = V × conversion                 (nothing can exceed it)
+g     = your engagement / 0.48%, within ×0.5..×2 (1 if unknown)
+S     = Story audience = max over tiers j ≤ yours of min(F, top_j) × share_j (× g), or your views
+R, K  = Reel viewers and keyword comments per Reel, the same max over tiers
+v(T)  = 1 − (1 − rate)^(times × T)                   chance of a visit by month T
+D(T)  = nested union of Stories and broadcast (and Reels when cautious)
+        + R × v_reel(T) (typical and strong: Reels reach new people)
+        + profile visits × (1 − (1 − bio click)^T)
+C(T)  = visit to paid × D(T)                          one decision per person
+N_m   = C(m) − C(m − 1);  A_m = Σ N_i (1 − c)^(m − i); c = 1 − (1 − yearly)^(1/12)
+Outputs: N_1, A_12, C(12), round(A_12) × price (before platform commission)
 ```
 
-- Socialinsider's reach rate is the share of followers who viewed at least
-  one frame, so repeat Stories reach the same people: the visit chance
-  saturates and the "+4 link Stories" nudge uses the same curve.
-  Conversion is a share of people, so repeat visits never add subscribers.
-- Reach by follower tier (low = image, high = video): Socialinsider Stories
-  benchmarks. Click-through 1-5% per viewer per link Story: creator reports
-  (no industry benchmark exists; shown as such). Conversion 0.72-2.89%:
-  Dynamic Yield luxury and jewellery (high-consideration retail) to the EMEA
-  average, labelled "retail e-commerce purchase rates; no published benchmark
-  exists for coaching subscriptions" (was 1.51-5.39%, APAC to beauty).
-- An engagement rate (typed or from Instagram) scales reach by
-  rate / 0.48% (Socialinsider average), clamped to ×0.5-×2.
-- Also shown: the monthly value at the trainer's own price, the twelve-month
-  figure before cancellations, the range with four more link Stories and the
-  ceiling ("reaching more people raises it"). Only Stories are modelled.
-- Display rounds the low end down and the high end to nearest, never up.
+| Assumption | Cautious | Typical | Strong | Basis (label) |
+| --- | --- | --- | --- | --- |
+| Story audience, ≤5K / 5-10K / 10-50K / 50-100K / >100K | 9.55 / 3.5 / 1.35 / 0.55 / 0.5% | 10.4 / 5 / 5 / 5 / 5% | 20.5 / 20.5 / 8 / 6.5 / 5% | Socialinsider Stories, image and video (measured, brand accounts); typical floor 5% and strong above 10K: IQFluence "5-8% of followers" (vendor claim); strong up to 10K: Socialinsider six-frame sequence 20.5% (measured), HypeAuditor nano 1-10K engage most (vendor data) |
+| Reel reach by tier | feed 6.65 / 5.75 / 5.5 / 4.5 / 3.5% | Reels 9.78 / 7.55 / 7.1 / 5.6 / 5% | as typical | Socialinsider reach and Reels studies (measured, brand accounts) |
+| Comments per Reel view | 0.52 / 0.60 / 0.49 / 0.36 / 0.37% | same | same | Socialinsider medians, our division |
+| Keyword comments per view | × 2.0278 | same | same | Metricool +202.78% (measured); treating them as keyword comments is inference |
+| DM link opened | 18% | 30% | 45% | CommuniPass 18-35%, ChatAutoDM 25-45% (vendor claims, no dataset) |
+| Link-sticker click per viewer per Story | 1% | 3% | 5% | Creatorflow 1-5% (rule of thumb); IQFluence median 4.1%, strong creators 6-7% (vendor data) |
+| Broadcast click per member per message | 1.27% | 1.45% | 2.09% | MailerLite email medians (measured; proxy) |
+| Bio click per profile visitor a month | 1% | 2% | 3% | Hopp by Wix 1-3% (rule of thumb) |
+| Visit to paid | 0.72% | 2.9% | 10.7% | Dynamic Yield luxury retail; RevenueCat Health & Fitness median; RevenueCat hard-paywall median day-35 (measured; proxies) |
+| Channel overlap | Reels nested in Stories | Reels add people | as typical | Instagram ranking statement (platform); our assumption |
+| Cancellations | input | input | input | 30% default is an owner assumption; RevenueCat H&F first renewal 46-68% and Coachway 45% at month 12 show more (context) |
+
+Strong-case calibration: per link Story 5% tap × 10.7% pay = 0.535% of
+viewers, the low end of the owner-supplied creator example (Ryan Humiston:
+roughly 500-1,500 of his USD 19.99 plans per 100,000 YouTube views; no public
+source for the sales figure was found; the store price is cited), and the
+12-month share for accounts up to 10,000 followers (about 2.4%) sits inside
+the creator rule of thumb that 1-3% of an engaged audience buys over time
+(Passion.io course benchmarks, vendor). Larger accounts get lower shares
+(Stan creator sales by follower count, vendor data).
+
+Worked results at AED 199, 8 link Stories, 4 keyword Reels, DMs on, 30%
+cancellations a year (month 1 / active at month 12 / sign-ups over 12 months /
+AED a month at month 12):
+
+| Followers | Cautious | Typical | Strong |
+| --- | --- | --- | --- |
+| 3,000 | 0.2 / 1.1 / 1.3 / 199 | 2.1 / 7.8 / 9.8 / 1,592 | 22.7 / 55.4 / 71.7 / 10,945 |
+| 7,000 | 0.3 / 1.9 / 2.2 / 398 | 3.5 / 13.4 / 16.7 / 2,587 | 52.9 / 127.6 / 165.5 / 25,472 |
+| 20,000 | 0.3 / 2.2 / 2.6 / 398 | 6.8 / 26.4 / 32.9 / 5,174 | 76.5 / 191.4 / 247.2 / 38,009 |
+| 50,000 | 0.5 / 3.7 / 4.4 / 796 | 16.9 / 65.9 / 82.3 / 13,134 | 150.8 / 387.1 / 498.4 / 77,013 |
+| 150,000 | 0.6 / 4.6 / 5.5 / 995 | 49.0 / 181.6 / 228.1 / 36,218 | 280.9 / 711.1 / 916.9 / 141,489 |
+
+- The tier cliff is fixed: each channel's audience is at least what an
+  account at the top of each smaller tier gets, so viewers, visits, every
+  month's cumulative sign-ups and active subscribers never fall when
+  followers rise (property test 100 to 1,000,000). The only exception found:
+  with 60 link Stories a month and 80% yearly cancellations, the cautious
+  active count can move by a hundred-thousandth where a larger tier's rates
+  take over, because earlier sign-ups have longer to cancel.
+- Levers ("What raises your number", strong case, one change at a time):
+  bio link per 1,000 profile visits a month, keyword Reels (turn on, or 4
+  more), 4 more link Stories (month 1 and 12-month sign-ups only; they bring
+  the same viewers sooner), a broadcast channel of 300 members, and "enter
+  your Story views" (shows the assumed strong-case viewers).
+- Display: whole people or "fewer than 1"; the monthly amount is whole active
+  subscribers × price. Early access keeps "cautious month 1 - strong month 1".
+- Default follower count on the page is 7,000 (the calibration example).
 
 Earnings estimate: subscribers, monthly or upfront (monthly equivalent =
 price / months), share on workout + nutrition, voice add-on uptake, paid
@@ -153,13 +205,19 @@ Platform settings gain a "Growth & marketing" group:
 
 - **Marketing estimates** (`marketing`, operator controls like the
   application settings: always enabled, no connection test, cannot be
-  disconnected). Fields: assumptions version, Story reach low/high for the
-  five tiers, link click-through low/high, visit-to-paid low/high, the
+  disconnected). Fields (version 2026-09-28.3): assumptions version (the
+  earlier defaults `2026-09-28` and `2026-09-28.2` read as the current one),
+  Story audience per tier for each scenario (`FOLLOWER_STORY_<CAUTIOUS|
+  TYPICAL|STRONG>_<5K|10K|50K|100K|ABOVE_100K>`), per-scenario link click,
+  DM open, broadcast click, bio click and visit to paid
+  (`FOLLOWER_<CLICK|DM_OPEN|BROADCAST_CLICK|BIO_CLICK|PAID>_<SCENARIO>`), the
   engagement benchmark and the largest scaling, plus "Public company details"
-  shown on `/about` only when set. Percentages above 100 and a scaling outside
-  1-10 are refused; an inconsistent set (a low above its high) is ignored and
-  the cited defaults apply. Changes are in the existing settings change
-  history.
+  shown on `/about` only when set. Reel reach, comments per view and the
+  keyword factor are cited constants in code. Percentages above 100 and a
+  scaling outside 1-10 are refused; an inconsistent set (cautious above
+  typical, or typical above strong) is ignored and the cited defaults apply.
+  A value that leaves its cited default needs the operator's reason. The
+  old low/high keys of version 2026-09-28.2 are no longer read.
 - `IntegrationDefinition.controls` replaces the hard-coded
   `id === "application"` checks in the settings API and page.
 

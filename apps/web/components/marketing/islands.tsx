@@ -1,20 +1,29 @@
 "use client";
 // Small interactive islands inside the server-rendered marketing pages, also
 // reused in the trainer workspace (follower calculator). Pure arithmetic lives
-// in packages/domain/src/marketing-calculators.ts.
+// in packages/domain/src/marketing-calculators.ts. The follower calculator
+// headlines the strong case; cautious and typical sit under How we estimate.
 import Link from "next/link";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   DEFAULT_EARNINGS_INPUTS,
+  DEFAULT_FOLLOWER_INPUTS,
   EARNINGS_LIMITS,
   aedWhole,
   FOLLOWER_LIMITS,
-  displayRange,
+  FOLLOWER_SCENARIOS,
+  displayCount,
   estimateEarnings,
   estimateFollowerConversion,
+  followerLevers,
   followerModelAdjustments,
   type EarningsInputs,
+  type FollowerInputs,
+  type FollowerInputsUsed,
+  type FollowerLeverId,
   type FollowerModelAssumptions,
+  type FollowerRateKey,
+  type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
 
 /** Early access keeps the visitor's numbers: they travel in the address. */
@@ -37,8 +46,6 @@ const whole = (n: number) =>
   new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 }).format(n);
 const pct = (n: number) =>
   new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(n) + "%";
-const range = (r: { low: number; high: number }, format = whole) =>
-  r.low === r.high ? format(r.low) : `${format(r.low)}–${format(r.high)}`;
 
 function NumberField({
   label,
@@ -90,6 +97,52 @@ function NumberField({
 const num = (value: number | "", fallback = 0) =>
   value === "" || !Number.isFinite(value) ? fallback : value;
 
+function CheckField({
+  label,
+  checked,
+  onChange,
+  help,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  help?: string;
+}) {
+  const id = useId();
+  return (
+    <div className="field mk-field mk-check">
+      <label htmlFor={id}>
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          aria-describedby={help ? id + "-help" : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>{label}</span>
+      </label>
+      {help && (
+        <small id={id + "-help"} className="muted">
+          {help}
+        </small>
+      )}
+    </div>
+  );
+}
+
+const countLabel = (n: number) => {
+  const count = displayCount(n);
+  return count === null ? "fewer than 1" : whole(count);
+};
+/** A lever's gain: one decimal below 10, so small gains are not shown as 0. */
+const gainLabel = (n: number) =>
+  n < 0.05 ? "about the same" : n < 10 ? `+${n.toFixed(1)}` : `+${whole(Math.round(n))}`;
+const SCENARIO_LABEL: Record<FollowerScenario, string> = {
+  cautious: "Cautious",
+  typical: "Typical",
+  strong: "Strong case",
+};
+
 /** Instagram follower to paying subscriber estimate, with its assumptions. */
 export function FollowerCalculator({
   model,
@@ -102,12 +155,7 @@ export function FollowerCalculator({
   measured,
 }: {
   model: FollowerModelAssumptions;
-  initial?: {
-    followers?: number;
-    linkStoriesPerMonth?: number;
-    priceAed?: number;
-    engagementRatePct?: number | null;
-  };
+  initial?: Partial<FollowerInputs>;
   compact?: boolean;
   headingLevel?: 2 | 3;
   addressTemplate?: string;
@@ -116,49 +164,105 @@ export function FollowerCalculator({
   /** Shown when the numbers came from a connected Instagram account. */
   measured?: string;
 }) {
-  const [followers, setFollowers] = useState<number | "">(
-      initial?.followers ?? 5000,
+  const D = DEFAULT_FOLLOWER_INPUTS;
+  const start = <K extends keyof FollowerInputs>(key: K) =>
+    (initial?.[key] ?? D[key]) as FollowerInputsUsed[K];
+  const optionalStart = (value: number | null) => (value === null ? "" : value);
+  const [followers, setFollowers] = useState<number | "">(start("followers")),
+    [price, setPrice] = useState<number | "">(start("priceAed")),
+    [stories, setStories] = useState<number | "">(start("linkStoriesPerMonth")),
+    [reels, setReels] = useState<number | "">(start("ctaReelsPerMonth")),
+    [keywordDms, setKeywordDms] = useState<boolean>(start("keywordDms")),
+    [cancel, setCancel] = useState<number | "">(start("yearlyCancelPct")),
+    [visits, setVisits] = useState<number | "">(
+      optionalStart(start("profileVisitsPerMonth")),
     ),
-    [stories, setStories] = useState<number | "">(
-      initial?.linkStoriesPerMonth ?? 8,
+    [members, setMembers] = useState<number | "">(
+      optionalStart(start("broadcastMembers")),
     ),
-    [price, setPrice] = useState<number | "">(initial?.priceAed ?? 199),
+    [links, setLinks] = useState<number | "">(start("broadcastLinksPerMonth")),
+    [views, setViews] = useState<number | "">(optionalStart(start("storyViews"))),
     [engagement, setEngagement] = useState<number | "">(
-      initial?.engagementRatePct ?? "",
+      optionalStart(start("engagementRatePct")),
     );
-  const inputs = {
+  const optionalValue = (value: number | "") => (value === "" ? null : num(value));
+  const inputs: FollowerInputs = {
     followers: num(followers),
-    linkStoriesPerMonth: num(stories),
     priceAed: num(price, 1),
-    engagementRatePct: engagement === "" ? null : num(engagement),
+    linkStoriesPerMonth: num(stories),
+    ctaReelsPerMonth: num(reels),
+    keywordDms,
+    yearlyCancelPct: num(cancel, D.yearlyCancelPct),
+    profileVisitsPerMonth: optionalValue(visits),
+    broadcastMembers: optionalValue(members),
+    broadcastLinksPerMonth: num(links),
+    storyViews: optionalValue(views),
+    engagementRatePct: optionalValue(engagement),
   };
+  const key = JSON.stringify(inputs);
   const estimate = useMemo(
     () => estimateFollowerConversion(inputs, model),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [followers, stories, price, engagement, model],
+    [key, model],
   );
-  const more = useMemo(
-    () =>
-      estimateFollowerConversion(
-        { ...inputs, linkStoriesPerMonth: inputs.linkStoriesPerMonth + 4 },
-        model,
-      ),
+  const levers = useMemo(
+    () => (compact ? [] : followerLevers(inputs, model, "strong")),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [followers, stories, price, engagement, model],
+    [key, model, compact],
   );
-  const subs = displayRange(estimate.subscribers),
-    year = displayRange(estimate.twelveMonthSubscribers),
-    moreSubs = displayRange(more.subscribers),
-    ceiling = displayRange(estimate.ceiling);
+  const used = estimate.inputs,
+    strong = estimate.scenarios.strong;
   const Heading = headingLevel === 2 ? "h2" : "h3";
+  const SubHeading = headingLevel === 2 ? "h3" : "h4";
   const tier = model.tiers[estimate.tierIndex];
   const adjusted = followerModelAdjustments(model).length > 0;
+  const first = displayCount(strong.month1New),
+    active = displayCount(strong.activeMonth12);
+  const cancelText = `${pct(used.yearlyCancelPct)} yearly cancellations`;
   const context = {
-    followers: estimate.inputs.followers,
-    stories: estimate.inputs.linkStoriesPerMonth,
-    price: estimate.inputs.priceAed,
-    estimate: `${subs.low}-${subs.high}`,
+    followers: used.followers,
+    stories: used.linkStoriesPerMonth,
+    price: used.priceAed,
+    estimate: `${Math.floor(estimate.scenarios.cautious.month1New + 1e-9)}-${first ?? 0}`,
   };
+  const leverText = (id: FollowerLeverId) => {
+    switch (id) {
+      case "bioLink":
+        return {
+          title: "Bio link to your page, per 1,000 profile visits a month",
+          why: "Your bio link reaches people your Stories miss.",
+        };
+      case "keywordReels":
+        return used.keywordDms && used.ctaReelsPerMonth > 0
+          ? {
+              title: "4 more Reels a month with a comment keyword",
+              why: "Reels reach people who don’t watch your Stories.",
+            }
+          : {
+              title: "A comment keyword that sends your link by DM, on 4 Reels a month",
+              why: "Reels reach people who don’t watch your Stories.",
+            };
+      case "moreStories":
+        return {
+          title: "4 more link Stories a month",
+          why: "The same viewers get another chance to tap, so they subscribe sooner, not in greater numbers.",
+        };
+      case "broadcast":
+        return used.broadcastMembers
+          ? {
+              title: "300 more broadcast channel members",
+              why: "Members mostly already watch your Stories.",
+            }
+          : {
+              title: `A broadcast channel with 300 members and ${used.broadcastLinksPerMonth || 4} link messages a month`,
+              why: "Members mostly already watch your Stories.",
+            };
+    }
+  };
+  const scenarioPct = (key: "storyPct", s: FollowerScenario) => pct(tier[key][s]);
+  const rates = model.scenarios;
+  const rateList = (key: FollowerRateKey) =>
+    `${pct(rates.cautious[key])}, ${pct(rates.typical[key])} and ${pct(rates.strong[key])}`;
   return (
     <section className="mk-calculator card" aria-label="Follower calculator">
       <div className="mk-calculator-grid">
@@ -173,14 +277,6 @@ export function FollowerCalculator({
             max={FOLLOWER_LIMITS.followers[1]}
           />
           <NumberField
-            label="Stories with your link each month"
-            value={stories}
-            onChange={setStories}
-            min={FOLLOWER_LIMITS.linkStoriesPerMonth[0]}
-            max={FOLLOWER_LIMITS.linkStoriesPerMonth[1]}
-            help="Two a week is 8 a month."
-          />
-          <NumberField
             label="Your monthly price"
             suffix="AED"
             value={price}
@@ -188,75 +284,125 @@ export function FollowerCalculator({
             min={FOLLOWER_LIMITS.priceAed[0]}
             max={FOLLOWER_LIMITS.priceAed[1]}
           />
+          <NumberField
+            label="Stories with your link each month"
+            value={stories}
+            onChange={setStories}
+            min={FOLLOWER_LIMITS.linkStoriesPerMonth[0]}
+            max={FOLLOWER_LIMITS.linkStoriesPerMonth[1]}
+            help="Two a week is 8 a month."
+          />
           {!compact && (
-            <NumberField
-              label="Engagement rate, optional"
-              suffix="%"
-              value={engagement}
-              onChange={setEngagement}
-              min={0}
-              max={100}
-              step={0.01}
-              help="Average likes and comments per post, divided by followers. Leave blank if unsure."
-            />
+            <>
+              <NumberField
+                label="Reels or posts with a call to action each month"
+                value={reels}
+                onChange={setReels}
+                min={FOLLOWER_LIMITS.ctaReelsPerMonth[0]}
+                max={FOLLOWER_LIMITS.ctaReelsPerMonth[1]}
+              />
+              <CheckField
+                label="A comment keyword sends your link by DM"
+                checked={keywordDms}
+                onChange={setKeywordDms}
+                help="Without it, those posts count only through visits to your bio link."
+              />
+              <NumberField
+                label="Members who cancel per year"
+                suffix="%"
+                value={cancel}
+                onChange={setCancel}
+                min={FOLLOWER_LIMITS.yearlyCancelPct[0]}
+                max={FOLLOWER_LIMITS.yearlyCancelPct[1]}
+                help="5 to 80. We assume 30% unless you know yours."
+              />
+              <details className="mk-optional">
+                <summary>Your own numbers (optional)</summary>
+                <NumberField
+                  label="Profile visits each month"
+                  value={visits}
+                  onChange={setVisits}
+                  min={FOLLOWER_LIMITS.profileVisitsPerMonth[0]}
+                  max={FOLLOWER_LIMITS.profileVisitsPerMonth[1]}
+                  help="From Instagram Insights. Your bio link is counted only when you enter this."
+                />
+                <NumberField
+                  label="Broadcast channel members"
+                  value={members}
+                  onChange={setMembers}
+                  min={FOLLOWER_LIMITS.broadcastMembers[0]}
+                  max={FOLLOWER_LIMITS.broadcastMembers[1]}
+                />
+                <NumberField
+                  label="Link messages in your channel each month"
+                  value={links}
+                  onChange={setLinks}
+                  min={FOLLOWER_LIMITS.broadcastLinksPerMonth[0]}
+                  max={FOLLOWER_LIMITS.broadcastLinksPerMonth[1]}
+                />
+                <NumberField
+                  label="Average Story views"
+                  value={views}
+                  onChange={setViews}
+                  min={FOLLOWER_LIMITS.storyViews[0]}
+                  max={FOLLOWER_LIMITS.storyViews[1]}
+                  help="From Instagram Insights. Replaces our guess of how many people see your Stories."
+                />
+                <NumberField
+                  label="Engagement rate"
+                  suffix="%"
+                  value={engagement}
+                  onChange={setEngagement}
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  help="Average likes and comments per post, divided by followers. Leave blank if unsure."
+                />
+              </details>
+            </>
           )}
         </div>
         <div className="mk-result" aria-live="polite">
           <p className="eyebrow">ESTIMATE, NOT A PROMISE</p>
+          <p className="mk-scenario">
+            <span className="badge green">Strong case</span>{" "}
+            an engaged audience and weekly sharing
+          </p>
           <p className="mk-result-figure">
-            {subs.high < 1 ? (
-              <>Fewer than 1</>
-            ) : (
-              <>
-                {range(subs)}
-              </>
-            )}
+            {first === null ? "Fewer than 1" : <>Up to {whole(first)}</>}
           </p>
           <p className="mk-result-label">
-            new paying subscribers in your first month of sharing your link
+            {first === null || first === 1
+              ? "new paying subscriber in your first month"
+              : "new paying subscribers in your first month"}
           </p>
-          {subs.high >= 1 && (
-            <p>
-              About {range(displayRange({
-                low: estimate.monthlyRevenueMinor.low / 100,
-                high: estimate.monthlyRevenueMinor.high / 100,
-              }), (n) => aed(n * 100))}{" "}
-              a month from them at your price.
-            </p>
-          )}
-          <p>
-            After twelve months of the same sharing:{" "}
-            <strong>{year.high < 1 ? "fewer than 1" : range(year)}</strong>{" "}
-            subscribers from the people who see your Stories today, before
-            cancellations.
+          <ul className="mk-headline">
+            <li>
+              {active === null ? (
+                <>
+                  Fewer than 1 active subscriber after 12 months, after{" "}
+                  {cancelText}
+                </>
+              ) : (
+                <>
+                  About <strong>{whole(active)}</strong> active subscribers
+                  after 12 months, after {cancelText}
+                </>
+              )}
+            </li>
+            <li>
+              <strong>{aed(strong.revenueMonth12Minor)}</strong> a month at
+              your price, before platform commission
+            </li>
+            <li>
+              {countLabel(strong.signups12)} sign-ups over 12 months, before
+              cancellations
+            </li>
+          </ul>
+          <p className="fine-print">
+            A best case for an engaged audience, not a typical result. The
+            cautious and typical results are under How we estimate.
           </p>
-          <p className="mk-nudge">
-            With 4 more link Stories a month:{" "}
-            <strong>
-              {moreSubs.high < 1 ? "fewer than 1" : range(moreSubs)}
-            </strong>{" "}
-            in the first month. Repeating your link helps the people who
-            already watch you, then levels off; the most your current Story
-            audience could give at these rates is{" "}
-            <strong>{ceiling.high < 1 ? "fewer than 1" : range(ceiling)}</strong>.
-            Reaching more people raises that ceiling.
-          </p>
-          {!compact && (
-            <dl className="mk-funnel">
-              <div>
-                <dt>People who see your Stories</dt>
-                <dd>{range(displayRange(estimate.storyViewers))}</dd>
-              </div>
-              <div>
-                <dt>People who visit your page</dt>
-                <dd>{range(displayRange(estimate.visitors))}</dd>
-              </div>
-              <div>
-                <dt>New paying subscribers</dt>
-                <dd>{subs.high < 1 ? "< 1" : range(subs)}</dd>
-              </div>
-            </dl>
-          )}
           {addressTemplate && !compact && (
             <AddressPreview
               template={addressTemplate}
@@ -275,35 +421,138 @@ export function FollowerCalculator({
           )}
         </div>
       </div>
+      {!compact && (
+        <section className="mk-levers" aria-label="What raises your number">
+          <SubHeading>What raises your number</SubHeading>
+          <p className="muted">
+            Strong case, one change at a time, against your numbers above.
+          </p>
+          <ul>
+            {levers.map((lever) => {
+              const text = leverText(lever.id);
+              return (
+                <li key={lever.id}>
+                  <strong>{text.title}</strong>
+                  <span>
+                    {gainLabel(lever.month1New)} in your first month,{" "}
+                    {gainLabel(lever.signups12)} sign-ups over 12 months.
+                  </span>
+                  <span className="muted">{text.why}</span>
+                </li>
+              );
+            })}
+            <li>
+              <strong>Enter your average Story views</strong>
+              <span>
+                {used.storyViews === null
+                  ? `The strong case assumes about ${whole(Math.round(strong.storyViewers))} people see your Stories each month.`
+                  : `Using your ${whole(used.storyViews)} Story views in every scenario.`}
+              </span>
+              <span className="muted">
+                Your own number replaces our biggest guess.
+              </span>
+            </li>
+          </ul>
+        </section>
+      )}
       <details className="mk-assumptions" open={!compact}>
-        <summary>Assumptions (version {model.version})</summary>
+        <summary>How we estimate (assumptions version {model.version})</summary>
+        <div className="mk-table-wrap">
+          <table className="mk-table mk-scenarios">
+            <caption>
+              Three scenarios at your numbers; the headline is the strong case
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Scenario</th>
+                <th scope="col">First month</th>
+                <th scope="col">Active after 12 months</th>
+                <th scope="col">Sign-ups over 12 months</th>
+                <th scope="col">A month at month 12</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FOLLOWER_SCENARIOS.map((s) => {
+                const r = estimate.scenarios[s];
+                return (
+                  <tr key={s}>
+                    <th scope="row">{SCENARIO_LABEL[s]}</th>
+                    <td>{countLabel(r.month1New)}</td>
+                    <td>{countLabel(r.activeMonth12)}</td>
+                    <td>{countLabel(r.signups12)}</td>
+                    <td>{aed(r.revenueMonth12Minor)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         <ul>
           <li>
-            Story reach for your tier: {pct(tier.reachLowPct)}–
-            {pct(tier.reachHighPct)} of followers see at least one frame of a
-            Story
-            {estimate.engagementFactor !== 1 &&
+            People who see your Stories each month:{" "}
+            {used.storyViews !== null
+              ? `your ${whole(used.storyViews)} average Story views, in every scenario`
+              : `about ${FOLLOWER_SCENARIOS.map((s) => whole(Math.round(estimate.scenarios[s].storyViewers))).join(", ").replace(/, ([^,]*)$/, " and $1")} (cautious, typical, strong): ${scenarioPct("storyPct", "cautious")}, ${scenarioPct("storyPct", "typical")} and ${scenarioPct("storyPct", "strong")} of followers for your tier, and never fewer than an account at the top of a smaller tier`}
+            {used.storyViews === null &&
+              estimate.engagementFactor !== 1 &&
               `, scaled ×${estimate.engagementFactor.toFixed(2)} by your engagement against the ${pct(model.engagementBenchmarkPct)} average`}
-            . The same people tend to watch each Story, so more Stories do not
-            add viewers.
+            . Cautious and typical are measured on brand accounts; the strong
+            case uses the reach of a six-frame Story sequence up to 10,000
+            followers and vendor guidance above. [Measured; vendor guidance]
           </li>
           <li>
-            Link-sticker click-through: a {pct(model.linkClickLowPct)}–
-            {pct(model.linkClickHighPct)} chance per viewer per link Story
-            (creator reports; no industry benchmark exists). Over several
-            Stories the chance of a visit is 1 − (1 − rate)^Stories, which
-            levels off.
+            Link-sticker click: {rateList("linkClickPct")} per viewer per link
+            Story. Creators report 1–5%; no industry benchmark exists. The same
+            people watch each Story, so the chance of a visit is
+            1 − (1 − rate)^Stories, which levels off. [Creator reports]
+          </li>
+          {used.keywordDms && used.ctaReelsPerMonth > 0 && (
+            <li>
+              Keyword Reels: Reel reach and comments per view by tier, about
+              twice the usual comments with a comment call to action, and{" "}
+              {rateList("dmOpenPct")} of commenters open the DM link. Cautious
+              counts Reel viewers inside your Story audience. [Measured on brand
+              accounts; DM rates are vendor claims]
+            </li>
+          )}
+          {used.profileVisitsPerMonth !== null && (
+            <li>
+              Bio link: {rateList("bioClickPct")} of monthly profile visitors.
+              [Rule of thumb]
+            </li>
+          )}
+          {!!used.broadcastMembers && (
+            <li>
+              Broadcast channel: {rateList("broadcastClickPct")} of members per
+              link message; email benchmarks stand in. [Proxy]
+            </li>
+          )}
+          <li>
+            Visit to paid subscriber: {rateList("paidPct")} of the people who
+            visit: a luxury-retail purchase rate, the Health &amp; Fitness app
+            median and the median for apps where people pay before they start.
+            No published benchmark exists for coaching subscriptions. [Measured;
+            used as a proxy]
           </li>
           <li>
-            Visit to paid subscriber: {pct(model.purchaseLowPct)}–
-            {pct(model.purchaseHighPct)} of the people who visit. These are
-            retail e-commerce purchase rates; no published benchmark exists for
-            coaching subscriptions.
+            Cancellations: {pct(used.yearlyCancelPct)} a year, about{" "}
+            {pct(Math.round(estimate.monthlyCancelPct * 100) / 100)} a month, in
+            every scenario. 30% is our default assumption; subscription apps
+            often lose more after the first month. [Your input; default is an
+            owner assumption]
           </li>
           <li>
-            Only Stories are modelled, not your bio link, posts or other
-            channels. New followers, audience turnover, cancellations and
-            refunds are not modelled.
+            Strong case: per link Story, {pct(rates.strong.linkClickPct)} tap
+            and {pct(rates.strong.paidPct)} of them pay, about{" "}
+            {pct(Math.round(rates.strong.linkClickPct * rates.strong.paidPct) / 100)}{" "}
+            of viewers. That is the low end of a creator example (roughly
+            0.5–1.5% of 100,000 YouTube viewers buying a USD 20 plan) and in
+            line with creators’ rule of thumb that 1–3% of an engaged audience
+            buys over time. [Creator example, owner-supplied; rule of thumb]
+          </li>
+          <li>
+            New followers, trials, discounts, refunds, failed payments and
+            platform commission are not included.
           </li>
           {adjusted && (
             <li>
@@ -314,9 +563,10 @@ export function FollowerCalculator({
           )}
         </ul>
         <p className="fine-print">
-          Estimates apply published averages to your inputs. They are not a
-          prediction or promise of results; your content, audience, offer and
-          price change the real number.{" "}
+          Estimates apply published averages and creator examples to your
+          inputs. They are not a prediction or promise of results, and you may
+          get fewer subscribers than the cautious figure; your content,
+          audience, offer and price change the real number.{" "}
           <Link href="/methodology">Sources and methodology</Link>
         </p>
       </details>
