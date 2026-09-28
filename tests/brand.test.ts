@@ -14,6 +14,7 @@ import {
   BRAND_COLORS,
   BRAND_COPY,
   BRAND_NAME,
+  BRAND_SHARE_IMAGE_ALT,
   DEFAULT_PLATFORM_NAME,
   PLATFORM_ICON_BASE,
   SUPERSEDED_PLATFORM_NAMES,
@@ -155,8 +156,18 @@ test("marketing pages share the trainsyou card on the home page and a branded pr
   assert.equal(home.twitter.images[0], ORIGIN + BRAND_ASSETS.shareImage);
   assert.equal(home.openGraph.images[0].width, 1200);
   assert.equal(home.openGraph.images[0].height, 630);
+  // The supplied card's alternative text describes the card's own words,
+  // not the page's H1; generated cards keep the page's H1.
+  assert.equal(
+    BRAND_SHARE_IMAGE_ALT,
+    "trainsyou: Your coaching. Beyond your hours. Teach your AI. Grow your coaching business.",
+  );
+  assert.equal(home.openGraph.images[0].alt, BRAND_SHARE_IMAGE_ALT);
   const pricing = marketingMetadata(marketingPage("/pricing")!, ctx);
   assert.equal(pricing.openGraph.images[0].url, ORIGIN + "/og?path=%2Fpricing");
+  assert.equal(pricing.openGraph.images[0].alt, marketingPage("/pricing")!.h1);
+  const renamed = marketingMetadata(marketingPage("/")!, { ...ctx, appName: "Acme" });
+  assert.equal(renamed.openGraph.images[0].alt, marketingPage("/")!.h1);
   const og = await source("app/og/route.tsx");
   assert.match(og, /BRAND_ASSETS\.lockupInk/);
   assert.match(og, /BRAND_ASSETS\.symbolInk/);
@@ -429,14 +440,19 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   assert.match(button[1], /color:\s*var\(--ty-white\);/);
   assert.ok(contrast(panel("--ty-white"), panel("--ink")) >= 4.5);
   // The primary action is Pace with ink text and an ink edge (3:1 or better
-  // against white); its hover stays readable.
-  const cta = marketing.match(/\n\.button\.mk-cta \{([^}]*)\}/);
+  // against white); its hover stays readable. The address preview's claim
+  // button on white follows it (lime is the only primary style on white),
+  // and the action stays 15px semibold on phones too.
+  const cta = marketing.match(/\n(\.button\.mk-cta,[^{]*)\{([^}]*)\}/);
   assert.ok(cta, "the primary action rule");
-  assert.match(cta[1], /background:\s*var\(--lime\);/);
-  assert.match(cta[1], /color:\s*var\(--on-lime\);/);
-  assert.match(cta[1], /border:\s*1px solid var\(--ink\);/);
+  assert.match(cta[1], /\.mk-econ \.mk-address \.button/);
+  assert.match(cta[2], /background:\s*var\(--lime\);/);
+  assert.match(cta[2], /color:\s*var\(--on-lime\);/);
+  assert.match(cta[2], /border:\s*1px solid var\(--ink\);/);
+  assert.match(cta[2], /font-size:\s*15px;/);
+  assert.match(cta[2], /font-weight:\s*600;/);
   assert.ok(contrast(light("--ink"), light("--white")) >= 3);
-  const hover = marketing.match(/\n\.button\.mk-cta:hover:not\(:disabled\) \{\s*background:\s*([^;]+);/);
+  const hover = marketing.match(/\n\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/);
   assert.ok(hover, "the primary action hover rule");
   const hovered = resolver(root, { "--hover": hover[1].trim() });
   assert.ok(contrast(hovered("--on-lime"), hovered("--hover")) >= 4.5, "hover contrast");

@@ -46,78 +46,95 @@ export function MarketingHeader({
 }: BrandProps & { cta: Cta; path?: string }) {
   const nav = marketingNav();
   return (
+    // The header spans the page (background and rule); its content sits in
+    // the one page container, so every region starts at the same edge.
     <header className="mk-header">
       <a className="mk-skip" href="#main">
         Skip to content
       </a>
-      <Wordmark appName={appName} initials={initials} />
-      <nav className="mk-nav" aria-label="Main">
-        <ul>
-          {nav.map((group) =>
-            group.href ? (
-              <li key={group.label}>
-                <Link
-                  className="mk-nav-top"
-                  href={group.href}
-                  aria-current={current(group.href, path)}
-                >
-                  {group.label}
-                </Link>
-              </li>
-            ) : (
-              <li key={group.label} className="mk-nav-group">
-                <span className="mk-nav-top">
-                  {group.label} <ChevronDown size={14} aria-hidden="true" />
-                </span>
-                <ul className="mk-dropdown" aria-label={group.label}>
-                  {group.links.map((item: NavLink) => (
-                    <li key={item.href}>
-                      <Link href={item.href} aria-current={current(item.href, path)}>
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ),
-          )}
-        </ul>
-      </nav>
-      <div className="mk-header-actions">
-        <Link className="mk-signin" href="/login">
-          Sign in
-        </Link>
-        <Link className="button mk-cta" href={cta.href}>
-          {cta.label}
-        </Link>
-      </div>
-      <details className="mk-mobile-menu">
-        <summary>Menu</summary>
-        <div className="mk-mobile-panel">
-          {nav.map((group) => (
-            <div key={group.label}>
-              {group.href ? (
-                <Link href={group.href}>{group.label}</Link>
+      <div className="mk-container mk-header-inner">
+        <Wordmark appName={appName} initials={initials} />
+        <nav className="mk-nav" aria-label="Main">
+          <ul>
+            {nav.map((group) =>
+              group.href ? (
+                <li key={group.label}>
+                  <Link
+                    className="mk-nav-top"
+                    href={group.href}
+                    aria-current={current(group.href, path)}
+                  >
+                    {group.label}
+                  </Link>
+                </li>
               ) : (
-                <>
-                  <p className="eyebrow">{group.label}</p>
-                  <ul>
-                    {group.links.map((item) => (
+                <li key={group.label} className="mk-nav-group">
+                  {/* The group label shows the current section when one of
+                      its pages is open. */}
+                  <span
+                    className={
+                      "mk-nav-top" +
+                      (group.links.some((item) => item.href === path)
+                        ? " mk-nav-current"
+                        : "")
+                    }
+                  >
+                    {group.label} <ChevronDown size={14} aria-hidden="true" />
+                  </span>
+                  <ul className="mk-dropdown" aria-label={group.label}>
+                    {group.links.map((item: NavLink) => (
                       <li key={item.href}>
-                        <Link href={item.href}>{item.label}</Link>
+                        <Link href={item.href} aria-current={current(item.href, path)}>
+                          {item.label}
+                        </Link>
                       </li>
                     ))}
                   </ul>
-                </>
-              )}
-            </div>
-          ))}
-          <Link href="/login">Sign in</Link>
+                </li>
+              ),
+            )}
+          </ul>
+        </nav>
+        <div className="mk-header-actions">
+          <Link className="mk-signin" href="/login">
+            Sign in
+          </Link>
           <Link className="button mk-cta" href={cta.href}>
             {cta.label}
           </Link>
         </div>
-      </details>
+        <details className="mk-mobile-menu">
+          <summary>Menu</summary>
+          <div className="mk-mobile-panel">
+            {nav.map((group) => (
+              <div key={group.label}>
+                {group.href ? (
+                  <Link href={group.href} aria-current={current(group.href, path)}>
+                    {group.label}
+                  </Link>
+                ) : (
+                  <>
+                    <p className="eyebrow">{group.label}</p>
+                    <ul>
+                      {group.links.map((item) => (
+                        <li key={item.href}>
+                          <Link href={item.href} aria-current={current(item.href, path)}>
+                            {item.label}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            ))}
+            <Link href="/login">Sign in</Link>
+            <Link className="button mk-cta" href={cta.href}>
+              {cta.label}
+            </Link>
+          </div>
+        </details>
+      </div>
     </header>
   );
 }
@@ -158,7 +175,13 @@ export function MarketingFooter({ appName, initials }: BrandProps) {
       </nav>
       <p className="mk-footer-note muted">
         © {new Date().getFullYear()} {appName}. Estimates on this site are
-        illustrative ranges, never promises. Coaching is not medical advice.
+        illustrative ranges, never promises. Coaching is not medical advice.{" "}
+        {/* Opens the optional analytics preferences (components/
+            acquisition.tsx listens for this attribute); it replaces the
+            floating preferences button on pages with this footer. */}
+        <button type="button" className="text-button mk-footer-prefs" data-analytics-preferences="">
+          Analytics preferences
+        </button>
       </p>
     </footer>
   );

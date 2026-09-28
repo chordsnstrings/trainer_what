@@ -5,11 +5,13 @@ import Link from "next/link";
 import {
   Apple,
   ArrowRight,
+  CalendarCheck,
   CalendarDays,
   Check,
   CheckCircle,
   CircleAlert,
   Dumbbell,
+  MessageCircle,
   TrendingUp,
   UserRound,
   type LucideIcon,
@@ -269,17 +271,17 @@ function Closing({
   secondary: Cta;
 }) {
   return (
-    <div className="mk-closing-wrap">
+    <div className="mk-container mk-closing-wrap">
       <section className="mk-closing" aria-labelledby="mk-closing-h">
         <h2 id="mk-closing-h">
           {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
         </h2>
         <p>Guided setup. Nothing goes live until you publish.</p>
         <div className="button-row">
-          <Link className="button large" href={cta.href}>
+          <Link className="button large mk-closing-cta" href={cta.href}>
             {cta.label} <ArrowRight size={17} aria-hidden="true" />
           </Link>
-          <Link className="text-link" href={secondary.href}>
+          <Link className="text-link mk-link" href={secondary.href}>
             {secondary.label} <ArrowRight size={15} aria-hidden="true" />
           </Link>
         </div>
@@ -295,27 +297,37 @@ function closingLink(path: string): Cta {
     : { label: "What are my followers worth?", href: "/follower-calculator" };
 }
 
-/** The Pace highlight on part of a heading; the text itself is unchanged. */
+/**
+ * The Pace highlight on part of a heading; the text itself is unchanged. A
+ * span, not <mark>: the emphasis is decorative, and screen readers can
+ * announce <mark> as "highlight" in the middle of the H1.
+ */
 function Highlighted({ text, mark }: { text: string; mark?: string }) {
   const at = mark ? text.indexOf(mark) : -1;
   if (!mark || at < 0) return <>{text}</>;
   return (
     <>
       {text.slice(0, at)}
-      <mark className="mk-mark">{mark}</mark>
+      <span className="mk-mark">{mark}</span>
       {text.slice(at + mark.length)}
     </>
   );
 }
 
-/** The commission bands as short labels, from the ledger's own bands. */
+/**
+ * The commission bands as short labels, from the ledger's own bands. The
+ * list is labelled "Commission by paying subscriber", so the ranges count
+ * paying subscribers: "25% · first 100", "20% · 101–300", ...
+ */
 export function bandPills(): string[] {
   const n = (v: number) => v.toLocaleString("en-GB");
   let from = 1;
   return BANDS.map((band) => {
-    const range = Number.isFinite(band.count)
-      ? `${n(from)}–${n(from + band.count - 1)}`
-      : `${n(from)}+`;
+    const range = !Number.isFinite(band.count)
+      ? `${n(from)}+`
+      : from === 1
+        ? `first ${n(band.count)}`
+        : `${n(from)}–${n(from + band.count - 1)}`;
     from += band.count;
     return `${band.bps / 100}% · ${range}`;
   });
@@ -607,7 +619,8 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
     return (
       <section className="mk-section" id="claim" aria-labelledby="claim-h">
         <h2 id="claim-h">Claim your coaching address</h2>
-        <AddressPreview template={platform.coachAddressTemplate} />
+        {/* Shown without the scheme, as on the home page. */}
+        <AddressPreview template={platform.coachAddressTemplate.replace(/^https?:\/\//, "")} />
       </section>
     );
   return (
@@ -708,13 +721,13 @@ function AfterSection({
   t: (s: string) => string;
 }) {
   if (page.path === "/pricing" && section.id === "hours") return <PriceAnchors />;
+  // /features: screens and guides first; the full capability matrix (still
+  // server-rendered and indexed) sits lower on the page.
   if (page.path === "/features" && section.id === "subscribers")
     return (
       <>
         <ProductScreens t={t} />
-        <FeatureMatrix platform={platform} t={t} />
-        <Replaces t={t} />
-        <section className="mk-section" aria-labelledby="all-features-h">
+        <section className="mk-section" id="feature-guides" aria-labelledby="all-features-h">
           <h2 id="all-features-h">Feature guides</h2>
           <PageTiles
             pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
@@ -723,6 +736,8 @@ function AfterSection({
             withChips
           />
         </section>
+        <Replaces t={t} />
+        <FeatureMatrix platform={platform} t={t} />
       </>
     );
   if (page.path === "/get-started" && section.id === "checklist")
@@ -761,13 +776,14 @@ function StandardPage({ page, platform, origin }: Ctx) {
   const demo = page.path === "/demo";
   return (
     <>
-      <div className="mk-page">
+      <div className="mk-container mk-page">
         <Breadcrumbs page={page} t={t} />
         <header className="mk-page-head">
           <p className="eyebrow">{t(page.eyebrow)}</p>
           <h1>{t(page.h1)}</h1>
           {chip && <Chip chip={chip} />}
-          {/* A short lede in the hero; the answer-first introduction follows. */}
+          {/* One short statement above the fold: the lede, or the
+              answer-first introduction on pages without one. */}
           <p className={page.lede ? "mk-lede" : "mk-answer"}>{t(page.lede ?? page.intro)}</p>
           <div className="button-row">
             <Link className="button large mk-cta" href={cta.href}>
@@ -780,7 +796,6 @@ function StandardPage({ page, platform, origin }: Ctx) {
             )}
           </div>
         </header>
-        {page.lede && <p className="mk-summary">{t(page.intro)}</p>}
         <CustomBlock page={page} platform={platform} origin={origin} t={t} />
         {page.sections.map((section) =>
           demo && section.id === "scenarios" ? (
@@ -822,6 +837,15 @@ function StandardPage({ page, platform, origin }: Ctx) {
           </section>
         )}
         {page.path === "/methodology" && <Methodology platform={platform} />}
+        {/* A page with a lede keeps its answer-first introduction (the text
+            in JSON-LD and llms-full.txt) as a short summary before the FAQs,
+            instead of repeating the lede straight under it. */}
+        {page.lede && (
+          <section className="mk-section mk-in-short" id="in-short" aria-labelledby="in-short-h">
+            <h2 id="in-short-h">In short</h2>
+            <p className="mk-body">{t(page.intro)}</p>
+          </section>
+        )}
         <Faqs page={page} t={t} />
         <Related page={page} t={t} />
         <p className="mk-updated muted">
@@ -834,9 +858,9 @@ function StandardPage({ page, platform, origin }: Ctx) {
 }
 
 /**
- * A home band: the registry heading and body, a visual and a link. Bands
- * alternate white and paper; "split" puts the text beside the visual on
- * wide screens.
+ * A home band: the registry heading and body, a visual and up to two links.
+ * Bands alternate white and paper; "split" puts the text beside the visual
+ * on wide screens. Every band shares the one page container.
  */
 function HomeSection({
   page,
@@ -845,7 +869,7 @@ function HomeSection({
   tone,
   split = false,
   visual,
-  link,
+  links = [],
   className = "",
 }: {
   page: MarketingPage;
@@ -854,15 +878,17 @@ function HomeSection({
   tone: "white" | "paper";
   split?: boolean;
   visual?: ReactNode;
-  link?: Cta;
+  links?: Cta[];
   className?: string;
 }) {
   const section = page.sections.find((s) => s.id === id)!;
-  const more = link && (
+  const more = links.length > 0 && (
     <p className="mk-home-more">
-      <Link className="text-link mk-link" href={link.href}>
-        {link.label} <ArrowRight size={15} aria-hidden="true" />
-      </Link>
+      {links.map((link) => (
+        <Link key={link.href} className="text-link mk-link" href={link.href}>
+          {link.label} <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+      ))}
     </p>
   );
   return (
@@ -871,7 +897,7 @@ function HomeSection({
       id={id}
       aria-labelledby={id + "-h"}
     >
-      <div className={"mk-home-inner" + (split ? " mk-home-split" : "")}>
+      <div className={"mk-container mk-home-inner" + (split ? " mk-home-split" : "")}>
         <div className="mk-home-text">
           <h2 id={id + "-h"}>{t(section.heading)}</h2>
           {section.body?.map((p) => (
@@ -888,28 +914,79 @@ function HomeSection({
   );
 }
 
-/** What subscribers get: four ink icons on paper squares. */
+type Tile = {
+  icon: LucideIcon;
+  label: string;
+  line: string;
+  href: string;
+  /** The feature page whose availability decides whether the tile shows. */
+  gate?: string;
+};
+/**
+ * What subscribers get: four flat tiles, each linking to its feature page
+ * with one short line. Only features available now are shown ("Available
+ * soon" stays on /features): the fourth tile is nutrition when that tier is
+ * on, otherwise the first available of chat and bookings.
+ */
 function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
-  // The same registry entry and chip as the nutrition item on /features.
-  const nutrition = availabilityChip(
-    marketingPage("/features/nutrition"),
-    platform.availability,
-  );
-  const tiles: Array<[LucideIcon, string, ReturnType<typeof availabilityChip>]> = [
-    [CalendarDays, "Daily plan", null],
-    [Dumbbell, "Guided workouts", null],
-    [TrendingUp, "Progress they can see", null],
-    [Apple, "Nutrition", nutrition],
+  const core: Tile[] = [
+    {
+      icon: CalendarDays,
+      label: "Daily plan",
+      line: "Dated, built from your rules.",
+      href: "/features/ai-training-plans",
+    },
+    {
+      icon: Dumbbell,
+      label: "Guided workouts",
+      line: "Cues, set logging and rest timers.",
+      href: "/features/subscriber-app",
+    },
+    {
+      icon: TrendingUp,
+      label: "Progress they can see",
+      line: "Sessions and best loads, in one place.",
+      href: "/features/progress-and-client-twin",
+    },
   ];
+  const extra: Tile[] = [
+    {
+      icon: Apple,
+      label: "Nutrition",
+      line: "Meal plans and a food diary, as an optional tier.",
+      href: "/features/nutrition",
+      gate: "/features/nutrition",
+    },
+    {
+      icon: MessageCircle,
+      label: "Chat",
+      line: "With you and a clearly labelled digital coach.",
+      href: "/features/chat-and-digital-coach",
+      gate: "/features/chat-and-digital-coach",
+    },
+    {
+      icon: CalendarCheck,
+      label: "Sessions with you",
+      line: "Paid one-to-one bookings, when it matters.",
+      href: "/features/bookings",
+      gate: "/features/bookings",
+    },
+  ];
+  const available = (tile: Tile) =>
+    !tile.gate ||
+    !availabilityChip(marketingPage(tile.gate), platform.availability)?.soon;
+  const tiles = [...core, ...extra.filter(available).slice(0, 1)];
   return (
     <ul className="mk-icon-tiles">
-      {tiles.map(([Icon, label, chip]) => (
+      {tiles.map(({ icon: Icon, label, line, href }) => (
         <li key={label}>
-          <span className="mk-icon-square" aria-hidden="true">
-            <Icon size={22} />
-          </span>
-          <span className="mk-icon-label">{label}</span>
-          <Chip chip={chip} />
+          <Link className="mk-icon-tile" href={href}>
+            <span className="mk-icon-square" aria-hidden="true">
+              <Icon size={22} />
+            </span>
+            <span className="mk-icon-label">{label}</span>
+            <span className="mk-icon-line">{line}</span>
+          </Link>
         </li>
       ))}
     </ul>
@@ -918,16 +995,24 @@ function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
 
 /** The trainer stays in charge: the decision flow (sample data). */
 function ControlFlow() {
+  // One image for assistive technology: the tag and the three paths are
+  // summarised in its label; the drawn cards are presentational.
   return (
-    <div className="mk-flow-card">
-      <p className="mk-relay-tag">Illustration with sample data</p>
+    <div
+      className="mk-flow-card"
+      role="img"
+      aria-label="Illustration with sample data: a subscriber says squats felt easy; your rule adds 2.5 kg automatically. Unsure changes come to you, and pain pauses the workout and comes to you."
+    >
+      <p className="mk-relay-tag" aria-hidden="true">
+        Illustration with sample data
+      </p>
       <div className="mk-flow" aria-hidden="true">
         <div className="mk-flow-msg">
           <span className="small-label">SUBSCRIBER</span>
           <p>“Week three done. Squats felt easy.”</p>
         </div>
         <div className="mk-flow-brain">
-          <span className="small-label">YOUR TRAINER BRAIN</span>
+          <span className="small-label">YOUR AI</span>
           <p>
             <strong>Your rule:</strong> two easy sessions at 3+ reps in reserve →
             add 2.5 kg.
@@ -955,16 +1040,16 @@ function ControlFlow() {
 
 /**
  * Your site and your price: the coaching address from the platform's
- * template (never a hard-coded domain) and the commission bands.
+ * template (never a hard-coded domain), shown without the scheme, and the
+ * commission bands by paying subscriber.
  */
 function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
-  const address = platform.coachAddressTemplate
-    .replace("{slug}", "yourname")
-    .replace(/^https?:\/\//, "");
+  const template = platform.coachAddressTemplate.replace(/^https?:\/\//, "");
+  const address = template.replace("{slug}", "yourname");
   return (
     <div className="mk-econ">
       {platform.registrationOpen ? (
-        <AddressPreview template={platform.coachAddressTemplate} />
+        <AddressPreview template={template} />
       ) : (
         <div className="mk-browser">
           <span className="mk-browser-dots" aria-hidden="true">
@@ -975,17 +1060,24 @@ function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
           <span className="mk-browser-address ltr-data">{address}</span>
         </div>
       )}
-      <ul className="mk-band-pills" aria-label="Commission bands">
-        {bandPills().map((pill) => {
-          const [rate, range] = pill.split(" · ");
-          return (
-            <li key={pill}>
-              <strong>{rate}</strong> · {range}
-            </li>
-          );
-        })}
-      </ul>
-      <p className="fine-print muted">Marginal bands: each band keeps its own rate.</p>
+      <div className="mk-bands-box">
+        <p className="small-label" id="mk-bands-label">
+          Commission by paying subscriber
+        </p>
+        <ul className="mk-band-pills" aria-labelledby="mk-bands-label">
+          {bandPills().map((pill) => {
+            const [rate, range] = pill.split(" · ");
+            return (
+              <li key={pill}>
+                <strong>{rate}</strong> · {range}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="fine-print muted">
+          Each rate applies only to the subscribers in its band.
+        </p>
+      </div>
     </div>
   );
 }
@@ -1001,25 +1093,32 @@ function Home({ page, platform }: Ctx) {
   return (
     <>
       <section className="mk-hero" aria-labelledby="mk-hero-h">
-        <div className="mk-hero-copy">
-          <p className="eyebrow">{t(page.eyebrow)}</p>
-          <h1 id="mk-hero-h">
-            <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
-          </h1>
-          {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
-          <div className="button-row">
-            <Link className="button large mk-cta" href={cta.href}>
-              {cta.label} <ArrowRight size={18} aria-hidden="true" />
-            </Link>
-            <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
-              {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
-            </Link>
+        <div className="mk-container mk-hero-inner">
+          <div className="mk-hero-copy">
+            <div className="mk-hero-head">
+              <p className="eyebrow">{t(page.eyebrow)}</p>
+              <h1 id="mk-hero-h">
+                <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
+              </h1>
+            </div>
+            <div className="mk-hero-body">
+              {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
+              <div className="button-row">
+                <Link className="button large mk-cta" href={cta.href}>
+                  {cta.label} <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+                <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
+                  {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
+                </Link>
+              </div>
+              <p className="mk-hero-micro">
+                Built for UAE trainers · You set the price in AED · No technical
+                skills needed
+              </p>
+            </div>
           </div>
-          <p className="mk-hero-micro">
-            You set the price in AED · No technical skills needed
-          </p>
+          <HeroFlow platform={platform} t={t} />
         </div>
-        <HeroFlow platform={platform} t={t} />
       </section>
       <HomeSection
         page={page}
@@ -1027,7 +1126,7 @@ function Home({ page, platform }: Ctx) {
         t={t}
         tone="white"
         visual={<SubscriberTiles platform={platform} />}
-        link={{ label: "All features", href: "/features" }}
+        links={[{ label: "All features", href: "/features" }]}
       />
       <HomeSection
         page={page}
@@ -1036,7 +1135,10 @@ function Home({ page, platform }: Ctx) {
         tone="paper"
         split
         visual={<ControlFlow />}
-        link={{ label: "See four decisions in the demo", href: "/demo" }}
+        links={[
+          { label: "How your AI decides", href: "/trainer-brain" },
+          { label: "Try the demo", href: "/demo" },
+        ]}
       />
       <HomeSection
         page={page}
@@ -1045,7 +1147,7 @@ function Home({ page, platform }: Ctx) {
         tone="white"
         split
         visual={<EconomicsVisual platform={platform} />}
-        link={{ label: "Pricing in detail", href: "/pricing" }}
+        links={[{ label: "Pricing in detail", href: "/pricing" }]}
       />
       <HomeSection
         page={page}
@@ -1054,10 +1156,14 @@ function Home({ page, platform }: Ctx) {
         tone="paper"
         className="mk-home-followers"
         visual={calculator}
-        link={{ label: "Open the full calculator", href: "/follower-calculator" }}
+        links={[{ label: "Open the full calculator", href: "/follower-calculator" }]}
       />
       <div className="mk-home-band mk-home-white">
-        <div className="mk-home-inner">
+        <div className="mk-container mk-home-inner">
+          {/* All answers start closed: the home page stays under its word
+              budget (scripts/brand-check.mjs). The first answer is the
+              answer-first introduction, in the page's HTML, the FAQPage
+              JSON-LD and llms-full.txt. */}
           <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
       </div>

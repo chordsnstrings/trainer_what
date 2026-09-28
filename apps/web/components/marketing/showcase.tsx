@@ -1,7 +1,7 @@
 // Server-rendered product showcase for the marketing site: the complete
 // capability inventory, the tool categories it replaces, illustrative
-// renders of real screens (sample data, labelled as such) and the home
-// page's "everything included" strip. Counts come from the registry.
+// renders of real screens (sample data, labelled as such) and the
+// "everything included" strip on /features. Counts come from the registry.
 import Link from "next/link";
 import {
   AlertCircle,
@@ -15,7 +15,6 @@ import {
 import {
   CAPABILITY_COUNT,
   FEATURE_MATRIX,
-  MARKETING_PAGES,
   REPLACES,
   type AvailabilityKey,
   type Capability,
@@ -312,18 +311,15 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
 }
 
 /**
- * /features: the scale of the product, counted from the registry, as a
- * paper strip with ink figures (moved from the home page, 28 September 2026).
+ * /features: two figures about the product itself, counted from the
+ * registry, as a paper strip with ink figures. Each jumps to its section
+ * lower on the page. Counts of marketing pages (guides, specialties) are
+ * not product value and are not shown.
  */
 export function IncludedStrip({ t }: { t: (s: string) => string }) {
-  const features = MARKETING_PAGES.filter((p) => p.kind === "feature").length,
-    specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty").length;
   const stats: Array<[number, string, string]> = [
     [CAPABILITY_COUNT, "capabilities in one workspace", "/features#all-capabilities"],
-    [FEATURE_MATRIX.length, "areas, from your Brain to payouts", "/features"],
     [REPLACES.length, "separate tools it replaces", "/features#replaces"],
-    [features, "feature guides", "/features"],
-    [specialties, "specialties, each with its own page", "/for-trainers"],
   ];
   return (
     <section className="mk-section mk-included-strip" aria-labelledby="included-h">

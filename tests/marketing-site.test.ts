@@ -108,6 +108,7 @@ const allText = (page: MarketingPage) =>
     page.title,
     page.description,
     page.h1,
+    page.lede ?? "",
     page.intro,
     page.eyebrow,
     ...page.sections.flatMap((s) => [
@@ -452,7 +453,21 @@ test("the product at full size: a complete capability matrix, screens and counts
   // The counts and the subscriber cards moved from the home page to /features.
   assert.match(features, new RegExp(`Everything included in ${APP}`));
   assert.ok(features.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
+  assert.ok(features.includes(`${REPLACES.length} separate tools it replaces`));
   assert.ok(features.includes("What your subscribers get"));
+  // Two figures about the product, each jumping to its own section; no
+  // counts of marketing pages and no link back to the page itself.
+  const strip = render(marketingPage("/features")!).match(/<ul class="mk-included">([\s\S]*?)<\/ul>/)![1];
+  assert.deepEqual(
+    [...strip.matchAll(/href="([^"]+)"/g)].map((m) => m[1]),
+    ["/features#all-capabilities", "/features#replaces"],
+  );
+  assert.doesNotMatch(decode(strip), /feature guides|specialties/);
+  const featuresHtml = render(marketingPage("/features")!);
+  for (const id of ["all-capabilities", "replaces", "feature-guides"])
+    assert.match(featuresHtml, new RegExp(`id="${id}"`), id);
+  // The full matrix sits lower on the page than the screens and guides.
+  assert.ok(featuresHtml.indexOf('id="feature-guides"') < featuresHtml.indexOf('id="all-capabilities"'));
   const home = decode(render(marketingPage("/")!));
   assert.doesNotMatch(home, /Everything included in/);
   assert.ok(!home.includes("Your review queue."));
@@ -467,51 +482,101 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)![1];
   assert.equal(h1.replace(/<[^>]+>/g, ""), brandText(page.h1, APP));
   assert.ok(page.h1Highlight && page.h1.includes(page.h1Highlight));
-  assert.match(h1, new RegExp(`<mark class="mk-mark">${page.h1Highlight}</mark>`));
+  // A span, not <mark> (screen readers can announce "highlight").
+  assert.match(h1, new RegExp(`<span class="mk-mark">${page.h1Highlight}</span>`));
+  assert.doesNotMatch(html, /<mark[\s>]/);
   assert.ok(page.lede, "the home page has a lede");
   assert.ok(brandText(page.lede!, APP).split(/\s+/).length <= 25);
   assert.ok(text.includes(brandText(page.lede!, APP)));
-  assert.match(text, /You set the price in AED · No technical skills needed/);
-  assert.doesNotMatch(text, /payouts to a UAE bank/i, "payouts are off; the hero does not promise them");
+  assert.match(text, /Built for UAE trainers · You set the price in AED · No technical skills needed/);
+  // A short hero: payout details live on /pricing and /how-it-works.
+  assert.doesNotMatch(text, /payouts to a UAE bank/i, "the hero stays short");
+  // One name in the hero: "your AI" (H1, lede, call to action); the Trainer
+  // Brain is introduced on deeper pages, and the lede never opens with the
+  // lowercase brand.
+  const hero = html.match(/<section class="mk-hero"[\s\S]*?<\/section>/)![0];
+  assert.doesNotMatch(decode(hero), /Trainer Brain/);
+  assert.doesNotMatch(page.lede!, /^\{APP_NAME\}|[.?!] \{APP_NAME\}/);
+  // "It asks you when unsure" is said once in the hero, in the relay's
+  // loop; the lede and the "You stay in charge" body make other points.
+  assert.equal((decode(hero).match(/unsure|not sure/gi) ?? []).length, 1);
+  assert.doesNotMatch(page.lede!, /unsure|not sure/i);
+  assert.doesNotMatch(page.sections.find((s) => s.id === "control")!.body!.join(" "), /unsure|not sure/i);
+  // The home page's visible text names the UAE (nav and footer excluded).
+  const main = decode(html.match(/<main[\s\S]*?<\/main>/)![0]);
+  assert.match(main, /\bUAE\b/);
+  // Its body links to the key deeper pages.
+  const mainLinks = [...html.match(/<main[\s\S]*?<\/main>/)![0].matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  for (const href of ["/trainer-brain", "/demo", "/features", "/pricing", "/follower-calculator", "/how-it-works"])
+    assert.ok(mainLinks.includes(href), href);
   // The relay: real text, labelled as an illustration, no H1 or headings.
   const relay = html.match(/<figure class="mk-relay"[\s\S]*?<\/figure>/)![0];
   assert.match(relay, /It asks you first/);
   assert.match(relay, /Illustration with sample data/);
   assert.doesNotMatch(relay, /<h[1-6][\s>]/);
   assert.match(relay, /aria-labelledby="mk-relay-cap"/);
-  assert.match(decode(relay), new RegExp(`${APP} learns your coaching`));
-  // The voice row and the nutrition tile follow the /features chips.
+  assert.deepEqual(
+    [...relay.matchAll(/<p class="mk-relay-title">([\s\S]*?)<\/p>/g)].map((m) => decode(m[1]).trim()),
+    ["You teach", `${APP} learns`, "Subscribers train"],
+  );
+  // Only features available now: while voice is off the third row is a
+  // capability that works today, and the tiles skip nutrition ("Available
+  // soon" stays on /features).
   const voiceOff = decode(render(page, { ...platform, availability: { ...platform.availability, voice: false } }));
-  assert.match(voiceOff, /Voice-led session\s+Available soon/);
+  assert.doesNotMatch(voiceOff, /Available soon/);
+  assert.doesNotMatch(voiceOff, /Voice-led session/);
+  assert.match(voiceOff, /Missed Tuesday · moved to Thursday/);
   const voiceOn = decode(render(page, { ...platform, availability: { ...platform.availability, voice: true } }));
   assert.match(voiceOn, /Voice-led session\s+Add-on/);
-  assert.match(voiceOff, /Nutrition\s+Available soon/);
+  assert.doesNotMatch(voiceOff, /Meal plans/);
+  assert.match(voiceOff, /With you and a clearly labelled digital coach/);
   const nutritionOn = decode(render(page, { ...platform, availability: { ...platform.availability, nutrition: true } }));
-  assert.match(nutritionOn, /Nutrition\s+Optional tier/);
-  // The address comes from the platform's template, never a literal.
+  assert.match(nutritionOn, /Nutrition Meal plans and a food diary, as an optional tier\./);
+  assert.doesNotMatch(nutritionOn, /With you and a clearly labelled digital coach/);
+  // The subscriber tiles are flat links to their feature pages.
+  const tiles = html.match(/<ul class="mk-icon-tiles">([\s\S]*?)<\/ul>/)![1];
+  assert.deepEqual(
+    [...tiles.matchAll(/<a class="mk-icon-tile" href="([^"]+)"/g)].map((m) => m[1]),
+    ["/features/ai-training-plans", "/features/subscriber-app", "/features/progress-and-client-twin", "/features/chat-and-digital-coach"],
+  );
+  // The control illustration is one labelled image; its tag is not an
+  // orphan label for assistive technology.
+  const flow = html.match(/<div class="mk-flow-card"[^>]*>/)![0];
+  assert.match(flow, /role="img"/);
+  assert.match(flow, /aria-label="Illustration with sample data: [^"]+pain pauses the workout[^"]*"/);
+  // The address comes from the platform's template, never a literal, and
+  // shows without the scheme.
   const closed = { ...platform, registrationOpen: false };
   for (const template of ["https://trainsyou.example/coach/{slug}", "https://{slug}.trainsyou.example"]) {
     const shown = decode(render(page, { ...closed, coachAddressTemplate: template }));
     assert.ok(shown.includes(template.replace("{slug}", "yourname").replace("https://", "")), template);
-    const open = decode(render(page, { ...platform, coachAddressTemplate: template }));
-    assert.ok(open.includes(template.replace("{slug}", "your-name")), template);
+    const openHtml = render(page, { ...platform, coachAddressTemplate: template });
+    const econ = decode(openHtml.match(/<div class="mk-econ">[\s\S]*?<\/ul>/)![0]);
+    assert.ok(econ.includes(template.replace("{slug}", "your-name").replace("https://", "")), template);
+    assert.doesNotMatch(econ, /https?:\/\//, template);
   }
   for (const file of ["site.tsx", "hero-flow.tsx", "chip.tsx", "showcase.tsx", "frame.tsx"]) {
     const source = await readFile(new URL("../apps/web/components/marketing/" + file, import.meta.url), "utf8");
     assert.doesNotMatch(source, /yourname\.trainsyou\.com/, file);
   }
-  // The band pills are the ledger's own marginal bands.
+  // The band pills are the ledger's own marginal bands, labelled as
+  // counting paying subscribers.
   const pills = [...html.matchAll(/<ul class="mk-band-pills"[^>]*>([\s\S]*?)<\/ul>/g)][0][1]
     .split("</li>")
     .map((li) => decode(li).trim())
     .filter(Boolean);
-  assert.deepEqual(pills, ["25% · 1–100", "20% · 101–300", "15% · 301–1,000", "10% · 1,001+"]);
+  assert.deepEqual(pills, ["25% · first 100", "20% · 101–300", "15% · 301–1,000", "10% · 1,001+"]);
   assert.deepEqual(pills, bandPills());
+  assert.match(html, /<p class="small-label" id="mk-bands-label">Commission by paying subscriber<\/p><ul class="mk-band-pills" aria-labelledby="mk-bands-label">/);
+  assert.match(text, /Each rate applies only to the subscribers in its band\./);
+  assert.doesNotMatch(text, /Marginal bands/);
   let from = 1;
   BANDS.forEach((band, i) => {
-    assert.ok(pills[i].startsWith(`${band.bps / 100}% · ${from.toLocaleString("en-GB")}`));
+    assert.ok(pills[i].startsWith(`${band.bps / 100}% · ${from === 1 ? "first " + band.count : from.toLocaleString("en-GB")}`));
     from += band.count;
   });
+  // The economics band names card processing as well as AI usage.
+  assert.match(text, /Card processing is itemised; AI usage is passed on at cost\./);
   // At most six H2s (five sections and the FAQ) plus the closing heading.
   const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => decode(m[1]).trim());
   assert.ok(h2s.length - 1 <= 6, h2s.join(" | "));
@@ -524,7 +589,8 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
     "Your coaching. Beyond your hours.",
   ]);
   // Six FAQs; the JSON-LD carries exactly the rendered ones, and the first
-  // answers with the answer-first introduction.
+  // answers with the answer-first introduction (closed, like the others:
+  // the home page keeps its word budget).
   const details = [...html.matchAll(/<details class="mk-faq"><summary>([\s\S]*?)<\/summary><p>([\s\S]*?)<\/p><\/details>/g)];
   assert.equal(details.length, 6);
   const faq = (marketingJsonLd(page, ctx)["@graph"] as any[]).find((n) => n["@type"] === "FAQPage");
@@ -593,6 +659,56 @@ test("copy limits: short headings, ledes, cards, bullets and answers on the head
     assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1, p.path);
     assert.match(html, /<section class="mk-closing"/, p.path);
   }
+});
+
+// The header pages show one short statement above the fold: the lede. The
+// answer-first introduction (unchanged in JSON-LD and llms-full.txt) moves
+// to an "In short" section before the FAQs instead of repeating the lede.
+test("header pages: the lede once above the fold, the introduction lower as In short", () => {
+  const full = llmsFullTxt(ctx);
+  for (const path of ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+    const page = marketingPage(path)!;
+    const html = render(page);
+    const head = html.match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
+    assert.ok(decode(head).includes(brandText(page.lede!, APP)), path);
+    assert.ok(!decode(head).includes(brandText(page.intro, APP)), `${path}: the introduction is not in the hero`);
+    // Nothing between the hero and the first section repeats it.
+    const afterHead = html.slice(html.indexOf("</header>", html.indexOf("mk-page-head")));
+    const inShort = afterHead.indexOf('id="in-short"');
+    assert.ok(inShort > 0, `${path}: In short section`);
+    assert.ok(afterHead.indexOf(">In short</h2>") > 0, path);
+    assert.equal(decode(afterHead).split(brandText(page.intro, APP)).length - 1, 1, `${path}: the introduction once`);
+    assert.ok(decode(afterHead.slice(inShort)).includes(brandText(page.intro, APP)), path);
+    // It comes after every registry section and before the FAQs.
+    for (const section of page.sections)
+      assert.ok(afterHead.indexOf(`id="${section.id}"`) < inShort, `${path}: ${section.id} before In short`);
+    if (page.faqs.length) assert.ok(inShort < afterHead.indexOf('id="faq"'), path);
+    assert.ok(full.includes(brandText(page.intro, APP)), `${path}: llms-full.txt keeps the introduction`);
+  }
+  // A page without a lede keeps its introduction under the H1.
+  const demo = marketingPage("/demo")!;
+  assert.equal(demo.lede, undefined);
+  const demoHead = render(demo).match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
+  assert.ok(decode(demoHead).includes(brandText(demo.intro, APP)));
+  assert.doesNotMatch(render(demo), /id="in-short"/);
+  // The HowTo description is the introduction, still shown on the page.
+  const how = marketingPage("/how-it-works")!;
+  const howTo = (marketingJsonLd(how, ctx)["@graph"] as any[]).find((n) => n["@type"] === "HowTo");
+  assert.equal(howTo.description, brandText(how.intro, APP));
+});
+
+// The shortened Trainer Brain and how-it-works copy keeps its meaning.
+test("shortened copy keeps the privacy, review and safety promises", () => {
+  const brain = marketingPage("/trainer-brain")!;
+  const teach = brain.sections.find((s) => s.id === "teach")!.bullets!;
+  assert.ok(teach.includes("Your own documents; you review the extracted text before use."));
+  const never = brain.sections.find((s) => s.id === "never")!.bullets!;
+  assert.ok(never.includes("Keep pain, medical issues or red flags from you."));
+  assert.ok(never.includes("Use your teaching elsewhere: your Brain stays private to your workspace."));
+  assert.ok(brain.sections.find((s) => s.id === "control")!.bullets!.some((b) => /enforced in code/.test(b)));
+  const steps = marketingPage("/how-it-works")!.sections.find((s) => s.id === "steps")!.steps!;
+  assert.match(steps.find((s) => s.title === "Teach your Brain")!.body, /private redaction review/);
+  assert.match(llmsFullTxt(ctx), /redaction/);
 });
 
 test("registration closed: early access captures the visitor's details and numbers instead of a dead end", () => {

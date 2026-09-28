@@ -7,8 +7,12 @@
 // missing trainsyou favicon, or page errors. Public platform pages are
 // always light (28 September 2026): white canvas, the ink lockup, one white
 // theme-color and no dark surface in either device scheme; the workspace
-// keeps the white lockup in dark mode. The home page also gets a first
-// screen, reduced-motion, animation, right-to-left and word-count pass. It
+// keeps the white lockup in dark mode. Marketing pages start at the header
+// logo's edge (one shared container). The home page also gets a first
+// screen pass as a new visitor sees it (the analytics notice in its default
+// state must cover neither the primary action nor the relay; all three relay
+// steps on the first screen at 390x844 and 1440x900), and a reduced-motion,
+// animation, right-to-left and word-count pass. It
 // also checks that a subscriber's member app and a coach website show their
 // trainer's branding, never the platform's. Start it through
 // scripts/run-brand-check.mjs, which seeds data and starts the servers.
@@ -245,7 +249,16 @@ function measure(page) {
     );
     const colorScheme =
       document.querySelector("meta[name='color-scheme']")?.getAttribute("content") ?? null;
+    // Marketing pages: the page content starts at the header logo's edge.
+    const edgeOf = (selector) => {
+      const el = document.querySelector(selector);
+      return el && el.getBoundingClientRect().width ? Math.round(el.getBoundingClientRect().left) : null;
+    };
+    const edges = document.querySelector(".mk-page .mk-breadcrumbs")
+      ? { logo: edgeOf(".mk-header .brand-logo"), page: edgeOf(".mk-page .mk-breadcrumbs") }
+      : null;
     return {
+      edges,
       surfaces,
       dark,
       themeColors,
@@ -279,6 +292,8 @@ function assertPlatform(label, m, scheme, isPublic = false) {
     scheme === "dark" && !isPublic
       ? "/brand/trainsyou-lockup-white.svg"
       : "/brand/trainsyou-lockup-ink.svg";
+  if (isPublic && m.edges && m.edges.logo !== null && Math.abs(m.edges.logo - m.edges.page) > 1)
+    fail(label, `page content starts at ${m.edges.page}px, the header logo at ${m.edges.logo}px`);
   if (isPublic) {
     for (const [where, value] of Object.entries(m.surfaces))
       if (value !== WHITE) fail(label, `${where} background is ${value}, expected white`);
@@ -316,6 +331,53 @@ async function shot(page, label) {
 }
 
 /**
+ * The first screen of the home page as a new visitor sees it (the optional
+ * analytics notice in its default state): where the hero, the primary
+ * action and the three relay titles end, whether the three steps share one
+ * row, whether any visible notice covers them, and the left edge of every
+ * region (one shared container).
+ */
+function firstScreen(page) {
+  return page.evaluate(() => {
+    const box = (el) => (el ? el.getBoundingClientRect() : null);
+    const nodes = [...document.querySelectorAll(".mk-relay-steps > li")].map(box);
+    const titles = [...document.querySelectorAll(".mk-relay-title")].map(box);
+    const cta = box(document.querySelector(".mk-hero .mk-cta"));
+    const notices = [...document.querySelectorAll(".acquisition-consent")]
+      .map(box)
+      .filter((r) => r && r.width > 0 && r.height > 0);
+    const covers = (r) =>
+      notices.some((n) => n.left < r.right && n.right > r.left && n.top < r.bottom && n.bottom > r.top);
+    const left = (selector) => {
+      const r = box(document.querySelector(selector));
+      return r ? Math.round(r.left) : null;
+    };
+    return {
+      heroBottom: box(document.querySelector(".mk-hero")).bottom,
+      h1: box(document.querySelector("h1")).bottom,
+      cta: cta.bottom,
+      titlesBottom: Math.max(...titles.map((r) => r.bottom)),
+      titleTops: titles.map((r) => Math.round(r.top)),
+      oneRow:
+        nodes.length === 3 &&
+        nodes.every((r) => Math.abs(r.top - nodes[0].top) < 2) &&
+        (document.dir === "rtl"
+          ? nodes[0].left > nodes[1].left && nodes[1].left > nodes[2].left
+          : nodes[0].left < nodes[1].left && nodes[1].left < nodes[2].left),
+      covered: covers(cta) || titles.some(covers),
+      notices: notices.length,
+      edges: {
+        logo: left(".mk-header .brand-logo"),
+        hero: left(".mk-hero h1"),
+        band: left(".mk-home-inner h2"),
+        closing: left(".mk-closing"),
+        footer: left(".mk-footer-brand"),
+      },
+    };
+  });
+}
+
+/**
  * The home page: the first screen at 1440x900 and 390x844, the word count,
  * the relay's motion with and without reduced motion, and the relay in
  * right to left.
@@ -323,55 +385,67 @@ async function shot(page, label) {
 async function homeChecks(scheme) {
   const seconds = (v) =>
     v.split(",").map((s) => (s.trim().endsWith("ms") ? parseFloat(s) / 1000 : parseFloat(s)));
-  // 1440x900: the whole hero, header included, fits the first screen.
+  // 1440x900: the whole hero, header included, fits the first screen; the
+  // three relay titles line up; every region starts at the same edge; the
+  // notice covers nothing and, after a scroll, is a slim bar.
   await screen(`${scheme} 1440x900 / first screen`, async () => {
     const ctx = await context({ width: 1440, height: 900 }, scheme);
     const page = await ctx.newPage();
     await visit(page, "/");
+    const f = await firstScreen(page);
     const m = await page.evaluate(() => {
       const main = document.querySelector("main");
       const calc = document.querySelector(".mk-home-calc");
       const count = (t) => (t ?? "").split(/\s+/).filter(Boolean).length;
       return {
-        heroBottom: document.querySelector(".mk-hero").getBoundingClientRect().bottom,
         words: count(main.innerText) - count(calc?.innerText),
         h2: [...main.querySelectorAll("h2")].length,
         h1: document.querySelectorAll("h1").length,
         relayH: document.querySelectorAll(".mk-relay h1, .mk-relay h2, .mk-relay h3, .mk-home-calc h1").length,
       };
     });
-    checked.push({ label: `${scheme} 1440x900 /`, scanned: 0, low: 0, logo: "-" });
-    if (m.heroBottom > 900) fail(`${scheme} 1440x900 /`, `hero ends at ${Math.round(m.heroBottom)}px`);
-    if (m.words > 400) fail(`${scheme} 1440x900 /`, `${m.words} visible words in main (limit 400)`);
-    if (m.h2 > 6) fail(`${scheme} 1440x900 /`, `${m.h2} H2 headings`);
-    if (m.h1 !== 1 || m.relayH) fail(`${scheme} 1440x900 /`, `${m.h1} H1, ${m.relayH} headings in the relay or calculator`);
-    console.log(`home 1440x900 ${scheme}: hero bottom ${Math.round(m.heroBottom)}px, ${m.words} words in main, ${m.h2} H2`);
+    const label = `${scheme} 1440x900 /`;
+    checked.push({ label, scanned: 0, low: 0, logo: "-" });
+    if (f.heroBottom > 900) fail(label, `hero ends at ${Math.round(f.heroBottom)}px`);
+    if (!f.oneRow) fail(label, "the relay steps are not one row of three");
+    if (Math.max(...f.titleTops) - Math.min(...f.titleTops) > 1)
+      fail(label, `relay titles at ${f.titleTops.join("/")}px, not aligned`);
+    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
+    if (new Set(Object.values(f.edges)).size !== 1)
+      fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
+    if (m.words > 400) fail(label, `${m.words} visible words in main (limit 400)`);
+    if (m.h2 > 6) fail(label, `${m.h2} H2 headings`);
+    if (m.h1 !== 1 || m.relayH) fail(label, `${m.h1} H1, ${m.relayH} headings in the relay or calculator`);
+    await page.mouse.wheel(0, 600);
+    const bar = await page
+      .locator(".consent-bar")
+      .waitFor({ timeout: 10_000 })
+      .then(() => page.locator(".consent-bar").boundingBox());
+    if (!bar || bar.height > 64) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 64)`);
+    console.log(
+      `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main, ${m.h2} H2`,
+    );
     await ctx.close();
   });
-  // 390x844: the H1 and the primary action on the first screen; steps stack.
+  // 390x844: the H1, the primary action and all three relay steps (a
+  // compact row) on the first screen, uncovered by the analytics notice.
   await screen(`${scheme} 390x844 / first screen`, async () => {
     const ctx = await context({ width: 390, height: 844 }, scheme);
     const page = await ctx.newPage();
     await visit(page, "/");
-    const m = await page.evaluate(() => {
-      const nodes = [...document.querySelectorAll(".mk-relay-steps > li")].map((n) =>
-        n.getBoundingClientRect(),
-      );
-      return {
-        h1: document.querySelector("h1").getBoundingClientRect().bottom,
-        cta: document.querySelector(".mk-hero .mk-cta").getBoundingClientRect().bottom,
-        stacked:
-          nodes.length === 3 &&
-          nodes.every((r) => Math.abs(r.left - nodes[0].left) < 2) &&
-          nodes[0].bottom <= nodes[1].top &&
-          nodes[1].bottom <= nodes[2].top,
-      };
-    });
-    checked.push({ label: `${scheme} 390x844 /`, scanned: 0, low: 0, logo: "-" });
-    if (m.h1 > 844 || m.cta > 844)
-      fail(`${scheme} 390x844 /`, `H1 ends at ${Math.round(m.h1)}px, primary action at ${Math.round(m.cta)}px`);
-    if (!m.stacked) fail(`${scheme} 390x844 /`, "the relay steps do not stack vertically");
-    console.log(`home 390x844 ${scheme}: H1 bottom ${Math.round(m.h1)}px, CTA bottom ${Math.round(m.cta)}px, steps stacked ${m.stacked}`);
+    const f = await firstScreen(page);
+    const label = `${scheme} 390x844 /`;
+    checked.push({ label, scanned: 0, low: 0, logo: "-" });
+    if (f.h1 > 844 || f.cta > 844)
+      fail(label, `H1 ends at ${Math.round(f.h1)}px, primary action at ${Math.round(f.cta)}px`);
+    if (f.titlesBottom > 844) fail(label, `the relay titles end at ${Math.round(f.titlesBottom)}px`);
+    if (!f.oneRow) fail(label, "the relay steps are not one compact row");
+    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
+    if (new Set(Object.values(f.edges)).size !== 1)
+      fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
+    console.log(
+      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta)}px, relay titles end ${Math.round(f.titlesBottom)}px, one row ${f.oneRow}, ${f.notices} notice(s) before scrolling`,
+    );
     await ctx.close();
   });
   // Reduced motion: nothing animates and the final picture shows at once.
@@ -398,6 +472,15 @@ async function homeChecks(scheme) {
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
     await page.locator(".mk-relay").waitFor();
+    // Every card and its words show from the first paint; only the wires,
+    // the dot, the core tile's pulse and the row ticks move.
+    const hiddenAtStart = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk-relay-node, .mk-relay-title, .mk-relay-detail, .mk-relay-loop")]
+        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
+        .map((el) => el.getAttribute("class")),
+    );
+    if (hiddenAtStart.length)
+      fail(`${scheme} motion /`, `hidden at first paint: ${hiddenAtStart.slice(0, 4).join("; ")}`);
     const timing = await page.evaluate(() =>
       [...document.querySelectorAll(".mk *")].map((el) => {
         const s = getComputedStyle(el);

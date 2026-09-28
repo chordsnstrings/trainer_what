@@ -1,12 +1,15 @@
-// The home hero's relay: you teach, {APP_NAME} learns your coaching, your
-// subscribers train, and anything it is unsure about comes back to you. All
-// text is real HTML (read by search engines, language models and screen
-// readers); the wires, the travelling dot and the return loop are
-// decorative. The motion plays once, under five seconds, and only when the
-// visitor has not asked for reduced motion (app/marketing.css); every base
-// style is the final picture. It shows no metrics, counts or revenue.
+// The home hero's relay: you teach, {APP_NAME} learns, your subscribers
+// train, and anything it is unsure about comes back to you. All text is real
+// HTML (read by search engines, language models and screen readers); the
+// wires, the travelling dot and the return loop are decorative. Every step is
+// visible from the first paint; the one-off motion (under three seconds, and
+// only when the visitor has not asked for reduced motion; app/marketing.css)
+// draws the wires, moves the dot, pulses the core tile and ticks the rows.
+// On phones the relay is a compact row of the three steps (icons and titles),
+// so all three show on the first screen. It shows no metrics, counts or
+// revenue, and only features that are available now.
 import {
-  ArrowUp,
+  CalendarClock,
   Check,
   CheckCircle,
   CornerUpLeft,
@@ -48,7 +51,7 @@ function CoreMark({ platform }: { platform: PublicPlatform }) {
   // artwork, unmodified); Latin artwork, so it never mirrors.
   return (
     <span className="mk-relay-mark" aria-hidden="true">
-      <svg viewBox="0 0 104 104" width="44" height="44" focusable="false">
+      <svg viewBox="0 0 104 104" width="36" height="36" focusable="false">
         <g fill="currentColor" transform="translate(20 18)">
           <path d="M4 8H18L35 31V62H21V36Z" />
           <path d="M46 8H61L48 26H33Z" />
@@ -65,7 +68,9 @@ export function HeroFlow({
   platform: PublicPlatform;
   t: (s: string) => string;
 }) {
-  // The same registry entry and chip as the voice item on /features.
+  // The same registry entry and chip as the voice item on /features. While
+  // the voice provider is off, the row shows a capability that works today
+  // instead ("Available soon" stays on /features).
   const voice = availabilityChip(
     marketingPage("/features/voice-coach"),
     platform.availability,
@@ -82,15 +87,17 @@ export function HeroFlow({
             01
           </span>
           <span className="mk-relay-icon" aria-hidden="true">
-            <PenLine size={18} />
+            <PenLine size={20} />
           </span>
           <p className="mk-relay-title">You teach</p>
-          <ul className="mk-relay-chips">
-            <li>Methods</li>
-            <li>Rules</li>
-            <li>Programmes</li>
-          </ul>
-          <p className="mk-relay-quote">“Add 2.5 kg after two easy sessions.”</p>
+          <div className="mk-relay-detail">
+            <ul className="mk-relay-chips">
+              <li>Methods</li>
+              <li>Rules</li>
+              <li>Programmes</li>
+            </ul>
+            <p className="mk-relay-quote">“Add 2.5 kg after two easy sessions.”</p>
+          </div>
           <Wire />
         </li>
         <li className="mk-relay-node mk-relay-core">
@@ -98,12 +105,14 @@ export function HeroFlow({
             02
           </span>
           <CoreMark platform={platform} />
-          <p className="mk-relay-title">{t("{APP_NAME} learns your coaching")}</p>
-          <p className="mk-relay-note">Your Trainer Brain plans each day your way.</p>
-          <p className="mk-relay-status">
-            <CheckCircle size={14} aria-hidden="true" />
-            <span>Confident: applies your rule</span>
-          </p>
+          <p className="mk-relay-title">{t("{APP_NAME} learns")}</p>
+          <div className="mk-relay-detail">
+            <p className="mk-relay-note">Your coaching, applied to every day.</p>
+            <p className="mk-relay-status">
+              <CheckCircle size={14} aria-hidden="true" />
+              <span>Confident: applies your rule</span>
+            </p>
+          </div>
           <Wire />
         </li>
         <li className="mk-relay-node mk-relay-train">
@@ -111,32 +120,39 @@ export function HeroFlow({
             03
           </span>
           <span className="mk-relay-icon" aria-hidden="true">
-            <Users size={18} />
+            <Users size={20} />
           </span>
-          <p className="mk-relay-title">Your subscribers train</p>
-          <p className="mk-relay-note">In your app, under your name.</p>
-          <ul className="mk-relay-rows">
-            <li>
-              <Check size={14} aria-hidden="true" />
-              <span>Today · Lower body, 45 min</span>
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" />
-              <span>Next week · Squat +2.5 kg</span>
-            </li>
-            <li>
-              <Play size={14} aria-hidden="true" />
-              <span>
-                Voice-led session <Chip chip={voice} />
-              </span>
-            </li>
-          </ul>
+          <p className="mk-relay-title">Subscribers train</p>
+          <div className="mk-relay-detail">
+            <ul className="mk-relay-rows">
+              <li>
+                <Check size={14} aria-hidden="true" />
+                <span>Today · Lower body, 45 min</span>
+              </li>
+              <li>
+                <Check size={14} aria-hidden="true" />
+                <span>Next week · Squat +2.5 kg</span>
+              </li>
+              {voice && !voice.soon ? (
+                <li>
+                  <Play size={14} aria-hidden="true" />
+                  <span>
+                    Voice-led session <Chip chip={voice} />
+                  </span>
+                </li>
+              ) : (
+                <li>
+                  <CalendarClock size={14} aria-hidden="true" />
+                  <span>Missed Tuesday · moved to Thursday</span>
+                </li>
+              )}
+            </ul>
+          </div>
         </li>
       </ol>
       <div className="mk-relay-return" aria-hidden="true" />
       <p className="mk-relay-loop">
-        <CornerUpLeft className="mk-relay-loop-wide bidi-mirror" size={16} aria-hidden="true" />
-        <ArrowUp className="mk-relay-loop-narrow" size={16} aria-hidden="true" />
+        <CornerUpLeft className="bidi-mirror" size={16} aria-hidden="true" />
         <span>
           <strong>Not sure? It asks you first.</strong>{" "}
           <span>Pain and red flags always come to you.</span>

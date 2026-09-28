@@ -396,56 +396,84 @@ public pages": every public platform page is always light.
 
 ### Home structure
 
-1. **Hero** (`section.mk-hero`, grid 5fr/7fr, fits a 1440×900 first screen
-   with the header): eyebrow, H1 `BRAND_COPY.homeHeadline` "Teach your AI.
-   It trains your subscribers." with `h1Highlight` "trains" marked in Pace,
-   the 21-word `lede`, the primary action (`button large mk-cta`: "Teach
-   your AI", or "Join early access" while registration is closed), "See how
-   it works", and "You set the price in AED · No technical skills needed".
+Every region (header content, hero, bands, inner pages, closing, footer)
+sits in one container, `.mk-container`: `max-inline-size` 1280 px
+(`--ty-layout-max`) plus a gutter of 48 px, 24 px at 1150 px and below and
+16 px at 760 px and below, so all content starts at the same edge (x = 80 at
+1440 px, 320 at 1920 px). The header bar itself (background and rule) spans
+the page.
+
+1. **Hero** (`section.mk-hero`): the H1 and the copy side by side, the relay
+   full width beneath (copy stacked above it below 1024 px). Eyebrow, H1
+   `BRAND_COPY.homeHeadline` "Teach your AI. It trains your subscribers."
+   with `h1Highlight` "trains" in Pace (a `span.mk-mark`, not `<mark>`); the
+   15-word `lede` "Share your methods and rules. Your AI coaches every
+   subscriber day by day, your way."; the primary action (`button large
+   mk-cta`: "Teach your AI", or "Join early access" while registration is
+   closed, 15 px semibold at every width); "See how it works"; and "Built for
+   UAE trainers · You set the price in AED · No technical skills needed".
+   One name for the product in the hero: "your AI". The Trainer Brain is
+   introduced on deeper pages.
 2. **The relay** (`components/marketing/hero-flow.tsx`, a server
    component): a `figure` labelled "How trainsyou works" with three steps
-   in an `ol`: 01 You teach (Methods, Rules, Programmes, a sample rule),
-   02 trainsyou learns your coaching (the relay mark on a Pace tile, or the
-   initials for a renamed platform; "Confident: applies your rule"), 03 Your
-   subscribers train ("In your app, under your name", today's session, next
-   week's progression and "Voice-led session" with the same availability
-   chip as /features/voice-coach). A dashed loop returns from 02 to 01: "Not
-   sure? It asks you first. Pain and red flags always come to you." Tagged
-   "Illustration with sample data"; no headings, metrics, counts, revenue or
-   hard-coded domain. Wires mirror right to left (`scale: var(--inline-sign)
-   1`); the lockup and the mark never mirror. Below 861 px the steps stack
-   with ink connectors and the loop becomes a pill. Motion is CSS only,
-   plays once, ends at 4.3 s and runs only under
-   `prefers-reduced-motion: no-preference`; every base style is the final
-   picture, and the decorative dot rests hidden.
-3. **What your subscribers get** (white): four ink icons on paper squares
-   (Daily plan, Guided workouts, Progress they can see, Nutrition with the
-   /features/nutrition chip) and "All features".
-4. **You stay in charge** (paper): the decision flow card (subscriber
-   message, the 2.5 kg rule and confidence meter, the three lanes), tagged
-   as sample data; "See four decisions in the demo".
+   in an `ol`, one row of three cards at every width: 01 You teach
+   (Methods, Rules, Programmes, a sample rule), 02 trainsyou learns (the
+   relay mark on a Pace tile, or the initials for a renamed platform; "Your
+   coaching, applied to every day", "Confident: applies your rule"), 03
+   Subscribers train (today's session, next week's progression, and
+   "Voice-led session" with the /features/voice-coach chip only while the
+   voice provider is on; otherwise "Missed Tuesday · moved to Thursday"). A
+   dashed loop returns from 02 to 01: "Not sure? It asks you first. Pain and
+   red flags always come to you." Every card has the same 48 px icon slot so
+   the titles line up; wires sit at the icon row. Tagged "Illustration with
+   sample data"; no headings, metrics, counts, revenue or hard-coded domain.
+   At 760 px and below the relay is a compact row (icons and titles only,
+   short wires, the loop), so all three steps show on a 390×844 first
+   screen. Wires mirror right to left (`scale: var(--inline-sign) 1`); the
+   lockup and the mark never mirror. Motion is CSS only, plays once, ends at
+   2.5 s and runs only under `prefers-reduced-motion: no-preference`; every
+   card and word shows from the first paint (only the wires, the travelling
+   dot, the core tile's pulse and the row ticks move), and the decorative
+   dot rests hidden.
+3. **What your subscribers get** (white): flat tiles, each a link to its
+   feature page with one short line (Daily plan, Guided workouts, Progress
+   they can see, and the first available of Nutrition, Chat and Sessions
+   with you). Unavailable features are not shown here; "Available soon"
+   stays on /features. "All features".
+4. **You stay in charge** (paper): "You choose what runs on its own. Take
+   over any subscriber, any time." and the decision flow card (one
+   `role="img"` with a text summary; subscriber message, the 2.5 kg rule and
+   confidence meter, the three lanes). Links: "How your AI decides"
+   (/trainer-brain) and "Try the demo".
 5. **Your site. Your price.** (white): the coaching address from
-   `coachAddressTemplate` (a browser-bar mock with `yourname` while
-   registration is closed, the live `AddressPreview` while open), the band
-   pills computed from the ledger's `BANDS` (25% · 1–100, 20% · 101–300,
-   15% · 301–1,000, 10% · 1,001+) and "Marginal bands: each band keeps its
-   own rate."; "Pricing in detail".
+   `coachAddressTemplate` shown without the scheme in the body font (a
+   browser-bar mock with `yourname` while registration is closed, the live
+   `AddressPreview` with a Pace claim button while open), the band pills
+   from the ledger's `BANDS` under "Commission by paying subscriber" (25% ·
+   first 100, 20% · 101–300, 15% · 301–1,000, 10% · 1,001+) and "Each rate
+   applies only to the subscribers in its band."; the copy names card
+   processing and AI usage at cost; "Pricing in detail".
 6. **What are your followers worth?** (paper): the compact follower
    calculator unchanged in its own `.mk-home-calc` block (only its container
    is styled); "Open the full calculator".
-7. **Questions trainers ask**: six FAQs (the first answers "How does
-   trainsyou work?" with the answer-first introduction), the same list as
-   the FAQPage JSON-LD.
+7. **Questions trainers ask**: six FAQs, the same list as the FAQPage
+   JSON-LD; the first, "How does trainsyou work?", answers with the
+   answer-first introduction. All start closed, which keeps the home page
+   under its 400-word budget (an open first answer measured 435 words).
 8. **Closing** (every marketing page): a contained Pace panel, H2 the brand
    line (or "Ready to teach your AI?" for a renamed platform), "Guided setup.
    Nothing goes live until you publish.", the ink button and a link ("See
    how it works" on / and /follower-calculator, otherwise "What are my
    followers worth?").
 
-Measured on the production build: the hero ends at 693 px at 1440×900; at
-390×844 the H1 ends at 253 px and the primary action at 462 px; `main` has
-370 visible words (the calculator excluded) and 6 H2s including the
-closing.
+The optional-analytics prompt (`components/acquisition.tsx`) on marketing
+pages is a slim bottom bar (one sentence, "Allow analytics", "No thanks",
+"Details"; 58 px tall at 1440 px) that opens only after the visitor
+scrolls, so the first screen is never covered. The footer's "Analytics
+preferences" button opens the full panel; pages with that footer show no
+floating preferences button. Other pages keep the full panel as before.
+
+Measurements: see "Review fixes" below.
 
 ### Where the home content went (moved, not deleted)
 
@@ -470,7 +498,10 @@ its new page. `lastUpdated` stays 2026-09-28 on / and the receiving pages
 
 Applied now to / and the header pages (/how-it-works, /trainer-brain,
 /features, /pricing, /about, /get-started), each with a `lede` (25 words or
-fewer) shown in the hero, the introduction following it as a summary.
+fewer) as the one statement above the fold. The answer-first introduction
+of those pages is an "In short" section before the FAQs (never straight
+under the lede it would repeat); JSON-LD and llms-full.txt carry it
+unchanged. Pages without a lede keep the introduction under the H1.
 Other pages follow when next edited; /methodology and the calculator copy
 belong to the calculator package.
 
@@ -506,13 +537,36 @@ entity sentence).
   calculator line byte-identical); a copy-limits test for the header pages
   and the moved-content map; the counts and screens checks moved to
   /features. The 350-word floor is unchanged.
-- `scripts/brand-check.mjs`: the home page at 1440×900 (hero bottom,
-  visible words, H2 count, one H1), 390×844 (H1 and primary action on the
-  first screen, stacked steps), reduced motion (no animation, everything
-  visible), motion allowed (plays once, ends by 4.5 s, at rest after 5 s),
-  right to left at 1440 (steps mirrored, wires towards the next step,
-  lockup and mark not mirrored) and every public route at 390 with
-  `?lang=ar` (no overflow).
+- `scripts/brand-check.mjs`: the home page as a new visitor sees it (the
+  analytics notice in its default state) at 1440×900 (hero bottom, three
+  relay cards in one row with aligned titles, nothing covered by the
+  notice, one left edge for header, hero, bands, closing and footer, the
+  bar after a scroll at most 64 px, visible words, H2 count, one H1) and
+  390×844 (H1, primary action and all three relay titles on the first
+  screen, one compact row, nothing covered, one left edge); inner
+  marketing pages start at the header logo's edge; reduced motion (no
+  animation, everything visible), motion allowed (every card visible at
+  first paint, plays once, ends by 4.5 s, at rest after 5 s), right to
+  left at 1440 (steps mirrored, wires towards the next step, lockup and
+  mark not mirrored) and every public route at 390 with `?lang=ar` (no
+  overflow).
+- `scripts/browser-completion-check.mjs` (`npm run test:browser`): on `/`
+  no analytics prompt before a scroll, then the bar; "No thanks" sets no
+  identifier and does not return; the footer's "Analytics preferences"
+  opens the full panel for opt-in, the readback and withdrawal.
+
+### Review fixes (28 September 2026, second pass)
+
+The structure above is the state after review round 1. Measured by
+`npm run test:brand` on the production build, as a new visitor: at
+1440×900 the hero ends at 771 px, the three relay titles sit at 483 px,
+every region starts at x = 80, no notice shows before a scroll and the bar
+is 58 px after one, and `main` has 380 visible words and 6 H2s; at 390×844
+the H1 ends at 248 px, the primary action at 419 px and the three relay
+titles at 611 px, in one row. The motion ends at 2.5 s. Declined: opening
+the first home FAQ (435 words, over the 400 budget) and "your AI" in step
+02 (the owner's brief names trainsyou as the middle step). Full list and
+checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Review round 1".
 
 ## Not done / next
 

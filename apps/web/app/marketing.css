@@ -12,6 +12,30 @@
   --mk-band: var(--ty-paper);
   --mk-line: var(--ty-line);
   --mk-shadow: 0 1px 2px rgb(23 25 23 / 6%), 0 12px 32px rgb(23 25 23 / 6%);
+  /* One container for every region (header, hero, bands, pages, closing,
+     footer): content starts at the same edge everywhere. */
+  --mk-max: var(--ty-layout-max);
+  --mk-gutter: 48px;
+}
+@media (max-width: 1150px) {
+  .mk,
+  .mk-header,
+  .mk-footer {
+    --mk-gutter: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .mk,
+  .mk-header,
+  .mk-footer {
+    --mk-gutter: 16px;
+  }
+}
+.mk-container {
+  inline-size: 100%;
+  max-inline-size: calc(var(--mk-max) + 2 * var(--mk-gutter));
+  margin-inline: auto;
+  padding-inline: var(--mk-gutter);
 }
 .mk {
   background: var(--mk-canvas);
@@ -19,14 +43,27 @@
   min-block-size: 100vh;
 }
 /* The primary action: Pace with ink text and an ink edge (14:1); the hover
-   darkens the Pace (about 10:1). */
-.button.mk-cta {
+   darkens the Pace (about 10:1). On white surfaces it is the only primary
+   style (the address preview's claim button follows it below). It stays
+   larger than the secondary link at every width (globals.css shrinks
+   .button.large to 12px on phones). */
+.button.mk-cta,
+.mk-econ .mk-address .button,
+#claim .mk-address .button {
   background: var(--lime);
   color: var(--on-lime);
   border: 1px solid var(--ink);
+  font-size: 15px;
+  font-weight: 600;
 }
-.button.mk-cta:hover:not(:disabled) {
+.button.mk-cta:hover:not(:disabled),
+.mk-econ .mk-address .button:hover,
+#claim .mk-address .button:hover {
   background: color-mix(in srgb, var(--lime) 85%, var(--ink));
+}
+.mk-header .button.mk-cta {
+  font-size: 14px;
+  padding: 10px 16px;
 }
 /* Secondary actions: ink text links with an arrow. */
 .text-link.mk-link {
@@ -37,6 +74,12 @@
 .text-link.mk-link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+@media (max-width: 760px) {
+  /* A 44px tap area for text links on phones. */
+  .text-link.mk-link {
+    min-block-size: 44px;
+  }
 }
 .mk-skip {
   position: absolute;
@@ -52,20 +95,21 @@
   inset-block-start: 12px;
 }
 
-/* Header */
+/* Header: the bar (background and rule) spans the page; its content sits
+   in the shared container. */
 .mk-header {
   position: sticky;
   inset-block-start: 0;
   z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  max-inline-size: 1440px;
-  margin-inline: auto;
-  padding: 16px 48px;
   background: color-mix(in srgb, var(--mk-canvas) 94%, transparent);
   backdrop-filter: blur(8px);
   border-block-end: 1px solid var(--mk-line);
+}
+.mk-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding-block: 16px;
 }
 .mk-wordmark {
   font-size: 19px;
@@ -100,9 +144,19 @@
 a.mk-nav-top {
   cursor: pointer;
 }
-.mk-nav a:hover,
-.mk-nav a[aria-current="page"] {
-  color: var(--green);
+/* Hover underlines; the current page (or the group holding it) is
+   semibold with a 2px ink underline. */
+.mk-nav a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
+.mk-nav a.mk-nav-top[aria-current="page"],
+.mk-nav-top.mk-nav-current {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
 }
 .mk-nav-group {
   position: relative;
@@ -143,6 +197,11 @@ a.mk-nav-top {
 .mk-dropdown a:hover,
 .mk-dropdown a:focus-visible {
   background: var(--mint);
+  text-decoration: none;
+}
+.mk-dropdown a[aria-current="page"] {
+  font-weight: 600;
+  background: var(--mint);
 }
 .mk-header-actions {
   display: flex;
@@ -161,10 +220,13 @@ a.mk-nav-top {
 .mk-mobile-menu > summary {
   list-style: none;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
   border: 1px solid var(--field-border);
   border-radius: 6px;
-  padding: 9px 14px;
-  font-size: 13px;
+  padding: 9px 16px;
+  font-size: 14px;
 }
 .mk-mobile-menu > summary::-webkit-details-marker {
   display: none;
@@ -192,15 +254,20 @@ a.mk-nav-top {
 .mk-mobile-panel .eyebrow {
   margin-block-end: 6px;
 }
+.mk-mobile-panel a[aria-current="page"] {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 
 /* Page scaffolding */
 .mk-main {
   display: block;
 }
+/* Inner pages start at the shared container edge; prose keeps its own
+   reading width (.mk-answer, .mk-body, headings). */
 .mk-page {
-  max-inline-size: 1100px;
-  margin-inline: auto;
-  padding: 28px 40px 64px;
+  padding-block: 28px 64px;
 }
 .mk-breadcrumbs ol {
   display: flex;
@@ -218,7 +285,8 @@ a.mk-nav-top {
   color: var(--muted);
 }
 .mk-breadcrumbs a:hover {
-  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .mk-page-head {
   padding-block: 16px 40px;
@@ -254,13 +322,10 @@ a.mk-nav-top {
   gap: 22px;
   margin-block-start: 24px;
 }
-.mk-summary {
-  font-size: 16px;
-  line-height: 1.7;
-  max-inline-size: 760px;
-  color: var(--ink);
-  padding-block: 28px 4px;
-  margin: 0;
+/* The answer-first introduction on pages with a lede, before the FAQs. */
+.mk-in-short {
+  margin-block-start: 32px;
+  border-block-start: 1px solid var(--mk-line);
 }
 .mk-section {
   padding-block: 40px 8px;
@@ -688,13 +753,22 @@ a.mk-nav-top {
    prefers-reduced-motion: no-preference (globals.css also stops every
    animation under reduced motion). */
 .mk-hero {
+  background: var(--mk-canvas);
+}
+/* The headline and the copy side by side, the relay full width beneath:
+   the whole "you teach → it learns → your subscribers train" picture fits
+   the first screen from 1280x800 up, with room for each card. */
+.mk-hero-inner {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 48px;
-  max-inline-size: 1280px;
-  margin-inline: auto;
-  padding: 48px 48px 64px;
-  align-items: center;
+  gap: 40px;
+  padding-block: 48px 64px;
+}
+.mk-hero-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  column-gap: 64px;
+  row-gap: 20px;
+  align-items: end;
 }
 .mk-hero .eyebrow {
   font-size: 11px;
@@ -705,7 +779,7 @@ a.mk-nav-top {
   line-height: 1.04;
   letter-spacing: -0.045em;
   font-weight: 540;
-  margin-block: 0 20px;
+  margin: 0;
   /* "Teach your AI." / "It trains your" / "subscribers." */
   max-inline-size: 6.8em;
 }
@@ -722,32 +796,36 @@ a.mk-nav-top {
   font-size: 18px;
   line-height: 1.55;
   color: var(--muted);
-  max-inline-size: 34em;
-  margin-block-end: 0;
+  max-inline-size: 30em;
+  margin: 0;
 }
 .mk-hero .button-row {
   gap: 22px;
-  margin-block-start: 28px;
+  margin-block-start: 24px;
 }
 .mk-hero-micro {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
-  margin-block: 18px 0;
+  margin-block: 16px 0;
 }
 
-/* The relay: you teach → the platform learns → your subscribers train. */
+/* The relay: you teach → the platform learns → your subscribers train.
+   Three equal cards on one row at every width: the full cards from 761px,
+   a compact row of icons and titles on phones. */
 .mk-relay {
+  --relay-gap: 56px;
   position: relative;
   margin: 0;
   min-inline-size: 0;
   background: var(--mk-band);
   border: 1px solid var(--mk-line);
   border-radius: 8px;
-  padding: 28px;
+  padding: 20px 28px 18px;
 }
 .mk-relay-tag {
   display: inline-block;
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -763,60 +841,81 @@ a.mk-nav-top {
   padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: 48px;
+  column-gap: var(--relay-gap);
   align-items: stretch;
 }
+/* Every card has the same 48px icon slot, so the titles line up; the
+   detail starts at the top of the card. */
 .mk-relay-node {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon title num"
+    "detail detail detail";
+  column-gap: 14px;
+  row-gap: 14px;
+  align-items: center;
+  align-content: start;
   min-inline-size: 0;
   background: var(--ty-white);
   border: 1px solid var(--mk-line);
   border-radius: 8px;
-  padding: 16px;
+  padding: 18px;
   box-shadow: var(--mk-shadow);
 }
 .mk-relay-num {
+  grid-area: num;
+  align-self: start;
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
-.mk-relay-icon {
+.mk-relay-icon,
+.mk-relay-mark {
+  grid-area: icon;
   display: inline-grid;
   place-items: center;
-  inline-size: 40px;
-  block-size: 40px;
+  inline-size: 48px;
+  block-size: 48px;
   border-radius: 8px;
+}
+.mk-relay-icon {
   background: var(--mk-band);
   color: var(--ink);
 }
+/* Pace only on step 02, behind the ink mark. */
 .mk-relay-mark {
-  display: inline-grid;
-  place-items: center;
-  inline-size: 64px;
-  block-size: 64px;
-  border-radius: 8px;
   background: var(--lime);
   color: var(--on-lime);
   box-shadow: 0 0 0 14px transparent;
   /* Latin artwork: the mark never mirrors. */
   direction: ltr;
 }
+.mk-relay-mark svg {
+  inline-size: 75%;
+  block-size: 75%;
+}
 .mk-relay-initials {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 .mk-relay-title {
+  grid-area: title;
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
   color: var(--ink);
+}
+.mk-relay-detail {
+  grid-area: detail;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-inline-size: 0;
 }
 .mk-relay-note {
   margin: 0;
@@ -826,7 +925,7 @@ a.mk-nav-top {
 }
 .mk-relay-chips {
   list-style: none;
-  margin: 2px 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
@@ -843,7 +942,7 @@ a.mk-nav-top {
 }
 .mk-relay-rows {
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 0;
   display: grid;
   gap: 6px;
@@ -853,7 +952,7 @@ a.mk-nav-top {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: start;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
   line-height: 1.45;
   color: var(--ink);
@@ -866,11 +965,11 @@ a.mk-nav-top {
 }
 .mk-relay-rows .badge {
   text-transform: none;
-  margin-block-start: 4px;
+  margin-inline-start: 4px;
 }
 /* A sample rule in step 01 and the confident path in step 02. */
 .mk-relay-quote {
-  margin: 4px 0 0;
+  margin: 0;
   padding-inline-start: 10px;
   border-inline-start: 2px solid var(--ink);
   font-size: 13px;
@@ -881,7 +980,7 @@ a.mk-nav-top {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 6px 8px;
   border-radius: 6px;
   background: var(--mk-band);
@@ -893,11 +992,12 @@ a.mk-nav-top {
   flex-shrink: 0;
   margin-block-start: 1px;
 }
-/* A wire spans the gap to the next step; it mirrors in right to left. */
+/* A wire spans the gap to the next step at the height of the icons; it
+   mirrors in right to left. */
 .mk-relay-wire {
   position: absolute;
-  inset-inline-start: 100%;
-  inset-block-start: 50%;
+  inset-inline-start: calc(100% + (var(--relay-gap) - 48px) / 2 + 1px);
+  inset-block-start: 42px;
   translate: 0 -50%;
   scale: var(--inline-sign, 1) 1;
   overflow: visible;
@@ -907,6 +1007,7 @@ a.mk-nav-top {
   stroke-width: 1.5;
   stroke-dasharray: 40;
   stroke-dashoffset: 0;
+  vector-effect: non-scaling-stroke;
 }
 .mk-relay-head {
   fill: var(--ink);
@@ -919,12 +1020,13 @@ a.mk-nav-top {
   opacity: 0;
   translate: 40px 0;
 }
-/* The return loop: from step 02 back to step 01, with an arrowhead. */
+/* The return loop: from under step 02 back to step 01, with an arrowhead;
+   it runs between the centres of the first two columns. */
 .mk-relay-return {
   position: relative;
-  block-size: 22px;
-  margin-inline-start: calc((100% - 96px) / 6);
-  inline-size: calc((100% - 96px) / 3 + 48px);
+  block-size: 20px;
+  margin-inline-start: calc((100% - 2 * var(--relay-gap)) / 6);
+  inline-size: calc((100% - 2 * var(--relay-gap)) / 3 + var(--relay-gap));
   border: 1.5px dashed var(--ink);
   border-block-start: 0;
   border-radius: 0 0 10px 10px;
@@ -941,7 +1043,7 @@ a.mk-nav-top {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   font-size: 13px;
   line-height: 1.45;
   color: var(--muted);
@@ -955,28 +1057,22 @@ a.mk-nav-top {
   margin-block-start: 1px;
   color: var(--ink);
 }
-.mk-relay-loop-narrow {
-  display: none;
-}
 
-/* Home bands: white and paper, alternating. */
+/* Home bands: white and paper, alternating, in the shared container. */
 .mk-home-band {
   padding-block: 96px;
-  padding-inline: 48px;
 }
 .mk-home-white {
   background: var(--mk-canvas);
 }
 /* The first band follows the white hero: no double gap. */
 .mk-hero + .mk-home-band {
-  padding-block-start: 48px;
+  padding-block-start: 32px;
 }
 .mk-home-paper {
   background: var(--mk-band);
 }
 .mk-home-inner {
-  max-inline-size: 1120px;
-  margin-inline: auto;
   display: grid;
   gap: 32px;
 }
@@ -1001,6 +1097,10 @@ a.mk-nav-top {
   margin-block-end: 12px;
 }
 .mk-home-more {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 28px;
+  row-gap: 4px;
   margin: 8px 0 0;
 }
 .mk-home-visual {
@@ -1014,25 +1114,36 @@ a.mk-nav-top {
   font-size: 16px;
 }
 
-/* What subscribers get: ink icons on paper squares. */
+/* What subscribers get: flat tiles, each a link to its feature page. */
+/* Three or four tiles (only features available now), filling the row. */
 .mk-icon-tiles {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 .mk-icon-tiles li {
   display: flex;
+  min-inline-size: 0;
+}
+.mk-icon-tile {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
+  inline-size: 100%;
   background: var(--ty-white);
   border: 1px solid var(--mk-line);
   border-radius: 8px;
   padding: 20px;
-  box-shadow: var(--mk-shadow);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.15s;
+}
+.mk-icon-tile:hover {
+  border-color: var(--ink);
 }
 .mk-icon-square {
   display: inline-grid;
@@ -1044,12 +1155,14 @@ a.mk-nav-top {
   color: var(--ink);
 }
 .mk-icon-label {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--ink);
 }
-.mk-icon-tiles .badge {
-  text-transform: none;
+.mk-icon-line {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 /* You stay in charge: the decision flow, a white card on paper. */
@@ -1127,7 +1240,8 @@ a.mk-nav-top {
   color: var(--warning);
 }
 
-/* Your site, your price: the address and the commission bands. */
+/* Your site, your price: the address (no scheme, body font) and the
+   commission bands by paying subscriber. */
 .mk-econ {
   display: grid;
   gap: 18px;
@@ -1140,6 +1254,21 @@ a.mk-nav-top {
   border-radius: 8px;
   background: var(--ty-white);
   box-shadow: var(--mk-shadow);
+}
+.mk-econ .mk-address-preview,
+#claim .mk-address-preview {
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* /get-started: the claim form and the early-access card keep a form
+   width inside the wider page container. */
+#claim .mk-address {
+  max-inline-size: 560px;
+}
+#early-access {
+  max-inline-size: 860px;
 }
 .mk-browser {
   display: flex;
@@ -1167,13 +1296,20 @@ a.mk-nav-top {
   flex: 1;
   min-inline-size: 0;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--ink);
   background: var(--ty-white);
   border: 1px solid var(--mk-line);
   border-radius: 6px;
   padding: 8px 12px;
+}
+.mk-bands-box {
+  display: grid;
+  gap: 10px;
+}
+.mk-bands-box .small-label {
+  margin: 0;
 }
 .mk-band-pills {
   list-style: none;
@@ -1231,14 +1367,13 @@ a.mk-nav-top {
 }
 
 /* Closing: a contained Pace panel with ink text and an ink button, on every
-   marketing page. Its focus ring is ink (14:1 on Pace). */
+   marketing page, in the shared container. Its focus ring is ink (14:1 on
+   Pace). */
 .mk-closing-wrap {
-  padding-inline: 48px;
+  margin-block: 96px;
 }
 .mk-closing {
   --focus: var(--ink);
-  max-inline-size: 1120px;
-  margin: 96px auto;
   border-radius: var(--ty-radius-panel);
   background: var(--lime);
   color: var(--on-lime);
@@ -1264,6 +1399,8 @@ a.mk-nav-top {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--ty-white);
+  font-size: 15px;
+  font-weight: 600;
 }
 .mk-closing .button:hover:not(:disabled) {
   background: var(--green-hover);
@@ -1274,15 +1411,11 @@ a.mk-nav-top {
   font-weight: 600;
 }
 
-/* The relay's one-off motion (4.3 s, never repeated). Keyframes hold only
+/* The relay's one-off motion (2.6 s, never repeated). All three cards and
+   their text show from the first paint; only the wires, the travelling
+   dot, the core tile's pulse and the row ticks move. Keyframes hold only
    the starting state; the base styles above are the end state. */
 @media (prefers-reduced-motion: no-preference) {
-  @keyframes mk-rise {
-    from {
-      opacity: 0;
-      translate: 0 6px;
-    }
-  }
   @keyframes mk-draw {
     from {
       stroke-dashoffset: 40;
@@ -1302,125 +1435,76 @@ a.mk-nav-top {
   @keyframes mk-tick {
     from {
       opacity: 0;
-      translate: 0 4px;
+      scale: 0.4;
     }
   }
-  @keyframes mk-fade {
-    from {
-      opacity: 0;
-    }
-  }
-  .mk-relay-node,
   .mk-relay-line,
   .mk-relay-dot,
   .mk-relay-mark,
-  .mk-relay-rows li,
-  .mk-relay-return,
-  .mk-relay-loop {
+  .mk-relay-rows svg {
     animation-fill-mode: both;
     animation-timing-function: ease-out;
     animation-iteration-count: 1;
   }
-  .mk-relay-node {
-    animation-name: mk-rise;
-    animation-duration: 500ms;
-  }
-  .mk-relay-core {
-    animation-delay: 1s;
-  }
-  .mk-relay-train {
-    animation-delay: 2.5s;
-  }
   .mk-relay-line {
     animation-name: mk-draw;
-    animation-duration: 500ms;
-    animation-delay: 0.5s;
+    animation-duration: 450ms;
+    animation-delay: 0.4s;
   }
   .mk-relay-dot {
     animation-name: mk-travel;
-    animation-duration: 500ms;
-    animation-delay: 0.5s;
+    animation-duration: 450ms;
+    animation-delay: 0.4s;
     animation-timing-function: ease-in;
   }
   .mk-relay-core .mk-relay-line,
   .mk-relay-core .mk-relay-dot {
-    animation-delay: 2s;
+    animation-delay: 1.5s;
   }
   .mk-relay-mark {
     animation-name: mk-pulse;
     animation-duration: 700ms;
-    animation-delay: 1.5s;
+    animation-delay: 0.85s;
   }
-  .mk-relay-rows li {
+  .mk-relay-rows svg {
     animation-name: mk-tick;
     animation-duration: 250ms;
-    animation-delay: 2.8s;
+    animation-delay: 1.95s;
   }
-  .mk-relay-rows li:nth-child(2) {
-    animation-delay: 3s;
+  .mk-relay-rows li:nth-child(2) svg {
+    animation-delay: 2.1s;
   }
-  .mk-relay-rows li:nth-child(3) {
-    animation-delay: 3.2s;
-  }
-  .mk-relay-return {
-    animation-name: mk-fade;
-    animation-duration: 400ms;
-    animation-delay: 3.5s;
-  }
-  .mk-relay-loop {
-    animation-name: mk-fade;
-    animation-duration: 400ms;
-    animation-delay: 3.9s;
+  .mk-relay-rows li:nth-child(3) svg {
+    animation-delay: 2.25s;
   }
 }
 
-@media (max-width: 1149px) {
-  .mk-hero {
+@media (max-width: 1023px) {
+  /* Copy stacked above the relay; the cards keep one row of three. */
+  .mk-hero-copy {
     grid-template-columns: minmax(0, 1fr);
-    gap: 40px;
+    align-items: start;
   }
-}
-@media (max-width: 860px) {
-  .mk-relay-steps {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 32px;
+  .mk-relay {
+    --relay-gap: 40px;
   }
-  .mk-relay-wire,
-  .mk-relay-return {
-    display: none;
+  .mk-relay-node {
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-areas:
+      "icon num"
+      "title title"
+      "detail detail";
+    row-gap: 10px;
+    padding: 16px;
   }
-  /* Stacked steps: a short ink connector with an arrowhead between them. */
-  .mk-relay-steps > li:not(:last-child)::after,
-  .mk-relay-steps > li:not(:last-child)::before {
-    content: "";
-    position: absolute;
-    inset-inline-start: 50%;
-    translate: calc(-50% * var(--inline-sign, 1)) 0;
+  .mk-relay-num {
+    justify-self: end;
   }
-  .mk-relay-steps > li:not(:last-child)::after {
-    inset-block-start: calc(100% + 1px);
-    inline-size: 1.5px;
-    block-size: 24px;
-    background: var(--ink);
-  }
-  .mk-relay-steps > li:not(:last-child)::before {
-    inset-block-start: calc(100% + 22px);
-    border-inline: 5px solid transparent;
-    border-block-start: 8px solid var(--ink);
-  }
-  .mk-relay-loop {
-    align-items: center;
-    margin-block-start: 20px;
-    padding: 10px 14px;
-    background: var(--ty-white);
-    border: 1px solid var(--mk-line);
-    border-radius: 999px;
-  }
-  .mk-relay-loop-wide {
-    display: none;
-  }
-  .mk-relay-loop-narrow {
-    display: inline-block;
+  .mk-relay-wire {
+    inline-size: 36px;
+    block-size: 10px;
+    inset-block-start: 40px;
+    inset-inline-start: calc(100% + 2px);
   }
   .mk-home-split {
     grid-template-columns: minmax(0, 1fr);
@@ -1431,19 +1515,64 @@ a.mk-nav-top {
   }
 }
 @media (max-width: 760px) {
-  .mk-hero {
-    padding: 28px 16px 48px;
-    gap: 32px;
+  .mk-hero-inner {
+    padding-block: 24px 40px;
+    gap: 28px;
   }
+  .mk-hero-copy {
+    row-gap: 16px;
+  }
+  .mk-hero .button-row {
+    margin-block-start: 20px;
+    gap: 8px 22px;
+  }
+  /* Phones: a compact row of the three steps (icon and title) joined by
+     short wires, so the whole relay sits on the first screen. The sample
+     detail is for wider screens. */
   .mk-relay {
-    padding: 20px 16px;
+    --relay-gap: 26px;
+    padding: 14px 12px 12px;
+  }
+  .mk-relay-tag,
+  .mk-relay-num,
+  .mk-relay-detail {
+    display: none;
+  }
+  .mk-relay-node {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "icon"
+      "title";
+    justify-items: center;
+    text-align: center;
+    row-gap: 8px;
+    padding: 12px 4px;
+    box-shadow: none;
+  }
+  .mk-relay-icon,
+  .mk-relay-mark {
+    inline-size: 40px;
+    block-size: 40px;
+  }
+  .mk-relay-title {
+    font-size: 13px;
+    line-height: 1.25;
+  }
+  .mk-relay-wire {
+    inline-size: 22px;
+    block-size: 8px;
+    inset-block-start: 32px;
+    inset-inline-start: calc(100% + 3px);
+  }
+  .mk-relay-return {
+    block-size: 14px;
   }
   .mk-relay-loop {
-    border-radius: 12px;
+    font-size: 12px;
+    margin-block-start: 8px;
   }
   .mk-home-band {
     padding-block: 56px;
-    padding-inline: 16px;
   }
   .mk-flow-card {
     padding: 20px;
@@ -1452,26 +1581,63 @@ a.mk-nav-top {
   .mk-flow-brain {
     inline-size: 100%;
   }
+  /* Phones: one column of compact rows, icon beside the words. */
+  .mk-icon-tiles {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .mk-icon-tile {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-areas:
+      "icon label"
+      "icon line";
+    column-gap: 14px;
+    row-gap: 2px;
+    align-items: center;
+    padding: 14px 16px;
+  }
+  .mk-icon-square {
+    grid-area: icon;
+  }
+  .mk-icon-label {
+    grid-area: label;
+  }
+  .mk-icon-line {
+    grid-area: line;
+  }
   .mk-anchors {
     grid-template-columns: minmax(0, 1fr);
   }
   .mk-closing-wrap {
-    padding-inline: 16px;
+    margin-block: 56px;
   }
   .mk-closing {
-    margin-block: 56px;
     padding: 40px 20px;
   }
 }
+@media (max-width: 360px) {
+  .mk-relay {
+    --relay-gap: 20px;
+    padding-inline: 8px;
+  }
+  .mk-relay-title {
+    font-size: 12px;
+  }
+  .mk-relay-wire {
+    inline-size: 18px;
+    inset-inline-start: calc(100% + 1px);
+  }
+}
 
-/* Footer */
+/* Footer: in the shared container. */
 .mk-footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 3.2fr);
   gap: 40px;
-  max-inline-size: 1312px;
+  max-inline-size: calc(var(--mk-max) + 2 * var(--mk-gutter));
   margin-inline: auto;
-  padding: 56px 48px 32px;
+  padding: 56px var(--mk-gutter) 32px;
 }
 .mk-footer-brand p {
   font-size: 13px;
@@ -1492,7 +1658,8 @@ a.mk-nav-top {
   font-size: 13px;
 }
 .mk-footer-map a:hover {
-  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .mk-footer-note {
   grid-column: 1 / -1;
@@ -1500,6 +1667,15 @@ a.mk-nav-top {
   border-block-start: 1px solid var(--mk-line);
   padding-block-start: 20px;
   margin: 0;
+}
+/* Opens the optional analytics preferences (components/acquisition.tsx). */
+.mk-footer-prefs {
+  display: inline;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 @media (max-width: 1150px) {
@@ -1510,8 +1686,8 @@ a.mk-nav-top {
   .mk-mobile-menu {
     display: block;
   }
-  .mk-header {
-    padding: 14px 24px;
+  .mk-header-inner {
+    padding-block: 12px;
   }
   .mk-footer {
     grid-template-columns: minmax(0, 1fr);
@@ -1521,17 +1697,17 @@ a.mk-nav-top {
   }
 }
 @media (max-width: 760px) {
-  .mk-header {
-    padding: 12px 16px;
+  .mk-header-inner {
+    padding-block: 10px;
   }
   .mk-page {
-    padding: 20px 16px 48px;
+    padding-block: 20px 48px;
   }
   .mk-calculator-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .mk-footer {
-    padding: 40px 16px 24px;
+    padding-block: 40px 24px;
   }
   .mk-footer-map {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1816,19 +1992,20 @@ a.mk-nav-top {
   color: var(--ink);
   font-weight: 700;
 }
-/* "Everything included" on /features: a paper strip with ink figures. */
+/* "Everything included" on /features: a paper strip with two ink figures. */
 .mk-included-strip {
   background: var(--mk-band);
   border-radius: 8px;
   padding: 28px;
   margin-block-start: 32px;
+  max-inline-size: 820px;
 }
 .mk-included {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 .mk-included a {
@@ -1861,14 +2038,67 @@ a.mk-nav-top {
   .mk-screens {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .mk-included {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 @media (max-width: 760px) {
   .mk-matrix,
-  .mk-screens,
-  .mk-included {
+  .mk-screens {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The first optional-analytics prompt on marketing pages
+   (components/acquisition.tsx): a slim bar along the bottom that opens only
+   after the visitor scrolls, so it never covers the hero on the first
+   screen. Allow and No thanks carry equal weight. */
+.consent-bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 45;
+  background: var(--ty-white);
+  color: var(--ty-ink);
+  border-block-start: 1px solid var(--ty-line);
+  box-shadow: 0 -8px 24px rgb(23 25 23 / 8%);
+}
+.consent-bar-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  max-inline-size: calc(var(--ty-layout-max) + 96px);
+  margin-inline: auto;
+  padding: 10px 48px;
+}
+.consent-bar p {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.consent-bar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.consent-bar .button {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.consent-bar .text-button {
+  font-size: 13px;
+  padding: 9px 6px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@media (max-width: 1150px) {
+  .consent-bar-inner {
+    padding-inline: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .consent-bar-inner {
+    padding: 10px 16px;
   }
 }

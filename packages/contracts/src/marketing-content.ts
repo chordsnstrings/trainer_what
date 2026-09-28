@@ -480,7 +480,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     h1: BRAND_COPY.homeHeadline,
     h1Highlight: "trains",
     eyebrow: "FOR PERSONAL TRAINERS",
-    lede: "Share your methods, rules and programmes. {APP_NAME} coaches each subscriber day by day, your way, and asks you when it’s unsure.",
+    // One name in the hero ("your AI", as in the H1 and the call to
+    // action); the relay's loop is the only place that says it asks you.
+    lede: "Share your methods and rules. Your AI coaches every subscriber day by day, your way.",
     intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
@@ -493,7 +495,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "control",
         heading: "You stay in charge",
         body: [
-          "It acts on what you taught. Anything unsure comes to you; pain and red flags always do.",
+          "You choose what runs on its own. Take over any subscriber, any time.",
         ],
       },
       {
@@ -501,7 +503,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Your site. Your price.",
         body: [
           "Your own coaching site and app, under your name. You set the price in AED.",
-          "Our share starts at 25% and falls in bands as you grow. AI usage is passed on at cost.",
+          "Our share starts at 25% and falls as you grow. Card processing is itemised; AI usage is passed on at cost.",
         ],
       },
       {
@@ -543,7 +545,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Eight steps, start to finish",
         steps: [
           { title: "Claim your address", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
-          { title: "Teach your Brain", body: "Answer a guided interview, confirm rules in plain language, add cases and examples, and import your documents." },
+          { title: "Teach your Brain", body: "Answer a guided interview, confirm rules, add cases and examples, and import documents after a private redaction review." },
           { title: "Test it", body: "Write at least 20 held-out scenarios with your expected answers. Each version is evaluated on them before publishing." },
           { title: "Create your offer", body: "Set your AED price, programme length and billing, trials, and an optional nutrition tier or voice add-on." },
           { title: "Publish and share", body: "Check the subscriber preview, launch, then share your tagged link in your bio and Stories." },
@@ -621,7 +623,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "A guided interview: what you recommend, why, and what changes it.",
           "Plain-language rules you confirm, edit or reject, each with its source.",
           "Coaching cases and worked examples of real decisions.",
-          "Your own documents, privately reviewed before anything is used.",
+          "Your own documents; you review the extracted text before use.",
           "Held-out test scenarios: at least 20 situations with the answer you expect.",
         ],
       },
@@ -664,10 +666,10 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "never",
         heading: "What it never does",
         bullets: [
-          "Keep pain or red flags to itself; they always come to you.",
+          "Keep pain, medical issues or red flags from you.",
           "Pretend to be you: subscribers see a clearly labelled digital coach.",
           "Give medical or clinical advice.",
-          "Use your teaching for another trainer’s subscribers.",
+          "Use your teaching elsewhere: your Brain stays private to your workspace.",
         ],
       },
       {

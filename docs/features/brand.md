@@ -357,6 +357,31 @@ color-scheme meta, no visible surface darker than luminance 0.2 except a
 button; the workspace keeps the white lockup in dark; plus the home passes
 in `marketing-site.md`).
 
+Review fixes (same stage, second pass):
+
+- One container for the marketing site (`.mk-container`, 1280 px plus a
+  48/24/16 px gutter): header content, hero, bands, inner pages, closing
+  and footer start at the same edge. The header bar spans the page; only
+  its content is capped.
+- Pace is the only primary style on white: the header and hero action, and
+  the address preview's "Claim this address" on the home page and
+  /get-started (marketing CSS only; `islands.tsx` is unchanged). The ink
+  button stays only on the Pace closing panel. The primary action is 15 px
+  semibold at every width (the header's 14 px), so it is never smaller than
+  the secondary link beside it.
+- Navigation: the current page (or the dropdown group holding it) is
+  semibold with a 2 px ink underline; hover underlines (header, footer and
+  breadcrumbs). The old hover colour `var(--green)` equalled ink and showed
+  nothing.
+- Text links and the mobile Menu button are at least 44 px tall on phones.
+- The optional-analytics prompt on marketing pages is a white bottom bar
+  with ink text and two equal secondary buttons, opened only after a
+  scroll; the footer's "Analytics preferences" replaces the floating
+  button.
+- The /features strip keeps two figures (capabilities, tools replaced);
+  the home subscriber tiles are flat links without shadows or amber
+  "Available soon" badges.
+
 Checks actually run for this change: `docs/COMPLETION_STAGES.md` stage
 2026-09-28l.
 

@@ -234,10 +234,11 @@ function measure(page) {
       sidebarOffCanvas,
       chevronMirrored: mirrored(".topbar .lucide-chevron-right"),
       arrowMirrored: mirrored(".lucide-arrow-right, .lucide-arrow-up-right"),
-      // The marketing header (.mk-header) replaced .public-header on the
-      // platform pages; coach pages keep .public-header.
+      // The marketing header (.mk-header, its content in .mk-header-inner)
+      // replaced .public-header on the platform pages; coach pages keep
+      // .public-header.
       publicWordmark: center(
-        ".public-header > .wordmark, .mk-header > .wordmark",
+        ".public-header > .wordmark, .mk-header-inner > .wordmark",
       ),
       publicAction: center(
         ".public-header > .button, .mk-header-actions > .button",
