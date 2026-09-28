@@ -67,20 +67,16 @@ Steps:
 
 ## Go live: what the owner must do
 
-Nothing below has been done. Deployment stays separately assigned.
+Deployment stays separately assigned.
 
-1. **DNS for `trainsyou.com`** (at whichever registrar holds it; Namecheap: Domain List → Manage →
-   Advanced DNS). With the server's public IPv4 address `<IP>`:
-
-   | Type | Host | Value | TTL |
-   | --- | --- | --- | --- |
-   | A | `@` | `<IP>` | automatic / 30 min |
-   | A | `*` | `<IP>` | automatic / 30 min |
-
-   Remove the registrar's parking records for `@` and `www` (a URL redirect or a `www` CNAME)
-   so they do not shadow these. Do not add AAAA records: the server has no IPv6 address, and
-   the platform address change refuses to run while any AAAA record exists for these names. No CAA
-   record is needed; if one is added it must allow `letsencrypt.org`.
+1. **DNS for `trainsyou.com`: done 28 Sep 2026.** The zone is on DigitalOcean DNS (project
+   GymMembership): A `@`, `www` and `*` to `64.227.151.196`, TTL 1800, no AAAA, no CAA, no DS.
+   The registrar (101domain) delegates to `ns1/ns2/ns3.digitalocean.com`. Do not add AAAA records:
+   the server has no IPv6 address, and the platform address change refuses to run while any AAAA
+   record exists for these names. A CAA record, if ever added, must allow `letsencrypt.org` (and
+   `zerossl.com` if Caddy's fallback issuer is kept). A TXT, MX or CAA record at a coach name
+   (`<slug>.trainsyou.com`) stops the wildcard A for that name on DigitalOcean, so add an A record
+   there too if that ever happens.
 2. **Runtime settings on the server**: once a controller with the platform address change
    (migration `068_platform_address_change`) runs, use Super admin → Host and backups →
    **Change the platform address** with `https://trainsyou.com` and root domain
