@@ -11,6 +11,7 @@ import {
   type IntegrationDefinition,
   type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
+import { followerSettingsNeedNote } from "../../../packages/domain/src/marketing-calculators.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
   encryptionReady,
@@ -461,6 +462,17 @@ export function platformSettingsRoutes(
           if (next.encrypted_secrets[key]) changed.push(key);
           delete next.encrypted_secrets[key];
         }
+        // An assumption that no longer matches its cited source needs the
+        // operator's reason, which /methodology shows next to it.
+        if (
+          def.id === "marketing" &&
+          followerSettingsNeedNote(next.settings_values)
+        )
+          throw fail(
+            400,
+            "SETTINGS_INVALID",
+            "Give the reason and source for assumptions that differ from their cited defaults.",
+          );
         if (changed.length) next.last_test = null;
         else if (next.last_test)
           next.last_test = { ...next.last_test, revision: next.revision };

@@ -41,6 +41,7 @@ import {
 } from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import { registerDiscovery } from "./discovery.ts";
+import { registerEarlyAccess } from "./early-access.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
@@ -637,6 +638,7 @@ export async function buildApp(
   registerMarketing(app, db, {
     instagramTransport: options.providers?.instagram,
   });
+  registerEarlyAccess(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);

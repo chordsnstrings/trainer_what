@@ -114,6 +114,7 @@ export async function verifyRuntimeAccess(client) {
     platform_alert_deliveries: ["SELECT", "INSERT"],
     coach_directory_profiles: ["SELECT"],
     workspace_app_icons: ["SELECT", "INSERT"],
+    early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -494,6 +495,7 @@ export async function verifyRuntimeAccess(client) {
       "platform_alerts",
       "platform_alert_deliveries",
       "workspace_app_icons",
+      "early_access_requests",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

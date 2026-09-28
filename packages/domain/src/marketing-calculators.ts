@@ -16,27 +16,35 @@ export type FollowerTier = {
 export type FollowerModelAssumptions = {
   version: string;
   tiers: FollowerTier[];
-  /** Share of Story viewers who open a link sticker. */
+  /** Chance that one Story viewer opens one link sticker. */
   linkClickLowPct: number;
   linkClickHighPct: number;
-  /** Share of visits that become a paid subscription. */
+  /** Share of people who visit that become a paid subscriber. */
   purchaseLowPct: number;
   purchaseHighPct: number;
   /** Average engagement rate used to scale reach when a rate is known. */
   engagementBenchmarkPct: number;
   /** Largest scaling in either direction (factor and 1/factor). */
   engagementFactorMax: number;
+  /**
+   * The operator's reason and source for values that differ from the cited
+   * defaults; required by settings validation whenever one differs.
+   */
+  changeNote?: string;
 };
 
 /**
  * Defaults from the cited sources (retrieved 28 September 2026):
- * Story reach by tier, image to video (Socialinsider Stories benchmarks);
+ * Story reach by tier, image to video (Socialinsider Stories benchmarks: the
+ * share of followers who viewed at least one frame of a Story);
  * link-sticker click-through 1-5% of viewers (creator reports; no industry
- * benchmark exists); purchase conversion 1.51% (APAC) to 5.39% (beauty and
- * personal care) of sessions (Dynamic Yield); engagement 0.48% (Socialinsider).
+ * benchmark exists); visit to purchase 0.72% (luxury and jewellery, the
+ * high-consideration retail benchmark) to 2.89% (EMEA average) from Dynamic
+ * Yield. These are retail e-commerce purchase rates: no published benchmark
+ * exists for coaching subscriptions. Engagement 0.48% (Socialinsider).
  */
 export const DEFAULT_FOLLOWER_MODEL: FollowerModelAssumptions = {
-  version: "2026-09-28",
+  version: "2026-09-28.2",
   tiers: [
     { upTo: 5000, reachLowPct: 9.55, reachHighPct: 10.4 },
     { upTo: 10000, reachLowPct: 3.5, reachHighPct: 4.2 },
@@ -46,8 +54,8 @@ export const DEFAULT_FOLLOWER_MODEL: FollowerModelAssumptions = {
   ],
   linkClickLowPct: 1,
   linkClickHighPct: 5,
-  purchaseLowPct: 1.51,
-  purchaseHighPct: 5.39,
+  purchaseLowPct: 0.72,
+  purchaseHighPct: 2.89,
   engagementBenchmarkPct: 0.48,
   engagementFactorMax: 2,
 };
@@ -86,6 +94,7 @@ export const followerModelSchema = z
     purchaseHighPct: pct,
     engagementBenchmarkPct: z.number().finite().positive().max(100),
     engagementFactorMax: z.number().finite().min(1).max(10),
+    changeNote: z.string().trim().max(500).optional(),
   })
   .strict()
   .refine(
@@ -111,7 +120,52 @@ export const FOLLOWER_MODEL_SETTING_KEYS = {
   purchaseHighPct: "FOLLOWER_PURCHASE_HIGH",
   engagementBenchmarkPct: "FOLLOWER_ENGAGEMENT_BENCHMARK",
   engagementFactorMax: "FOLLOWER_ENGAGEMENT_FACTOR_MAX",
+  changeNote: "FOLLOWER_MODEL_CHANGE_NOTE",
 } as const;
+
+/** One assumption that differs from the cited default. */
+export type FollowerAdjustment = {
+  /** "tiers.0.reachLowPct", "purchaseHighPct", ... */
+  field: string;
+  value: number;
+  cited: number;
+};
+/**
+ * The assumptions whose values differ from the cited defaults, so pages can
+ * say a value was adjusted by the operator and no longer matches its source.
+ */
+export function followerModelAdjustments(
+  model: FollowerModelAssumptions,
+): FollowerAdjustment[] {
+  const d = DEFAULT_FOLLOWER_MODEL,
+    out: FollowerAdjustment[] = [];
+  const check = (field: string, value: number, cited: number | undefined) => {
+    if (cited === undefined || Math.abs(value - cited) > 1e-9)
+      out.push({ field, value, cited: cited ?? NaN });
+  };
+  model.tiers.forEach((tier, i) => {
+    check(`tiers.${i}.reachLowPct`, tier.reachLowPct, d.tiers[i]?.reachLowPct);
+    check(`tiers.${i}.reachHighPct`, tier.reachHighPct, d.tiers[i]?.reachHighPct);
+  });
+  for (const key of [
+    "linkClickLowPct",
+    "linkClickHighPct",
+    "purchaseLowPct",
+    "purchaseHighPct",
+    "engagementBenchmarkPct",
+    "engagementFactorMax",
+  ] as const)
+    check(key, model[key], d[key]);
+  return out;
+}
+
+/** Settings values that differ from the defaults need a reason (settings save). */
+export function followerSettingsNeedNote(
+  values: Record<string, string | undefined>,
+): boolean {
+  const note = values[FOLLOWER_MODEL_SETTING_KEYS.changeNote]?.trim();
+  return !note && followerModelAdjustments(followerModelFromSettings(values)).length > 0;
+}
 
 /**
  * The effective model from settings values. A blank value keeps its default;
@@ -144,6 +198,9 @@ export function followerModelFromSettings(
       d.engagementBenchmarkPct,
     ),
     engagementFactorMax: num(k.engagementFactorMax, d.engagementFactorMax),
+    ...(values[k.changeNote]?.trim()
+      ? { changeNote: values[k.changeNote]!.trim().slice(0, 500) }
+      : {}),
   };
   const parsed = followerModelSchema.safeParse(candidate);
   return parsed.success
@@ -174,23 +231,51 @@ export type FollowerEstimate = {
   tierIndex: number;
   engagementFactor: number;
   reachPct: Range;
-  /** Story views carrying the link, per month. */
-  linkViews: Range;
-  /** Visits to the coaching page, per month. */
-  visits: Range;
-  /** New paying subscribers per month (fractional; see displayRange). */
+  /**
+   * People who see your Stories: followers × Story reach. Story reach is the
+   * share of followers who view at least one frame, and the same people
+   * tend to view each Story, so repeat Stories do not add viewers.
+   */
+  storyViewers: Range;
+  /** Chance (%) that one of those viewers opens your link in a month. */
+  visitChancePct: Range;
+  /** People who open your link in the first month. */
+  visitors: Range;
+  /** New paying subscribers in the first month of sharing (fractional). */
   subscribers: Range;
   /** Monthly subscription revenue those subscribers add, in AED fils. */
   monthlyRevenueMinor: Range;
-  /** After twelve months of steady sharing, before any cancellations. */
+  /**
+   * Subscribers after twelve months of the same sharing, from the same Story
+   * audience (new followers and audience turnover are not modelled), before
+   * cancellations. Never more than storyViewers × conversion.
+   */
   twelveMonthSubscribers: Range;
+  /** The most today's Story audience could give: viewers × conversion. */
+  ceiling: Range;
   assumptionsVersion: string;
 };
 
 const clamp = (value: number, [min, max]: readonly [number, number]) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+/** Chance that a viewer opens at least one of `stories` link Stories. */
+export function visitChance(clickPct: number, stories: number): number {
+  const p = Math.min(1, Math.max(0, clickPct / 100));
+  return stories <= 0 ? 0 : 1 - Math.pow(1 - p, stories);
+}
 
-/** Monthly follower-to-subscriber estimate. Pure; inputs are clamped. */
+/**
+ * Follower-to-subscriber estimate. Pure; inputs are clamped.
+ *
+ *   viewers     V = followers × Story reach (engagement-scaled)
+ *   visit       p(k) = 1 − (1 − click-through)^k for k link Stories
+ *   subscribers = V × p(k) × conversion   (first month)
+ *   twelve      = V × p(12k) × conversion (same audience, no turnover)
+ *
+ * Conversion is treated as a share of people, not of visits, so repeat
+ * visits by the same person never add subscribers, and nothing exceeds
+ * V × conversion.
+ */
 export function estimateFollowerConversion(
   input: FollowerInputs,
   model: FollowerModelAssumptions = DEFAULT_FOLLOWER_MODEL,
@@ -225,18 +310,29 @@ export function estimateFollowerConversion(
     low: Math.min(100, tier.reachLowPct * engagementFactor),
     high: Math.min(100, tier.reachHighPct * engagementFactor),
   };
-  const linkViews = {
-    low: (followers * reach.low * stories) / 100,
-    high: (followers * reach.high * stories) / 100,
+  const viewers = {
+    low: (followers * reach.low) / 100,
+    high: (followers * reach.high) / 100,
   };
-  const visits = {
-    low: (linkViews.low * model.linkClickLowPct) / 100,
-    high: (linkViews.high * model.linkClickHighPct) / 100,
+  const chance = {
+    low: visitChance(model.linkClickLowPct, stories),
+    high: visitChance(model.linkClickHighPct, stories),
   };
-  // Nobody subscribes twice: a month can never add more than the audience.
+  const year = {
+    low: visitChance(model.linkClickLowPct, stories * 12),
+    high: visitChance(model.linkClickHighPct, stories * 12),
+  };
+  const conversion = {
+    low: model.purchaseLowPct / 100,
+    high: model.purchaseHighPct / 100,
+  };
+  const visitors = {
+    low: viewers.low * chance.low,
+    high: viewers.high * chance.high,
+  };
   const subscribers = {
-    low: Math.min(followers, (visits.low * model.purchaseLowPct) / 100),
-    high: Math.min(followers, (visits.high * model.purchaseHighPct) / 100),
+    low: visitors.low * conversion.low,
+    high: visitors.high * conversion.high,
   };
   return {
     inputs: {
@@ -248,16 +344,21 @@ export function estimateFollowerConversion(
     tierIndex,
     engagementFactor,
     reachPct: reach,
-    linkViews,
-    visits,
+    storyViewers: viewers,
+    visitChancePct: { low: chance.low * 100, high: chance.high * 100 },
+    visitors,
     subscribers,
     monthlyRevenueMinor: {
       low: Math.round(subscribers.low * price * 100),
       high: Math.round(subscribers.high * price * 100),
     },
     twelveMonthSubscribers: {
-      low: Math.min(followers, subscribers.low * 12),
-      high: Math.min(followers, subscribers.high * 12),
+      low: viewers.low * year.low * conversion.low,
+      high: viewers.high * year.high * conversion.high,
+    },
+    ceiling: {
+      low: viewers.low * conversion.low,
+      high: viewers.high * conversion.high,
     },
     assumptionsVersion: model.version,
   };

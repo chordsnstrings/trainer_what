@@ -14,6 +14,7 @@ export async function GET() {
       origin,
       appName: platform.name,
       supportEmail: platform.supportEmail,
+      followerModel: platform.followerModel,
     }),
     {
       headers: {

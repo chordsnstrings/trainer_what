@@ -67,3 +67,4 @@ export const productSchema = z
     baseProductId: z.string().uuid().optional(),
   })
   .strict();
+export * from "./marketing-features.ts";

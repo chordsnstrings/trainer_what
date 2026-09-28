@@ -7,7 +7,15 @@
 // the resulting numbers are stored, as a workspace record the owner can delete.
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, putRecord, type Actor, type Database } from "@trainer/db";
-import { appInitials, DEFAULT_PLATFORM_NAME } from "@trainer/contracts";
+import {
+  APP_ICON_FILES,
+  appInitials,
+  DEFAULT_PLATFORM_NAME,
+  PLATFORM_THEME,
+  type AppIconFile,
+  type BrandDesign,
+} from "@trainer/contracts";
+import { renderAppIcon } from "./discovery.ts";
 import { integrationStatus } from "@trainer/providers";
 import {
   integrationCapability,
@@ -24,6 +32,11 @@ import { newToken, tokenHash } from "./auth.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
+/** The platform colours (theme and page background) for generated icons. */
+const PLATFORM_ICON_DESIGN = {
+  primary: PLATFORM_THEME.theme,
+  surface: PLATFORM_THEME.background,
+} as unknown as BrandDesign;
 
 /** Provider availability that drives "Available soon" chips. */
 export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
@@ -212,6 +225,24 @@ export function registerMarketing(
   app.get("/api/v1/public/platform", async (_req, reply) => {
     reply.header("Cache-Control", "public, max-age=60");
     return publicPlatform();
+  });
+  // The platform's install and logo icons: the configured name's initials on
+  // the platform colour, so they always match APP_NAME.
+  app.get("/api/v1/public/platform/icon/:file", async (req, reply) => {
+    const file = String((req.params as any).file);
+    if (!Object.hasOwn(APP_ICON_FILES, file))
+      throw fail(404, "NOT_FOUND", "Unknown icon");
+    const spec = APP_ICON_FILES[file as AppIconFile];
+    const png = await renderAppIcon({
+      name: publicPlatform().name,
+      design: PLATFORM_ICON_DESIGN,
+      size: spec.size,
+      variant: spec.variant,
+    });
+    return reply
+      .header("Content-Type", "image/png")
+      .header("Cache-Control", "public, max-age=3600")
+      .send(png);
   });
 
   app.get("/api/v1/trainer/instagram", async (req) => {

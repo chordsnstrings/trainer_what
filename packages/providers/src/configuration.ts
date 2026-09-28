@@ -308,11 +308,14 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Assumptions behind the public follower calculator, and public company details.",
     setupNotes:
-      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
     fields: [
       field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
-        defaultValue: "2026-09-28",
+        defaultValue: "2026-09-28.2",
         help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
+      }),
+      field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
+        help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
       }),
       field("FOLLOWER_REACH_UP_TO_5K_LOW", "Story reach, up to 5,000 followers: low (%)", "number", {
         defaultValue: "9.55",
@@ -356,18 +359,18 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("FOLLOWER_LINK_CLICK_LOW", "Link-sticker click-through: low (%)", "number", {
         defaultValue: "1",
-        help: "Share of Story viewers who open the link. No industry benchmark exists; creators report 1-5%.",
+        help: "Chance that a Story viewer opens one link Story. Repeat Stories reach mostly the same viewers, so the calculator uses 1 − (1 − rate)^Stories. No industry benchmark exists; creators report 1-5%.",
       }),
       field("FOLLOWER_LINK_CLICK_HIGH", "Link-sticker click-through: high (%)", "number", {
         defaultValue: "5",
       }),
       field("FOLLOWER_PURCHASE_LOW", "Visit to paid subscriber: low (%)", "number", {
-        defaultValue: "1.51",
-        help: "Default: Dynamic Yield e-commerce conversion, APAC.",
+        defaultValue: "0.72",
+        help: "Share of people who visit that subscribe. Default: Dynamic Yield luxury and jewellery (high-consideration retail). Retail e-commerce purchase rates; no published benchmark exists for coaching subscriptions.",
       }),
       field("FOLLOWER_PURCHASE_HIGH", "Visit to paid subscriber: high (%)", "number", {
-        defaultValue: "5.39",
-        help: "Default: Dynamic Yield e-commerce conversion, beauty and personal care.",
+        defaultValue: "2.89",
+        help: "Default: Dynamic Yield e-commerce conversion, EMEA average (the UAE is in EMEA).",
       }),
       field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
         defaultValue: "0.48",

@@ -7,7 +7,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  CAPABILITY_COUNT,
+  CITED_ASSUMPTIONS,
   DIRECTORY_SPECIALTIES,
+  FEATURE_MATRIX,
+  REPLACES,
   ENTITY_SENTENCE,
   INDEXABLE_MARKETING_PAGES,
   MARKETING_PAGES,
@@ -29,18 +33,24 @@ import {
   marketingMetadata,
   marketingNav,
   marketingPage,
+  marketingRedirect,
+  MARKETING_REDIRECTS,
   robotsPolicy,
   type MarketingPage,
 } from "@trainer/contracts";
-import { projectedCommission } from "@trainer/domain";
+import { projectedCommission, safetySignal } from "@trainer/domain";
+import { SAFETY_FLOOR } from "../packages/domain/src/safety-policy.ts";
 import {
   DEFAULT_FOLLOWER_MODEL,
   FOLLOWER_MODEL_SETTING_KEYS,
+  aedWhole,
   displayRange,
   engagementRate,
   estimateEarnings,
   estimateFollowerConversion,
+  followerModelAdjustments,
   followerModelFromSettings,
+  followerSettingsNeedNote,
   type EarningsInputs,
 } from "../packages/domain/src/marketing-calculators.ts";
 import { baseRegistry } from "../apps/api/src/onboarding.ts";
@@ -49,6 +59,7 @@ import {
   EarningsCalculator,
   FollowerCalculator,
   slugFromName,
+  withEarlyAccessContext,
 } from "../apps/web/components/marketing/islands.tsx";
 import type { PublicPlatform } from "../apps/web/components/marketing/platform.ts";
 import { INTEGRATION_CATALOG } from "../packages/providers/src/configuration.ts";
@@ -150,7 +161,7 @@ test("registry: unique paths, titles, descriptions and headings; parents, relate
   }
 });
 
-test("the brief's page set exists: core pages, 11 features, 8 specialties, emirates and guides", () => {
+test("the brief's page set exists: core pages, 11 features, 8 specialties, the UAE page and guides", () => {
   for (const path of [
     "/",
     "/how-it-works",
@@ -167,11 +178,16 @@ test("the brief's page set exists: core pages, 11 features, 8 specialties, emira
     "/get-started",
     "/for-trainers",
     "/uae",
-    "/uae/dubai",
-    "/uae/abu-dhabi",
     "/guides",
   ])
     assert.ok(isMarketingSitePath(path), path);
+  // Dubai and Abu Dhabi are sections of /uae; their old addresses redirect.
+  assert.equal(marketingRedirect("/uae/dubai"), "/uae#dubai");
+  assert.equal(marketingRedirect("/uae/abu-dhabi/"), "/uae#abu-dhabi");
+  const uae = marketingPage("/uae")!;
+  for (const id of ["dubai", "abu-dhabi"]) assert.ok(uae.sections.some((s) => s.id === id), id);
+  for (const target of Object.values(MARKETING_REDIRECTS))
+    assert.ok(isMarketingSitePath(target.split("#")[0]), target);
   assert.equal(MARKETING_PAGES.filter((p) => p.kind === "feature").length, 11);
   const specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty");
   assert.equal(specialties.length, 8);
@@ -186,6 +202,29 @@ test("the brief's page set exists: core pages, 11 features, 8 specialties, emira
   }
   // No Sharjah page until it has genuinely local content (doorway pages).
   assert.equal(marketingPage("/uae/sharjah"), undefined);
+});
+
+test("specialty pages match the safety floor: enforced items are listed as enforced, trainer examples never repeat them", () => {
+  const specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty");
+  assert.equal(specialties.length, 8);
+  for (const page of specialties) {
+    const floor = page.sections.find((s) => s.id === "floor")?.bullets ?? [];
+    const handoffs = page.sections.find((s) => s.id === "handoffs")?.bullets ?? [];
+    assert.ok(floor.length > 0 && handoffs.length > 0, page.path);
+    // Every "enforced in code" claim is really caught by the red-flag screen.
+    for (const item of floor) assert.equal(safetySignal(item), true, `${page.path}: ${item}`);
+    // "Examples a trainer might set" never lists what the floor already does.
+    for (const item of handoffs) assert.equal(safetySignal(item), false, `${page.path}: ${item}`);
+    for (const card of page.sections.find((s) => s.id === "rules")?.cards ?? [])
+      assert.equal(safetySignal(card.body), false, `${page.path} rule: ${card.title}`);
+  }
+  // Pregnancy is a mandatory hold, so the page says so and never promises routine automation.
+  assert.ok(SAFETY_FLOOR.holdCategories.includes("pregnancy"));
+  const prenatal = marketingPage("/for-trainers/pre-postnatal")!;
+  const prenatalText = allText(prenatal);
+  assert.match(prenatalText, /Any mention of pregnancy, bleeding, dizziness or chest pain pauses training/);
+  assert.match(prenatalText, /For pregnant subscribers the Brain drafts and you approve/);
+  assert.doesNotMatch(prenatalText, /plan routine sessions/);
 });
 
 test("discovery: every indexable page is a public marketing path and in the sitemap list", () => {
@@ -231,7 +270,14 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
     assert.ok(m.title.endsWith(" | " + APP), m.title);
     assert.ok(!titles.has(m.title), "duplicate title " + m.title);
     titles.add(m.title);
-    assert.ok(m.title.length <= 90, `${page.path} title too long: ${m.title}`);
+    // Search results show about 60 characters of a title and 155 of a description.
+    assert.ok(m.title.length <= 60, `${page.path} title too long (${m.title.length}): ${m.title}`);
+    assert.ok(m.description.length <= 155, `${page.path} description too long (${m.description.length})`);
+    assert.doesNotMatch(m.title, new RegExp(`${APP}.*\\| ${APP}$`), `${page.path} repeats the brand`);
+    // A large social preview of this page.
+    assert.equal(m.twitter.card, "summary_large_image");
+    assert.equal(m.openGraph.images[0].url, ORIGIN + "/og?path=" + encodeURIComponent(page.path));
+    assert.equal(m.twitter.images[0], m.openGraph.images[0].url);
     assert.equal(m.canonical, page.path === "/" ? ORIGIN + "/" : ORIGIN + page.path);
     assert.equal(m.openGraph.url, m.canonical);
     assert.equal(m.openGraph.siteName, APP);
@@ -281,6 +327,17 @@ test("JSON-LD: valid schema.org graphs built from the page's visible text", () =
     assert.equal(webPage.url, page.path === "/" ? ORIGIN + "/" : ORIGIN + page.path);
     assert.equal(webPage.dateModified, page.lastUpdated);
   }
+  // Every page carries the Organization and WebSite nodes it refers to.
+  for (const page of site) {
+    const nodes = marketingJsonLd(page, ctx)["@graph"] as any[];
+    const ids = new Set(nodes.map((n) => n["@id"]));
+    const org = nodes.find((n) => n["@type"] === "Organization");
+    assert.equal(org?.name, APP, page.path);
+    assert.equal(org.logo, ORIGIN + "/api/v1/public/platform/icon/512.png");
+    assert.ok(nodes.some((n) => n["@type"] === "WebSite"), page.path);
+    for (const ref of JSON.stringify(nodes).matchAll(/"@id":"([^"]+)"/g))
+      assert.ok(ids.has(ref[1]), `${page.path}: dangling reference ${ref[1]}`);
+  }
   const home = JSON.parse(jsonLdScript(marketingJsonLd(marketingPage("/")!, ctx)))["@graph"];
   const org = home.find((n: any) => n["@type"] === "Organization");
   assert.equal(org.name, APP);
@@ -290,11 +347,118 @@ test("JSON-LD: valid schema.org graphs built from the page's visible text", () =
   const how = JSON.parse(jsonLdScript(marketingJsonLd(marketingPage("/how-it-works")!, ctx)))["@graph"];
   assert.equal(how.find((n: any) => n["@type"] === "HowTo").step.length, 8);
   const guide = JSON.parse(jsonLdScript(marketingJsonLd(marketingPage("/guides/uae-advertiser-permit")!, ctx)))["@graph"];
-  assert.ok(guide.some((n: any) => n["@type"] === "Article" && n.headline));
+  const article = guide.find((n: any) => n["@type"] === "Article");
+  assert.ok(article.headline);
+  assert.deepEqual(article.author, { "@type": "Organization", name: APP, url: ORIGIN + "/" });
+  assert.equal(article.image, ORIGIN + "/og?path=%2Fguides%2Fuae-advertiser-permit");
   const calc = JSON.parse(jsonLdScript(marketingJsonLd(marketingPage("/follower-calculator")!, ctx)))["@graph"];
   assert.ok(calc.some((n: any) => n["@type"] === "WebApplication"));
   // A hostile string cannot close the script element.
   assert.doesNotMatch(jsonLdScript({ name: "</script><script>x" }), /<\/script/i);
+});
+
+const registryWords = (page: MarketingPage) =>
+  [
+    page.intro,
+    ...page.sections.flatMap((s) => [
+      s.heading,
+      ...(s.body ?? []),
+      ...(s.bullets ?? []),
+      ...(s.cards ?? []).flatMap((c) => [c.title, c.body]),
+      ...(s.steps ?? []).flatMap((st) => [st.title, st.body]),
+      ...(s.table ? [s.table.caption, ...s.table.columns, ...s.table.rows.flat()] : []),
+      s.note ?? "",
+    ]),
+    ...page.faqs.flatMap((f) => [f.q, f.a]),
+  ]
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+test("SEO depth: no thin indexable pages; guides go deep", () => {
+  const thin = site
+    .filter((p) => p.indexable && p.kind !== "hub")
+    .map((p) => [p.path, registryWords(p)] as const)
+    .filter(([, words]) => words < 350);
+  assert.deepEqual(thin, [], "indexable pages below 350 words");
+  for (const guide of site.filter((p) => p.kind === "guide"))
+    assert.ok(registryWords(guide) >= 500, `${guide.path}: ${registryWords(guide)} words`);
+  assert.ok(registryWords(marketingPage("/guides/pricing-online-coaching-uae")!) >= 1000);
+});
+
+// Intl separates "AED" with a no-break space; registry copy uses a normal space.
+const aedText = (minor: number) => aedWhole(minor).replace(/\s/g, " ");
+test("the pricing guide's worked examples are the calculator's own arithmetic", () => {
+  const guide = marketingPage("/guides/pricing-online-coaching-uae")!;
+  const rows = guide.sections.find((s) => s.id === "examples")!.table!.rows;
+  const base = { billing: "monthly" as const, programmeMonths: 1, nutritionSharePct: 0, nutritionPriceAed: 0, voiceSharePct: 0, voicePriceAed: 0, sessionsPerMonth: 0, sessionPriceAed: 0, yourSessionRateAed: 250 };
+  for (const row of rows) {
+    const [n, price] = row[0].match(/\d+/g)!.map(Number);
+    const e = estimateEarnings({ ...base, subscribers: n, workoutPriceAed: price });
+    const aedWhole = (minor: number) => aedText(minor);
+    assert.equal(row[1], aedWhole(e.subscriptionMonthlyMinor), row[0]);
+    assert.ok(row[2].startsWith(aedWhole(e.commissionMinor)), row[0]);
+    assert.equal(row[3], aedWhole(e.beforeOtherCostsMinor), row[0]);
+    assert.equal(row[4], "About " + e.equivalentSessions, row[0]);
+  }
+  const text = allText(guide);
+  const upfront = estimateEarnings({ ...base, subscribers: 60, billing: "upfront", workoutPriceAed: 540, programmeMonths: 3 });
+  for (const minor of [upfront.averageMonthlyMinor, upfront.subscriptionMonthlyMinor, upfront.commissionMinor, upfront.beforeOtherCostsMinor])
+    assert.ok(text.includes(aedText(minor)), aedText(minor));
+  const mix = estimateEarnings({ ...base, subscribers: 100, workoutPriceAed: 199, nutritionSharePct: 30, nutritionPriceAed: 299 });
+  for (const minor of [mix.averageMonthlyMinor, mix.subscriptionMonthlyMinor, mix.commissionMinor])
+    assert.ok(text.includes(aedText(minor)), aedText(minor));
+  const calc = allText(marketingPage("/earnings-calculator")!);
+  const e = estimateEarnings({ ...base, subscribers: 120, workoutPriceAed: 199 });
+  for (const minor of [e.subscriptionMonthlyMinor, e.commissionMinor, e.beforeOtherCostsMinor])
+    assert.ok(calc.includes(aedText(minor)), aedText(minor));
+});
+
+test("the product at full size: a complete capability matrix, screens and counts from the registry", () => {
+  assert.ok(CAPABILITY_COUNT >= 60, `${CAPABILITY_COUNT} capabilities`);
+  assert.equal(CAPABILITY_COUNT, FEATURE_MATRIX.reduce((n, g) => n + g.items.length, 0));
+  const names = FEATURE_MATRIX.flatMap((g) => g.items.map((i) => i.name));
+  assert.equal(new Set(names).size, names.length, "duplicate capability");
+  for (const group of FEATURE_MATRIX) if (group.page) assert.ok(isMarketingSitePath(group.page), group.page);
+  // The brief's must-haves are all listed.
+  for (const required of ["Client Twin", "Offline in the gym", "WHOOP connection", "Team roles", "Monthly statement", "Trials and promotion codes", "Your own domain, bought for you", "Arabic-ready layout", "Export and deletion", "Sessions in your own voice", "Barcode lookup"])
+    assert.ok(names.includes(required), required);
+  // Generic categories only: never a competitor's name.
+  for (const r of REPLACES) assert.match(r.tool, /^(A|An|Programme) /);
+  const features = decode(render(marketingPage("/features")!));
+  assert.match(features, new RegExp(`Every capability: ${CAPABILITY_COUNT} in ${FEATURE_MATRIX.length} areas`));
+  for (const name of names.slice(0, 5)) assert.ok(features.includes(name), name);
+  assert.match(features, /One workspace instead of 7 separate tools/);
+  for (const screen of ["Your review queue.", "Your subscriber’s day.", "The workout logger.", "Your statement."])
+    assert.ok(features.includes(screen), screen);
+  assert.match(features, /Illustrations with sample data/);
+  // Provider-dependent items say "Available soon" while their provider is off.
+  const off = decode(render(marketingPage("/features")!, { ...platform, availability: { ...platform.availability, voice: false } }));
+  assert.match(off, /Sessions in your own voice.*?Available soon/);
+  const on = decode(render(marketingPage("/features")!, { ...platform, availability: { ...platform.availability, voice: true } }));
+  assert.match(on, /Sessions in your own voice.*?Add-on/);
+  const home = decode(render(marketingPage("/")!));
+  assert.match(home, new RegExp(`Everything included in ${APP}`));
+  assert.ok(home.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
+  assert.ok(home.includes("Your review queue."));
+});
+
+test("registration closed: early access captures the visitor's details and numbers instead of a dead end", () => {
+  const closed = { ...platform, registrationOpen: false };
+  const page = render(marketingPage("/get-started")!, closed);
+  assert.match(page, /id="early-access"/);
+  assert.match(page, /name="email"/);
+  assert.match(page, /name="consent"/);
+  assert.match(page, /name="website"/, "honeypot field");
+  assert.doesNotMatch(decode(page), /Check back soon/);
+  // The follower calculator hands its numbers to early access.
+  const calculator = render(marketingPage("/follower-calculator")!, closed);
+  assert.match(calculator, /Join early access/);
+  assert.equal(
+    withEarlyAccessContext("/get-started#early-access", { followers: 5000, stories: 8, price: 199, estimate: "0-5", slug: undefined }),
+    "/get-started?followers=5000&stories=8&price=199&estimate=0-5#early-access",
+  );
+  assert.equal(withEarlyAccessContext("/signup", { followers: 1 }), "/signup");
 });
 
 test("llms.txt follows llmstxt.org and llms-full.txt carries every page, FAQ and source", () => {
@@ -324,15 +488,21 @@ test("follower calculator arithmetic: tiers, engagement scaling, clamping and ho
   });
   assert.equal(e.tierIndex, 0);
   assert.equal(e.engagementFactor, 1);
-  assert.ok(Math.abs(e.linkViews.low - 3820) < 1e-6);
-  assert.ok(Math.abs(e.linkViews.high - 4160) < 1e-6);
-  assert.ok(Math.abs(e.visits.low - 38.2) < 1e-6);
-  assert.ok(Math.abs(e.visits.high - 208) < 1e-6);
-  assert.ok(Math.abs(e.subscribers.low - 0.57682) < 1e-6);
-  assert.ok(Math.abs(e.subscribers.high - 11.2112) < 1e-6);
-  assert.deepEqual(displayRange(e.subscribers), { low: 0, high: 11 });
-  assert.equal(e.monthlyRevenueMinor.high, Math.round(11.2112 * 199 * 100));
-  assert.ok(Math.abs(e.twelveMonthSubscribers.high - 11.2112 * 12) < 1e-6);
+  // Unique Story viewers, not views: V = followers × reach.
+  assert.ok(Math.abs(e.storyViewers.low - 477.5) < 1e-6);
+  assert.ok(Math.abs(e.storyViewers.high - 520) < 1e-6);
+  // Saturating chance of a visit: 1 - (1 - click-through)^Stories.
+  assert.ok(Math.abs(e.visitChancePct.low - (1 - 0.99 ** 8) * 100) < 1e-9);
+  assert.ok(Math.abs(e.visitChancePct.high - (1 - 0.95 ** 8) * 100) < 1e-9);
+  assert.ok(Math.abs(e.visitors.high - 520 * (1 - 0.95 ** 8)) < 1e-6);
+  assert.ok(Math.abs(e.subscribers.low - 477.5 * (1 - 0.99 ** 8) * 0.0072) < 1e-9);
+  assert.ok(Math.abs(e.subscribers.high - 520 * (1 - 0.95 ** 8) * 0.0289) < 1e-9);
+  assert.deepEqual(displayRange(e.subscribers), { low: 0, high: 5 });
+  assert.equal(e.monthlyRevenueMinor.high, Math.round(e.subscribers.high * 199 * 100));
+  // Twelve months: the same audience with 12 × 8 Stories, not monthly × 12.
+  assert.ok(Math.abs(e.twelveMonthSubscribers.high - 520 * (1 - 0.95 ** 96) * 0.0289) < 1e-9);
+  assert.deepEqual(displayRange(e.twelveMonthSubscribers), { low: 2, high: 15 });
+  assert.ok(Math.abs(e.ceiling.high - 520 * 0.0289) < 1e-9);
   assert.equal(e.assumptionsVersion, DEFAULT_FOLLOWER_MODEL.version);
   // Tier boundaries.
   const tier = (followers: number) =>
@@ -358,12 +528,52 @@ test("follower calculator arithmetic: tiers, engagement scaling, clamping and ho
   );
   assert.equal(tiny.subscribers.high, 3);
   assert.equal(tiny.twelveMonthSubscribers.high, 3);
+  assert.equal(tiny.ceiling.high, 3);
   // Rounding never inflates the low end.
   assert.deepEqual(displayRange({ low: 0.99, high: 1.4 }), { low: 0, high: 1 });
   assert.deepEqual(displayRange({ low: 2, high: 1.2 }), { low: 2, high: 2 });
   assert.equal(engagementRate(1000, [{ likes: 10, comments: 2 }, { likes: 6, comments: 0 }]), 0.9);
   assert.equal(engagementRate(0, [{ likes: 1 }]), null);
   assert.equal(engagementRate(100, []), null);
+});
+
+test("follower model bounds: never more than the Story audience, saturating in Stories", () => {
+  const m = DEFAULT_FOLLOWER_MODEL;
+  // The review's impossible cases: 1,000 followers with 60 link Stories, and
+  // 3,000 followers at 5% engagement with 60 Stories.
+  const small = estimateFollowerConversion({ followers: 1000, linkStoriesPerMonth: 60, priceAed: 199 });
+  assert.ok(Math.abs(small.storyViewers.high - 104) < 1e-9);
+  assert.ok(small.subscribers.high <= 104 * 0.0289 + 1e-9);
+  assert.ok(small.twelveMonthSubscribers.high <= 104 * 0.0289 + 1e-9);
+  assert.deepEqual(displayRange(small.twelveMonthSubscribers), { low: 0, high: 3 });
+  const engaged = estimateFollowerConversion({ followers: 3000, linkStoriesPerMonth: 60, priceAed: 199, engagementRatePct: 5 });
+  assert.ok(engaged.twelveMonthSubscribers.high <= engaged.storyViewers.high);
+  assert.ok(engaged.twelveMonthSubscribers.high < 20);
+  for (const followers of [0, 50, 999, 5000, 5001, 20_000, 80_000, 2_000_000])
+    for (const stories of [0, 1, 4, 8, 20, 60])
+      for (const engagementRatePct of [null, 0.1, 0.48, 3, 50]) {
+        const e = estimateFollowerConversion({ followers, linkStoriesPerMonth: stories, priceAed: 199, engagementRatePct }, m);
+        const cap = e.storyViewers.high * (m.purchaseHighPct / 100);
+        assert.ok(e.subscribers.high <= cap + 1e-9, "monthly above viewers × conversion");
+        assert.ok(e.twelveMonthSubscribers.high <= cap + 1e-9, "twelve months above viewers × conversion");
+        assert.ok(e.twelveMonthSubscribers.high <= e.storyViewers.high + 1e-9);
+        assert.ok(e.twelveMonthSubscribers.high >= e.subscribers.high - 1e-9);
+        assert.ok(e.subscribers.low <= e.subscribers.high + 1e-9);
+        assert.ok(e.storyViewers.high <= followers + 1e-9);
+      }
+  // More link Stories never lowers the estimate, and each extra 4 add less.
+  const at = (stories: number) =>
+    estimateFollowerConversion({ followers: 5000, linkStoriesPerMonth: stories, priceAed: 199 }).subscribers.high;
+  let previousGain = Infinity;
+  for (let k = 0; k <= 56; k += 4) {
+    const gain = at(k + 4) - at(k);
+    assert.ok(gain >= -1e-12, `not monotone at ${k}`);
+    assert.ok(gain <= previousGain + 1e-12, `not saturating at ${k}`);
+    previousGain = gain;
+  }
+  assert.ok(at(60) < 520 * 0.0289);
+  // The +4 Stories nudge uses the same curve: 8 -> 12 adds less than 0 -> 4.
+  assert.ok(at(12) - at(8) < at(4) - at(0));
 });
 
 test("the Super admin's assumptions: settings map onto the model and inconsistent sets fall back", () => {
@@ -391,6 +601,28 @@ test("the Super admin's assumptions: settings map onto the model and inconsisten
     DEFAULT_FOLLOWER_MODEL,
   );
   assert.equal(defaults[k.version], DEFAULT_FOLLOWER_MODEL.version);
+  // The copy's cited figures equal the domain defaults.
+  assert.deepEqual(CITED_ASSUMPTIONS, {
+    linkClickLowPct: DEFAULT_FOLLOWER_MODEL.linkClickLowPct,
+    linkClickHighPct: DEFAULT_FOLLOWER_MODEL.linkClickHighPct,
+    purchaseLowPct: DEFAULT_FOLLOWER_MODEL.purchaseLowPct,
+    purchaseHighPct: DEFAULT_FOLLOWER_MODEL.purchaseHighPct,
+    engagementBenchmarkPct: DEFAULT_FOLLOWER_MODEL.engagementBenchmarkPct,
+  });
+  // Conversion defaults: high-consideration retail to the EMEA average.
+  assert.equal(DEFAULT_FOLLOWER_MODEL.purchaseLowPct, 0.72);
+  assert.equal(DEFAULT_FOLLOWER_MODEL.purchaseHighPct, 2.89);
+  // A value that differs from its cited default needs the operator's reason.
+  assert.deepEqual(followerModelAdjustments(DEFAULT_FOLLOWER_MODEL), []);
+  assert.equal(followerSettingsNeedNote(defaults as Record<string, string>), false);
+  assert.equal(followerSettingsNeedNote({ [k.purchaseHighPct]: "4" }), true);
+  assert.equal(
+    followerSettingsNeedNote({ [k.purchaseHighPct]: "4", [k.changeNote]: "Own trial data, Q3 2026" }),
+    false,
+  );
+  const noted = followerModelFromSettings({ [k.purchaseHighPct]: "4", [k.changeNote]: "Own trial data" });
+  assert.equal(noted.changeNote, "Own trial data");
+  assert.deepEqual(followerModelAdjustments(noted).map((a) => a.field), ["purchaseHighPct"]);
 });
 
 test("earnings calculator: marginal bands match the ledger's projection; upfront and tier mix", () => {
@@ -439,7 +671,8 @@ test("calculators and pages carry their estimate disclaimers", () => {
   );
   assert.match(follower, /ESTIMATE, NOT A PROMISE/);
   assert.match(follower, /not a prediction or promise of results/);
-  assert.match(follower, /Assumptions \(version 2026-09-28\)/);
+  assert.match(follower, /Assumptions \(version 2026-09-28\.2\)/);
+  assert.match(follower, /no published benchmark exists for coaching subscriptions/);
   assert.match(follower, /no industry benchmark exists/);
   const earnings = decode(renderToStaticMarkup(createElement(EarningsCalculator, {})));
   assert.match(earnings, /Not an earnings promise/);
@@ -448,10 +681,46 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.match(pricing, /An arithmetic example, not a forecast or promise/);
   const methodology = decode(render(marketingPage("/methodology")!));
   for (const source of MARKETING_SOURCES) assert.ok(methodology.includes(source.publisher), source.id);
-  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\)/);
+  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.2\)/);
+  assert.doesNotMatch(methodology, /Adjusted by the operator/);
   assert.equal(slugFromName("Layla Strength!"), "layla-strength");
   assert.equal(slugFromName("  99 Élan  Fit "), "elan-fit");
   assert.equal(slugFromName("ab"), "");
+});
+
+test("the assumptions shown are the assumptions used: settings change the pages, FAQ JSON-LD and llms-full.txt", () => {
+  const k = FOLLOWER_MODEL_SETTING_KEYS;
+  const text = (p: PublicPlatform, path: string) => decode(render(marketingPage(path)!, p));
+  const cited = text(platform, "/follower-calculator");
+  assert.match(cited, /1-5% chance of opening one link Story/);
+  assert.match(cited, /purchase conversion of 0\.72-2\.89%/);
+  assert.match(cited, /compared with the 0\.48% average/);
+  assert.doesNotMatch(cited, /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
+  const model = followerModelFromSettings({
+    [k.version]: "2026-11-01",
+    [k.linkClickLowPct]: "2",
+    [k.linkClickHighPct]: "4",
+    [k.purchaseHighPct]: "3.5",
+    [k.engagementBenchmarkPct]: "0.6",
+    [k.changeNote]: "Operator trial data, October 2026",
+  });
+  const edited = { ...platform, followerModel: model };
+  const page = text(edited, "/follower-calculator");
+  assert.match(page, /2-4% chance of opening one link Story/);
+  assert.match(page, /purchase conversion of 0\.72-3\.5%/);
+  assert.match(page, /compared with the 0\.6% average/);
+  assert.match(text(edited, "/guides/instagram-followers-to-clients"), /uses 2-4% of viewers/);
+  const full = llmsFullTxt({ ...ctx, followerModel: model });
+  assert.match(full, /purchase conversion of 0\.72-3\.5%/);
+  assert.doesNotMatch(full, /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
+  assert.doesNotMatch(llmsFullTxt(ctx), /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
+  // Methodology marks edited values instead of crediting the source for them.
+  const methodology = text(edited, "/methodology");
+  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Creator reports \)/);
+  assert.match(methodology, /Operator trial data, October 2026/);
+  // No unresolved token anywhere in the registry output.
+  for (const p of site)
+    assert.doesNotMatch(text(edited, p.path), /\{[A-Z_]+\}/, p.path);
 });
 
 test("the brand, availability and registration state come from the platform, not the code", () => {
@@ -469,9 +738,11 @@ test("the brand, availability and registration state come from the platform, not
   const closed = render(marketingPage("/")!, { ...platform, registrationOpen: false });
   assert.match(closed, /Join early access/);
   assert.doesNotMatch(closed, /href="\/signup"/);
-  const started = decode(render(marketingPage("/get-started")!, { ...platform, registrationOpen: false }));
+  const startedHtml = render(marketingPage("/get-started")!, { ...platform, registrationOpen: false });
+  const started = decode(startedHtml);
   assert.match(started, /Join early access/);
-  assert.match(started, /hello@trainsyou\.example/);
+  // The configured support address stays available as a fallback.
+  assert.match(startedHtml, /mailto:hello@trainsyou\.example/);
   for (const step of SETUP_CHECKLIST) assert.ok(started.includes(step.label), step.label);
 });
 

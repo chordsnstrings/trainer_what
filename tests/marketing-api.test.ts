@@ -14,6 +14,13 @@ import {
   validateIntegrationValues,
 } from "../packages/providers/src/configuration.ts";
 import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
+import { randomUUID } from "node:crypto";
+import { newToken, tokenHash } from "../apps/api/src/auth.ts";
+import {
+  earlyAccessCsv,
+  listEarlyAccess,
+  saveEarlyAccess,
+} from "../apps/api/src/early-access.ts";
 import {
   PLATFORM,
   SECRET,
@@ -149,12 +156,15 @@ test("Connect Instagram: owner only, single-use state bound to the session, toke
   assert.equal(read.snapshot.followers, 5000);
   assert.equal(read.snapshot.engagementRatePct, 0.8);
   assert.equal(read.snapshot.postsSampled, 2);
-  const stored = await h.db.system((tx) =>
+  // Workspace tables are read in the owner's own scope (the service role
+  // has no access to them on PostgreSQL).
+  const ownerActor = { tenantId: owner.tenantId, userId: owner.userId, role: "owner" } as any;
+  const stored = await h.db.tenant(ownerActor, (tx) =>
     tx.query("SELECT data FROM records WHERE tenant_id=$1 AND kind LIKE 'instagram%'", [owner.tenantId]),
   );
   assert.equal(stored.length, 1);
   assert.doesNotMatch(JSON.stringify(stored), new RegExp(TOKEN));
-  const events = await h.db.system((tx) =>
+  const events = await h.db.tenant(ownerActor, (tx) =>
     tx.query("SELECT name,data FROM events WHERE tenant_id=$1 AND name LIKE 'instagram.%' ORDER BY created_at", [owner.tenantId]),
   );
   assert.deepEqual(events.map((e: any) => e.name), ["instagram.authorization_started", "instagram.snapshot_saved"]);
@@ -270,4 +280,144 @@ test("Share your link: an optional step after launch, saved by the owner", async
   const after = await ok(h, "/onboarding", { cookie: owner.cookie });
   assert.equal(step(after).status, "complete");
   assert.deepEqual(step(after).values.channels, ["instagram_bio", "instagram_story"]);
+});
+
+/** A Super admin with a fresh authenticator check, in their own workspace. */
+async function superAdmin() {
+  const userId = randomUUID(),
+    tenantId = randomUUID(),
+    token = newToken();
+  await h.db.system(async (tx) => {
+    await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,'Platform ops')", [
+      tenantId,
+      "ops-" + tenantId.slice(0, 8),
+    ]);
+    await tx.query(
+      "INSERT INTO users(id,name,email,password_hash,email_verified,platform_role) VALUES($1,'Operator',$2,'synthetic',true,'admin')",
+      [userId, userId + "@ops.test"],
+    );
+    await tx.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')", [tenantId, userId]);
+    await tx.query(
+      "INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at,mfa_at) VALUES($1,$2,$3,now()+interval '7 days',now())",
+      [tokenHash(token), userId, tenantId],
+    );
+  });
+  return "session=" + token;
+}
+const platformRequest = (cookies: Record<string, string> = {}) => ({
+  cookies,
+  hostContext: {
+    host: "localhost:3000",
+    origin: PLATFORM,
+    tenantId: null,
+    tenantSlug: null,
+    custom: false,
+    verifiedProxy: false,
+  },
+  identity: undefined,
+}) as any;
+const request = (overrides: Record<string, unknown> = {}) => ({
+  name: "Layla Strength",
+  email: "Layla@Example.test",
+  instagram: "@Layla.Strength",
+  specialty: "strength",
+  emirate: "dubai",
+  followers: 5000,
+  estimate: { stories: 8, price: 199, low: 0, high: 5 },
+  slug: "layla-strength",
+  consent: true,
+  website: "",
+  startedAt: Date.now() - 20_000,
+  ...overrides,
+});
+
+test("early access: consented, bot-checked, one request per address, linked to consented acquisition only", async () => {
+  // Registration is open in development, so the public route points to sign-up.
+  const open = await call(h, "/public/early-access", { method: "POST", body: request() });
+  assert.equal(open.statusCode, 409);
+  assert.equal(open.json().code, "REGISTRATION_OPEN");
+  const foreign = await call(h, "/public/early-access", {
+    method: "POST",
+    body: request(),
+    origin: "https://attacker.example",
+  });
+  assert.equal(foreign.statusCode, 403);
+  // Consent is required; bots (hidden field, instant submit) are dropped quietly.
+  await assert.rejects(() => saveEarlyAccess(h.db, platformRequest(), request({ consent: false })));
+  await assert.rejects(() => saveEarlyAccess(h.db, platformRequest(), request({ email: "not-an-email" })));
+  assert.equal(await saveEarlyAccess(h.db, platformRequest(), request({ website: "http://spam" })), false);
+  assert.equal(await saveEarlyAccess(h.db, platformRequest(), request({ startedAt: Date.now() - 500 })), false);
+  assert.equal((await listEarlyAccess(h.db)).length, 0);
+  // A visitor without analytics permission: no channel or campaign is linked.
+  assert.equal(await saveEarlyAccess(h.db, platformRequest(), request()), true);
+  let [row] = await listEarlyAccess(h.db);
+  assert.equal(row.email, "Layla@Example.test");
+  assert.equal(row.instagram, "layla.strength");
+  assert.equal(row.source, "");
+  assert.deepEqual(row.estimate, { stories: 8, price: 199, low: 0, high: 5, version: DEFAULT_FOLLOWER_MODEL.version });
+  assert.match(row.consent_version, /^early-access-notice:v1\|privacy:/);
+  // With analytics permission the consented first touch is linked; the same
+  // address updates the one request instead of adding another.
+  const consent = await call(h, "/public/acquisition/consent", {
+    method: "POST",
+    body: { granted: true, touch: { source: "instagram", medium: "social", campaign: "story" } },
+  });
+  assert.equal(consent.statusCode, 200, consent.body);
+  const cookie = String(consent.headers["set-cookie"]).split(";")[0].split("=");
+  assert.equal(
+    await saveEarlyAccess(h.db, platformRequest({ [cookie[0]]: cookie[1] }), request({ email: "layla@example.test", followers: 5200 })),
+    true,
+  );
+  const rows = await listEarlyAccess(h.db);
+  assert.equal(rows.length, 1);
+  row = rows[0];
+  assert.equal(row.followers, 5200);
+  assert.deepEqual([row.source, row.medium, row.campaign], ["instagram", "social", "story"]);
+  // CSV neutralizes formulas typed by visitors.
+  await saveEarlyAccess(h.db, platformRequest(), request({ email: "x@example.test", name: "=HYPERLINK(1)" }));
+  assert.match(earlyAccessCsv(await listEarlyAccess(h.db)), /'=HYPERLINK\(1\)/);
+});
+
+test("early access: the Super admin lists, exports, updates and erases requests", async () => {
+  const cookie = await superAdmin();
+  const owner = await coach(h, "ea-owner");
+  const view = await ok(h, "/admin/operations/early-access", { cookie });
+  assert.ok(view.rows.length >= 2);
+  assert.ok(view.allowedViews.includes("early-access"));
+  const denied = await call(h, "/admin/operations/early-access", { cookie: owner.cookie });
+  assert.equal(denied.statusCode, 403);
+  const csv = await call(h, "/admin/early-access.csv", { cookie });
+  assert.equal(csv.statusCode, 200);
+  assert.match(String(csv.headers["content-type"]), /text\/csv/);
+  assert.match(csv.body, /layla@example\.test/);
+  const id = view.rows.find((r: any) => r.email === "layla@example.test").id;
+  const status = await ok(h, `/admin/early-access/${id}/status`, { method: "POST", cookie, body: { status: "contacted" } });
+  assert.equal(status.status, "contacted");
+  assert.equal((await call(h, `/admin/early-access/${id}/erase`, { method: "POST", cookie: owner.cookie, body: {} })).statusCode, 403);
+  await ok(h, `/admin/early-access/${id}/erase`, { method: "POST", cookie, body: {} });
+  assert.ok(!(await listEarlyAccess(h.db)).some((r: any) => r.id === id));
+  const audit = await h.db.system((tx) =>
+    tx.query("SELECT action,data FROM admin_operations_audit WHERE action LIKE 'early_access.%' ORDER BY created_at"),
+  );
+  assert.deepEqual(audit.map((a: any) => a.action), ["early_access.exported", "early_access.status", "early_access.erased"]);
+  // The erased person's details are not kept in the audit.
+  assert.doesNotMatch(JSON.stringify(audit), /layla/i);
+});
+
+test("marketing settings need the operator's reason when an assumption leaves its cited default", async () => {
+  const cookie = await superAdmin();
+  const settings = await ok(h, "/admin/settings", { cookie });
+  const revision =
+    settings.integrations?.find?.((i: any) => i.id === "marketing")?.revision ?? 0;
+  const save = (values: Record<string, string>) =>
+    call(h, "/admin/settings/marketing", {
+      method: "PUT",
+      cookie,
+      body: { revision, enabled: true, values },
+    });
+  const refused = await save({ FOLLOWER_PURCHASE_HIGH: "4" });
+  assert.equal(refused.statusCode, 400, refused.body);
+  assert.match(refused.json().message, /reason and source/);
+  const saved = await save({ FOLLOWER_PURCHASE_HIGH: "4", FOLLOWER_MODEL_CHANGE_NOTE: "Own trial data, Q3 2026" });
+  assert.equal(saved.statusCode, 200, saved.body);
 });

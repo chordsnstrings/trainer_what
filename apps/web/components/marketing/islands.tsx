@@ -3,7 +3,7 @@
 // reused in the trainer workspace (follower calculator). Pure arithmetic lives
 // in packages/domain/src/marketing-calculators.ts.
 import Link from "next/link";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   DEFAULT_EARNINGS_INPUTS,
   EARNINGS_LIMITS,
@@ -12,9 +12,25 @@ import {
   displayRange,
   estimateEarnings,
   estimateFollowerConversion,
+  followerModelAdjustments,
   type EarningsInputs,
   type FollowerModelAssumptions,
 } from "../../../../packages/domain/src/marketing-calculators";
+
+/** Early access keeps the visitor's numbers: they travel in the address. */
+export function withEarlyAccessContext(
+  href: string,
+  context: Record<string, string | number | undefined | null>,
+): string {
+  if (!href.startsWith("/get-started")) return href;
+  const [path, hash = "early-access"] = href.split("#");
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(context))
+    if (value !== undefined && value !== null && String(value) !== "")
+      params.set(key, String(value).slice(0, 80));
+  const query = params.toString();
+  return path.split("?")[0] + (query ? "?" + query : "") + "#" + hash;
+}
 
 const aed = aedWhole;
 const whole = (n: number) =>
@@ -132,9 +148,17 @@ export function FollowerCalculator({
   );
   const subs = displayRange(estimate.subscribers),
     year = displayRange(estimate.twelveMonthSubscribers),
-    moreSubs = displayRange(more.subscribers);
+    moreSubs = displayRange(more.subscribers),
+    ceiling = displayRange(estimate.ceiling);
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const tier = model.tiers[estimate.tierIndex];
+  const adjusted = followerModelAdjustments(model).length > 0;
+  const context = {
+    followers: estimate.inputs.followers,
+    stories: estimate.inputs.linkStoriesPerMonth,
+    price: estimate.inputs.priceAed,
+    estimate: `${subs.low}-${subs.high}`,
+  };
   return (
     <section className="mk-calculator card" aria-label="Follower calculator">
       <div className="mk-calculator-grid">
@@ -189,7 +213,7 @@ export function FollowerCalculator({
             )}
           </p>
           <p className="mk-result-label">
-            new paying subscribers a month when you share your link
+            new paying subscribers in your first month of sharing your link
           </p>
           {subs.high >= 1 && (
             <p>
@@ -197,27 +221,35 @@ export function FollowerCalculator({
                 low: estimate.monthlyRevenueMinor.low / 100,
                 high: estimate.monthlyRevenueMinor.high / 100,
               }), (n) => aed(n * 100))}{" "}
-              a month in new subscriptions, and {range(year)} subscribers after
-              twelve months of steady sharing, before cancellations.
+              a month from them at your price.
             </p>
           )}
+          <p>
+            After twelve months of the same sharing:{" "}
+            <strong>{year.high < 1 ? "fewer than 1" : range(year)}</strong>{" "}
+            subscribers from the people who see your Stories today, before
+            cancellations.
+          </p>
           <p className="mk-nudge">
-            Followers who never see your offer can’t subscribe. With 4 more link
-            Stories a month:{" "}
+            With 4 more link Stories a month:{" "}
             <strong>
               {moreSubs.high < 1 ? "fewer than 1" : range(moreSubs)}
             </strong>{" "}
-            a month.
+            in the first month. Repeating your link helps the people who
+            already watch you, then levels off; the most your current Story
+            audience could give at these rates is{" "}
+            <strong>{ceiling.high < 1 ? "fewer than 1" : range(ceiling)}</strong>.
+            Reaching more people raises that ceiling.
           </p>
           {!compact && (
             <dl className="mk-funnel">
               <div>
-                <dt>Story views with your link</dt>
-                <dd>{range(displayRange(estimate.linkViews))}</dd>
+                <dt>People who see your Stories</dt>
+                <dd>{range(displayRange(estimate.storyViewers))}</dd>
               </div>
               <div>
-                <dt>Visits to your page</dt>
-                <dd>{range(displayRange(estimate.visits))}</dd>
+                <dt>People who visit your page</dt>
+                <dd>{range(displayRange(estimate.visitors))}</dd>
               </div>
               <div>
                 <dt>New paying subscribers</dt>
@@ -230,7 +262,16 @@ export function FollowerCalculator({
               template={addressTemplate}
               claimHref={claimHref}
               claimLabel={claimLabel}
+              context={context}
             />
+          )}
+          {!addressTemplate && !compact && claimHref.startsWith("/get-started") && (
+            <Link
+              className="button"
+              href={withEarlyAccessContext(claimHref, context)}
+            >
+              {claimLabel}
+            </Link>
           )}
         </div>
       </div>
@@ -239,21 +280,38 @@ export function FollowerCalculator({
         <ul>
           <li>
             Story reach for your tier: {pct(tier.reachLowPct)}–
-            {pct(tier.reachHighPct)} of followers
+            {pct(tier.reachHighPct)} of followers see at least one frame of a
+            Story
             {estimate.engagementFactor !== 1 &&
               `, scaled ×${estimate.engagementFactor.toFixed(2)} by your engagement against the ${pct(model.engagementBenchmarkPct)} average`}
-            .
+            . The same people tend to watch each Story, so more Stories do not
+            add viewers.
           </li>
           <li>
-            Link-sticker click-through: {pct(model.linkClickLowPct)}–
-            {pct(model.linkClickHighPct)} of viewers (creator reports; no
-            industry benchmark exists).
+            Link-sticker click-through: a {pct(model.linkClickLowPct)}–
+            {pct(model.linkClickHighPct)} chance per viewer per link Story
+            (creator reports; no industry benchmark exists). Over several
+            Stories the chance of a visit is 1 − (1 − rate)^Stories, which
+            levels off.
           </li>
           <li>
             Visit to paid subscriber: {pct(model.purchaseLowPct)}–
-            {pct(model.purchaseHighPct)} (e-commerce benchmarks).
+            {pct(model.purchaseHighPct)} of the people who visit. These are
+            retail e-commerce purchase rates; no published benchmark exists for
+            coaching subscriptions.
           </li>
-          <li>Cancellations and refunds are not modelled.</li>
+          <li>
+            Only Stories are modelled, not your bio link, posts or other
+            channels. New followers, audience turnover, cancellations and
+            refunds are not modelled.
+          </li>
+          {adjusted && (
+            <li>
+              Some values were adjusted by the platform operator and differ from
+              the cited sources
+              {model.changeNote ? `: ${model.changeNote}` : "."}
+            </li>
+          )}
         </ul>
         <p className="fine-print">
           Estimates apply published averages to your inputs. They are not a
@@ -283,10 +341,13 @@ export function AddressPreview({
   template,
   claimHref = "/signup",
   claimLabel = "Claim this address",
+  context = {},
 }: {
   template: string;
   claimHref?: string;
   claimLabel?: string;
+  /** Calculator numbers carried to early access. */
+  context?: Record<string, string | number>;
 }) {
   const id = useId();
   const [name, setName] = useState("");
@@ -295,7 +356,11 @@ export function AddressPreview({
   const href =
     slug && claimHref === "/signup"
       ? "/signup?slug=" + encodeURIComponent(slug)
-      : claimHref;
+      : withEarlyAccessContext(claimHref, {
+          ...context,
+          name: name.trim() || undefined,
+          slug: slug || undefined,
+        });
   return (
     <div className="mk-address">
       <label htmlFor={id}>Your coaching name</label>
@@ -555,5 +620,260 @@ export function DemoScenarios({
         </section>
       ))}
     </div>
+  );
+}
+
+const EMIRATES: Array<[string, string]> = [
+  ["abu_dhabi", "Abu Dhabi"],
+  ["dubai", "Dubai"],
+  ["sharjah", "Sharjah"],
+  ["ajman", "Ajman"],
+  ["umm_al_quwain", "Umm Al Quwain"],
+  ["ras_al_khaimah", "Ras Al Khaimah"],
+  ["fujairah", "Fujairah"],
+  ["outside_uae", "Outside the UAE"],
+];
+/** The calculator numbers and address carried in from another page. */
+function earlyAccessContext(search: string) {
+  const q = new URLSearchParams(search);
+  const int = (key: string, max: number) => {
+    const n = Number(q.get(key));
+    return q.get(key) !== null && Number.isInteger(n) && n >= 0 && n <= max
+      ? n
+      : null;
+  };
+  const [low, high] = (q.get("estimate") ?? "").split("-").map(Number);
+  const stories = int("stories", 60),
+    price = int("price", 10_000);
+  return {
+    name: (q.get("name") ?? "").slice(0, 120),
+    slug: /^[a-z][a-z0-9-]{2,39}$/.test(q.get("slug") ?? "") ? q.get("slug")! : "",
+    followers: int("followers", 10_000_000),
+    estimate:
+      stories !== null &&
+      price !== null &&
+      price >= 1 &&
+      Number.isInteger(low) &&
+      Number.isInteger(high) &&
+      low >= 0 &&
+      low <= high
+        ? { stories, price, low, high }
+        : null,
+  };
+}
+/** Consented early-access request while trainer registration is closed. */
+export function EarlyAccessForm({
+  appName,
+  supportEmail,
+  specialties,
+}: {
+  appName: string;
+  supportEmail: string | null;
+  specialties: Array<{ id: string; label: string }>;
+}) {
+  const base = useId();
+  const [context, setContext] = useState<ReturnType<typeof earlyAccessContext>>({
+    name: "",
+    slug: "",
+    followers: null,
+    estimate: null,
+  });
+  const [startedAt, setStartedAt] = useState(0);
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setContext(earlyAccessContext(window.location.search));
+    setStartedAt(Date.now());
+  }, []);
+  const summary = [
+    context.slug && `Address: ${context.slug}`,
+    context.followers !== null && `Followers: ${context.followers}`,
+    context.estimate &&
+      `Follower estimate: ${context.estimate.low}-${context.estimate.high} in the first month (${context.estimate.stories} link Stories, AED ${context.estimate.price})`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const mailto = supportEmail
+    ? `mailto:${supportEmail}?subject=${encodeURIComponent("Early access")}&body=${encodeURIComponent(
+        `Name: ${context.name}\nInstagram: \n${summary}`,
+      )}`
+    : null;
+  async function submit(form: HTMLFormElement) {
+    const f = new FormData(form);
+    const followers = String(f.get("followers") ?? "").trim();
+    setState("sending");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/public/early-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: String(f.get("name") ?? ""),
+          email: String(f.get("email") ?? ""),
+          instagram: String(f.get("instagram") ?? ""),
+          specialty: String(f.get("specialty") ?? ""),
+          emirate: String(f.get("emirate") ?? ""),
+          followers: followers === "" ? null : Math.round(Number(followers)),
+          estimate: context.estimate,
+          slug: context.slug,
+          consent: f.get("consent") === "on",
+          website: String(f.get("website") ?? ""),
+          startedAt,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message ?? "Your request could not be sent.");
+      }
+      setState("sent");
+    } catch (e) {
+      setState("failed");
+      setError((e as Error).message);
+    }
+  }
+  if (state === "sent")
+    return (
+      <div className="mk-early-done" role="status">
+        <p className="mk-body">
+          <strong>Thank you.</strong> Your request is on the early access list.
+          We will email you when trainer registration opens.
+        </p>
+      </div>
+    );
+  return (
+    <form
+      className="mk-early-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit(e.currentTarget);
+      }}
+    >
+      {(context.estimate || context.slug) && (
+        <p className="mk-early-context">
+          We will keep what you worked out:{" "}
+          {context.slug && (
+            <>
+              the address <span className="ltr-data">{context.slug}</span>
+              {context.estimate ? " and " : "."}
+            </>
+          )}
+          {context.estimate &&
+            `a first-month estimate of ${context.estimate.low}-${context.estimate.high} subscribers at AED ${context.estimate.price}.`}
+        </p>
+      )}
+      <div className="mk-early-grid">
+        <div className="field mk-field">
+          <label htmlFor={base + "-name"}>Your name</label>
+          <input
+            id={base + "-name"}
+            name="name"
+            required
+            maxLength={120}
+            autoComplete="name"
+            defaultValue={context.name}
+            key={"name-" + context.name}
+          />
+        </div>
+        <div className="field mk-field">
+          <label htmlFor={base + "-email"}>Email</label>
+          <input
+            id={base + "-email"}
+            name="email"
+            type="email"
+            required
+            maxLength={254}
+            autoComplete="email"
+            className="ltr-data"
+          />
+        </div>
+        <div className="field mk-field">
+          <label htmlFor={base + "-ig"}>
+            Instagram handle <span className="muted">(optional)</span>
+          </label>
+          <input
+            id={base + "-ig"}
+            name="instagram"
+            maxLength={31}
+            autoComplete="off"
+            placeholder="@yourname"
+            className="ltr-data"
+          />
+        </div>
+        <div className="field mk-field">
+          <label htmlFor={base + "-followers"}>
+            Instagram followers <span className="muted">(optional)</span>
+          </label>
+          <input
+            id={base + "-followers"}
+            name="followers"
+            type="number"
+            min={0}
+            max={10_000_000}
+            inputMode="numeric"
+            defaultValue={context.followers ?? ""}
+            key={"followers-" + context.followers}
+          />
+        </div>
+        <div className="field mk-field">
+          <label htmlFor={base + "-specialty"}>
+            Main specialty <span className="muted">(optional)</span>
+          </label>
+          <select id={base + "-specialty"} name="specialty" defaultValue="">
+            <option value="">Choose one</option>
+            {specialties.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field mk-field">
+          <label htmlFor={base + "-emirate"}>
+            Where you coach <span className="muted">(optional)</span>
+          </label>
+          <select id={base + "-emirate"} name="emirate" defaultValue="">
+            <option value="">Choose one</option>
+            {EMIRATES.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="mk-honeypot" aria-hidden="true">
+        <label htmlFor={base + "-website"}>Leave this empty</label>
+        <input
+          id={base + "-website"}
+          name="website"
+          tabIndex={-1}
+          autoComplete="off"
+        />
+      </div>
+      <label className="mk-consent">
+        <input type="checkbox" name="consent" required />
+        <span>
+          I agree that {appName} may keep these details, and the estimate
+          above, to contact me about early access. I can ask for them to be
+          deleted at any time.
+        </span>
+      </label>
+      <div className="button-row">
+        <button className="button large" disabled={state === "sending" || !startedAt}>
+          {state === "sending" ? "Sending…" : "Join early access"}
+        </button>
+        {mailto && (
+          <a className="text-link" href={mailto}>
+            Or email us instead
+          </a>
+        )}
+      </div>
+      {state === "failed" && (
+        <p className="notice" role="alert">
+          {error}
+          {mailto ? " You can also email us; your numbers are already in the message." : ""}
+        </p>
+      )}
+    </form>
   );
 }

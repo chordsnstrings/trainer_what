@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
+  DIRECTORY_SPECIALTIES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
@@ -27,16 +28,26 @@ import {
 } from "@trainer/contracts";
 import {
   aedWhole as aed,
+  displayRange,
   estimateEarnings,
+  estimateFollowerConversion,
+  followerModelAdjustments,
 } from "../../../../packages/domain/src/marketing-calculators";
 import { claimCta, MarketingFooter, MarketingHeader, type Cta } from "./frame";
 import {
   AddressPreview,
   DemoScenarios,
+  EarlyAccessForm,
   EarningsCalculator,
   FollowerCalculator,
 } from "./islands";
 import type { PublicPlatform } from "./platform";
+import {
+  FeatureMatrix,
+  IncludedStrip,
+  ProductScreens,
+  Replaces,
+} from "./showcase";
 
 type Ctx = { page: MarketingPage; platform: PublicPlatform; origin: string };
 const dateLabel = (iso: string) =>
@@ -291,6 +302,54 @@ function PageTiles({
 const childrenOf = (path: string) =>
   MARKETING_PAGES.filter((p) => p.parent === path && p.indexable);
 
+/** Three example accounts, computed live from the assumptions in use. */
+function FollowerExamples({ platform }: { platform: PublicPlatform }) {
+  const accounts: Array<[number, number]> = [
+    [2000, 8],
+    [8000, 8],
+    [30000, 12],
+  ];
+  const whole = (n: number) => n.toLocaleString("en-AE");
+  const span = (r: { low: number; high: number }) =>
+    r.low === r.high ? whole(r.low) : `${whole(r.low)}–${whole(r.high)}`;
+  return (
+    <div className="mk-table-wrap">
+      <table className="mk-table">
+        <caption>
+          Estimate ranges at AED 199 a month (assumptions version{" "}
+          {platform.followerModel.version})
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Followers</th>
+            <th scope="col">Link Stories a month</th>
+            <th scope="col">People who see your Stories</th>
+            <th scope="col">New subscribers, first month</th>
+            <th scope="col">After twelve months</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accounts.map(([followers, stories]) => {
+            const e = estimateFollowerConversion(
+              { followers, linkStoriesPerMonth: stories, priceAed: 199 },
+              platform.followerModel,
+            );
+            return (
+              <tr key={followers}>
+                <td>{whole(followers)}</td>
+                <td>{stories}</td>
+                <td>{span(displayRange(e.storyViewers))}</td>
+                <td>{span(displayRange(e.subscribers))}</td>
+                <td>{span(displayRange(e.twelveMonthSubscribers))}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** A worked example computed with the same function as the calculator. */
 function WorkedExample() {
   const e = estimateEarnings({
@@ -328,6 +387,7 @@ function WorkedExample() {
 
 function Methodology({ platform }: { platform: PublicPlatform }) {
   const m = platform.followerModel;
+  const adjusted = new Set(followerModelAdjustments(m).map((a) => a.field));
   const tierLabel = (i: number) => {
     const upTo = m.tiers[i].upTo,
       from = i === 0 ? 0 : (m.tiers[i - 1].upTo ?? 0) + 1;
@@ -335,10 +395,35 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
       ? `Above ${from - 1 > 0 ? (from - 1).toLocaleString("en-AE") : "0"}`
       : `${from.toLocaleString("en-AE")}–${upTo.toLocaleString("en-AE")}`;
   };
+  // A value the operator changed no longer rests on the cited source.
+  const Source = ({
+    fields,
+    href,
+    label,
+  }: {
+    fields: string[];
+    href: string;
+    label: string;
+  }) =>
+    fields.some((f) => adjusted.has(f)) ? (
+      <span>
+        <span className="badge amber">Adjusted by the operator</span> version{" "}
+        {m.version}; differs from the cited source (
+        <a href={href}>{label}</a>)
+      </span>
+    ) : (
+      <a href={href}>{label}</a>
+    );
   return (
     <>
       <section className="mk-section" id="follower-assumptions" aria-labelledby="fa-h">
         <h2 id="fa-h">Follower calculator assumptions (version {m.version})</h2>
+        {adjusted.size > 0 && (
+          <p className="mk-body">
+            <strong>Operator note:</strong>{" "}
+            {m.changeNote ?? "No reason was recorded."}
+          </p>
+        )}
         <div className="mk-table-wrap">
           <table className="mk-table">
             <caption>Values in use now; the platform operator can review them</caption>
@@ -357,24 +442,39 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                   <td>{tier.reachLowPct}%</td>
                   <td>{tier.reachHighPct}%</td>
                   <td>
-                    <a href="#socialinsider-stories">Socialinsider</a>
+                    <Source
+                      fields={[`tiers.${i}.reachLowPct`, `tiers.${i}.reachHighPct`]}
+                      href="#socialinsider-stories"
+                      label="Socialinsider"
+                    />
                   </td>
                 </tr>
               ))}
               <tr>
-                <td>Link-sticker click-through of viewers</td>
+                <td>Link-sticker click-through, per viewer per link Story</td>
                 <td>{m.linkClickLowPct}%</td>
                 <td>{m.linkClickHighPct}%</td>
                 <td>
-                  <a href="#creatorflow-link-sticker">Creator reports</a>
+                  <Source
+                    fields={["linkClickLowPct", "linkClickHighPct"]}
+                    href="#creatorflow-link-sticker"
+                    label="Creator reports"
+                  />
                 </td>
               </tr>
               <tr>
-                <td>Visit to paid subscriber</td>
+                <td>
+                  Visit to paid subscriber (retail e-commerce purchase rates; no
+                  published benchmark exists for coaching subscriptions)
+                </td>
                 <td>{m.purchaseLowPct}%</td>
                 <td>{m.purchaseHighPct}%</td>
                 <td>
-                  <a href="#dynamicyield-conversion">Dynamic Yield</a>
+                  <Source
+                    fields={["purchaseLowPct", "purchaseHighPct"]}
+                    href="#dynamicyield-conversion"
+                    label="Dynamic Yield"
+                  />
                 </td>
               </tr>
               <tr>
@@ -383,34 +483,16 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                   {m.engagementBenchmarkPct}%, scaling at most ×{m.engagementFactorMax}
                 </td>
                 <td>
-                  <a href="#socialinsider-engagement">Socialinsider</a>
+                  <Source
+                    fields={["engagementBenchmarkPct", "engagementFactorMax"]}
+                    href="#socialinsider-engagement"
+                    label="Socialinsider"
+                  />
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p className="mk-body">
-          Monthly new subscribers = followers × Story reach × link Stories per
-          month × click-through × purchase conversion. Low and high ends use the
-          low and high assumptions. Results are capped at your follower count,
-          and cancellations are not modelled.
-        </p>
-      </section>
-      <section className="mk-section" id="earnings-assumptions" aria-labelledby="ea-h">
-        <h2 id="ea-h">Earnings calculator assumptions</h2>
-        <ul className="mk-list">
-          {[
-            "Commission follows the standard marginal bands: 25% (1-100), 20% (101-300), 15% (301-1,000), 10% (above 1,000).",
-            "Upfront programmes are converted to a monthly equivalent: price divided by months.",
-            "The tier mix and add-ons are assumed to be the same in every band.",
-            "Excluded: payment processing, AI usage at cost, voice usage, domain, refunds, disputes, booking fees and tax.",
-          ].map((b) => (
-            <li key={b}>
-              <Check size={16} aria-hidden="true" />
-              <span>{b}</span>
-            </li>
-          ))}
-        </ul>
       </section>
       <section className="mk-section" id="sources" aria-labelledby="src-h">
         <h2 id="src-h">Sources</h2>
@@ -441,6 +523,29 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
               assumptions (version 2026-09-28).
             </span>
           </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.2): repeat link Stories now
+              reach the same viewers, so the chance of a visit levels off
+              instead of adding up; the twelve-month figure comes from the same
+              Story audience and never exceeds viewers × conversion; visit to
+              paid subscriber changed from 1.51-5.39% to 0.72% (Dynamic Yield
+              luxury and jewellery, high-consideration retail) to 2.89% (EMEA
+              average), because a monthly coaching subscription is a considered
+              purchase and the UAE is in EMEA.
+            </span>
+          </li>
+          {adjusted.size > 0 && (
+            <li>
+              <Check size={16} aria-hidden="true" />
+              <span>
+                Version {m.version}: the platform operator adjusted{" "}
+                {adjusted.size} value{adjusted.size === 1 ? "" : "s"}.{" "}
+                {m.changeNote ?? "No reason was recorded."}
+              </span>
+            </li>
+          )}
         </ul>
       </section>
     </>
@@ -459,20 +564,15 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
     <section className="mk-section card" id="early-access" aria-labelledby="early-h">
       <h2 id="early-h">Join early access</h2>
       <p className="mk-body">
-        Trainer registration opens once our legal documents are published.
-        {platform.supportEmail ? (
-          <>
-            {" "}
-            Email{" "}
-            <a className="ltr-data" href={"mailto:" + platform.supportEmail + "?subject=Early%20access"}>
-              {platform.supportEmail}
-            </a>{" "}
-            with your name and Instagram handle to join early access.
-          </>
-        ) : (
-          " Check back soon."
-        )}
+        Trainer registration opens once our legal documents are published. Leave
+        your details and we will email you when it opens. Your calculator
+        numbers and the address you typed come with you.
       </p>
+      <EarlyAccessForm
+        appName={platform.name}
+        supportEmail={platform.supportEmail}
+        specialties={DIRECTORY_SPECIALTIES.map((s) => ({ id: s.id, label: s.label }))}
+      />
     </section>
   );
 }
@@ -500,26 +600,26 @@ function CustomBlock({ page, platform, t }: Ctx & { t: (s: string) => string }) 
       );
     case "/features":
       return (
-        <section className="mk-section" aria-labelledby="all-features-h">
-          <h2 id="all-features-h">Every feature</h2>
-          <PageTiles
-            pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
-            platform={platform}
-            t={t}
-            withChips
-          />
-        </section>
+        <>
+          <ProductScreens t={t} />
+          <FeatureMatrix platform={platform} t={t} />
+          <Replaces t={t} />
+          <section className="mk-section" aria-labelledby="all-features-h">
+            <h2 id="all-features-h">Feature guides</h2>
+            <PageTiles
+              pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
+              platform={platform}
+              t={t}
+              withChips
+            />
+          </section>
+        </>
       );
     case "/for-trainers":
     case "/guides":
       return <PageTiles pages={childrenOf(page.path)} platform={platform} t={t} />;
     case "/uae":
-      return (
-        <>
-          <PageTiles pages={childrenOf("/uae")} platform={platform} t={t} />
-          <DirectoryBlock place="the UAE" />
-        </>
-      );
+      return <DirectoryBlock place="the UAE" />;
     case "/get-started":
       return <EarlyAccess platform={platform} />;
     default:
@@ -564,6 +664,8 @@ function AfterSection({
         ))}
       </ol>
     );
+  if (page.path === "/guides/instagram-followers-to-clients" && section.id === "examples")
+    return <FollowerExamples platform={platform} />;
   if (page.kind === "specialty" && section.id === "followers")
     return (
       <FollowerCalculator
@@ -577,7 +679,7 @@ function AfterSection({
 }
 
 function StandardPage({ page, platform, origin }: Ctx) {
-  const t = (s: string) => brandText(s, platform.name);
+  const t = (s: string) => brandText(s, platform.name, platform.followerModel);
   const cta = primaryCta(page, platform),
     second = secondaryCta(page);
   const chip = availabilityChip(page, platform.availability);
@@ -677,7 +779,7 @@ function HomeSection({
 }
 
 function Home({ page, platform }: Ctx) {
-  const t = (s: string) => brandText(s, platform.name);
+  const t = (s: string) => brandText(s, platform.name, platform.followerModel);
   const cta = primaryCta(page, platform);
   const features = [
     marketingPage("/trainer-brain")!,
@@ -747,6 +849,7 @@ function Home({ page, platform }: Ctx) {
       <div className="mk-entity">
         <HomeSection page={page} id="what-is" t={t} />
       </div>
+      <IncludedStrip t={t} />
       <HomeSection page={page} id="hours" t={t} className="mk-band-sand">
         <div className="mk-anchors">
           <div>
@@ -772,6 +875,9 @@ function Home({ page, platform }: Ctx) {
         </p>
       </HomeSection>
       <HomeSection page={page} id="subscribers" t={t} />
+      <div className="mk-band">
+        <ProductScreens t={t} />
+      </div>
       <div className="mk-band" id="followers">
         <section className="mk-section" aria-labelledby="followers-h">
           <h2 id="followers-h">What could your followers be worth?</h2>
@@ -823,6 +929,7 @@ export function MarketingSite({ page, platform, origin }: Ctx) {
     origin,
     appName: platform.name,
     supportEmail: platform.supportEmail,
+    followerModel: platform.followerModel,
   });
   return (
     <div className="public mk">

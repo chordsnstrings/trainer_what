@@ -139,6 +139,18 @@ export const MARKETING_CHILD_PREFIXES = [
   "/uae/",
   "/guides/",
 ] as const;
+/**
+ * Retired addresses and where they now live (permanent redirects). The
+ * Dubai and Abu Dhabi pages became sections of /uae: two thin pages with
+ * the same bullets were a doorway pattern.
+ */
+export const MARKETING_REDIRECTS: Readonly<Record<string, string>> = {
+  "/uae/dubai": "/uae#dubai",
+  "/uae/abu-dhabi": "/uae#abu-dhabi",
+};
+export function marketingRedirect(path: string): string | undefined {
+  return MARKETING_REDIRECTS[normalizeMarketingPath(path)];
+}
 export function isUnknownMarketingChild(path: string): boolean {
   const clean = normalizeMarketingPath(path);
   return (
@@ -150,8 +162,48 @@ export const INDEXABLE_MARKETING_PAGES = MARKETING_PAGES.filter(
   (page) => page.indexable,
 );
 
-export function brandText(text: string, appName: string): string {
-  return text.replaceAll("{APP_NAME}", appName);
+/**
+ * The editable calculator assumptions that page copy quotes. Copy uses the
+ * tokens {CLICK_RANGE}, {PURCHASE_RANGE} and {ENGAGEMENT_AVG} so the pages,
+ * the FAQ JSON-LD and llms-full.txt always state the values the calculator
+ * uses (the Super admin can change them in platform settings).
+ */
+export type AssumptionFigures = {
+  linkClickLowPct: number;
+  linkClickHighPct: number;
+  purchaseLowPct: number;
+  purchaseHighPct: number;
+  engagementBenchmarkPct: number;
+};
+/** The cited defaults; equal to DEFAULT_FOLLOWER_MODEL (a test keeps them equal). */
+export const CITED_ASSUMPTIONS: AssumptionFigures = {
+  linkClickLowPct: 1,
+  linkClickHighPct: 5,
+  purchaseLowPct: 0.72,
+  purchaseHighPct: 2.89,
+  engagementBenchmarkPct: 0.48,
+};
+const figure = (n: number) =>
+  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(n);
+const figureRange = (low: number, high: number) =>
+  low === high ? `${figure(low)}%` : `${figure(low)}-${figure(high)}%`;
+/** Replaces the brand and assumption tokens in registry copy. */
+export function brandText(
+  text: string,
+  appName: string,
+  figures: AssumptionFigures = CITED_ASSUMPTIONS,
+): string {
+  return text
+    .replaceAll("{APP_NAME}", appName)
+    .replaceAll(
+      "{CLICK_RANGE}",
+      figureRange(figures.linkClickLowPct, figures.linkClickHighPct),
+    )
+    .replaceAll(
+      "{PURCHASE_RANGE}",
+      figureRange(figures.purchaseLowPct, figures.purchaseHighPct),
+    )
+    .replaceAll("{ENGAGEMENT_AVG}", `${figure(figures.engagementBenchmarkPct)}%`);
 }
 /** The one entity sentence used on the home page, /about, llms.txt and JSON-LD. */
 export const ENTITY_SENTENCE =
@@ -245,7 +297,18 @@ export type MarketingContext = {
   origin: string;
   appName: string;
   supportEmail?: string | null;
+  /** The follower model in use, for the assumption tokens in copy. */
+  followerModel?: AssumptionFigures;
 };
+/** The social preview image of a page (app/og/route.tsx renders it). */
+export function marketingImage(origin: string, path: string) {
+  return (
+    new URL(origin).origin + "/og?path=" + encodeURIComponent(normalizeMarketingPath(path))
+  );
+}
+export const MARKETING_IMAGE_SIZE = { width: 1200, height: 630 } as const;
+/** The platform logo: initials of the configured name (API-rendered PNG). */
+export const PLATFORM_LOGO_PATH = "/api/v1/public/platform/icon/512.png";
 /** The canonical address of a platform path. */
 export function marketingCanonical(origin: string, path: string) {
   const base = new URL(origin).origin;
@@ -254,9 +317,14 @@ export function marketingCanonical(origin: string, path: string) {
 
 /** Plain metadata for a page; apps/web maps it onto Next's Metadata. */
 export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
-  const title = `${brandText(page.title, ctx.appName)} | ${ctx.appName}`;
-  const description = brandText(page.description, ctx.appName);
+  const title = `${brandText(page.title, ctx.appName, ctx.followerModel)} | ${ctx.appName}`;
+  const description = brandText(page.description, ctx.appName, ctx.followerModel);
   const url = marketingCanonical(ctx.origin, page.path);
+  const image = {
+    url: marketingImage(ctx.origin, page.path),
+    ...MARKETING_IMAGE_SIZE,
+    alt: brandText(page.h1, ctx.appName, ctx.followerModel),
+  };
   return {
     title,
     description,
@@ -271,14 +339,20 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
       description,
       siteName: ctx.appName,
       locale: "en_AE",
+      images: [image],
     },
-    twitter: { card: "summary" as const, title, description },
+    twitter: {
+      card: "summary_large_image" as const,
+      title,
+      description,
+      images: [image.url],
+    },
   };
 }
 
 /** Schema.org JSON-LD for a page, built only from text the page shows. */
 export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
-  const t = (text: string) => brandText(text, ctx.appName);
+  const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
   const base = new URL(ctx.origin).origin;
   const url = marketingCanonical(ctx.origin, page.path);
   const orgId = base + "/#organization";
@@ -287,7 +361,7 @@ export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
     "@id": orgId,
     name: ctx.appName,
     url: base + "/",
-    logo: base + "/icons/icon-512.png",
+    logo: base + PLATFORM_LOGO_PATH,
     description: t(ENTITY_SENTENCE),
     areaServed: { "@type": "Country", name: "United Arab Emirates" },
     ...(ctx.supportEmail
@@ -300,17 +374,29 @@ export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
         }
       : {}),
   };
-  const graph: Array<Record<string, unknown>> = [];
-  if (page.path === "/" || page.path === "/about") graph.push(organization);
-  if (page.path === "/")
-    graph.push({
+  // Every page carries the Organization and WebSite nodes its references
+  // (publisher, isPartOf, author) point at; the full description stays on
+  // the home and about pages.
+  const graph: Array<Record<string, unknown>> = [
+    page.path === "/" || page.path === "/about"
+      ? organization
+      : {
+          "@type": "Organization",
+          "@id": orgId,
+          name: ctx.appName,
+          url: base + "/",
+          logo: organization.logo,
+        },
+    {
       "@type": "WebSite",
       "@id": base + "/#website",
       url: base + "/",
       name: ctx.appName,
       inLanguage: "en-AE",
       publisher: { "@id": orgId },
-    });
+    },
+  ];
+  const image = marketingImage(ctx.origin, page.path);
   const primary = page.jsonLd.find((k) => k !== "FAQPage") ?? "WebPage";
   const webPage: Record<string, unknown> = {
     "@type": primary === "HowTo" || primary === "WebApplication" ? "WebPage" : primary,
@@ -323,13 +409,15 @@ export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
     isPartOf: { "@id": base + "/#website" },
     publisher: { "@id": orgId },
     breadcrumb: { "@id": url + "#breadcrumb" },
+    primaryImageOfPage: { "@type": "ImageObject", url: image },
   };
   if (primary === "Article") {
     Object.assign(webPage, {
       "@type": "Article",
       headline: t(page.h1),
       datePublished: page.lastUpdated,
-      author: { "@id": orgId },
+      author: { "@type": "Organization", name: ctx.appName, url: base + "/" },
+      image,
       mainEntityOfPage: url,
     });
   }
@@ -395,7 +483,7 @@ export function jsonLdScript(value: unknown): string {
 
 /** llms.txt (llmstxt.org): H1, summary blockquote, then H2 link lists. */
 export function llmsTxt(ctx: MarketingContext): string {
-  const t = (text: string) => brandText(text, ctx.appName);
+  const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
   const line = (p: MarketingPage) =>
     `- [${t(p.navLabel)}](${marketingCanonical(ctx.origin, p.path)}): ${t(p.description)}`;
   const group = (...groups: MarketingGroup[]) =>
@@ -465,7 +553,7 @@ function sectionMarkdown(section: MarketingSection, t: (s: string) => string) {
 }
 /** Every indexable marketing page as Markdown, for language models. */
 export function llmsFullTxt(ctx: MarketingContext): string {
-  const t = (text: string) => brandText(text, ctx.appName);
+  const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
   const out = [
     `# ${ctx.appName}: full site text`,
     "",

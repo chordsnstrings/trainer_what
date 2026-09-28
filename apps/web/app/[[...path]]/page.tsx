@@ -1,6 +1,6 @@
 import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import type { Metadata, Viewport } from "next";
 import {
@@ -13,6 +13,7 @@ import {
   isUnknownMarketingChild,
   marketingMetadata,
   marketingPage,
+  marketingRedirect,
   resolveBrandDesign,
 } from "@trainer/contracts";
 import { MarketingSite } from "../../components/marketing/site";
@@ -89,7 +90,11 @@ export async function generateMetadata({
   const marketing = coachHost ? undefined : marketingPage(route);
   if (marketing) {
     const platform = await publicPlatform();
-    const m = marketingMetadata(marketing, { origin, appName: platform.name });
+    const m = marketingMetadata(marketing, {
+      origin,
+      appName: platform.name,
+      followerModel: platform.followerModel,
+    });
     return {
       title: { absolute: m.title },
       description: m.description,
@@ -137,13 +142,18 @@ export async function generateMetadata({
     (p: any) => p.visible && p.slug === path[2],
   );
   return {
-    // A coach website carries the coach's brand, never the platform's.
+    // A coach website carries the coach's brand, never the platform's: its
+    // name, its own description, and never the platform's B2B description.
     title: {
       absolute: page
         ? `${page.title} — ${data.tenant.name}`
         : data.site.seoTitle || data.tenant.name,
     },
-    description: data.site.seoDescription || data.site.introduction,
+    applicationName: data.tenant.name,
+    description:
+      data.site.seoDescription ||
+      data.site.introduction ||
+      `Personal coaching with ${data.tenant.name}.`,
     manifest: `/api/v1/public/sites/${data.tenant.slug}/manifest.webmanifest`,
     icons: {
       icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
@@ -173,8 +183,10 @@ export default async function Page({
           />
         );
     }
-    // Unknown feature, specialty, emirate and guide addresses are missing
-    // pages, not the app.
+    // Retired marketing addresses move permanently; unknown feature,
+    // specialty, UAE and guide addresses are missing pages, not the app.
+    const moved = marketingRedirect(route);
+    if (moved) permanentRedirect(moved);
     if (isUnknownMarketingChild(route)) notFound();
   }
   if (path.length === 1 && "/" + path[0] === DIRECTORY_PATH) {

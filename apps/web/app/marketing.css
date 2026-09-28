@@ -919,3 +919,321 @@ a.mk-nav-top {
     align-items: stretch;
   }
 }
+
+/* Early access request (registration closed) */
+.mk-early-form {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 16px;
+}
+.mk-early-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+.mk-early-form input,
+.mk-early-form select {
+  inline-size: 100%;
+  border: 1px solid #d5dcd5;
+  border-radius: 8px;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 15px;
+  background: white;
+}
+.mk-early-context {
+  background: var(--mint);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+}
+.mk-consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mk-consent input {
+  inline-size: auto;
+  margin-block-start: 3px;
+}
+.mk-honeypot {
+  position: absolute;
+  inset-inline-start: -10000px;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+}
+@media (max-width: 720px) {
+  .mk-early-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Showcase: capability matrix, replaced tools, screens, included strip */
+.badge.red {
+  background: #fbe9e7;
+  color: #9a3a2c;
+  border-color: #f2d3cd;
+}
+.mk-matrix-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 12px 20px;
+}
+.mk-matrix-index a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: white;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+}
+.mk-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.mk-matrix-group {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  min-inline-size: 0;
+}
+.mk-matrix-group header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-block-end: 8px;
+}
+.mk-matrix-group h3 {
+  font-size: 18px;
+  margin: 0;
+}
+.mk-matrix-group ul {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.mk-matrix-group li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+}
+.mk-matrix-group li > div {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.mk-matrix-group li .muted {
+  font-size: 13px;
+}
+.mk-screens {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+.mk-screen {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-inline-size: 0;
+}
+.mk-screen figcaption {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.mk-screen figcaption strong {
+  color: var(--ink);
+}
+.mk-device {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px 14px;
+  box-shadow: 0 18px 40px rgba(32, 43, 44, 0.08);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-block-size: 360px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.mk-screen-title {
+  font-family: "Manrope", Arial, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0;
+}
+.mk-screen-sub,
+.mk-screen-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.mk-queue-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+.mk-queue-item.done {
+  background: var(--mint);
+}
+.mk-queue-item .badge {
+  justify-self: start;
+  gap: 4px;
+}
+.mk-fake-buttons {
+  display: flex;
+  gap: 6px;
+}
+.mk-fake-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: var(--green);
+  color: white;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 11px;
+}
+.mk-fake-button.ghost {
+  background: white;
+  color: var(--green);
+  border: 1px solid var(--line);
+}
+.mk-fake-button.wide {
+  padding-block: 9px;
+}
+.mk-fake-button.danger {
+  background: #faf0e2;
+  color: #7d5520;
+}
+.mk-plan {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mk-plan li {
+  display: grid;
+  gap: 2px;
+  border-block-end: 1px solid var(--line);
+  padding-block-end: 6px;
+}
+.mk-plan span {
+  color: var(--muted);
+}
+.mk-sets {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+.mk-sets td {
+  padding: 6px 4px;
+  border-block-end: 1px solid var(--line);
+}
+.mk-sets tr.current td {
+  background: var(--lime);
+}
+.mk-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--mint);
+  border-radius: 10px;
+  padding: 10px;
+}
+.mk-timer strong {
+  font-size: 22px;
+  font-family: "Manrope", Arial, sans-serif;
+}
+.mk-statement {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+.mk-statement div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 6px;
+  border-block-end: 1px solid var(--line);
+}
+.mk-statement dt {
+  color: var(--muted);
+}
+.mk-statement dd {
+  margin: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mk-statement .total dt,
+.mk-statement .total dd {
+  color: var(--ink);
+  font-weight: 700;
+}
+.mk-band-ink {
+  background: var(--green);
+  color: white;
+  border-radius: 18px;
+  margin-block: 24px;
+}
+.mk-band-ink h2 {
+  color: white;
+}
+.mk-included {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.mk-included a {
+  display: grid;
+  gap: 4px;
+  color: white;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+}
+.mk-included strong {
+  font-family: "Manrope", Arial, sans-serif;
+  font-size: 34px;
+  line-height: 1;
+  color: var(--lime);
+}
+@media (max-width: 1150px) {
+  .mk-screens {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mk-included {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .mk-matrix,
+  .mk-screens,
+  .mk-included {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

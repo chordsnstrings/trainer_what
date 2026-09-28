@@ -16,7 +16,7 @@ export type AdminRoute =
   | "governance"
   | "not_found";
 const operationsViews =
-  /^\/admin\/(acquisition|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/;
+  /^\/admin\/(acquisition|early-access|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/;
 /** Unknown /admin addresses resolve to not_found, never to the overview. */
 export function adminRoute(path: string): AdminRoute {
   const clean = path.length > 1 ? path.replace(/\/+$/, "") : path;

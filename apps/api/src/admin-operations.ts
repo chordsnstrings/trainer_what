@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { elevated, type Actor, type Database, type Tx, event } from "@trainer/db";
+import { listEarlyAccess } from "./early-access.ts";
 import { requireRecentMfa } from "./security.ts";
 import { assertNotificationDocument } from "./message-templates.ts";
 import { createdKey, keysetPage, updatedKey } from "./workspace-pages.ts";
@@ -48,6 +49,7 @@ const views = [
   "support",
   "security",
   "acquisition",
+  "early-access",
   "experiments",
   "configuration",
 ] as const;
@@ -513,7 +515,14 @@ export function registerAdminOperations(
           "SELECT x.*, (SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS exposures_a,(SELECT count(*)::int FROM acquisition_events e WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS exposures_b,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='a') AS conversions_a,(SELECT count(DISTINCT c.tenant_id)::int FROM acquisition_events e JOIN acquisition_events c ON c.visitor_id=e.visitor_id AND c.name=x.metric AND c.created_at>=e.created_at WHERE e.experiment_id=x.id AND e.name='experiment_exposure' AND e.variant='b') AS conversions_b FROM admin_experiments x ORDER BY created_at DESC LIMIT 100",
         ),
       );
-    else if (view === "acquisition") {
+    else if (view === "early-access") {
+      rows = await listEarlyAccess(db);
+      summary = {
+        period: "newest 500",
+        attribution:
+          "Requests from the public site while trainer registration is closed, each with the visitor's consent. Source, campaign and medium are filled only for visitors who allowed optional analytics. Erase a request when the person asks.",
+      };
+    } else if (view === "acquisition") {
       rows = await db.system((tx) =>
         tx.query(
           "SELECT source,campaign,medium,count(DISTINCT visitor_id) FILTER(WHERE name='landing')::int AS visitors,count(DISTINCT tenant_id) FILTER(WHERE name='signup')::int AS signups,count(DISTINCT tenant_id) FILTER(WHERE name='publish')::int AS published,count(*) FILTER(WHERE name='lead')::int AS leads,count(DISTINCT user_id) FILTER(WHERE name='enroll')::int AS enrolled,count(DISTINCT tenant_id) FILTER(WHERE name='first_paid')::int AS first_paid FROM acquisition_events WHERE created_at>now()-interval '90 days' GROUP BY source,campaign,medium ORDER BY signups DESC LIMIT 100",

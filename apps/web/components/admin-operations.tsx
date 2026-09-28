@@ -17,6 +17,7 @@ const titles: Record<string, string> = {
   support: "Support workbench",
   security: "Security and audit",
   acquisition: "Acquisition funnel",
+  "early-access": "Early access requests",
   experiments: "Product experiments",
   configuration: "Published documents and templates",
 };
@@ -289,6 +290,7 @@ function AdminOperationsWorkbench({
             "configuration",
             "security",
             "acquisition",
+            "early-access",
             "experiments",
           ].includes(view) && (
             <section className="card">
@@ -704,13 +706,65 @@ function AdminOperationsWorkbench({
                   integration.
                 </p>
               )}
-              {view === "acquisition" && (
+              {(view === "acquisition" || view === "early-access") && (
                 <p className="muted">
                   {data.summary.period} · {data.summary.attribution}
                 </p>
               )}
+              {view === "early-access" && (
+                <p>
+                  <a
+                    className="button secondary"
+                    href="/api/v1/admin/early-access.csv"
+                  >
+                    Export all as CSV
+                  </a>
+                </p>
+              )}
               {truncatedNotice}
               <Table rows={data.rows} />
+              {view === "early-access" &&
+                data.rows.map((r: any) => (
+                  <form
+                    key={r.id}
+                    className="button-row"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const f = new FormData(e.currentTarget);
+                      void act(`/admin/early-access/${r.id}/status`, {
+                        status: f.get("status"),
+                      });
+                    }}
+                  >
+                    <span>
+                      {r.name} · <span className="ltr-data">{r.email}</span>
+                    </span>
+                    <select
+                      name="status"
+                      defaultValue={r.status}
+                      aria-label={`Status of ${r.name}`}
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="invited">Invited</option>
+                      <option value="declined">Declined</option>
+                    </select>
+                    <button className="button secondary" disabled={busy}>
+                      Save status
+                    </button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(`Erase the request from ${r.name}?`))
+                          void act(`/admin/early-access/${r.id}/erase`, {});
+                      }}
+                    >
+                      Erase
+                    </button>
+                  </form>
+                ))}
               {rowsMore}
               {view === "security" && (
                 <>
