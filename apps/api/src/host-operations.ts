@@ -16,6 +16,7 @@ import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import { HOST_HEADERS, platformRoot } from "./host-routing.ts";
 import {
   RESERVED_SLUGS,
+  platformRootDomain,
   subdomainEligible,
   subdomainHost,
 } from "../../../packages/domain/src/web-address.ts";
@@ -84,11 +85,17 @@ export type HostActionIntent = {
   issuedAtMs: number;
   expiresAtMs: number;
   reason: string;
+  /** Canonical JSON text; only change_platform_address carries parameters. */
+  parameters?: string | null;
 };
-/** Canonical text the controller recomputes; see hostops.py action_canonical. */
+/**
+ * Canonical text the controller recomputes; see hostops.py action_canonical.
+ * Requests without parameters keep the original v1 form (older controllers and
+ * pending requests signed before parameters existed still verify); parameters
+ * add their SHA-256 under a v2 label.
+ */
 export function hostActionCanonical(intent: HostActionIntent) {
-  return [
-    "gymmembership-host-action-v1",
+  const fields = [
     intent.id,
     intent.requestId,
     intent.action,
@@ -97,7 +104,12 @@ export function hostActionCanonical(intent: HostActionIntent) {
     String(intent.issuedAtMs),
     String(intent.expiresAtMs),
     sha256(intent.reason),
-  ].join("\n");
+  ];
+  return (
+    intent.parameters == null
+      ? ["gymmembership-host-action-v1", ...fields]
+      : ["gymmembership-host-action-v2", ...fields, sha256(intent.parameters)]
+  ).join("\n");
 }
 export function signHostAction(intent: HostActionIntent, key: Buffer) {
   return hmac(key, hostActionCanonical(intent));
@@ -169,9 +181,27 @@ export const hostActions = {
     description:
       "Checks the latest backup's checksum and authentication tag, restores it into a temporary scratch database, verifies its migrations and tables, then drops the scratch database. Needs free disk space of about one and a half times the database plus room for its write-ahead log; it refuses to start without it and stops if space runs low.",
   },
+  change_platform_address: {
+    label: "Change the platform address",
+    targets: [],
+    /** Requested from the platform address form, which supplies the parameters. */
+    form: "platform_address",
+    description:
+      "Moves the platform to a new HTTPS address (and optionally sets PLATFORM_ROOT_DOMAIN). The host controller first checks that the new name, and a name under the root domain, resolve only to this server; then it writes the private runtime settings (keeping a copy of the previous file), serves the new name with the old one as a permanent redirect, and checks readiness and the certificate at the new address. If anything fails, it restores the previous settings and edge automatically.",
+  },
+  clear_address_redirects: {
+    label: "Remove old-address redirects",
+    targets: [],
+    description:
+      "After a platform address change, the former platform names keep redirecting to the current address. This removes those redirects and recreates the services; the former names then stop answering. The current address is unchanged.",
+  },
 } as const;
 export type HostAction = keyof typeof hostActions;
 const actionNames = Object.keys(hostActions) as [HostAction, ...HostAction[]];
+/** Actions whose signed intent includes parameters. */
+const PARAMETER_ACTIONS: ReadonlySet<HostAction> = new Set([
+  "change_platform_address",
+]);
 
 export const hostThresholds = z
   .object({
@@ -307,6 +337,29 @@ const controllerReport = z.object({
       nextDueAt: z.string().max(40).nullable(),
     })
     .nullable(),
+  /** Platform address state (absent from controllers older than migration 068). */
+  address: z
+    .object({
+      publicIpv4: z.string().max(15).nullable(),
+      rootDomain: z.string().max(253).nullable(),
+      redirectFrom: z.array(z.string().max(253)).max(8),
+      changeInProgress: z.boolean(),
+      lastChange: z
+        .object({
+          from: z.string().max(300),
+          to: z.string().max(300),
+          at: z.string().max(40),
+          status: z.enum([
+            "succeeded",
+            "rolled_back",
+            "restore_failed",
+            "unknown",
+          ]),
+        })
+        .nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type ControllerReport = z.infer<typeof controllerReport>;
 const apiReport = z.object({
@@ -700,6 +753,7 @@ export type HostHealth = {
   containers: ReturnType<typeof containerViews>;
   deploy: ControllerReport["deploy"] | null;
   edge: ControllerReport["edge"] | null;
+  address: ControllerReport["address"] | null;
   backups: BackupStatus;
   overall: Level;
 };
@@ -793,6 +847,7 @@ export async function readHostHealth(
       containers,
       deploy: controller.report?.deploy ?? null,
       edge: controller.report?.edge ?? null,
+      address: controller.report?.address ?? null,
       backups,
       overall: levels.includes("critical")
         ? "critical"
@@ -1039,7 +1094,8 @@ type Resolver = {
   resolve4: (host: string) => Promise<string[]>;
   resolve6: (host: string) => Promise<string[]>;
 };
-async function addresses(resolver: Resolver, host: string) {
+type Lookup = { name: string; a: string[]; aaaa: string[] };
+async function lookup(resolver: Resolver, name: string): Promise<Lookup> {
   const timeout = <T>(p: Promise<T>) =>
     Promise.race([
       p,
@@ -1049,16 +1105,16 @@ async function addresses(resolver: Resolver, host: string) {
     ]);
   const settle = async (p: Promise<string[]>) => {
     try {
-      return await timeout(p);
+      return [...new Set(await timeout(p))].sort();
     } catch {
       return [];
     }
   };
-  const [v4, v6] = await Promise.all([
-    settle(resolver.resolve4(host)),
-    settle(resolver.resolve6(host)),
+  const [a, aaaa] = await Promise.all([
+    settle(resolver.resolve4(name)),
+    settle(resolver.resolve6(name)),
   ]);
-  return [...v4, ...v6];
+  return { name, a, aaaa };
 }
 type Check = {
   key: string;
@@ -1066,11 +1122,67 @@ type Check = {
   level: "error" | "warning" | "info";
   message: string;
 };
+/** The prefix the controller also uses for its random probe name under the root. */
+const DNS_PROBE_PREFIX = "gm-address-check-";
+/** Provider settings that name the platform address and must follow a move. */
+export function platformAddressUpdates(origin: string, host: string) {
+  return [
+    {
+      name: "Stripe webhook endpoint",
+      value: `${origin}/api/v1/webhooks/stripe`,
+      where:
+        "Stripe Dashboard → Developers → Webhooks → the existing endpoint → Update details. Change only the URL; the signing secret stays the same.",
+    },
+    {
+      name: "Sign in with Google redirect URI",
+      value: `${origin}/api/v1/auth/oidc/google/callback`,
+      where:
+        "Google Cloud Console → APIs & Services → Credentials → the OAuth web client → Authorized redirect URIs. Add the new URI before the move; remove the old one afterwards.",
+    },
+    {
+      name: "Sign in with Apple return URL",
+      value: `${origin}/api/v1/auth/oidc/apple/callback`,
+      where:
+        "Apple Developer → Identifiers → the Services ID → Sign in with Apple → Configure: add the new domain and return URL.",
+    },
+    {
+      name: "WHOOP callback URL",
+      value: `${origin}/api/v1/integrations/whoop/callback`,
+      where:
+        "WHOOP developer dashboard (redirect URL) and Super admin → Settings → WHOOP → Registered callback URL.",
+    },
+    {
+      name: "Amazfit / Zepp callback URL",
+      value: `${origin}/api/v1/integrations/zepp/callback`,
+      where:
+        "Zepp developer console (redirect URL) and Super admin → Settings → Amazfit / Zepp → Registered callback URL.",
+    },
+    {
+      name: "Instagram redirect URI",
+      value: `${origin}/api/v1/trainer/instagram/callback`,
+      where:
+        "Meta app → Instagram → API setup with Instagram login → OAuth redirect URIs, and Super admin → Settings → Instagram (follower estimates) → Redirect URI.",
+    },
+    {
+      name: "Coach-domain CNAME target",
+      value: host,
+      where:
+        "Super admin → Settings → Custom domains → Approved ingress CNAME target (DOMAIN_CNAME_TARGET). Coach domains that already CNAME to the old name keep working only while the old name's DNS points at this server.",
+    },
+  ];
+}
+export type PlatformAddressOptions = {
+  /** PLATFORM_ROOT_DOMAIN to set with the move; null or absent leaves it as it is. */
+  rootDomain?: string | null;
+  /** This server's public IPv4 from the verified controller report, if known. */
+  serverIpv4?: string | null;
+};
 export async function checkPlatformAddress(
   db: Database,
   value: string,
   // The local mock-provider sandbox answers from its loopback DNS double.
   resolver: Resolver = sandboxResolver() ?? { resolve4, resolve6 },
+  options: PlatformAddressOptions = {},
 ) {
   const checks: Check[] = [];
   let parsed: URL | null = null;
@@ -1092,7 +1204,8 @@ export async function checkPlatformAddress(
     (() => {
       try {
         askHostname(parsed!.hostname);
-        return true;
+        // The edge and controller accept a plain DNS name (a letter in the last label).
+        return platformRootDomain(parsed!.hostname) === parsed!.hostname;
       } catch {
         return false;
       }
@@ -1112,23 +1225,51 @@ export async function checkPlatformAddress(
       return null;
     }
   })();
-  if (!format || !parsed)
-    return {
-      valid: false,
-      origin: null,
-      current: current?.origin ?? null,
-      checks,
-    };
+  const currentRoot = platformRoot();
+  const requestedRoot =
+    options.rootDomain == null || options.rootDomain.trim() === ""
+      ? null
+      : options.rootDomain.trim().toLowerCase().replace(/\.$/, "");
+  const root = requestedRoot ? platformRootDomain(requestedRoot) : null;
+  const serverIpv4 =
+    options.serverIpv4 && isIP(options.serverIpv4) === 4
+      ? options.serverIpv4
+      : null;
+  const empty = {
+    valid: false,
+    origin: null,
+    current: current?.origin ?? null,
+    rootDomain: requestedRoot,
+    currentRootDomain: currentRoot,
+    changed: false,
+    serverIpv4,
+    resolution: [] as (Lookup & { ok: boolean; purpose: string })[],
+    checks,
+    providerUpdates: [] as ReturnType<typeof platformAddressUpdates>,
+  };
+  if (requestedRoot && !root)
+    checks.push({
+      key: "root_domain",
+      ok: false,
+      level: "error",
+      message:
+        "The root domain must be a plain DNS name such as trainsyou.com: no scheme, path, port or IP address.",
+    });
+  if (!format || !parsed || (requestedRoot && !root)) return empty;
   const host = parsed.hostname.toLowerCase(),
     origin = "https://" + host;
-  const same = current?.origin === origin;
+  const changed =
+    current?.origin !== origin || (!!root && root !== currentRoot);
   checks.push({
     key: "changed",
-    ok: !same,
+    ok: changed,
     level: "info",
-    message: same
-      ? "This is already the platform address."
-      : `The platform address would change from ${current?.origin ?? "an unset value"} to ${origin}.`,
+    message: !changed
+      ? "This is already the platform address" +
+        (root ? " and root domain." : ".")
+      : current?.origin === origin
+        ? `The address stays ${origin}; PLATFORM_ROOT_DOMAIN changes from ${currentRoot ?? "unset"} to ${root}.`
+        : `The platform address would change from ${current?.origin ?? "an unset value"} to ${origin}. The old address keeps redirecting to the new one until you remove the redirect.`,
   });
   const mapped = await db.system((tx) =>
     tx.query(
@@ -1144,23 +1285,101 @@ export async function checkPlatformAddress(
       ? "This name is connected to a coach website. Disconnect it before using it for the platform."
       : "The name is not connected to any coach website.",
   });
-  const [next, existing] = await Promise.all([
-    addresses(resolver, host),
-    current && current.hostname !== "localhost"
-      ? addresses(resolver, current.hostname)
-      : Promise.resolve([]),
+  // With a root domain, <label>.<root> is a workspace address: the platform may
+  // only use the root itself, a deeper name or a reserved label.
+  const effectiveRoot = root ?? currentRoot;
+  const label =
+    effectiveRoot && host.endsWith("." + effectiveRoot)
+      ? host.slice(0, -(effectiveRoot.length + 1))
+      : null;
+  if (label !== null && !label.includes("."))
+    checks.push({
+      key: "workspace_label",
+      ok: RESERVED_SLUGS.has(label),
+      level: "error",
+      message: RESERVED_SLUGS.has(label)
+        ? `${label} is a reserved name, so no workspace can use ${host}.`
+        : `${host} is a workspace address under ${effectiveRoot}. Use ${effectiveRoot} itself or a reserved name such as app.${effectiveRoot}.`,
+    });
+  const probe = root
+    ? `${DNS_PROBE_PREFIX}${randomUUID().slice(0, 8)}.${root}`
+    : null;
+  const [next, existing, wildcard] = await Promise.all([
+    lookup(resolver, host),
+    !serverIpv4 && current && current.hostname !== "localhost"
+      ? lookup(resolver, current.hostname)
+      : Promise.resolve(null),
+    probe ? lookup(resolver, probe) : Promise.resolve(null),
   ]);
-  const shared = next.filter((ip) => existing.includes(ip));
+  // The controller requires every A record to be this server's public IPv4.
+  // Without a verified report the check falls back to the current name's addresses.
+  const expected = serverIpv4
+    ? [serverIpv4]
+    : [...(existing?.a ?? []), ...(existing?.aaaa ?? [])];
+  const pointsHere = (found: Lookup) =>
+    serverIpv4
+      ? found.a.length > 0 && found.a.every((ip) => ip === serverIpv4)
+      : found.a.length + found.aaaa.length > 0 &&
+        (expected.length === 0 ||
+          [...found.a, ...found.aaaa].some((ip) => expected.includes(ip)));
+  const describe = (found: Lookup) =>
+    found.a.length || found.aaaa.length
+      ? [
+          found.a.length ? `A ${found.a.join(", ")}` : "",
+          found.aaaa.length ? `AAAA ${found.aaaa.join(", ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("; ")
+      : "no A or AAAA record";
+  const here = serverIpv4
+    ? `this server (${serverIpv4})`
+    : expected.length
+      ? `the current address (${expected.join(", ")})`
+      : "this server";
+  const resolution = [
+    { ...next, purpose: "New platform address", ok: pointsHere(next) },
+    ...(wildcard
+      ? [
+          {
+            ...wildcard,
+            purpose: `Wildcard *.${root} (random name)`,
+            ok: pointsHere(wildcard),
+          },
+        ]
+      : []),
+  ];
   checks.push({
     key: "dns",
-    ok: next.length > 0 && (existing.length === 0 || shared.length > 0),
+    ok: resolution[0].ok,
     level: "error",
-    message: !next.length
-      ? `${host} has no A or AAAA record yet. Point it at this server before switching.`
-      : existing.length && !shared.length
-        ? `${host} resolves to ${next.join(", ")}, but the current address resolves to ${existing.join(", ")}. Point it at this server.`
-        : `${host} resolves to ${next.join(", ")}${existing.length ? ", the same server as the current address" : ""}.`,
+    message: resolution[0].ok
+      ? `${host} resolves to ${describe(next)}: ${here}.`
+      : `${host} has ${describe(next)}, but it must point only to ${here}. Create or fix the A record and check again (DNS changes can take up to the record's TTL).`,
   });
+  if (wildcard)
+    checks.push({
+      key: "dns_wildcard",
+      ok: resolution[1].ok,
+      level: "error",
+      message: resolution[1].ok
+        ? `Names under ${root} resolve to ${here}, so workspace addresses work.`
+        : `A name under ${root} (${wildcard.name}) has ${describe(wildcard)}. Add a wildcard A record *.${root} pointing to ${serverIpv4 ?? "this server"}.`,
+    });
+  const v6 = [...next.aaaa, ...(wildcard?.aaaa ?? [])];
+  if (v6.length)
+    checks.push({
+      key: "dns_ipv6",
+      ok: false,
+      level: "warning",
+      message: `AAAA (IPv6) records exist (${[...new Set(v6)].join(", ")}). Certificate authorities and many visitors prefer IPv6, so these must reach this server too; if the server has no IPv6 address, remove them before switching.`,
+    });
+  if (root && currentRoot && root !== currentRoot)
+    checks.push({
+      key: "root_change",
+      ok: false,
+      level: "warning",
+      message: `Workspace addresses move from <name>.${currentRoot} to <name>.${root}; links to the old workspace addresses stop working.`,
+    });
   const [passkeys] = current
     ? await db.system((tx) =>
         tx.query(
@@ -1170,34 +1389,54 @@ export async function checkPlatformAddress(
       )
     : [{ n: 0 }];
   const count = Number(passkeys?.n ?? 0);
+  const moving = current?.origin !== origin;
   checks.push({
     key: "passkeys",
-    ok: count === 0,
+    ok: count === 0 || !moving,
     level: "warning",
-    message: count
-      ? `${count} passkey${count === 1 ? " is" : "s are"} bound to ${current?.hostname}. WebAuthn ties a passkey to its relying-party name, so ${count === 1 ? "it" : "they"} will stop working after the move. Those people sign in with their password and authenticator code (or a recovery code) and add a new passkey.`
-      : "No passkeys are registered for the current address.",
+    message: !moving
+      ? "The platform name does not change, so passkeys keep working."
+      : count
+        ? `${count} passkey${count === 1 ? " is" : "s are"} bound to ${current?.hostname}. WebAuthn ties a passkey to its relying-party name, so ${count === 1 ? "it" : "they"} will stop working after the move. Those people sign in with their password and authenticator code (or a recovery code) and add a new passkey.`
+        : "No passkeys are registered for the current address.",
   });
   checks.push({
     key: "sessions",
     ok: true,
     level: "info",
-    message:
-      "Sign-in cookies belong to the old name; everyone signs in again at the new address. Email links already sent keep pointing to the old address.",
+    message: moving
+      ? "Sign-in cookies belong to the old name; everyone, including you, signs in again at the new address. Email links already sent keep the old address and are redirected while the old-address redirect stays."
+      : "Sessions are unaffected.",
   });
   checks.push({
     key: "providers",
     ok: true,
     level: "info",
-    message:
-      "Update provider callbacks that name the platform address: the Stripe webhook endpoint, wearable OAuth redirect addresses and the DOMAIN_CNAME_TARGET that coach domains point to.",
+    message: moving
+      ? "After the move, update every provider setting that names the platform address (listed below): the Stripe webhook endpoint, sign-in and wearable OAuth redirect URLs, Instagram and the coach-domain CNAME target."
+      : "Provider callbacks are unaffected.",
   });
   return {
+    ...empty,
     valid: checks.every((c) => c.ok || c.level !== "error"),
     origin,
-    current: current?.origin ?? null,
-    checks,
+    rootDomain: root,
+    changed,
+    resolution,
+    providerUpdates: moving ? platformAddressUpdates(origin, host) : [],
   };
+}
+
+/** This server's public IPv4 from the latest verified controller report. */
+async function reportedServerIpv4(db: Database, now = Date.now()) {
+  const key = hostOperationsKey();
+  return db.system(async (tx) => {
+    const rows = await statusRows(tx);
+    const controller = readController(rows.controller, key, now);
+    return controller.state === "verified"
+      ? (controller.report?.address?.publicIpv4 ?? null)
+      : null;
+  });
 }
 
 // ---- Routes ------------------------------------------------------------------
@@ -1226,15 +1465,28 @@ function presentRequest(
     } catch {
       result = { message: "Unreadable result" };
     }
-  const reported = ["succeeded", "failed", "rejected", "expired"].includes(
-    row.status,
-  );
+  // A running request may carry a signed progress message from the controller.
+  const reported = [
+    "running",
+    "succeeded",
+    "failed",
+    "rejected",
+    "expired",
+  ].includes(row.status);
+  let parameters: unknown = null;
+  if (row.parameters)
+    try {
+      parameters = JSON.parse(row.parameters);
+    } catch {
+      parameters = null;
+    }
   return {
     id: row.id,
     requestId: row.request_id,
     action: row.action,
     label: hostActions[row.action as HostAction]?.label ?? row.action,
     target: row.target,
+    parameters,
     reason: row.reason,
     requestedBy: row.requested_by,
     status: row.status,
@@ -1456,6 +1708,13 @@ export function registerHostOperations(
           requestId: z.string().uuid(),
           action: z.enum(actionNames),
           target: z.enum(["api", "web", "worker"]).nullable().optional(),
+          parameters: z
+            .object({
+              url: z.string().min(8).max(300),
+              rootDomain: z.string().max(253).nullable().optional(),
+            })
+            .strict()
+            .optional(),
           reason,
         })
         .strict()
@@ -1469,6 +1728,14 @@ export function registerHostOperations(
           ? "Choose the service to restart."
           : "This action does not take a service.",
       );
+    if (PARAMETER_ACTIONS.has(b.action) !== (b.parameters !== undefined))
+      throw fail(
+        400,
+        "HOST_ACTION_PARAMETERS",
+        b.parameters === undefined
+          ? "Enter the new platform address."
+          : "This action does not take an address.",
+      );
     const key = hostOperationsKey();
     if (!key)
       throw fail(
@@ -1476,6 +1743,46 @@ export function registerHostOperations(
         "HOST_SIGNING_UNAVAILABLE",
         "Host actions need the internal signing secret on this server.",
       );
+    // The new address is validated with the same checks as the preview; the
+    // host controller verifies DNS again against its own address before switching.
+    let parameters: string | null = null;
+    if (b.parameters) {
+      const check = await checkPlatformAddress(
+        db,
+        b.parameters.url,
+        options.resolver,
+        {
+          rootDomain: b.parameters.rootDomain ?? null,
+          serverIpv4: await reportedServerIpv4(db),
+        },
+      );
+      const blocking = check.checks.filter((c) => !c.ok && c.level === "error");
+      // A retry of a recorded request is compared below instead: after the move
+      // (or a DNS change) its address no longer passes as a new request would.
+      const [recorded] = await db.system((tx) =>
+        tx.query("SELECT 1 FROM host_action_requests WHERE request_id=$1", [
+          b.requestId,
+        ]),
+      );
+      if (!check.origin || (!recorded && !check.valid))
+        throw fail(
+          400,
+          "PLATFORM_ADDRESS_INVALID",
+          blocking.map((c) => c.message).join(" ") ||
+            "The new platform address is not valid.",
+        );
+      if (!recorded && !check.changed)
+        throw fail(
+          400,
+          "PLATFORM_ADDRESS_UNCHANGED",
+          "This is already the platform address.",
+        );
+      // Fixed key order: this exact text is signed and stored.
+      parameters = JSON.stringify({
+        url: check.origin,
+        rootDomain: check.rootDomain,
+      });
+    }
     return db.system(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext('host-actions'))");
       await currentAdmin(tx, a);
@@ -1488,6 +1795,7 @@ export function registerHostOperations(
           prior.requested_by !== a.userId ||
           prior.action !== b.action ||
           (prior.target ?? null) !== target ||
+          (prior.parameters ?? null) !== parameters ||
           prior.reason !== b.reason
         )
           throw fail(
@@ -1526,24 +1834,33 @@ export function registerHostOperations(
         issuedAtMs,
         expiresAtMs: issuedAtMs + HOST_ACTION_TTL_MS,
         reason: b.reason,
+        parameters,
       };
-      const [row] = await tx.query(
-        "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
-        [
-          intent.id,
-          intent.requestId,
-          intent.action,
-          intent.target,
-          intent.reason,
-          intent.requestedBy,
-          intent.issuedAtMs,
-          intent.expiresAtMs,
-          signHostAction(intent, key),
-        ],
-      );
+      const values = [
+        intent.id,
+        intent.requestId,
+        intent.action,
+        intent.target,
+        intent.reason,
+        intent.requestedBy,
+        intent.issuedAtMs,
+        intent.expiresAtMs,
+        signHostAction(intent, key),
+      ];
+      // Requests without parameters use the original column list, as before.
+      const [row] = parameters
+        ? await tx.query(
+            "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature,parameters) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
+            [...values, parameters],
+          )
+        : await tx.query(
+            "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
+            values,
+          );
       await audit(tx, a, "infrastructure.host_action.requested", intent.id, {
         action: intent.action,
         target: intent.target,
+        ...(parameters ? { parameters: JSON.parse(parameters) } : {}),
         reason: intent.reason,
       });
       return presentRequest(row, key, Date.now());
@@ -1591,24 +1908,34 @@ export function registerHostOperations(
     async (req) => {
       const a = access(req),
         b = z
-          .object({ url: z.string().min(8).max(300) })
+          .object({
+            url: z.string().min(8).max(300),
+            rootDomain: z.string().max(253).nullable().optional(),
+          })
           .strict()
           .parse(req.body);
-      const result = await checkPlatformAddress(db, b.url, options.resolver);
+      const result = await checkPlatformAddress(db, b.url, options.resolver, {
+        rootDomain: b.rootDomain ?? null,
+        serverIpv4: await reportedServerIpv4(db),
+      });
       await db.system((tx) =>
         audit(tx, a, "infrastructure.platform_address.checked", null, {
           origin: result.origin,
+          rootDomain: result.rootDomain,
           valid: result.valid,
         }),
       );
       return {
         ...result,
         procedure: [
-          "Create an A (and AAAA, if used) record for the new name pointing at this server, and wait until this check passes.",
-          "Tell people with passkeys that they will sign in with password and authenticator once and add a new passkey.",
-          "In the DigitalOcean console, edit PUBLIC_APP_URL in /opt/gymmembership/runtime.env (keep mode 600 and every other value unchanged).",
-          "Request 'Re-apply runtime settings' here. The controller renders the edge for the new name, recreates the services and checks readiness at the new address. If that check fails, nothing is rolled back: the edge stays on the new name and the platform may be unreachable at both names. Then restore the old PUBLIC_APP_URL in runtime.env from the DigitalOcean console and, as root, run python3 /opt/gymmembership/releases/<serving release>/infra/digitalocean/hostops.py reapply (or request re-apply here again if this page still loads).",
-          "Update the Stripe webhook endpoint, wearable OAuth redirect addresses and DOMAIN_CNAME_TARGET, then re-run the live checks.",
+          "Create an A record for the new name pointing only at this server" +
+            (result.serverIpv4 ? ` (${result.serverIpv4})` : "") +
+            ", plus a wildcard A record *.<root domain> when you set one. Remove parking or forwarding records and any AAAA record that does not reach this server. Wait until this check passes.",
+          "Tell people with passkeys that they will sign in with password and authenticator once and add a new passkey, and that everyone signs in again at the new address.",
+          "Request 'Change the platform address' here with a reason. Within about five minutes the host controller checks DNS again from the server (system resolver, then public DNS over HTTPS) and refuses without changing anything unless the names resolve only to this server.",
+          "The controller then writes PUBLIC_APP_URL (and PLATFORM_ROOT_DOMAIN) into runtime.env itself, keeping every other value, mode 600 and a private copy of the previous file; serves the new name with the old one as a permanent redirect; recreates the services; and checks readiness and a valid certificate at the new address. This page is unreachable for a few minutes meanwhile.",
+          "If any step fails, the controller restores the previous runtime.env, edge and services automatically and reports the failure here. If that restore also fails, run python3 /opt/gymmembership/releases/<serving release>/infra/digitalocean/hostops.py reapply as root from the DigitalOcean console.",
+          "After a successful move, sign in at the new address, update every provider setting listed here, then re-run the live checks. Remove the old-address redirect later with 'Remove old-address redirects' once nothing uses the old name.",
         ],
       };
     },

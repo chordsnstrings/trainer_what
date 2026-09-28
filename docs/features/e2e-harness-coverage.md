@@ -99,7 +99,7 @@ Inventory status comes from the inventory file given to the run, a snapshot: a f
 | Evidence in each workspace's own log | ready | no | pass | pass | 1/1, 1/1 |  |
 | Database backups | partial | yes | pass | pass | 2/2, 2/2 | The real host controller code (hostops.py) takes the encrypted backup, uploads it to an S3 double and restores it into a scratch database; only its host primitives are simulated (docker compose exec becomes local pg_dump/psql/pg_restore, containers are reported healthy). The scheduled daily timer and DigitalOcean server backups are not exercised. |
 | Alerts to platform operators | not_built | no | pass | pass | 1/1, 1/1 |  |
-| Platform's own web address | partial | yes | pass | pass | 1/1, 1/1 | The address check (format, DNS through the sandbox resolver, coach-domain clash, passkeys) runs. Moving the address is host work (runtime.env and a re-apply) and is not performed. |
+| Platform's own web address | partial | yes | pass | pass | 1/1, 1/1 | The address check (format, DNS through the sandbox resolver, coach-domain clash, passkeys) runs. Moving the address is a host controller action (DNS check, runtime.env, edge, readiness; tested in `tests/test_platform_address_deployment.py`) and is not performed here. |
 
 ## Trainers
 

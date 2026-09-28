@@ -120,14 +120,17 @@ def valid_root(root):
     return root
 
 
-def edge_config(endpoint, revision=None, ask=None, root=None):
+def edge_config(endpoint, revision=None, ask=None, root=None, moved=()):
     # Overwrite X-Forwarded-For with the connecting address: the web proxy signs it
     # for the API's per-client budgets, so a client must not be able to choose it.
     release = "    header X-GymMembership-Release " + valid_sha(revision) + "\n" if revision else ""
     site = ("    encode zstd gzip\n" + release
             + "    reverse_proxy web:3000 {\n        header_up X-Forwarded-For {remote_host}\n    }\n")
+    # Former platform names (hostops.py address change) permanently redirect here.
+    old = "".join("\nhttps://" + name + " {\n    redir " + endpoint + "{uri} 308\n}\n" for name in dict.fromkeys(moved)
+                  if valid_root(name) == name and name != urlsplit(endpoint).hostname)
     if not ask:
-        return endpoint + " {\n" + site + "}\n"
+        return endpoint + " {\n" + site + "}\n" + old
     if not ask.startswith(TLS_ASK_URL) or not re.fullmatch(r"[0-9a-f]{64}", ask[len(TLS_ASK_URL):]):
         raise DeploymentError("Unexpected TLS ask endpoint")
     # Workspace subdomains (<slug>.<PLATFORM_ROOT_DOMAIN>): one wildcard site with
@@ -146,7 +149,7 @@ def edge_config(endpoint, revision=None, ask=None, root=None):
     # name only when the API's ask endpoint answers 200 (an active, verified
     # mapping or a short activation allowance). The platform keeps its own block.
     return ("{\n    on_demand_tls {\n        ask " + ask + "\n    }\n}\n\n"
-            + endpoint + " {\n" + site + "}\n\n"
+            + endpoint + " {\n" + site + "}\n" + old + "\n"
             + wildcard
             + "https:// {\n    tls {\n        on_demand\n    }\n" + site + "}\n")
 
@@ -182,6 +185,18 @@ def edge_root(values=None):
     if value.strip() and not root:
         print("Ignoring PLATFORM_ROOT_DOMAIN: expected a plain DNS name such as trainsyou.com")
     return root
+
+
+MOVED = "platform-address.json"
+
+
+def edge_moved():
+    """Former platform names kept as redirects; () without an address change."""
+    try:
+        names = json.loads((ROOT / MOVED).read_text())["redirectFrom"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return ()
+    return tuple(name for name in names if isinstance(name, str))[:8] if isinstance(names, list) else ()
 
 
 def ensure_runtime():
@@ -482,7 +497,7 @@ def deploy(sha, github):
     ask, root = edge_ask(), edge_root()
 
     def edge_release(revision):
-        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision, ask, root))
+        (ROOT / "Caddyfile").write_text(edge_config(endpoint, revision, ask, root, edge_moved()))
     try:
         edge_release(sha)
         compose(release, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
@@ -528,7 +543,7 @@ def endpoint_url():
 def start_release(sha, endpoint):
     """Recreate the application services of one recorded release and verify it."""
     sha = valid_sha(sha)
-    (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask(), edge_root()))
+    (ROOT / "Caddyfile").write_text(edge_config(endpoint, sha, edge_ask(), edge_root(), edge_moved()))
     compose(ROOT / "releases" / sha, sha, "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "180",
             "api", "web", "worker", "edge")
     wait_ready("http://127.0.0.1:3000/api/v1/ready")

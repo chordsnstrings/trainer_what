@@ -41,7 +41,7 @@ def main(secret):
                                           "INTERNAL_PROXY_SECRET=" + secret + "\n")
         (root / "runtime.env").chmod(0o600)
         (root / "releases" / SHA).mkdir(parents=True)
-        common.atomic_json(root / "endpoint.json", {"url": "https://gymmembership.1.1.1.1.sslip.io"})
+        common.atomic_json(root / "endpoint.json", {"url": "https://gymmembership.1.1.1.1.sslip.io", "ip": "1.1.1.1"})
         common.atomic_json(root / "release-state.json", {"current": SHA, "previous": PREVIOUS, "deployed_at": 1790000000})
         containers = "\n".join(json.dumps({"Service": s, "State": "running", "Health": "healthy" if s in ("api", "database") else "",
                                            "ExitCode": 0}) for s in ("database", "api", "web", "worker", "edge"))

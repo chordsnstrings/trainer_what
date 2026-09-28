@@ -31,7 +31,9 @@ const operator = {
 const other = randomUUID();
 const resolver = {
   resolve4: async (host: string) =>
-    host === "app.fixture-platform.test" || host === "localhost"
+    host === "app.fixture-platform.test" ||
+    host === "next.fixture-platform.test" ||
+    host === "localhost"
       ? ["203.0.113.10"]
       : host === "elsewhere.fixture-platform.test"
         ? ["198.51.100.7"]
@@ -721,10 +723,19 @@ test("platform address validation covers format, coach domains, DNS and passkeys
       ).valid,
       false,
     );
+    // The current address itself: nothing moves, so passkeys keep working.
+    const same = await checkPlatformAddress(
+      db,
+      "https://app.fixture-platform.test",
+      resolver,
+    );
+    assert.equal(same.valid, true);
+    assert.equal(same.changed, false);
+    assert.equal(same.checks.find((c) => c.key === "passkeys")!.ok, true);
     const ok = await app.inject({
       url: "/api/v1/admin/infrastructure/platform-address/check",
       method: "POST",
-      payload: { url: "https://app.fixture-platform.test" },
+      payload: { url: "https://next.fixture-platform.test" },
     });
     assert.equal(ok.statusCode, 200, ok.body);
     const body = ok.json();
@@ -732,14 +743,18 @@ test("platform address validation covers format, coach domains, DNS and passkeys
     const passkeys = body.checks.find((c: any) => c.key === "passkeys");
     assert.equal(passkeys.ok, false);
     assert.match(passkeys.message, /1 passkey is bound/);
-    const reapply = body.procedure.find((step: string) =>
-      /Re-apply runtime settings/.test(step),
+    // The controller switches runtime.env itself and restores it on failure;
+    // the console re-apply is named for a failed restore.
+    const failure = body.procedure.find((step: string) =>
+      /If any step fails/.test(step),
     );
-    assert.ok(reapply);
-    // The controller does not fall back; the step names the console recovery.
-    assert.doesNotMatch(reapply, /restores the previous edge/);
-    assert.match(reapply, /nothing is rolled back/);
-    assert.match(reapply, /hostops\.py reapply/);
+    assert.ok(failure);
+    assert.match(
+      failure,
+      /restores the previous runtime\.env, edge and services automatically/,
+    );
+    assert.match(failure, /hostops\.py reapply/);
+    assert.doesNotMatch(body.procedure.join(" "), /edit PUBLIC_APP_URL/);
   } finally {
     if (saved === undefined) delete process.env.PUBLIC_APP_URL;
     else process.env.PUBLIC_APP_URL = saved;

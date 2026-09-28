@@ -80,14 +80,19 @@ Nothing below has been done. Deployment stays separately assigned.
    Remove the registrar's parking records for `@` and `www` (a URL redirect or a `www` CNAME)
    so they do not shadow these. Add AAAA records only if the server gets an IPv6 address. No CAA
    record is needed; if one is added it must allow `letsencrypt.org`.
-2. **Runtime settings on the server** (`/opt/gymmembership/runtime.env`, mode 600, via the
-   DigitalOcean console): add `PLATFORM_ROOT_DOMAIN=trainsyou.com`. Recommended at the same time:
-   move the platform to `PUBLIC_APP_URL=https://trainsyou.com`, following "Changing the
-   platform's own address" in `docs/features/infra-ops.md` (passkeys, sessions, Stripe webhook
-   endpoint, wearable redirect addresses and `DOMAIN_CNAME_TARGET` change with it). Keeping the
-   sslip.io platform address and setting only the root also works. Then request **Re-apply
-   runtime settings** on the Host page (or let the next deployment apply it); the Host page
-   shows "Pending re-apply" until then. Until the root is set, nothing changes on the live edge.
+2. **Runtime settings on the server**: once a controller with the platform address change
+   (migration `068_platform_address_change`) runs, use Super admin → Host and backups →
+   **Change the platform address** with `https://trainsyou.com` and root domain
+   `trainsyou.com`. The controller checks DNS, writes `PUBLIC_APP_URL` and
+   `PLATFORM_ROOT_DOMAIN` into `runtime.env` itself, keeps the sslip.io name as a permanent
+   redirect and restores everything automatically if the new address fails (see "Changing the
+   platform's own address" in `docs/features/infra-ops.md`; passkeys, sessions, the Stripe
+   webhook endpoint, OAuth redirect addresses and `DOMAIN_CNAME_TARGET` change with it). Keeping
+   the sslip.io platform address and setting only the root also works through the same form.
+   Before that controller runs, the manual route still applies: edit
+   `/opt/gymmembership/runtime.env` (mode 600) in the DigitalOcean console and request
+   **Re-apply runtime settings**; the Host page shows "Pending re-apply" until then. Until the
+   root is set, nothing changes on the live edge.
 3. **Namecheap API access** (Profile → Tools → Business & Dev Tools → Namecheap API Access):
    turn API access on (Namecheap only allows it for accounts that meet its eligibility rules,
    such as a minimum balance, domain count or spend; check its current terms), note the API key,
