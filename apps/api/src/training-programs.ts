@@ -68,6 +68,16 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       return reviseExercise(tx, a, p, b.exercise, { loadKg: b.loadKg, reps: b.reps, rir: b.rir }, b.note);
     });
   });
+  // The client pickers list the first followers by name; `membersHasMore`
+  // tells the screen to offer a server search (/workspace/pages/members) for
+  // the rest. A selected follower is always included.
+  const PICKER_MEMBERS = 100;
+  async function pickerMembers(tx: Tx, tenantId: string, selected?: string) {
+    const rows = await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name,u.id LIMIT $2", [tenantId, PICKER_MEMBERS + 1]);
+    const members = rows.slice(0, PICKER_MEMBERS);
+    if (selected && !members.some((m: any) => m.id === selected)) members.push(...await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' AND u.id=$2", [tenantId, selected]));
+    return { members, membersHasMore: rows.length > PICKER_MEMBERS };
+  }
   app.get("/api/v1/training/overview", async (req) => {
     const a = actor(req), q = z.object({ subscriberId: id.optional() }).parse(req.query), userId = a.role === "subscriber" ? a.userId : q.subscriberId;
     return db.tenant(a, async (tx) => {
@@ -75,7 +85,7 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const rows = await tx.query("SELECT * FROM records WHERE kind IN ('program','planned_session','workout','workout_correction','workout_substitution','training_hold') AND ($1::uuid IS NULL OR owner_user_id=$1 OR (kind='program' AND status='template')) ORDER BY created_at DESC LIMIT 1500", [userId ?? null]);
       const sets = userId ? await tx.query("SELECT * FROM workout_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 5000", [userId]) : [];
       const corrections = rows.filter((r) => r.kind === "workout_correction"), effectiveSets = effectiveWorkoutSets(sets, corrections);
-      return { records: rows, sets: effectiveSets, partial: rows.length === 1500 || sets.length === 5000, ...(a.role !== "subscriber" ? { members: await tx.query("SELECT u.id,u.name FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND m.role='subscriber' ORDER BY u.name", [a.tenantId]) } : {}) };
+      return { records: rows, sets: effectiveSets, partial: rows.length === 1500 || sets.length === 5000, ...(a.role !== "subscriber" ? await pickerMembers(tx, a.tenantId, userId) : {}) };
     });
   });
   app.post("/api/v1/training/sessions/:id/reschedule", async (req) => {

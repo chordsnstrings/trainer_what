@@ -64,6 +64,12 @@ import { registerAdminOperations } from "./admin-operations.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
+import {
+  bootstrapCollections,
+  createdKey,
+  keysetPage,
+  registerWorkspacePages,
+} from "./workspace-pages.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
@@ -259,6 +265,7 @@ async function assertTeachingSources(tx: Tx, ids: string[]) {
 // profile and Client Twin, so no confirmed rule is silently left unseen.
 const RELEASE_RULE_LIMIT = MODEL_EVIDENCE_LIMIT - 2;
 const HELD_OUT_SCENARIO_LIMIT = 30;
+const ADMIN_OVERVIEW_PAGE = 50;
 function assertReleaseRuleLimit(count: number) {
   if (count > RELEASE_RULE_LIMIT)
     throw fail(
@@ -602,6 +609,7 @@ export async function buildApp(
   registerAdminOperations(app, db, identity);
   registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
+  registerWorkspacePages(app, db, identity);
   registerInfrastructureObserver(app, db, identity, {
     startCollector: !options.testing,
   });
@@ -980,61 +988,24 @@ export async function buildApp(
     const [tenant] = await db.system((tx) =>
       tx.query("SELECT * FROM tenants WHERE id=$1", [a.tenantId]),
     );
-    return db.tenant(a, async (tx) => ({
-      environment: strictSecurity() ? "production" : "development",
-      providerSandbox: providerSandboxStatus().providerSandbox,
-      user: a,
-      platform: {
-        name: runtimeConfig().APP_NAME || "Trainer Brain",
-        supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
-      },
-      tenant,
-      records: await tx.query(
-        "SELECT * FROM records WHERE kind NOT IN ('twin_snapshot','retention_policy') AND kind NOT LIKE 'nutrition_%' ORDER BY updated_at DESC LIMIT 1000",
-      ),
-      sets: await tx.query(
-        "SELECT * FROM workout_events ORDER BY created_at DESC LIMIT 1000",
-      ),
-      subscriptions: await tx.query(
-        "SELECT * FROM subscriptions ORDER BY period_end DESC",
-      ),
-      complimentary: await tx.query(
-        "SELECT id,user_id,tier,starts_at,ends_at FROM complimentary_access WHERE closed_at IS NULL AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 1000",
-      ),
-      consents: await tx.query(
-        "SELECT * FROM consent_records WHERE user_id=$1 ORDER BY created_at DESC",
-        [a.userId],
-      ),
-      integrations: integrationStatus(),
-      ...(a.role === "subscriber"
-        ? {}
-        : {
-            members: await tx.query(
-              "SELECT u.id,u.name,u.email,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 ORDER BY u.name",
-              [a.tenantId],
-            ),
-            events: await tx.query(
-              "SELECT * FROM events ORDER BY created_at DESC LIMIT 100",
-            ),
-            ...(["owner", "finance"].includes(a.role)
-              ? {
-                  costs: await tx.query(
-                    "SELECT * FROM cost_events ORDER BY created_at DESC LIMIT 100",
-                  ),
-                  payouts: await tx.query(
-                    "SELECT * FROM payouts ORDER BY created_at DESC",
-                  ),
-                  journals: await tx.query(
-                    "SELECT * FROM journals ORDER BY created_at DESC LIMIT 200",
-                  ),
-                  usageStatements: await tx.query(
-                    "SELECT period,total_cost_usd,fx_aed_per_usd,charge_minor,fee_schedule_version FROM usage_statements ORDER BY period DESC",
-                  ),
-                  finance: await financeSummary(tx),
-                }
-              : {}),
-          }),
-    }));
+    // Every collection is a bounded first page with `pages` cursors and exact
+    // `totals` (workspace-pages.ts); later pages use /workspace/pages/*.
+    return db.tenant(a, async (tx) => {
+      const { records, ...collections } = await bootstrapCollections(tx, a);
+      return {
+        environment: strictSecurity() ? "production" : "development",
+        providerSandbox: providerSandboxStatus().providerSandbox,
+        user: a,
+        platform: {
+          name: runtimeConfig().APP_NAME || "Trainer Brain",
+          supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
+        },
+        tenant,
+        records,
+        integrations: integrationStatus(),
+        ...collections,
+      };
+    });
   });
   app.put("/api/v1/tenant/brand", async (req) => {
     const a = owner(req),
@@ -2308,11 +2279,27 @@ export async function buildApp(
     if (!["admin", "finance", "support", "safety"].includes(a.platformRole))
       throw fail(403, "ADMIN_REQUIRED", "Platform access is required");
     requireRecentMfa(a, true);
-    const tenants = await db.system((tx) =>
+    // Workspaces are paged (newest first); only the workspaces on this page
+    // are opened and recorded as inspected.
+    const q = z
+      .object({ cursor: z.string().max(1000).optional() })
+      .parse(req.query);
+    const page = await db.system((tx) =>
+      keysetPage(tx, {
+        select: "id,slug,name,published,created_at",
+        from: "tenants",
+        key: createdKey(),
+        descending: true,
+        cursor: q.cursor,
+        limit: ADMIN_OVERVIEW_PAGE,
+      }),
+    );
+    const [totals] = await db.system((tx) =>
       tx.query(
-        "SELECT id,slug,name,published,created_at FROM tenants ORDER BY created_at DESC",
+        "SELECT count(*)::int AS workspaces,count(*) FILTER(WHERE published)::int AS published FROM tenants",
       ),
     );
+    const tenants = page.items;
     const results = [];
     for (const t of tenants) {
       const summary = await db.tenant(
@@ -2333,15 +2320,27 @@ export async function buildApp(
                   ),
                 }
               : {}),
+            // A bounded sample with the exact count.
             exceptions: await tx.query(
-              "SELECT id,status,created_at,data->>'category' AS category FROM records WHERE kind='exception' AND status='open'",
+              "SELECT id,status,created_at,data->>'category' AS category FROM records WHERE kind='exception' AND status='open' ORDER BY created_at DESC,id DESC LIMIT 20",
             ),
+            openExceptions: (
+              await tx.query(
+                "SELECT count(*)::int AS n FROM records WHERE kind='exception' AND status='open'",
+              )
+            )[0].n,
           };
         },
       );
       results.push({ ...t, ...summary });
     }
-    return { tenants: results, integrations: integrationStatus() };
+    return {
+      tenants: results,
+      integrations: integrationStatus(),
+      hasMore: page.hasMore,
+      cursor: page.cursor,
+      totals,
+    };
   });
 
   // Signed provider deliveries have their own per-source budget, separate from

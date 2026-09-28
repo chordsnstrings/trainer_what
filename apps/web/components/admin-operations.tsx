@@ -145,21 +145,48 @@ function AdminOperationsWorkbench({
           ? (new URLSearchParams(window.location.search).get("tenantId") ?? "")
           : "",
     ),
-    [page, setPage] = useState(0),
+    // Keyset positions of the visited workspace pages; "" is the first page.
+    [cursors, setCursors] = useState<string[]>([""]),
     [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loadingRows, setLoadingRows] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   const [kind, setKind] = useState("legal"),
     [draft, setDraft] = useState<any>(null);
   const query = new URLSearchParams();
   if (tenant) query.set("tenantId", tenant);
-  query.set("page", String(page));
+  query.set("cursor", cursor);
   if (view === "subscribers" && segments[2]) query.set("userId", segments[2]);
   const load = () =>
     request("/admin/operations/" + view + "?" + query).then(setData);
   useEffect(() => {
     setData(null);
     void load().catch((e) => setNotice(e.message));
-  }, [view, tenant, page]);
+  }, [view, tenant, cursor]);
+  // The security audit list, and every per-workspace list of a selected
+  // workspace, pages by its own cursor.
+  async function loadMoreRows() {
+    if (!data?.rowsCursor) return;
+    setLoadingRows(true);
+    try {
+      const next = new URLSearchParams(query);
+      next.set("rowsCursor", data.rowsCursor);
+      const page = await request("/admin/operations/" + view + "?" + next);
+      setData((current: any) => ({
+        ...page,
+        rows: [
+          ...current.rows,
+          ...page.rows.filter(
+            (r: any) => !current.rows.some((c: any) => c.id === r.id),
+          ),
+        ],
+      }));
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setLoadingRows(false);
+    }
+  }
   async function act(url: string, body: unknown) {
     setBusy(true);
     try {
@@ -173,6 +200,50 @@ function AdminOperationsWorkbench({
       setBusy(false);
     }
   }
+  const rowsMore = data?.rowsHasMore ? (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loadingRows}
+        onClick={() => void loadMoreRows()}
+      >
+        {loadingRows
+          ? "Loading…"
+          : view === "security"
+            ? "Load older audit entries"
+            : "Load more rows"}
+      </button>
+    </div>
+  ) : null;
+  // Across a page of workspaces each lists only its first rows; say so and
+  // offer the workspace view, which pages through all of them.
+  const truncatedNotice = data?.truncated?.length ? (
+    <div className="notice" role="status">
+      <p>
+        Only the first rows of{" "}
+        {data.truncated.length === 1
+          ? "this workspace are"
+          : `${data.truncated.length} workspaces are`}{" "}
+        shown. Choose a workspace to page through all of its rows.
+      </p>
+      <div className="button-row">
+        {data.truncated.map((t: { tenantId: string; workspace: string }) => (
+          <button
+            type="button"
+            className="button secondary"
+            key={t.tenantId}
+            onClick={() => {
+              setTenant(t.tenantId);
+              setCursors([""]);
+            }}
+          >
+            Open {t.workspace}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
   if (!titles[view])
     return (
       <section className="card">
@@ -227,7 +298,7 @@ function AdminOperationsWorkbench({
                   value={tenant}
                   onChange={(e) => {
                     setTenant(e.target.value);
-                    setPage(0);
+                    setCursors([""]);
                   }}
                 >
                   <option value="">All workspaces</option>
@@ -241,15 +312,17 @@ function AdminOperationsWorkbench({
               <div className="button-row">
                 <button
                   className="button secondary"
-                  disabled={!page}
-                  onClick={() => setPage(page - 1)}
+                  disabled={cursors.length < 2}
+                  onClick={() => setCursors((c) => c.slice(0, -1))}
                 >
                   Previous
                 </button>
                 <button
                   className="button secondary"
-                  disabled={!data.hasMore}
-                  onClick={() => setPage(page + 1)}
+                  disabled={!data.hasMore || !data.nextCursor}
+                  onClick={() =>
+                    setCursors((c) => [...c, data.nextCursor as string])
+                  }
                 >
                   Next
                 </button>
@@ -390,6 +463,7 @@ function AdminOperationsWorkbench({
           ) : view === "support" ? (
             <section className="card">
               <h2>Conversations</h2>
+              {truncatedNotice}
               {!data.rows.length && <p className="muted">No conversations.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
@@ -429,6 +503,7 @@ function AdminOperationsWorkbench({
                   />
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "safety" ? (
             <section className="card">
@@ -436,6 +511,7 @@ function AdminOperationsWorkbench({
                 Operator review records triage. The coach must resolve any
                 training or nutrition hold through its governed workflow.
               </p>
+              {truncatedNotice}
               {!data.rows.length && <p>No safety cases.</p>}
               {data.rows.map((r: any) => (
                 <details key={r.id}>
@@ -483,6 +559,7 @@ function AdminOperationsWorkbench({
                   </form>
                 </details>
               ))}
+              {rowsMore}
             </section>
           ) : view === "experiments" ? (
             <>
@@ -632,7 +709,9 @@ function AdminOperationsWorkbench({
                   {data.summary.period} · {data.summary.attribution}
                 </p>
               )}
+              {truncatedNotice}
               <Table rows={data.rows} />
+              {rowsMore}
               {view === "security" && (
                 <>
                   <h2>Operator access</h2>
