@@ -16,7 +16,7 @@ const appUrl = `http://localhost:${webPort}`,
   apiUrl = `http://127.0.0.1:${apiPort}`;
 const mode = process.env.RTL_WEB_MODE === "start" ? "start" : "dev";
 // Relative to the repository root (packages/db resolves it there).
-const dataDir = ".data/rtl-check";
+const dataDir = process.env.RTL_DATA_DIR ?? ".data/rtl-check";
 await mkdir(root + "test-results", { recursive: true });
 const log = createWriteStream(root + "test-results/rtl-servers.log");
 const children = [];
@@ -124,7 +124,8 @@ try {
   // The first development request compiles the app.
   await ready(appUrl);
   process.env.TEST_APP_URL = appUrl;
-  await import("./rtl-check.mjs");
+  // scripts/run-brand-check.mjs reuses this runner for its own check.
+  await import(process.env.RTL_CHECK_MODULE ?? "./rtl-check.mjs");
 } finally {
   stop("SIGTERM");
   await new Promise((r) => setTimeout(r, 1500));

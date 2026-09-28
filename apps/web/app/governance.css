@@ -47,10 +47,10 @@
   border-inline-start-width: 4px;
 }
 .governance-alert.severity-critical {
-  border-inline-start-color: #b8563f;
+  border-inline-start-color: var(--error);
 }
 .governance-alert.severity-warning {
-  border-inline-start-color: #c89a4e;
+  border-inline-start-color: var(--warning-line);
 }
 .governance-item-head {
   display: flex;
@@ -67,9 +67,9 @@
   margin-block-start: 4px;
 }
 .badge.governance-critical {
-  background: #fff0eb;
-  border-color: #f0d5cb;
-  color: #924f3f;
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
 }
 .governance-action {
   margin-block-start: 12px;

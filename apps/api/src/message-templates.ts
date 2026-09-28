@@ -957,7 +957,8 @@ export function previewTemplate(
     },
     builtIn: { title: builtIn.title, body: builtIn.body },
     push: {
-      title: "Trainer Brain",
+      // Neutral: member apps carry their trainer's brand (public/sw.js).
+      title: "Coaching update",
       body: "You have an update. Open the app to view your inbox.",
       note: "Device notifications never carry message content; the device shows this fixed notice.",
     },

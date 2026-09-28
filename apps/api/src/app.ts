@@ -180,6 +180,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import {
+  platformName,
   signupSchema,
   loginSchema,
   brandSchema,
@@ -1021,7 +1022,7 @@ export async function buildApp(
         providerSandbox: providerSandboxStatus().providerSandbox,
         user: a,
         platform: {
-          name: runtimeConfig().APP_NAME || "Trainer Brain",
+          name: platformName(runtimeConfig().APP_NAME),
           supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
         },
         tenant,

@@ -122,8 +122,15 @@ function credentialStatus(def: IntegrationDefinition, row?: SettingsRow) {
     return "credentials_unreadable";
   }
 }
+/** A value equal to an earlier default of the field reads as its default. */
+function superseded(field: IntegrationField, value: string | undefined) {
+  return (
+    value !== undefined && !!field.supersededValues?.includes(value.trim())
+  );
+}
 /** A field with a documented default is never blank; older rows may still hold "". */
 function storedValue(field: IntegrationField, value: string | undefined) {
+  if (superseded(field, value)) return field.defaultValue ?? "";
   return (
     (field.defaultValue && !value?.trim() ? field.defaultValue : value) ?? ""
   );
@@ -136,7 +143,9 @@ function fieldValues(def: IntegrationDefinition, row?: SettingsRow) {
         field.key,
         row
           ? storedValue(field, row.settings_values[field.key])
-          : (process.env[field.key] ?? field.defaultValue ?? ""),
+          : superseded(field, process.env[field.key])
+            ? (field.defaultValue ?? "")
+            : (process.env[field.key] ?? field.defaultValue ?? ""),
       ]),
   );
 }

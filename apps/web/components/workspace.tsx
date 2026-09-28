@@ -48,7 +48,9 @@ import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
 import { HostOperations } from "./host-operations";
-import { MarketingFooter, MarketingHeader, claimCta } from "./marketing/frame";
+import { MarketingFooter } from "./marketing/frame";
+import { PublicHeader } from "./public-header";
+import { PlatformLogo } from "./brand-logo";
 import {
   FollowerEstimate,
   ShareYourLink,
@@ -87,11 +89,13 @@ import {
   ClientHomeSections,
 } from "./trainer-design";
 import {
+  BRAND_COPY,
   DEFAULT_PLATFORM_NAME,
   appInitials,
   isMarketingPath,
   resolveBrandDesign,
   setSchema,
+  usesBrandIdentity,
 } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
 import { WorkspaceGovernance } from "./workspace-governance";
@@ -511,8 +515,11 @@ const defaultPlatform: WorkspacePlatform = {
 };
 export default function Workspace({
   platform = defaultPlatform,
+  coachSlug = null,
 }: {
   platform?: WorkspacePlatform;
+  /** Set on a trainer's own domain or subdomain (x-trainer-site-slug). */
+  coachSlug?: string | null;
 }) {
   const path = usePathname(),
     router = useRouter();
@@ -657,6 +664,7 @@ export default function Workspace({
       <Public
         path={path}
         platform={platform}
+        coachSlug={coachSlug}
         onAuthenticated={async () => {
           await load();
           const s = await api("/bootstrap").catch(async (e) => {
@@ -717,7 +725,9 @@ export default function Workspace({
   if (loading || !state)
     return (
       <main className="loading-screen">
-        <div className="brand-mark">b.</div>
+        {/* Neutral: a member app may carry its trainer's brand, which is
+            not known until the workspace has loaded. */}
+        <div className="loading-indicator" aria-hidden="true" />
         <p>Opening your workspace…</p>
       </main>
     );
@@ -786,10 +796,15 @@ export default function Workspace({
     onSaved: load,
     more,
   };
+  // Subscribers see their trainer's Design Studio brand; trainers, their
+  // team and operators work in the platform's own identity (light and dark).
   const Shell = subscriber ? TrainerTheme : PlainShell;
-  const platformName = state.platform?.name || "Trainer Brain";
+  const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
   return (
-    <Shell className="workspace" theme={state.tenant.theme}>
+    <Shell
+      className={subscriber ? "workspace" : "workspace platform-ui"}
+      theme={state.tenant.theme}
+    >
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && (
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
@@ -803,10 +818,7 @@ export default function Workspace({
               compact
             />
           ) : (
-            <>
-              <span className="brand-mark">b.</span>
-              <span>{platformName}</span>
-            </>
+            <PlatformLogo name={platformName} />
           )}
         </Link>
         <button
@@ -1228,8 +1240,10 @@ export default function Workspace({
         </div>
         <footer className="workspace-footer">
           <span>
-            {subscriber ? state.tenant.name : platformName} · Your coaching,
-            amplified.
+            {subscriber ? state.tenant.name : platformName} ·{" "}
+            {!subscriber && usesBrandIdentity(platformName)
+              ? BRAND_COPY.line
+              : "Your coaching, amplified."}
           </span>
           {state.platform?.supportEmail && (
             <a href={`mailto:${state.platform.supportEmail}`}>
@@ -4430,10 +4444,13 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
 function Public({
   path,
   platform,
+  coachSlug,
   onAuthenticated,
 }: {
   path: string;
   platform: WorkspacePlatform;
+  /** The trainer whose own domain or subdomain serves this page, if any. */
+  coachSlug: string | null;
   onAuthenticated: () => Promise<void>;
 }) {
   const [error, setError] = useState(""),
@@ -4451,59 +4468,40 @@ function Public({
       join ||
       enroll,
     signup = path === "/signup";
+  // A /coach/ page, or any page on a trainer's own address (sign in,
+  // recovery, joining), carries that trainer's identity, not the platform's.
+  const coachPage = path.startsWith("/coach/");
+  const siteSlug = coachPage ? path.split("/")[2] || null : coachSlug;
   useEffect(() => {
-    if (path.startsWith("/coach/"))
-      api("/public/trainers/" + path.split("/").pop())
-        .then(setStore)
-        .catch((e) => setError(e.message));
-  }, [path]);
+    if (!siteSlug) return;
+    api("/public/trainers/" + encodeURIComponent(siteSlug))
+      .then(setStore)
+      // On a coach address the sign-in page works without the trainer's
+      // details; only the /coach/ page itself reports them missing.
+      .catch((e) => coachPage && setError(e.message));
+  }, [siteSlug, coachPage]);
   useEffect(() => {
     // A name typed in the address preview arrives as ?slug=.
     if (path !== "/signup") return;
     const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
     if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
   }, [path]);
-  const coach = path.startsWith("/coach/");
+  const coach = !!siteSlug;
   const Shell = coach ? TrainerTheme : PlainShell;
   return (
-    <Shell className="public" theme={store?.trainer?.theme}>
-      {!coach && (
-        <MarketingHeader
-          appName={platform.name}
-          initials={platform.initials}
-          cta={claimCta(platform.registrationOpen)}
-          path={path}
-        />
-      )}
-      {coach && (
-      <header className="public-header">
-        <Link href="/" className="wordmark">
-          {path.startsWith("/coach/") && store ? (
-            <CoachIdentity
-              name={store.trainer.name}
-              theme={store.trainer.theme}
-              compact
-            />
-          ) : (
-            <span>{platform.name}</span>
-          )}
-        </Link>
-        <nav>
-          <Link href="/login">Sign in</Link>
-        </nav>
-        <Link
-          className="button"
-          href={
-            path.startsWith("/coach/")
-              ? `/join-coach/${store?.trainer?.slug ?? path.split("/").pop()}`
-              : "/signup"
-          }
-        >
-          {path.startsWith("/coach/") ? "Join coaching" : "Build my Brain"}{" "}
-          <ArrowUpRight size={16} />
-        </Link>
-      </header>
-      )}
+    <Shell
+      className={coach ? "public" : "public platform-ui"}
+      theme={store?.trainer?.theme}
+    >
+      <PublicHeader
+        path={path}
+        platform={platform}
+        coach={
+          siteSlug
+            ? { slug: siteSlug, host: !coachPage, trainer: store?.trainer }
+            : null
+        }
+      />
       {path === "/sign-in/verify" ? (
         <SocialSignInVerify />
       ) : path.startsWith("/verify-email-change/") ? (
@@ -4728,15 +4726,33 @@ function Public({
                 </p>
               </>
             )}
-            <div className="divider" />
-            <p className="muted">
-              {signup
-                ? "Already have a coaching space?"
-                : `New to ${platform.name}?`}{" "}
-              <Link href={signup ? "/login" : "/signup"}>
-                {signup ? "Sign in" : "Get started"}
-              </Link>
-            </p>
+            {coach ? (
+              // A coach address refuses /signup; new members join the coach.
+              !join &&
+              !enroll && (
+                <>
+                  <div className="divider" />
+                  <p className="muted">
+                    New here?{" "}
+                    <Link href={`/join-coach/${store?.trainer?.slug ?? siteSlug}`}>
+                      Join coaching
+                    </Link>
+                  </p>
+                </>
+              )
+            ) : (
+              <>
+                <div className="divider" />
+                <p className="muted">
+                  {signup
+                    ? "Already have a coaching space?"
+                    : `New to ${platform.name}?`}{" "}
+                  <Link href={signup ? "/login" : "/signup"}>
+                    {signup ? "Sign in" : "Get started"}
+                  </Link>
+                </p>
+              </>
+            )}
           </Card>
         </main>
       ) : path.startsWith("/coach/") ? (

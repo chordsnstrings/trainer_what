@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
+  BRAND_COPY,
   DIRECTORY_SPECIALTIES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
@@ -799,8 +800,9 @@ function Home({ page, platform }: Ctx) {
             <Link className="button large" href={cta.href}>
               {cta.label} <ArrowRight size={18} aria-hidden="true" />
             </Link>
-            <Link className="text-link" href="/follower-calculator">
-              What are my followers worth? <ArrowRight size={16} aria-hidden="true" />
+            <Link className="text-link" href="/how-it-works">
+              {BRAND_COPY.secondaryAction}{" "}
+              <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>
           <ul className="mk-hero-notes">
@@ -932,7 +934,7 @@ export function MarketingSite({ page, platform, origin }: Ctx) {
     followerModel: platform.followerModel,
   });
   return (
-    <div className="public mk">
+    <div className="public mk platform-ui">
       <MarketingHeader
         key={page.path}
         appName={platform.name}

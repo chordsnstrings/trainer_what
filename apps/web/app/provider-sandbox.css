@@ -6,10 +6,10 @@
   margin-block-end: 20px;
   padding-block: 12px;
   padding-inline: 14px;
-  border: 2px solid #b42318;
+  border: 2px solid var(--error);
   border-radius: 6px;
-  background: #fef3f2;
-  color: #7a271a;
+  background: var(--error-bg);
+  color: var(--error);
   font-size: 13px;
   line-height: 1.5;
   text-align: start;

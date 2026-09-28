@@ -9,6 +9,8 @@ import { verifiedProxyHeaders } from "../host-proxy";
 export async function requestOrigin(): Promise<{
   origin: string;
   coachHost: boolean;
+  /** The trainer whose own domain or subdomain this is (proxy-set). */
+  coachSlug: string | null;
 }> {
   const incoming = await headers();
   const coach = incoming.get("x-trainer-site-origin");
@@ -17,6 +19,7 @@ export async function requestOrigin(): Promise<{
       coach ?? process.env.PUBLIC_APP_URL ?? "http://localhost:3000",
     ).origin,
     coachHost: !!coach,
+    coachSlug: coach ? incoming.get("x-trainer-site-slug") || null : null,
   };
 }
 

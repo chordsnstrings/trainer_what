@@ -8,6 +8,7 @@ import {
   type SystemTx,
   type Tx,
 } from "@trainer/db";
+import { platformName } from "@trainer/contracts";
 import { newToken, tokenHash } from "./auth.ts";
 import { lockActiveInvitation } from "./team.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
@@ -230,7 +231,7 @@ async function queueInvitationEmail(
   },
 ) {
   const coach = input.coach || "Your coach";
-  const platform = runtimeConfig().APP_NAME || "Trainer Brain";
+  const platform = platformName(runtimeConfig().APP_NAME);
   // The invitee has no saved time zone yet: use the platform's UAE default.
   const expires = messageDate(input.expiresAt);
   await tx.query(

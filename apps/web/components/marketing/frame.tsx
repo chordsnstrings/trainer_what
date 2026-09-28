@@ -3,28 +3,33 @@
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import {
+  BRAND_COPY,
   marketingFooter,
   marketingNav,
+  usesBrandIdentity,
   type NavLink,
 } from "@trainer/contracts";
+import { PlatformLogo } from "../brand-logo";
 
 export type BrandProps = { appName: string; initials: string };
 export type Cta = { label: string; href: string };
 
-/** The primary call to action: claim an address, or early access. */
+/**
+ * The primary call to action: the brand's "Teach your AI" (sign up, then
+ * the guided setup that teaches it), or early access while registration is
+ * closed.
+ */
 export function claimCta(registrationOpen: boolean): Cta {
   return registrationOpen
-    ? { label: "Claim your coaching address", href: "/signup" }
+    ? { label: BRAND_COPY.primaryAction, href: "/signup" }
     : { label: "Join early access", href: "/get-started#early-access" };
 }
 
-export function Wordmark({ appName, initials }: BrandProps) {
+/** The platform identity linking home (the trainsyou lockup or the name). */
+export function Wordmark({ appName }: BrandProps) {
   return (
     <Link href="/" className="wordmark mk-wordmark" aria-label={appName + " home"}>
-      <span className="brand-mark mk-brand-mark" aria-hidden="true">
-        {initials}
-      </span>
-      <span>{appName}</span>
+      <PlatformLogo name={appName} />
     </Link>
   );
 }
@@ -122,10 +127,20 @@ export function MarketingFooter({ appName, initials }: BrandProps) {
     <footer className="mk-footer">
       <div className="mk-footer-brand">
         <Wordmark appName={appName} initials={initials} />
-        <p className="muted">
-          Personal training in each trainer’s own method, made affordable for
-          their followers. Built for the UAE, priced in AED.
-        </p>
+        {usesBrandIdentity(appName) ? (
+          <>
+            <p className="mk-footer-line">{BRAND_COPY.line}</p>
+            <p className="muted">
+              {BRAND_COPY.descriptor}, for personal trainers. Built for the
+              UAE, priced in AED.
+            </p>
+          </>
+        ) : (
+          <p className="muted">
+            Personal training in each trainer’s own method, made affordable
+            for their followers. Built for the UAE, priced in AED.
+          </p>
+        )}
       </div>
       <nav className="mk-footer-map" aria-label="Site map">
         {marketingFooter().map((column) => (

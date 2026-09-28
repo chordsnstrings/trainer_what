@@ -6,7 +6,9 @@ Work package branch: `core/marketing-site` (base `b9ec7c1`). Migration:
 Built from the 28 September 2026 strategy brief (positioning, personas,
 honest conversion levers, site map, SEO and LLM SEO plan, follower model).
 The brand is always the configured platform name (`APP_NAME`); copy is
-written to read well as "TrainsYou" but never hard-codes it.
+written to read well as "TrainsYou" but never hard-codes it. Since the
+corporate identity package the default name is `trainsyou` (lowercase), with
+its logo, icons, share card and tokens: see [brand.md](brand.md).
 
 ## What was built
 

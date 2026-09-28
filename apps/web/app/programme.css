@@ -68,7 +68,7 @@
   padding-inline-start: 14px;
 }
 .programme-end.ending {
-  border-inline-start-color: #c08a3a;
+  border-inline-start-color: var(--warning-line);
 }
 .programme-timeline {
   display: grid;
@@ -96,7 +96,7 @@
   background: var(--mint);
 }
 .programme-timeline li.missed {
-  background: #faf0e2;
+  background: var(--warning-bg);
 }
 .programme-timeline li.rest {
   color: var(--muted);

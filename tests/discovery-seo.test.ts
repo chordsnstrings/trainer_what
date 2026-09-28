@@ -343,8 +343,10 @@ test("the platform manifest follows the configured name and its generated PNG ic
   );
   const generated = await readFile(new URL("../apps/web/app/manifest.ts", import.meta.url), "utf8");
   assert.match(generated, /platformManifest\(name\)/);
-  const manifest = platformManifest("TrainsYou");
-  assert.equal(manifest.name, "TrainsYou");
+  // A configured name other than trainsyou gets icons drawn from its
+  // initials (the trainsyou icons are covered by tests/brand.test.ts).
+  const manifest = platformManifest("Acme Coaching");
+  assert.equal(manifest.name, "Acme Coaching");
   const pngs = manifest.icons.filter((i: any) => i.type === "image/png");
   assert.ok(pngs.some((i: any) => i.purpose === "maskable"));
   for (const icon of [
@@ -365,7 +367,7 @@ test("the platform manifest follows the configured name and its generated PNG ic
   }
   assert.equal((await h.app.inject({ url: PLATFORM_ICON_BASE + "64.png", method: "GET" })).statusCode, 404);
   assert.ok(PLATFORM_LOGO_PATH.startsWith(PLATFORM_ICON_BASE));
-  assert.equal(platformManifest("  ").name, "Trainer Brain");
+  assert.equal(platformManifest("  ").name, "trainsyou");
   assert.equal(
     platformManifest("A Very Long Platform Name").short_name,
     "A Very Long",

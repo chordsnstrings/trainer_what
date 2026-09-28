@@ -65,7 +65,8 @@ import type { PublicPlatform } from "../apps/web/components/marketing/platform.t
 import { INTEGRATION_CATALOG } from "../packages/providers/src/configuration.ts";
 
 const ORIGIN = "https://trainsyou.example";
-const APP = "TrainsYou";
+// The platform default (DEFAULT_PLATFORM_NAME): the trainsyou brand.
+const APP = "trainsyou";
 const ctx = { origin: ORIGIN, appName: APP, supportEmail: "hello@trainsyou.example" };
 const platform: PublicPlatform = {
   name: APP,
@@ -274,9 +275,15 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
     assert.ok(m.title.length <= 60, `${page.path} title too long (${m.title.length}): ${m.title}`);
     assert.ok(m.description.length <= 155, `${page.path} description too long (${m.description.length})`);
     assert.doesNotMatch(m.title, new RegExp(`${APP}.*\\| ${APP}$`), `${page.path} repeats the brand`);
-    // A large social preview of this page.
+    // A large social preview of this page; the brand's home page uses the
+    // supplied trainsyou share card.
     assert.equal(m.twitter.card, "summary_large_image");
-    assert.equal(m.openGraph.images[0].url, ORIGIN + "/og?path=" + encodeURIComponent(page.path));
+    assert.equal(
+      m.openGraph.images[0].url,
+      page.path === "/"
+        ? ORIGIN + "/brand/social-share-1200x630.png"
+        : ORIGIN + "/og?path=" + encodeURIComponent(page.path),
+    );
     assert.equal(m.twitter.images[0], m.openGraph.images[0].url);
     assert.equal(m.canonical, page.path === "/" ? ORIGIN + "/" : ORIGIN + page.path);
     assert.equal(m.openGraph.url, m.canonical);
@@ -287,11 +294,15 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
     for (const text of [m.title, m.description])
       assert.doesNotMatch(text, /\{APP_NAME\}/);
   }
-  // The brand is never hard-coded: another name renders everywhere.
+  // The brand is never hard-coded: another name renders everywhere, with
+  // its own generated preview instead of the trainsyou artwork.
   for (const page of site) {
     const text = brandText(allText(page), "Acme Coaching");
-    assert.doesNotMatch(text, /\{APP_NAME\}|TrainsYou|Trainer Brain Platform/, page.path);
+    assert.doesNotMatch(text, /\{APP_NAME\}|trainsyou|Trainer Brain Platform/i, page.path);
   }
+  const acme = marketingMetadata(marketingPage("/")!, { ...ctx, appName: "Acme Coaching" });
+  assert.equal(acme.openGraph.images[0].url, ORIGIN + "/og?path=%2F");
+  assert.equal(acme.title, "AI personal trainer platform for UAE coaches | Acme Coaching");
 });
 
 test("JSON-LD: valid schema.org graphs built from the page's visible text", () => {
@@ -333,7 +344,7 @@ test("JSON-LD: valid schema.org graphs built from the page's visible text", () =
     const ids = new Set(nodes.map((n) => n["@id"]));
     const org = nodes.find((n) => n["@type"] === "Organization");
     assert.equal(org?.name, APP, page.path);
-    assert.equal(org.logo, ORIGIN + "/api/v1/public/platform/icon/512.png");
+    assert.equal(org.logo, ORIGIN + "/brand/trainsyou-lockup-ink.png");
     assert.ok(nodes.some((n) => n["@type"] === "WebSite"), page.path);
     for (const ref of JSON.stringify(nodes).matchAll(/"@id":"([^"]+)"/g))
       assert.ok(ids.has(ref[1]), `${page.path}: dangling reference ${ref[1]}`);

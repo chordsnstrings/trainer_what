@@ -214,7 +214,7 @@ export function bookingCalendar(rows: any[]) {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Trainer Brain//Booking Calendar//EN",
+    "PRODID:-//trainsyou//Booking Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
   ];

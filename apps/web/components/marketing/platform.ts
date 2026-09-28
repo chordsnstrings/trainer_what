@@ -1,6 +1,6 @@
 import {
   appInitials,
-  DEFAULT_PLATFORM_NAME,
+  platformName,
   type AvailabilityKey,
 } from "@trainer/contracts";
 import {
@@ -22,7 +22,7 @@ export type PublicPlatform = {
 };
 
 function fallback(): PublicPlatform {
-  const name = process.env.APP_NAME?.trim() || DEFAULT_PLATFORM_NAME;
+  const name = platformName(process.env.APP_NAME);
   return {
     name,
     initials: appInitials(name),

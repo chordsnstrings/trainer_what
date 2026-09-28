@@ -65,9 +65,9 @@ const directory = cache(async (query: string): Promise<DirectoryResult> => {
   return response.json();
 });
 /**
- * A coach website takes the coach's own browser colour (Design Studio
- * primary, as in its public manifest); every other page keeps the platform
- * colour from the root layout.
+ * A coach website, and any page on a trainer's own address, takes the coach's
+ * own browser colour (Design Studio primary, as in its public manifest);
+ * every other page keeps the platform colour from the root layout.
  */
 export async function generateViewport({
   params,
@@ -75,8 +75,10 @@ export async function generateViewport({
   params: Promise<{ path?: string[] }>;
 }): Promise<Viewport> {
   const { path = [] } = await params;
-  if (path[0] !== "coach" || !path[1]) return {};
-  const data = await website(path[1]);
+  const slug =
+    path[0] === "coach" ? path[1] : (await requestOrigin()).coachSlug;
+  if (!slug) return {};
+  const data = await website(slug);
   return data
     ? { themeColor: resolveBrandDesign(data.tenant.theme).primary }
     : {};
@@ -89,7 +91,7 @@ export async function generateMetadata({
   searchParams: Promise<SearchParams>;
 }): Promise<Metadata> {
   const { path = [] } = await params;
-  const { origin, coachHost } = await requestOrigin();
+  const { origin, coachHost, coachSlug } = await requestOrigin();
   const route = "/" + path.join("/");
   const marketing = coachHost ? undefined : marketingPage(route);
   if (marketing) {
@@ -128,6 +130,26 @@ export async function generateMetadata({
       alternates: { canonical: origin + DIRECTORY_PATH },
       // Filtered and paged results are reachable but not separate entries.
       ...(query ? { robots: { index: false, follow: true } } : {}),
+    };
+  }
+  if (path[0] !== "coach" && coachHost && coachSlug) {
+    // Sign-in, recovery, joining and legal pages on a trainer's own address
+    // carry the trainer's name and icon, never the platform's B2B title,
+    // description or favicon. The member app replaces them once signed in.
+    const data = await website(coachSlug);
+    return {
+      robots: { index: false, follow: false },
+      ...(data
+        ? {
+            title: { absolute: data.tenant.name },
+            applicationName: data.tenant.name,
+            description: `Personal coaching with ${data.tenant.name}.`,
+            icons: {
+              icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+              apple: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+            },
+          }
+        : { description: null }),
     };
   }
   if (path[0] !== "coach" || !path[1])
@@ -239,6 +261,7 @@ export default async function Page({
     if (moved) redirect("/join-coach/" + moved);
   }
   const platform = await publicPlatform();
+  const { coachSlug } = await requestOrigin();
   return (
     <Workspace
       platform={{
@@ -246,6 +269,7 @@ export default async function Page({
         initials: platform.initials,
         registrationOpen: platform.registrationOpen,
       }}
+      coachSlug={coachSlug}
     />
   );
 }

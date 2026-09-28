@@ -155,6 +155,7 @@ export async function proxy(request: NextRequest) {
 }
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/).*)",
+    // Static files skip routing; public/brand holds the trainsyou assets.
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|brand/).*)",
   ],
 };
