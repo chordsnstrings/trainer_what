@@ -1421,7 +1421,9 @@ scenario's expectations (`.fitness` renewal 49.99, the Checkout text).
 
 ### Checks actually run for this stage
 
-Recorded in `docs/COMPLETION_STAGES.md`, stage 2026-09-28s.
+Recorded in `docs/COMPLETION_STAGES.md`, stage 2026-09-28s. The checks on the merged tree, with
+platform finance B-D (full PGlite and PostgreSQL suites, e2e harness, build, brand check), are in
+stage 2026-09-28x.
 
 ## Domain profit and the registrar balance (platform finance, stages 2026-09-28t to 28v)
 

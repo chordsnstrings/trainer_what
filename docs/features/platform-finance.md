@@ -11,8 +11,12 @@ behind it read the code on `integrate/round2` (`bb80aa3`); its findings are summ
 Status (28 September 2026): phase A is merged into the PR #4 branch and was part of PR #4,
 which the owner merged into `main`. Phases B-D and their review round 1 (`core/finance-bcd`,
 stages 2026-09-28t to 28w, migrations 075-077) are merged into the PR #4 branch
-(`integrate/round2`) after the domain margin track, stage 2026-09-28x; not deployed. Statements
-below that the branch is unmerged were true when written.
+(`integrate/round2`) after the domain margin track, stage 2026-09-28x, where the checks on the
+merged tree are recorded; not deployed. Statements below that the branch is unmerged were true
+when written. Seen at that merge and still open: the Stripe fee of a domain payment not read yet
+is estimated with this page's Stripe fee settings (2.9% + AED 1.00), not the domain margin's
+fuller USD estimate (+1% international card, +0.7% Stripe Billing, +1% conversion); and Stripe
+Billing's 0.7% fee is neither read nor estimated here, for memberships or domains.
 
 ## Starting point (audit of 28 September)
 
