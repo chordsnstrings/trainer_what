@@ -7,10 +7,16 @@ import assert from "node:assert/strict";
 import { withIntegrationFixtureTransport } from "../packages/providers/src/integrations.ts";
 import {
   GenericRegistrar,
+  NAMECHEAP_EXTENDED_ATTRIBUTE_TLDS,
   NamecheapRegistrar,
+  OneOhOneRegistrar,
+  NOT_SOLD,
   RegistrarError,
+  canBuyPremium,
+  endingNotSold,
   namecheapHostFields,
   parseXml,
+  premiumCostUsd,
   registrarDate,
   registrarFromConfig,
   xmlChild,
@@ -21,13 +27,7 @@ import {
   integrationCapability,
   READ_ONLY_CHECK_BEFORE_APPROVAL,
 } from "../packages/providers/src/configuration.ts";
-import {
-  allowedTlds,
-  searchCandidates,
-  splitRegistrableDomain,
-  usdToAedMinor,
-  yearlyPriceMinor,
-} from "../packages/domain/src/web-address.ts";
+import { trainerDomainPrices } from "../packages/domain/src/web-address.ts";
 import { NamecheapMock } from "./e2e/mocks/namecheap.ts";
 import { RegistrarMock } from "./e2e/mocks/registrar.ts";
 
@@ -79,29 +79,13 @@ test("Namecheap dates and money are read exactly", () => {
     "2027-11-12T07:12:13.000Z",
   );
   assert.equal(registrarDate(""), undefined);
-  // 15.88 + 0.18 USD at the AED peg, rounded up to whole dirhams, plus 25 AED.
-  assert.equal(
-    yearlyPriceMinor({
-      registerUsd: "10.46",
-      renewUsd: "16.06",
-      usdToAed: "3.6725",
-      marginAed: "25",
-    }),
-    (59 + 25) * 100,
-  );
-  assert.equal(usdToAedMinor("10.4600", "3.6725"), 3842);
-  assert.equal(usdToAedMinor("0.0001", "3.6725"), 1, "costs round up");
-  assert.deepEqual(allowedTlds("com, .NET,bad tld,org"), ["com", "net", "org"]);
-  assert.deepEqual(searchCandidates("Layla Strength", ["com", "net"]), [
-    "layla-strength.com",
-    "layla-strength.net",
-  ]);
-  assert.deepEqual(searchCandidates("https://www.layla.fit/", ["com"]), []);
-  assert.deepEqual(splitRegistrableDomain("layla.co.uk", ["co.uk"]), [
-    "layla",
-    "co.uk",
-  ]);
-  assert.equal(splitRegistrableDomain("xn--abc.com", ["com"]), null);
+  // The double's .com (10.28 + 0.18 and 15.88 + 0.18 USD) at the owner's
+  // rule: USD 19.99 the first year, USD 24.99 a renewal.
+  assert.deepEqual(trainerDomainPrices({ registerUsd: "10.4600", renewUsd: "16.0600" }), {
+    firstYearCents: 1999,
+    renewalCents: 2499,
+    offered: true,
+  });
 });
 
 test("Namecheap: balance, availability, prices, purchase, info, list, renew", async () => {
@@ -125,6 +109,12 @@ test("Namecheap: balance, availability, prices, purchase, info, list, renew", as
       ],
     );
     assert.equal(checks[2].premiumRegisterUsd, "2500.00");
+    assert.equal(checks[2].premiumRenewUsd, "2500.00");
+    assert.deepEqual(premiumCostUsd(checks[2]), {
+      registerUsd: "2500.1800",
+      renewUsd: "2500.1800",
+    });
+    assert.equal(premiumCostUsd(checks[0]), null, "a regular name has no premium cost");
     // Price + ICANN fee (spelled "YourAdditonalCost" by Namecheap).
     assert.deepEqual(await nc.pricing("com"), {
       tld: "com",
@@ -340,15 +330,32 @@ test("the Super admin connection check reads the balance only and reports the en
       WEB_ADDRESS_REGISTRANT_PHONE: "0501234567",
     }),
   );
-  assert.throws(() =>
-    validateIntegrationValues("web_addresses", {
-      WEB_ADDRESS_USD_TO_AED: "40",
-    }),
-  );
+  // The price rule (owner decision, 28 September 2026): whole cents only.
+  for (const bad of [
+    { WEB_ADDRESS_PRICE_STEP_USD: "0" },
+    { WEB_ADDRESS_PRICE_STEP_USD: "4.999" },
+    { WEB_ADDRESS_PRICE_ENDING_USD: "abc" },
+    { WEB_ADDRESS_PRICE_CAP_USD: "0" },
+    { WEB_ADDRESS_PRICE_CAP_USD: "5000" },
+    { WEB_ADDRESS_TLDS: Array.from({ length: 21 }, (_, i) => "e" + "x".repeat(i + 1)).join(",") },
+  ])
+    assert.throws(() => validateIntegrationValues("web_addresses", bad), JSON.stringify(bad));
   assert.doesNotThrow(() =>
     validateIntegrationValues("web_addresses", {
-      WEB_ADDRESS_TLDS: "com,net,co.uk",
+      WEB_ADDRESS_PRICE_STEP_USD: "5.00",
+      WEB_ADDRESS_PRICE_ENDING_USD: "4.99",
+      WEB_ADDRESS_PRICE_CAP_USD: "100",
+      WEB_ADDRESS_TLDS: "com,fit,fitness,coach,training,ae,club,pro,app,me,co.uk",
     }),
+  );
+  // The AED margin and exchange rate settings are gone: prices are in USD.
+  assert.throws(
+    () => validateIntegrationValues("web_addresses", { WEB_ADDRESS_MARGIN_AED: "25" }),
+    /unknown setting/,
+  );
+  assert.throws(
+    () => validateIntegrationValues("web_addresses", { WEB_ADDRESS_USD_TO_AED: "3.6725" }),
+    /unknown setting/,
   );
   // Anything but an explicit "false" uses the test environment.
   const production = registrarFromConfig({
@@ -367,7 +374,9 @@ test("the Super admin connection check reads the balance only and reports the en
 
 test("the generic JSON adapter implements the same interface against the registrar double", async () => {
   const mock = new RegistrarMock(tls, "reg_fixture_key");
+  const sent: string[] = [];
   const transport = async (url: string, init: RequestInit = {}) => {
+    sent.push(`${init.method ?? "GET"} ${new URL(url).pathname}`);
     const result = await mock.server.inject({
       method: init.method ?? "GET",
       url,
@@ -384,10 +393,18 @@ test("the generic JSON adapter implements the same interface against the registr
       "https://registrar.example.test",
       "reg_fixture_key",
     );
+    mock.premium.set("gold.com", { register: "60.00", renew: "60.00" });
+    const checked = await generic.check(["layla.com", "gold.com", "layla.xyz"]);
     assert.deepEqual(
-      (await generic.check(["layla.com"])).map((a) => a.available),
-      [true],
+      checked.map((a) => [a.domain, a.available, a.premium]),
+      [
+        ["layla.com", true, false],
+        ["gold.com", true, true],
+        ["layla.xyz", false, false],
+      ],
     );
+    assert.deepEqual(premiumCostUsd(checked[1]), { registerUsd: "60.0000", renewUsd: "60.0000" });
+    assert.deepEqual(sent, ["POST /v1/domains/check"], "one batched availability request");
     assert.deepEqual(await generic.pricing("com"), {
       tld: "com",
       registerUsd: "11.00",
@@ -456,4 +473,190 @@ test("payment mode and registrar environment rules; early-access fees are read",
   const [eap, plain] = await registrar.check(["launch.com", "plain-coach.com"]);
   assert.equal(eap.earlyAccessFeeUsd, "95.00");
   assert.equal(plain.earlyAccessFeeUsd, undefined);
+});
+
+test("Namecheap: batched checks, unsupported and document endings, premium purchase and renewal at the checked price", async () => {
+  const mock = new NamecheapMock(tls, account);
+  mock.premium.set("gold.com", { register: "55.00", renew: "60.00" });
+  mock.taken.add("athena.com");
+  const nc = new NamecheapRegistrar({ ...account, sandbox: true }, { transport: mock.fetch });
+  // 60 names: two domains.check requests (Namecheap takes 50 at most).
+  const names = Array.from({ length: 60 }, (_, i) => `athena${i}.com`);
+  const many = await nc.check(names);
+  assert.equal(many.length, 60);
+  assert.deepEqual(
+    mock.commands("domains.check").map((c) => c.params.DomainList.split(",").length),
+    [50, 10],
+  );
+  // One request for the name on every suggested ending the registrar sells.
+  // Live Namecheap (28 September 2026) refuses the whole request when one
+  // name is under an ending it does not sell (.ae), so the search only
+  // checks names whose ending has a price.
+  const endings = ["com", "fit", "fitness", "coach", "training", "club", "pro", "app", "me"];
+  const suggestions = await nc.check(endings.map((e) => "athena." + e));
+  assert.deepEqual(
+    suggestions.filter((a) => !a.available).map((a) => a.domain),
+    ["athena.com"],
+  );
+  const whole = await nc.check(["athena.com", "athena.ae"]).catch((e) => e);
+  assert.ok(whole instanceof RegistrarError);
+  assert.deepEqual([whole.outcome, whole.code], ["definitive", "2030280"]);
+  assert.match(whole.message, /athena\.ae/);
+  // Endings needing registrant documents are refused before any request.
+  const before = mock.calls.length;
+  for (const tld of ["us", "co.uk", "eu"]) {
+    assert.ok(NAMECHEAP_EXTENDED_ATTRIBUTE_TLDS.has(tld));
+    const refused = await nc.pricing(tld).catch((e) => e);
+    assert.ok(refused instanceof RegistrarError);
+    assert.equal(refused.outcome, "definitive");
+    assert.equal(refused.code, "REQUIREMENTS");
+  }
+  assert.equal(mock.calls.length, before, "no request for a document ending");
+  // An ending the double does not sell is a definitive refusal (not offered).
+  const unsupported = await nc.pricing("ae").catch((e) => e);
+  assert.equal(unsupported.outcome, "definitive");
+  assert.deepEqual(await nc.pricing("fit"), { tld: "fit", registerUsd: "5.1600", renewUsd: "35.1600" });
+  // A premium name: its own registration and renewal prices from the check.
+  const [gold] = await nc.check(["gold.com"]);
+  assert.deepEqual(
+    [gold.premium, gold.premiumRegisterUsd, gold.premiumRenewUsd, gold.icannFeeUsd],
+    [true, "55.00", "60.00", "0.18"],
+  );
+  assert.deepEqual(premiumCostUsd(gold), { registerUsd: "55.1800", renewUsd: "60.1800" });
+  // USD 55.18 → 64.99 first year, 60.18 → 69.99 renewal: within USD 100.
+  assert.deepEqual(trainerDomainPrices(premiumCostUsd(gold)!), {
+    firstYearCents: 6499,
+    renewalCents: 6999,
+    offered: true,
+  });
+  // Bought only as a premium name at the checked price.
+  const regular = await nc.register({ domain: "gold.com", years: 1, registrant }).catch((e) => e);
+  assert.equal(regular.outcome, "definitive", "a premium name is never bought at the regular price");
+  const wrong = await nc
+    .register({ domain: "gold.com", years: 1, registrant, premiumPriceUsd: "50.00" })
+    .catch((e) => e);
+  assert.equal(wrong.outcome, "definitive", "nor at another premium price");
+  const bought = await nc.register({ domain: "gold.com", years: 1, registrant, premiumPriceUsd: "55.00" });
+  assert.equal(bought.registered, true);
+  assert.equal(bought.chargedUsd, "55.1800");
+  const create = mock.commands("domains.create").at(-1)!.params;
+  assert.deepEqual([create.IsPremiumDomain, create.PremiumPrice], ["true", "55.00"]);
+  const renewedRegular = await nc.renew("gold.com", 1).catch((e) => e);
+  assert.equal(renewedRegular.outcome, "definitive", "a premium renewal names its price");
+  const renewed = await nc.renew("gold.com", 1, { premiumPriceUsd: "60.00" });
+  assert.equal(renewed.renewed, true);
+  assert.equal(renewed.chargedUsd, "60.1800");
+  // A regular name never claims to be premium.
+  await nc.register({ domain: "plain-coach.com", years: 1, registrant });
+  assert.equal(mock.commands("domains.create").at(-1)!.params.IsPremiumDomain, undefined);
+  // 101domain cannot pass a premium price on: its premium names are never offered.
+  assert.equal(canBuyPremium(new OneOhOneRegistrar("k")), false);
+  assert.equal(canBuyPremium(nc), true);
+});
+
+test("only the registrar's own not-sold answer marks an ending as not offered", async () => {
+  const mock = new NamecheapMock(tls, account);
+  await withMock(mock, async () => {
+    // A readable answer with no one-year product (.ae, live) and an
+    // ending needing registrant documents are "not sold".
+    const ae = await adapter().pricing("ae").catch((e) => e);
+    assert.equal(ae.code, NOT_SOLD);
+    assert.ok(endingNotSold(ae));
+    const us = await adapter().pricing("us").catch((e) => e);
+    assert.equal(us.code, "REQUIREMENTS");
+    assert.ok(endingNotSold(us));
+    // Namecheap's "TLD is not supported" error on the pricing call too.
+    mock.refuseNext("users.getPricing", "TLD is not supported in API", "2030280");
+    const unsupported = await adapter().pricing("com").catch((e) => e);
+    assert.equal(unsupported.code, NOT_SOLD);
+    // A refused request says nothing about the ending.
+    for (const [bad, number] of [
+      [adapter({ clientIp: "9.9.9.9" }), "1011150"],
+      [adapter({ apiKey: "nc-wrong-key-0000000000" }), "1011102"],
+    ] as const) {
+      const error = await bad.pricing("com").catch((e) => e);
+      assert.equal(error.code, number);
+      assert.equal(error.outcome, "definitive");
+      assert.equal(endingNotSold(error), false, number);
+    }
+    mock.refuseNext("users.getPricing", "Too many requests", "500000");
+    assert.equal(endingNotSold(await adapter().pricing("com").catch((e) => e)), false);
+    assert.equal(endingNotSold(new Error("network")), false);
+    // A name Namecheap could not check is flagged, not reported as taken.
+    mock.checkErrors.add("layla.com");
+    const [checked] = await adapter().check(["layla.com"]);
+    assert.deepEqual(
+      [checked.available, checked.checkFailed],
+      [false, true],
+    );
+  });
+});
+
+test("the generic JSON adapter: 404 prices are not sold, the earlier one-name check still works, an unreadable check is unknown", async () => {
+  const mock = new RegistrarMock(tls, "reg_fixture_key");
+  let mode: "batch" | "legacy" | "unreadable" = "legacy";
+  const sent: string[] = [];
+  const transport = async (url: string, init: RequestInit = {}) => {
+    const path = new URL(url).pathname;
+    sent.push(`${init.method ?? "GET"} ${path}`);
+    if (path === "/v1/domains/check" && init.method === "POST") {
+      if (mode === "legacy")
+        return new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+        });
+      if (mode === "unreadable")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    const result = await mock.server.inject({
+      method: init.method ?? "GET",
+      url,
+      headers: Object.fromEntries(new Headers(init.headers).entries()),
+      body: typeof init.body === "string" ? init.body : undefined,
+    });
+    return new Response(result.body, {
+      status: result.status,
+      headers: result.headers,
+    });
+  };
+  await withIntegrationFixtureTransport(transport, async () => {
+    const generic = new GenericRegistrar(
+      "https://registrar.example.test",
+      "reg_fixture_key",
+    );
+    const unsold = await generic.pricing("zzqq").catch((e) => e);
+    assert.equal(unsold.code, NOT_SOLD);
+    const badKey = await new GenericRegistrar(
+      "https://registrar.example.test",
+      "bad",
+    )
+      .pricing("com")
+      .catch((e) => e);
+    assert.equal(endingNotSold(badKey), false, "a 401 says nothing about the ending");
+    // A registrar built to the earlier contract answers the batch with 404:
+    // each name is checked on its own.
+    mock.registrations.set("taken.com", {
+      id: "reg_1",
+      domain: "taken.com",
+      priceMinor: 5500,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    } as any);
+    const legacy = await generic.check(["layla.com", "taken.com"]);
+    assert.deepEqual(
+      legacy.map((a) => [a.domain, a.available]),
+      [
+        ["layla.com", true],
+        ["taken.com", false],
+      ],
+    );
+    assert.deepEqual(sent.slice(-3), [
+      "POST /v1/domains/check",
+      "GET /v1/domains/check",
+      "GET /v1/domains/check",
+    ]);
+    // A 200 answer without results is unreadable, never "all taken".
+    mode = "unreadable";
+    const unreadable = await generic.check(["layla.com"]).catch((e) => e);
+    assert.ok(unreadable instanceof RegistrarError);
+    assert.equal(unreadable.outcome, "unknown");
+  });
 });

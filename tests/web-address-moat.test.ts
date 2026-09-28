@@ -2,8 +2,9 @@
 // domains. The platform company is always the registrant (WHOIS privacy on),
 // trainers get no self-service transfer out or authorisation code, and
 // trainers and subscribers never see the registrar's name or cost: only the
-// first-year and yearly renewal price in AED. This guard fails when any
-// trainer, subscriber or public surface starts to name the registrar.
+// first-year and yearly renewal price, in USD since 28 September 2026. This
+// guard fails when any trainer, subscriber or public surface starts to name
+// the registrar or show its cost.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -16,7 +17,7 @@ import {
   type Registrar,
 } from "../packages/providers/src/registrar.ts";
 import {
-  clearWebAddressPriceCache,
+  resetRegistrarBudget,
   searchDomains,
   trainerOrderView,
   webAddressStripeText,
@@ -39,8 +40,9 @@ const DNS_HOST = /digitalocean|nameserver|dns[_ ]?provider|dns host/i;
 const OPERATOR_ONLY_WEB_FILES = new Set([
   "apps/web/components/web-address-operations.tsx",
 ]);
-/** Fields a trainer may receive about a domain's price or state. */
-const COST_KEY = /cost|usd|margin|rate|registrar|register(ed)?Usd|wholesale/i;
+/** Fields a trainer may never receive about a domain's price or state. */
+const COST_KEY =
+  /cost|usd|margin|rate|registrar|register(ed)?Usd|wholesale|priceRule|stepCents|endingCents|premiumPrice/i;
 
 function files(dir: string): string[] {
   const out: string[] = [];
@@ -115,8 +117,9 @@ test("trainer screens show only the first-year and renewal price, never the regi
         hostname: "laylastrength.com",
         status: "active",
         statusLabel: "Live",
-        firstYearPriceMinor: 8400,
-        renewalPriceMinor: 9100,
+        firstYearPriceMinor: 1999,
+        renewalPriceMinor: 2499,
+        currency: "USD",
         expiresAt: "2027-09-28T00:00:00.000Z",
         liveAt: "2026-09-28T00:00:00.000Z",
         renewalEnabled: true,
@@ -135,9 +138,10 @@ test("trainer screens show only the first-year and renewal price, never the regi
       }),
     );
   assert.doesNotMatch(html, REGISTRAR_NAME);
-  assert.doesNotMatch(html, /registrar|USD|cost price|margin/i);
+  assert.doesNotMatch(html, /registrar|cost price|margin|11\.48|18\.68/i);
   assert.doesNotMatch(html, DNS_HOST);
-  assert.match(html, /First year AED\s84\.00 · renews at AED\s91\.00 per year/);
+  // Trainers see and pay in USD (owner decision, 28 September 2026).
+  assert.match(html, /First year USD\s19\.99 · renews at\s+USD\s24\.99 per year/);
   // The forwarding choice names only the trainer's own platform address.
   assert.match(html, /Show my site on this domain/);
   assert.match(html, /Forward to my <span[^>]*>layla\.trainsyou\.com<\/span> address/);
@@ -183,7 +187,11 @@ test("Stripe product, description and statement wording is neutral", () => {
   assert.deepEqual(text, {
     productName: "Custom web address — yearly",
     description: "Custom web address — yearly: laylastrength.com",
+    // The first invoice's line or coupon when the first year differs.
+    firstYearName: "Custom web address — first-year price",
   });
+  // Stripe limits a coupon name to 40 characters.
+  assert.ok(text.firstYearName.length <= 40);
   for (const path of [
     "apps/api/src/web-addresses.ts",
     "apps/api/src/web-address-orders.ts",
@@ -193,7 +201,7 @@ test("Stripe product, description and statement wording is neutral", () => {
     const lines = source
       .split("\n")
       .filter((line) =>
-        /statement_descriptor|product_data|description:|nickname:|custom_fields|footer:/.test(
+        /statement_descriptor|product_data|description:|nickname:|custom_fields|footer:|name: text\./.test(
           line,
         ),
       );
@@ -219,29 +227,32 @@ test("search and order status answers carry no registrar name or cost field", as
       })),
     pricing: async (tld: string) => ({
       tld,
-      registerUsd: "10.28",
-      renewUsd: "16.06",
+      registerUsd: "11.48",
+      renewUsd: "18.68",
     }),
   } as unknown as Registrar;
-  clearWebAddressPriceCache();
-  const results = await withRuntimeConfig(
+  resetRegistrarBudget();
+  const answer = await withRuntimeConfig(
     {
       WEB_ADDRESS_TLDS: "com,net",
-      WEB_ADDRESS_USD_TO_AED: "3.6725",
-      WEB_ADDRESS_MARGIN_AED: "25",
       PLATFORM_ROOT_DOMAIN: "trainsyou.com",
     },
     () => searchDomains("layla", { registrar: namecheapLike }),
   );
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
+  assert.deepEqual(answer.requested, { domain: "layla.com", status: "available" });
   assert.deepEqual(
-    results.map((r) => [r.domain, r.firstYearPriceMinor, r.renewalPriceMinor]),
-    [
-      ["layla.com", 8400, 8400],
-      ["layla.net", null, null],
-    ],
+    answer.results.map((r) => [r.domain, r.firstYearPriceMinor, r.renewalPriceMinor, r.currency]),
+    [["layla.com", 1999, 2499, "USD"]],
   );
-  for (const result of results) {
+  assert.deepEqual(Object.keys(answer).sort(), [
+    "currency",
+    "incomplete",
+    "priceCapMinor",
+    "requested",
+    "results",
+  ]);
+  for (const result of answer.results)
     assert.deepEqual(Object.keys(result).sort(), [
       "available",
       "currency",
@@ -251,11 +262,12 @@ test("search and order status answers carry no registrar name or cost field", as
       "renewalPriceMinor",
       "renewsYearly",
     ]);
-    assert.doesNotMatch(JSON.stringify(result), REGISTRAR_NAME);
-  }
+  assert.doesNotMatch(JSON.stringify(answer), REGISTRAR_NAME);
+  assert.doesNotMatch(JSON.stringify(answer), /11\.48|18\.68/, "never the registrar's cost");
 
-  // A stored order holds the registrar, its USD price, the rate and the
-  // margin for operators; the trainer's order status shows none of them.
+  // A stored order holds the registrar, its USD cost, the price rule and a
+  // premium name's prices for operators; the trainer's order status shows
+  // none of them, only the two prices and their currency.
   const order = {
     id: "5f0c7d2e-3c1e-4b35-9d0e-6f9e4c1a2b3c",
     tenant_id: "t1",
@@ -264,14 +276,13 @@ test("search and order status answers carry no registrar name or cost field", as
     mode: "automatic",
     registrar: "namecheap",
     quote: {
-      priceMinor: 8400,
-      firstYearPriceMinor: 8400,
-      renewalPriceMinor: 8400,
-      currency: "AED",
-      registerUsd: "10.28",
-      renewUsd: "16.06",
-      usdToAed: "3.6725",
-      marginAed: "25",
+      currency: "USD",
+      firstYearPriceMinor: 6499,
+      renewalPriceMinor: 6999,
+      registerUsd: "55.1800",
+      renewUsd: "60.1800",
+      premium: { registerUsd: "55.00", renewUsd: "60.00" },
+      priceRule: { stepCents: 500, endingCents: 499, capCents: 10000 },
       registrar: "namecheap",
       registrarSandbox: true,
     },
@@ -295,9 +306,11 @@ test("search and order status answers carry no registrar name or cost field", as
     serve_mode: "forward",
     evidence: { ...order.evidence, zoneState: "created", dnsTarget: "203.0.113.7" },
   });
-  assert.equal(view.firstYearPriceMinor, 8400);
-  assert.equal(view.renewalPriceMinor, 8400);
+  assert.equal(view.firstYearPriceMinor, 6499);
+  assert.equal(view.renewalPriceMinor, 6999);
+  assert.equal(view.currency, "USD");
   assert.equal(view.serveMode, "forward");
+  assert.doesNotMatch(JSON.stringify(view), /55\.|60\.|premium|stepCents/);
   assert.doesNotMatch(JSON.stringify(view), REGISTRAR_NAME);
   assert.doesNotMatch(JSON.stringify(view), DNS_HOST);
   assert.deepEqual(
@@ -339,7 +352,7 @@ test("a registrar whose settings are incomplete is not named to a trainer", asyn
   // Its configuration message names the registrar ("101domain needs its API
   // key."): a trainer only hears that buying is unavailable.
   for (const registrar of ["101domain", "namecheap", "generic"]) {
-    clearWebAddressPriceCache();
+    resetRegistrarBudget();
     const error: any = await withRuntimeConfig(
       {
         WEB_ADDRESS_REGISTRAR: registrar,
@@ -362,7 +375,7 @@ test("a registrar whose settings are incomplete is not named to a trainer", asyn
     assert.doesNotMatch(String(error.message), REGISTRAR_NAME, registrar);
     assert.doesNotMatch(String(error.message), /generic registrar|API key/i, registrar);
   }
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
 });
 
 test("the platform company is always the registrant; trainers get no transfer out or auth code", () => {

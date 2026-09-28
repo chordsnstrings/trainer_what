@@ -16,7 +16,6 @@ import {
   type WebAddressDeps,
 } from "../apps/api/src/web-address-orders.ts";
 import {
-  clearWebAddressPriceCache,
   resetRegistrarBudget,
 } from "../apps/api/src/web-addresses.ts";
 import {
@@ -50,8 +49,6 @@ const settings: Record<string, string> = {
   WEB_ADDRESS_REGISTRANT_PHONE: "+971.501234567",
   WEB_ADDRESS_REGISTRANT_EMAIL: "domains@trainsyou.example",
   WEB_ADDRESS_TLDS: "com",
-  WEB_ADDRESS_MARGIN_AED: "25",
-  WEB_ADDRESS_USD_TO_AED: "3.6725",
   DNS_PROVIDER: "digitalocean",
   DIGITALOCEAN_DNS_TOKEN: TOKEN,
 };
@@ -85,6 +82,10 @@ class FakeStripe {
     retrieve: async (id: string) => ({ id, status: "active", livemode: false }),
     update: async (id: string, params: any) => ({ id, ...params }),
     cancel: async (id: string) => ({ id, status: "canceled" }),
+  };
+  // A once-only coupon brings the first invoice to the lower first-year price.
+  coupons = {
+    create: async (params: any) => ({ id: "coupon_" + ++this.n, ...params }),
   };
   invoices = { retrieve: async () => null };
   refunds = {
@@ -211,6 +212,7 @@ async function buy(domain: string) {
   assert.equal(search.statusCode, 200, search.body);
   const offer = search.json().results.find((r: any) => r.domain === domain);
   assert.ok(offer?.available, search.body);
+  assert.equal(offer.currency, "USD");
   const created = await request("/web-address/orders", {
     method: "POST",
     cookie: owner.cookie,
@@ -218,6 +220,7 @@ async function buy(domain: string) {
       domain,
       firstYearPriceMinor: offer.firstYearPriceMinor,
       renewalPriceMinor: offer.renewalPriceMinor,
+      currency: "USD",
       accepted: true,
     },
   });
@@ -241,7 +244,7 @@ async function buy(domain: string) {
     id: "in_101_" + o.id.slice(0, 8),
     object: "invoice",
     status: "paid",
-    currency: "aed",
+    currency: "usd",
     amount_paid: offer.firstYearPriceMinor,
     customer: "cus_" + o.id.slice(0, 8),
     payment_intent: "pi_101_" + o.id.slice(0, 8),
@@ -256,7 +259,7 @@ async function buy(domain: string) {
 
 before(async () => {
   Object.assign(process.env, settings);
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true, providers: { webAddresses: deps } });
   owner = await register("noor");

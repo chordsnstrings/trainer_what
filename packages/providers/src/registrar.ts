@@ -21,14 +21,47 @@ export type Availability = {
   domain: string;
   available: boolean;
   premium: boolean;
-  /** Premium names carry their own price; the automatic flow refuses them. */
+  /**
+   * The registrar answered but could not check this name (Namecheap's
+   * per-name ErrorNo, or no row for it): neither available nor taken. The
+   * search shows it as not checked; checkout refuses it.
+   */
+  checkFailed?: boolean;
+  /**
+   * Premium names carry their own one-year prices (without the ICANN fee,
+   * which is `icannFeeUsd`). The automatic flow offers a premium name only
+   * when both marked-up prices are within the price cap.
+   */
   premiumRegisterUsd?: string;
+  premiumRenewUsd?: string;
+  /** The ICANN fee the registrar adds to a premium name's prices. */
+  icannFeeUsd?: string;
   /**
    * A new ending's early-access phase adds a fee on top of the price
-   * (Namecheap's EapFee); the automatic flow refuses such names too.
+   * (Namecheap's EapFee); the automatic flow refuses such names.
    */
   earlyAccessFeeUsd?: string;
 };
+/** Names per availability request (Namecheap's domains.check limit). */
+export const CHECK_BATCH = 50;
+/**
+ * A premium name's one-year registration and renewal cost in USD (premium
+ * price plus the ICANN fee), or null when the name is not premium or its
+ * prices are not both readable.
+ */
+export function premiumCostUsd(availability: Availability) {
+  if (!availability.premium) return null;
+  const add = (price: string | undefined) => {
+    const base = Number(money(price) ?? NaN);
+    const fee = Number(money(availability.icannFeeUsd) ?? 0);
+    return Number.isFinite(base) && base > 0
+      ? (base + fee).toFixed(4)
+      : undefined;
+  };
+  const registerUsd = add(availability.premiumRegisterUsd),
+    renewUsd = add(availability.premiumRenewUsd);
+  return registerUsd && renewUsd ? { registerUsd, renewUsd } : null;
+}
 export type TldPrice = {
   tld: string;
   registerUsd: string;
@@ -97,6 +130,11 @@ export type RegistrarCapabilities = {
    * host records there, through the API (its DNS zone needs a panel action).
    */
   registrarDns?: boolean;
+  /**
+   * false: premium names cannot be bought or renewed at their premium price
+   * through the API, so they are never offered.
+   */
+  premium?: boolean;
 };
 /** Whether this registrar can buy through its API. */
 export const canRegister = (registrar: Registrar) =>
@@ -104,6 +142,9 @@ export const canRegister = (registrar: Registrar) =>
 /** Whether this registrar can renew through its API. */
 export const canRenew = (registrar: Registrar) =>
   registrar.capabilities?.renew !== false;
+/** Whether premium names can be bought and renewed at their premium price. */
+export const canBuyPremium = (registrar: Registrar) =>
+  registrar.capabilities?.premium !== false;
 /**
  * Registrars whose own DNS cannot be set up through their API: their
  * domains are served only by the DNS host (DigitalOcean).
@@ -146,17 +187,51 @@ export class RegistrarError extends Error {
     this.name = "RegistrarError";
   }
 }
+/**
+ * `RegistrarError.code` of a pricing answer that says the ending is not
+ * sold through the API (the registrar answered readably with no one-year
+ * product for it, or refused the ending itself). `REQUIREMENTS`: sold, but
+ * only with registrant documents.
+ */
+export const NOT_SOLD = "NOT_SOLD";
+/**
+ * True only when a pricing error is the registrar's own answer that the
+ * ending cannot be bought through the API. Every other error, including a
+ * definitive refusal of the request itself (credentials, a client address
+ * that is not whitelisted, throttling, an unknown code), says nothing about
+ * the ending and must never be remembered as "not offered".
+ */
+export function endingNotSold(error: unknown) {
+  return (
+    error instanceof RegistrarError &&
+    error.outcome === "definitive" &&
+    (error.code === NOT_SOLD || error.code === "REQUIREMENTS")
+  );
+}
+/**
+ * Namecheap error numbers for an ending its API does not sell (2030280
+ * "TLD is not supported in API", "Tld for '<name>' is not found").
+ */
+const NAMECHEAP_UNSUPPORTED_TLD = new Set(["2030280"]);
 
 export interface Registrar {
   readonly id: RegistrarId;
   /** Whether the connection points at the registrar's test environment. */
   readonly sandbox: boolean;
+  /** Availability of many names (batched per CHECK_BATCH where the API allows). */
   check(domains: string[]): Promise<Availability[]>;
+  /**
+   * One-year USD registration and renewal cost of an ending, the ICANN fee
+   * included. A RegistrarError "definitive" means the ending is not sold
+   * through the API (unsupported, or it needs registrant documents).
+   */
   pricing(tld: string): Promise<TldPrice>;
   register(input: {
     domain: string;
     years: number;
     registrant: Registrant;
+    /** A premium name's registration price (without the ICANN fee), as checked. */
+    premiumPriceUsd?: string;
   }): Promise<RegistrationResult>;
   /** Domains in this registrar account whose name matches `domain` exactly. */
   list(domain: string): Promise<ListedDomain[]>;
@@ -164,7 +239,14 @@ export interface Registrar {
   /** Replaces every host record of the domain with exactly `hosts`. */
   setHosts(domain: string, hosts: HostRecord[]): Promise<void>;
   getHosts(domain: string): Promise<HostRecord[]>;
-  renew(domain: string, years: number): Promise<RenewalResult>;
+  renew(
+    domain: string,
+    years: number,
+    options?: {
+      /** A premium name's renewal price (without the ICANN fee), as quoted. */
+      premiumPriceUsd?: string;
+    },
+  ): Promise<RenewalResult>;
   balance(): Promise<Balance>;
   /** The domain's current nameservers at the registrar. */
   getNameservers(domain: string): Promise<NameserverState>;
@@ -374,6 +456,39 @@ function contactFields(registrant: Registrant) {
   }
   return fields;
 }
+/**
+ * Endings whose Namecheap registration needs extended attributes (nexus,
+ * residency or registrant documents; Namecheap's domains.create
+ * documentation). They are never offered: the platform company registers
+ * without them.
+ */
+export const NAMECHEAP_EXTENDED_ATTRIBUTE_TLDS: ReadonlySet<string> = new Set([
+  "us",
+  "eu",
+  "ca",
+  "co.uk",
+  "org.uk",
+  "me.uk",
+  "nu",
+  "com.au",
+  "net.au",
+  "org.au",
+  "es",
+  "nom.es",
+  "com.es",
+  "org.es",
+  "de",
+  "fr",
+]);
+/** Namecheap's premium order fields, or none for a regular name. */
+function premiumFields(
+  premiumPriceUsd: string | undefined,
+): Record<string, string> {
+  const price = money(premiumPriceUsd);
+  if (premiumPriceUsd !== undefined && !price)
+    throw new RegistrarError("Invalid premium price", "definitive");
+  return price ? { IsPremiumDomain: "true", PremiumPrice: price } : {};
+}
 /** Form fields of one domains.dns.setHosts call: every record, numbered from 1. */
 export function namecheapHostFields(domain: string, hosts: HostRecord[]) {
   const { sld, tld } = splitDomain(domain);
@@ -458,33 +573,69 @@ export class NamecheapRegistrar implements Registrar {
       throw new RegistrarError("Namecheap answer was not readable", "unknown");
     return result;
   }
+  /** One domains.check per 50 names (Namecheap's limit per request). */
   async check(domains: string[]) {
-    const result = await this.command("domains.check", {
-      DomainList: domains.join(","),
-    });
-    return xmlChildren(result, "DomainCheckResult").map((item) => {
-      const eap = money(item.attributes.EapFee);
-      return {
-        domain: (item.attributes.Domain ?? "").toLowerCase(),
-        available: truthy(item.attributes.Available),
-        premium: truthy(item.attributes.IsPremiumName),
-        premiumRegisterUsd: truthy(item.attributes.IsPremiumName)
-          ? money(item.attributes.PremiumRegistrationPrice)
-          : undefined,
-        // Anything but a readable zero is treated as a fee (refused).
-        earlyAccessFeeUsd:
-          item.attributes.EapFee === undefined ||
-          (eap !== undefined && Number(eap) === 0)
-            ? undefined
-            : (eap ?? "unknown"),
-      };
-    });
+    const out: Availability[] = [];
+    for (let i = 0; i < domains.length; i += CHECK_BATCH) {
+      const result = await this.command("domains.check", {
+        DomainList: domains.slice(i, i + CHECK_BATCH).join(","),
+      });
+      for (const item of xmlChildren(result, "DomainCheckResult")) {
+        const eap = money(item.attributes.EapFee);
+        const premium = truthy(item.attributes.IsPremiumName);
+        // A name Namecheap could not check (ErrorNo other than 0) is never
+        // offered, and is not reported as taken either.
+        const checkFailed = (item.attributes.ErrorNo ?? "0").trim() !== "0";
+        out.push({
+          domain: (item.attributes.Domain ?? "").toLowerCase(),
+          available: truthy(item.attributes.Available) && !checkFailed,
+          ...(checkFailed ? { checkFailed: true } : {}),
+          premium,
+          premiumRegisterUsd: premium
+            ? money(item.attributes.PremiumRegistrationPrice)
+            : undefined,
+          premiumRenewUsd: premium
+            ? money(item.attributes.PremiumRenewalPrice)
+            : undefined,
+          icannFeeUsd: premium ? money(item.attributes.IcannFee) : undefined,
+          // Anything but a readable zero is treated as a fee (refused).
+          earlyAccessFeeUsd:
+            item.attributes.EapFee === undefined ||
+            (eap !== undefined && Number(eap) === 0)
+              ? undefined
+              : (eap ?? "unknown"),
+        });
+      }
+    }
+    return out;
   }
   async pricing(tld: string): Promise<TldPrice> {
-    const result = await this.command("users.getPricing", {
-      ProductType: "DOMAIN",
-      ProductName: tld.toUpperCase(),
-    });
+    // Endings whose registration needs extended attributes (registrant
+    // documents or residency) cannot be bought for a trainer automatically.
+    if (NAMECHEAP_EXTENDED_ATTRIBUTE_TLDS.has(tld))
+      throw new RegistrarError(
+        `.${tld} needs registrant details Namecheap calls extended attributes`,
+        "definitive",
+        "REQUIREMENTS",
+      );
+    let result: XmlElement;
+    try {
+      result = await this.command("users.getPricing", {
+        ProductType: "DOMAIN",
+        ProductName: tld.toUpperCase(),
+      });
+    } catch (error) {
+      // Only Namecheap's "this ending is not supported" is an answer about
+      // the ending; a refused request (credentials, client address,
+      // throttling) says nothing about it.
+      if (
+        error instanceof RegistrarError &&
+        error.outcome === "definitive" &&
+        NAMECHEAP_UNSUPPORTED_TLD.has(error.code ?? "")
+      )
+        throw new RegistrarError(error.message, "definitive", NOT_SOLD);
+      throw error;
+    }
     const types = xmlChildren(
       xmlChild(result, "UserGetPricingResult"),
       "ProductType",
@@ -519,10 +670,13 @@ export class NamecheapRegistrar implements Registrar {
     };
     const registerUsd = price("register"),
       renewUsd = price("renew");
+    // A readable answer without a one-year product: the API does not sell
+    // this ending (live for .ae on 28 September 2026).
     if (!registerUsd || !renewUsd)
       throw new RegistrarError(
         `Namecheap has no one-year price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }
@@ -530,6 +684,7 @@ export class NamecheapRegistrar implements Registrar {
     domain: string;
     years: number;
     registrant: Registrant;
+    premiumPriceUsd?: string;
   }) {
     const result = await this.command("domains.create", {
       DomainName: input.domain,
@@ -537,6 +692,9 @@ export class NamecheapRegistrar implements Registrar {
       ...contactFields(input.registrant),
       AddFreeWhoisguard: "yes",
       WGEnabled: "yes",
+      // A premium name is bought only at the premium price that was checked
+      // and paid for; Namecheap refuses the order if its price differs.
+      ...premiumFields(input.premiumPriceUsd),
     });
     const created = xmlChild(result, "DomainCreateResult");
     if (!created)
@@ -608,10 +766,15 @@ export class NamecheapRegistrar implements Registrar {
       }),
     );
   }
-  async renew(domain: string, years: number) {
+  async renew(
+    domain: string,
+    years: number,
+    options: { premiumPriceUsd?: string } = {},
+  ) {
     const result = await this.command("domains.renew", {
       DomainName: domain,
       Years: String(years),
+      ...premiumFields(options.premiumPriceUsd),
     });
     const renewed = xmlChild(result, "DomainRenewResult");
     if (!renewed)
@@ -741,32 +904,100 @@ export class GenericRegistrar implements Registrar {
       );
     return data;
   }
+  /**
+   * POST v1/domains/check {domains} → {results}, up to 50 names a call. A
+   * registrar built to the earlier contract (GET v1/domains/check?domain=,
+   * one name a call) answers the POST with 404 or 405: its names are then
+   * checked one by one. An answer without `results` is unreadable, never
+   * "every name taken".
+   */
   async check(domains: string[]) {
     const out: Availability[] = [];
-    for (const domain of domains) {
-      const data = await this.call(
-        "GET",
-        "v1/domains/check?domain=" + encodeURIComponent(domain),
-      );
-      out.push({
-        domain,
-        available: data?.available === true,
-        premium: data?.premium === true,
-      });
+    for (let i = 0; i < domains.length; i += CHECK_BATCH) {
+      const chunk = domains.slice(i, i + CHECK_BATCH);
+      let data: any;
+      try {
+        data = await this.call("POST", "v1/domains/check", {
+          domains: chunk,
+        });
+      } catch (error) {
+        if (
+          error instanceof RegistrarError &&
+          (error.code === "404" || error.code === "405")
+        ) {
+          for (const domain of chunk) out.push(await this.checkOne(domain));
+          continue;
+        }
+        throw error;
+      }
+      if (!Array.isArray(data?.results))
+        throw new RegistrarError(
+          "The registrar answer was not readable",
+          "unknown",
+        );
+      const rows: any[] = data.results;
+      for (const domain of chunk) {
+        const row = rows.find(
+          (r) => String(r?.domain ?? "").toLowerCase() === domain,
+        );
+        const premium = row?.premium === true;
+        out.push({
+          domain,
+          available: row?.available === true,
+          ...(row ? {} : { checkFailed: true }),
+          premium,
+          premiumRegisterUsd: premium
+            ? money(String(row?.premiumRegisterUsd ?? ""))
+            : undefined,
+          premiumRenewUsd: premium
+            ? money(String(row?.premiumRenewUsd ?? ""))
+            : undefined,
+        });
+      }
     }
     return out;
   }
+  /** The earlier one-name contract: GET v1/domains/check?domain= → {available, premium}. */
+  private async checkOne(domain: string): Promise<Availability> {
+    const data = await this.call(
+      "GET",
+      "v1/domains/check?domain=" + encodeURIComponent(domain),
+    );
+    if (typeof data?.available !== "boolean")
+      return { domain, available: false, premium: false, checkFailed: true };
+    const premium = data.premium === true;
+    return {
+      domain,
+      available: data.available === true,
+      premium,
+      premiumRegisterUsd: premium
+        ? money(String(data?.premiumRegisterUsd ?? ""))
+        : undefined,
+      premiumRenewUsd: premium
+        ? money(String(data?.premiumRenewUsd ?? ""))
+        : undefined,
+    };
+  }
+  /**
+   * GET v1/pricing/<tld> → {currency:"USD", register, renew}; 404 (or an
+   * answer without a one-year USD price) means the ending is not sold.
+   */
   async pricing(tld: string) {
     const data = await this.call(
       "GET",
       "v1/pricing/" + encodeURIComponent(tld),
+      undefined,
+      true,
     );
+    if (data === null)
+      throw new RegistrarError(`.${tld} is not sold`, "definitive", NOT_SOLD);
     const registerUsd = money(String(data?.register ?? "")),
       renewUsd = money(String(data?.renew ?? ""));
     if (!registerUsd || !renewUsd || (data?.currency ?? "USD") !== "USD")
       throw new RegistrarError(
         `No one-year USD price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }
@@ -774,12 +1005,16 @@ export class GenericRegistrar implements Registrar {
     domain: string;
     years: number;
     registrant: Registrant;
+    premiumPriceUsd?: string;
   }) {
     const data = await this.call("POST", "v1/domains", {
       domain: input.domain,
       years: input.years,
       registrant: input.registrant,
       privacy: true,
+      ...(input.premiumPriceUsd
+        ? { premiumPriceUsd: input.premiumPriceUsd }
+        : {}),
     });
     return {
       registered: String(data?.domain ?? "").toLowerCase() === input.domain,
@@ -838,11 +1073,20 @@ export class GenericRegistrar implements Registrar {
       }),
     );
   }
-  async renew(domain: string, years: number) {
+  async renew(
+    domain: string,
+    years: number,
+    options: { premiumPriceUsd?: string } = {},
+  ) {
     const data = await this.call(
       "POST",
       "v1/domains/" + encodeURIComponent(domain) + "/renew",
-      { years },
+      {
+        years,
+        ...(options.premiumPriceUsd
+          ? { premiumPriceUsd: options.premiumPriceUsd }
+          : {}),
+      },
     );
     return {
       renewed: !!data?.expiresAt,
@@ -951,7 +1195,14 @@ export class OneOhOneRegistrar implements Registrar {
     this.transport = testTransport(options.transport);
     this.sandbox = options.sandbox === true;
     const ordering = options.ordering === true;
-    this.capabilities = { register: ordering, renew: ordering, registrarDns: false };
+    // Premium names are never offered through 101domain: its registration
+    // call is unpublished, so a premium price could not be passed on.
+    this.capabilities = {
+      register: ordering,
+      renew: ordering,
+      registrarDns: false,
+      premium: false,
+    };
     const override = sandboxOverride("REGISTRAR_101DOMAIN_API_BASE_URL");
     this.base = override ? override.origin : ONEOHONE_API;
   }
@@ -1016,13 +1267,14 @@ export class OneOhOneRegistrar implements Registrar {
       available: entry?.available === true,
       premium,
       premiumRegisterUsd: premium ? money(String(pricing?.register ?? "")) : undefined,
+      premiumRenewUsd: premium ? money(String(pricing?.renew ?? "")) : undefined,
     };
   }
   async check(domains: string[]) {
     const out: Availability[] = [];
     // One lookup per call for a single name; at most 50 names per bulk call.
-    for (let i = 0; i < domains.length; i += 50) {
-      const chunk = domains.slice(i, i + 50);
+    for (let i = 0; i < domains.length; i += CHECK_BATCH) {
+      const chunk = domains.slice(i, i + CHECK_BATCH);
       const answer =
         chunk.length === 1
           ? await this.call(
@@ -1049,7 +1301,13 @@ export class OneOhOneRegistrar implements Registrar {
         out.push(
           row && !invalid.has(name)
             ? this.item(row)
-            : { domain: name, available: false, premium: false },
+            : {
+                domain: name,
+                available: false,
+                premium: false,
+                // No row at all: 101domain did not check this name.
+                ...(row || invalid.has(name) ? {} : { checkFailed: true }),
+              },
         );
       }
     }
@@ -1059,7 +1317,17 @@ export class OneOhOneRegistrar implements Registrar {
     const answer = await this.call(
       "GET",
       "/v1/tlds/" + encodeURIComponent(tld.replace(/^\./, "")),
+      undefined,
+      { allow404: true },
     );
+    // An ending 101domain does not know is not sold; any other refusal says
+    // nothing about the ending (credentials, scopes, throttling).
+    if (answer === null)
+      throw new RegistrarError(
+        `101domain does not sell .${tld}`,
+        "definitive",
+        NOT_SOLD,
+      );
     const data = answer?.data ?? {};
     // Endings that need documents (a trade licence, a trademark) cannot be
     // bought automatically for a trainer. 101domain answers has_requirements
@@ -1083,6 +1351,7 @@ export class OneOhOneRegistrar implements Registrar {
       throw new RegistrarError(
         `101domain has no one-year USD price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }

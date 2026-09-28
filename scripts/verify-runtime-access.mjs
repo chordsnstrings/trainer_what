@@ -116,6 +116,8 @@ export async function verifyRuntimeAccess(client) {
     workspace_app_icons: ["SELECT", "INSERT"],
     tenant_slug_redirects: ["SELECT", "INSERT", "UPDATE"],
     early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    // Domain pricing (071): registrar prices per ending, platform-level.
+    registrar_prices: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -132,6 +134,35 @@ export async function verifyRuntimeAccess(client) {
     // Also plans actual statements, exercising RLS helper-function permissions.
     await query(`SELECT * FROM public.${table} LIMIT 0`);
   }
+  // Domain pricing (071): registrar prices are platform rows hidden from the
+  // tenant role by row security as well as by grants.
+  const [prices] = await query(
+    "SELECT relrowsecurity,relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename='registrar_prices' AND p.qual LIKE '%trainer_app%') AS service_only FROM pg_class WHERE oid='registrar_prices'::regclass",
+  );
+  assert.deepEqual(
+    prices,
+    { relrowsecurity: true, relforcerowsecurity: true, service_only: true },
+    "registrar_prices must be service-only under forced row security",
+  );
+  // Journals carry their currency (071): only web address journals may use
+  // another currency than AED, and the balance check keeps such journals off
+  // every account but the web address and registrar ones.
+  const [currency] = await query(
+    "SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c WHERE c.conrelid='journals'::regclass AND c.conname='journals_currency_check'",
+  );
+  assert.match(
+    String(currency?.def ?? ""),
+    /currency = 'AED'::text\) OR \(source_key ~~ 'web-address-%'::text/,
+    "journals: only web address journals may use another currency",
+  );
+  const [balance] = await query(
+    "SELECT prosrc FROM pg_proc WHERE oid='balanced_journal()'::regprocedure",
+  );
+  assert.match(
+    String(balance?.prosrc ?? ""),
+    /NEW\.currency<>'AED'[\s\S]*web_address_receivable[\s\S]*registrar_prepaid/,
+    "journals: the balance check must keep other currencies off AED accounts",
+  );
   const scopedTables = [
     "affiliate_contracts",
     "affiliate_receipts",
@@ -554,6 +585,7 @@ export async function verifyRuntimeAccess(client) {
       "workspace_app_icons",
       "tenant_slug_redirects",
       "early_access_requests",
+      "registrar_prices",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

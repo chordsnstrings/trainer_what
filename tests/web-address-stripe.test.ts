@@ -1,8 +1,9 @@
 // The web address subscription with the real Stripe SDK against the Stripe
 // double over TLS, and Stripe's signed webhooks through the application's own
-// webhook route: yearly Checkout with an inline AED price, the first invoice,
+// webhook route: yearly Checkout in USD (the renewal price as the recurring
+// price, a once-only coupon for the lower first year), the first invoice,
 // registration, the billing date moved to 30 days before expiry, a yearly
-// renewal invoice and the cancellation at lapse. Registrar calls go to the
+// renewal invoice at the renewal price and the cancellation at lapse. Registrar calls go to the
 // Namecheap double through an explicit test transport; nothing leaves the host.
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,7 +16,7 @@ import {
   type WebAddressDeps,
   type WebAddressStripe,
 } from "../apps/api/src/web-address-orders.ts";
-import { clearWebAddressPriceCache } from "../apps/api/src/web-addresses.ts";
+import { resetRegistrarBudget } from "../apps/api/src/web-addresses.ts";
 import { NamecheapRegistrar } from "../packages/providers/src/registrar.ts";
 import { createMockTls, trustMockCa, type MockTls } from "./e2e/mocks/tls.ts";
 import { StripeMock } from "./e2e/mocks/stripe.ts";
@@ -37,8 +38,6 @@ const settings: Record<string, string> = {
   STRIPE_WEBHOOK_SECRET: "whsec_test_fixture",
   WEB_ADDRESS_PURCHASES_ENABLED: "true",
   WEB_ADDRESS_TLDS: "com",
-  WEB_ADDRESS_MARGIN_AED: "25",
-  WEB_ADDRESS_USD_TO_AED: "3.6725",
   WEB_ADDRESS_REGISTRANT_FIRST_NAME: "Platform",
   WEB_ADDRESS_REGISTRANT_LAST_NAME: "Owner",
   WEB_ADDRESS_REGISTRANT_ORGANIZATION: "TrainsYou FZ-LLC",
@@ -71,7 +70,7 @@ const delivered: Array<{ type: string; status: number }> = [];
 
 before(async () => {
   Object.assign(process.env, settings);
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
   tls = createMockTls();
   trustMockCa(tls.ca);
   stripeMock = new StripeMock(
@@ -165,8 +164,10 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
     headers: { host: "localhost:8443", origin, cookie },
     payload: {
       domain: "layla.com",
-      firstYearPriceMinor: 8400,
-      renewalPriceMinor: 8400,
+      // The double's .com: USD 19.99 the first year, 24.99 a renewal.
+      firstYearPriceMinor: 1999,
+      renewalPriceMinor: 2499,
+      currency: "USD",
       accepted: true,
     },
   });
@@ -174,14 +175,30 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
   const { orderId, url } = created.json();
   const sessionId = url.split("/").at(-1);
   const session = stripeMock.sessions.get(sessionId)!;
-  assert.equal(session.subscription_data.amount, 8400);
-  assert.equal(
-    stripeMock.prices.get(session.subscription_data.priceId)!.recurring
-      .interval,
-    "year",
+  // USD 24.99 a year with USD 5.00 off the first invoice only.
+  assert.equal(session.currency, "usd");
+  assert.equal(session.amount_subtotal, 2499);
+  assert.equal(session.amount_total, 1999);
+  const coupon = stripeMock.coupons.get(session.discounts[0].coupon)!;
+  assert.deepEqual(
+    [
+      coupon.amount_off,
+      coupon.currency,
+      coupon.duration,
+      coupon.max_redemptions,
+    ],
+    [500, "usd", "once", 1],
   );
+  const price = stripeMock.prices.get(session.subscription_data.priceId)!;
+  assert.equal(price.recurring.interval, "year");
+  assert.deepEqual([price.unit_amount, price.currency], [2499, "usd"]);
 
   const result = await stripeMock.completeCheckout(sessionId);
+  assert.deepEqual(
+    [result.invoice.amount_paid, result.invoice.currency],
+    [1999, "usd"],
+  );
+  assert.equal(coupon.times_redeemed, 1);
   assert.deepEqual(
     delivered.map((d) => [d.type, d.status]),
     [
@@ -230,7 +247,12 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
   // (The alignment's own subscription.updated event is delivered 25 ms
   // later and may land after the renewal's invoice.paid.)
   const paidBefore = delivered.filter((d) => d.type === "invoice.paid").length;
-  await stripeMock.renew(result.subscription.id);
+  const renewal = await stripeMock.renew(result.subscription.id);
+  // The renewal is charged at the renewal price, in USD.
+  assert.deepEqual(
+    [renewal.invoice.amount_paid, renewal.invoice.currency],
+    [2499, "usd"],
+  );
   const paid = delivered.filter((d) => d.type === "invoice.paid");
   assert.equal(paid.length, paidBefore + 1);
   assert.equal(paid.at(-1)!.status, 200);
@@ -278,4 +300,19 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
   assert.equal(members.n, 0);
   assert.equal(namecheap.commands("domains.create").length, 1);
   assert.equal(namecheap.commands("domains.renew").length, 1);
+  // The web address ledger is in USD: both payments, no refund.
+  const journals = await db.tenant(
+    elevated("provider-callback", { tenantId: user.tenantId, role: "finance" }),
+    (tx) =>
+      tx.query(
+        "SELECT j.currency,(j.data->>'grossMinor')::int AS gross FROM journals j WHERE j.source_key LIKE 'web-address-invoice:%' ORDER BY j.created_at",
+      ),
+  );
+  assert.deepEqual(
+    journals.map((j: any) => [j.currency, j.gross]),
+    [
+      ["USD", 1999],
+      ["USD", 2499],
+    ],
+  );
 });

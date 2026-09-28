@@ -57,12 +57,20 @@ import {
   type Registrar,
 } from "../../../packages/providers/src/registrar.ts";
 import {
+  DEFAULT_PRICE_RULE,
+  markupPriceCents,
   platformRootDomain,
   subdomainEligible,
   subdomainHost,
+  usdCents,
   usdToAedMinor,
 } from "../../../packages/domain/src/web-address.ts";
 import { journal } from "./finance.ts";
+import {
+  fetchPrice,
+  pricesForSearch,
+  type EndingPrice,
+} from "./web-address-prices.ts";
 import { notifyUser } from "./notifications.ts";
 import {
   permitCertificateIssuance,
@@ -88,6 +96,8 @@ export type WebAddressStripe = {
     create: (params: any, options?: any) => Promise<any>;
     list: (params: any) => Promise<any>;
   };
+  /** A once-only coupon brings the first invoice down to a lower first-year price. */
+  coupons?: { create: (params: any, options?: any) => Promise<any> };
   invoices?: { retrieve: (id: string, params?: any) => Promise<any> };
   paymentIntents?: { retrieve: (id: string) => Promise<any> };
   invoicePayments?: { list: (params: any) => Promise<any> };
@@ -131,6 +141,12 @@ export const WEB_ADDRESS_ACCOUNTS = {
 } as const;
 /** Renewal invoices are moved to this many days before the domain expires. */
 export const RENEWAL_LEAD_DAYS = 30;
+/**
+ * This many days before expiry (a month before the renewal charge), the
+ * ending's current renewal cost is compared with the renewal price the
+ * trainer pays, so an operator hears of a rise before the renewal.
+ */
+export const RENEWAL_COST_CHECK_DAYS = 60;
 /** Grace notices before expiry when a renewal is not paid. */
 export const GRACE_NOTICE_DAYS = [14, 7, 3, 1] as const;
 /**
@@ -394,9 +410,146 @@ async function notifyOwner(
   });
 }
 
-// ---- Ledger -------------------------------------------------------------------
+// ---- Prices and ledger ----------------------------------------------------------
 
-/** Journals a payment once; null when this invoice was already journaled. */
+/**
+ * An order's two prices in minor units of the currency it was priced in:
+ * USD, first year and renewal separately (orders from 28 September 2026), or
+ * AED for orders quoted before, which charge one yearly price (priceMinor)
+ * every year. Read from the immutable quote, so older orders keep working.
+ */
+export function orderPrices(order: Order) {
+  const quote = order.quote ?? {};
+  const usd = String(quote.currency ?? "AED").toUpperCase() === "USD";
+  const yearly = Number(quote.priceMinor ?? 0);
+  const minor = (value: unknown) => {
+    const n = Number(value ?? yearly);
+    return Number.isSafeInteger(n) && n > 0 ? n : 0;
+  };
+  return {
+    currency: (usd ? "USD" : "AED") as "USD" | "AED",
+    firstYearMinor: minor(quote.firstYearPriceMinor),
+    renewalMinor: minor(quote.renewalPriceMinor),
+  };
+}
+/**
+ * A premium name's registration or renewal price as quoted (without the
+ * ICANN fee), which the registrar's order and renewal must name; undefined
+ * for a regular name.
+ */
+function premiumPrice(order: Order, which: "registerUsd" | "renewUsd") {
+  const value = order.quote?.premium?.[which];
+  return typeof value === "string" && value ? value : undefined;
+}
+type CostKind = "register" | "renew";
+/**
+ * Whether a registrar cost breaks the order's pricing for that year: its
+ * price by the order's own rule (ceil(cost / step) × step + ending) is above
+ * what the trainer pays for that year, so the owner's margin is no longer
+ * kept (USD orders); for an order quoted in AED, any cost above the quoted
+ * one. A rise that stays within the same step keeps the margin and is not
+ * flagged.
+ */
+export function costOverPrice(
+  order: Order,
+  which: CostKind,
+  usd: string | undefined | null,
+) {
+  if (!usd) return false;
+  let cost: number;
+  try {
+    cost = usdCents(usd);
+  } catch {
+    return false;
+  }
+  const prices = orderPrices(order);
+  if (prices.currency === "USD") {
+    try {
+      const price = markupPriceCents(
+        cost,
+        order.quote?.priceRule ?? DEFAULT_PRICE_RULE,
+      );
+      return (
+        price >
+        (which === "register" ? prices.firstYearMinor : prices.renewalMinor)
+      );
+    } catch {
+      return false;
+    }
+  }
+  try {
+    return (
+      cost >
+      usdCents(
+        String(order.quote?.[which === "register" ? "registerUsd" : "renewUsd"]),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+/** An operator accepted buying at this cost (Retry on a price hold). */
+function costAccepted(order: Order, which: CostKind, usd: string) {
+  const accepted = order.evidence?.acceptedCost;
+  if (!accepted || accepted.which !== which) return false;
+  try {
+    return usdCents(usd) <= usdCents(String(accepted.usd));
+  } catch {
+    return false;
+  }
+}
+const usdText = (value: unknown) => {
+  try {
+    return (usdCents(String(value)) / 100).toFixed(2);
+  } catch {
+    return String(value ?? "unknown");
+  }
+};
+/**
+ * Records, for operators only, that the registrar charged (or now asks)
+ * more than the trainer's price covers. Kept on the order until an operator
+ * clears it with Retry; later steps never clear it, and the trainer never
+ * sees it.
+ */
+async function recordCostAlert(
+  tx: Tx,
+  order: Order,
+  which: CostKind | "renew_upcoming",
+  usd: string,
+) {
+  const prices = orderPrices(order);
+  const paid =
+    which === "register" ? prices.firstYearMinor : prices.renewalMinor;
+  const what =
+    which === "register"
+      ? "charged USD " + usdText(usd) + " for the registration"
+      : which === "renew"
+        ? "charged USD " + usdText(usd) + " for the renewal"
+        : "now asks USD " + usdText(usd) + " for the next renewal";
+  const message = `The registrar ${what}, more than the ${prices.currency} ${(paid / 100).toFixed(2)} the trainer pays for that year covers under the price rule (quoted cost USD ${usdText(order.quote?.[which === "register" ? "registerUsd" : "renewUsd"])}). ${which === "renew_upcoming" ? "The renewal still goes through at the platform's cost unless you act: ask the owner, or change the subscription price in Stripe." : "The platform absorbed the difference."} Retry clears this note.`;
+  await mergeEvidence(tx, order.id, {
+    costAlert: {
+      which,
+      usd,
+      paidMinor: paid,
+      currency: prices.currency,
+      at: new Date().toISOString(),
+      message,
+    },
+  });
+}
+/** A Stripe currency ("usd") as a journal currency ("USD"), or null. */
+const currencyCode = (value: unknown) =>
+  typeof value === "string" && /^[a-z]{3}$/i.test(value)
+    ? value.toUpperCase()
+    : null;
+
+/**
+ * Journals a payment once, in the currency it was paid in; null when this
+ * invoice was already journaled. Web address journals use their own
+ * accounts: never the trainer's payable balance, commission or the Stripe
+ * receivable of member payments.
+ */
 async function postPayment(
   tx: Tx,
   tenantId: string,
@@ -404,6 +557,7 @@ async function postPayment(
   invoice: {
     id: string;
     amountMinor: number;
+    currency: string;
     paymentIntentId?: string;
     chargeId?: string;
   },
@@ -429,24 +583,31 @@ async function postPayment(
       orderId: order.id,
       hostname: order.hostname,
       kind,
+      currency: invoice.currency,
       grossMinor: invoice.amountMinor,
       invoiceId: invoice.id,
       paymentIntentId: invoice.paymentIntentId ?? null,
       chargeId: invoice.chargeId ?? null,
     },
+    { currency: invoice.currency },
   );
 }
-/** The kind of the journaled payment a refund or dispute belongs to. */
-async function paymentKind(
+/** The journaled payment a refund or dispute belongs to: its kind and currency. */
+async function paymentJournal(
   tx: Tx,
   paymentIntentId?: string,
   chargeId?: string,
 ) {
   const [row] = await tx.query(
-    "SELECT data->>'kind' AS kind FROM journals WHERE source_key LIKE 'web-address-invoice:%' AND ((data->>'paymentIntentId')=$1 OR (data->>'chargeId')=$2) ORDER BY created_at LIMIT 1",
+    "SELECT data->>'kind' AS kind,currency FROM journals WHERE source_key LIKE 'web-address-invoice:%' AND ((data->>'paymentIntentId')=$1 OR (data->>'chargeId')=$2) ORDER BY created_at LIMIT 1",
     [paymentIntentId ?? "", chargeId ?? ""],
   );
-  return (row?.kind as string | undefined) ?? null;
+  return row
+    ? {
+        kind: (row.kind as string | null) ?? null,
+        currency: String(row.currency),
+      }
+    : null;
 }
 async function postRefund(
   tx: Tx,
@@ -455,13 +616,22 @@ async function postRefund(
   refund: {
     id: string;
     amountMinor: number;
+    currency?: unknown;
     paymentIntentId?: string;
     chargeId?: string;
   },
 ) {
-  const unmatched =
-    (await paymentKind(tx, refund.paymentIntentId, refund.chargeId)) ===
-    "unmatched";
+  const payment = await paymentJournal(
+    tx,
+    refund.paymentIntentId,
+    refund.chargeId,
+  );
+  const unmatched = payment?.kind === "unmatched";
+  // Stripe refunds in the currency of the payment.
+  const currency =
+    currencyCode(refund.currency) ??
+    payment?.currency ??
+    orderPrices(order).currency;
   return journal(
     tx,
     callbackActor(tenantId),
@@ -479,13 +649,20 @@ async function postRefund(
     {
       orderId: order.id,
       hostname: order.hostname,
+      currency,
       refundId: refund.id,
       refundAmountMinor: refund.amountMinor,
       paymentIntentId: refund.paymentIntentId ?? null,
       ofUnmatchedPayment: unmatched,
     },
+    { currency },
   );
 }
+/**
+ * The registrar's charge for a registration or renewal. An order priced in
+ * USD records the registrar's USD cost as it is (whole cents, rounded up);
+ * an order quoted in AED converts it at the rate its quote was priced at.
+ */
 async function postRegistrarCost(
   tx: Tx,
   tenantId: string,
@@ -494,10 +671,10 @@ async function postRegistrarCost(
   usd: string,
   estimated: boolean,
 ) {
-  const rate = String(
-    order.quote?.usdToAed ?? runtimeConfig().WEB_ADDRESS_USD_TO_AED ?? "3.6725",
-  );
-  const amount = usdToAedMinor(usd, rate);
+  const currency = orderPrices(order).currency;
+  const rate =
+    currency === "AED" ? String(order.quote?.usdToAed ?? "3.6725") : null;
+  const amount = rate ? usdToAedMinor(usd, rate) : usdCents(usd);
   if (amount <= 0) return null;
   return journal(
     tx,
@@ -513,10 +690,12 @@ async function postRegistrarCost(
       hostname: order.hostname,
       kind: operation.kind,
       operationId: operation.id,
+      currency,
       usd,
-      usdToAed: rate,
+      ...(rate ? { usdToAed: rate } : {}),
       estimated,
     },
+    { currency },
   );
 }
 
@@ -728,7 +907,16 @@ export async function processWebAddressStripeEvent(
         order.stripe_subscription_id !== subscriptionId
       )
         throw new Error("Web address payment subscription mismatch");
-      const invoice = { id: object.id as string, amountMinor: amount, ...ids };
+      // The prices the trainer agreed to, in the currency the order was
+      // priced in (USD; AED for orders quoted before 28 September 2026).
+      const expected = orderPrices(order);
+      const paidCurrency = currencyCode(object.currency);
+      const invoice = {
+        id: object.id as string,
+        amountMinor: amount,
+        currency: paidCurrency ?? expected.currency,
+        ...ids,
+      };
       if (amount <= 0) return;
       if (
         order.first_invoice_id === object.id ||
@@ -745,8 +933,8 @@ export async function processWebAddressStripeEvent(
       };
       if (order.status === "checkout" && !order.first_invoice_id) {
         if (
-          String(object.currency).toLowerCase() !== "aed" ||
-          amount !== Number(order.quote?.priceMinor)
+          paidCurrency !== expected.currency ||
+          amount !== expected.firstYearMinor
         ) {
           if (await postPayment(tx, tenantId, order, invoice, "unmatched"))
             await update(tx, order.id, {
@@ -808,6 +996,12 @@ export async function processWebAddressStripeEvent(
           });
           return;
         }
+        // The domain is renewed for a paid renewal whatever Stripe charged
+        // (the subscription is the platform's), but a charge other than the
+        // agreed renewal price is shown to an operator.
+        const unexpected =
+          paidCurrency !== expected.currency ||
+          amount !== expected.renewalMinor;
         await update(tx, order.id, {
           ...links,
           renewal_status: "paid",
@@ -815,6 +1009,11 @@ export async function processWebAddressStripeEvent(
           billing_status: "active",
           attempts: 0,
           next_attempt_at: new Date(),
+          ...(unexpected
+            ? {
+                attention: `A renewal payment of ${amount} ${paidCurrency ?? "?"} (minor units) differs from the agreed renewal price of ${expected.renewalMinor} ${expected.currency}; check the Stripe subscription's price.`,
+              }
+            : {}),
         });
         // The expiry this payment extends: a registrar expiry beyond it
         // later proves the renewal happened (also when done by hand).
@@ -923,6 +1122,7 @@ export async function processWebAddressStripeEvent(
           await postRefund(tx, tenantId, order, {
             id: refund.id,
             amountMinor: Number(refund.amount),
+            currency: refund.currency,
             paymentIntentId: idOf(refund.payment_intent),
             chargeId:
               idOf(refund.charge) ??
@@ -943,7 +1143,12 @@ export async function processWebAddressStripeEvent(
         object.status === "lost" &&
         Number.isSafeInteger(amount) &&
         amount > 0
-      )
+      ) {
+        const currency =
+          currencyCode(object.currency) ??
+          (await paymentJournal(tx, idOf(object.payment_intent), idOf(object.charge)))
+            ?.currency ??
+          orderPrices(order).currency;
         await journal(
           tx,
           a,
@@ -956,11 +1161,14 @@ export async function processWebAddressStripeEvent(
           {
             orderId: order.id,
             hostname: order.hostname,
+            currency,
             disputeId: object.id,
             chargeId: idOf(object.charge) ?? null,
             amountMinor: amount,
           },
+          { currency },
         );
+      }
       await update(tx, order.id, {
         attention:
           e.type === "charge.dispute.closed"
@@ -1238,6 +1446,15 @@ async function purchase(
     )
   )
     return;
+  // A regular name is bought at the registrar's price of the moment, which
+  // may have risen since the trainer paid (a first-year promotion ended
+  // while the order waited): asked again first. A premium name is bought
+  // only at its checked premium price, which the registrar enforces.
+  if (
+    !premiumPrice(order, "registerUsd") &&
+    (await purchasePriceHeld(db, tenantId, order, registrar))
+  )
+    return;
   const registrant = registrantFromConfig(runtimeConfig());
   const wa = workerActor(tenantId);
   // The retry budget (reset by an operator's retry) and the intent number
@@ -1268,6 +1485,7 @@ async function purchase(
             whoisPrivacy: true,
             registrant: registrant.organization ?? "configured contact",
             sandbox: registrar.sandbox,
+            premiumPriceUsd: premiumPrice(order, "registerUsd") ?? null,
           }),
           wa.userId,
         ],
@@ -1293,6 +1511,9 @@ async function purchase(
       domain: order.hostname,
       years: 1,
       registrant,
+      // A premium name is bought only at the premium price it was quoted
+      // and paid for; the registrar refuses the order if it changed.
+      premiumPriceUsd: premiumPrice(order, "registerUsd"),
     });
   } catch (error) {
     const failed = failureOutcome(error);
@@ -1333,6 +1554,61 @@ async function purchase(
     usd: result.chargedUsd ?? order.quote?.registerUsd,
     estimated: !result.chargedUsd,
   });
+}
+/**
+ * Before a regular name is bought: the ending's registration cost now. When
+ * its price by the order's rule is above the first-year price the trainer
+ * paid, nothing is bought and an operator decides (Retry buys at up to that
+ * cost, the platform absorbing the difference; or refund). True when the
+ * purchase must not go ahead now.
+ */
+async function purchasePriceHeld(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  registrar: Registrar,
+) {
+  const tld = order.hostname.slice(order.hostname.indexOf(".") + 1);
+  let price: EndingPrice;
+  try {
+    price = await fetchPrice(db, registrar, tld);
+  } catch {
+    await retryLater(db, tenantId, order, "Price check pending", {
+      attention:
+        Number(order.attempts ?? 0) >= 6
+          ? "The registrar's current price could not be read before buying, so nothing was bought. Check the registrar settings, then retry or refund."
+          : undefined,
+    });
+    return true;
+  }
+  if (price.kind !== "price") {
+    await release(db, tenantId, order.id, {
+      next_attempt_at: null,
+      attention: `The registrar no longer sells .${tld} through its API (${price.reason.slice(0, 120)}), so nothing was bought. Refund and close, or register it by hand and use Record registrar state.`,
+    });
+    return true;
+  }
+  if (
+    !costOverPrice(order, "register", price.registerUsd) ||
+    costAccepted(order, "register", price.registerUsd)
+  )
+    return false;
+  const prices = orderPrices(order);
+  await db.tenant(workerActor(tenantId), async (tx) => {
+    await update(tx, order.id, {
+      next_attempt_at: null,
+      attention: `The registrar's registration cost for this name is now USD ${usdText(price.registerUsd)} (quoted USD ${usdText(order.quote?.registerUsd)}); under the price rule that is more than the ${prices.currency} ${(prices.firstYearMinor / 100).toFixed(2)} first-year price the trainer paid, so nothing was bought. Retry buys it at up to USD ${usdText(price.registerUsd)} (the platform absorbs the difference), or Refund and close.`,
+    });
+    await mergeEvidence(tx, order.id, {
+      priceHold: {
+        which: "register",
+        usd: price.registerUsd,
+        quotedUsd: order.quote?.registerUsd ?? null,
+        at: new Date().toISOString(),
+      },
+    });
+  });
+  return true;
 }
 async function completeRegistration(
   db: Database,
@@ -1381,9 +1657,18 @@ async function completeRegistration(
         String(cost.usd),
         cost.estimated,
       );
-    await event(tx, wa, "web_address.registered", order.id, {
-      registrar: registrar.id,
-    });
+    // The registrar's own charge, above what the trainer's price covers
+    // (and above any cost an operator accepted): operators are told.
+    if (
+      cost.usd &&
+      !cost.estimated &&
+      costOverPrice(order, "register", String(cost.usd)) &&
+      !costAccepted(order, "register", String(cost.usd))
+    )
+      await recordCostAlert(tx, order, "register", String(cost.usd));
+    // Workspace events are listed to the trainer: never the registrar's
+    // name (operators read it on the order).
+    await event(tx, wa, "web_address.registered", order.id);
   });
 }
 /** Whether the name is in the platform's registrar account (getList, then getInfo); undefined when the registrar cannot be asked. */
@@ -1473,7 +1758,8 @@ async function reconcilePurchase(
   }
   if (
     !availability?.available ||
-    availability.premium ||
+    // A premium name was bought only when it was quoted as one.
+    (availability.premium && !premiumPrice(order, "registerUsd")) ||
     availability.earlyAccessFeeUsd
   ) {
     // Not ours and not available: someone else took it, or the registrar
@@ -2868,7 +3154,9 @@ async function renew(
   });
   let result;
   try {
-    result = await registrar.renew(order.hostname, 1);
+    result = await registrar.renew(order.hostname, 1, {
+      premiumPriceUsd: premiumPrice(order, "renewUsd"),
+    });
     if (!result.renewed)
       throw new RegistrarError(
         "The registrar did not renew the name",
@@ -2975,6 +3263,14 @@ async function completeRenewal(
         String(cost.usd),
         cost.estimated,
       );
+    // The domain is renewed either way (the trainer paid); a charge above
+    // what the renewal price covers is for an operator to see.
+    if (
+      cost.usd &&
+      !cost.estimated &&
+      costOverPrice(order, "renew", String(cost.usd))
+    )
+      await recordCostAlert(tx, order, "renew", String(cost.usd));
     await event(tx, wa, "web_address.renewed", order.id, { expiresAt: expiry });
     await notifyOwner(tx, tenantId, current, {
       templateKey: "web-address-renewed",
@@ -3228,6 +3524,9 @@ async function maintainActive(
     () => true,
   );
   await sendGraceNotice(db, tenantId, order);
+  const costCheckAt = expires - RENEWAL_COST_CHECK_DAYS * DAY;
+  if (costCheckAt <= Date.now())
+    await checkRenewalCost(db, tenantId, order, deps).catch(() => {});
   const daysLeft = Math.ceil((expires - Date.now()) / DAY);
   // Next visit: alignment retry, the day after the renewal charge (to catch
   // a lost payment event), the next grace notice, expiry, or the weekly
@@ -3240,11 +3539,46 @@ async function maintainActive(
     expires,
     alignRetryAt,
     ...nextNotice,
+    ...(costCheckAt > Date.now() ? [costCheckAt] : []),
     ...(checkAfterCharge > Date.now() ? [checkAfterCharge] : []),
     ...(zoneLeft ? [Date.now() + ZONE_RECHECK_DAYS * DAY] : []),
   );
   await release(db, tenantId, order.id, {
     next_attempt_at: new Date(Math.max(next, Date.now() + 60000)),
+  });
+}
+/**
+ * Once per registration period, within RENEWAL_COST_CHECK_DAYS of expiry:
+ * the ending's current renewal cost (cached for a day, asked again when
+ * older) against the renewal price the trainer pays. A cost whose price by
+ * the order's rule is higher is recorded for operators before the charge;
+ * the renewal itself still goes ahead. Premium names renew at their checked
+ * premium price, which the registrar enforces, and are not compared here.
+ */
+async function checkRenewalCost(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  const period = iso(order.expires_at)?.slice(0, 10);
+  if (
+    !period ||
+    !order.renewal_enabled ||
+    premiumPrice(order, "renewUsd") ||
+    order.evidence?.renewalCostCheckedFor === period
+  )
+    return;
+  const registrar = registrarOf(deps, order);
+  const tld = order.hostname.slice(order.hostname.indexOf(".") + 1);
+  const price = (await pricesForSearch(db, registrar, [tld], () => true)).get(
+    tld,
+  );
+  if (!price || price.kind !== "price") return;
+  await db.tenant(workerActor(tenantId), async (tx) => {
+    await mergeEvidence(tx, order.id, { renewalCostCheckedFor: period });
+    if (costOverPrice(order, "renew", price.renewUsd))
+      await recordCostAlert(tx, order, "renew_upcoming", price.renewUsd);
   });
 }
 /** Sends the grace notice due now before expiry (once per period and step). */
@@ -3417,6 +3751,7 @@ export async function failOrder(
         await postRefund(tx, tenantId, current, {
           id: refund.id,
           amountMinor: Number(refund.amount),
+          currency: refund.currency,
           paymentIntentId: paymentIntent,
         });
       await event(tx, wa, "web_address.failed", order.id, { reason });

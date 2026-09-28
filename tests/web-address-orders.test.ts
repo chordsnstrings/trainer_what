@@ -20,7 +20,6 @@ import {
   type WebAddressDeps,
 } from "../apps/api/src/web-address-orders.ts";
 import {
-  clearWebAddressPriceCache,
   resetRegistrarBudget,
   searchDomains,
 } from "../apps/api/src/web-addresses.ts";
@@ -63,9 +62,14 @@ const settings: Record<string, string> = {
   WEB_ADDRESS_REGISTRANT_PHONE: "+971.501234567",
   WEB_ADDRESS_REGISTRANT_EMAIL: "domains@trainsyou.example",
   WEB_ADDRESS_TLDS: "com,net",
-  WEB_ADDRESS_MARGIN_AED: "25",
-  WEB_ADDRESS_USD_TO_AED: "3.6725",
 };
+/**
+ * The double's .com at the owner's rule (28 September 2026): registration
+ * USD 10.46 (10.28 + 0.18 ICANN) → USD 19.99, renewal 16.06 → USD 24.99.
+ */
+const FIRST = 1999,
+  RENEWAL = 2499,
+  REGISTRAR_COST = 1046;
 const saved = Object.fromEntries(
   Object.keys(settings).map((key) => [key, process.env[key]]),
 );
@@ -75,6 +79,7 @@ class FakeStripe {
   calls: Array<{ method: string; params: any; key?: string }> = [];
   sessions = new Map<string, any>();
   refundsMade: any[] = [];
+  couponObjects = new Map<string, any>();
   /** Subscriptions and invoices as Stripe would return them (retrieve). */
   subs = new Map<string, any>();
   invoiceObjects = new Map<string, any>();
@@ -107,7 +112,15 @@ class FakeStripe {
             client_reference_id: params.client_reference_id,
             metadata: params.metadata,
             livemode: this.sessionLivemode,
-            amount_total: params.line_items[0].price_data.unit_amount,
+            currency: params.line_items[0].price_data.currency,
+            // The recurring price, one-time first-year lines, less a coupon.
+            amount_total:
+              params.line_items.reduce(
+                (n: number, item: any) => n + item.price_data.unit_amount,
+                0,
+              ) -
+              (this.couponObjects.get(params.discounts?.[0]?.coupon)
+                ?.amount_off ?? 0),
           };
           this.sessions.set(session.id, session);
           return session;
@@ -120,6 +133,24 @@ class FakeStripe {
         if (s) s.status = "expired";
         return s;
       },
+    },
+  };
+  coupons = {
+    create: async (params: any, options?: any) => {
+      this.calls.push({
+        method: "coupons.create",
+        params,
+        key: options?.idempotencyKey,
+      });
+      return this.once(options?.idempotencyKey, () => {
+        const coupon = {
+          id: "coupon_" + ++this.n,
+          object: "coupon",
+          ...params,
+        };
+        this.couponObjects.set(coupon.id, coupon);
+        return coupon;
+      });
     },
   };
   subscriptions = {
@@ -169,7 +200,8 @@ class FakeStripe {
         const refund = {
           id: "re_" + ++this.n,
           object: "refund",
-          amount: 8400,
+          amount: FIRST,
+          currency: "usd",
           status: "succeeded",
           payment_intent: params.payment_intent,
           metadata: params.metadata,
@@ -356,12 +388,19 @@ const metadata = (o: any) => ({
   tenant_id: o.tenant_id,
   web_address_order_id: o.id,
 });
-function invoice(o: any, id: string, amount: number, sub: string, pi: string) {
+function invoice(
+  o: any,
+  id: string,
+  amount: number,
+  sub: string,
+  pi: string,
+  currency = "usd",
+) {
   return {
     id,
     object: "invoice",
     status: "paid",
-    currency: "aed",
+    currency,
     amount_paid: amount,
     customer: "cus_" + o.tenant_id.slice(0, 8),
     payment_intent: pi,
@@ -374,10 +413,10 @@ function invoice(o: any, id: string, amount: number, sub: string, pi: string) {
 async function buy(
   owner: any,
   domain: string,
-  price: number,
-  options: { livemode?: boolean } = {},
+  options: { livemode?: boolean; first?: number; renewal?: number } = {},
 ) {
   resetRegistrarBudget();
+  const price = options.first ?? FIRST;
   const created = await inRegistrar(() =>
     request("/web-address/orders", {
       method: "POST",
@@ -385,7 +424,8 @@ async function buy(
       payload: {
         domain,
         firstYearPriceMinor: price,
-        renewalPriceMinor: price,
+        renewalPriceMinor: options.renewal ?? RENEWAL,
+        currency: "USD",
         accepted: true,
       },
     }),
@@ -412,7 +452,7 @@ async function buy(
       sub,
       "pi_first_" + o.id.slice(0, 8),
     ),
-    options,
+    { livemode: options.livemode },
   );
   return { id: o.id as string, sub };
 }
@@ -428,7 +468,7 @@ async function journals(tenantId: string) {
     elevated("provider-callback", { tenantId, role: "finance" }),
     (tx) =>
       tx.query(
-        "SELECT j.source_key,l.account,l.amount_minor::int AS amount FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,j.source_key,l.account",
+        "SELECT j.source_key,j.currency,l.account,l.amount_minor::int AS amount FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,j.source_key,l.account",
       ),
   );
 }
@@ -438,7 +478,7 @@ let laylaOrder: { id: string; sub: string };
 let saraOrder: { id: string; sub: string };
 before(async () => {
   Object.assign(process.env, settings);
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
   db = await createDatabase({ memory: true });
   app = await buildApp({
     db,
@@ -466,27 +506,42 @@ after(async () => {
     else process.env[key] = value;
 });
 
-test("search shows availability and the yearly AED price; a changed price is refused", async () => {
+test("search shows the USD first-year and renewal price; a changed price is refused", async () => {
   mock.taken.add("layla.net");
   const found = await inRegistrar(() =>
     request("/web-address/search?q=layla", { cookie: layla.cookie }),
   );
   assert.equal(found.statusCode, 200, found.body);
-  // .com: renewal 15.88 + 0.18 USD is the higher price → 58.98 AED → 59 + 25 margin.
-  // .net is taken.
-  assert.deepEqual(
-    found
-      .json()
-      .results.map((r: any) => [
-        r.domain,
-        r.available,
-        r.firstYearPriceMinor,
-        r.renewalPriceMinor,
-      ]),
-    [
-      ["layla.com", true, 8400, 8400],
-      ["layla.net", false, null, null],
+  // .com: registration 10.28 + 0.18 USD → 19.99, renewal 15.88 + 0.18 →
+  // 24.99 (cost rounded up to USD 5, plus 4.99). .net is taken.
+  assert.deepEqual(found.json(), {
+    requested: { domain: "layla.com", status: "available" },
+    results: [
+      {
+        domain: "layla.com",
+        available: true,
+        premium: false,
+        firstYearPriceMinor: FIRST,
+        renewalPriceMinor: RENEWAL,
+        currency: "USD",
+        renewsYearly: true,
+      },
     ],
+    incomplete: false,
+    currency: "USD",
+    priceCapMinor: 10000,
+  });
+  // The typed name shows as taken; the other ending is offered.
+  const taken = await inRegistrar(() =>
+    request("/web-address/search?q=layla.net", { cookie: layla.cookie }),
+  );
+  assert.deepEqual(taken.json().requested, {
+    domain: "layla.net",
+    status: "taken",
+  });
+  assert.deepEqual(
+    taken.json().results.map((r: any) => r.domain),
+    ["layla.com"],
   );
   const underRoot = await inRegistrar(() =>
     request("/web-address/search?q=x." + ROOT, { cookie: layla.cookie }),
@@ -513,8 +568,8 @@ test("search shows availability and the yearly AED price; a changed price is ref
     },
     {
       code: "PRICE_CHANGED",
-      firstYearPriceMinor: 8400,
-      renewalPriceMinor: 8400,
+      firstYearPriceMinor: FIRST,
+      renewalPriceMinor: RENEWAL,
     },
   );
   assert.equal(
@@ -525,13 +580,46 @@ test("search shows availability and the yearly AED price; a changed price is ref
 });
 
 test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", async () => {
-  laylaOrder = await buy(layla, "layla.com", 8400);
+  laylaOrder = await buy(layla, "layla.com");
   const checkout = stripe.calls.find((c) => c.method === "checkout.create")!;
   assert.equal(checkout.key, "web-address-checkout:" + laylaOrder.id);
-  assert.deepEqual(checkout.params.line_items[0].price_data.recurring, {
-    interval: "year",
-  });
-  assert.equal(checkout.params.line_items[0].price_data.currency, "aed");
+  // USD 24.99 a year; the first invoice is brought down to USD 19.99 by a
+  // once-only coupon, so Checkout shows both prices.
+  assert.deepEqual(checkout.params.line_items, [
+    {
+      quantity: 1,
+      price_data: {
+        currency: "usd",
+        unit_amount: RENEWAL,
+        recurring: { interval: "year" },
+        product_data: { name: "Custom web address — yearly" },
+      },
+    },
+  ]);
+  const coupon = stripe.calls.find((c) => c.method === "coupons.create")!;
+  assert.equal(coupon.key, "web-address-first-year:" + laylaOrder.id);
+  assert.deepEqual(
+    {
+      amount_off: coupon.params.amount_off,
+      currency: coupon.params.currency,
+      duration: coupon.params.duration,
+      max_redemptions: coupon.params.max_redemptions,
+      name: coupon.params.name,
+    },
+    {
+      amount_off: RENEWAL - FIRST,
+      currency: "usd",
+      duration: "once",
+      max_redemptions: 1,
+      name: "Custom web address — first-year price",
+    },
+  );
+  assert.equal(
+    checkout.params.discounts[0].coupon,
+    stripe.couponObjects.values().next().value.id,
+  );
+  const session = stripe.sessions.values().next().value;
+  assert.equal(session.amount_total, FIRST, "USD 19.99 due today");
   assert.equal(checkout.params.metadata.purpose, "web_address");
   // Neutral Stripe wording: never the registrar (owner decision, 28 Sep 2026).
   assert.equal(
@@ -638,18 +726,30 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
       .filter((l) => l.source_key.startsWith("web-address-invoice:"))
       .map((l) => [l.account, l.amount]),
     [
-      ["web_address_receivable", 8400],
-      ["web_address_revenue", -8400],
+      ["web_address_receivable", FIRST],
+      ["web_address_revenue", -FIRST],
     ],
   );
+  // The registrar's own USD charge, recorded as it is (USD journals).
   assert.deepEqual(
     lines
       .filter((l) => l.source_key.startsWith("web-address-registrar:"))
       .map((l) => [l.account, l.amount]),
     [
-      ["registrar_cost", 3842],
-      ["registrar_prepaid", -3842],
+      ["registrar_cost", REGISTRAR_COST],
+      ["registrar_prepaid", -REGISTRAR_COST],
     ],
+  );
+  assert.deepEqual(
+    [
+      ...new Set(
+        lines
+          .filter((l) => l.source_key.startsWith("web-address-"))
+          .map((l) => l.currency),
+      ),
+    ],
+    ["USD"],
+    "web address journals are in USD",
   );
   assert.ok(
     !lines.some((l) =>
@@ -667,13 +767,22 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
     financialStatement(tx, period, { platformView: true }),
   );
   assert.deepEqual(statement.webAddresses, {
-    paymentsMinor: 8400,
+    currency: "USD",
+    paymentsMinor: FIRST,
     refundsMinor: 0,
-    registrarCostMinor: 3842,
+    registrarCostMinor: REGISTRAR_COST,
   });
   // The trainer's own statement does not show the platform's registrar cost.
   const own = await db.tenant(finance, (tx) => financialStatement(tx, period));
-  assert.deepEqual(own.webAddresses, { paymentsMinor: 8400, refundsMinor: 0 });
+  assert.deepEqual(own.webAddresses, {
+    currency: "USD",
+    paymentsMinor: FIRST,
+    refundsMinor: 0,
+  });
+  // USD amounts never enter the AED balances (or the trainer's payable).
+  const summary = own.current as any;
+  assert.equal(summary.accounts.web_address_receivable, undefined);
+  assert.equal(summary.otherCurrencies.USD.web_address_receivable, FIRST);
   assert.ok(
     !own.entries.some((e: any) =>
       e.source_key.startsWith("web-address-registrar:"),
@@ -691,7 +800,7 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
 });
 
 test("a lost purchase answer is reconciled with getList before anything else; no second purchase", async () => {
-  const o = await buy(omar, "omar-coach.com", 8400);
+  const o = await buy(omar, "omar-coach.com");
   mock.loseNextResponse("domains.create");
   let row = await step(omar.tenantId, o.id);
   assert.equal(row.status, "purchasing");
@@ -747,7 +856,7 @@ test("a lost purchase answer is reconciled with getList before anything else; no
 });
 
 test("a name taken before purchase ends in a refund and a notice; the subscription is cancelled", async () => {
-  const o = await buy(sara, "sara-fit.com", 8400);
+  const o = await buy(sara, "sara-fit.com");
   saraOrder = o;
   mock.taken.add("sara-fit.com");
   let row = await step(sara.tenantId, o.id);
@@ -801,8 +910,8 @@ test("a name taken before purchase ends in a refund and a notice; the subscripti
       .filter((l) => l.source_key.startsWith("web-address-refund:"))
       .map((l) => [l.account, l.amount]),
     [
-      ["web_address_receivable", -8400],
-      ["web_address_revenue", 8400],
+      ["web_address_receivable", -FIRST],
+      ["web_address_revenue", FIRST],
     ],
   );
   // Stripe's own refund event for the same refund posts nothing twice.
@@ -829,8 +938,8 @@ test("a name taken before purchase ends in a refund and a notice; the subscripti
       cookie: sara.cookie,
       payload: {
         domain: "sara-fit.com",
-        firstYearPriceMinor: 8400,
-        renewalPriceMinor: 8400,
+        firstYearPriceMinor: FIRST,
+        renewalPriceMinor: RENEWAL,
         accepted: true,
       },
     }),
@@ -842,7 +951,7 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   const before = await order(layla.tenantId, laylaOrder.id);
   await stripeEvent(
     "invoice.paid",
-    invoice(before, "in_renew_1", 8400, laylaOrder.sub, "pi_renew_1"),
+    invoice(before, "in_renew_1", RENEWAL, laylaOrder.sub, "pi_renew_1"),
   );
   let row = await order(layla.tenantId, laylaOrder.id);
   assert.equal(row.renewal_status, "paid");
@@ -861,7 +970,7 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   // Next year: the renewal answer is lost; getInfo proves it happened.
   await stripeEvent(
     "invoice.paid",
-    invoice(row, "in_renew_2", 8400, laylaOrder.sub, "pi_renew_2"),
+    invoice(row, "in_renew_2", RENEWAL, laylaOrder.sub, "pi_renew_2"),
   );
   mock.loseNextResponse("domains.renew");
   row = await step(layla.tenantId, laylaOrder.id);
@@ -889,7 +998,7 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   // Duplicate delivery of a paid invoice changes nothing.
   await stripeEvent(
     "invoice.paid",
-    invoice(row, "in_renew_2", 8400, laylaOrder.sub, "pi_renew_2"),
+    invoice(row, "in_renew_2", RENEWAL, laylaOrder.sub, "pi_renew_2"),
   );
   assert.equal(
     (await order(layla.tenantId, laylaOrder.id)).renewal_status,
@@ -900,7 +1009,7 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   const settled = await order(layla.tenantId, laylaOrder.id);
   await stripeEvent(
     "invoice.paid",
-    invoice(row, "in_renew_1", 8400, laylaOrder.sub, "pi_renew_1"),
+    invoice(row, "in_renew_1", RENEWAL, laylaOrder.sub, "pi_renew_1"),
   );
   const replayed = await order(layla.tenantId, laylaOrder.id);
   assert.equal(replayed.renewal_status, "renewed");
@@ -920,7 +1029,7 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
 test("failed renewal payment: grace notices, then lapse back to the subdomain; renewal can be turned off", async () => {
   const row = await order(layla.tenantId, laylaOrder.id);
   await stripeEvent("invoice.payment_failed", {
-    ...invoice(row, "in_failed_1", 8400, laylaOrder.sub, "pi_failed_1"),
+    ...invoice(row, "in_failed_1", RENEWAL, laylaOrder.sub, "pi_failed_1"),
     status: "open",
     amount_paid: 0,
   });
@@ -1041,7 +1150,7 @@ test("isolation: owners see only their own orders; followers and trainers have n
 });
 
 test("operator view lists every automatic order with reconciliation items and keeps manual fallbacks", async () => {
-  const o = await buy(admin, "ops-coach.com", 8400);
+  const o = await buy(admin, "ops-coach.com");
   mock.loseNextResponse("domains.create");
   await step(admin.tenantId, o.id);
   const list = await request("/admin/web-addresses", { cookie: admin.cookie });
@@ -1086,7 +1195,7 @@ test("operator view lists every automatic order with reconciliation items and ke
 
 test("an empty registrar balance stops after three reconciled attempts; an operator retry buys once", async () => {
   const owner = await register("nadia");
-  const o = await buy(owner, "nadia-fit.com", 8400);
+  const o = await buy(owner, "nadia-fit.com");
   const balance = mock.balance;
   mock.balance = 0;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1151,12 +1260,12 @@ const sentFor = (command: string, domain: string) =>
 
 test("an operator reconcile while a renewal request is in flight never renews twice", async () => {
   const owner = await register("rami");
-  const o = await buy(owner, "rami-coach.com", 8400);
+  const o = await buy(owner, "rami-coach.com");
   await activate(owner.tenantId, o.id);
   const before = await order(owner.tenantId, o.id);
   await stripeEvent(
     "invoice.paid",
-    invoice(before, "in_rami_renew", 8400, o.sub, "pi_rami_renew"),
+    invoice(before, "in_rami_renew", RENEWAL, o.sub, "pi_rami_renew"),
   );
   const registration = mock.registrations.get("rami-coach.com")!;
   const yearBefore = registration.expires.getUTCFullYear();
@@ -1218,7 +1327,7 @@ test("an operator reconcile while a renewal request is in flight never renews tw
 test("a renewal made by hand at the registrar is recorded, never repeated", async () => {
   const owner = await register("hana");
   const domain = "hana-fit.com";
-  const o = await buy(owner, domain, 8400);
+  const o = await buy(owner, domain);
   await activate(owner.tenantId, o.id);
   const registration = mock.registrations.get(domain)!;
   const renewByHand = () => {
@@ -1231,7 +1340,7 @@ test("a renewal made by hand at the registrar is recorded, never repeated", asyn
     const paid = await order(owner.tenantId, o.id);
     await stripeEvent(
       "invoice.paid",
-      invoice(paid, invoiceId, 8400, o.sub, "pi_" + invoiceId),
+      invoice(paid, invoiceId, RENEWAL, o.sub, "pi_" + invoiceId),
     );
     mock.refuseNext(
       "domains.renew",
@@ -1332,7 +1441,7 @@ test("a renewal made by hand at the registrar is recorded, never repeated", asyn
 test("a registration made by hand is recorded from the registrar", async () => {
   const owner = await register("rana");
   const domain = "rana-coach.com";
-  const o = await buy(owner, domain, 8400);
+  const o = await buy(owner, domain);
   const balance = mock.balance;
   mock.balance = 0;
   let row = await step(owner.tenantId, o.id);
@@ -1389,7 +1498,7 @@ test("a registration made by hand is recorded from the registrar", async () => {
 test("a registration missing from getList is confirmed with getInfo", async () => {
   const owner = await register("lina");
   const domain = "lina-coach.com";
-  const o = await buy(owner, domain, 8400);
+  const o = await buy(owner, domain);
   mock.unlisted.add(domain);
   mock.loseNextResponse("domains.create");
   let row = await step(owner.tenantId, o.id);
@@ -1418,8 +1527,8 @@ test("a completed checkout whose payment event was lost is reconciled from Strip
       cookie: nour.cookie,
       payload: {
         domain: "nour-coach.com",
-        firstYearPriceMinor: 8400,
-        renewalPriceMinor: 8400,
+        firstYearPriceMinor: FIRST,
+        renewalPriceMinor: RENEWAL,
         accepted: true,
       },
     }),
@@ -1435,7 +1544,7 @@ test("a completed checkout whose payment event was lost is reconciled from Strip
     customer: "cus_nour",
   });
   const first = {
-    ...invoice(o, "in_nour_first", 8400, "sub_nour", "pi_nour_first"),
+    ...invoice(o, "in_nour_first", FIRST, "sub_nour", "pi_nour_first"),
     status: "open",
     amount_paid: 0,
     livemode: false,
@@ -1454,7 +1563,7 @@ test("a completed checkout whose payment event was lost is reconciled from Strip
   assert.equal(o.stripe_subscription_id, "sub_nour", "linked from the session");
   assert.match(o.attention, /first payment is not confirmed/);
   // The invoice is paid now; the next sweep applies it.
-  Object.assign(first, { status: "paid", amount_paid: 8400 });
+  Object.assign(first, { status: "paid", amount_paid: FIRST });
   stripe.subs.get("sub_nour").status = "active";
   o = await step(nour.tenantId, nourOrderId);
   assert.equal(o.status, "paid");
@@ -1554,7 +1663,7 @@ test("renewal switch: an older Stripe event never undoes the trainer's choice; n
     ]),
   );
   await stripeEvent("invoice.payment_failed", {
-    ...invoice(o, "in_nour_failed", 8400, "sub_nour", "pi_nour_failed"),
+    ...invoice(o, "in_nour_failed", RENEWAL, "sub_nour", "pi_nour_failed"),
     status: "open",
     amount_paid: 0,
   });
@@ -1581,8 +1690,8 @@ test("Stripe mode and the registrar environment must match before anything is bo
         cookie: owner.cookie,
         payload: {
           domain: "omar-fit.com",
-          firstYearPriceMinor: 8400,
-          renewalPriceMinor: 8400,
+          firstYearPriceMinor: FIRST,
+          renewalPriceMinor: RENEWAL,
           accepted: true,
         },
       }),
@@ -1606,8 +1715,8 @@ test("Stripe mode and the registrar environment must match before anything is bo
         cookie: owner.cookie,
         payload: {
           domain: "omar-fit.com",
-          firstYearPriceMinor: 8400,
-          renewalPriceMinor: 8400,
+          firstYearPriceMinor: FIRST,
+          renewalPriceMinor: RENEWAL,
           accepted: true,
         },
       }),
@@ -1618,7 +1727,7 @@ test("Stripe mode and the registrar environment must match before anything is bo
   assert.equal(live.statusCode, 409);
   assert.equal(stripe.count("checkout.expire"), expiredBefore + 1);
   // A live payment reaching the worker buys nothing in the test environment.
-  const o = await buy(owner, "omar-fit.com", 8400, { livemode: true });
+  const o = await buy(owner, "omar-fit.com", { livemode: true });
   const row = await step(owner.tenantId, o.id);
   assert.equal(row.status, "paid");
   assert.match(row.attention, /live Stripe payment/);
@@ -1638,7 +1747,7 @@ test("ledger: money for a closed order is owed back; a lost dispute is a loss", 
   const failed = await order(sara.tenantId, saraOrder.id);
   await stripeEvent(
     "invoice.paid",
-    invoice(failed, "in_sara_late", 8400, saraOrder.sub, "pi_sara_late"),
+    invoice(failed, "in_sara_late", RENEWAL, saraOrder.sub, "pi_sara_late"),
   );
   assert.match(
     (await order(sara.tenantId, saraOrder.id)).attention,
@@ -1647,7 +1756,8 @@ test("ledger: money for a closed order is owed back; a lost dispute is a loss", 
   await stripeEvent("refund.created", {
     id: "re_sara_late",
     object: "refund",
-    amount: 8400,
+    amount: RENEWAL,
+    currency: "usd",
     status: "succeeded",
     payment_intent: "pi_sara_late",
     metadata: metadata(failed),
@@ -1658,20 +1768,20 @@ test("ledger: money for a closed order is owed back; a lost dispute is a loss", 
       .filter((l) => l.source_key === key)
       .map((l) => [l.account, l.amount]);
   assert.deepEqual(lines("web-address-invoice:in_sara_late"), [
-    ["web_address_receivable", 8400],
-    ["web_address_refund_liability", -8400],
+    ["web_address_receivable", RENEWAL],
+    ["web_address_refund_liability", -RENEWAL],
   ]);
   assert.deepEqual(lines("web-address-refund:re_sara_late"), [
-    ["web_address_receivable", -8400],
-    ["web_address_refund_liability", 8400],
+    ["web_address_receivable", -RENEWAL],
+    ["web_address_refund_liability", RENEWAL],
   ]);
 
   const short = laylaOrder.id.slice(0, 8);
   await stripeEvent("charge.dispute.closed", {
     id: "dp_layla_first",
     object: "dispute",
-    amount: 8400,
-    currency: "aed",
+    amount: FIRST,
+    currency: "usd",
     status: "lost",
     charge: "ch_pi_first_" + short,
     payment_intent: "pi_first_" + short,
@@ -1681,8 +1791,8 @@ test("ledger: money for a closed order is owed back; a lost dispute is a loss", 
       .filter((l) => l.source_key === "web-address-dispute:dp_layla_first")
       .map((l) => [l.account, l.amount]),
     [
-      ["web_address_dispute_loss", 8400],
-      ["web_address_receivable", -8400],
+      ["web_address_dispute_loss", FIRST],
+      ["web_address_receivable", -FIRST],
     ],
   );
   assert.match(
@@ -1698,11 +1808,14 @@ test("early-access names are refused; searches stay within the registrar call bu
     request("/web-address/search?q=fresh-coach", { cookie: omar.cookie }),
   );
   assert.equal(found.statusCode, 200, found.body);
-  const com = found
-    .json()
-    .results.find((r: any) => r.domain === "fresh-coach.com");
-  assert.equal(com.available, false);
-  assert.equal(com.firstYearPriceMinor, null);
+  assert.deepEqual(found.json().requested, {
+    domain: "fresh-coach.com",
+    status: "not_offered",
+  });
+  assert.ok(
+    !found.json().results.some((r: any) => r.domain === "fresh-coach.com"),
+    "an early-access name is never offered",
+  );
   resetRegistrarBudget();
   const refused = await inRegistrar(() =>
     request("/web-address/orders", {
@@ -1710,8 +1823,8 @@ test("early-access names are refused; searches stay within the registrar call bu
       cookie: omar.cookie,
       payload: {
         domain: "fresh-coach.com",
-        firstYearPriceMinor: 8400,
-        renewalPriceMinor: 8400,
+        firstYearPriceMinor: FIRST,
+        renewalPriceMinor: RENEWAL,
         accepted: true,
       },
     }),
@@ -1719,6 +1832,26 @@ test("early-access names are refused; searches stay within the registrar call bu
   assert.equal(refused.statusCode, 409);
   assert.equal(refused.json().code, "DOMAIN_UNAVAILABLE");
   mock.earlyAccess.delete("fresh-coach.com");
+
+  // An ending the registrar does not sell is refused as not offered before
+  // any availability request (live Namecheap fails a whole check naming it).
+  resetRegistrarBudget();
+  const checksBefore = mock.commands("domains.check").length;
+  const unsold = await inRegistrar(() =>
+    request("/web-address/orders", {
+      method: "POST",
+      cookie: omar.cookie,
+      payload: {
+        domain: "fresh-coach.ae",
+        firstYearPriceMinor: FIRST,
+        renewalPriceMinor: RENEWAL,
+        accepted: true,
+      },
+    }),
+  );
+  assert.equal(unsold.statusCode, 409, unsold.body);
+  assert.equal(unsold.json().code, "DOMAIN_UNAVAILABLE");
+  assert.equal(mock.commands("domains.check").length, checksBefore);
 
   // Searches from the API may use a share of Namecheap's per-account limit.
   resetRegistrarBudget();
@@ -1730,7 +1863,7 @@ test("early-access names are refused; searches stay within the registrar call bu
   let busy = false;
   for (let i = 0; i < 12 && !busy; i++)
     try {
-      await searchDomains("budget-" + i, { registrar });
+      await searchDomains("budget-" + i, { registrar, db });
     } catch (error: any) {
       if (error.code !== "REGISTRAR_BUSY") throw error;
       busy = true;
@@ -1739,9 +1872,262 @@ test("early-access names are refused; searches stay within the registrar call bu
   assert.ok(calls() - start <= 8, `${calls() - start} registrar calls`);
   // A repeated search is answered from the short cache without a call.
   const used = calls();
-  await searchDomains("budget-0", { registrar });
+  await searchDomains("budget-0", { registrar, db });
   assert.equal(calls(), used);
   resetRegistrarBudget();
+});
+
+test("a premium name within USD 100 is bought and renewed at its checked premium price; another renewal amount is flagged", async () => {
+  // Registration is rate limited (ten a window): an existing workspace.
+  const owner = omar;
+  mock.premium.set("omar-gold.com", { register: "55.00", renew: "60.00" });
+  resetRegistrarBudget();
+  const found = await inRegistrar(() =>
+    request("/web-address/search?q=omar-gold.com", { cookie: owner.cookie }),
+  );
+  // 55.00 + 0.18 ICANN → USD 64.99 the first year; 60.18 → 69.99 a renewal.
+  assert.deepEqual(found.json().results[0], {
+    domain: "omar-gold.com",
+    available: true,
+    premium: true,
+    firstYearPriceMinor: 6499,
+    renewalPriceMinor: 6999,
+    currency: "USD",
+    renewsYearly: true,
+  });
+  const o = await buy(owner, "omar-gold.com", { first: 6499, renewal: 6999 });
+  const quoted = await order(owner.tenantId, o.id);
+  // Operators keep the premium prices the registrar calls must name.
+  assert.deepEqual(quoted.quote.premium, {
+    registerUsd: "55.00",
+    renewUsd: "60.00",
+  });
+  const trainerView = await request(`/web-address/orders/${o.id}`, {
+    cookie: owner.cookie,
+  });
+  assert.doesNotMatch(trainerView.body, /55\.00|60\.00|premium|registerUsd/i);
+  await activate(owner.tenantId, o.id);
+  assert.deepEqual(
+    mock
+      .commands("domains.create")
+      .filter((c) => c.params.DomainName === "omar-gold.com")
+      .map((c) => [c.params.IsPremiumDomain, c.params.PremiumPrice]),
+    [["true", "55.00"]],
+  );
+  // The registrar's USD 55.18 is the cost recorded, in USD.
+  assert.ok(
+    (await journals(owner.tenantId)).some(
+      (l) =>
+        l.source_key.startsWith("web-address-registrar:") &&
+        l.account === "registrar_cost" &&
+        l.amount === 5518 &&
+        l.currency === "USD",
+    ),
+  );
+  // A renewal charged at the agreed USD 69.99 renews at the premium price.
+  const before = await order(owner.tenantId, o.id);
+  await stripeEvent(
+    "invoice.paid",
+    invoice(before, "in_gold_renew_1", 6999, o.sub, "pi_gold_renew_1"),
+  );
+  mock.balance += 200; // the platform's registrar balance, topped up
+  let row = await step(owner.tenantId, o.id);
+  assert.equal(row.renewal_status, "renewed");
+  assert.equal(row.attention, null);
+  assert.deepEqual(
+    mock
+      .commands("domains.renew")
+      .filter((c) => c.params.DomainName === "omar-gold.com")
+      .map((c) => [c.params.IsPremiumDomain, c.params.PremiumPrice]),
+    [["true", "60.00"]],
+  );
+  // Another amount (someone changed the Stripe price) still renews the
+  // domain, but an operator is asked to look.
+  await stripeEvent(
+    "invoice.paid",
+    invoice(row, "in_gold_renew_2", 2499, o.sub, "pi_gold_renew_2"),
+  );
+  row = await order(owner.tenantId, o.id);
+  assert.equal(row.renewal_status, "paid");
+  assert.match(
+    row.attention,
+    /differs from the agreed renewal price of 6999 USD/,
+  );
+});
+
+test("a first year dearer than the renewal is charged as a one-time line on the first invoice", async () => {
+  const owner = omar;
+  // An ending typed by the trainer: registration 30.18, renewal 17.16.
+  mock.prices.io = { register: "30.00", renew: "16.98" };
+  // Not a suggested ending: refused (without asking the registrar) until an
+  // operator allows it.
+  resetRegistrarBudget();
+  const calls = mock.commands().length;
+  const refused = await inRegistrar(() =>
+    request("/web-address/orders", {
+      method: "POST",
+      cookie: owner.cookie,
+      payload: {
+        domain: "omar-first.io",
+        firstYearPriceMinor: 3999,
+        renewalPriceMinor: 2499,
+        currency: "USD",
+        accepted: true,
+      },
+    }),
+  );
+  assert.equal(refused.statusCode, 409, refused.body);
+  assert.equal(refused.json().code, "DOMAIN_UNAVAILABLE");
+  assert.equal(mock.commands().length, calls, "no registrar call");
+  process.env.WEB_ADDRESS_EXTRA_TLDS = "io";
+  const o = await buy(owner, "omar-first.io", { first: 3999, renewal: 2499 });
+  delete process.env.WEB_ADDRESS_EXTRA_TLDS;
+  const checkout = stripe.calls
+    .filter((c) => c.method === "checkout.create")
+    .find((c) => c.params.client_reference_id === o.id)!;
+  assert.deepEqual(
+    checkout.params.line_items.map((item: any) => [
+      item.price_data.unit_amount,
+      item.price_data.currency,
+      !!item.price_data.recurring,
+      item.price_data.product_data.name,
+    ]),
+    [
+      [2499, "usd", true, "Custom web address — yearly"],
+      [1500, "usd", false, "Custom web address — first-year price"],
+    ],
+  );
+  assert.equal(checkout.params.discounts, undefined, "no coupon");
+  const session = [...stripe.sessions.values()].find(
+    (s) => s.client_reference_id === o.id,
+  );
+  assert.equal(session.amount_total, 3999, "USD 39.99 due today");
+  assert.equal(
+    (await order(owner.tenantId, o.id)).status,
+    "paid",
+    "USD 39.99 matched the first year",
+  );
+  delete mock.prices.io;
+});
+
+test("an order quoted in AED before USD pricing keeps its price, checkout, payment check, ledger and view", async () => {
+  const owner = sara;
+  const id = randomUUID();
+  await db.tenant(worker(owner.tenantId), (tx) =>
+    tx.query(
+      "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,mode,registrar,quote,progress,next_attempt_at) VALUES($1,$2,$3,'checkout',$4,$5,'automatic','namecheap',$6,'[]'::jsonb,now()+interval '2 hours')",
+      [
+        id,
+        owner.tenantId,
+        "sara-legacy.com",
+        "legacy-token-" + id.slice(0, 8),
+        JSON.stringify({
+          orderedBy: owner.userId,
+          checkout: {
+            origin: "http://localhost:3000",
+            expiresAt: Math.floor(Date.now() / 1000) + 35 * 60,
+            email: null,
+            customer: null,
+          },
+        }),
+        // The quote shape of orders placed before 28 September 2026.
+        JSON.stringify({
+          priceMinor: 8400,
+          firstYearPriceMinor: 8400,
+          renewalPriceMinor: 8400,
+          currency: "AED",
+          registerUsd: "10.46",
+          renewUsd: "16.06",
+          usdToAed: "3.6725",
+          marginAed: "25",
+          termYears: 1,
+          registrar: "namecheap",
+          registrarSandbox: true,
+        }),
+      ],
+    ),
+  );
+  // Its trainer view keeps AED.
+  const view = await request(`/web-address/orders/${id}`, {
+    cookie: owner.cookie,
+  });
+  assert.deepEqual(
+    [
+      view.json().currency,
+      view.json().firstYearPriceMinor,
+      view.json().renewalPriceMinor,
+    ],
+    ["AED", 8400, 8400],
+  );
+  // Returning to its open checkout sends the same one yearly AED price.
+  const resumed = await request(`/web-address/orders/${id}/checkout`, {
+    method: "POST",
+    cookie: owner.cookie,
+    payload: {},
+  });
+  assert.equal(resumed.statusCode, 200, resumed.body);
+  const checkout = stripe.calls
+    .filter((c) => c.method === "checkout.create")
+    .find((c) => c.params.client_reference_id === id)!;
+  assert.deepEqual(checkout.params.line_items, [
+    {
+      quantity: 1,
+      price_data: {
+        currency: "aed",
+        unit_amount: 8400,
+        recurring: { interval: "year" },
+        product_data: { name: "Custom web address — yearly" },
+      },
+    },
+  ]);
+  assert.equal(checkout.params.discounts, undefined);
+  const legacy = await order(owner.tenantId, id);
+  await stripeEvent("checkout.session.completed", {
+    id: legacy.checkout_session_id,
+    object: "checkout.session",
+    mode: "subscription",
+    status: "complete",
+    client_reference_id: id,
+    metadata: metadata(legacy),
+    subscription: "sub_legacy",
+    customer: "cus_legacy",
+  });
+  await stripeEvent(
+    "invoice.paid",
+    invoice(legacy, "in_legacy_first", 8400, "sub_legacy", "pi_legacy", "aed"),
+  );
+  let row = await order(owner.tenantId, id);
+  assert.equal(row.status, "paid", "AED 84 matched its AED quote");
+  row = await step(owner.tenantId, id);
+  assert.equal(row.status, "owned");
+  const lines = (await journals(owner.tenantId)).filter(
+    (l) =>
+      l.source_key === "web-address-invoice:in_legacy_first" ||
+      (l.source_key.startsWith("web-address-registrar:") &&
+        l.currency === "AED"),
+  );
+  assert.deepEqual(
+    lines.map((l) => [l.account, l.amount, l.currency]),
+    [
+      ["web_address_receivable", 8400, "AED"],
+      ["web_address_revenue", -8400, "AED"],
+      // USD 10.46 at the quote's own rate, rounded up.
+      ["registrar_cost", 3842, "AED"],
+      ["registrar_prepaid", -3842, "AED"],
+    ],
+  );
+  const period = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  const statement = await db.tenant(
+    elevated("provider-callback", {
+      tenantId: owner.tenantId,
+      role: "finance",
+    }),
+    (tx) => financialStatement(tx, period, { platformView: true }),
+  );
+  assert.deepEqual(statement.webAddresses.otherCurrencies, {
+    AED: { paymentsMinor: 8400, refundsMinor: 0, registrarCostMinor: 3842 },
+  });
+  assert.equal(statement.webAddresses.currency, "USD");
 });
 
 test("no web address notice sent to a trainer names the registrar or its cost", async () => {
@@ -1756,4 +2142,201 @@ test("no web address notice sent to a trainer names the registrar or its cost", 
       );
     }
   assert.ok(seen >= 3, "the scenario sent notices");
+});
+
+test("trainer-facing finance never carries the registrar's cost; operators still see it", async () => {
+  // Layla's domain was bought and renewed above: registrar cost journals exist.
+  const period = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  const own = await request("/finance/statements/" + period, {
+    cookie: layla.cookie,
+  });
+  assert.equal(own.statusCode, 200, own.body);
+  assert.doesNotMatch(
+    own.body,
+    /registrar_cost|registrar_prepaid|web-address-registrar|registrarCost/,
+  );
+  assert.equal(
+    own.json().current.otherCurrencies.USD.web_address_receivable > 0,
+    true,
+    "the trainer's own payments are still shown",
+  );
+  const boot = (await request("/bootstrap", { cookie: layla.cookie })).json();
+  assert.ok(boot.finance, "the owner's bootstrap has the finance summary");
+  assert.doesNotMatch(
+    JSON.stringify({ finance: boot.finance, journals: boot.journals }),
+    /registrar_cost|registrar_prepaid|web-address-registrar|namecheap/i,
+  );
+  // Workspace events never name the registrar or carry its cost.
+  const events = JSON.stringify(boot.events);
+  assert.doesNotMatch(events, /namecheap/i);
+  assert.doesNotMatch(events, /"usd":|cost_usd|registerUsd|renewUsd/);
+  const page = await request("/workspace/pages/journals", {
+    cookie: layla.cookie,
+  });
+  assert.equal(page.statusCode, 200, page.body);
+  assert.doesNotMatch(page.body, /web-address-registrar/);
+  // The operator's view of the same workspace keeps the platform's cost.
+  const finance = elevated("provider-callback", {
+    tenantId: layla.tenantId,
+    role: "finance",
+  });
+  const { financeSummary } = await import("../apps/api/src/finance.ts");
+  const platform = await db.tenant(finance, (tx) =>
+    financeSummary(tx, { platformView: true }),
+  );
+  assert.ok(platform.otherCurrencies.USD.registrar_cost > 0);
+  const trainer = await db.tenant(finance, (tx) => financeSummary(tx));
+  assert.equal(trainer.otherCurrencies.USD.registrar_cost, undefined);
+  assert.equal(trainer.accounts.registrar_cost, undefined);
+});
+
+test("a registration cost that rose after payment is held for an operator; Retry buys at that cost", async () => {
+  const nadia = omar;
+  const saved = { ...mock.prices.com };
+  const o = await buy(nadia, "nadia-strength.com");
+  // The first-year promotion ends while the order waits: 20.18 is USD 29.99
+  // under the rule, above the USD 19.99 the trainer paid.
+  mock.prices.com = { register: "20.00", renew: saved.renew };
+  const creates = () =>
+    mock
+      .commands("domains.create")
+      .filter((c) => c.params.DomainName === "nadia-strength.com").length;
+  let row = await step(nadia.tenantId, o.id);
+  assert.equal(row.status, "paid");
+  assert.equal(row.next_attempt_at, null, "waits for an operator");
+  assert.equal(creates(), 0, "nothing bought");
+  assert.match(row.attention, /USD 20\.18 \(quoted USD 10\.46\)/);
+  assert.match(row.attention, /Retry buys it at up to USD 20\.18/);
+  assert.equal(row.evidence.priceHold.usd, "20.1800");
+  // The trainer sees only that the platform team is on it.
+  const view = await request("/web-address/orders/" + o.id, {
+    cookie: nadia.cookie,
+  });
+  assert.equal(view.json().needsReview, true);
+  assert.doesNotMatch(view.body, /20\.18|10\.46|registrar|namecheap/i);
+  // The operator accepts the cost with Retry; the name is bought once.
+  const retry = await request(`/admin/web-addresses/${o.id}/retry`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Accept the registrar's new cost for this order" },
+  });
+  assert.equal(retry.statusCode, 200, retry.body);
+  row = await order(nadia.tenantId, o.id);
+  assert.equal(row.evidence.priceHold, undefined);
+  assert.equal(row.evidence.acceptedCost.usd, "20.1800");
+  // The workspace's own event list never carries the registrar's cost.
+  const boot = (await request("/bootstrap", { cookie: nadia.cookie })).json();
+  assert.doesNotMatch(
+    JSON.stringify(boot.events),
+    /20\.18|10\.46|acceptedCost|priceHold/,
+  );
+  row = await step(nadia.tenantId, o.id);
+  assert.equal(row.status, "owned");
+  assert.equal(creates(), 1);
+  assert.equal(
+    row.evidence.costAlert,
+    undefined,
+    "the accepted cost is no surprise",
+  );
+  mock.prices.com = saved;
+});
+
+test("a registrar charge above what the trainer's price covers is flagged for operators, never shown to the trainer", async () => {
+  const rana = sara;
+  const saved = { ...mock.prices.com };
+  const o = await buy(rana, "rana-fit.com");
+  // The price moves between the check before buying and the purchase itself.
+  const held = holdNext("domains.create");
+  const running = step(rana.tenantId, o.id);
+  await held.reached;
+  mock.prices.com = { register: "20.00", renew: saved.renew };
+  held.release();
+  let row = await running;
+  assert.equal(row.status, "owned", "bought: the trainer paid");
+  assert.equal(row.evidence.costAlert.which, "register");
+  assert.match(
+    row.evidence.costAlert.message,
+    /charged USD 20\.18 for the registration, more than the USD 19\.99/,
+  );
+  mock.prices.com = saved;
+  // Later steps do not clear it; the operator view lists it as attention.
+  row = await step(rana.tenantId, o.id);
+  assert.ok(row.evidence.costAlert);
+  const ops = (
+    await request("/admin/web-addresses", { cookie: admin.cookie })
+  ).json();
+  const listed = ops.orders.find((x: any) => x.id === o.id);
+  assert.match(listed.costAlert, /charged USD 20\.18/);
+  assert.ok(ops.attention >= 1);
+  const view = await request("/web-address/orders/" + o.id, {
+    cookie: rana.cookie,
+  });
+  assert.doesNotMatch(view.body, /20\.18|cost/i);
+  // Retry acknowledges it.
+  await request(`/admin/web-addresses/${o.id}/retry`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Seen: the registrar's price rose" },
+  });
+  assert.equal(
+    (await order(rana.tenantId, o.id)).evidence.costAlert,
+    undefined,
+  );
+});
+
+test("a renewal cost rise is flagged two months ahead and when charged; the domain still renews", async () => {
+  // (Each owner may start 10 checkouts in 10 minutes.)
+  const hala = layla;
+  const saved = { ...mock.prices.com };
+  const o = await buy(hala, "hala-coach.com");
+  let row = await step(hala.tenantId, o.id);
+  for (let i = 0; i < 8 && row.status !== "active"; i++)
+    row = await step(hala.tenantId, o.id);
+  assert.equal(row.status, "active");
+  // Fifty days before expiry the renewal cost is now 30.18: USD 34.99
+  // under the rule, above the USD 24.99 renewal price.
+  const expiry = new Date(Date.now() + 50 * 86400000);
+  expiry.setUTCHours(0, 0, 0, 0);
+  // The registrar's own record says the same (renewals are proven by it).
+  mock.registrations.get("hala-coach.com")!.expires = new Date(expiry);
+  await db.tenant(worker(hala.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=$2,billing_aligned_at=now() WHERE id=$1",
+      [o.id, expiry.toISOString()],
+    ),
+  );
+  mock.prices.com = { register: saved.register, renew: "30.00" };
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE registrar_prices SET fetched_at=now()-interval '2 days' WHERE tld='com'",
+    ),
+  );
+  row = await step(hala.tenantId, o.id);
+  assert.equal(row.evidence.costAlert?.which, "renew_upcoming");
+  assert.match(
+    row.evidence.costAlert.message,
+    /now asks USD 30\.18 for the next renewal, more than the USD 24\.99/,
+  );
+  // Checked once per period.
+  await request(`/admin/web-addresses/${o.id}/retry`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Owner asked about the renewal price" },
+  });
+  row = await step(hala.tenantId, o.id);
+  assert.equal(row.evidence.costAlert, undefined);
+  // The paid renewal goes through at the higher cost, and says so.
+  const sub = "sub_" + o.id.slice(0, 8);
+  await stripeEvent(
+    "invoice.paid",
+    invoice(row, "in_hala_renew", RENEWAL, sub, "pi_hala_renew"),
+  );
+  row = await step(hala.tenantId, o.id);
+  assert.equal(row.renewal_status, "renewed");
+  assert.equal(row.evidence.costAlert?.which, "renew");
+  assert.match(
+    row.evidence.costAlert.message,
+    /charged USD 30\.18 for the renewal/,
+  );
+  mock.prices.com = saved;
 });

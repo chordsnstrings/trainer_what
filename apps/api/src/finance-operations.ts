@@ -219,7 +219,7 @@ export async function closeMonth(
       "Post reviewed usage statements before closing trainer earnings",
     );
   const lines = await tx.query(
-    "SELECT l.account,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.created_at<$1 GROUP BY l.account",
+    "SELECT l.account,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id WHERE j.created_at<$1 AND j.currency='AED' GROUP BY l.account",
     [cutoff.toISOString()],
   );
   const accounts = Object.fromEntries(
@@ -337,7 +337,7 @@ export function financeOperations(
     return db.tenant(a, async (tx) => {
       await event(tx, a, "finance.workspace_inspected", a.tenantId);
       return {
-        summary: await financeSummary(tx),
+        summary: await financeSummary(tx, { platformView: true }),
         unresolvedUsage: await tx.query(
           "SELECT * FROM cost_events WHERE status IN ('reserved','unknown') ORDER BY created_at LIMIT 200",
         ),

@@ -22,7 +22,6 @@ import {
   type WebAddressDeps,
 } from "../apps/api/src/web-address-orders.ts";
 import {
-  clearWebAddressPriceCache,
   resetRegistrarBudget,
 } from "../apps/api/src/web-addresses.ts";
 import {
@@ -77,8 +76,6 @@ const settings: Record<string, string> = {
   WEB_ADDRESS_REGISTRANT_PHONE: "+971.501234567",
   WEB_ADDRESS_REGISTRANT_EMAIL: "domains@trainsyou.example",
   WEB_ADDRESS_TLDS: "com,net",
-  WEB_ADDRESS_MARGIN_AED: "25",
-  WEB_ADDRESS_USD_TO_AED: "3.6725",
   DNS_PROVIDER: "digitalocean",
   DIGITALOCEAN_DNS_TOKEN: TOKEN,
   DNS_RECORD_TTL: "600",
@@ -123,6 +120,10 @@ class FakeStripe {
       this.calls.push({ method: "subscriptions.cancel", params: { id } });
       return { id, status: "canceled" };
     },
+  };
+  // A once-only coupon brings the first invoice to the lower first-year price.
+  coupons = {
+    create: async (params: any) => ({ id: "coupon_" + ++this.n, ...params }),
   };
   invoices = { retrieve: async () => null };
   refunds = {
@@ -334,8 +335,10 @@ async function buyAndRegister(owner: any, domain: string, serveMode?: "site" | "
       cookie: owner.cookie,
       payload: {
         domain,
-        firstYearPriceMinor: 8400,
-        renewalPriceMinor: 8400,
+        // The double's .com: USD 19.99 the first year, 24.99 a renewal.
+        firstYearPriceMinor: 1999,
+        renewalPriceMinor: 2499,
+        currency: "USD",
         accepted: true,
         ...(serveMode ? { serveMode } : {}),
       },
@@ -360,8 +363,8 @@ async function buyAndRegister(owner: any, domain: string, serveMode?: "site" | "
     id: "in_dns_" + o.id.slice(0, 8),
     object: "invoice",
     status: "paid",
-    currency: "aed",
-    amount_paid: 8400,
+    currency: "usd",
+    amount_paid: 1999,
     customer: "cus_" + o.id.slice(0, 8),
     payment_intent: "pi_dns_" + o.id.slice(0, 8),
     parent: {
@@ -387,7 +390,7 @@ let rami: any, huda: any, sami: any, tala: any, wafa: any;
 let laylaOrder = "";
 before(async () => {
   Object.assign(process.env, settings);
-  clearWebAddressPriceCache();
+  resetRegistrarBudget();
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true, providers: { webAddresses: deps } });
   layla = await register("layla");

@@ -2157,7 +2157,9 @@ export async function buildApp(
       tx.query(
         // The platform's registrar cost for the trainer's domain is not the
         // trainer's ledger (docs/features/web-addresses.md).
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
+        // Each line carries its journal's currency: AED, or USD for the
+        // trainer's own web address payments and refunds (migration 071).
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
       ),
     );
     reply
@@ -2165,9 +2167,16 @@ export async function buildApp(
       .header("Content-Disposition", 'attachment; filename="ledger.csv"');
     const cell = (v: any) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
     return [
-      "journal_id,source_key,created_at,account,amount_minor",
+      "journal_id,source_key,created_at,account,amount_minor,currency",
       ...rows.map((r) =>
-        [r.id, r.source_key, r.created_at, r.account, r.amount_minor]
+        [
+          r.id,
+          r.source_key,
+          r.created_at,
+          r.account,
+          r.amount_minor,
+          r.currency,
+        ]
           .map(cell)
           .join(","),
       ),
@@ -2454,7 +2463,7 @@ export async function buildApp(
           return {
             ...(["admin", "finance"].includes(a.platformRole)
               ? {
-                  finance: await financeSummary(tx),
+                  finance: await financeSummary(tx, { platformView: true }),
                   costs: await tx.query(
                     "SELECT task,count(*)::int AS requests,sum(cost_usd) AS cost_usd FROM cost_events GROUP BY task",
                   ),

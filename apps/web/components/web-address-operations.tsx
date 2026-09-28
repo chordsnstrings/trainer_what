@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, day, Status } from "./web-address";
+import { api, day, formatMoney, Status } from "./web-address";
 
 /**
  * Operator-only view of automatic domain orders (super admin, Integration
@@ -21,6 +21,155 @@ const DNS_LABELS: Record<string, string> = {
 type OperatorOrder = Record<string, any> & {
   operations?: Array<Record<string, any>>;
 };
+/**
+ * A quoted price: USD for orders from 28 September 2026 (first year and
+ * renewal separately), AED for orders quoted before (one yearly price).
+ */
+function money(quote: Record<string, any>, which: "first" | "renewal") {
+  const currency = quote.currency === "USD" ? "USD" : "AED";
+  const minor = Number(
+    (which === "first" ? quote.firstYearPriceMinor : quote.renewalPriceMinor) ??
+      quote.priceMinor ??
+      0,
+  );
+  return formatMoney(minor, currency);
+}
+/** One ending trainers can buy, as the price cache holds it (operators only). */
+type EndingRow = {
+  tld: string;
+  suggested: boolean;
+  state: "offered" | "over_cap" | "not_offered" | "unknown";
+  fetchedAt: string | null;
+  reason?: string;
+  registerUsd?: string;
+  renewUsd?: string;
+  firstYearPriceMinor?: number;
+  renewalPriceMinor?: number;
+  firstYearMarginMinor?: number;
+  renewalMarginMinor?: number;
+};
+type PriceData = {
+  registrar: string;
+  testEnvironment: boolean;
+  endings: EndingRow[];
+  refreshed?: Array<{ tld: string; refreshed: boolean; error?: string }>;
+};
+const ENDING_STATE: Record<EndingRow["state"], string> = {
+  offered: "Offered",
+  over_cap: "Hidden: over the price cap",
+  not_offered: "Not sold by the registrar's API",
+  unknown: "Not priced yet",
+};
+const usd = (minor?: number) =>
+  typeof minor === "number" ? formatMoney(minor, "USD") : "";
+/**
+ * Registrar prices per ending, the trainer's two prices under the current
+ * rule and the margin left before Stripe's fees, with a refresh that asks the
+ * registrar again (within the interactive call budget).
+ */
+export function RegistrarPrices({
+  initial = null,
+}: {
+  initial?: PriceData | null;
+}) {
+  const [data, setData] = useState<PriceData | null>(initial),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (initial) return;
+    void api("/admin/web-addresses/prices")
+      .then(setData)
+      .catch((e) => setMessage(e.message));
+  }, [initial]);
+  return (
+    <div className="web-address-prices">
+      <h3>Registrar prices per ending</h3>
+      <Status value={message} />
+      <p className="muted small-label">
+        Margin is the trainer&apos;s price less the registrar&apos;s cost,
+        before Stripe&apos;s fees and any currency conversion. Endings with a
+        thin margin may lose money once those are taken.
+      </p>
+      {data && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ending</th>
+                <th>State</th>
+                <th>Registrar cost (USD, first year / renewal)</th>
+                <th>Trainer pays</th>
+                <th>Margin before Stripe fees</th>
+                <th>Priced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.endings.map((row) => (
+                <tr key={row.tld}>
+                  <td className="ltr-data">
+                    .{row.tld}
+                    {row.suggested ? "" : " (typed only)"}
+                  </td>
+                  <td>
+                    {ENDING_STATE[row.state]}
+                    {row.reason ? `: ${row.reason}` : ""}
+                  </td>
+                  <td>
+                    {row.registerUsd
+                      ? `${row.registerUsd} / ${row.renewUsd}`
+                      : ""}
+                  </td>
+                  <td>
+                    {row.firstYearPriceMinor !== undefined
+                      ? `${usd(row.firstYearPriceMinor)} / ${usd(row.renewalPriceMinor)}`
+                      : ""}
+                  </td>
+                  <td>
+                    {row.firstYearMarginMinor !== undefined
+                      ? `${usd(row.firstYearMarginMinor)} / ${usd(row.renewalMarginMinor)}`
+                      : ""}
+                  </td>
+                  <td>{row.fetchedAt ? day(row.fetchedAt) : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <form
+        className="web-address-row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const reason = String(
+            new FormData(event.currentTarget).get("reason") ?? "",
+          );
+          setBusy(true);
+          setMessage("");
+          void api("/admin/web-addresses/prices/refresh", "POST", { reason })
+            .then((result: PriceData) => {
+              setData(result);
+              const failed = (result.refreshed ?? []).filter(
+                (r) => !r.refreshed,
+              );
+              setMessage(
+                failed.length
+                  ? `Not refreshed: ${failed.map((r) => `.${r.tld} (${r.error ?? "no answer"})`).join(", ")}`
+                  : "Prices refreshed",
+              );
+            })
+            .catch((e) => setMessage(e.message))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <label>
+          Reason (recorded)
+          <input name="reason" required minLength={10} maxLength={500} />
+        </label>
+        <button disabled={busy}>Refresh prices now</button>
+      </form>
+    </div>
+  );
+}
 type OperatorData = {
   root: string | null;
   registrar: string;
@@ -34,8 +183,11 @@ type OperatorData = {
 };
 export function WebAddressOperations({
   initial = null,
+  prices = null,
 }: {
   initial?: OperatorData | null;
+  /** Test state for the registrar price table (fetched otherwise). */
+  prices?: PriceData | null;
 }) {
   const [data, setData] = useState<OperatorData | null>(initial),
     [message, setMessage] = useState(""),
@@ -92,6 +244,7 @@ export function WebAddressOperations({
           Purchases are off: {data.purchaseProblem}
         </p>
       )}
+      <RegistrarPrices initial={prices} />
       {data?.orders.length === 0 && (
         <p className="muted">No automatic domain orders yet.</p>
       )}
@@ -120,6 +273,16 @@ export function WebAddressOperations({
               : ""}
             {order.serve_mode === "forward" ? " · forwards to the subdomain" : ""}
           </p>
+          {order.quote && (
+            <p className="muted">
+              Trainer pays {money(order.quote, "first")} the first year and{" "}
+              {money(order.quote, "renewal")} a year after
+              {order.quote.registerUsd
+                ? ` · registrar cost USD ${order.quote.registerUsd} / ${order.quote.renewUsd}`
+                : ""}
+              {order.quote.premium ? " · premium name" : ""}
+            </p>
+          )}
           {order.evidence?.zoneHeldElsewhere && (
             <p className="muted">
               Another DigitalOcean account holds this domain&apos;s zone, so
@@ -141,6 +304,9 @@ export function WebAddressOperations({
             <p className="badge red">
               {order.attention ?? "A registrar attempt awaits reconciliation."}
             </p>
+          )}
+          {order.costAlert && (
+            <p className="badge amber">{order.costAlert}</p>
           )}
           {order.inFlight && (
             <p className="muted">

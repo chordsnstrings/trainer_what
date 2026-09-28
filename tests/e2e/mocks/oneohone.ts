@@ -78,6 +78,8 @@ export class OneOhOneMock {
   prices: Record<string, { register: string; renew: string; requirements?: string[] }> = {
     com: { register: "14.99", renew: "19.99" },
     fit: { register: "38.99", renew: "48.99" },
+    fitness: { register: "39.99", renew: "49.99" },
+    coach: { register: "64.99", renew: "74.99" },
     ae: { register: "62.99", renew: "71.99" },
     "co.ae": { register: "89.00", renew: "89.00", requirements: ["UAE trade licence"] },
   };
