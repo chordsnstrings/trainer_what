@@ -45,6 +45,22 @@
   gap: 12px;
   margin-block-start: 12px;
 }
+.web-address-serve {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-inline-size: 0;
+}
+.web-address-serve legend {
+  padding-inline: 4px;
+  font-weight: 600;
+}
+.web-address-serve .check-field {
+  overflow-wrap: anywhere;
+}
 .web-address-steps {
   display: flex;
   flex-wrap: wrap;

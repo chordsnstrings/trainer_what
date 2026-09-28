@@ -35,7 +35,16 @@ export const aed = (minor: number) =>
   }).format(minor / 100);
 export const day = (value?: string | null) =>
   value ? new Date(value).toISOString().slice(0, 10) : "";
-const IN_PROGRESS = ["checkout", "paid", "purchasing", "owned", "dns"];
+const IN_PROGRESS = [
+  "checkout",
+  "paid",
+  "purchasing",
+  "owned",
+  "zone",
+  "delegating",
+  "dns",
+];
+export type ServeMode = "site" | "forward";
 const STEPS: Array<[string, string]> = [
   ["paid", "Paid"],
   ["registered", "Registered"],
@@ -76,6 +85,8 @@ export type WebAddressOrder = {
   nextRenewalChargeAt?: string | null;
   progress: Array<{ step: string; at: string }>;
   needsReview: boolean;
+  /** Show the website on the domain, or forward visitors to the subdomain. */
+  serveMode?: ServeMode;
 };
 export type WebAddressState = {
   slug: string;
@@ -151,6 +162,11 @@ export function WebAddressCenter({
         </Panel>
       </>
     );
+  // A bought domain can forward to the platform address when there is one.
+  const forwardTarget =
+    state.subdomain.enabled && state.subdomain.eligible
+      ? state.subdomain.host
+      : null;
   return (
     <div className="stack web-address">
       <Status value={message} />
@@ -236,6 +252,7 @@ export function WebAddressCenter({
           busy={busy}
           testEnvironment={state.purchases.testEnvironment}
           endings={state.purchases.endings}
+          subdomainHost={forwardTarget}
           onError={setMessage}
         />
       ) : (
@@ -247,10 +264,66 @@ export function WebAddressCenter({
         </Panel>
       )}
       {state.orders.map((order) => (
-        <OrderCard key={order.id} order={order} busy={busy} run={run} />
+        <OrderCard
+          key={order.id}
+          order={order}
+          busy={busy}
+          run={run}
+          subdomainHost={forwardTarget}
+        />
       ))}
       {manual}
     </div>
+  );
+}
+
+/**
+ * The two ways a bought domain can work: the website itself on the domain
+ * (default), or a permanent redirect to the platform address. www always
+ * goes to the domain.
+ */
+export function ServeModeChoice({
+  value,
+  subdomainHost,
+  name,
+  disabled,
+  onChange,
+}: {
+  value: ServeMode;
+  subdomainHost: string | null;
+  name: string;
+  disabled?: boolean;
+  onChange: (mode: ServeMode) => void;
+}) {
+  if (!subdomainHost) return null;
+  return (
+    <fieldset className="web-address-serve" disabled={disabled}>
+      <legend>How the domain works</legend>
+      <label className="check-field">
+        <input
+          type="radio"
+          name={name}
+          value="site"
+          checked={value === "site"}
+          onChange={() => onChange("site")}
+        />{" "}
+        Show my site on this domain
+      </label>
+      <label className="check-field">
+        <input
+          type="radio"
+          name={name}
+          value="forward"
+          checked={value === "forward"}
+          onChange={() => onChange("forward")}
+        />{" "}
+        Forward to my <span className="ltr-data">{subdomainHost}</span> address
+      </label>
+      <p className="muted small-label">
+        Forwarding keeps the page path, so links to any page still work.
+        Addresses starting with www always go to the domain itself.
+      </p>
+    </fieldset>
   );
 }
 
@@ -258,17 +331,20 @@ function DomainSearch({
   busy,
   testEnvironment,
   endings,
+  subdomainHost,
   onError,
 }: {
   busy: boolean;
   testEnvironment: boolean;
   endings: string[];
+  subdomainHost: string | null;
   onError: (message: string) => void;
 }) {
   const [results, setResults] = useState<Result[]>([]),
     [searching, setSearching] = useState(false),
     [chosen, setChosen] = useState<Result | null>(null),
-    [paying, setPaying] = useState(false);
+    [paying, setPaying] = useState(false),
+    [serveMode, setServeMode] = useState<ServeMode>("site");
   const search = async (q: string) => {
     setSearching(true);
     setChosen(null);
@@ -291,6 +367,7 @@ function DomainSearch({
         firstYearPriceMinor: result.firstYearPriceMinor,
         renewalPriceMinor: result.renewalPriceMinor,
         accepted: true,
+        ...(subdomainHost ? { serveMode } : {}),
       });
       window.location.assign(data.url);
     } catch (e: any) {
@@ -396,6 +473,13 @@ function DomainSearch({
             owner details (WHOIS privacy), DNS and the security certificate. The
             platform registers and holds the domain for your website.
           </p>
+          <ServeModeChoice
+            value={serveMode}
+            subdomainHost={subdomainHost}
+            name="serve-mode-new"
+            disabled={paying}
+            onChange={setServeMode}
+          />
           <label className="check-field">
             <input type="checkbox" required /> I agree to pay{" "}
             {aed(chosen.firstYearPriceMinor)} now and{" "}
@@ -430,12 +514,22 @@ export function OrderCard({
   order,
   busy,
   run,
+  subdomainHost = null,
 }: {
   order: WebAddressOrder;
   busy: boolean;
   run: (fn: () => Promise<unknown>, done?: string) => Promise<void>;
+  /** The workspace subdomain a domain can forward to, when there is one. */
+  subdomainHost?: string | null;
 }) {
   const reached = new Set(order.progress.map((p) => p.step));
+  const mode: ServeMode = order.serveMode === "forward" ? "forward" : "site";
+  const choosable = ![
+    "checkout",
+    "cancelled",
+    "failed",
+    "expired",
+  ].includes(order.status);
   return (
     <Panel title={order.hostname}>
       <p>
@@ -480,7 +574,33 @@ export function OrderCard({
           >
             https://{order.hostname}
           </a>
+          {mode === "forward" && subdomainHost && (
+            <span className="muted">
+              {" "}
+              forwards to <span className="ltr-data">{subdomainHost}</span>
+            </span>
+          )}
         </p>
+      )}
+      {choosable && (
+        <ServeModeChoice
+          value={mode}
+          subdomainHost={subdomainHost}
+          name={"serve-mode-" + order.id}
+          disabled={busy}
+          onChange={(next) => {
+            if (next === mode) return;
+            void run(
+              () =>
+                api(`/web-address/orders/${order.id}/serve-mode`, "POST", {
+                  mode: next,
+                }),
+              next === "forward"
+                ? "Your domain now forwards to your platform address."
+                : "Your domain now shows your site.",
+            );
+          }}
+        />
       )}
       {order.expiresAt && (
         <p className="muted">
@@ -526,7 +646,7 @@ export function OrderCard({
           </button>
         </div>
       )}
-      {["owned", "dns", "active"].includes(order.status) &&
+      {["owned", "zone", "delegating", "dns", "active"].includes(order.status) &&
         order.billingStatus !== "canceled" && (
           <button
             type="button"

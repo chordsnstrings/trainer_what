@@ -16,7 +16,9 @@
  *   and opening a training hold.
  * - Web addresses (docs/features/web-addresses.md): the automatic subdomain
  *   through the coach-domain edge, domain search, purchase and yearly renewal
- *   through the Namecheap double, never naming the registrar to the trainer.
+ *   through the Namecheap double, the domain's zone at the DigitalOcean DNS
+ *   double and its delegation there, and the forwarding choice, never naming
+ *   the registrar or the DNS host to the trainer.
  * - Marketing site (docs/features/marketing-site.md): key pages, sitemap,
  *   llms.txt and the follower calculator's model.
  *
@@ -247,26 +249,41 @@ async function webAddressLifecycle(ctx: E2EContext, layla: TrainerSeed, order: P
     return view.body.order ?? view.body;
   };
   let expiresAt = "";
-  await r.step(T, "Domain registered and set up automatically", `${order.domain}: the worker registers it for the platform company with privacy and writes its DNS records`, async () => {
-    const dns = await ctx.waitUntil("the order reaches DNS set-up", async () => {
+  const zones = ctx.mocks.digitalocean;
+  await r.step(T, "Domain registered and set up automatically", `${order.domain}: the worker registers it for the platform company with privacy, creates its zone and A records at the DigitalOcean DNS double, then delegates it there through the registrar`, async () => {
+    const dns = await ctx.waitUntil("delegation is visible and the order reaches the DNS check", async () => {
       const o = await orderView();
       return o.status === "dns" && o;
     }, 180000);
     const steps = dns.progress.map((p: any) => p.step);
-    for (const step of ["paid", "purchasing", "registered", "dns"]) assert.ok(steps.includes(step), `progress ${steps.join(",")}`);
+    for (const step of ["paid", "purchasing", "registered", "zone", "connecting", "dns"])
+      assert.ok(steps.includes(step), `progress ${steps.join(",")}`);
+    assert.doesNotMatch(JSON.stringify(dns), /digitalocean|nameserver/i, "the trainer never sees the DNS host");
     const registration = nc.registrations.get(order.domain);
     assert.ok(registration, "registered at the registrar double");
     assert.equal(registration.whoisguard, true, "WHOIS privacy");
     assert.equal(registration.contact.FirstName, "Sandbox", "the platform company is the registrant");
     const created = nc.commands("domains.create").find((c) => c.params.DomainName === order.domain);
     assert.equal(created?.params.RegistrantOrganizationName, "Sandbox Platform Company LLC");
-    assert.deepEqual(
-      registration.hosts.map((h) => `${h.name} ${h.type} ${h.address}`).sort(),
-      [`@ A ${WEB_ADDRESS_SANDBOX_IPV4.target}`, `www A ${WEB_ADDRESS_SANDBOX_IPV4.target}`],
-    );
+    // The zone holds A records for the domain and www only: never a wildcard.
+    assert.deepEqual(zones.view(order.domain), [
+      `@ A ${WEB_ADDRESS_SANDBOX_IPV4.target}`,
+      `www A ${WEB_ADDRESS_SANDBOX_IPV4.target}`,
+    ]);
+    // Delegated to DigitalOcean after the zone existed; registrar host records untouched.
+    assert.deepEqual(registration.nameservers, ["ns1.digitalocean.com", "ns2.digitalocean.com", "ns3.digitalocean.com"]);
+    assert.equal(nc.commands("domains.dns.setHosts").filter((c) => `${c.params.SLD}.${c.params.TLD}` === order.domain).length, 0);
     expiresAt = dns.expiresAt;
     assert.ok(Date.parse(expiresAt) > Date.now() + 360 * 86400000, "registered for a year");
-    return `${steps.join(" → ")}; expires ${expiresAt.slice(0, 10)}; the name is not published to the DNS double, so the Live step (DNS check and HTTPS) stays pending in the sandbox`;
+    return `${steps.join(" → ")}; expires ${expiresAt.slice(0, 10)}; the name resolves to the sandbox target address, which no edge serves, so the Live step (HTTPS) stays pending in the sandbox`;
+  });
+  await r.step(T, "Forward the domain to the workspace address", `${order.domain}: the trainer switches between showing the site and a 301 to the subdomain`, async () => {
+    const forward = await t.post(`/api/v1/web-address/orders/${order.orderId}/serve-mode`, { mode: "forward" });
+    assert.equal(forward.serveMode, "forward");
+    const site = await t.post(`/api/v1/web-address/orders/${order.orderId}/serve-mode`, { mode: "site" });
+    assert.equal(site.serveMode, "site");
+    assertNoRegistrar(JSON.stringify(site), "serve mode answer");
+    return "forward, then site";
   });
   if (!expiresAt) return;
   await r.step(T, "Domain renews every year", `${order.domain}: the yearly invoice is paid at the Stripe double and the worker renews it at the registrar once`, async () => {
@@ -288,7 +305,9 @@ async function webAddressLifecycle(ctx: E2EContext, layla: TrainerSeed, order: P
     const ops = await ctx.admin.get("/api/v1/admin/web-addresses");
     const text = JSON.stringify(ops);
     assert.ok(text.includes(order.domain), text.slice(0, 300));
-    for (const kind of ["register", "set_hosts", "renew"]) assert.ok(text.includes(kind), `${kind} in the operator view`);
+    for (const kind of ["register", "create_zone", "set_records", "set_nameservers", "renew"])
+      assert.ok(text.includes(kind), `${kind} in the operator view`);
+    assert.ok(text.includes('"dns_provider":"digitalocean"'), "the operator sees the DNS host");
   });
 }
 

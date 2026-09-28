@@ -534,7 +534,9 @@ export async function verifyRuntimeAccess(client) {
       },
       "Tenant actors must not reassign or create domain mappings",
     );
-    for (const column of ["hostname", "tenant_id", "verified_at"]) {
+    // redirect (070) decides whether a mapped name forwards elsewhere: only
+    // the service sets it, from the owner's audited choice.
+    for (const column of ["hostname", "tenant_id", "verified_at", "redirect"]) {
       const [r] = await query(
         "SELECT has_column_privilege(current_user,'domain_mappings',$1,'UPDATE') AS allowed",
         [column],

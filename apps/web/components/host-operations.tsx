@@ -647,6 +647,208 @@ export function AddressChangeProgress({
   );
 }
 
+type PlatformDnsPlan = {
+  zone: string | null;
+  allowedZones: string[];
+  provider: string;
+  serverIpv4: string | null;
+  zonePresent: boolean | null;
+  records: Array<{ name: string; type: string; data: string; ttl: number }>;
+  changes: Array<{
+    action: string;
+    name: string;
+    type: string;
+    data: string;
+    from?: string;
+  }>;
+  problems: Array<{ key: string; level: string; message: string }>;
+  repairable: boolean;
+  ready: boolean;
+  planHash: string | null;
+};
+const changeText: Record<string, string> = {
+  create_zone: "Create the zone",
+  create: "Create",
+  update: "Change",
+  delete: "Remove",
+};
+/**
+ * Check and repair platform DNS: A records for the platform root domain,
+ * www and * at the DNS host, pointing at this server. Offered before the
+ * platform address change, which then only verifies DNS.
+ */
+export function PlatformDnsRepair({
+  data,
+  busy,
+  run,
+}: {
+  data: Snapshot;
+  busy: boolean;
+  run: (fn: () => Promise<string | void>) => Promise<void>;
+}) {
+  const [root, setRoot] = useState(data.address?.rootDomain ?? ""),
+    [plan, setPlan] = useState<PlatformDnsPlan | null>(null),
+    [reason, setReason] = useState("");
+  const check = async () => {
+    const next = await call<PlatformDnsPlan>("/platform-dns/check", {
+      rootDomain: root.trim() || null,
+    });
+    setPlan(next);
+    return next;
+  };
+  return (
+    <section className="card host-ops" aria-label="Platform DNS">
+      <h2>Check and repair platform DNS</h2>
+      <p className="muted">
+        Makes the platform&apos;s own domain point at this server: A records for
+        the domain, www and * (every workspace address) at the DNS host. It
+        changes only those records of the platform zone, removes AAAA or CNAME
+        records on those three names, and reports CAA and DNSSEC problems. Run
+        it before changing the platform address.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(async () => {
+            await check();
+          });
+        }}
+      >
+        <fieldset disabled={busy}>
+          <label className="field">
+            <span>Platform root zone</span>
+            <input
+              placeholder="trainsyou.com"
+              value={root}
+              onChange={(e) => setRoot(e.target.value)}
+            />
+          </label>
+          <button className="button secondary">Check platform DNS</button>
+        </fieldset>
+      </form>
+      {plan && (
+        <div role="status" className="host-address-result">
+          <p>
+            <Status
+              level={plan.ready ? "ok" : plan.repairable ? "warning" : "critical"}
+              label={
+                plan.ready
+                  ? "Records are right"
+                  : plan.repairable
+                    ? `${plan.changes.length} change${plan.changes.length === 1 ? "" : "s"} to make`
+                    : "Cannot repair yet"
+              }
+            />{" "}
+            <span className="host-wrap">
+              {plan.zone ?? "No zone"}
+              {plan.serverIpv4 ? ` → ${plan.serverIpv4}` : ""}
+            </span>
+          </p>
+          {plan.records.length > 0 && (
+            <table className="host-dns">
+              <caption>Records on the managed names now</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plan.records.map((r, i) => (
+                  <tr key={`${r.name}-${r.type}-${i}`}>
+                    <td>{r.name}</td>
+                    <td>{r.type}</td>
+                    <td className="host-wrap">{r.data}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {plan.changes.length > 0 && (
+            <ul className="host-checks">
+              {plan.changes.map((c, i) => (
+                <li key={`${c.action}-${c.name}-${c.type}-${i}`}>
+                  <strong>{changeText[c.action] ?? c.action}</strong>{" "}
+                  <span className="host-wrap">
+                    {c.action === "create_zone"
+                      ? c.name
+                      : `${c.name} ${c.type} ${c.data}`}
+                    {c.from ? ` (was ${c.from})` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <ul className="host-checks">
+            {plan.problems.map((p) => (
+              <li key={p.key + p.message}>
+                <Status
+                  level={
+                    p.level === "error"
+                      ? "critical"
+                      : p.level === "warning"
+                        ? "warning"
+                        : "info"
+                  }
+                  label={p.level}
+                />{" "}
+                <span className="host-wrap">{p.message}</span>
+              </li>
+            ))}
+          </ul>
+          {plan.repairable && plan.changes.length > 0 && plan.planHash && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run(async () => {
+                  try {
+                    const result = await call<{
+                      applied: {
+                        created: number;
+                        updated: number;
+                        deleted: number;
+                        zoneCreated: boolean;
+                      };
+                      plan: PlatformDnsPlan;
+                    }>("/platform-dns/repair", {
+                      rootDomain: plan.zone,
+                      planHash: plan.planHash,
+                      reason,
+                    });
+                    setPlan(result.plan);
+                    setReason("");
+                    const a = result.applied;
+                    return `Platform DNS repaired: ${a.zoneCreated ? "zone created, " : ""}${a.created} created, ${a.updated} changed, ${a.deleted} removed. Public resolvers may keep old answers for up to the records' TTL.`;
+                  } catch (error) {
+                    // The zone may have changed meanwhile: show the plan as it is now.
+                    await check().catch(() => {});
+                    throw error;
+                  }
+                });
+              }}
+            >
+              <fieldset disabled={busy}>
+                <label className="field">
+                  <span>Reason (recorded in the audit log)</span>
+                  <input
+                    required
+                    minLength={10}
+                    maxLength={500}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </label>
+                <button className="button">Repair platform DNS</button>
+              </fieldset>
+            </form>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PlatformAddressChange({
   data,
   busy,
@@ -1195,6 +1397,7 @@ export function HostOperations() {
               </fieldset>
             </form>
           </section>
+          <PlatformDnsRepair data={data} busy={busy} run={run} />
           <PlatformAddressChange
             data={data}
             busy={busy}

@@ -91,6 +91,49 @@ export function movedHostLocation(
     return null;
   }
 }
+/**
+ * Where a bought domain's page request redirects, from the API's host
+ * answer: only an https origin (no port, path or credentials) that is either
+ * a workspace subdomain (one label) of the configured platform root, or the
+ * domain itself when the request came to its www name. Anything else is
+ * ignored and the site is served.
+ */
+export function forwardLocation(
+  redirect: unknown,
+  host: string,
+  rootDomain: string | undefined,
+): string | null {
+  if (typeof redirect !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(redirect);
+  } catch {
+    return null;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.origin !== redirect ||
+    url.port ||
+    url.username ||
+    url.password
+  )
+    return null;
+  const target = url.hostname.toLowerCase();
+  const current = host.toLowerCase().replace(/:\d+$/, "");
+  if (current.startsWith("www.") && target === current.slice(4))
+    return url.origin;
+  const root = (rootDomain ?? "").trim().toLowerCase().replace(/\.$/, "");
+  if (!root || !target.endsWith("." + root) || target === current) return null;
+  const label = target.slice(0, -(root.length + 1));
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+    ? url.origin
+    : null;
+}
+/**
+ * A forwarded domain's permanent redirect is cached for an hour only, so
+ * switching back to showing the site takes effect within the hour.
+ */
+export const FORWARD_CACHE_CONTROL = "public, max-age=3600";
 export function customHostPath(path: string, slug: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
   // Crawler files describe the connected coach website itself.

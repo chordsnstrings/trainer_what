@@ -19,6 +19,9 @@ export class RegistrarMock {
   };
   balanceUsd = "200.00";
   records = new Map<string, Array<{ type: string; name: string; value: string }>>();
+  /** Custom nameservers per domain; absent while the registrar's own DNS is used. */
+  nameservers = new Map<string, string[]>();
+  onNameservers?: (domain: string, nameservers: string[] | null) => void;
   /** Publishes saved records to the DNS double, as the registrar's name servers would. */
   onRecords?: (domain: string, records: Array<{ type: string; name: string; value: string }>) => void;
   constructor(
@@ -96,6 +99,32 @@ export class RegistrarMock {
     s.route("GET", "/v1/account", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();
       return { body: { balanceUsd: this.balanceUsd } };
+    });
+    const nameservers = (domain: string) => ({
+      domain,
+      nameservers: this.nameservers.get(domain) ?? ["ns1.registrar.test", "ns2.registrar.test"],
+      custom: this.nameservers.has(domain),
+    });
+    s.route("GET", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      return { body: nameservers(r.params.domain) };
+    });
+    s.route("PUT", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      const list = (r.json?.nameservers ?? []).map((n: string) => String(n).toLowerCase());
+      if (list.length < 2) return { status: 422, body: { error: "at least two nameservers" } };
+      this.nameservers.set(r.params.domain, list);
+      this.onNameservers?.(r.params.domain, list);
+      return { body: nameservers(r.params.domain) };
+    });
+    s.route("DELETE", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      this.nameservers.delete(r.params.domain);
+      this.onNameservers?.(r.params.domain, null);
+      return { body: nameservers(r.params.domain) };
     });
     s.route("PUT", "/v1/domains/:domain/records", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();

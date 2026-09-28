@@ -176,6 +176,7 @@ export function integrationCapability(
     const configured =
       has(...contact) &&
       (registrar === "generic" ||
+        (registrar === "101domain" && has("REGISTRAR_101DOMAIN_API_KEY")) ||
         (registrar === "namecheap" &&
           has(
             "NAMECHEAP_API_USER",
@@ -187,6 +188,13 @@ export function integrationCapability(
       configured,
       approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
     };
+  }
+  if (id === "dns_hosting") {
+    // The registrar's own DNS needs nothing; DigitalOcean needs its token.
+    const configured =
+      (config.DNS_PROVIDER || "registrar").trim() !== "digitalocean" ||
+      has("DIGITALOCEAN_DNS_TOKEN");
+    return { configured, approved: configured };
   }
   if (id === "domains") {
     const configured =
@@ -879,12 +887,33 @@ INTEGRATION_CATALOG.push({
       defaultValue: "namecheap",
       options: [
         { value: "namecheap", label: "Namecheap" },
+        { value: "101domain", label: "101domain" },
         {
           value: "generic",
           label: "Generic registrar API (Custom domains settings)",
         },
       ],
     }),
+    field("REGISTRAR_101DOMAIN_API_KEY", "101domain API key", "secret", {
+      help: "Created by the account's primary user (two-factor sign-in required) under Developer Tools, with the domains, DNS and finance read and write scopes. It is shown once and expires after at most a year.",
+    }),
+    field(
+      "REGISTRAR_101DOMAIN_KEY_EXPIRES",
+      "101domain API key expiry date (YYYY-MM-DD)",
+      "text",
+      {
+        help: "The connection check warns 30 days before the key expires.",
+      },
+    ),
+    field(
+      "REGISTRAR_101DOMAIN_ORDERING",
+      "101domain registration and renewal API verified",
+      "boolean",
+      {
+        defaultValue: "false",
+        help: "101domain has announced but not yet published registration and renewal in its API. Switch this on only after checking those endpoints against its live API reference; until then no domain is bought through 101domain and renewals rely on its auto-renewal.",
+      },
+    ),
     field("NAMECHEAP_API_USER", "Namecheap API user", "text"),
     field("NAMECHEAP_API_KEY", "Namecheap API key", "secret"),
     field("NAMECHEAP_USERNAME", "Namecheap account username", "text"),
@@ -992,6 +1021,43 @@ INTEGRATION_CATALOG.push({
   ],
 });
 
+/** DNS hosting for bought trainer domains and the platform root domain. */
+INTEGRATION_CATALOG.push({
+  id: "dns_hosting",
+  name: "DNS hosting",
+  category: "branding",
+  implemented: true,
+  description:
+    "DNS zones for bought trainer domains and the platform root domain, set up automatically.",
+  setupNotes:
+    "With DigitalOcean DNS, every bought domain gets its own zone with A records for the domain and www (never a wildcard), and its nameservers are then pointed at ns1, ns2 and ns3.digitalocean.com; without it, the registrar's own DNS holds the records. The connection check lists at most one domain of the account and says how many zones the token can reach: a DigitalOcean token reaches every domain of its team, so a dedicated team for the platform's domains is recommended. The platform only ever changes the zone of a domain it bought and confirmed, and the platform root zone below; a zone is kept after a domain lapses and deleted only once nothing delegates the name to DigitalOcean any more, so no other account can take it over. Token scopes needed: domain create, read, update and delete. Credentials stay in these encrypted settings, never in the repository.",
+  fields: [
+    field("DNS_PROVIDER", "DNS provider", "select", {
+      required: true,
+      defaultValue: "registrar",
+      options: [
+        { value: "registrar", label: "The registrar's own DNS" },
+        { value: "digitalocean", label: "DigitalOcean DNS" },
+      ],
+    }),
+    field("DIGITALOCEAN_DNS_TOKEN", "DigitalOcean API token", "secret", {
+      help: "A personal access token with the domain scopes (create, read, update, delete).",
+    }),
+    field(
+      "DIGITALOCEAN_DNS_TOKEN_EXPIRES",
+      "Token expiry date (YYYY-MM-DD)",
+      "text",
+      { help: "Optional. The connection check warns 30 days before." },
+    ),
+    field("DNS_PLATFORM_ZONE", "Platform root zone", "text", {
+      help: "The platform's own domain (for example trainsyou.com) whose A records Check and repair platform DNS may create: @, www and *. Only this zone and PLATFORM_ROOT_DOMAIN are ever changed there.",
+    }),
+    field("DNS_RECORD_TTL", "Record TTL (seconds)", "number", {
+      defaultValue: "1800",
+    }),
+  ],
+});
+
 export class ConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -1075,7 +1141,20 @@ export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
     FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
     COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
     COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+    DNS_RECORD_TTL: [30, 86400],
   };
+/** A YYYY-MM-DD calendar date. */
+function calendarDate(text: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const date = new Date(text + "T00:00:00Z");
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(text);
+}
+/** Days until a YYYY-MM-DD expiry (negative once passed), or null. */
+export function daysUntil(date: string | undefined, now = Date.now()) {
+  const text = date?.trim() ?? "";
+  if (!calendarDate(text)) return null;
+  return Math.floor((Date.parse(text + "T00:00:00Z") - now) / 86400000);
+}
 export function validateIntegrationValues(
   id: string,
   values: Record<string, unknown>,
@@ -1188,6 +1267,21 @@ export function validateIntegrationValues(
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
       if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
         throw new ConfigurationError(`${entry.label} must be at most 10000`);
+      if (
+        (key === "DIGITALOCEAN_DNS_TOKEN_EXPIRES" ||
+          key === "REGISTRAR_101DOMAIN_KEY_EXPIRES") &&
+        !calendarDate(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be a date such as 2027-09-28`);
+      if (
+        key === "DNS_PLATFORM_ZONE" &&
+        !/^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,63}$/i.test(
+          text.replace(/\.$/, ""),
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a plain domain name such as trainsyou.com`,
+        );
       if (
         /^FOLLOWER_(REACH_|LINK_CLICK_|PURCHASE_|ENGAGEMENT_BENCHMARK)/.test(
           key,
@@ -1446,6 +1540,59 @@ export async function testIntegration(
       const modeNote = modeProblem
         ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
         : "";
+      if (registrar === "101domain") {
+        const { OneOhOneRegistrar, registrarPurchaseProblem } = await import(
+          "./registrar.ts"
+        );
+        if (!fields.REGISTRAR_101DOMAIN_API_KEY?.trim())
+          return {
+            status: "failed",
+            message: "101domain needs its API key.",
+            checkedAt,
+          };
+        const expiresIn = daysUntil(fields.REGISTRAR_101DOMAIN_KEY_EXPIRES);
+        if (expiresIn !== null && expiresIn < 0)
+          return {
+            status: "failed",
+            message:
+              "The 101domain API key expired; create a new key and save it here.",
+            checkedAt,
+          };
+        try {
+          // Read-only: the account balance. Nothing is bought.
+          const balance = await new OneOhOneRegistrar(
+            fields.REGISTRAR_101DOMAIN_API_KEY.trim(),
+          ).balance();
+          const ordering = registrarPurchaseProblem(fields);
+          return {
+            status: "verified",
+            message:
+              "101domain API access verified with a balance read. No domain was bought." +
+              (ordering ? " " + ordering : "") +
+              (expiresIn !== null && expiresIn <= 30
+                ? ` The API key expires in ${expiresIn} day${expiresIn === 1 ? "" : "s"}; create a new one before then.`
+                : "") +
+              modeNote,
+            checkedAt,
+            details: {
+              currency: balance.currency,
+              availableBalance: balance.available,
+              ordering: !ordering,
+              paymentMode: stripeMode ?? "unknown",
+              modeMismatch: !!modeProblem,
+            },
+          };
+        } catch (error) {
+          return {
+            status: "failed",
+            message:
+              error instanceof RegistrarError && error.outcome === "definitive"
+                ? `101domain refused the check: ${error.message}. Check the key, its finance read scope and its expiry.`
+                : "101domain could not be reached. No domain was bought.",
+            checkedAt,
+          };
+        }
+      }
       if (registrar !== "namecheap")
         return {
           status: "validated",
@@ -1485,6 +1632,53 @@ export async function testIntegration(
             error instanceof RegistrarError && error.outcome === "definitive"
               ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
               : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
+    if (id === "dns_hosting") {
+      if ((fields.DNS_PROVIDER || "registrar").trim() !== "digitalocean")
+        return {
+          status: "validated",
+          message:
+            "Bought domains use the registrar's own DNS; there is no DNS host to check.",
+          checkedAt,
+        };
+      const expiresIn = daysUntil(fields.DIGITALOCEAN_DNS_TOKEN_EXPIRES);
+      if (expiresIn !== null && expiresIn < 0)
+        return {
+          status: "failed",
+          message:
+            "The DigitalOcean token expired; create a new token and save it here.",
+          checkedAt,
+        };
+      const { DigitalOceanDns, DnsError } = await import("./dns-hosting.ts");
+      try {
+        // Read-only: lists at most one domain of the account and reads the
+        // number of zones the token reaches. No zone or record changes.
+        const zones = await new DigitalOceanDns(fields.DIGITALOCEAN_DNS_TOKEN, {
+          mayManage: () => false,
+        }).accountZoneCount();
+        return {
+          status: "verified",
+          message:
+            `DigitalOcean DNS access verified; the token reaches ${zones} zone${zones === 1 ? "" : "s"}. The platform only ever changes zones of domains it bought and the platform root zone.` +
+            (zones > 1
+              ? " A DigitalOcean token reaches every domain of its team: keep the platform's domains in a dedicated team so this token cannot reach anything else."
+              : "") +
+            (expiresIn !== null && expiresIn <= 30
+              ? ` The token expires in ${expiresIn} day${expiresIn === 1 ? "" : "s"}; create a new one before then.`
+              : ""),
+          checkedAt,
+          details: { zonesVisible: zones },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message:
+            error instanceof DnsError && error.outcome === "definitive"
+              ? `DigitalOcean refused the check: ${error.message}. Check the token and its domain read scope.`
+              : "DigitalOcean could not be reached. Nothing was changed.",
           checkedAt,
         };
       }

@@ -66,6 +66,8 @@ Followers visiting a coach's connected domain get a valid certificate, where bef
 | `POST /api/v1/admin/infrastructure/host/actions` | Super admin, fresh MFA, current admin in DB | `{requestId, action, target?, parameters?, reason}` → signed request; `parameters` (`{url, rootDomain?}`) only and always for `change_platform_address`; 400 validation, `HOST_ACTION_PARAMETERS`, `PLATFORM_ADDRESS_INVALID`, `PLATFORM_ADDRESS_UNCHANGED`, 409 `INTENT_CONFLICT`/`HOST_ACTION_OPEN`, 429 `HOST_ACTION_RATE`, 503 `HOST_SIGNING_UNAVAILABLE` |
 | `POST /api/v1/admin/infrastructure/host/actions/:id/cancel` | Super admin, fresh MFA | `{reason}`; only `pending` |
 | `POST /api/v1/admin/infrastructure/platform-address/check` | Super admin, fresh MFA | `{url, rootDomain?}` → `{valid, origin, current, rootDomain, currentRootDomain, changed, serverIpv4, resolution[], checks[], providerUpdates[], procedure[]}` |
+| `POST /api/v1/admin/infrastructure/platform-dns/check` | Super admin, fresh MFA | `{rootDomain?}` → read-only plan `{zone, allowedZones, provider, serverIpv4, zonePresent, records[], changes[], problems[], repairable, ready, planHash}`; audited `infrastructure.platform_dns.checked` |
+| `POST /api/v1/admin/infrastructure/platform-dns/repair` | Super admin, fresh MFA | `{rootDomain?, planHash, reason}` → `{applied, plan}`; 409 `PLATFORM_DNS_CHANGED` (with the new plan), `PLATFORM_DNS_BLOCKED`, `ZONE_HELD_ELSEWHERE`; 502 `DNS_HOST`; audited `infrastructure.platform_dns.repaired`; 6 per 10 minutes |
 | `GET /api/v1/internal/tls/ask?domain=&token=` | The Caddy edge only | 200 when a certificate may be issued, 404 otherwise; 400 for an invalid domain, 403 for a bad token, 503 without the secret |
 
 The ask endpoint is protected in several layers:
@@ -183,6 +185,40 @@ https:// {
   4. Re-run the runtime-role grants (`infra/runtime-role.sql`, as the controller does after migrations) and request "Re-apply runtime settings".
   5. Reconcile provider receipts and journals as `docs/DEPLOYMENT.md` requires.
 - **Pre-deployment dumps.** The existing plaintext dumps in `backups/<ns>.sql` (mode 600) are unchanged. They are a fast rollback aid, and existing tests cover them.
+
+## Platform DNS: Check and repair (stage 2026-09-28h, branch `core/dns-automation`)
+
+Owner direction (28 September 2026): DNS for the platform root is automated too. Super admin →
+Host and backups → **Check and repair platform DNS** sits directly above "Change the platform
+address" and is meant to run first; the address change then only has to verify DNS.
+
+- **What it manages.** In the platform root zone at the DNS host (DigitalOcean DNS, Settings → DNS
+  hosting): A `@`, A `www` and A `*` pointing at this server's public IPv4 from the **verified**
+  host controller report, with the configured TTL. AAAA and CNAME records on those three names
+  are removed (the server has no IPv6 address; a CNAME would send the name elsewhere). Nothing
+  else in the zone changes, and the zone is never deleted. A missing zone is created (a zone
+  another DigitalOcean account holds is refused with `ZONE_HELD_ELSEWHERE`).
+- **Which zone.** Only `PLATFORM_ROOT_DOMAIN` or the platform root zone saved in Settings → DNS
+  hosting (`DNS_PLATFORM_ZONE`, useful before the address change sets the root). Any other name
+  is refused before a request reaches DigitalOcean; the adapter's zone guard enforces the same
+  for every call, so the other domains of the owner's DigitalOcean team (the token reaches them
+  all) are never read or changed.
+- **Check (read-only).** Lists the records on the managed names (and CAA/NS), the planned changes,
+  and problems: zone not allowed, DNS host not configured, server IPv4 not reported (errors that
+  block the repair); a CAA record that allows neither `letsencrypt.org` nor `zerossl.com`, and a DS
+  (DNSSEC) record at the registry (DigitalOcean does not sign zones) as errors the repair does not
+  fix; names with records of other types but no A record (the wildcard does not answer for them,
+  so a workspace with that name would not resolve) and a zone not delegated to DigitalOcean as
+  warnings. The result carries a `planHash` of the zone, the address and the changes.
+- **Repair.** Requires the same `planHash` (409 `PLATFORM_DNS_CHANGED` with the new plan when
+  the zone changed since the check, so nothing added meanwhile is overwritten unseen), a reason
+  (10 to 500 characters) and the operator step-up guard like every `/api/v1/admin/*` route. It
+  converges the records (by name and type, idempotent), reads the plan back and records an
+  `admin_operations_audit` entry with the counts. The platform address check gained an info item
+  saying whether DNS can be set up automatically, and its procedure's first step points here.
+- **Not built.** A scheduled drift check with a platform alert; setting the root's nameservers at
+  its registrar (101domain already delegates `trainsyou.com` to DigitalOcean). Nothing here has
+  been run against the live DigitalOcean account.
 
 ## Changing the platform's own address (item 5)
 

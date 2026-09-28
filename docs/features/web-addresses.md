@@ -130,6 +130,26 @@ Deployment stays separately assigned.
 9. **Owner decision still open**: the accounting policy for yearly domain revenue (recognised in
    full when paid, see "Left out"). Decided on 28 September 2026: the registrant is the platform
    company (step 5), and trainers never see the registrar's name or cost.
+10. **DNS hosting (stage 2026-09-28h)**: Super admin → Settings → **DNS hosting**: DNS provider
+    DigitalOcean DNS, the DigitalOcean API token (stored encrypted; domain create, read, update
+    and delete scopes), optionally its expiry date, the platform root zone (`trainsyou.com`) and
+    the record TTL (default 1800). **Test connection** lists at most one domain and reports how
+    many zones the token reaches; a DigitalOcean token reaches every domain of its team, so keep
+    the platform's domains in a dedicated DigitalOcean team (the owner's current team also holds
+    other companies' domains; the code never touches them, but a dedicated team removes the
+    exposure). Enable and test again. From then on every bought domain gets its zone at
+    DigitalOcean and is delegated there; see "DNS hosting, delegation and forwarding" below.
+    Credentials live only in these encrypted settings, never in the repository (owner decision,
+    28 September 2026).
+11. **Platform DNS**: Super admin → Host and backups → **Check and repair platform DNS** (before
+    the platform address change) creates or fixes A `@`, `www` and `*` of the platform root zone
+    to this server's IPv4 from the verified host controller report; see `infra-ops.md`.
+12. **101domain as registrar (optional)**: Settings → Web addresses and registrar → Registrar
+    101domain, the API key (created by the account's primary user with two-factor sign-in, at
+    most one year valid) and its expiry date. The connection check reads the balance only.
+    101domain has not published registration or renewal in its API yet, so purchases stay off
+    with 101domain until **101domain registration and renewal API verified** is switched on
+    after checking the live API reference (see below); Namecheap remains the buying registrar.
 
 ## What was built, per audience
 
@@ -259,6 +279,11 @@ activated) → `expired` (lapse). Also `cancelled` (checkout expired or cancelle
 (refunded). A database trigger allows only these transitions, keeps identity, quote and billing
 links immutable and forbids deleting automatic orders; a renewal paid late provisions again
 (`expired` → `dns`).
+
+With DigitalOcean DNS (migration 070): `owned` → `zone` (zone and A records at the DNS host,
+read back through its API) → `delegating` (the registrar was asked to delegate the domain to
+`ns1-3.digitalocean.com`) → `dns` (delegation visible in public DNS) → `active`. A late renewal
+goes `expired` → `owned` and provisions again. See "DNS hosting, delegation and forwarding".
 
 - **Lease.** A worker step claims the order with a lease (10 minutes) and a random token; only
   the run holding that token releases it, and no route clears it. The operator's Reconcile runs
@@ -541,6 +566,170 @@ record case. Each finding, what changed and what was declined:
 Migration 066 changed in this pass (still unmerged and never applied anywhere): `lease_token`,
 and `expired` → `owned` after a late renewal.
 
+## DNS hosting, delegation and forwarding (stage 2026-09-28h, branch `core/dns-automation`)
+
+Owner direction (28 September 2026): everything is automated, including DNS for the platform root
+and for bought trainer domains, and bought domains forwarding to the right trainer subdomain.
+Credentials live in the Super admin panel's encrypted settings, which the automation reads; they
+are never committed to git. DigitalOcean DNS was chosen for the zones because 101domain's API has
+no zone-creation call (its managed zone only appears after a panel action) and web forwarding at a
+registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
+
+### Design
+
+- **`DnsProvider` interface** (`packages/providers/src/dns-hosting.ts`): `nameservers()`,
+  `getZone`, `ensureZone` (`existing` | `created` | `held_elsewhere`), `records`, `upsertRecords`
+  (converge the desired records of each name and type; `replaceTypes` removes AAAA or CNAME
+  records that would shadow them; nothing else is touched), `deleteZone` (guarded). Errors are
+  `DnsError` with `outcome` `definitive` (refused, nothing changed) or `unknown` (network,
+  timeout, 5xx, 429 with its Retry-After), like `RegistrarError`. Requests have a 30 s timeout and
+  go through `integrationRequest` (public-address pinning, no redirects); only the Node test
+  runner may inject a transport; the local mock sandbox may point the adapter at a loopback double
+  with `DIGITALOCEAN_API_BASE_URL`.
+- **`DigitalOceanDns`**: `GET/POST/DELETE /v2/domains[/{zone}]` (created without `ip_address`, so
+  every record is written explicitly), `GET /v2/domains/{zone}/records?per_page=200` following
+  `links.pages.next`, `POST`, `PATCH` and `DELETE` of records by id. A 422 on create while the zone
+  is not in this account means another DigitalOcean account holds the name (`held_elsewhere`); a
+  lost create answer is read back. Nameservers are `ns1/ns2/ns3.digitalocean.com`.
+- **Zone guard.** A DigitalOcean token reaches every domain of its team, so every zone-level call
+  is refused (before any request) unless the caller's `mayManage` accepts the zone: an order's own
+  domain once the platform holds the registration (never the platform's own zones), or, for the
+  platform DNS action, exactly `PLATFORM_ROOT_DOMAIN` or the platform root zone saved in DNS hosting
+  settings.
+- **`RegistrarHostedDns`**: the previous behaviour as a `DnsProvider` (the registrar's own DNS: the
+  complete host set written with `setHosts` and read back; a domain delegated elsewhere is first
+  returned to the registrar's nameservers, because Namecheap refuses host records otherwise).
+- **Registrar nameservers**: `getNameservers` and `setNameservers(domain, list | null)` on every
+  adapter. Namecheap: `domains.dns.getList`, `domains.dns.setCustom` (comma list), `domains.dns.setDefault`;
+  the read-back is the evidence. Generic JSON API: `GET/PUT/DELETE v1/domains/<d>/nameservers`.
+  101domain: `GET/PUT /v1/dns/<d>/nameservers` (200 when already set, 202 while the registry
+  applies the change: `pending`, then polled).
+- **101domain registrar adapter** (`OneOhOneRegistrar`): availability (`GET /v1/domains/search`
+  for one name, `POST /v1/domains/bulk-search` up to 50, `invalid[]`, premium refused), one-year
+  USD prices (`GET /v1/tlds/<tld>`, endings that need documents such as `.co.ae` refused), domain
+  list and details, the finance balance, pending orders, DNS records (only on 101domain
+  nameservers). Registration (`POST /v1/domains/registration` with the platform company as every
+  contact, private registration except for endings without it such as `.ae`, auto-renew off) and
+  renewal follow the announced, not yet published endpoints: they are sent only when **101domain
+  registration and renewal API verified** is on; until then they refuse without sending, purchases
+  stay off with 101domain (trainers see "not available yet", operators the reason), and a paid
+  renewal waits for 101domain's own auto-renewal (about 60 days before expiry), recognised from
+  the moved expiry date. An order 101domain is still processing is an unknown outcome and is never
+  refunded while `/v1/finance/orders` shows it processing. The field names of the unpublished calls
+  must be checked against the live API reference (the Live read-only check stage) before that
+  switch is turned on.
+
+### States and steps (DigitalOcean path)
+
+1. `owned` → `zone`: `create_zone` (intent `zone:<order>:<n>`, `ensureZone`), then `set_records`
+   (`records:<order>:<n>`: A `@` and A `www` to the server IPv4, the configured TTL, never a
+   wildcard for a bought domain), read back through the API (missing or shadowing records fail
+   the step). A zone held by another account is never used: the order switches to the registrar's
+   DNS (`dns_fallback`), because delegating to it would hand the name to that account.
+2. `zone` → `delegating`: only while the zone is still in the platform's account (re-read), and
+   never when public DNS shows a DS (DNSSEC) record for the name (DigitalOcean does not sign zones;
+   the order waits with attention). `set_nameservers` (`nameservers:<order>:<n>`) at the registrar,
+   read back.
+3. `delegating` → `dns`: the registrar shows the DigitalOcean nameservers applied and public DNS
+   (Cloudflare, then Google, over HTTPS) answers with them; checked with the usual backoff and
+   flagged after 72 hours. Nameservers reset by someone else (a grace-period renewal, a hand change)
+   send the order back to `zone`, which sets them again.
+4. `dns` → `active`: as before (A of the domain and `www` resolve to the server, certificate
+   allowances, an HTTPS request to both names, mappings). The HTTPS check now accepts any HTTP
+   answer, a 301 included, so a forwarded domain activates; the certificate is still verified.
+
+Every external step is recorded in `registrar_operations` before it is sent. These DNS calls
+converge (they read the current state first), so a later attempt runs without waiting; when it
+succeeds, earlier attempts of the same kind that never got an answer are recorded as `confirmed`
+by that read-back (`via: "read-back"`). Only purchases and renewals keep the reconcile-before-retry
+block. After five failed attempts of a DNS step the order is flagged for an operator. The registrar
+path (DNS provider "registrar") is unchanged: `owned` → `dns` with the complete host set, first
+returning a delegated domain to the registrar's nameservers (recorded as `set_nameservers` with
+`nameservers: null`).
+
+### Takeover safety, lapse, refund and closure
+
+- Any DigitalOcean account can add a zone nobody holds there. So the zone is created **before**
+  the registrar delegates to DigitalOcean, delegation is never set when the zone is held
+  elsewhere, and a zone is **never deleted while the name still delegates to DigitalOcean**.
+- At lapse the mappings go inactive as before and the zone is kept (`zoneRetained`). After the
+  subscription is settled, the release step waits until `ZONE_RELEASE_DAYS` (45) after expiry, then
+  deletes the zone only when neither the registrar (for a name still in the platform's account)
+  nor public DNS lists a DigitalOcean nameserver, or the name no longer exists; otherwise it looks
+  again every 7 days. `deleteZone` itself refuses with that evidence missing and always refuses the
+  platform's own zone. The deletion is recorded (`delete_zone`, `release:<order>:<n>`) with the
+  evidence.
+- A late renewal (`expired` → `owned`) provisions again: the zone is created again if it was
+  released (if another account took it meanwhile, the registrar's DNS is used) and the
+  nameservers are set again.
+- A refunded order never registered a name, so no zone ever existed. A closed workspace keeps its
+  zones (the worker no longer visits closed workspaces; keeping a zone is always safe).
+- 101domain (and any registrar whose API cannot switch auto-renewal off) renews by itself: when a
+  trainer turns renewal off, and at lapse, operators get an attention item to turn auto-renewal
+  off in the registrar's panel.
+
+### Forwarding
+
+- Per bought domain, the owner chooses **Show my site on this domain** (default, the previous
+  behaviour) or **Forward to my `<slug>.<root>` address** (a 301 that keeps the path and query).
+  `www.<domain>` always redirects to `<domain>` (in forward mode it then forwards on). The choice
+  is offered at purchase and on the order card, only when the workspace has an eligible subdomain;
+  no DNS host or registrar is ever named.
+- Storage: `domain_orders.serve_mode` (`site` | `forward`) and `domain_mappings.redirect` (`apex`
+  for www, `subdomain` for a forwarded domain, NULL to serve the site). Tenant actors cannot set
+  `redirect` (column privilege, checked by the runtime verifier and a PGlite test); the owner's
+  route `POST /api/v1/web-address/orders/:id/serve-mode {mode}` (recent authenticator) updates
+  the order and its own mapping through the service and records `web_address.serve_mode`.
+- Host routing reads the mapping's `redirect` and the workspace's **current** slug, so a renamed
+  workspace forwards to its new subdomain; without a platform root or an eligible slug the site is
+  served. `/api/v1/public/host` carries `redirect`; the web proxy follows it only for an https
+  origin that is a one-label subdomain of the configured root or the apex of the requested www
+  name, answers 301 with `Cache-Control: public, max-age=3600` (switching back takes effect within
+  the hour) and never redirects `/api/*`. Certificates are still issued for the domain and www
+  (their mappings stay active), so the redirect is served over HTTPS.
+
+### What the owner configures in Super admin
+
+- **DNS hosting**: DNS provider (DigitalOcean DNS or the registrar's own DNS), DigitalOcean API
+  token (secret), its expiry date (warning 30 days before), the platform root zone, the record TTL
+  (30 to 86400 s). Test connection: `GET /v2/domains?per_page=1` only (no domain named in the
+  result; the number of zones the token reaches, with the dedicated-team advice when it reaches
+  more than one).
+- **Web addresses and registrar**: registrar Namecheap, 101domain or the generic API; 101domain
+  API key (secret), its expiry date, and the ordering switch; test connection reads the balance
+  only.
+- Existing active domains keep the DNS they were set up with; **Re-run DNS setup** (operator view)
+  moves one to the current setting, **Use registrar DNS** moves it back to the registrar's DNS.
+
+### Files
+
+`packages/providers/src/dns-hosting.ts` (new), `packages/providers/src/registrar.ts` (nameservers,
+`OneOhOneRegistrar`, capabilities, `registrarPurchaseProblem`), `packages/providers/src/configuration.ts`
+(`dns_hosting` entry, 101domain fields, validation, capability, connection checks),
+`packages/providers/src/sandbox.ts` (two sandbox overrides), `packages/db/migrations/070_dns_hosting.sql`,
+`apps/api/src/web-address-orders.ts` (zone, delegation, release, forwarding mappings, HTTPS check,
+controller IPv4), `apps/api/src/web-addresses.ts` (serve mode, operator DNS action, trainer
+labels), `apps/api/src/host-routing.ts` (`redirect`), `apps/api/src/platform-dns.ts` (new),
+`apps/api/src/host-operations.ts`, `apps/api/src/app.ts`, `apps/api/src/privacy-lifecycle.ts`
+(comment), `apps/web/host-proxy.ts` (`forwardLocation`), `apps/web/proxy.ts`,
+`apps/web/components/web-address.tsx`, `web-address-operations.tsx`, `host-operations.tsx`,
+`apps/web/app/web-address.css`, `scripts/verify-runtime-access.mjs`, tests
+`web-address-dns.test.ts`, `web-address-dns-orders.test.ts`, `platform-dns.test.ts`,
+`web-address-moat.test.ts`, doubles `tests/e2e/mocks/digitalocean.ts`, `oneohone.ts`, and changes
+to `namecheap.ts`, `registrar.ts`, `dns.ts`, `index.ts`, `tests/e2e/scenarios/core-features.e2e.ts`.
+
+### Migration 070 (`packages/db/migrations/070_dns_hosting.sql`)
+
+Additive: `domain_orders.dns_provider` (`registrar` | `digitalocean`), `domain_orders.serve_mode`
+(`site` default | `forward`), automatic statuses `zone` and `delegating` with the widened
+transition guard (owned → zone/dns/expired; zone → delegating/owned/expired; delegating →
+dns/zone/owned/expired; dns → owned/active/expired; active → expired/dns/owned; expired →
+owned/dns), registrar `101domain`; `registrar_operations` kinds `create_zone`, `set_records`,
+`set_nameservers`, `delete_zone` and providers `101domain`, `digitalocean` (the
+reconcile-before-retry block stays on register and renew only); `domain_mappings.redirect`
+(`apex` | `subdomain` | NULL) without any tenant grant. A previous release pauses orders in the new
+statuses (its default branch); the new worker picks them up again.
+
 ## Owner decision: the platform holds custom domains (28 September 2026)
 
 The owner decided that the platform holds trainers' custom domains as a business moat. Applied:
@@ -660,8 +849,20 @@ First pass:
 - **E2E scenario.** Added on 28 September 2026: the runner starts the Namecheap double and sets
   `PLATFORM_ROOT_DOMAIN`, and the harness core suite covers the subdomain, search, purchase,
   registration with DNS records, yearly renewal and the operator view (docs/E2E_MOCK_PROVIDERS.md).
-  The Live step is not reached locally: the target IPv4 must be public, so the name is never
-  published to the DNS double and no HTTPS check is attempted.
+  The Live step is not reached locally: the target IPv4 must be public, so no edge serves it.
+  Stage 2026-09-28h changed the scenario to the DigitalOcean DNS double (zone, delegation through
+  the Namecheap double, forwarding switch); that version has **not been run** in the harness yet.
+- **DNS drift maintenance** (stage 2026-09-28h). An active domain's nameservers and records are
+  not re-checked on a schedule; a changed delegation is noticed only when the order next passes
+  through `zone`/`delegating` (late renewal, operator re-run). A daily read-only drift check and a
+  platform-DNS drift alert are not built.
+- **101domain ordering.** Registration and renewal through 101domain's API are built against the
+  announced endpoints but switched off until those endpoints are published and their field names
+  are checked (GET only) against the live API reference; early-access fees and whether API prices
+  include the ICANN fee are also unverified there. The root domain's own nameservers at 101domain
+  are not changed by the platform (the root is already delegated to DigitalOcean).
+- **DNSSEC on bought domains.** DigitalOcean does not sign zones; a domain with a DS record at the
+  registry waits for an operator (remove DNSSEC, or use the registrar's DNS).
 - **390 px and browser check.** The panel uses wrapping flex rows, `min-inline-size: 0` and
   `overflow-wrap` with logical properties only (the RTL lint passes), but it was not rendered in
   a browser at 390 px.

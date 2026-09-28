@@ -10,7 +10,12 @@ import { api, day, Status } from "./web-address";
  */
 const REGISTRAR_LABELS: Record<string, string> = {
   namecheap: "Namecheap",
+  "101domain": "101domain",
   generic: "Generic registrar API",
+};
+const DNS_LABELS: Record<string, string> = {
+  digitalocean: "DigitalOcean DNS",
+  registrar: "Registrar DNS",
 };
 
 type OperatorOrder = Record<string, any> & {
@@ -22,6 +27,8 @@ type OperatorData = {
   testEnvironment: boolean;
   purchasesEnabled: boolean;
   modeProblem?: string | null;
+  purchaseProblem?: string | null;
+  dnsProvider?: string;
   attention: number;
   orders: OperatorOrder[];
 };
@@ -42,7 +49,11 @@ export function WebAddressOperations({
   const act = (order: OperatorOrder, action: string, reason: string) => {
     setBusy(true);
     setMessage("");
-    void api(`/admin/web-addresses/${order.id}/${action}`, "POST", { reason })
+    // "dns-<provider>" sets the domain's DNS up again at that DNS host.
+    const [path, body] = action.startsWith("dns-")
+      ? ["dns", { reason, provider: action.slice(4) }]
+      : [action, { reason }];
+    void api(`/admin/web-addresses/${order.id}/${path}`, "POST", body)
       .then(async (result) => {
         await refresh();
         return result;
@@ -64,6 +75,8 @@ export function WebAddressOperations({
           {" · "}Registrar: {REGISTRAR_LABELS[data.registrar] ?? data.registrar}
           {data.testEnvironment ? " (test environment)" : ""}
           {" · "}Purchases {data.purchasesEnabled ? "on" : "off"}
+          {" · "}New domains:{" "}
+          {DNS_LABELS[data.dnsProvider ?? "registrar"] ?? data.dnsProvider}
           {" · "}
           <strong>{data.attention}</strong> need attention
         </p>
@@ -72,6 +85,11 @@ export function WebAddressOperations({
         <p className="badge red">
           Purchases are refused: {data.modeProblem} Match the Stripe keys and
           the registrar test environment in Settings.
+        </p>
+      )}
+      {data?.purchaseProblem && (
+        <p className="badge amber">
+          Purchases are off: {data.purchaseProblem}
         </p>
       )}
       {data?.orders.length === 0 && (
@@ -97,7 +115,25 @@ export function WebAddressOperations({
             {order.renewal_status ? ` · renewal ${order.renewal_status}` : ""}
             {order.billing_status ? ` · billing ${order.billing_status}` : ""}
             {order.expires_at ? ` · until ${day(order.expires_at)}` : ""}
+            {order.dns_provider
+              ? ` · ${DNS_LABELS[order.dns_provider] ?? order.dns_provider}`
+              : ""}
+            {order.serve_mode === "forward" ? " · forwards to the subdomain" : ""}
           </p>
+          {order.evidence?.zoneHeldElsewhere && (
+            <p className="muted">
+              Another DigitalOcean account holds this domain&apos;s zone, so
+              it uses the registrar&apos;s DNS instead.
+            </p>
+          )}
+          {order.status === "expired" &&
+            order.dns_provider === "digitalocean" &&
+            !order.evidence?.zoneReleasedAt && (
+              <p className="muted">
+                Its DNS zone is kept until nothing delegates the name to
+                DigitalOcean any more, then deleted automatically.
+              </p>
+            )}
           {(order.attention || order.needsReconciliation) && (
             <p className="badge red">
               {order.attention ?? "A registrar attempt awaits reconciliation."}
@@ -114,7 +150,7 @@ export function WebAddressOperations({
               <table>
                 <thead>
                   <tr>
-                    <th>Registrar call</th>
+                    <th>Registrar or DNS call</th>
                     <th>Status</th>
                     <th>Cost (USD)</th>
                     <th>When</th>
@@ -153,6 +189,20 @@ export function WebAddressOperations({
               <button name="action" value="record" disabled={busy}>
                 Record registrar state
               </button>
+            )}
+            {["owned", "zone", "delegating", "dns", "active"].includes(
+              order.status,
+            ) && (
+              <>
+                <button name="action" value="dns-settings" disabled={busy}>
+                  Re-run DNS setup
+                </button>
+                {order.dns_provider !== "registrar" && (
+                  <button name="action" value="dns-registrar" disabled={busy}>
+                    Use registrar DNS
+                  </button>
+                )}
+              </>
             )}
             {order.stripe_subscription_id &&
               order.billing_status !== "canceled" && (

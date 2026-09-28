@@ -26,6 +26,10 @@ export const PROVIDER_SANDBOX_OVERRIDES = [
   "APPLE_OIDC_ISSUER",
   // Namecheap XML API double (web addresses).
   "NAMECHEAP_API_BASE_URL",
+  // 101domain REST API double (web addresses).
+  "REGISTRAR_101DOMAIN_API_BASE_URL",
+  // DigitalOcean DNS API double (zones for bought domains and the root).
+  "DIGITALOCEAN_API_BASE_URL",
 ] as const;
 /**
  * A loopback DNS server (127.0.0.1:<port>) that answers the custom-domain
