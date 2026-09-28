@@ -10,6 +10,10 @@ import { HealthKitSyncPanel } from "./healthkit-sync";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { WebAddressCenter } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
+import {
+  TrainerVoiceClone,
+  VoiceCloneOperations,
+} from "./trainer-voice-clone";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -101,7 +105,8 @@ export function IntegrationCenter({
       )}
       {trainer && path.includes("/voice") ? (
         <>
-          <VoiceEnrollment />
+          {/* Cartesia: clones made here; ElevenLabs: link an existing voice ID. */}
+          <TrainerVoiceClone fallback={<VoiceEnrollment />} />
           <VoiceSessionStyle />
         </>
       ) : trainer && path.includes("/domains") ? (
@@ -494,8 +499,9 @@ function VoiceEnrollment() {
             />
           </label>
           <p className="muted">
-            Use an existing voice from the approved provider account. The app
-            does not create a voice clone automatically.
+            Use an existing voice from the approved ElevenLabs account. With
+            ElevenLabs the app does not make the clone; when the platform uses
+            Cartesia you record your voice here instead.
           </p>
           <label>
             Voice type
@@ -927,11 +933,14 @@ export function IntegrationOperations() {
       </div>
       <Notice value={action.message} />
       <WebAddressOperations />
+      <VoiceCloneOperations />
       {voices.map((voice) => (
         <Panel title={`${voice.name} · Voice ${voice.status}`} key={voice.id}>
           <p>{voice.evidence.rightsStatement}</p>
           <p>
-            Provider voice ID: <code>{voice.provider_voice_id}</code>
+            Provider: {voice.provider ?? "elevenlabs"}
+            {voice.clone_id ? " (clone made in the app)" : ""}. Provider voice
+            ID: <code>{voice.provider_voice_id}</code>
           </p>
           {voice.has_sample && (
             <a

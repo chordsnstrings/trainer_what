@@ -12,6 +12,7 @@ import { ModelMock } from "./model.ts";
 import { PushMock } from "./push.ts";
 import { WhoopMock, ZeppMock } from "./wearables.ts";
 import { VoiceMock } from "./voice.ts";
+import { CartesiaMock } from "./cartesia.ts";
 import { RegistrarMock } from "./registrar.ts";
 import { FoodMock } from "./food.ts";
 import { DnsMock } from "./dns.ts";
@@ -83,6 +84,7 @@ export async function startMocks(
     zeppId: token("zepp-client-", 6),
     zeppSecret: token("zepp_secret_"),
     voice: token("xi_mock_"),
+    cartesia: token("sk_car_mock_"),
     registrar: token("reg_mock_"),
     namecheapKey: token("nc_mock_"),
   };
@@ -99,6 +101,7 @@ export async function startMocks(
   const whoop = new WhoopMock(material, secrets.whoopId, secrets.whoopSecret);
   const zepp = new ZeppMock(material, secrets.zeppId, secrets.zeppSecret);
   const voice = new VoiceMock(material, secrets.voice);
+  const cartesia = new CartesiaMock(material, secrets.cartesia);
   const registrar = new RegistrarMock(material, secrets.registrar);
   const food = new FoodMock(material);
   const google = new OidcMock(material, "google");
@@ -111,7 +114,7 @@ export async function startMocks(
     username: "sandboxplatform",
     clientIp: WEB_ADDRESS_SANDBOX_IPV4.client,
   });
-  const all = [stripe, email, lean, model, push, whoop, zepp, voice, registrar, food, google, apple, s3, namecheap];
+  const all = [stripe, email, lean, model, push, whoop, zepp, voice, cartesia, registrar, food, google, apple, s3, namecheap];
   await Promise.all(all.map((m) => m.start()));
   const dns = new DnsMock();
   await dns.start();
@@ -267,6 +270,46 @@ export async function startMocks(
       secrets: { NAMECHEAP_API_KEY: secrets.namecheapKey },
     },
   };
+  /**
+   * Cartesia voice and speech-to-text settings (docs/features/trainer-voice.md).
+   * Not saved at setup: the run starts on the ElevenLabs double, and the trainer
+   * voice clone scenario switches to these and back.
+   */
+  const cartesiaSettings: typeof settings = {
+    voice: {
+      values: {
+        VOICE_PROVIDER: "cartesia",
+        VOICE_BASE_URL: cartesia.baseUrl,
+        VOICE_MODEL: "sonic-3.6",
+        VOICE_API_VERSION: "2026-08-14",
+        VOICE_PRICE_VERSION: "mock-2026-09-cartesia",
+        VOICE_USD_PER_1000_CHARACTERS: "0.05",
+        VOICE_DAILY_USD_LIMIT: "5",
+        VOICE_QUICK_CLONE_ENABLED: "true",
+        VOICE_PRO_CLONE_ENABLED: "true",
+        VOICE_PRO_CLONE_SLOTS: "2",
+        VOICE_PRO_CLONE_PRICE_AED: "199",
+        VOICE_CLONE_USD: "0",
+        VOICE_CLONE_REVIEW_REQUIRED: "false",
+        VOICE_TRAINING_OPT_OUT: "true",
+        VOICE_CONTRACT_VERIFIED: "true",
+      },
+      secrets: { VOICE_API_KEY: secrets.cartesia },
+    },
+    speech_to_text: {
+      values: {
+        STT_PROVIDER: "cartesia",
+        STT_BASE_URL: cartesia.baseUrl,
+        STT_MODEL: "ink-whisper",
+        STT_API_VERSION: "2026-08-14",
+        STT_PRICE_VERSION: "mock-2026-09-cartesia",
+        STT_USD_PER_HOUR: "0.1",
+        STT_ZERO_RETENTION: "false",
+        STT_CONTRACT_VERIFIED: "true",
+      },
+      secrets: { STT_API_KEY: secrets.cartesia },
+    },
+  };
   /** Sandbox-only environment for API and worker processes. */
   const environment = {
     TRAINER_PROVIDER_SANDBOX: "mock",
@@ -284,6 +327,7 @@ export async function startMocks(
     tls,
     secrets,
     settings,
+    cartesiaSettings,
     environment,
     stripe,
     email,
@@ -293,6 +337,7 @@ export async function startMocks(
     whoop,
     zepp,
     voice,
+    cartesia,
     registrar,
     namecheap,
     food,

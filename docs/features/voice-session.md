@@ -5,6 +5,13 @@ revised after review (second commit on the branch; see "Review fixes"). The chec
 were run exactly as recorded; limits are listed at the end. Nothing was deployed and no
 real provider was contacted.
 
+Update 28 September 2026 (stage 2026-09-28g, branch `core/cartesia-voice`): the voice provider
+is a choice of ElevenLabs or Cartesia, and a trainer can make a Quick or Pro clone of their own
+voice in the app; activating it makes it the voice these sessions speak in. Cost rows now carry
+the configured provider, and a voice held by another provider falls back to text
+(`VOICE_UNAVAILABLE`). Speech-to-text can also be Cartesia (`ink-whisper`). See
+`docs/features/trainer-voice.md`.
+
 ## Plan (written before implementation)
 
 Today a member can only ask for one fixed sentence per exercise in the trainer's voice
@@ -196,7 +203,8 @@ reconciliation open, as for guided audio.
 
 ### Speech-to-text provider
 
-Super admin settings gain `speech_to_text` (ElevenLabs): `STT_PROVIDER`, `STT_BASE_URL`,
+Super admin settings gain `speech_to_text` (ElevenLabs; Cartesia since stage 2026-09-28g, see
+`trainer-voice.md`): `STT_PROVIDER`, `STT_BASE_URL`,
 `STT_API_KEY` (encrypted), `STT_MODEL` (default `scribe_v1`), `STT_PRICE_VERSION`,
 `STT_USD_PER_HOUR`, `STT_ZERO_RETENTION` (sends `enable_logging=false`) and
 `STT_CONTRACT_VERIFIED`. It is disabled until configured and approved

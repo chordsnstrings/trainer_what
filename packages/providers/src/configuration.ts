@@ -50,6 +50,18 @@ export function assertSecurityModeBinding(env: RuntimeConfig = process.env) {
     );
 }
 
+/** Voice and speech-to-text providers with a working adapter (integrations.ts). */
+const IMPLEMENTED_VOICE_PROVIDERS = ["elevenlabs", "cartesia"];
+/** Standard addresses; a saved value equal to either reads as "not chosen". */
+const VOICE_PROVIDER_ADDRESSES = [
+  "https://api.elevenlabs.io/v1",
+  "https://api.cartesia.ai",
+];
+const VOICE_PROVIDER_OPTIONS = [
+  { value: "elevenlabs", label: "ElevenLabs (link an existing voice ID)" },
+  { value: "cartesia", label: "Cartesia (Quick and Pro clones made in the app)" },
+];
+
 /** Account approval never follows from saving a key or a successful probe. */
 export function integrationCapability(
   id: string,
@@ -105,9 +117,9 @@ export function integrationCapability(
     };
   }
   if (id === "voice") {
+    // The API address may be blank: each provider has a standard one.
     const configured = has(
       "VOICE_PROVIDER",
-      "VOICE_BASE_URL",
       "VOICE_API_KEY",
       "VOICE_MODEL",
       "VOICE_PRICE_VERSION",
@@ -119,7 +131,7 @@ export function integrationCapability(
       approved:
         configured &&
         config.VOICE_CONTRACT_VERIFIED === "true" &&
-        config.VOICE_PROVIDER === "elevenlabs" &&
+        IMPLEMENTED_VOICE_PROVIDERS.includes(config.VOICE_PROVIDER ?? "") &&
         Number.isFinite(Number(config.VOICE_USD_PER_1000_CHARACTERS)) &&
         Number(config.VOICE_USD_PER_1000_CHARACTERS) >= 0 &&
         Number.isFinite(Number(config.VOICE_DAILY_USD_LIMIT)) &&
@@ -129,9 +141,7 @@ export function integrationCapability(
   if (id === "speech_to_text") {
     const configured = has(
       "STT_PROVIDER",
-      "STT_BASE_URL",
       "STT_API_KEY",
-      "STT_MODEL",
       "STT_PRICE_VERSION",
       "STT_USD_PER_HOUR",
     );
@@ -140,7 +150,7 @@ export function integrationCapability(
       approved:
         configured &&
         config.STT_CONTRACT_VERIFIED === "true" &&
-        config.STT_PROVIDER === "elevenlabs" &&
+        IMPLEMENTED_VOICE_PROVIDERS.includes(config.STT_PROVIDER ?? "") &&
         Number.isFinite(Number(config.STT_USD_PER_HOUR)) &&
         Number(config.STT_USD_PER_HOUR) >= 0,
     };
@@ -762,19 +772,25 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     implemented: true,
     description: "Consented trainer-voice guidance for premium sessions.",
     setupNotes:
-      "ElevenLabs TTS uses an existing provider voice after trainer consent and administrator identity/rights verification. Professional clones must be created and identity-verified in the trainer’s own provider account, then shared with the configured account. This app never creates a clone automatically. Premium memberships and a daily cost cap are enforced; provider-billed usage requires reconciliation.",
+      "Cartesia: each trainer records or uploads their own voice in Trainer voice, gives explicit consent and chooses a Quick clone (10 to 60 seconds of audio, ready in seconds) or, when you switch Pro on, a Pro clone (at least 30 minutes of audio, trained by Cartesia for up to 3 hours; needs a Cartesia plan with Pro clone slots, counted for the whole account). Clones are private to the Cartesia account, attached only to the trainer's own workspace, and deleted at Cartesia when the trainer deletes them, withdraws voice consent, leaves ownership or the workspace closes. The trainer previews a line and activates the voice; members hear it only while the trainer's consent stands. ElevenLabs: the trainer links an existing provider voice ID, which an administrator verifies for identity and rights; the app makes no ElevenLabs clone. Premium memberships and the workspace daily cost cap apply to speech, transcription, previews and clones. Charges are estimates until reconciled with the provider invoice. The connection check reads one voice from the account (Cartesia) and makes no audio.",
     fields: [
-      field("VOICE_PROVIDER", "Provider name", "text", {
+      field("VOICE_PROVIDER", "Provider", "select", {
         required: true,
         defaultValue: "elevenlabs",
+        options: VOICE_PROVIDER_OPTIONS,
       }),
       field("VOICE_BASE_URL", "API base URL", "url", {
-        required: true,
-        defaultValue: "https://api.elevenlabs.io/v1",
+        help: "Leave blank for the provider's standard address: https://api.cartesia.ai (Cartesia) or https://api.elevenlabs.io/v1 (ElevenLabs).",
+        supersededValues: VOICE_PROVIDER_ADDRESSES,
       }),
       field("VOICE_API_KEY", "API key", "secret", { required: true }),
       field("VOICE_MODEL", "Approved speech model ID", "text", {
         required: true,
+        help: "Cartesia: sonic-3.6, or a dated snapshot such as sonic-3.6-2026-08-27 to keep the sound fixed (Pro clones always use a dated snapshot they were trained for). ElevenLabs: for example eleven_multilingual_v2.",
+      }),
+      field("VOICE_API_VERSION", "Cartesia API version", "text", {
+        defaultValue: "2026-08-14",
+        help: "Sent as the Cartesia-Version header. Change only after reviewing Cartesia's changelog. Not used by ElevenLabs.",
       }),
       field("VOICE_PRICE_VERSION", "Reviewed price version", "text", {
         required: true,
@@ -783,11 +799,64 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "VOICE_USD_PER_1000_CHARACTERS",
         "Estimated USD / 1,000 characters",
         "number",
-        { required: true },
+        {
+          required: true,
+          help: "Cartesia bills about 1 credit per character; at the plan prices published on 28 September 2026 that is roughly 0.04 to 0.065 USD per 1,000 characters. Use your own plan's rate.",
+        },
       ),
       field("VOICE_DAILY_USD_LIMIT", "Workspace daily USD limit", "number", {
         required: true,
+        help: "One limit per workspace per day for session audio, guided audio, previews, transcription and clones.",
       }),
+      field(
+        "VOICE_QUICK_CLONE_ENABLED",
+        "Let trainers make a Quick clone (Cartesia)",
+        "boolean",
+        { defaultValue: "true" },
+      ),
+      field(
+        "VOICE_PRO_CLONE_ENABLED",
+        "Let trainers make a Pro clone (Cartesia)",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Needs a Cartesia plan with Pro clone slots (Startup: 2, Scale: 4 on 28 September 2026). Training is free at Cartesia; speech from a Pro clone costs the same per character.",
+        },
+      ),
+      field("VOICE_PRO_CLONE_SLOTS", "Pro clone slots on the account", "number", {
+        defaultValue: "2",
+        help: "Whole number. A trainer cannot start a Pro clone while this many Pro clones exist across the platform.",
+      }),
+      field(
+        "VOICE_PRO_CLONE_PRICE_AED",
+        "Pro clone price shown to trainers (AED)",
+        "number",
+        {
+          help: "Optional. Shown to the trainer before they choose Pro. The app does not charge it; bill it separately.",
+        },
+      ),
+      field("VOICE_CLONE_USD", "Estimated USD per clone made", "number", {
+        defaultValue: "0",
+        help: "Counted against the workspace daily limit. Cartesia published no per-clone charge on 28 September 2026.",
+      }),
+      field(
+        "VOICE_CLONE_REVIEW_REQUIRED",
+        "Review each clone before members hear it",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "When on, an activated clone waits in Integration operations for your identity and rights check.",
+        },
+      ),
+      field(
+        "VOICE_TRAINING_OPT_OUT",
+        "The provider account opted out of model training on uploads",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Cartesia may use uploaded recordings to train its models unless the account opted out with Cartesia's form. Trainers are told which applies before they consent.",
+        },
+      ),
       field(
         "VOICE_CONTRACT_VERIFIED",
         "Account contract and voice rights approved",
@@ -804,30 +873,39 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Spoken replies (done, reps, pause, pain) during voice-led workout sessions.",
     setupNotes:
-      "ElevenLabs speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app; turn on zero retention when the provider account supports it. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the provider model list; no audio is sent.",
+      "ElevenLabs or Cartesia speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the ElevenLabs model list, or one voice from the Cartesia account; no audio is sent.",
     fields: [
-      field("STT_PROVIDER", "Provider name", "text", {
+      field("STT_PROVIDER", "Provider", "select", {
         required: true,
         defaultValue: "elevenlabs",
+        options: [
+          { value: "elevenlabs", label: "ElevenLabs" },
+          { value: "cartesia", label: "Cartesia (batch ink-whisper)" },
+        ],
       }),
       field("STT_BASE_URL", "API base URL", "url", {
-        required: true,
-        defaultValue: "https://api.elevenlabs.io/v1",
+        help: "Leave blank for the provider's standard address: https://api.cartesia.ai (Cartesia) or https://api.elevenlabs.io/v1 (ElevenLabs).",
+        supersededValues: VOICE_PROVIDER_ADDRESSES,
       }),
       field("STT_API_KEY", "API key", "secret", { required: true }),
       field("STT_MODEL", "Approved transcription model ID", "text", {
-        required: true,
-        defaultValue: "scribe_v1",
+        help: "Leave blank for the provider's batch model: scribe_v1 (ElevenLabs) or ink-whisper (Cartesia).",
+        supersededValues: ["scribe_v1", "ink-whisper"],
+      }),
+      field("STT_API_VERSION", "Cartesia API version", "text", {
+        defaultValue: "2026-08-14",
+        help: "Sent as the Cartesia-Version header. Not used by ElevenLabs.",
       }),
       field("STT_PRICE_VERSION", "Reviewed price version", "text", {
         required: true,
       }),
       field("STT_USD_PER_HOUR", "Estimated USD / hour of audio", "number", {
         required: true,
+        help: "Cartesia batch ink-whisper bills 1 credit per 2 seconds, silence included: roughly 0.07 to 0.12 USD per hour at the plan prices published on 28 September 2026.",
       }),
       field("STT_ZERO_RETENTION", "Request zero retention", "boolean", {
         defaultValue: "false",
-        help: "Sends enable_logging=false. Only enable when the provider account supports zero-retention mode.",
+        help: "ElevenLabs only: sends enable_logging=false. Only enable when the provider account supports zero-retention mode. Cartesia zero retention is an Enterprise account setting.",
       }),
       field(
         "STT_CONTRACT_VERIFIED",
@@ -1075,6 +1153,7 @@ export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
     FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
     COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
     COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+    VOICE_PRO_CLONE_SLOTS: [0, 100],
   };
 export function validateIntegrationValues(
   id: string,
@@ -1186,6 +1265,25 @@ export function validateIntegrationValues(
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+      if (
+        (key === "VOICE_API_VERSION" || key === "STT_API_VERSION") &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a date such as 2026-08-14`,
+        );
+      if (
+        (key === "VOICE_MODEL" || key === "STT_MODEL") &&
+        !/^[A-Za-z0-9._-]{1,80}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a provider model ID such as sonic-3.6`,
+        );
+      if (
+        (key === "VOICE_CLONE_USD" || key === "VOICE_PRO_CLONE_PRICE_AED") &&
+        Number(text) > 10000
+      )
+        throw new ConfigurationError(`${entry.label} must be at most 10000`);
       if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
         throw new ConfigurationError(`${entry.label} must be at most 10000`);
       if (
@@ -1377,6 +1475,48 @@ export type IntegrationTestResult = {
   checkedAt: string;
   details?: Record<string, string | number | boolean>;
 };
+/** A saved address, or the provider's standard one (see voiceBaseUrl). */
+function providerAddress(provider: "elevenlabs" | "cartesia", saved: string) {
+  const value = (saved ?? "").trim().replace(/\/$/, "");
+  return !value || VOICE_PROVIDER_ADDRESSES.includes(value)
+    ? VOICE_PROVIDER_ADDRESSES[provider === "elevenlabs" ? 0 : 1]
+    : value;
+}
+/** Read-only Cartesia check: GET /voices?limit=1 with the saved key and version. */
+async function cartesiaAccountCheck(
+  base: string,
+  key: string,
+  version: string,
+  checkedAt: string,
+  message: string,
+): Promise<IntegrationTestResult> {
+  const response = await providerRequest(
+    providerAddress("cartesia", base) + "/voices?limit=1",
+    {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Cartesia-Version": version || "2026-08-14",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!response.ok)
+    return {
+      status: "failed",
+      message: `Cartesia rejected the account check (HTTP ${response.status}). Check the key, its permissions and the API version.`,
+      checkedAt,
+    };
+  const body = (await response.json().catch(() => null)) as any;
+  if (!Array.isArray(body?.data))
+    throw new ConfigurationError("Cartesia returned an unexpected voice list");
+  return {
+    status: "verified",
+    message,
+    checkedAt,
+    details: { provider: "cartesia", apiVersion: version || "2026-08-14" },
+  };
+}
 export async function testIntegration(
   id: string,
   config: RuntimeConfig,
@@ -1522,11 +1662,19 @@ export async function testIntegration(
         );
       if (
         id === "voice" &&
-        (fields.VOICE_PROVIDER !== "elevenlabs" ||
+        (!IMPLEMENTED_VOICE_PROVIDERS.includes(fields.VOICE_PROVIDER) ||
           Number(fields.VOICE_DAILY_USD_LIMIT) <= 0)
       )
         throw new ConfigurationError(
-          "Choose the implemented elevenlabs provider and set a positive daily cost limit.",
+          "Choose ElevenLabs or Cartesia and set a positive daily cost limit.",
+        );
+      if (id === "voice" && fields.VOICE_PROVIDER === "cartesia")
+        return cartesiaAccountCheck(
+          fields.VOICE_BASE_URL,
+          fields.VOICE_API_KEY,
+          fields.VOICE_API_VERSION,
+          checkedAt,
+          "Cartesia access verified by reading one voice; no audio was made and no clone was created.",
         );
       return {
         status: "validated",
@@ -1536,13 +1684,21 @@ export async function testIntegration(
       };
     }
     if (id === "speech_to_text") {
-      if (fields.STT_PROVIDER !== "elevenlabs")
+      if (!IMPLEMENTED_VOICE_PROVIDERS.includes(fields.STT_PROVIDER))
         throw new ConfigurationError(
-          "Choose the implemented elevenlabs speech-to-text provider.",
+          "Choose the ElevenLabs or Cartesia speech-to-text provider.",
+        );
+      if (fields.STT_PROVIDER === "cartesia")
+        return cartesiaAccountCheck(
+          fields.STT_BASE_URL,
+          fields.STT_API_KEY,
+          fields.STT_API_VERSION,
+          checkedAt,
+          "Cartesia access verified by reading one voice; no audio was sent. Transcription quality needs a separate check with consenting testers.",
         );
       // Read-only: the model list proves the key and base URL; no audio is sent.
       const response = await providerRequest(
-        fields.STT_BASE_URL.replace(/\/$/, "") + "/models",
+        providerAddress("elevenlabs", fields.STT_BASE_URL) + "/models",
         {
           headers: {
             "xi-api-key": fields.STT_API_KEY,

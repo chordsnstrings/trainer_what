@@ -175,6 +175,11 @@ export async function verifyRuntimeAccess(client) {
     "voice_sessions",
     "voice_session_clips",
     "registrar_operations",
+    // Trainer voice clones (069): owner-only tenant tables; the deletion queue
+    // has no DELETE grant so it outlives erasure and workspace closure.
+    "trainer_voice_clones",
+    "trainer_voice_samples",
+    "voice_provider_deletions",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -252,6 +257,8 @@ export async function verifyRuntimeAccess(client) {
     "member_plan_status()",
     // Migration 065: the trainer's current voice-session style for members.
     "voice_session_style()",
+    // Migration 069: Pro clone slots in use across the provider account (a count).
+    "voice_pro_clones_in_use()",
   ];
   for (const name of functions) {
     const [r] = await query(

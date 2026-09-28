@@ -227,7 +227,7 @@ export class MockServer {
       status,
       headers: Object.fromEntries(
         Object.entries(req.headers)
-          .filter(([key]) => !["authorization", "xi-api-key"].includes(key))
+          .filter(([key]) => !["authorization", "xi-api-key", "x-api-key"].includes(key))
           .map(([key, value]) => [key, String(value)]),
       ),
       ...(this.options.logBodies !== false

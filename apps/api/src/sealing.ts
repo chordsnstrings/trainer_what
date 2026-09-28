@@ -49,6 +49,11 @@ export const sealContexts = {
     aad: "authenticator:" + userId,
     legacy: { format: "bare" },
   }),
+  /** A trainer's voice recording (binary envelope, sealBytes). */
+  voiceSample: (tenantId: string, sampleId: string): SealContext => ({
+    aad: `voice-sample:${tenantId}:${sampleId}`,
+    legacy: { format: "bare" },
+  }),
 };
 
 function decodeKey(value: string) {
@@ -160,4 +165,53 @@ export function openSealedValue(
       }
   }
   throw new SealingUnavailable("unreadable");
+}
+
+/**
+ * Binary envelope for private files kept only briefly (trainer voice
+ * recordings, docs/features/trainer-voice.md): `v2.<key id>.` in ASCII, then
+ * the 12-byte IV, the 16-byte tag and the AES-256-GCM body. The purpose (AAD)
+ * binds it to its workspace and row, like sealValue.
+ */
+const BYTES_HEADER = 16;
+export function sealBytes(context: SealContext, value: Buffer): Buffer {
+  const { active } = encryptionKeyring();
+  if (!active) throw new SealingUnavailable("key_unavailable");
+  const header = "v2." + active.id,
+    iv = randomBytes(12),
+    cipher = createCipheriv("aes-256-gcm", active.secret, iv);
+  cipher.setAAD(Buffer.from(header + "|" + context.aad));
+  const body = Buffer.concat([cipher.update(value), cipher.final()]);
+  return Buffer.concat([
+    Buffer.from(header + ".", "ascii"),
+    iv,
+    cipher.getAuthTag(),
+    body,
+  ]);
+}
+export function openSealedBytes(context: SealContext, value: Buffer): Buffer {
+  const ring = encryptionKeyring();
+  if (!ring.active) throw new SealingUnavailable("key_unavailable");
+  const header = value.subarray(0, BYTES_HEADER).toString("ascii");
+  const key = [ring.active, ...ring.previous].find(
+    (item) => header === "v2." + item.id + ".",
+  );
+  if (!key || value.length < BYTES_HEADER + 28)
+    throw new SealingUnavailable("unreadable");
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key.secret,
+      value.subarray(BYTES_HEADER, BYTES_HEADER + 12),
+      { authTagLength: 16 },
+    );
+    decipher.setAAD(Buffer.from(`v2.${key.id}|${context.aad}`));
+    decipher.setAuthTag(value.subarray(BYTES_HEADER + 12, BYTES_HEADER + 28));
+    return Buffer.concat([
+      decipher.update(value.subarray(BYTES_HEADER + 28)),
+      decipher.final(),
+    ]);
+  } catch {
+    throw new SealingUnavailable("unreadable");
+  }
 }

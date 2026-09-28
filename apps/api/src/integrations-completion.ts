@@ -44,6 +44,7 @@ import {
   sealContexts,
   sealValue,
 } from "./sealing.ts";
+import { retireTrainerVoiceClones } from "./voice-clones.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
@@ -179,7 +180,7 @@ async function scopedAdminRows(
     const rows = await db.tenant(operatorScope, (tx) =>
       tx.query(
         table === "trainer_voices"
-          ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
+          ? "SELECT id,tenant_id,user_id,status,version,provider,provider_voice_id,clone_id,model,language,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
               (includeSample ? ",sample" : "") +
               " FROM trainer_voices WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100"
           : "SELECT * FROM domain_orders WHERE mode='manual' AND ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
@@ -262,8 +263,11 @@ export async function disableUserIntegrations(
     await revokeHealthKitDevices(tx, userId, "consent");
   }
   if (kind !== "wearable") {
+    // Clones the trainer made in the app are deleted here and queued for
+    // deletion at the provider (voice-clones.ts).
+    await retireTrainerVoiceClones(tx, userId, "consent_withdrawn");
     await tx.query(
-      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,version=version+1,updated_at=now() WHERE user_id=$1",
+      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,clone_id=NULL,version=version+1,updated_at=now() WHERE user_id=$1",
       [userId],
     );
     await tx.query(
@@ -919,6 +923,8 @@ function voicePublic(r: any) {
         id: r.id,
         status: r.status,
         version: r.version,
+        provider: r.provider,
+        cloneId: r.clone_id ?? null,
         providerVoiceId: r.provider_voice_id,
         consentVersion: r.consent_version,
         evidence: r.evidence,
@@ -978,6 +984,14 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         })
         .parse(req.body),
       sample = b.sample ? decodeAudio(b.sample.base64, b.sample.type) : null;
+    // With Cartesia the trainer's voice is cloned in the app (voice-clones.ts);
+    // a pasted provider ID could name another workspace's clone.
+    if (runtimeConfig().VOICE_PROVIDER === "cartesia")
+      throw fail(
+        409,
+        "VOICE_CLONE_REQUIRED",
+        "Record your voice below to make your trainer voice.",
+      );
     const consentVersion =
       (await legalAcceptanceVersion(db, "voice")) + "|trainer-voice:v1";
     if (b.voiceKind === "professional" && !b.creatorVerified)
@@ -1001,7 +1015,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "Assigned workout guidance only; no advertising use or automatic cloning.",
       };
       const [r] = await tx.query(
-        "INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider_voice_id,evidence,consent_version,sample,sample_type) VALUES($1,$2,$3,'pending',$4,$5,'trainer-voice-v1',$6,$7) ON CONFLICT(tenant_id) DO UPDATE SET user_id=EXCLUDED.user_id,status='pending',provider_voice_id=EXCLUDED.provider_voice_id,evidence=EXCLUDED.evidence,consent_version=EXCLUDED.consent_version,sample=EXCLUDED.sample,sample_type=EXCLUDED.sample_type,verified_by=NULL,verified_at=NULL,version=trainer_voices.version+1,updated_at=now() RETURNING *",
+        "INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider,provider_voice_id,evidence,consent_version,sample,sample_type) VALUES($1,$2,$3,'pending','elevenlabs',$4,$5,'trainer-voice-v1',$6,$7) ON CONFLICT(tenant_id) DO UPDATE SET user_id=EXCLUDED.user_id,status='pending',provider='elevenlabs',provider_voice_id=EXCLUDED.provider_voice_id,clone_id=NULL,model=NULL,language=NULL,evidence=EXCLUDED.evidence,consent_version=EXCLUDED.consent_version,sample=EXCLUDED.sample,sample_type=EXCLUDED.sample_type,verified_by=NULL,verified_at=NULL,version=trainer_voices.version+1,updated_at=now() RETURNING *",
         [
           prior?.id ?? randomUUID(),
           a.tenantId,
@@ -1024,6 +1038,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       await tx.query(
         "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE voice_id=$1 AND audio_status<>'revoked'",
         [r.id],
+      );
+      // A clone in use steps back to ready: the linked voice replaces it.
+      await tx.query(
+        "UPDATE trainer_voice_clones SET status='ready',version=version+1,updated_at=now() WHERE status='active'",
       );
       await event(tx, a, "voice.enrollment_requested", r.id);
       return voicePublic(r);
@@ -1133,11 +1151,11 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a,
         id.parse((req.params as any).workoutId),
       );
-      const [voice] = await tx.query("SELECT id,version FROM guided_voice()");
+      const [voice] = await tx.query("SELECT id,version,provider FROM guided_voice()");
       let available = false;
       try {
-        voiceContract();
-        available = true;
+        // The voice must be held by the provider now configured.
+        available = voiceContract().provider === voice?.provider;
       } catch {}
       return {
         workoutId: m.workout.id,
@@ -1181,9 +1199,9 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       // The verified voice's playback facts only (no sample), with the
       // trainer's current voice consent (guided_voice(), migration 061).
       const [voice] = await tx.query(
-        "SELECT id,version,provider_voice_id,consented FROM guided_voice()",
+        "SELECT id,version,provider_voice_id,consented,provider,model,language FROM guided_voice()",
       );
-      if (!voice || !voice.consented)
+      if (!voice || !voice.consented || voice.provider !== pricing.provider)
         throw fail(
           409,
           "VOICE_UNAVAILABLE",
@@ -1196,7 +1214,8 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           voice.id,
           voice.version,
           segment.text,
-          pricing.model,
+          voice.provider,
+          voice.model ?? pricing.model,
           pricing.priceVersion,
         ].join(":"),
       );
@@ -1221,12 +1240,12 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       const usageId = randomUUID(),
         audioId = randomUUID();
       await tx.query(
-        "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.guidance','elevenlabs',$4,'reserved',$5,$6,$7)",
+        "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.guidance',$8,$4,'reserved',$5,$6,$7)",
         [
           usageId,
           a.tenantId,
           a.userId,
-          pricing.model,
+          voice.model ?? pricing.model,
           pricing.priceVersion,
           JSON.stringify({
             basis: "characters",
@@ -1236,6 +1255,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
             estimated: true,
           }),
           audioId,
+          pricing.provider,
         ],
       );
       await tx.query(
@@ -1293,6 +1313,11 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
               [reservation.usageId],
             );
           });
+        },
+        {
+          provider: reservation.voice.provider,
+          model: reservation.voice.model,
+          language: reservation.voice.language,
         },
       );
       return await db.tenant(internal(a), async (tx) => {
