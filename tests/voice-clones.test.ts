@@ -10,10 +10,12 @@ import { buildApp } from "../apps/api/src/app.ts";
 import { processVoiceSessionAudio } from "../apps/api/src/voice-session.ts";
 import Fastify from "fastify";
 import {
+  advanceVoiceClone,
   processVoiceClones,
   processVoiceProviderDeletions,
   registerVoiceClones,
 } from "../apps/api/src/voice-clones.ts";
+import { platformSettingsRoutes } from "../apps/api/src/platform-settings.ts";
 import { privacyHooks } from "../apps/api/src/privacy-hooks.ts";
 import { openSealedBytes, sealContexts } from "../apps/api/src/sealing.ts";
 import {
@@ -25,8 +27,10 @@ import {
   cartesiaVoiceClient,
   generateTrainerVoice,
   speechModel,
+  speechToTextContract,
   transcribeSpeech,
   voiceBaseUrl,
+  voiceContract,
   withIntegrationFixtureTransport,
 } from "../packages/providers/src/integrations.ts";
 import {
@@ -60,6 +64,9 @@ const env: Record<string, string> = {
   VOICE_PRO_CLONE_ENABLED: "false",
   VOICE_PRO_CLONE_SLOTS: "2",
   VOICE_CLONE_USD: "0",
+  // The default is on (an operator reviews each clone); these flows test the
+  // trainer's own activation. The default is checked separately below.
+  VOICE_CLONE_REVIEW_REQUIRED: "false",
   STT_CONTRACT_VERIFIED: "true",
   STT_PROVIDER: "cartesia",
   STT_API_KEY: KEY,
@@ -69,7 +76,7 @@ const env: Record<string, string> = {
   SECURITY_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
 };
 const saved = Object.fromEntries(
-  [...Object.keys(env), "VOICE_PRO_CLONE_PRICE_AED", "STT_MODEL"].map((k) => [k, process.env[k]]),
+  [...Object.keys(env), "VOICE_PRO_CLONE_PRICE_AED", "STT_MODEL", "STT_ZERO_RETENTION"].map((k) => [k, process.env[k]]),
 );
 const originalFetch = globalThis.fetch;
 let db: Database,
@@ -83,7 +90,9 @@ let db: Database,
   quick: any,
   quick2: any,
   pro: any,
-  alexWorkout: string;
+  third: any,
+  alexWorkout: string,
+  alexSession: string;
 
 async function request(url: string, method: any = "GET", body?: any, actor?: any) {
   return app.inject({
@@ -202,6 +211,7 @@ before(async () => {
   other = await register("other-coach@example.test", "other-coach");
   alex = await member(coach, "alex-clone@example.test", "Alex Clone");
   bo = await member(other, "bo-clone@example.test", "Bo Other");
+  third = await register("third-coach@example.test", "third-coach");
 });
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -249,6 +259,26 @@ test("Cartesia settings: provider choice, standard addresses, validation and a r
   assert.doesNotMatch(JSON.stringify(wrong), /sk_car_/);
   const unapproved = await testIntegration("voice", { ...env, VOICE_CONTRACT_VERIFIED: "false" });
   assert.equal(unapproved.status, "unavailable");
+  // Zero retention cannot be requested from Cartesia: never silently dropped.
+  const zero = { ...env, STT_ZERO_RETENTION: "true" };
+  assert.equal(integrationCapability("speech_to_text", zero)!.approved, false);
+  assert.equal(integrationCapability("speech_to_text", { ...zero, STT_PROVIDER: "elevenlabs" })!.approved, true);
+  const zeroCheck = await testIntegration("speech_to_text", zero);
+  assert.equal(zeroCheck.status, "unavailable");
+  assert.match(zeroCheck.message, /Enterprise account setting/);
+  process.env.STT_ZERO_RETENTION = "true";
+  try {
+    assert.throws(() => speechToTextContract(), /Enterprise account setting/);
+  } finally {
+    delete process.env.STT_ZERO_RETENTION;
+  }
+  // Operator review of each clone is on unless switched off.
+  delete process.env.VOICE_CLONE_REVIEW_REQUIRED;
+  try {
+    assert.equal(voiceContract().cloning.reviewRequired, true);
+  } finally {
+    process.env.VOICE_CLONE_REVIEW_REQUIRED = "false";
+  }
 });
 
 test("adapter request shapes: bearer key, pinned version, JSON speech and multipart clone, dataset and transcription", async () => {
@@ -403,7 +433,8 @@ test("the trainer consents, records, makes a Quick clone, previews it and activa
   assert.equal(activated.status, "active");
   assert.match(activated.message, /now hear this voice/);
   const [voice] = await rows(coach, "SELECT status,provider,provider_voice_id,clone_id,model,language FROM trainer_voices");
-  assert.deepEqual(voice, { status: "verified", provider: "cartesia", provider_voice_id: mock.clones[0].id, clone_id: quick.id, model: "sonic-3.6", language: "en" });
+  // A Quick clone keeps no model of its own: it follows VOICE_MODEL.
+  assert.deepEqual(voice, { status: "verified", provider: "cartesia", provider_voice_id: mock.clones[0].id, clone_id: quick.id, model: null, language: "en" });
   quick = activated;
 });
 
@@ -416,6 +447,7 @@ test("voice sessions speak with the trainer's active clone; spoken replies go to
   const workout = (alexWorkout = (await ok("/workouts/start", "POST", { programId: program.id }, alex)).id);
   const session = await ok("/voice-sessions", "POST", { workoutId: workout, playbackConsent: true }, alex);
   assert.equal(session.mode, "voice", JSON.stringify(session.unavailableReason));
+  alexSession = session.id;
   const before = mock.syntheses.length;
   const made = await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
   assert.ok(made.generated > 0 && !made.capped, JSON.stringify(made));
@@ -429,6 +461,9 @@ test("voice sessions speak with the trainer's active clone; spoken replies go to
   assert.equal(heard.transcript, "eight reps");
   assert.deepEqual(heard.command, { type: "reps", reps: 8 });
   assert.deepEqual(mock.transcriptions.at(-1)!.model, "ink-whisper");
+  assert.equal(mock.transcriptions.at(-1)!.language, "en", "an English-speaking member's replies are read as English");
+  const gate = (await ok(`/voice-sessions/workout/${workout}`, "GET", undefined, alex)).gate;
+  assert.deepEqual(gate.speechProvider, { name: "Cartesia", zeroRetention: false }, "the member is told who transcribes and on whose terms");
   const [stt] = await rows(coach, "SELECT provider,model FROM cost_events WHERE task='voice.transcription' LIMIT 1");
   assert.deepEqual(stt, { provider: "cartesia", model: "ink-whisper" });
 });
@@ -507,7 +542,8 @@ test("activating a newer Quick clone replaces the older one, which is deleted at
   const [first] = await rows(coach, "SELECT status,provider_voice_id,preview_audio FROM trainer_voice_clones WHERE id=$1", [quick.id]);
   assert.deepEqual(first, { status: "deleted", provider_voice_id: null, preview_audio: null });
   const queued = await rows(coach, "SELECT kind,reason,status FROM voice_provider_deletions ORDER BY kind");
-  assert.deepEqual(queued.map((d) => [d.kind, d.reason]), [["named", "superseded"], ["voice", "superseded"]]);
+  // Made without a lost answer: the voice id alone is deleted, no name sweep.
+  assert.deepEqual(queued.map((d) => [d.kind, d.reason]), [["voice", "superseded"]]);
   await processVoiceClones(db);
   assert.equal(mock.voices.has(firstVoice), false, "the older voice is deleted at the provider");
   assert.ok((await rows(coach, "SELECT status FROM voice_provider_deletions")).every((d) => d.status === "done"));
@@ -538,11 +574,18 @@ test("a Pro clone uploads its recordings, trains under the worker's polling and 
   assert.equal(pro.status, "processing");
   const passes = await workerUntil(coach, async () => (await ok("/voice/clones", "GET", undefined, coach)).clones.find((c: any) => c.id === pro.id).status === "ready");
   assert.ok(passes >= 2, "training was polled across worker passes");
-  assert.equal(mock.datasets.size, 1, "the lost dataset answer was reconciled by name, not created twice");
+  assert.equal(mock.server.log.filter((r) => r.method === "POST" && /^\/datasets\/?$/.test(r.path)).length, 1, "the lost dataset answer was reconciled by name, not created twice");
   assert.equal(mock.uploads.length, 9);
   assert.ok(mock.uploads.every((u) => /^[0-9a-f-]{36}\.ogg$/.test(u.filename)));
   const [row] = await rows(coach, "SELECT status,model,provider_job FROM trainer_voice_clones WHERE id=$1", [pro.id]);
   assert.equal(row.model, "sonic-3.6-2026-08-27", "a Pro clone speaks with a dated model");
+  assert.equal(mock.fineTunes.get(row.provider_job.fineTuneId)!.name, "trainsyou-" + pro.id + "-1", "each training attempt has its own name");
+  // The raw recordings do not stay at the provider once the Pro voice exists.
+  assert.equal(mock.datasets.has(row.provider_job.datasetId), false);
+  assert.deepEqual(
+    (await rows(coach, "SELECT kind,reason,status FROM voice_provider_deletions WHERE reference=$1", [row.provider_job.datasetId])),
+    [{ kind: "dataset", reason: "trained", status: "done" }],
+  );
   const leftovers = await rows(coach, "SELECT count(*)::int AS n FROM trainer_voice_samples WHERE clone_id=$1 AND sealed IS NOT NULL", [pro.id]);
   assert.equal(leftovers[0].n, 0, "no recording is kept once the provider has it");
   await ok(`/voice/clones/${pro.id}/preview`, "POST", {}, coach);
@@ -615,7 +658,15 @@ test("deleting a clone removes its recordings here and everything at the provide
   assert.equal(mock.fineTunes.has(job.provider_job.fineTuneId), false);
   assert.equal(mock.datasets.has(job.provider_job.datasetId), false);
   assert.equal((await rows(coach, "SELECT count(*)::int AS n FROM trainer_voice_samples WHERE clone_id=$1", [pro.id]))[0].n, 0);
-  assert.ok((await rows(coach, "SELECT status FROM voice_provider_deletions")).every((d) => d.status === "done"));
+  const left = await rows(coach, "SELECT kind,status,attempts,reference FROM voice_provider_deletions WHERE status<>'done'");
+  // The dataset answer was lost once: its name is looked up again (lists lag)
+  // before the deletion counts as confirmed; everything with an id is gone.
+  assert.deepEqual(left.map((d) => [d.kind, d.status, d.attempts, d.reference]), [["named", "pending", 1, "trainsyou-" + pro.id]]);
+  for (let i = 0; i < 2; i++) {
+    await rows(coach, "UPDATE voice_provider_deletions SET next_attempt_at=now() WHERE status='pending'");
+    await processVoiceProviderDeletions(db, elevated("worker", { tenantId: coach.tenantId, role: "owner" }));
+  }
+  assert.ok((await rows(coach, "SELECT status FROM voice_provider_deletions")).every((d) => d.status === "done"), "confirmed after three empty look-ups");
   // Deleting the active clone stops the workspace voice: sessions are text-guided.
   const active = (await ok("/voice/clones", "GET", undefined, coach)).clones[0];
   await ok(`/voice/clones/${active.id}`, "DELETE", undefined, coach);
@@ -633,8 +684,8 @@ test("withdrawing voice consent deletes every clone at the provider", async () =
   assert.equal(made.status, "ready");
   await ok("/privacy/consent", "POST", { type: "voice", granted: false }, coach);
   assert.deepEqual((await ok("/voice/clones", "GET", undefined, coach)).clones, []);
-  const queued = await rows(coach, "SELECT reason FROM voice_provider_deletions WHERE status='pending'");
-  assert.ok(queued.length >= 1 && queued.every((d) => d.reason === "consent_withdrawn"));
+  const queued = await rows(coach, "SELECT kind,reason FROM voice_provider_deletions WHERE status='pending'");
+  assert.deepEqual(queued, [{ kind: "voice", reason: "consent_withdrawn" }]);
   await processVoiceProviderDeletions(db, elevated("worker", { tenantId: coach.tenantId, role: "owner" }));
   assert.equal(mock.voices.has(voiceId), false);
   // A new clone needs consent again (the POST records it).
@@ -674,4 +725,359 @@ test("an ownership transfer and a workspace closure stop the voice and delete cl
   assert.equal(mock.voices.has(voiceId), false, "deleted at the provider after closure");
   // The app role may never delete the deletion queue.
   await assert.rejects(rows(other, "DELETE FROM voice_provider_deletions"), /permission denied/);
+});
+
+// ---------------------------------------------------------------- review round 1
+
+const worker = (trainer: any) => elevated("worker", { tenantId: trainer.tenantId, role: "owner" });
+/** A draft of the given kind and language with its recordings added. */
+async function draftWith(trainer: any, kind: "instant" | "pro", language = "en") {
+  let draft = await ok("/voice/clones", "POST", { kind, language, consent: CONSENT, ...(kind === "pro" ? { proAcknowledged: true } : {}) }, trainer);
+  if (kind === "instant")
+    return ok(`/voice/clones/${draft.id}/samples`, "POST", { audio: wavOf(12).toString("base64"), type: "audio/wav", durationSeconds: 12 }, trainer);
+  for (let i = 0; i < 9; i++)
+    draft = await ok(`/voice/clones/${draft.id}/samples`, "POST", { audio: oggOf().toString("base64"), type: "audio/ogg", durationSeconds: 200 }, trainer);
+  return draft;
+}
+const cloneRow = async (trainer: any, id: string) =>
+  (await rows(trainer, "SELECT status,step,error,provider_job,model,provider_voice_id,next_attempt_at FROM trainer_voice_clones WHERE id=$1", [id]))[0];
+const view = async (trainer: any, id: string) =>
+  (await ok("/voice/clones", "GET", undefined, trainer)).clones.find((c: any) => c.id === id);
+const due = (trainer: any) =>
+  rows(trainer, "UPDATE trainer_voice_clones SET next_attempt_at=now() WHERE status='processing'");
+/** An operator app (platform administrator, recent MFA) with the clone and settings routes. */
+async function operatorApp() {
+  const operatorId = randomUUID();
+  await db.system((tx) =>
+    tx.query("INSERT INTO users(id,email,name,password_hash,platform_role) VALUES($1,$2,'Voice operator','fixture','admin')", [operatorId, operatorId + "@example.test"]),
+  );
+  const admin = Fastify();
+  admin.addHook("preHandler", async (req) => {
+    req.identity = { tenantId: coach.tenantId, userId: operatorId, role: "owner", platformRole: "admin", mfaAt: new Date().toISOString() } as any;
+  });
+  admin.setErrorHandler((e: any, _req, reply) => reply.code(e.statusCode ?? (e.name === "ZodError" ? 400 : 500)).send({ code: e.code, message: e.message }));
+  registerVoiceClones(admin, db);
+  platformSettingsRoutes(admin, db, (req) => req.identity as any);
+  return admin;
+}
+
+test("name look-ups read every page of the provider's lists", async () => {
+  const client = cartesiaVoiceClient();
+  const target = "trainsyou-" + randomUUID();
+  const fillers = Array.from({ length: 5 }, (_, i) => "ds_filler" + i);
+  mock.listPageSize = 2;
+  try {
+    for (const id of fillers) mock.datasets.set(id, { id, name: "someone-else", files: [] });
+    mock.datasets.set("ds_target", { id: "ds_target", name: target, files: [] });
+    for (const [id, name] of [["ft_other", "someone-else"], ["ft_a", target + "-1"], ["ft_b", "x"], ["ft_c", target + "-2"]])
+      mock.fineTunes.set(id, { id, name, language: "en", dataset: "ds_target", polls: 0, status: "failed" });
+    const before = mock.server.log.length;
+    assert.deepEqual(await client.datasetsNamed(target), [{ id: "ds_target" }]);
+    const pages = mock.server.log.slice(before).filter((r) => r.path.startsWith("/datasets"));
+    assert.ok(pages.length >= 3 && pages.slice(1).every((r) => /starting_after=/.test(r.query)), "later pages follow next_page");
+    assert.deepEqual((await client.fineTunesNamed(target)).map((f) => f.id), [], "exact name only");
+    assert.deepEqual((await client.fineTunesNamed(target, true)).map((f) => [f.id, f.dataset]), [["ft_a", "ds_target"], ["ft_c", "ds_target"]]);
+    assert.deepEqual((await client.fineTunesNamed(target + "-2")).map((f) => f.id), ["ft_c"]);
+  } finally {
+    mock.listPageSize = 100;
+    for (const id of [...fillers, "ds_target"]) mock.datasets.delete(id);
+    for (const id of ["ft_other", "ft_a", "ft_b", "ft_c"]) mock.fineTunes.delete(id);
+  }
+});
+
+test("speech is sent in the text's language, not the recording's; a Quick clone follows the configured model", async () => {
+  const draft = await draftWith(third, "instant", "ar");
+  const made = await ok(`/voice/clones/${draft.id}/submit`, "POST", { revision: draft.version }, third);
+  assert.equal(made.status, "ready");
+  assert.equal(mock.clones.at(-1)!.language, "ar", "the clone is made in the language recorded");
+  process.env.VOICE_MODEL = "sonic-3.7";
+  try {
+    await ok(`/voice/clones/${made.id}/preview`, "POST", {}, third);
+  } finally {
+    process.env.VOICE_MODEL = "sonic-3.6";
+  }
+  const synth = mock.syntheses.at(-1)!;
+  assert.deepEqual([synth.text, synth.language, synth.model], [PREVIEW_LINE, "en", "sonic-3.7"]);
+  assert.equal((await cloneRow(third, made.id)).model, null);
+  await ok(`/voice/clones/${made.id}`, "DELETE", undefined, third);
+});
+
+test("a refused or unsent clone request releases its cost; automatic retries back off and stop", async () => {
+  process.env.VOICE_CLONE_USD = "1";
+  const spent = async () => Number((await rows(third, "SELECT voice_guidance_spent_today() AS s"))[0].s);
+  try {
+    const before = await spent();
+    const draft = await draftWith(third, "instant");
+    mock.failNext.clone = 429;
+    const sent = await ok(`/voice/clones/${draft.id}/submit`, "POST", { revision: draft.version }, third);
+    assert.equal(sent.status, "processing");
+    for (let i = 0; i < 5; i++) {
+      mock.failNext.clone = 429;
+      await due(third);
+      await processVoiceClones(db);
+    }
+    const row = await cloneRow(third, draft.id);
+    assert.equal(row.status, "processing");
+    assert.notEqual(row.error?.code, "VOICE_BUDGET", "provider refusals never fill the daily voice limit");
+    assert.equal(row.provider_job.retries, 6);
+    assert.ok(new Date(row.next_attempt_at).getTime() - Date.now() > 50 * 60 * 1000, "the wait grows to an hour");
+    const costs = await rows(third, "SELECT status,cost_usd,pricing FROM cost_events WHERE task='voice.clone' AND trace_id=$1", [draft.id]);
+    assert.equal(costs.length, 6);
+    assert.ok(costs.every((c) => c.status === "recorded" && Number(c.cost_usd) === 0 && c.pricing.released === "provider_refused" && c.pricing.httpStatus === 429));
+    assert.equal(await spent(), before);
+    // The eleventh refusal in a row fails the clone; the recording stays for a new try.
+    await rows(third, "UPDATE trainer_voice_clones SET provider_job=provider_job||'{\"retries\":10}'::jsonb,next_attempt_at=now() WHERE id=$1", [draft.id]);
+    mock.failNext.clone = 429;
+    await processVoiceClones(db);
+    const failed = await view(third, draft.id);
+    assert.deepEqual([failed.status, failed.error.code, failed.retryable], ["failed", "PROVIDER_UNAVAILABLE", true]);
+    const again = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: failed.version }, third);
+    assert.equal(again.status, "ready");
+    const last = await rows(third, "SELECT status FROM cost_events WHERE task='voice.clone' AND trace_id=$1 AND status<>'recorded'", [draft.id]);
+    assert.deepEqual(last, [{ status: "unknown" }], "a clone made waits for invoice reconciliation");
+    await ok(`/voice/clones/${draft.id}`, "DELETE", undefined, third);
+  } finally {
+    process.env.VOICE_CLONE_USD = "0";
+    delete mock.failNext.clone;
+  }
+});
+
+test("after a lost answer the deletion keeps looking up the name while the provider's list lags", async () => {
+  mock.loseNextAnswer.add("clone");
+  const lost = await quickClone(third);
+  assert.equal(lost.status, "processing");
+  const created = mock.clones.at(-1)!;
+  mock.hiddenFromLists.add(created.id);
+  try {
+    const deleted = await ok(`/voice/clones/${lost.id}`, "DELETE", undefined, third);
+    assert.match(deleted.message, /being deleted/);
+    const [named] = await rows(third, "SELECT status,attempts FROM voice_provider_deletions WHERE kind='named' AND reference=$1", ["trainsyou-" + lost.id]);
+    assert.deepEqual(named, { status: "pending", attempts: 1 }, "an empty first look-up is not the end");
+  } finally {
+    mock.hiddenFromLists.delete(created.id);
+  }
+  for (let i = 0; i < 3; i++) {
+    await rows(third, "UPDATE voice_provider_deletions SET next_attempt_at=now() WHERE status='pending'");
+    await processVoiceProviderDeletions(db, worker(third));
+  }
+  assert.equal(mock.voices.has(created.id), false, "the voice made by the lost request is deleted once the list shows it");
+  const [named] = await rows(third, "SELECT status FROM voice_provider_deletions WHERE kind='named' AND reference=$1", ["trainsyou-" + lost.id]);
+  assert.equal(named.status, "done");
+});
+
+test("trying a Quick clone again after an unconfirmed answer looks the name up before sending", async () => {
+  const draft = await draftWith(third, "instant");
+  await rows(third, "UPDATE trainer_voice_clones SET status='failed',step=NULL,submitted_at=now(),provider_job='{\"sent\":true,\"ambiguous\":true,\"resends\":2}',error='{\"code\":\"PROVIDER_UNCONFIRMED\",\"message\":\"The voice provider did not confirm the clone. Try again.\"}',version=version+1 WHERE id=$1", [draft.id]);
+  // An earlier request made the voice after all.
+  const earlier = randomUUID();
+  mock.voices.set(earlier, { id: earlier, name: "trainsyou-" + draft.id, language: "en", isPro: false });
+  const sent = mock.clones.length;
+  const failed = await view(third, draft.id);
+  assert.equal(failed.retryable, true);
+  const again = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: failed.version }, third);
+  assert.equal(again.status, "ready");
+  assert.equal(mock.clones.length, sent, "no second clone request");
+  assert.equal((await cloneRow(third, draft.id)).provider_voice_id, earlier);
+  await ok(`/voice/clones/${draft.id}`, "DELETE", undefined, third);
+  assert.equal(mock.voices.has(earlier), false);
+});
+
+test("Pro training: a retry after a day, a lost training answer, Cartesia-named Pro voices and failures that need a new clone", async () => {
+  process.env.VOICE_PRO_CLONE_ENABLED = "true";
+  process.env.VOICE_PRO_CLONE_SLOTS = "10";
+  mock.trainingPolls = 1000;
+  try {
+    const draft = await draftWith(third, "pro");
+    const sent = await ok(`/voice/clones/${draft.id}/submit`, "POST", { revision: draft.version }, third);
+    assert.equal(sent.status, "processing");
+    await workerUntil(third, async () => (await cloneRow(third, draft.id)).step === "training");
+    let row = await cloneRow(third, draft.id);
+    const first = row.provider_job.fineTuneId;
+    assert.equal(mock.fineTunes.get(first)!.name, `trainsyou-${draft.id}-1`);
+    // A day passes without an answer: the clone fails and the training is deleted.
+    const dayAgo = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+    await rows(third, "UPDATE trainer_voice_clones SET submitted_at=$2::text::timestamptz,provider_job=provider_job||jsonb_build_object('trainingStartedAt',$2::text),next_attempt_at=now() WHERE id=$1", [draft.id, dayAgo]);
+    await processVoiceClones(db);
+    let seen = await view(third, draft.id);
+    assert.deepEqual([seen.status, seen.error.code, seen.retryable], ["failed", "TRAINING_TIMEOUT", true]);
+    assert.equal(mock.fineTunes.has(first), false, "the abandoned training does not keep a Pro slot");
+    // Tried again the next day, and the training answer is lost on the way back.
+    mock.loseNextAnswer.add("fineTune");
+    seen = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: seen.version }, third);
+    assert.equal(seen.status, "processing");
+    await due(third);
+    await processVoiceClones(db);
+    row = await cloneRow(third, draft.id);
+    const mine = [...mock.fineTunes.values()].filter((f) => f.name.startsWith("trainsyou-" + draft.id));
+    assert.deepEqual(mine.map((f) => f.name), [`trainsyou-${draft.id}-2`], "one training at the provider, found by its own attempt name");
+    assert.deepEqual([row.status, row.step, row.provider_job.fineTuneId], ["processing", "training", mine[0].id]);
+    await due(third);
+    await processVoiceClones(db);
+    assert.equal((await cloneRow(third, draft.id)).step, "training", "the retry's deadline counts from its own start");
+    // Training completes but the provider lists no voice for six hours.
+    mock.trainingPolls = 0;
+    mock.withholdProVoices = true;
+    await due(third);
+    await advanceVoiceClone(db, worker(third), draft.id);
+    row = await cloneRow(third, draft.id);
+    assert.equal(row.step, "voices");
+    const proVoice = [...mock.voices.values()].find((v) => v.fineTuneId === row.provider_job.fineTuneId)!;
+    assert.ok(proVoice && !proVoice.name.includes(draft.id), "Cartesia names the Pro voice itself");
+    await rows(third, "UPDATE trainer_voice_clones SET provider_job=provider_job||jsonb_build_object('trainingCompletedAt',$2::text),next_attempt_at=now() WHERE id=$1", [draft.id, new Date(Date.now() - 7 * 3600 * 1000).toISOString()]);
+    await advanceVoiceClone(db, worker(third), draft.id);
+    seen = await view(third, draft.id);
+    assert.deepEqual([seen.status, seen.error.code], ["failed", "PROVIDER_VOICE_MISSING"]);
+    // Deleting the training deletes its voices first, whatever their names.
+    mock.withholdProVoices = false;
+    await processVoiceProviderDeletions(db, worker(third));
+    assert.equal(mock.voices.has(proVoice.id), false);
+    assert.equal(mock.fineTunes.has(row.provider_job.fineTuneId), false);
+    // Training that fails on the recordings needs a new clone; the dataset goes.
+    mock.failTraining = "Too much background noise";
+    seen = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: seen.version }, third);
+    await workerUntil(third, async () => (await cloneRow(third, draft.id)).status === "failed");
+    seen = await view(third, draft.id);
+    assert.deepEqual([seen.error.code, seen.retryable], ["TRAINING_FAILED", false]);
+    assert.match(seen.error.message, /Too much background noise.*start a new one/);
+    await refused(`/voice/clones/${draft.id}/retry`, "POST", { revision: seen.version }, third, 409, "VOICE_CLONE_START_AGAIN");
+    row = await cloneRow(third, draft.id);
+    assert.equal(mock.datasets.has(row.provider_job.datasetId), false, "the recordings leave the provider once no attempt can use them");
+    await ok(`/voice/clones/${draft.id}`, "DELETE", undefined, third);
+  } finally {
+    mock.trainingPolls = 2;
+    mock.withholdProVoices = false;
+    mock.failTraining = null;
+    process.env.VOICE_PRO_CLONE_ENABLED = "false";
+    process.env.VOICE_PRO_CLONE_SLOTS = "2";
+  }
+});
+
+test("Arabic replies are transcribed in Arabic by Cartesia, and a spoken pain report holds training", async () => {
+  await db.tenant({ tenantId: coach.tenantId, userId: alex.userId, role: "subscriber" }, (tx) =>
+    tx.query(
+      "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,'{\"language\":\"ar\"}') ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data",
+      [coach.tenantId, alex.userId],
+    ),
+  );
+  mock.nextTranscripts.push({ text: "عندي ألم في الركبة", language: "ar" });
+  const heard = await ok(`/voice-sessions/${alexSession}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1500 }, alex);
+  assert.equal(mock.transcriptions.at(-1)!.language, "ar");
+  assert.equal(heard.transcript, "عندي ألم في الركبة");
+  assert.equal(heard.trainingHeld, true, "the safety hold starts from an Arabic pain report");
+});
+
+test("a deletion that keeps failing needs attention: operators are alerted and see it from any workspace", async () => {
+  const made = await quickClone(third);
+  const voiceId = mock.clones.at(-1)!.id;
+  mock.failNext.delete = 500;
+  await ok(`/voice/clones/${made.id}`, "DELETE", undefined, third);
+  const [pending] = await rows(third, "SELECT id,status,attempts,last_error FROM voice_provider_deletions WHERE kind='voice' AND reference=$1", [voiceId]);
+  assert.equal(pending.status, "pending");
+  assert.match(pending.last_error, /HTTP 500/);
+  await rows(third, "UPDATE voice_provider_deletions SET attempts=10,next_attempt_at=now() WHERE id=$1", [pending.id]);
+  mock.failNext.delete = 500;
+  await processVoiceProviderDeletions(db, worker(third));
+  const alertKey = "voice.provider_deletion:" + pending.id;
+  const [alert] = await db.system((tx) => tx.query("SELECT status,severity,tenant_id FROM platform_alerts WHERE dedupe_key=$1", [alertKey]));
+  assert.deepEqual(alert, { status: "open", severity: "warning", tenant_id: third.tenantId });
+  // Only platform administrators read the cross-workspace list.
+  await assert.rejects(rows(third, "SELECT * FROM voice_provider_deletions_outstanding(10)"), /platform administrators only/);
+  await assert.rejects(rows(third, "SELECT * FROM voice_provider_work_outstanding()"), /platform administrators only/);
+  const admin = await operatorApp();
+  try {
+    const listed = (await admin.inject({ method: "GET", url: "/api/v1/admin/integrations/voice-clones" })).json();
+    const entry = listed.deletions.find((d: any) => d.id === pending.id);
+    assert.deepEqual([entry.status, entry.tenant_id, entry.kind], ["attention", third.tenantId, "voice"]);
+    assert.equal(listed.deletions[0].status, "attention", "attention first");
+    assert.doesNotMatch(JSON.stringify(listed.deletions), new RegExp(voiceId), "no provider reference in the listing");
+    const retried = await admin.inject({ method: "POST", url: `/api/v1/admin/integrations/voice-deletions/${pending.id}/retry`, payload: { tenantId: third.tenantId } });
+    assert.equal(retried.statusCode, 200, retried.body);
+  } finally {
+    await admin.close();
+  }
+  await processVoiceProviderDeletions(db, worker(third));
+  assert.equal(mock.voices.has(voiceId), false);
+  const [cleared] = await db.system((tx) => tx.query("SELECT status FROM platform_alerts WHERE dedupe_key=$1", [alertKey]));
+  assert.equal(cleared.status, "resolved");
+});
+
+test("with voice paused or another provider chosen, clones stay listed and deletable and the stale purge still runs", async () => {
+  const kept = await quickClone(third);
+  const keptVoice = mock.clones.at(-1)!.id;
+  const stale = await draftWith(third, "instant");
+  // Paused: the contract approval is off, the Cartesia account is still saved.
+  process.env.VOICE_CONTRACT_VERIFIED = "false";
+  try {
+    const paused = await ok("/voice/clones", "GET", undefined, third);
+    assert.equal(paused.provider, null);
+    assert.deepEqual(paused.clones.map((c: any) => c.id).sort(), [kept.id, stale.id].sort(), "the trainer still sees what exists");
+    const deleted = await ok(`/voice/clones/${kept.id}`, "DELETE", undefined, third);
+    assert.match(deleted.message, /is being deleted/);
+    assert.equal(mock.voices.has(keptVoice), false, "deleted at the provider with the saved account");
+    await rows(third, "UPDATE trainer_voice_clones SET updated_at=now()-interval '30 days' WHERE id=$1", [stale.id]);
+    await processVoiceClones(db, { purgeNow: true });
+    assert.equal((await rows(third, "SELECT count(*)::int AS n FROM trainer_voice_samples WHERE clone_id=$1", [stale.id]))[0].n, 0, "the 7-day purge does not wait for the provider");
+    assert.equal((await cloneRow(third, stale.id)).status, "deleted");
+  } finally {
+    process.env.VOICE_CONTRACT_VERIFIED = "true";
+  }
+  // No Cartesia account saved at all (environment switched to ElevenLabs).
+  const orphan = await quickClone(third);
+  const orphanVoice = mock.clones.at(-1)!.id;
+  process.env.VOICE_PROVIDER = "elevenlabs";
+  process.env.VOICE_BASE_URL = "https://api.elevenlabs.io/v1";
+  try {
+    const deleted = await ok(`/voice/clones/${orphan.id}`, "DELETE", undefined, third);
+    assert.match(deleted.message, /as soon as the platform's voice provider connection is back/);
+    assert.equal(mock.voices.has(orphanVoice), true);
+    const [alert] = await db.system((tx) => tx.query("SELECT status FROM platform_alerts WHERE dedupe_key='voice.provider_account_missing'"));
+    assert.equal(alert.status, "open");
+  } finally {
+    process.env.VOICE_PROVIDER = "cartesia";
+    process.env.VOICE_BASE_URL = "https://cartesia.test";
+  }
+  await processVoiceClones(db);
+  assert.equal(mock.voices.has(orphanVoice), false, "the queued deletion runs once the account is back");
+});
+
+test("the voice provider cannot leave Cartesia while clones depend on it; pausing stays possible", async () => {
+  const made = await quickClone(third);
+  const voiceId = mock.clones.at(-1)!.id;
+  const admin = await operatorApp();
+  try {
+    const put = (revision: number, values: Record<string, string>) =>
+      admin.inject({ method: "PUT", url: "/api/v1/admin/settings/voice", payload: { revision, enabled: true, values } });
+    const leave = await put(0, { VOICE_PROVIDER: "elevenlabs" });
+    assert.equal(leave.statusCode, 409, leave.body);
+    assert.equal(leave.json().code, "VOICE_CLONES_AT_PROVIDER");
+    assert.match(leave.json().message, /1 clone at Cartesia/);
+    const disconnect = await admin.inject({ method: "POST", url: "/api/v1/admin/settings/voice/disconnect", payload: { revision: 0 } });
+    assert.equal(disconnect.statusCode, 409, disconnect.body);
+    const pause = await put(0, { VOICE_CONTRACT_VERIFIED: "false" });
+    assert.equal(pause.statusCode, 200, pause.body);
+    // The saved row, not the environment, now holds the Cartesia account.
+    process.env.VOICE_PROVIDER = "elevenlabs";
+    process.env.VOICE_BASE_URL = "https://api.elevenlabs.io/v1";
+    try {
+      const deleted = await ok(`/voice/clones/${made.id}`, "DELETE", undefined, third);
+      assert.match(deleted.message, /is being deleted/);
+      assert.equal(mock.voices.has(voiceId), false);
+    } finally {
+      process.env.VOICE_PROVIDER = "cartesia";
+      process.env.VOICE_BASE_URL = "https://cartesia.test";
+    }
+    // Nothing depends on the account any more (other workspaces included).
+    for (const t of [coach, other, third]) for (let i = 0; i < 3; i++) {
+      await rows(t, "UPDATE voice_provider_deletions SET next_attempt_at=now() WHERE status='pending'");
+      await processVoiceProviderDeletions(db, worker(t), 100);
+    }
+    const open = (await admin.inject({ method: "GET", url: "/api/v1/admin/integrations/voice-clones" })).json();
+    assert.deepEqual(open.deletions, [], JSON.stringify(open.deletions));
+    const clonesLeft = open.clones.filter((c: any) => c.status !== "draft");
+    assert.deepEqual(clonesLeft, [], JSON.stringify(clonesLeft));
+    const left = await put(1, { VOICE_PROVIDER: "elevenlabs" });
+    assert.equal(left.statusCode, 200, left.body);
+  } finally {
+    await admin.close();
+  }
 });

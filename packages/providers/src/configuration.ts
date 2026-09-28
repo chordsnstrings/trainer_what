@@ -152,7 +152,13 @@ export function integrationCapability(
         config.STT_CONTRACT_VERIFIED === "true" &&
         IMPLEMENTED_VOICE_PROVIDERS.includes(config.STT_PROVIDER ?? "") &&
         Number.isFinite(Number(config.STT_USD_PER_HOUR)) &&
-        Number(config.STT_USD_PER_HOUR) >= 0,
+        Number(config.STT_USD_PER_HOUR) >= 0 &&
+        // The app cannot request Cartesia zero retention (an Enterprise
+        // account setting): a request for it is never silently ignored.
+        !(
+          config.STT_PROVIDER === "cartesia" &&
+          config.STT_ZERO_RETENTION === "true"
+        ),
     };
   }
   if (id === "lean") {
@@ -844,8 +850,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Review each clone before members hear it",
         "boolean",
         {
-          defaultValue: "false",
-          help: "When on, an activated clone waits in Integration operations for your identity and rights check.",
+          defaultValue: "true",
+          help: "On by default: an activated clone waits in Integration operations for your identity and rights check (listen to its preview) before members hear it. Turn off only if the trainer's own recording and consent are enough.",
         },
       ),
       field(
@@ -905,7 +911,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("STT_ZERO_RETENTION", "Request zero retention", "boolean", {
         defaultValue: "false",
-        help: "ElevenLabs only: sends enable_logging=false. Only enable when the provider account supports zero-retention mode. Cartesia zero retention is an Enterprise account setting.",
+        help: "ElevenLabs only: sends enable_logging=false. Only enable when the provider account supports zero-retention mode. Cartesia zero retention is an Enterprise account setting the app cannot request: with Cartesia this must be off, and members are told the provider's own retention applies.",
       }),
       field(
         "STT_CONTRACT_VERIFIED",
@@ -1688,6 +1694,16 @@ export async function testIntegration(
         throw new ConfigurationError(
           "Choose the ElevenLabs or Cartesia speech-to-text provider.",
         );
+      if (
+        fields.STT_PROVIDER === "cartesia" &&
+        fields.STT_ZERO_RETENTION === "true"
+      )
+        return {
+          status: "unavailable",
+          message:
+            "Cartesia zero retention is an Enterprise account setting the app cannot request. Turn off Request zero retention to use Cartesia; members are told the provider's own retention applies. No provider request was sent.",
+          checkedAt,
+        };
       if (fields.STT_PROVIDER === "cartesia")
         return cartesiaAccountCheck(
           fields.STT_BASE_URL,

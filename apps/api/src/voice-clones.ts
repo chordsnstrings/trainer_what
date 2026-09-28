@@ -10,10 +10,11 @@
 // only voice members hear, through guided_voice(). Deleting a clone, withdrawing
 // voice consent, erasure, ownership transfer and workspace closure queue its
 // deletion at the provider (voice_provider_deletions), which the worker
-// confirms.
+// confirms with the saved Cartesia account even while voice is paused.
 //
-// Provider calls follow the voice-session pattern: the cost is reserved under
-// the workspace voice budget first, marked unknown just before sending, and an
+// Provider calls reserve their cost under the workspace voice budget first.
+// A request the provider may have processed leaves the cost unknown until
+// invoice reconciliation; a request never sent, or refused, releases it. An
 // answer that never arrived is reconciled by the clone's unique provider name
 // before anything is sent again.
 import { createHash, randomUUID } from "node:crypto";
@@ -28,6 +29,7 @@ import {
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
+  cartesiaDeletionClient,
   cartesiaVoiceClient,
   generateTrainerVoice,
   voiceContract,
@@ -65,6 +67,12 @@ import {
   sealBytes,
   sealContexts,
 } from "./sealing.ts";
+import {
+  registerSettingsGuard,
+  storedIntegrationValues,
+  type SettingsChange,
+} from "./platform-settings.ts";
+import { clearPlatformAlert, raisePlatformAlert } from "./platform-alerts.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 const id = z.string().uuid();
@@ -92,6 +100,9 @@ function admin(req: FastifyRequest) {
 }
 const workerActor = (tenantId: string): Actor =>
   elevated("worker", { tenantId, role: "owner" });
+/** A platform administrator's owner scope, for the cross-workspace helpers. */
+const operatorScope = (operator: Actor, tenantId = operator.tenantId): Actor =>
+  elevated("platform-operator", { tenantId, userId: operator.userId, role: "owner" });
 /** Same lock as the voice enrollment routes (integrations-completion.ts). */
 async function lockVoice(tx: Tx, a: Actor) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
@@ -116,6 +127,22 @@ function cartesiaContract() {
     );
   return contract;
 }
+/**
+ * The Cartesia account that deletes what clones left at the provider: the
+ * active contract, else the saved voice settings while they still name
+ * Cartesia and hold its key (voice paused, unverified, disabled or awaiting a
+ * connection check). Null only when no Cartesia account is saved any more.
+ */
+async function deletionClient(db: Database): Promise<CartesiaClient | null> {
+  const contract = contractOrNull();
+  if (contract?.provider === "cartesia") return cartesiaVoiceClient(contract);
+  const values = await storedIntegrationValues(
+    db,
+    "voice",
+    (saved) => saved.VOICE_PROVIDER === "cartesia",
+  ).catch(() => null);
+  return values ? cartesiaDeletionClient(values) : null;
+}
 async function latestVoiceConsent(tx: Tx, userId: string) {
   const [c] = await tx.query(
     "SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='voice' ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -131,10 +158,24 @@ async function trainerCurrent(tx: Tx, userId: string) {
 const hash = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const CLONE_COLUMNS =
   "id,tenant_id,user_id,provider,kind,status,step,version,language,provider_name,provider_voice_id,provider_job,model,consent_version,evidence,error,previewed_at,attempts,next_attempt_at,lease_token,lease_until,submitted_at,ready_at,activated_at,deleted_at,created_at,updated_at,preview_audio IS NOT NULL AS has_preview";
+/**
+ * Failures a new attempt with the same recordings would only repeat: the
+ * trainer deletes the clone and records again.
+ */
+const NOT_RETRYABLE = new Set(["RECORDING_MISSING", "RECORDING_UNREADABLE", "TRAINING_FAILED"]);
+/** Each Pro training attempt has its own provider name, `<clone name>-<n>`. */
+const fineTuneName = (clone: Clone, round: number) => `${clone.provider_name}-${round}`;
 
 // ------------------------------------------------------------------ provider deletions
 
 type DeletionKind = "voice" | "fine_tune" | "dataset" | "named";
+/**
+ * Empty name look-ups, five minutes apart, before a `named` deletion is
+ * confirmed: the provider's lists can lag a new resource, and a request in
+ * flight when the clone was deleted can still create one (requests time out
+ * within three minutes).
+ */
+const NAMED_CHECKS = 3;
 async function queueDeletion(
   tx: Tx,
   tenantId: string,
@@ -144,19 +185,31 @@ async function queueDeletion(
 ) {
   if (typeof reference !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(reference))
     return;
+  // Queued again after it was confirmed: it starts over (a named deletion
+  // looks up the name NAMED_CHECKS times again).
   await tx.query(
-    "INSERT INTO voice_provider_deletions(id,tenant_id,provider,kind,reference,reason) VALUES($1,$2,'cartesia',$3,$4,$5) ON CONFLICT(tenant_id,provider,kind,reference) DO UPDATE SET status='pending',completed_at=NULL,next_attempt_at=now(),updated_at=now() WHERE voice_provider_deletions.status<>'pending'",
+    "INSERT INTO voice_provider_deletions(id,tenant_id,provider,kind,reference,reason) VALUES($1,$2,'cartesia',$3,$4,$5) ON CONFLICT(tenant_id,provider,kind,reference) DO UPDATE SET status='pending',attempts=0,completed_at=NULL,next_attempt_at=now(),updated_at=now() WHERE voice_provider_deletions.status<>'pending'",
     [randomUUID(), tenantId, kind, reference, reason],
   );
+}
+/**
+ * Whether a request of this clone may have created something the app has no
+ * id for: a request is in flight or pending (processing), or an answer was
+ * lost (the provider name is then looked up before deleting).
+ */
+function mayHaveStrays(clone: Clone) {
+  const job = clone.provider_job ?? {};
+  return clone.status === "processing" || !!job.ambiguous || !!job.resends;
 }
 /** Everything a clone may have left at the provider. */
 async function queueCloneDeletion(tx: Tx, clone: any, reason: string) {
   const job = clone.provider_job ?? {};
   await queueDeletion(tx, clone.tenant_id, "voice", clone.provider_voice_id, reason);
   await queueDeletion(tx, clone.tenant_id, "fine_tune", job.fineTuneId, reason);
-  await queueDeletion(tx, clone.tenant_id, "dataset", job.datasetId, reason);
-  // A request whose answer was lost may have created something under the name.
-  if (clone.submitted_at)
+  if (!job.datasetRetired)
+    await queueDeletion(tx, clone.tenant_id, "dataset", job.datasetId, reason);
+  // Every voice, fine-tune (all attempts) and dataset carrying the clone's name.
+  if (clone.submitted_at && mayHaveStrays(clone))
     await queueDeletion(tx, clone.tenant_id, "named", clone.provider_name, reason);
 }
 /** The workspace voice stops: no generation and no stored playback. */
@@ -268,15 +321,56 @@ export async function voiceCloneProviderInUse(tx: Tx, userId?: string) {
   return r?.used === true;
 }
 
-/** One pass over due provider deletions of a workspace. */
+/** A Pro fine-tune's voices first (Cartesia names them), then the fine-tune. */
+async function deleteFineTune(client: CartesiaClient, fineTuneId: string) {
+  let voices: Awaited<ReturnType<CartesiaClient["fineTuneVoices"]>> = [];
+  try {
+    voices = await client.fineTuneVoices(fineTuneId);
+  } catch (error) {
+    if (!(error instanceof CartesiaError && error.status === 404)) throw error;
+  }
+  for (const v of voices) await client.deleteVoice(v.id);
+  await client.deleteFineTune(fineTuneId);
+}
+/** One deletion at the provider; false while a named deletion keeps looking. */
+async function deleteAtProvider(client: CartesiaClient, d: any) {
+  if (d.kind === "voice") await client.deleteVoice(d.reference);
+  else if (d.kind === "fine_tune") await deleteFineTune(client, d.reference);
+  else if (d.kind === "dataset") await client.deleteDataset(d.reference);
+  else {
+    // Exactly the name, or the name with an attempt suffix (Pro fine-tunes).
+    let found = 0;
+    for (const v of await client.voicesNamed(d.reference, true)) {
+      found++;
+      await client.deleteVoice(v.id);
+    }
+    for (const f of await client.fineTunesNamed(d.reference, true)) {
+      found++;
+      await deleteFineTune(client, f.id);
+    }
+    for (const s of await client.datasetsNamed(d.reference, true)) {
+      found++;
+      await client.deleteDataset(s.id);
+    }
+    return found === 0 && Number(d.attempts) >= NAMED_CHECKS;
+  }
+  return true;
+}
+const deletionAlertKey = (id: string) => "voice.provider_deletion:" + id;
+
+/**
+ * One pass over due provider deletions of a workspace. `client` is the
+ * deletion account (looked up when not given); without one nothing is sent
+ * and the queue waits.
+ */
 export async function processVoiceProviderDeletions(
   db: Database,
   actor: Actor,
   limit = 10,
+  client?: CartesiaClient | null,
 ) {
-  const contract = contractOrNull();
-  if (!contract || contract.provider !== "cartesia") return 0;
-  const client = cartesiaVoiceClient(contract);
+  const account = client === undefined ? await deletionClient(db) : client;
+  if (!account) return 0;
   const due = await db.tenant(actor, (tx) =>
     tx.query(
       "UPDATE voice_provider_deletions SET next_attempt_at=now()+interval '10 minutes',attempts=attempts+1,updated_at=now() WHERE id IN (SELECT id FROM voice_provider_deletions WHERE status='pending' AND next_attempt_at<=now() ORDER BY next_attempt_at LIMIT $1 FOR UPDATE SKIP LOCKED) RETURNING *",
@@ -286,35 +380,45 @@ export async function processVoiceProviderDeletions(
   let done = 0;
   for (const d of due) {
     try {
-      if (d.kind === "voice") await client.deleteVoice(d.reference);
-      else if (d.kind === "fine_tune") await client.deleteFineTune(d.reference);
-      else if (d.kind === "dataset") await client.deleteDataset(d.reference);
-      else {
-        for (const v of await client.voicesNamed(d.reference))
-          await client.deleteVoice(v.id);
-        for (const f of await client.fineTunesNamed(d.reference))
-          await client.deleteFineTune(f.id);
-        for (const s of await client.datasetsNamed(d.reference))
-          await client.deleteDataset(s.id);
-      }
-      await db.tenant(actor, (tx) =>
-        tx.query(
-          "UPDATE voice_provider_deletions SET status='done',completed_at=now(),last_error=NULL,updated_at=now() WHERE id=$1",
-          [d.id],
-        ),
-      );
-      done++;
+      if (await deleteAtProvider(account, d)) {
+        await db.tenant(actor, (tx) =>
+          tx.query(
+            "UPDATE voice_provider_deletions SET status='done',completed_at=now(),last_error=NULL,updated_at=now() WHERE id=$1",
+            [d.id],
+          ),
+        );
+        done++;
+        if (d.last_error) await clearPlatformAlert(db, deletionAlertKey(d.id)).catch(() => 0);
+      } else
+        await db.tenant(actor, (tx) =>
+          tx.query(
+            "UPDATE voice_provider_deletions SET next_attempt_at=now()+interval '5 minutes',last_error=NULL,updated_at=now() WHERE id=$1 AND status='pending'",
+            [d.id],
+          ),
+        );
     } catch (error) {
       const message =
         error instanceof CartesiaError
           ? error.message.slice(0, 300)
           : "The provider could not be reached.";
-      await db.tenant(actor, (tx) =>
+      const [row] = await db.tenant(actor, (tx) =>
         tx.query(
-          "UPDATE voice_provider_deletions SET status=CASE WHEN attempts>=10 THEN 'attention' ELSE 'pending' END,last_error=$2,next_attempt_at=now()+least(interval '12 hours',interval '1 minute'*power(2,least(attempts,10))),updated_at=now() WHERE id=$1",
+          "UPDATE voice_provider_deletions SET status=CASE WHEN attempts>=10 THEN 'attention' ELSE 'pending' END,last_error=$2,next_attempt_at=now()+least(interval '12 hours',interval '1 minute'*power(2,least(attempts,10))),updated_at=now() WHERE id=$1 RETURNING status,attempts",
           [d.id, message],
         ),
       );
+      // Operators hear about it: the trainer was told it is being deleted.
+      if (row?.status === "attention")
+        await raisePlatformAlert(db, "voice.provider_deletion", {
+          dedupeKey: deletionAlertKey(d.id),
+          fingerprint: d.id,
+          severity: "warning",
+          scope: ["admin"],
+          title: "A voice clone deletion at Cartesia needs attention",
+          detail: `Deleting a ${d.kind === "fine_tune" ? "Pro training" : d.kind === "named" ? "set of resources named after a clone" : d.kind} at Cartesia failed ${row.attempts} times (${d.reason}). The trainer was told it is being deleted. Check the Cartesia account, then retry it under Integration operations, Trainer voice clones. Last error: ${message}`,
+          tenantId: d.tenant_id,
+          data: { deletionId: d.id, kind: d.kind, reason: d.reason },
+        }).catch(() => undefined);
     }
   }
   return done;
@@ -324,7 +428,18 @@ export async function processVoiceProviderDeletions(
 
 type StepResult = "continue" | "wait" | "done";
 type Clone = Record<string, any>;
+type Job = Record<string, any>;
 const DESCRIPTION = "Trainer voice for one trainsyou workspace (private).";
+/** Consecutive "try again later" answers before a clone fails (about 5 hours). */
+const MAX_RETRIES = 10;
+/**
+ * The clone's provider state for a step. Automatic retries are counted only
+ * while they are consecutive: a step that saves this object resets them.
+ */
+function jobOf(clone: Clone): Job {
+  const { retries, ...job } = clone.provider_job ?? {};
+  return job;
+}
 /**
  * Saves the outcome of a step and releases the lease; false when the clone
  * changed meanwhile (deleted or retried by the trainer).
@@ -358,6 +473,30 @@ function failure(code: string, message: string) {
     next_attempt_at: null,
     error: { code, message, at: new Date().toISOString() },
   };
+}
+/**
+ * Fails a clone. What the provider holds that no attempt can use again is
+ * queued for deletion at once: a Pro training (it may hold one of the
+ * account's Pro slots), and the dataset when trying again cannot help.
+ */
+async function failClone(
+  tx: Tx,
+  clone: Clone,
+  lease: string,
+  code: string,
+  message: string,
+  job: Job = jobOf(clone),
+) {
+  const retire = NOT_RETRYABLE.has(code) && job.datasetId && !job.datasetRetired;
+  const saved = await save(tx, clone.id, lease, {
+    ...failure(code, message),
+    provider_job: retire ? { ...job, datasetRetired: true } : job,
+  });
+  if (!saved) return false;
+  if (job.fineTuneId)
+    await queueDeletion(tx, clone.tenant_id, "fine_tune", job.fineTuneId, "failed");
+  if (retire) await queueDeletion(tx, clone.tenant_id, "dataset", job.datasetId, "failed");
+  return true;
 }
 async function reserveCost(
   tx: Tx,
@@ -398,6 +537,28 @@ async function costUnknown(tx: Tx, usageId: string | null) {
       [usageId],
     );
 }
+/**
+ * The reservation of a clone request that failed: unknown when the provider
+ * may have processed it, released (recorded at zero) when it was never sent
+ * or the provider refused it, so retries never fill the daily voice limit.
+ */
+async function settleCost(db: Database, actor: Actor, usageId: string | null, error: unknown) {
+  if (!usageId) return;
+  await db.tenant(actor, async (tx) => {
+    if (error instanceof CartesiaError && error.outcome === "ambiguous")
+      return costUnknown(tx, usageId);
+    await tx.query(
+      "UPDATE cost_events SET status='recorded',cost_usd=0,pricing=pricing||$2::jsonb WHERE id=$1 AND status='reserved'",
+      [
+        usageId,
+        JSON.stringify({
+          released: error instanceof CartesiaError && error.status ? "provider_refused" : "not_sent",
+          ...(error instanceof CartesiaError && error.status ? { httpStatus: error.status } : {}),
+        }),
+      ],
+    );
+  });
+}
 /** The last check before a provider request: still ours, consent still stands. */
 function guard(
   db: Database,
@@ -418,6 +579,10 @@ function guard(
       await change(tx);
     });
 }
+/**
+ * The clone is ready. Recordings are deleted here, and a Pro clone's dataset
+ * (the trainer's raw recordings) is queued for deletion at the provider.
+ */
 async function ready(
   db: Database,
   actor: Actor,
@@ -425,9 +590,10 @@ async function ready(
   lease: string,
   voiceId: string,
   model: string | null,
-  extra: Record<string, unknown> = {},
+  job: Job,
 ) {
   return db.tenant(actor, async (tx) => {
+    const retireDataset = clone.kind === "pro" && !!job.datasetId && !job.datasetRetired;
     const saved = await save(tx, clone.id, lease, {
       status: "ready",
       step: null,
@@ -436,7 +602,7 @@ async function ready(
       ready_at: new Date(),
       error: null,
       next_attempt_at: null,
-      ...extra,
+      provider_job: retireDataset ? { ...job, datasetRetired: true } : job,
     });
     if (!saved) {
       // Deleted meanwhile: what the provider just made is deleted too.
@@ -448,38 +614,72 @@ async function ready(
       "UPDATE trainer_voice_samples SET status='uploaded',sealed=NULL,updated_at=now() WHERE clone_id=$1",
       [clone.id],
     );
+    if (retireDataset)
+      await queueDeletion(tx, clone.tenant_id, "dataset", job.datasetId, "trained");
     await event(tx, actor, "voice.clone_ready", clone.id, { kind: clone.kind });
     return "done" as const;
   });
 }
+/**
+ * After a clone request whose answer was lost, the clone was deleted or
+ * erased meanwhile: whatever the request made is looked up by name and deleted.
+ */
+async function queueStrays(tx: Tx, clone: Clone) {
+  const [row] = await tx.query("SELECT status FROM trainer_voice_clones WHERE id=$1", [clone.id]);
+  if (!row || row.status === "deleted")
+    await queueDeletion(tx, clone.tenant_id, "named", clone.provider_name, "unconfirmed");
+}
+/**
+ * A failed provider request. `rejected`: the clone fails with the provider's
+ * reason. `retry` (nothing reached the provider, or it asked to wait): tried
+ * again with a growing delay, and failed after MAX_RETRIES in a row.
+ * `ambiguous` (it may have been processed): reconciled before any resend.
+ */
 async function outcome(
   db: Database,
   actor: Actor,
   clone: Clone,
   lease: string,
   error: unknown,
-  onAmbiguous: Record<string, unknown>,
-  onRetry: Record<string, unknown>,
+  job: Job,
+  on: { ambiguous?: { step?: string; job?: Job }; retry?: { step?: string; job?: Job } } = {},
 ): Promise<StepResult> {
   return db.tenant<StepResult>(actor, async (tx) => {
     if (!(error instanceof CartesiaError)) {
       const code = (error as any)?.code;
       if (code === "VOICE_CONSENT")
-        await save(tx, clone.id, lease, failure("VOICE_CONSENT", "Voice consent was withdrawn."));
+        await failClone(tx, clone, lease, "VOICE_CONSENT", "Voice consent was withdrawn.", job);
       else if (code !== "VOICE_CLONE_CHANGED")
         await save(tx, clone.id, lease, { next_attempt_at: later(300) });
       return "wait";
     }
     if (error.outcome === "rejected")
-      await save(
-        tx,
-        clone.id,
-        lease,
-        failure(error.code ?? "PROVIDER_REFUSED", error.message),
-      );
-    else if (error.outcome === "retry")
-      await save(tx, clone.id, lease, { next_attempt_at: later(120), ...onRetry });
-    else await save(tx, clone.id, lease, { next_attempt_at: later(60), ...onAmbiguous });
+      await failClone(tx, clone, lease, error.code ?? "PROVIDER_REFUSED", error.message, job);
+    else if (error.outcome === "retry") {
+      const retries = Number(clone.provider_job?.retries ?? 0) + 1;
+      if (retries > MAX_RETRIES)
+        await failClone(
+          tx,
+          clone,
+          lease,
+          "PROVIDER_UNAVAILABLE",
+          "The voice provider could not be reached for several hours. Try again later.",
+          job,
+        );
+      else
+        await save(tx, clone.id, lease, {
+          next_attempt_at: later(Math.min(3600, 120 * 2 ** (retries - 1))),
+          ...(on.retry?.step ? { step: on.retry.step } : {}),
+          provider_job: { ...job, ...on.retry?.job, retries },
+        });
+    } else {
+      const saved = await save(tx, clone.id, lease, {
+        next_attempt_at: later(60),
+        ...(on.ambiguous?.step ? { step: on.ambiguous.step } : {}),
+        provider_job: { ...job, ...on.ambiguous?.job, ambiguous: true },
+      });
+      if (!saved) await queueStrays(tx, clone);
+    }
     return "wait";
   });
 }
@@ -498,7 +698,7 @@ async function stepInstantClone(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   const [sample] = await db.tenant(actor, (tx) =>
     tx.query(
       "SELECT id,content_type,sealed FROM trainer_voice_samples WHERE clone_id=$1 AND status<>'uploaded' ORDER BY created_at LIMIT 1",
@@ -507,7 +707,7 @@ async function stepInstantClone(
   );
   if (!sample)
     return db.tenant(actor, async (tx) => {
-      await save(tx, clone.id, lease, failure("RECORDING_MISSING", "The recording is no longer stored. Record again."));
+      await failClone(tx, clone, lease, "RECORDING_MISSING", "The recording is no longer stored. Delete this clone and record a new one.", job);
       return "done" as const;
     });
   let audio: Buffer;
@@ -515,7 +715,7 @@ async function stepInstantClone(
     audio = await openSample(clone.tenant_id, sample);
   } catch {
     return db.tenant(actor, async (tx) => {
-      await save(tx, clone.id, lease, failure("RECORDING_UNREADABLE", "The recording could not be opened. Record again."));
+      await failClone(tx, clone, lease, "RECORDING_UNREADABLE", "The recording could not be opened. Delete this clone and record a new one.", job);
       return "done" as const;
     });
   }
@@ -536,7 +736,6 @@ async function stepInstantClone(
         });
         return "wait" as const;
       });
-    const reserved = usageId;
     const voice = await client.cloneVoice(
       {
         clip: audio,
@@ -550,28 +749,26 @@ async function stepInstantClone(
           "UPDATE trainer_voice_clones SET step='clone_unknown',provider_job=provider_job||'{\"sent\":true}'::jsonb WHERE id=$1",
           [clone.id],
         );
-        await costUnknown(tx, reserved);
       }),
     );
-    // After a resend, an earlier request may have made a copy under the name.
-    if (job.resends)
+    // Made: the cost waits for invoice reconciliation.
+    const reserved = usageId;
+    usageId = null;
+    await db.tenant(actor, (tx) => costUnknown(tx, reserved));
+    // An earlier request (resent, or before a retry) may have made a copy.
+    if (job.sent || job.resends)
       await db.tenant(actor, async (tx) => {
         for (const extra of (await client.voicesNamed(clone.provider_name).catch(() => [])).filter((v) => v.id !== voice.id))
           await queueDeletion(tx, clone.tenant_id, "voice", extra.id, "duplicate");
       });
-    return await ready(db, actor, clone, lease, voice.id, contract.model, { provider_job: { ...job, sent: true } });
+    // A Quick clone follows the configured speech model (VOICE_MODEL).
+    return await ready(db, actor, clone, lease, voice.id, null, { ...job, sent: true });
   } catch (error) {
-    // Sent or not, a reserved cost waits for invoice reconciliation.
-    if (usageId) await db.tenant(actor, (tx) => costUnknown(tx, usageId));
-    return outcome(
-      db,
-      actor,
-      clone,
-      lease,
-      error,
-      { step: "clone_unknown", provider_job: { ...job, sent: true } },
-      { step: "clone" },
-    );
+    await settleCost(db, actor, usageId, error);
+    return outcome(db, actor, clone, lease, error, job, {
+      ambiguous: { step: "clone_unknown", job: { sent: true } },
+      retry: { step: "clone" },
+    });
   } finally {
     audio.fill(0);
   }
@@ -580,23 +777,22 @@ async function stepInstantReconcile(
   db: Database,
   actor: Actor,
   client: CartesiaClient,
-  contract: VoiceContract,
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   let found: Awaited<ReturnType<CartesiaClient["voicesNamed"]>>;
   try {
     found = await client.voicesNamed(clone.provider_name);
   } catch (error) {
-    return outcome(db, actor, clone, lease, error, {}, {});
+    return outcome(db, actor, clone, lease, error, job);
   }
   if (found.length) {
     await db.tenant(actor, async (tx) => {
       for (const extra of found.slice(1))
         await queueDeletion(tx, clone.tenant_id, "voice", extra.id, "duplicate");
     });
-    return ready(db, actor, clone, lease, found[0].id, contract.model);
+    return ready(db, actor, clone, lease, found[0].id, null, job);
   }
   const checks = Number(job.unknownChecks ?? 0),
     resends = Number(job.resends ?? 0);
@@ -614,12 +810,7 @@ async function stepInstantReconcile(
         next_attempt_at: null,
       });
     else
-      await save(
-        tx,
-        clone.id,
-        lease,
-        failure("PROVIDER_UNCONFIRMED", "The voice provider did not confirm the clone. Try again."),
-      );
+      await failClone(tx, clone, lease, "PROVIDER_UNCONFIRMED", "The voice provider did not confirm the clone. Try again.", job);
     return "wait" as const;
   });
 }
@@ -631,7 +822,7 @@ async function stepDataset(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   try {
     let datasetId: string | undefined = job.datasetId;
     if (!datasetId && job.datasetSent) {
@@ -666,7 +857,9 @@ async function stepDataset(
         : (await queueDeletion(tx, clone.tenant_id, "dataset", id, "trainer_deleted"), "done"),
     );
   } catch (error) {
-    return outcome(db, actor, clone, lease, error, { provider_job: { ...job, datasetSent: true } }, {});
+    return outcome(db, actor, clone, lease, error, job, {
+      ambiguous: { job: { datasetSent: true } },
+    });
   }
 }
 async function stepUpload(
@@ -676,7 +869,7 @@ async function stepUpload(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   const [sample] = await db.tenant(actor, (tx) =>
     tx.query(
       "SELECT id,content_type,status,sealed FROM trainer_voice_samples WHERE clone_id=$1 AND status<>'uploaded' ORDER BY created_at LIMIT 1",
@@ -685,7 +878,7 @@ async function stepUpload(
   );
   if (!sample)
     return db.tenant(actor, async (tx) =>
-      (await save(tx, clone.id, lease, { step: "fine_tune", next_attempt_at: null })) ? "continue" : "done",
+      (await save(tx, clone.id, lease, { step: "fine_tune", next_attempt_at: null, provider_job: job })) ? "continue" : "done",
     );
   const filename = `${sample.id}.${CARTESIA_CLIP_TYPES[sample.content_type as CartesiaClipType]}`;
   const uploaded = () =>
@@ -694,18 +887,18 @@ async function stepUpload(
         "UPDATE trainer_voice_samples SET status='uploaded',sealed=NULL,updated_at=now() WHERE id=$1",
         [sample.id],
       );
-      return (await save(tx, clone.id, lease, {})) ? ("continue" as const) : ("done" as const);
+      return (await save(tx, clone.id, lease, { provider_job: job })) ? ("continue" as const) : ("done" as const);
     });
   let audio: Buffer | null = null;
   try {
     // An earlier upload whose answer was lost: the dataset lists its files.
-    if (sample.status === "uploading" && (await client.datasetFiles(job.datasetId)).some((f: { filename: string }) => f.filename === filename))
+    if (sample.status === "uploading" && (await client.datasetFiles(job.datasetId, filename)).some((f: { filename: string }) => f.filename === filename))
       return await uploaded();
     try {
       audio = await openSample(clone.tenant_id, sample);
     } catch {
       return await db.tenant(actor, async (tx) => {
-        await save(tx, clone.id, lease, failure("RECORDING_UNREADABLE", "A recording could not be opened. Remove it and add it again."));
+        await failClone(tx, clone, lease, "RECORDING_UNREADABLE", "A recording could not be opened (the server key may have changed). Delete this clone and start a new one with your recordings.", job);
         return "done" as const;
       });
     }
@@ -721,7 +914,7 @@ async function stepUpload(
     );
     return await uploaded();
   } catch (error) {
-    return outcome(db, actor, clone, lease, error, {}, {});
+    return outcome(db, actor, clone, lease, error, job);
   } finally {
     audio?.fill(0);
   }
@@ -734,11 +927,49 @@ async function stepFineTune(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
-  let usageId: string | null = null;
+  const job = jobOf(clone);
+  const round = Number(job.fineTuneRound ?? 0);
+  let usageId: string | null = null,
+    sending = false;
   try {
     let fineTune = null;
-    if (job.fineTuneSent) fineTune = (await client.fineTunesNamed(clone.provider_name))[0] ?? null;
+    if (job.fineTuneSent && round) {
+      // This attempt's answer was lost: its own name (and dataset) finds it.
+      const found = (await client.fineTunesNamed(fineTuneName(clone, round))).filter(
+        (f) => !f.dataset || f.dataset === job.datasetId,
+      );
+      if (found.length) {
+        fineTune = found[0];
+        await db.tenant(actor, async (tx) => {
+          for (const extra of found.slice(1))
+            await queueDeletion(tx, clone.tenant_id, "fine_tune", extra.id, "duplicate");
+        });
+      } else {
+        const checks = Number(job.fineTuneChecks ?? 0),
+          resends = Number(job.fineTuneResends ?? 0);
+        return await db.tenant(actor, async (tx) => {
+          // The list may lag the new fine-tune: look a few times first.
+          if (checks < 3)
+            await save(tx, clone.id, lease, {
+              provider_job: { ...job, fineTuneChecks: checks + 1 },
+              next_attempt_at: later(60),
+            });
+          else {
+            // Given up on: a late copy under this attempt's name is deleted.
+            await queueDeletion(tx, clone.tenant_id, "named", fineTuneName(clone, round), "unconfirmed");
+            if (resends < 2)
+              await save(tx, clone.id, lease, {
+                provider_job: { ...job, fineTuneSent: false, fineTuneChecks: 0, fineTuneResends: resends + 1 },
+                next_attempt_at: null,
+              });
+            else
+              await failClone(tx, clone, lease, "PROVIDER_UNCONFIRMED", "The voice provider did not confirm the training. Try again.", job);
+          }
+          return "wait" as const;
+        });
+      }
+    }
+    const next = fineTune ? round : round + 1;
     if (!fineTune) {
       usageId = await db.tenant(actor, (tx) =>
         reserveCost(tx, actor, clone.user_id, "voice.clone", contract, contract.model, {
@@ -755,23 +986,34 @@ async function stepFineTune(
           });
           return "wait" as const;
         });
-      const reserved = usageId;
+      sending = true;
       fineTune = await client.createFineTune(
-        { name: clone.provider_name, description: DESCRIPTION, language: clone.language, dataset: job.datasetId },
+        { name: fineTuneName(clone, next), description: DESCRIPTION, language: clone.language, dataset: job.datasetId },
         guard(db, actor, clone, lease, async (tx) => {
           await tx.query(
-            "UPDATE trainer_voice_clones SET provider_job=provider_job||'{\"fineTuneSent\":true}'::jsonb WHERE id=$1",
-            [clone.id],
+            "UPDATE trainer_voice_clones SET provider_job=provider_job||jsonb_build_object('fineTuneSent',true,'fineTuneRound',$2::int) WHERE id=$1",
+            [clone.id, next],
           );
-          await costUnknown(tx, reserved);
         }),
       );
+      const reserved = usageId;
+      usageId = null;
+      await db.tenant(actor, (tx) => costUnknown(tx, reserved));
     }
     const created = fineTune;
     return await db.tenant(actor, async (tx) =>
       (await save(tx, clone.id, lease, {
         step: "training",
-        provider_job: { ...job, fineTuneSent: true, fineTuneId: created.id, supportedModelIds: created.supportedModelIds },
+        provider_job: {
+          ...job,
+          fineTuneSent: true,
+          fineTuneRound: next,
+          fineTuneChecks: 0,
+          fineTuneId: created.id,
+          supportedModelIds: created.supportedModelIds,
+          // The training deadline counts from here, not from the first submission.
+          trainingStartedAt: new Date().toISOString(),
+        },
         next_attempt_at: later(120),
         error: null,
       }))
@@ -779,10 +1021,17 @@ async function stepFineTune(
         : (await queueDeletion(tx, clone.tenant_id, "fine_tune", created.id, "trainer_deleted"), "done"),
     );
   } catch (error) {
-    if (usageId) await db.tenant(actor, (tx) => costUnknown(tx, usageId));
-    return outcome(db, actor, clone, lease, error, { provider_job: { ...job, fineTuneSent: true } }, {});
+    await settleCost(db, actor, usageId, error);
+    // Only a create whose answer was lost is looked up by its attempt's name.
+    return outcome(db, actor, clone, lease, error, job, {
+      ambiguous: sending ? { job: { fineTuneSent: true, fineTuneRound: round + 1 } } : undefined,
+    });
   }
 }
+/** Cartesia documents up to 3 hours of training; a day without an answer needs the trainer. */
+const TRAINING_DEADLINE_MS = 24 * 3600 * 1000;
+/** A completed training whose voice never appears. */
+const VOICES_DEADLINE_MS = 6 * 3600 * 1000;
 async function stepTraining(
   db: Database,
   actor: Actor,
@@ -790,32 +1039,44 @@ async function stepTraining(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   try {
     const fineTune = await client.getFineTune(job.fineTuneId);
     return await db.tenant(actor, async (tx) => {
       if (fineTune.status === "completed")
         return (await save(tx, clone.id, lease, {
           step: "voices",
-          provider_job: { ...job, supportedModelIds: fineTune.supportedModelIds.length ? fineTune.supportedModelIds : job.supportedModelIds ?? [] },
+          provider_job: {
+            ...job,
+            supportedModelIds: fineTune.supportedModelIds.length ? fineTune.supportedModelIds : job.supportedModelIds ?? [],
+            trainingCompletedAt: new Date().toISOString(),
+          },
           next_attempt_at: null,
         }))
           ? "continue"
           : "done";
       if (fineTune.status === "failed") {
-        await save(tx, clone.id, lease, failure("TRAINING_FAILED", fineTune.errors.join(" ") || "The provider could not train this voice."));
+        await failClone(
+          tx,
+          clone,
+          lease,
+          "TRAINING_FAILED",
+          (fineTune.errors.join(" ") || "The provider could not train this voice.") +
+            " Delete this clone and start a new one with clearer recordings of only your voice.",
+          job,
+        );
         return "done";
       }
-      // Cartesia documents up to 3 hours; a day without an answer needs the trainer.
-      if (Date.now() - new Date(clone.submitted_at).getTime() > 24 * 3600 * 1000) {
-        await save(tx, clone.id, lease, failure("TRAINING_TIMEOUT", "Training did not finish within a day. Delete this clone or try again."));
+      const started = new Date(job.trainingStartedAt ?? clone.submitted_at).getTime();
+      if (Date.now() - started > TRAINING_DEADLINE_MS) {
+        await failClone(tx, clone, lease, "TRAINING_TIMEOUT", "Training did not finish within a day. Try again, or delete this clone.", job);
         return "done";
       }
-      await save(tx, clone.id, lease, { next_attempt_at: later(120), error: null });
+      await save(tx, clone.id, lease, { next_attempt_at: later(120), error: null, provider_job: job });
       return "wait";
     });
   } catch (error) {
-    return outcome(db, actor, clone, lease, error, {}, {});
+    return outcome(db, actor, clone, lease, error, job);
   }
 }
 async function stepVoices(
@@ -826,19 +1087,26 @@ async function stepVoices(
   clone: Clone,
   lease: string,
 ): Promise<StepResult> {
-  const job = { ...(clone.provider_job ?? {}) };
+  const job = jobOf(clone);
   try {
     const voices = await client.fineTuneVoices(job.fineTuneId);
     if (!voices.length)
       return await db.tenant(actor, async (tx) => {
-        await save(tx, clone.id, lease, { next_attempt_at: later(120) });
+        const completed = Date.parse(job.trainingCompletedAt ?? "");
+        if (Number.isFinite(completed) && Date.now() - completed > VOICES_DEADLINE_MS)
+          await failClone(tx, clone, lease, "PROVIDER_VOICE_MISSING", "The provider finished training but did not provide the voice. Try again, or delete this clone.", job);
+        else
+          await save(tx, clone.id, lease, {
+            next_attempt_at: later(120),
+            provider_job: Number.isFinite(completed) ? job : { ...job, trainingCompletedAt: new Date().toISOString() },
+          });
         return "wait" as const;
       });
     // A Pro clone speaks with a dated model it was trained for.
     const model = proCloneModel(contract.model, job.supportedModelIds ?? []) ?? contract.model;
-    return await ready(db, actor, clone, lease, voices[0].id, model);
+    return await ready(db, actor, clone, lease, voices[0].id, model, job);
   } catch (error) {
-    return outcome(db, actor, clone, lease, error, {}, {});
+    return outcome(db, actor, clone, lease, error, job);
   }
 }
 
@@ -875,7 +1143,7 @@ export async function advanceVoiceClone(
         clone.step === "clone"
           ? await stepInstantClone(db, actor, client, contract, clone, lease)
           : clone.step === "clone_unknown"
-            ? await stepInstantReconcile(db, actor, client, contract, clone, lease)
+            ? await stepInstantReconcile(db, actor, client, clone, lease)
             : clone.step === "dataset"
               ? await stepDataset(db, actor, client, clone, lease)
               : clone.step === "upload"
@@ -899,13 +1167,25 @@ export async function advanceVoiceClone(
   return last;
 }
 
+/** Stale drafts and failed clones are removed at most this often per process. */
+const PURGE_EVERY_MS = 10 * 60 * 1000;
+let lastPurge = 0;
 /**
- * Worker pass: processing clones of active workspaces, provider deletions of
- * every workspace (closed ones too) and stale drafts or failed clones.
+ * Worker pass. Independent of each other:
+ * - processing clones of active workspaces move on while an approved Cartesia
+ *   contract is the voice provider;
+ * - drafts and failed clones untouched for CLONE_LIMITS.staleDays are removed
+ *   with their recordings whatever the voice settings are;
+ * - provider deletions of every workspace (closed ones too) run with the
+ *   saved Cartesia account, even while voice is paused.
  */
-export async function processVoiceClones(db: Database) {
+export async function processVoiceClones(db: Database, options: { purgeNow?: boolean } = {}) {
   const contract = contractOrNull();
-  if (!contract || contract.provider !== "cartesia") return;
+  const making = contract?.provider === "cartesia";
+  const deleting = await deletionClient(db).catch(() => null);
+  const purge = options.purgeNow || Date.now() - lastPurge >= PURGE_EVERY_MS;
+  if (purge) lastPurge = Date.now();
+  if (!making && !deleting && !purge) return;
   const tenants = await db.system((tx) =>
     tx.query<{ id: string; lifecycle_state: string }>(
       "SELECT id,lifecycle_state FROM tenants ORDER BY id",
@@ -915,28 +1195,76 @@ export async function processVoiceClones(db: Database) {
     const actor = workerActor(tenant.id);
     try {
       if (tenant.lifecycle_state === "active") {
-        const due = await db.tenant(actor, (tx) =>
-          tx.query<{ id: string }>(
-            "SELECT id FROM trainer_voice_clones WHERE status='processing' AND (next_attempt_at IS NULL OR next_attempt_at<=now()) AND (lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at NULLS FIRST LIMIT 5",
-          ),
-        );
-        for (const clone of due) await advanceVoiceClone(db, actor, clone.id);
-        await db.tenant(actor, async (tx) => {
-          const stale = await tx.query(
-            `SELECT ${CLONE_COLUMNS} FROM trainer_voice_clones WHERE status IN ('draft','failed') AND updated_at<now()-make_interval(days=>$1) FOR UPDATE SKIP LOCKED`,
-            [CLONE_LIMITS.staleDays],
+        if (making) {
+          const due = await db.tenant(actor, (tx) =>
+            tx.query<{ id: string }>(
+              "SELECT id FROM trainer_voice_clones WHERE status='processing' AND (next_attempt_at IS NULL OR next_attempt_at<=now()) AND (lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at NULLS FIRST LIMIT 5",
+            ),
           );
-          for (const clone of stale) {
-            await retireClone(tx, clone, "abandoned");
-            await event(tx, actor, "voice.clone_deleted", clone.id, { reason: "abandoned" });
-          }
-        });
+          for (const clone of due) await advanceVoiceClone(db, actor, clone.id);
+        }
+        if (purge)
+          await db.tenant(actor, async (tx) => {
+            // A clone request cut off by a crash between reservation and
+            // answer may have been processed: its cost becomes unknown.
+            await tx.query(
+              "UPDATE cost_events SET status='unknown' WHERE task='voice.clone' AND status='reserved' AND created_at<now()-interval '15 minutes'",
+            );
+            const stale = await tx.query(
+              `SELECT ${CLONE_COLUMNS} FROM trainer_voice_clones WHERE status IN ('draft','failed') AND updated_at<now()-make_interval(days=>$1) FOR UPDATE SKIP LOCKED`,
+              [CLONE_LIMITS.staleDays],
+            );
+            for (const clone of stale) {
+              await retireClone(tx, clone, "abandoned");
+              await event(tx, actor, "voice.clone_deleted", clone.id, { reason: "abandoned" });
+            }
+          });
       }
-      await processVoiceProviderDeletions(db, actor);
+      if (deleting) await processVoiceProviderDeletions(db, actor, 10, deleting);
     } catch {
       console.error("Trainer voice clone work needs review");
     }
   }
+}
+
+/**
+ * Counts what still depends on the voice provider account, across every
+ * workspace, for a platform administrator (voice_provider_work_outstanding()).
+ */
+async function voiceProviderWorkOutstanding(db: Database, operator: Actor) {
+  const [r] = await db.tenant(operatorScope(operator), (tx) =>
+    tx.query<{ clones: number; deletions: number }>(
+      "SELECT clones,deletions FROM voice_provider_work_outstanding()",
+    ),
+  );
+  return { clones: Number(r?.clones ?? 0), deletions: Number(r?.deletions ?? 0) };
+}
+/**
+ * Settings guard: the saved Cartesia account is what deletes clones at the
+ * provider, so the voice provider cannot be switched away from Cartesia, and
+ * its key cannot be cleared, while a clone exists there or a deletion is not
+ * yet confirmed. Pausing voice (contract approval off, integration disabled)
+ * stays possible: deletions keep running with the saved account.
+ */
+async function voiceSettingsGuard(
+  db: Database,
+  operator: Actor,
+  change: SettingsChange,
+) {
+  const had =
+    change.before.values.VOICE_PROVIDER === "cartesia" &&
+    change.before.secrets.has("VOICE_API_KEY");
+  const keeps =
+    change.after.values.VOICE_PROVIDER === "cartesia" &&
+    change.after.secrets.has("VOICE_API_KEY");
+  if (!had || keeps) return;
+  const work = await voiceProviderWorkOutstanding(db, operator);
+  if (work.clones || work.deletions)
+    throw fail(
+      409,
+      "VOICE_CLONES_AT_PROVIDER",
+      `Trainer voice clones still depend on this Cartesia account (${work.clones} clone${work.clones === 1 ? "" : "s"} at Cartesia, ${work.deletions} deletion${work.deletions === 1 ? "" : "s"} not yet confirmed). Keep Cartesia and its key until trainers have deleted their clones and Integration operations shows no deletion waiting. To stop voice meanwhile, turn off the account contract approval: deletions keep running.`,
+    );
 }
 
 // ------------------------------------------------------------------ routes
@@ -971,6 +1299,11 @@ function clonePublic(c: any, samples: any[]) {
     language: c.language,
     progress: c.status === "processing" ? PROGRESS[c.step] ?? null : null,
     error: c.error ? { code: String(c.error.code ?? ""), message: String(c.error.message ?? "") } : null,
+    // A failed clone can be sent again unless the same recordings would fail again.
+    retryable:
+      c.status === "failed" &&
+      !NOT_RETRYABLE.has(String(c.error?.code ?? "")) &&
+      (c.kind === "pro" || recordings.some((r) => r.status === "stored")),
     hasPreview: c.has_preview === true,
     recordings,
     totalSeconds: Math.round(recordings.reduce((sum, r) => sum + r.seconds, 0) * 10) / 10,
@@ -1014,6 +1347,7 @@ async function budgetAllows(tx: Tx, contract: VoiceContract, costUsd: number) {
 }
 
 export function registerVoiceClones(app: FastifyInstance, db: Database) {
+  registerSettingsGuard("voice", "trainer-voice-clones", voiceSettingsGuard);
   app.get("/api/v1/voice/clones", async (req) => {
     const a = owner(req);
     const contract = contractOrNull();
@@ -1271,6 +1605,8 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
       if (Number(clone.version) !== b.revision) throw conflict();
       if (clone.status !== (retry ? "failed" : "draft"))
         throw fail(409, "VOICE_CLONE_STATE", retry ? "Only a failed clone can be tried again." : "This clone was already sent.");
+      if (retry && NOT_RETRYABLE.has(String(clone.error?.code ?? "")))
+        throw fail(409, "VOICE_CLONE_START_AGAIN", "Sending the same recordings again would fail the same way. Delete this clone and start a new one.");
       assertTransition(clone.status, "processing");
       if (!(clone.kind === "pro" ? contract.cloning.pro : contract.cloning.quick))
         throw fail(409, "VOICE_CLONE_KIND_OFF", "This kind of clone is switched off on this platform.");
@@ -1280,20 +1616,28 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
         "SELECT seconds,byte_count,status FROM trainer_voice_samples WHERE clone_id=$1",
         [clone.id],
       );
-      const job = { ...(clone.provider_job ?? {}) };
-      let step: string;
+      const { retries, ...job } = clone.provider_job ?? {};
+      let step: string,
+        nextJob: Record<string, unknown>;
       if (clone.kind === "instant") {
         const stored = samples.filter((s) => s.status !== "uploaded");
         const check = recordingsReady("instant", stored.map((s) => ({ seconds: Number(s.seconds), bytes: Number(s.byte_count) })));
-        if (!check.ready) throw fail(409, "VOICE_RECORDINGS", retry ? "The recording is no longer stored. Record again." : check.message!);
-        step = "clone";
+        if (!check.ready) throw fail(409, "VOICE_RECORDINGS", retry ? "The recording is no longer stored. Delete this clone and record a new one." : check.message!);
+        // An earlier request may have made the voice: look its name up first.
+        step = job.sent ? "clone_unknown" : "clone";
+        nextJob = job.sent ? { sent: true, ambiguous: true } : {};
       } else {
         const check = recordingsReady("pro", samples.map((s) => ({ seconds: Number(s.seconds), bytes: Number(s.byte_count) })));
         if (!check.ready) throw fail(409, "VOICE_RECORDINGS", check.message!);
         if (retry && job.fineTuneId) await queueDeletion(tx, a.tenantId, "fine_tune", job.fineTuneId, "retry");
+        // A training request whose answer never came: its attempt's name is swept.
+        if (retry && job.fineTuneSent && !job.fineTuneId && job.fineTuneRound)
+          await queueDeletion(tx, a.tenantId, "named", `${clone.provider_name}-${job.fineTuneRound}`, "retry");
         step = job.datasetId ? "upload" : "dataset";
-        delete job.fineTuneId;
-        delete job.fineTuneSent;
+        // The next training attempt gets the next attempt name (fineTuneRound is kept).
+        for (const key of ["fineTuneId", "fineTuneSent", "fineTuneChecks", "fineTuneResends", "trainingStartedAt", "trainingCompletedAt", "supportedModelIds"])
+          delete job[key];
+        nextJob = job;
         if (!retry) {
           const [slots] = await tx.query("SELECT voice_pro_clones_in_use() AS n");
           if (Number(slots.n) >= contract.cloning.proSlots)
@@ -1304,7 +1648,7 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
         throw fail(429, "VOICE_BUDGET", "Today's voice limit for this workspace is reached. Try again tomorrow.");
       await tx.query(
         "UPDATE trainer_voice_clones SET status='processing',step=$2,provider_job=$3,error=NULL,next_attempt_at=NULL,submitted_at=coalesce(submitted_at,now()),version=version+1,updated_at=now() WHERE id=$1",
-        [clone.id, step, JSON.stringify(clone.kind === "instant" ? { ...(job.sent ? { sent: true } : {}) } : job)],
+        [clone.id, step, JSON.stringify(nextJob)],
       );
       await event(tx, a, retry ? "voice.clone_retried" : "voice.clone_submitted", clone.id, { kind: clone.kind });
       return clone.id as string;
@@ -1356,7 +1700,8 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
                 if (!still) throw fail(409, "VOICE_CLONE_CHANGED", "This voice changed.");
                 await costUnknown(tx, usageId);
               }),
-            { provider: clone.provider, model: clone.model, language: clone.language },
+            // The preview line is English whatever language the voice was recorded in.
+            { provider: clone.provider, model: clone.model, textLanguage: "en" },
           );
           await db.tenant(a, async (tx) => {
             await tx.query(
@@ -1503,11 +1848,23 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
       await event(tx, a, "voice.clone_deleted", clone.id, { reason: "trainer_deleted" });
     });
     // Best effort now; the worker retries what the provider did not confirm.
-    await processVoiceProviderDeletions(db, a).catch(() => 0);
+    const account = await deletionClient(db).catch(() => null);
+    if (account) await processVoiceProviderDeletions(db, a, 10, account).catch(() => 0);
+    else
+      await raisePlatformAlert(db, "voice.provider_account_missing", {
+        dedupeKey: "voice.provider_account_missing",
+        fingerprint: "missing",
+        severity: "warning",
+        scope: ["admin"],
+        title: "Voice clone deletions are waiting for the Cartesia account",
+        detail:
+          "A trainer deleted a voice clone, but no Cartesia account is saved under Trainer voice (or its key cannot be opened), so the deletion at Cartesia cannot run. Restore the Cartesia provider and key; waiting deletions then run automatically.",
+      }).catch(() => undefined);
     return {
       ok: true,
-      message:
-        "Your voice and recordings are deleted here, and the copy at the voice provider is being deleted.",
+      message: account
+        ? "Your voice and recordings are deleted here, and the copy at the voice provider is being deleted."
+        : "Your voice and recordings are deleted here. The copy at the voice provider is deleted as soon as the platform's voice provider connection is back; the platform operators have been alerted.",
     };
   });
 
@@ -1521,25 +1878,35 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
         [tenantId ?? null],
       ),
     );
-    const clones: any[] = [],
-      deletions: any[] = [];
-    for (const tenant of tenants) {
-      const scope = elevated("platform-operator", {
-        tenantId: tenant.id,
-        userId: operator.userId,
-        role: "owner",
-      });
-      await db.tenant(scope, async (tx) => {
+    const clones: any[] = [];
+    for (const tenant of tenants)
+      await db.tenant(operatorScope(operator, tenant.id), async (tx) => {
         for (const c of await tx.query(
           "SELECT c.id,c.kind,c.status,c.step,c.language,c.error,c.created_at,c.submitted_at,c.ready_at,c.activated_at,c.preview_audio IS NOT NULL AS has_preview,(SELECT count(*)::int FROM trainer_voice_samples s WHERE s.clone_id=c.id AND s.status<>'uploaded') AS stored_recordings,v.status AS workspace_voice_status,v.id AS workspace_voice_id,v.version AS workspace_voice_version FROM trainer_voice_clones c LEFT JOIN trainer_voices v ON v.clone_id=c.id WHERE c.status<>'deleted' ORDER BY c.updated_at DESC LIMIT 50",
         ))
           clones.push({ ...c, tenant_id: tenant.id, tenant_name: tenant.name });
-        for (const d of await tx.query(
-          "SELECT id,kind,reason,status,attempts,last_error,next_attempt_at,created_at FROM voice_provider_deletions WHERE status<>'done' ORDER BY created_at LIMIT 50",
-        ))
-          deletions.push({ ...d, tenant_id: tenant.id, tenant_name: tenant.name });
       });
-    }
+    // Unconfirmed provider deletions of every workspace, closed ones included
+    // and not only the newest workspaces, those needing attention first.
+    const open = await db.tenant(operatorScope(operator), (tx) =>
+      tx.query(
+        "SELECT id,tenant_id,kind,reason,status,attempts,last_error,next_attempt_at,created_at FROM voice_provider_deletions_outstanding(200)",
+      ),
+    );
+    const names = new Map(
+      (open.length
+        ? await db.system((tx) =>
+            tx.query<{ id: string; name: string }>(
+              "SELECT id,name FROM tenants WHERE id=ANY($1::uuid[])",
+              [[...new Set(open.map((d) => d.tenant_id))]],
+            ),
+          )
+        : []
+      ).map((t) => [t.id, t.name]),
+    );
+    const deletions = open
+      .filter((d) => !tenantId || d.tenant_id === tenantId)
+      .map((d) => ({ ...d, tenant_name: names.get(d.tenant_id) ?? "Closed or removed workspace" }));
     return { clones, deletions };
   });
   app.get("/api/v1/admin/integrations/voice-clones/:id/preview", async (req, reply) => {

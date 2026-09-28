@@ -12,6 +12,7 @@ type Clone = {
   language: string;
   progress: string | null;
   error: { code: string; message: string } | null;
+  retryable?: boolean;
   hasPreview: boolean;
   recordings: Recording[];
   totalSeconds: number;
@@ -156,20 +157,20 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
     void refresh().catch((e) => setMessage(e.message));
   }, [refresh]);
   // A clone being made is checked again until it is ready or needs attention.
-  const processing = view?.clones.some((c) => c.status === "processing");
+  const processing = view?.provider === "cartesia" && view.clones.some((c) => c.status === "processing");
   const onlyPro = view?.clones.filter((c) => c.status === "processing").every((c) => c.kind === "pro");
   useEffect(() => {
     if (!processing) return;
     const id = setInterval(() => void refresh().catch(() => undefined), onlyPro ? 30000 : 5000);
     return () => clearInterval(id);
   }, [processing, onlyPro, refresh]);
-  const run = async (fn: () => Promise<unknown>, success: string) => {
+  const run = async (fn: () => Promise<unknown>, success: string | ((result: any) => string)) => {
     setBusy(true);
     setMessage("");
     try {
-      await fn();
+      const result = await fn();
       await refresh();
-      setMessage(success);
+      setMessage(typeof success === "string" ? success : success(result));
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Please try again.");
     } finally {
@@ -177,8 +178,13 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
     }
   };
   if (!view) return message ? <p role="status" className="notice">{message}</p> : null;
-  if (view.provider !== "cartesia") return <>{fallback}</>;
-  const drafts = view.clones.filter((c) => c.status === "draft");
+  // Voice clones switched off (another provider, or voice paused): clones
+  // already made stay listed so the trainer can still delete them.
+  const paused = view.provider !== "cartesia";
+  if (paused && !view.clones.length) return <>{fallback}</>;
+  const drafts = paused ? [] : view.clones.filter((c) => c.status === "draft");
+  const deleteClone = (clone: Clone) =>
+    run(() => api(`/voice/clones/${clone.id}`, "DELETE"), (r) => r?.message ?? "Voice deleted");
   const addRecording = (clone: Clone, blob: Blob, measured?: number, name?: string) =>
     run(async () => {
       const type = sampleType(blob.type, name);
@@ -216,9 +222,14 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
           </strong>
         </p>
         {!view.encryption && <p className="notice">The platform has not finished its storage setup, so recordings cannot be accepted yet.</p>}
+        {paused && (
+          <p className="notice">
+            Voice clones are switched off on this platform for now. Your clones below are not used; you can still delete them here and at the voice provider.
+          </p>
+        )}
       </section>
       {view.clones
-        .filter((c) => c.status !== "draft")
+        .filter((c) => c.status !== "draft" || paused)
         .map((clone) => (
           <section className="card" key={clone.id}>
             <h3>
@@ -227,9 +238,9 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
             <p className="muted">
               {view.languages.find((l) => l.code === clone.language)?.name ?? clone.language} · {minutes(clone.totalSeconds)} of recordings
             </p>
-            {clone.progress && <p>{clone.progress}</p>}
+            {clone.progress && !paused && <p>{clone.progress}</p>}
             {clone.error && <p className="notice">{clone.error.message}</p>}
-            {(clone.status === "ready" || clone.status === "active") && (
+            {!paused && (clone.status === "ready" || clone.status === "active") && (
               <div className="stack">
                 <button
                   type="button"
@@ -277,7 +288,7 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
                 )}
               </div>
             )}
-            {clone.status === "failed" && clone.recordings.some((r) => r.status === "stored" || clone.kind === "pro") && (
+            {!paused && clone.status === "failed" && clone.retryable && (
               <button type="button" disabled={busy} onClick={() => void run(() => api(`/voice/clones/${clone.id}/retry`, "POST", { revision: clone.version }), "Sent again")}>
                 Try again
               </button>
@@ -287,7 +298,7 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
               disabled={busy}
               onClick={() => {
                 if (window.confirm("Delete this voice? It is removed here and at the voice provider, and members stop hearing it."))
-                  void run(() => api(`/voice/clones/${clone.id}`, "DELETE"), "Voice deleted");
+                  void deleteClone(clone);
               }}
             >
               Delete this voice
@@ -359,7 +370,7 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
           </button>
         </section>
       ))}
-      <NewClone view={view} busy={busy} run={run} />
+      {paused ? fallback : <NewClone view={view} busy={busy} run={run} />}
     </>
   );
 }
@@ -426,7 +437,7 @@ export function VoiceCloneOperations() {
   );
 }
 
-function NewClone({ view, busy, run }:{ view: Overview; busy: boolean; run: (fn: () => Promise<unknown>, success: string) => Promise<void> }) {
+function NewClone({ view, busy, run }:{ view: Overview; busy: boolean; run: (fn: () => Promise<unknown>, success: string | ((result: any) => string)) => Promise<void> }) {
   const [kind, setKind] = useState<"instant" | "pro">("instant");
   const open = (k: "instant" | "pro") => view.clones.some((c) => c.kind === k && (c.status === "draft" || c.status === "processing"));
   if (!view.available.quick && !view.available.pro) return null;
@@ -464,8 +475,8 @@ function NewClone({ view, busy, run }:{ view: Overview; busy: boolean; run: (fn:
           </label>
           {view.available.pro ? (
             <p className="muted">
-              A Pro clone takes longer: you record at least 30 minutes, and the provider trains it for up to 3 hours. It also costs more to run
-              {view.proPriceAed ? `: the platform charges AED ${view.proPriceAed} for it, billed separately` : ""}.{" "}
+              A Pro clone takes more of your time: you record at least 30 minutes, and the provider trains it for up to 3 hours.
+              {view.proPriceAed ? ` The platform charges AED ${view.proPriceAed} for it, billed separately.` : ""}{" "}
               {view.available.proSlotsLeft < 1 ? "No Pro places are free right now; a Quick clone is available." : ""}
             </p>
           ) : (

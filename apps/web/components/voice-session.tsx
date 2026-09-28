@@ -62,6 +62,7 @@ type Gate = {
   playbackConsent: boolean;
   transcriptionConsent: boolean;
   speechToText: boolean;
+  speechProvider?: { name: string; zeroRetention: boolean } | null;
   held: boolean;
   budget: { spentUsd: number; capUsd: number; reached: boolean } | null;
 };
@@ -1251,8 +1252,12 @@ function Runner({
                         checked={transcriptionConsent}
                         onChange={(e) => setTranscriptionConsent(e.target.checked)}
                       />{" "}
-                      Send short clips of my replies to the speech service for
-                      transcription. Clips are not stored.
+                      Send short clips of my replies to{" "}
+                      {gate.speechProvider?.name ?? "the speech service"} for
+                      transcription. This app does not keep the clips;{" "}
+                      {gate.speechProvider?.zeroRetention
+                        ? "the provider is asked not to keep them either."
+                        : `${gate.speechProvider?.name ?? "the provider"} handles them under its own data retention terms.`}
                     </label>
                   )}
                   <button

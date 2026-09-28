@@ -10,7 +10,12 @@ is a choice of ElevenLabs or Cartesia, and a trainer can make a Quick or Pro clo
 voice in the app; activating it makes it the voice these sessions speak in. Cost rows now carry
 the configured provider, and a voice held by another provider falls back to text
 (`VOICE_UNAVAILABLE`). Speech-to-text can also be Cartesia (`ink-whisper`). See
-`docs/features/trainer-voice.md`.
+`docs/features/trainer-voice.md`. Review round 1 of that stage: with Cartesia, spoken replies
+are transcribed in the member's saved language (`ar` or `en`, since batch ink-whisper does not
+detect it and replies, including pain words, are parsed in both); `STT_ZERO_RETENTION` must be
+off with Cartesia (it cannot be requested); the member's transcription consent names the
+provider (`gate.speechProvider`) and says whose retention terms apply; speech is sent with the
+text's language, not the voice's recording language.
 
 ## Plan (written before implementation)
 

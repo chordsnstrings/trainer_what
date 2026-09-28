@@ -143,6 +143,40 @@ $$;
 REVOKE ALL ON FUNCTION voice_pro_clones_in_use() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION voice_pro_clones_in_use() TO trainer_app;
 
+-- Operators: provider deletions not yet confirmed, across every workspace
+-- (closed ones too), those needing attention first. Only a platform
+-- administrator's owner scope reads it; provider references are not returned.
+CREATE FUNCTION voice_provider_deletions_outstanding(max_rows integer)
+RETURNS TABLE(id uuid, tenant_id uuid, kind text, reason text, status text, attempts integer, last_error text, next_attempt_at timestamptz, created_at timestamptz)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF current_setting('app.role',true) IS DISTINCT FROM 'owner' OR NOT EXISTS(SELECT 1 FROM public.users u
+  WHERE u.id=nullif(current_setting('app.user_id',true),'')::uuid AND u.platform_role='admin') THEN
+  RAISE EXCEPTION 'Voice provider deletions are listed for platform administrators only' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT d.id,d.tenant_id,d.kind,d.reason,d.status,d.attempts,d.last_error,d.next_attempt_at,d.created_at
+ FROM public.voice_provider_deletions d WHERE d.status<>'done'
+ ORDER BY (d.status='attention') DESC,d.created_at,d.id LIMIT least(greatest(coalesce(max_rows,100),1),500);
+END $$;
+REVOKE ALL ON FUNCTION voice_provider_deletions_outstanding(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION voice_provider_deletions_outstanding(integer) TO trainer_app;
+
+-- The settings guard: how many clones and unconfirmed deletions still depend
+-- on the voice provider account (counts only), for a platform administrator.
+-- Switching the provider away or clearing its key is refused while any remain.
+CREATE FUNCTION voice_provider_work_outstanding()
+RETURNS TABLE(clones integer, deletions integer)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF current_setting('app.role',true) IS DISTINCT FROM 'owner' OR NOT EXISTS(SELECT 1 FROM public.users u
+  WHERE u.id=nullif(current_setting('app.user_id',true),'')::uuid AND u.platform_role='admin') THEN
+  RAISE EXCEPTION 'Voice provider work is counted for platform administrators only' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT
+  (SELECT count(*)::int FROM public.trainer_voice_clones c WHERE c.status<>'deleted' AND c.submitted_at IS NOT NULL),
+  (SELECT count(*)::int FROM public.voice_provider_deletions d WHERE d.status<>'done');
+END $$;
+REVOKE ALL ON FUNCTION voice_provider_work_outstanding() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION voice_provider_work_outstanding() TO trainer_app;
+
 -- Previews and clones share the workspace voice budget (VOICE_DAILY_USD_LIMIT)
 -- and stay out of the daily model-call count. Same signatures and grants.
 CREATE OR REPLACE FUNCTION voice_guidance_spent_today() RETURNS numeric

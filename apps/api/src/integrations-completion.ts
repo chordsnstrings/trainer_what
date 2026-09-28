@@ -1051,13 +1051,20 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     const a = owner(req);
     return db.tenant(a, async (tx) => {
       await lock(tx, a, "voice");
+      // A voice ID linked by hand lives in the trainer's own provider account;
+      // clones made in the app are deleted at the provider by the app.
+      const [linked] = await tx.query(
+        "SELECT provider FROM trainer_voices WHERE user_id=$1 AND clone_id IS NULL AND provider_voice_id IS NOT NULL",
+        [a.userId],
+      );
       await consent(tx, a, "voice", false);
       await disableUserIntegrations(tx, a.userId, "voice");
       await event(tx, a, "voice.revoked");
       return {
         ok: true,
-        message:
-          "Voice generation and stored playback stopped. Remove the voice in the provider account to revoke the provider-side clone.",
+        message: linked
+          ? "Voice generation and stored playback stopped. Remove the voice in the provider account to revoke the provider-side clone."
+          : "Voice generation and stored playback stopped. Voice clones made here are deleted, and their copies at the voice provider are being deleted.",
       };
     });
   });

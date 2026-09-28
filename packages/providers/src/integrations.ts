@@ -399,7 +399,9 @@ export function voiceContract() {
       proSlots: Number.isInteger(proSlots) && proSlots > 0 ? proSlots : 0,
       proPriceAed: Number.isFinite(proPrice) && proPrice > 0 ? proPrice : null,
       cloneUsd: Number.isFinite(cloneUsd) && cloneUsd >= 0 ? cloneUsd : 0,
-      reviewRequired: flag(c.VOICE_CLONE_REVIEW_REQUIRED, false),
+      // On until the owner decides otherwise: an operator checks identity and
+      // rights before members hear a clone, as for linked ElevenLabs voices.
+      reviewRequired: flag(c.VOICE_CLONE_REVIEW_REQUIRED, true),
       providerTrainingOptOut: flag(c.VOICE_TRAINING_OPT_OUT, false),
     },
   };
@@ -417,9 +419,37 @@ export function cartesiaVoiceClient(contract: VoiceContract = voiceContract()) {
   );
 }
 /**
+ * A Cartesia client for deleting what trainer voice clones left at the
+ * provider, built from the saved voice settings whether or not the voice
+ * integration is active: a paused contract, a pending connection check or a
+ * disabled switch never stops a deletion the trainer was promised. Null when
+ * the saved provider is not Cartesia or no key is saved. Never used to make
+ * anything.
+ */
+export function cartesiaDeletionClient(values: Record<string, string | undefined>) {
+  if (values.VOICE_PROVIDER !== "cartesia" || !values.VOICE_API_KEY) return null;
+  let version: string;
+  try {
+    version = cartesiaVersion(values.VOICE_API_VERSION);
+  } catch {
+    version = CARTESIA_API_VERSION;
+  }
+  return new CartesiaClient(
+    {
+      base: voiceBaseUrl("cartesia", values.VOICE_BASE_URL),
+      key: values.VOICE_API_KEY,
+      version,
+    },
+    integrationRequest,
+  );
+}
+/**
  * Speaks one line in a trainer voice. `voice.provider` is the provider that
  * holds the voice: a voice of another provider is never sent (its ID means
  * nothing there and the attempt would only add an unknown cost).
+ * `voice.language` is the language the voice was recorded in and is not sent:
+ * Cartesia reads `language` as the language of the text, which is
+ * `textLanguage` (English for today's scripts, shared phrases and previews).
  */
 export async function generateTrainerVoice(
   voiceId: string,
@@ -429,6 +459,7 @@ export async function generateTrainerVoice(
     provider?: string | null;
     model?: string | null;
     language?: string | null;
+    textLanguage?: string;
   } = {},
 ) {
   const c = voiceContract();
@@ -441,7 +472,7 @@ export async function generateTrainerVoice(
   if (c.provider === "cartesia") {
     try {
       ({ audio, contentType, requestId } = await cartesiaVoiceClient(c).speech(
-        { voiceId, text, model, language: voice.language },
+        { voiceId, text, model, language: voice.textLanguage ?? "en" },
         beforeSend,
       ));
     } catch (error) {
@@ -492,6 +523,13 @@ export async function generateTrainerVoice(
   };
 }
 
+/**
+ * The app cannot ask Cartesia for zero retention (it is an Enterprise account
+ * setting), so a zero-retention request is never silently dropped: the
+ * speech-to-text contract stays unapproved until the operator turns it off.
+ */
+export const CARTESIA_ZERO_RETENTION =
+  "Cartesia zero retention is an Enterprise account setting the app cannot request. Turn off Request zero retention to use Cartesia speech-to-text; members are told the provider's own retention applies.";
 /** Approved speech-to-text account (ElevenLabs or Cartesia), or ConfigurationError. */
 export function speechToTextContract() {
   const c = runtimeConfig();
@@ -508,6 +546,8 @@ export function speechToTextContract() {
   const pricePerHour = Number(c.STT_USD_PER_HOUR);
   if (!Number.isFinite(pricePerHour) || pricePerHour < 0)
     throw new ConfigurationError("A reviewed speech-to-text price is required.");
+  if (provider === "cartesia" && c.STT_ZERO_RETENTION === "true")
+    throw new ConfigurationError(CARTESIA_ZERO_RETENTION);
   return {
     provider,
     base: voiceBaseUrl(provider, c.STT_BASE_URL),
@@ -547,6 +587,7 @@ export async function transcribeSpeech(
   audio: Buffer,
   type: SpeechAudioType,
   beforeSend: () => Promise<void>,
+  options: { language?: "en" | "ar" } = {},
 ) {
   const c = speechToTextContract();
   if (c.provider === "cartesia") {
@@ -560,8 +601,11 @@ export async function transcribeSpeech(
           type,
           extension: SPEECH_AUDIO_TYPES[type],
           model: c.model,
-          // Voice commands are parsed in English (packages/domain/src/voice-runner.ts).
-          language: "en",
+          // Batch ink-whisper does not detect the language (it defaults to
+          // English), and replies are parsed in English and Arabic
+          // (packages/domain/src/voice-runner.ts, safetySignal): the member's
+          // language decides. ElevenLabs detects it itself.
+          language: options.language ?? "en",
         },
         beforeSend,
       );

@@ -209,6 +209,38 @@ export async function verifyRuntimeAccess(client) {
     assert.equal(r.relforcerowsecurity, true, `${table} must force RLS`);
     assert.notEqual(r.owner, "trainer_service");
   }
+  // Trainer voice clones (069): members, team members and other roles never
+  // read a clone, a recording or a provider reference (restrictive owner-only
+  // policy), and the provider deletion queue outlives erasure and closure
+  // because the application role cannot delete from it.
+  for (const table of [
+    "trainer_voice_clones",
+    "trainer_voice_samples",
+    "voice_provider_deletions",
+  ]) {
+    const policies = await query(
+      "SELECT policyname,permissive,cmd,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename=$1 AND policyname='voice_clone_owner'",
+      [table],
+    );
+    assert.equal(policies.length, 1, `${table}: owner-only policy missing`);
+    const [policy] = policies;
+    assert.equal(policy.permissive, "RESTRICTIVE", `${table}: owner-only policy must be restrictive`);
+    assert.equal(policy.cmd, "ALL", `${table}: owner-only policy must cover every command`);
+    for (const clause of [policy.qual, policy.with_check])
+      assert.match(
+        String(clause ?? ""),
+        /current_setting\('app\.role'::text,\s*true\)\s*=\s*'owner'::text/,
+        `${table}: owner-only policy must require app.role = 'owner'`,
+      );
+  }
+  const [queueDelete] = await query(
+    "SELECT has_table_privilege('trainer_app','voice_provider_deletions','DELETE') AS app,has_table_privilege(current_user,'voice_provider_deletions','DELETE') AS service",
+  );
+  assert.deepEqual(
+    queueDelete,
+    { app: false, service: false },
+    "voice_provider_deletions must not be deletable by the runtime roles",
+  );
   const functions = [
     "trainer_media_brand_reference(uuid,uuid)",
     "trainer_brand_tenant()",
@@ -259,6 +291,10 @@ export async function verifyRuntimeAccess(client) {
     "voice_session_style()",
     // Migration 069: Pro clone slots in use across the provider account (a count).
     "voice_pro_clones_in_use()",
+    // Migration 069: platform administrators only (checked inside): open
+    // provider deletions across workspaces, and the settings guard's counts.
+    "voice_provider_deletions_outstanding(integer)",
+    "voice_provider_work_outstanding()",
   ];
   for (const name of functions) {
     const [r] = await query(

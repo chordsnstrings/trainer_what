@@ -77,7 +77,8 @@ export async function trainerVoiceCloneScenarios(
     return detail;
   });
   if (!switched) return;
-  let clone: any;
+  let clone: any,
+    cloneDeleted = false;
   try {
     const recorded = await r.step(T, "Trainer voice clone", `${layla.slug}: explicit consent, a 12-second recording and a Quick clone made at the Cartesia double`, async () => {
       const view = await t.get("/api/v1/voice/clones");
@@ -148,6 +149,7 @@ export async function trainerVoiceCloneScenarios(
       const deleted = await t.request("DELETE", `/api/v1/voice/clones/${clone.id}`);
       assert.equal(deleted.status, 200, deleted.text);
       await ctx.waitUntil("the provider deletion", async () => !cartesia.voices.has(voiceId), 120000);
+      cloneDeleted = true;
       const view = await t.get("/api/v1/voice/clones");
       assert.deepEqual(view.clones, []);
       assert.notEqual(view.workspaceVoice?.status, "verified");
@@ -156,6 +158,13 @@ export async function trainerVoiceCloneScenarios(
   } finally {
     // Later suites expect the ElevenLabs double and Layla's linked voice.
     await r.prepare(A, "Trainer voice with Cartesia", "restore the ElevenLabs settings and the linked voice", async () => {
+      // Leaving Cartesia is refused while a clone or a deletion still depends
+      // on it: a clone left by a failed step is deleted first.
+      if (clone && !cloneDeleted) {
+        const voiceId = cartesia.clones.find((x) => x.name === "trainsyou-" + clone.id)?.id;
+        await t.request("DELETE", `/api/v1/voice/clones/${clone.id}`);
+        if (voiceId) await ctx.waitUntil("the provider deletion", async () => !cartesia.voices.has(voiceId), 120000);
+      }
       await saveSettings(ctx, { voice: ctx.mocks.settings.voice, speech_to_text: ctx.mocks.settings.speech_to_text });
       const profile = await t.get("/api/v1/voice/profile");
       const voiceId = "mockVoice" + layla.slug.replace(/[^a-z]/g, "").slice(0, 8);

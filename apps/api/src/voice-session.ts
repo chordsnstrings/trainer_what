@@ -139,6 +139,8 @@ export type VoiceGate = {
   playbackConsent: boolean;
   transcriptionConsent: boolean;
   speechToText: boolean;
+  /** Who transcribes spoken replies, shown with the member's consent. */
+  speechProvider: { name: string; zeroRetention: boolean } | null;
   held: boolean;
   budget: { spentUsd: number; capUsd: number; reached: boolean } | null;
 };
@@ -192,6 +194,12 @@ async function voiceGate(tx: Tx, a: Actor) {
     playbackConsent: playback,
     transcriptionConsent: transcription,
     speechToText: !!speech && !!pricing && access.premiumVoice,
+    speechProvider: speech
+      ? {
+          name: speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs",
+          zeroRetention: speech.provider === "elevenlabs" && speech.zeroRetention,
+        }
+      : null,
     held: held?.held === true,
     budget: pricing
       ? {
@@ -938,6 +946,12 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         const cost = (billableMs / 3600000) * speech.pricePerHour;
         if (Number(spent.total) + cost > pricing.cap)
           throw fail(429, "VOICE_BUDGET", REASONS.VOICE_BUDGET);
+        // Replies are recognised in the member's language (English or Arabic).
+        const [preference] = await tx.query(
+          "SELECT data->>'language' AS language FROM notification_preferences WHERE user_id=$1",
+          [a.userId],
+        );
+        const language: "en" | "ar" = preference?.language === "ar" ? "ar" : "en";
         const usageId = randomUUID();
         await tx.query(
           "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.transcription',$8,$4,'reserved',$5,$6,$7)",
@@ -960,18 +974,23 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
             speech.provider,
           ],
         );
-        return { session, usageId, billableMs };
+        return { session, usageId, billableMs, language };
       });
       let transcript: string;
       try {
-        const result = await transcribeSpeech(audio, b.type, async () => {
-          await db.tenant(a, (tx) =>
-            tx.query(
-              "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-              [reservation.usageId],
-            ),
-          );
-        });
+        const result = await transcribeSpeech(
+          audio,
+          b.type,
+          async () => {
+            await db.tenant(a, (tx) =>
+              tx.query(
+                "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
+                [reservation.usageId],
+              ),
+            );
+          },
+          { language: reservation.language },
+        );
         transcript = result.text.trim();
         // The provider's own timing (end of the last word) is kept for
         // reconciliation. Usage rows are write-once after the send, so it goes

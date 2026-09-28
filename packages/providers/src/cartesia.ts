@@ -60,10 +60,21 @@ export type CartesiaVoice = { id: string; name: string; isPro: boolean };
 export type CartesiaFineTune = {
   id: string;
   name: string;
+  /** The dataset it was trained from ("" when the answer did not say). */
+  dataset: string;
   status: "created" | "training" | "completed" | "failed" | "unknown";
   supportedModelIds: string[];
   errors: string[];
 };
+/**
+ * Whether a provider resource carries a clone's name: exactly, or with a
+ * `-<suffix>` (each Pro training attempt is named `<clone name>-<n>`).
+ */
+export function carriesName(resourceName: string, name: string, withSuffix = false) {
+  return resourceName === name || (withSuffix && resourceName.startsWith(name + "-"));
+}
+/** Pages read at most when a list is searched for a name (100 items each). */
+const MAX_PAGES = 50;
 
 type Part =
   | { name: string; value: string }
@@ -143,6 +154,7 @@ function fineTune(row: any): CartesiaFineTune {
   return {
     id: row.id,
     name: text(row.name),
+    dataset: typeof row.dataset === "string" ? row.dataset.slice(0, 100) : "",
     status,
     supportedModelIds: (Array.isArray(row.supported_model_ids) ? row.supported_model_ids : [])
       .filter((m: unknown) => typeof m === "string" && /^[A-Za-z0-9._-]{1,80}$/.test(m))
@@ -242,8 +254,48 @@ export class CartesiaClient {
       throw new CartesiaError(`${what} returned an unexpected answer.`, "ambiguous");
     return body as any;
   }
+  /**
+   * Every row of a paginated list (`has_more`, `next_page` passed back as
+   * `starting_after`), up to MAX_PAGES pages; `stop` ends the walk early.
+   * A list that is still longer after MAX_PAGES answers "ambiguous", so a
+   * name lookup never reads a partial list as "not there".
+   */
+  private async all(
+    path: string,
+    what: string,
+    query: Record<string, string> = {},
+    stop?: (rows: any[]) => boolean,
+  ) {
+    const rows: any[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const body = await this.json(
+        await this.call("GET", path, {
+          query: { limit: "100", ...query, ...(after ? { starting_after: after } : {}) },
+        }),
+        what,
+      );
+      if (!Array.isArray(body.data))
+        throw new CartesiaError(`${what} returned an unexpected answer.`, "ambiguous");
+      rows.push(...body.data);
+      const last = body.data.at(-1)?.id;
+      const next =
+        typeof body.next_page === "string" && body.next_page
+          ? body.next_page
+          : typeof last === "string"
+            ? last
+            : null;
+      if (body.has_more !== true || !next || next === after || stop?.(rows)) return rows;
+      after = next;
+    }
+    throw new CartesiaError(`${what} is longer than this app reads.`, "ambiguous");
+  }
 
-  /** POST /tts/bytes: MP3 at 44.1 kHz and 128 kbps, like the stored clips. */
+  /**
+   * POST /tts/bytes: MP3 at 44.1 kHz and 128 kbps, like the stored clips.
+   * `language` is the language of `text` (Cartesia: "the transcript's
+   * language"), never the language the voice was recorded in.
+   */
   async speech(
     input: { voiceId: string; text: string; model: string; language?: string | null },
     beforeSend?: () => Promise<void>,
@@ -326,7 +378,7 @@ export class CartesiaClient {
       throw new CartesiaError("Voice cloning returned an unexpected answer.", "ambiguous");
     return created;
   }
-  /** GET /voices: the account check (limit 1) and name lookups for reconciliation. */
+  /** GET /voices: one page (the account check reads one voice). */
   async listVoices(query: { limit?: number; q?: string } = {}) {
     const body = await this.json(
       await this.call("GET", "/voices", {
@@ -341,8 +393,12 @@ export class CartesiaClient {
       throw new CartesiaError("The voice list returned an unexpected answer.", "ambiguous");
     return body.data.map(voice).filter(Boolean) as CartesiaVoice[];
   }
-  async voicesNamed(name: string) {
-    return (await this.listVoices({ q: name })).filter((v) => v.name === name);
+  /** The account's own voices carrying a name (every page of the search). */
+  async voicesNamed(name: string, withSuffix = false) {
+    const rows = await this.all("/voices", "The voice list", { q: name, is_owner: "true" });
+    return (rows.map(voice).filter(Boolean) as CartesiaVoice[]).filter((v) =>
+      carriesName(v.name, name, withSuffix),
+    );
   }
   /** DELETE /voices/{id}: "missing" when the provider no longer has it. */
   async deleteVoice(id: string) {
@@ -363,13 +419,16 @@ export class CartesiaClient {
       throw new CartesiaError("Dataset creation returned an unexpected answer.", "ambiguous");
     return { id: body.id as string };
   }
-  async datasetsNamed(name: string) {
-    const body = await this.json(
-      await this.call("GET", "/datasets/", { query: { limit: "100" } }),
-      "The dataset list",
-    );
-    return (Array.isArray(body.data) ? body.data : [])
-      .filter((d: any) => d?.name === name && typeof d.id === "string")
+  /** Datasets carrying a name, from every page of the list. */
+  async datasetsNamed(name: string, withSuffix = false) {
+    return (await this.all("/datasets/", "The dataset list"))
+      .filter(
+        (d: any) =>
+          typeof d?.name === "string" &&
+          carriesName(d.name, name, withSuffix) &&
+          typeof d.id === "string" &&
+          /^[A-Za-z0-9_-]{1,100}$/.test(d.id),
+      )
       .map((d: any) => ({ id: String(d.id) }));
   }
   /** POST /datasets/{id}/files (purpose fine_tune). */
@@ -390,14 +449,16 @@ export class CartesiaClient {
       "Dataset upload",
     );
   }
-  async datasetFiles(datasetId: string) {
-    const body = await this.json(
-      await this.call("GET", `/datasets/${encodeURIComponent(datasetId)}/files`, {
-        query: { limit: "100" },
-      }),
-      "The dataset file list",
-    );
-    return (Array.isArray(body.data) ? body.data : [])
+  /** The dataset's files, from every page (or until `filename` is found). */
+  async datasetFiles(datasetId: string, filename?: string) {
+    return (
+      await this.all(
+        `/datasets/${encodeURIComponent(datasetId)}/files`,
+        "The dataset file list",
+        {},
+        filename ? (rows) => rows.some((f) => f?.filename === filename) : undefined,
+      )
+    )
       .filter((f: any) => typeof f?.filename === "string")
       .map((f: any) => ({ id: String(f.id ?? ""), filename: String(f.filename) }));
   }
@@ -427,23 +488,19 @@ export class CartesiaClient {
       ),
     );
   }
-  async fineTunesNamed(name: string) {
-    const body = await this.json(
-      await this.call("GET", "/fine-tunes/", { query: { limit: "100" } }),
-      "The fine-tune list",
-    );
-    return (Array.isArray(body.data) ? body.data : [])
-      .filter((f: any) => f?.name === name)
+  /** Fine-tunes carrying a name, from every page of the list. */
+  async fineTunesNamed(name: string, withSuffix = false) {
+    return (await this.all("/fine-tunes/", "The fine-tune list"))
+      .filter((f: any) => typeof f?.name === "string" && carriesName(f.name, name, withSuffix))
       .map(fineTune);
   }
+  /** GET /fine-tunes/{id}/voices: the Pro voices Cartesia made (Cartesia names them). */
   async fineTuneVoices(id: string) {
-    const body = await this.json(
-      await this.call("GET", `/fine-tunes/${encodeURIComponent(id)}/voices`, {
-        query: { limit: "100" },
-      }),
-      "The Pro clone voices",
-    );
-    return (Array.isArray(body.data) ? body.data : []).map(voice).filter(Boolean) as CartesiaVoice[];
+    return (
+      await this.all(`/fine-tunes/${encodeURIComponent(id)}/voices`, "The Pro clone voices")
+    )
+      .map(voice)
+      .filter(Boolean) as CartesiaVoice[];
   }
   async deleteFineTune(id: string) {
     const response = await this.call("DELETE", "/fine-tunes/" + encodeURIComponent(id));

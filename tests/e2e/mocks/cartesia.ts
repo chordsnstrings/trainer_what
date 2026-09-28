@@ -9,7 +9,11 @@
  * - voices: POST /voices/clone (multipart clip, name, language), GET /voices
  *   (q, is_owner), GET and DELETE /voices/:id;
  * - Pro clones: datasets and their files, fine-tunes that answer "training"
- *   for `trainingPolls` polls and then "completed" with one Pro voice.
+ *   for `trainingPolls` polls and then "completed" with one Pro voice, which
+ *   Cartesia names itself (not the fine-tune's name). Deleting a fine-tune
+ *   leaves its voices (the undocumented worst case).
+ * - Lists page with `limit`, `starting_after`, `has_more` and `next_page`;
+ *   `listPageSize` forces small pages.
  * Every route checks the key (Authorization: Bearer or X-API-Key) and the
  * Cartesia-Version header. Bodies are not logged (they carry recordings).
  */
@@ -66,7 +70,18 @@ export class CartesiaMock {
   loseNextAnswer = new Set<"clone" | "dataset" | "fineTune">();
   /** Makes the next fine-tune fail with this message. */
   failTraining: string | null = null;
-  nextTranscripts: string[] = [];
+  /**
+   * Words the next replies say. A `{ text, language }` entry is recognised
+   * only when the request names that language (batch ink-whisper does not
+   * detect it); otherwise nothing is recognised.
+   */
+  nextTranscripts: Array<string | { text: string; language: string }> = [];
+  /** Page size for list routes (at most the request's limit). */
+  listPageSize = 100;
+  /** Voices hidden from lists and name searches, as a lagging list would. */
+  readonly hiddenFromLists = new Set<string>();
+  /** A completed fine-tune lists no voices yet. */
+  withholdProVoices = false;
   constructor(
     tlsMaterial: { key: string; cert: string },
     public apiKey: string,
@@ -80,12 +95,14 @@ export class CartesiaMock {
     };
     route("GET", "/voices", (r) => {
       const q = r.query.get("q");
-      const limit = Math.min(100, Number(r.query.get("limit") ?? 10) || 10);
-      const data = [...this.voices.values()]
-        .filter((v) => !q || v.name.includes(q))
-        .slice(0, limit)
-        .map((v) => this.voiceBody(v));
-      return { body: { data, has_more: false, next_page: null } };
+      return {
+        body: this.page(
+          r,
+          [...this.voices.values()].filter((v) => !this.hiddenFromLists.has(v.id) && (!q || v.name.includes(q))),
+          (v) => this.voiceBody(v),
+          10,
+        ),
+      };
     });
     route("GET", "/voices/:id", (r) => {
       const v = this.voices.get(r.params.id);
@@ -143,8 +160,9 @@ export class CartesiaMock {
       const file = f.get("file"),
         model = f.get("model")?.value;
       if (!file?.filename || model !== "ink-whisper") return this.problem(400, null, "file and model ink-whisper are required");
-      const text = /TRANSCRIPT:([^;]*);/.exec(file.value)?.[1] ?? this.nextTranscripts.shift() ?? "done";
       const language = f.get("language")?.value ?? "en";
+      const next = /TRANSCRIPT:([^;]*);/.exec(file.value)?.[1] ?? this.nextTranscripts.shift() ?? "done";
+      const text = typeof next === "string" ? next : next.language === language ? next.text : "";
       this.transcriptions.push({ model, language, bytes: Buffer.byteLength(file.value), text, at: new Date().toISOString() });
       const words = text.split(/\s+/).filter(Boolean).map((word, i) => ({ word, start: i * 0.4, end: i * 0.4 + 0.35 }));
       return {
@@ -159,8 +177,8 @@ export class CartesiaMock {
       if (this.loseNextAnswer.delete("dataset")) return this.problem(502, null, "Answer lost");
       return { body: { id, name: r.json.name, description: r.json.description, created_at: new Date().toISOString() } };
     });
-    route("GET", "/datasets/", () => ({
-      body: { data: [...this.datasets.values()].map((d) => ({ id: d.id, name: d.name, created_at: new Date().toISOString() })), has_more: false },
+    route("GET", "/datasets/", (r) => ({
+      body: this.page(r, [...this.datasets.values()], (d) => ({ id: d.id, name: d.name, created_at: new Date().toISOString() })),
     }));
     route("POST", "/datasets/:id/files", (r) => {
       if (this.take("upload")) return this.problem(this.lastStatus, null, "Mock failure");
@@ -176,7 +194,7 @@ export class CartesiaMock {
     route("GET", "/datasets/:id/files", (r) => {
       const dataset = this.datasets.get(r.params.id);
       if (!dataset) return this.problem(404, null, "Dataset not found");
-      return { body: { data: dataset.files.map((x) => ({ ...x, created_at: new Date().toISOString() })), has_more: false } };
+      return { body: this.page(r, dataset.files, (x) => ({ ...x, created_at: new Date().toISOString() })) };
     });
     route("DELETE", "/datasets/:id", (r) => {
       if (!this.datasets.delete(r.params.id)) return this.problem(404, null, "Dataset not found");
@@ -195,8 +213,8 @@ export class CartesiaMock {
       if (this.loseNextAnswer.delete("fineTune")) return this.problem(502, null, "Answer lost");
       return { body: this.fineTuneBody(ft) };
     });
-    route("GET", "/fine-tunes/", () => ({
-      body: { data: [...this.fineTunes.values()].map((f) => this.fineTuneBody(f)), has_more: false },
+    route("GET", "/fine-tunes/", (r) => ({
+      body: this.page(r, [...this.fineTunes.values()], (f) => this.fineTuneBody(f)),
     }));
     route("GET", "/fine-tunes/:id", (r) => {
       const ft = this.fineTunes.get(r.params.id);
@@ -208,7 +226,7 @@ export class CartesiaMock {
         else {
           ft.status = "completed";
           const id = randomUUID();
-          this.voices.set(id, { id, name: ft.name, language: ft.language, isPro: true, fineTuneId: ft.id });
+          this.voices.set(id, { id, name: "Pro voice " + ft.id.slice(3, 11), language: ft.language, isPro: true, fineTuneId: ft.id });
           ft.voiceId = id;
         }
       }
@@ -217,14 +235,23 @@ export class CartesiaMock {
     route("GET", "/fine-tunes/:id/voices", (r) => {
       const ft = this.fineTunes.get(r.params.id);
       if (!ft) return this.problem(404, null, "Fine-tune not found");
-      const voice = ft.voiceId ? this.voices.get(ft.voiceId) : undefined;
-      return { body: { data: voice ? [this.voiceBody(voice)] : [], has_more: false, next_page: null } };
+      const voice = ft.voiceId && !this.withholdProVoices ? this.voices.get(ft.voiceId) : undefined;
+      return { body: this.page(r, voice ? [voice] : [], (v) => this.voiceBody(v)) };
     });
     route("DELETE", "/fine-tunes/:id", (r) => {
       if (!this.fineTunes.delete(r.params.id)) return this.problem(404, null, "Fine-tune not found");
       this.deleted.push({ kind: "fine_tune", id: r.params.id, at: new Date().toISOString() });
       return { status: 204 };
     });
+  }
+  /** One page of a list: `limit` (and listPageSize), after `starting_after`. */
+  private page<T extends { id: string }>(r: MockRequest, rows: T[], body: (row: T) => unknown, defaultLimit = 100) {
+    const limit = Math.min(this.listPageSize, 100, Number(r.query.get("limit") ?? defaultLimit) || defaultLimit);
+    const after = r.query.get("starting_after");
+    const start = after ? rows.findIndex((x) => x.id === after) + 1 : 0;
+    const slice = rows.slice(start, start + limit);
+    const more = start + limit < rows.length;
+    return { data: slice.map(body), has_more: more, next_page: more ? slice.at(-1)!.id : null };
   }
   private lastStatus = 500;
   private take(kind: keyof CartesiaMock["failNext"]) {
