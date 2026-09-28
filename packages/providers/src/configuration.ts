@@ -1620,6 +1620,14 @@ async function cartesiaAccountCheck(
     details: { provider: "cartesia", apiVersion: version || "2026-08-14" },
   };
 }
+/**
+ * Integrations whose connection check is a read-only provider request meant to
+ * run before purchases are approved (web addresses: the registrar balance), so
+ * the API access and IP whitelist can be proven first.
+ */
+export const READ_ONLY_CHECK_BEFORE_APPROVAL: ReadonlySet<string> = new Set([
+  "web_addresses",
+]);
 export async function testIntegration(
   id: string,
   config: RuntimeConfig,
@@ -1656,9 +1664,26 @@ export async function testIntegration(
       ]),
     );
     validateIntegrationValues(id, fields);
+    // The registrar check reads the balance only, so the registrant contact
+    // (needed for purchases) does not block proving the API access first.
+    const readOnlyBeforeApproval = READ_ONLY_CHECK_BEFORE_APPROVAL.has(id);
     const missing = definition.fields.filter(
-      (entry) => entry.required && !fields[entry.key],
+      (entry) =>
+        entry.required &&
+        !fields[entry.key] &&
+        !(readOnlyBeforeApproval && entry.key.startsWith("WEB_ADDRESS_REGISTRANT_")),
     );
+    const registrantMissing = readOnlyBeforeApproval
+      ? definition.fields.some(
+          (entry) =>
+            entry.required &&
+            entry.key.startsWith("WEB_ADDRESS_REGISTRANT_") &&
+            !fields[entry.key],
+        )
+      : false;
+    const purchaseNote = registrantMissing
+      ? " Purchases also need the registrant details and the purchases switch."
+      : "";
     if (missing.length)
       return {
         status: "failed",
@@ -1761,6 +1786,7 @@ export async function testIntegration(
           status: "verified",
           message:
             "Namecheap API access verified from the whitelisted address. No domain was bought." +
+            purchaseNote +
             (Number(balance.available) < 20
               ? " The available balance is low: purchases and renewals are paid from it."
               : "") +

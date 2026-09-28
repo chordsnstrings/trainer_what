@@ -19,6 +19,7 @@ import {
   testIntegration,
   validateIntegrationValues,
   integrationCapability,
+  READ_ONLY_CHECK_BEFORE_APPROVAL,
 } from "../packages/providers/src/configuration.ts";
 import {
   allowedTlds,
@@ -305,6 +306,18 @@ test("the Super admin connection check reads the balance only and reports the en
   assert.equal(mismatched.details?.modeMismatch, true);
   assert.equal(mismatched.details?.paymentMode, "live");
   assert.match(mismatched.message, /Purchases are refused/);
+  // Before the registrant details are entered the read-only check still runs,
+  // so the API access and the whitelist can be proven first.
+  const noRegistrant = Object.fromEntries(
+    Object.entries(fields).filter(([key]) => !key.startsWith("WEB_ADDRESS_REGISTRANT_")),
+  );
+  mock.calls.length = 0;
+  const early = await withMock(mock, () => testIntegration("web_addresses", noRegistrant));
+  assert.equal(early.status, "verified", early.message);
+  assert.match(early.message, /Purchases also need the registrant details/);
+  assert.deepEqual(mock.calls.map((c) => c.command), ["users.getBalances"]);
+  assert.equal(READ_ONLY_CHECK_BEFORE_APPROVAL.has("web_addresses"), true);
+  assert.equal(integrationCapability("web_addresses", noRegistrant)!.approved, false);
   // Approval: configured is not enough; purchases need the explicit switch.
   assert.deepEqual(integrationCapability("web_addresses", fields), {
     configured: true,

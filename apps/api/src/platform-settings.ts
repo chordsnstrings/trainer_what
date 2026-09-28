@@ -8,6 +8,7 @@ import {
   testIntegration,
   validateIntegrationValues,
   integrationCapability,
+  READ_ONLY_CHECK_BEFORE_APPROVAL,
   type IntegrationDefinition,
   type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
@@ -613,7 +614,9 @@ export function platformSettingsRoutes(
         const values = configuredValues(def, snapshot);
         const capability = integrationCapability(def.id, values);
         const result =
-          capability && !capability.approved
+          capability &&
+          !capability.approved &&
+          !READ_ONLY_CHECK_BEFORE_APPROVAL.has(def.id)
             ? { status: "unavailable" as const }
             : await probe(def.id, values);
         if (
