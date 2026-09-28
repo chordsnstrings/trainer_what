@@ -13,6 +13,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
 import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
@@ -876,10 +877,15 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   const exercises = workout.data.program?.exercises ?? [];
   // The trainer's cue is the exercise's `cue` field (trainingExerciseSchema);
   // programs never carried `notes`, so the cue was silently dropped before.
+  // It is spoken in the trainer's voice, so it gets the voice session's cue
+  // checks (red flags, medical, prescription changes, unsafe technique,
+  // numbers outside tempo); a cue that fails is left out.
+  const spokenCue = (cue: unknown) =>
+    typeof cue === "string" && cue.trim() && !cueIssues(cue).length ? " " + cue.trim() : "";
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
-    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${typeof ex.cue === "string" && ex.cue.trim() ? " " + ex.cue.trim() : ""} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
+    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${spokenCue(ex.cue)} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
     restSeconds: Math.max(
       0,
       Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),

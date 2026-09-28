@@ -178,6 +178,10 @@ after(async () => {
 });
 
 test("without premium voice the same session is text-guided; guided text uses the trainer's cue and title", async () => {
+  // Load reduction and skipping are off until the trainer opts in.
+  assert.deepEqual((await ok("/voice-sessions/style", "GET", undefined, coach)).style.adjustments, { tooHeavyReducePercent: 0, allowSkip: false });
+  const optIn = await ok("/voice-sessions/style", "PUT", { revision: 0, style: { adjustments: { tooHeavyReducePercent: 10, allowSkip: true } } }, coach);
+  assert.equal(optIn.version, 1);
   await subscribe(alex, ["training"]);
   alexWorkout = await startWorkout(alex);
   const guided = await ok(`/guided/${alexWorkout}`, "GET", undefined, alex);
@@ -193,6 +197,9 @@ test("without premium voice the same session is text-guided; guided text uses th
   assert.equal(session.audio.total, 0);
   assert.equal(session.script.exercises[0].setLines[0].text, "Set 1 of 3. 8 reps at 60 kilograms. Say done when you finish, or tell me how many reps you did.");
   assert.equal(session.unavailableReason.code, "VOICE_MEMBERSHIP");
+  assert.deepEqual(session.script.rules, { tooHeavyReducePercent: 10, allowSkip: true });
+  assert.equal(session.runnable, true);
+  assert.deepEqual(session.audio.readyKeys, []);
   // Audio is refused for a text session; another member cannot see it.
   assert.equal((await request(`/voice-sessions/${session.id}/audio`, "GET", undefined, alex)).statusCode, 409);
   assert.equal((await request(`/voice-sessions/${session.id}`, "GET", undefined, bea)).statusCode, 404);
@@ -214,31 +221,37 @@ test("premium voice needs playback consent; the worker makes the audio ahead of 
   assert.equal(mock.syntheses.length, 0, "nothing is generated in the request");
   const result = await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
   assert.equal(result.capped, false);
-  assert.equal(result.generated, 18 + 120);
-  assert.equal(mock.syntheses.length, 138);
+  assert.equal(result.generated, 18 + 121);
+  assert.equal(mock.syntheses.length, 139);
   assert.ok(mock.syntheses.every((s) => s.voiceId === "mock-trainer-voice" && s.model === "eleven_multilingual_v2"));
   assert.ok(mock.syntheses.some((s) => s.text === "Set 2 of 3. 8 reps at 60 kilograms. Say done when you finish, or tell me how many reps you did."));
   const view = await ok(`/voice-sessions/${alexSession.id}`, "GET", undefined, alex);
   assert.equal(view.audioStatus, "ready");
-  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 120]);
+  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 121]);
+  assert.equal(view.audio.readyKeys.length, 18 + 121);
+  assert.ok(view.audio.readyKeys.includes("l:intro:0") && view.audio.readyKeys.includes("s:num:8"));
   const usage = await scalar(
     "SELECT count(*)::int AS n,count(*) FILTER (WHERE status='unknown')::int AS unknown,min((pricing->>'reservedCostUsd')::numeric) AS least FROM cost_events WHERE task='voice.session'",
   );
-  assert.equal(usage.n, 138);
-  assert.equal(usage.unknown, 138, "delivery is not billed usage: reconciliation stays open");
+  assert.equal(usage.n, 139);
+  assert.equal(usage.unknown, 139, "delivery is not billed usage: reconciliation stays open");
   assert.ok(Number(usage.least) > 0);
   // Cached per session: preparing again neither re-queues nor re-sends.
   await ok("/voice-sessions", "POST", { workoutId: alexWorkout }, alex);
   await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
-  assert.equal(mock.syntheses.length, 138);
+  assert.equal(mock.syntheses.length, 139);
   // The runner downloads everything in pages and plays from memory.
   const page = await ok(`/voice-sessions/${alexSession.id}/audio`, "GET", undefined, alex);
   assert.equal(page.type, "audio/mpeg");
-  assert.equal(page.clips.length, 138);
+  assert.equal(page.clips.length, 139);
   assert.equal(page.next, null);
   assert.equal(Buffer.from(page.clips[0].audio, "base64").toString("ascii", 0, 3), "ID3");
   const tail = await ok(`/voice-sessions/${alexSession.id}/audio?after=1num:50`, "GET", undefined, alex);
-  assert.ok(tail.clips.length < 138 && tail.clips.every((c: any) => c.shared));
+  assert.ok(tail.clips.length < 139 && tail.clips.every((c: any) => c.shared));
+  // Newly ready clips are fetched by key while the rest is still being made.
+  const named = await ok(`/voice-sessions/${alexSession.id}/audio?keys=${encodeURIComponent("l:intro:0,s:num:8,l:not:a:line")}`, "GET", undefined, alex);
+  assert.deepEqual(named.clips.map((c: any) => (c.shared ? "s:" : "l:") + c.key).sort(), ["l:intro:0", "s:num:8"]);
+  assert.equal((await request(`/voice-sessions/${alexSession.id}/audio?keys=${encodeURIComponent("x:bad key")}`, "GET", undefined, alex)).statusCode, 400);
 });
 
 test("set logs from the runner use the workout endpoint; adjustments are checked against the trainer's rule", async () => {
@@ -334,7 +347,7 @@ test("the daily voice budget caps generation; the session continues as text and 
   const visible = await db.tenant(bea, (tx) =>
     tx.query("SELECT count(*) FILTER (WHERE user_id IS NULL)::int AS shared,count(*) FILTER (WHERE session_id=$1)::int AS others FROM voice_session_clips", [alexSession.id]),
   );
-  assert.equal(visible[0].shared, 120);
+  assert.equal(visible[0].shared, 121);
   assert.equal(visible[0].others, 0);
   assert.equal((await db.tenant(bea, (tx) => tx.query("SELECT id FROM voice_sessions WHERE id=$1", [alexSession.id]))).length, 0);
 });
@@ -359,6 +372,28 @@ test("spoken replies: transcription needs consent, stores no audio and a red fla
   const cost = await scalar("SELECT status,pricing FROM cost_events WHERE task='voice.transcription'");
   assert.equal(cost.status, "unknown");
   assert.equal(cost.pricing.basis, "audio_seconds");
+  // The provider's own timing (end of the last word) is kept for reconciliation.
+  const timed = await scalar("SELECT data FROM events WHERE name='voice_session.transcribed' AND subject_id=$1", [session.id]);
+  assert.equal(timed.data.providerSeconds, 0.8);
+  assert.equal(timed.data.reservedSeconds, 1.5);
+  // A long clip cannot be declared short: it is reserved at its byte-derived
+  // length (6 kbit/s floor), so the workspace cap sees its real upper bound.
+  const long = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(400000)]).toString("base64");
+  const spentBefore = Number((await scalar("SELECT voice_guidance_spent_today() AS total")).total);
+  process.env.VOICE_DAILY_USD_LIMIT = String(spentBefore + 0.01);
+  try {
+    const capped = await request(`/voice-sessions/${session.id}/transcribe`, "POST", { audio: long, type: "audio/webm", durationMs: 200 }, cai);
+    assert.equal(capped.statusCode, 429, capped.body);
+    assert.equal(capped.json().code, "VOICE_BUDGET");
+    assert.equal(mock.transcriptions.length, 1, "nothing is sent beyond the cap");
+  } finally {
+    process.env.VOICE_DAILY_USD_LIMIT = "5";
+  }
+  await ok(`/voice-sessions/${session.id}/transcribe`, "POST", { audio: long, type: "audio/webm", durationMs: 200 }, cai);
+  const reserved = await scalar("SELECT pricing FROM cost_events WHERE task='voice.transcription' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(reserved.pricing.declaredSeconds, 0.2);
+  assert.ok(reserved.pricing.seconds >= 533, JSON.stringify(reserved.pricing));
+  assert.ok(Number(reserved.pricing.reservedCostUsd) >= (533 / 3600) * 0.4);
   const mismatch = await request(`/voice-sessions/${session.id}/transcribe`, "POST", { ...reply, type: "audio/ogg" }, cai);
   assert.equal(mismatch.statusCode, 400);
   // Device transcripts are re-screened on the server with the trainer's policy.
@@ -385,6 +420,102 @@ test("spoken replies: transcription needs consent, stores no audio and a red fla
   assert.equal(stored.n, 0);
 });
 
+test("a session prepared ahead from a planned session gets its audio before the day and binds when the workout starts; a substitution makes it stale", async () => {
+  const dee = await member("dee@example.test", "Dee Ahead");
+  await subscribe(dee, ["training", "voice"]);
+  const program = await ok(
+    "/programs",
+    "POST",
+    {
+      subscriberId: dee.userId,
+      program: {
+        title: "Planned legs",
+        goal: "Strength ahead of time",
+        daysPerWeek: 3,
+        exercises: [
+          { name: "Back squat", sets: 2, reps: 5, restSeconds: 30, loadKg: 50, cue: "Brace first.", alternatives: [{ name: "Goblet squat", cue: "Hold the bell close.", loadKg: 20 }] },
+          { name: "Push-up", sets: 1, reps: 10, restSeconds: 0 },
+        ],
+      },
+    },
+    coach,
+  );
+  const planned = await scalar(
+    "SELECT id FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'programId'=$2 ORDER BY data->>'date',id LIMIT 1",
+    [dee.userId, program.id],
+  );
+  const before = await ok(`/voice-sessions/planned/${planned.id}`, "GET", undefined, dee);
+  assert.equal(before.session, null);
+  assert.equal(before.planned.status, "planned");
+  // Another member cannot prepare or read Dee's planned session.
+  assert.equal((await request(`/voice-sessions/planned/${planned.id}`, "GET", undefined, bea)).statusCode, 404);
+  assert.equal((await request("/voice-sessions", "POST", { plannedSessionId: planned.id }, bea)).statusCode, 404);
+  assert.equal((await request("/voice-sessions", "POST", { plannedSessionId: planned.id, workoutId: alexWorkout }, dee)).statusCode, 400);
+  const ahead = await ok("/voice-sessions", "POST", { plannedSessionId: planned.id, playbackConsent: true }, dee);
+  assert.equal(ahead.workoutId, null);
+  assert.equal(ahead.plannedSessionId, planned.id);
+  assert.deepEqual([ahead.mode, ahead.audioStatus], ["voice", "generating"]);
+  // It cannot run before the workout exists.
+  assert.equal((await request(`/voice-sessions/${ahead.id}/events`, "POST", { status: "running" }, dee)).statusCode, 409);
+  const calls = mock.syntheses.length;
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  const made = mock.syntheses.length - calls;
+  assert.ok(made > 0, "audio is made before the day");
+  const ready = await ok(`/voice-sessions/planned/${planned.id}`, "GET", undefined, dee);
+  assert.equal(ready.session.id, ahead.id);
+  assert.equal(ready.session.audioStatus, "ready");
+  // On the day the workout starts: the same session, bound after re-validation, no new audio.
+  const workout = (await ok("/workouts/start", "POST", { programId: program.id, plannedSessionId: planned.id }, dee)).id;
+  const opened = await ok(`/voice-sessions/workout/${workout}`, "GET", undefined, dee);
+  assert.equal(opened.session.id, ahead.id);
+  assert.equal(opened.session.workoutId, workout);
+  assert.equal(opened.session.runnable, true);
+  assert.equal(opened.session.audioStatus, "ready");
+  assert.equal((await ok("/voice-sessions", "POST", { plannedSessionId: planned.id }, dee)).id, ahead.id);
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  assert.equal(mock.syntheses.length - calls, made);
+  assert.equal((await ok(`/voice-sessions/planned/${planned.id}`, "GET", undefined, dee)).planned.workoutId, workout);
+  // A substitution rewrites the workout's plan: the stored script is stale and
+  // is never returned as runnable.
+  const w = await scalar("SELECT version FROM records WHERE id=$1", [workout]);
+  await ok(`/workouts/${workout}/substitute`, "POST", { version: w.version, exercise: "Back squat", replacement: "Goblet squat", reason: "equipment_unavailable" }, dee);
+  const after = await ok(`/voice-sessions/workout/${workout}`, "GET", undefined, dee);
+  assert.equal(after.session, null);
+  assert.equal(after.stale, true);
+  const polled = await ok(`/voice-sessions/${ahead.id}`, "GET", undefined, dee);
+  assert.deepEqual([polled.stale, polled.runnable], [true, false]);
+  // Preparing again revokes the old script and builds from the current plan.
+  const fresh = await ok("/voice-sessions", "POST", { workoutId: workout }, dee);
+  assert.notEqual(fresh.id, ahead.id);
+  assert.equal(fresh.script.exercises[0].setup.text, "Exercise 1 of 2: Goblet squat. 2 sets of 5 reps at 20 kilograms.");
+  assert.equal(fresh.script.exercises[0].cueLine.text, "Hold the bell close.");
+  assert.deepEqual(
+    await scalar("SELECT status,unavailable_reason FROM voice_sessions WHERE id=$1", [ahead.id]),
+    { status: "revoked", unavailable_reason: "VOICE_SCRIPT_INVALID" },
+  );
+  assert.equal((await scalar("SELECT count(*)::int AS n FROM voice_session_clips WHERE session_id=$1 AND audio IS NOT NULL", [ahead.id])).n, 0);
+
+  // A clip left reserved by a crash is swept to unknown (never re-sent), with
+  // its cost row, and cannot hold the session in preparation forever.
+  const stuck = await scalar("SELECT id FROM voice_session_clips WHERE session_id=$1 AND status='pending' ORDER BY clip_key LIMIT 1", [fresh.id]);
+  const usage = randomUUID();
+  await db.tenant(seedScope(coach), async (tx) => {
+    await tx.query(
+      "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.session','elevenlabs','eleven_multilingual_v2','reserved','fixture',$4,$5)",
+      [usage, coach.tenantId, dee.userId, JSON.stringify({ reservedCostUsd: 0.001 }), stuck.id],
+    );
+    await tx.query("UPDATE voice_session_clips SET status='reserved',usage_id=$2,updated_at=now()-interval '10 minutes' WHERE id=$1", [stuck.id, usage]);
+  });
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  assert.deepEqual(
+    await scalar(
+      "SELECT (SELECT status FROM voice_session_clips WHERE id=$1) AS clip,(SELECT status FROM cost_events WHERE id=$2) AS cost,(SELECT audio_status FROM voice_sessions WHERE id=$3) AS session",
+      [stuck.id, usage, fresh.id],
+    ),
+    { clip: "unknown", cost: "unknown", session: "partial" },
+  );
+});
+
 test("withdrawing playback consent or revoking the trainer voice removes stored audio", async () => {
   await ok("/voice-sessions/consent", "POST", { playback: false }, alex);
   const view = await ok(`/voice-sessions/${alexSession.id}`, "GET", undefined, alex);
@@ -405,20 +536,21 @@ test("the trainer's style is checked, versioned and read by members only through
   const bad = await request(
     "/voice-sessions/style",
     "PUT",
-    { revision: 0, style: { encouragement: ["Do 3 extra sets!"], formReminders: ["Ice it after"] } },
+    { revision: 1, style: { encouragement: ["Do 3 extra sets!"], formReminders: ["Ice it after", "Hold your breath and strain hard."] } },
     coach,
   );
   assert.equal(bad.statusCode, 400);
   assert.equal(bad.json().code, "VOICE_STYLE_WORDING");
   assert.match(bad.json().message, /encouragement line 1: number, prescription_change/);
+  assert.match(bad.json().message, /formReminders line 2: unsafe_technique/);
   const saved = await ok(
     "/voice-sessions/style",
     "PUT",
-    { revision: 0, style: { tone: "energetic", encouragement: ["That's how we do it!"], modelPhrasing: true, adjustments: { tooHeavyReducePercent: 5, allowSkip: false } } },
+    { revision: 1, style: { tone: "energetic", encouragement: ["That's how we do it!"], adjustments: { tooHeavyReducePercent: 5, allowSkip: false } } },
     coach,
   );
-  assert.equal(saved.version, 1);
-  assert.equal((await request("/voice-sessions/style", "PUT", { revision: 0, style: {} }, coach)).statusCode, 409);
+  assert.equal(saved.version, 2);
+  assert.equal((await request("/voice-sessions/style", "PUT", { revision: 1, style: {} }, coach)).statusCode, 409);
   const preview = await ok("/voice-sessions/style/preview", "POST", {}, coach);
   assert.ok(preview.lines.some((l: any) => l.owner === "trainer" && l.text === "That's how we do it!"));
   assert.ok(preview.lines.some((l: any) => l.owner === "code" && /3 sets of 10 reps at 16 kilograms/.test(l.text)));
@@ -426,17 +558,16 @@ test("the trainer's style is checked, versioned and read by members only through
   const direct = await db.tenant(alex, (tx) => tx.query("SELECT * FROM voice_session_styles"));
   assert.equal(direct.length, 0);
   const viaHelper = await db.tenant(alex, (tx) => tx.query("SELECT version FROM voice_session_style()"));
-  assert.equal(viaHelper[0].version, 1);
+  assert.equal(viaHelper[0].version, 2);
 });
 
-test("Brain wording from the model is checked line by line and never carries numbers", async () => {
+test("Brain wording suggestions are checked and kept for the trainer's review; nothing unapproved is spoken", async () => {
   Object.assign(process.env, { MODEL_BASE_URL: "https://model.test/v1", MODEL_API_KEY: "fixture", MODEL_NAME: "fixture-model" });
   modelReply = {
-    intro: "Let's own this session together.",
-    encouragement: ["Add 5 kilograms now!", "Take a painkiller if needed"],
-    form: [{ exercise: "Back squat", text: "Keep your chest proud." }],
+    intro: ["Let's own this session together."],
+    encouragement: ["Add 5 kilograms now!", "Take a painkiller if needed", "Stay strong through every rep."],
     cooldown: ["Walk it out and breathe easy."],
-    finish: "That is a wrap, great effort.",
+    finish: ["That is a wrap, great effort."],
   };
   try {
     // Voice audio rows do not use up the workspace's daily model-call limit.
@@ -444,22 +575,45 @@ test("Brain wording from the model is checked line by line and never carries num
     assert.ok(voiceRows.n > 100);
     const usage = await scalar("SELECT n FROM model_usage_today(ARRAY[]::text[],$1)", [coach.userId]);
     assert.equal(usage.n, 0);
+    assert.equal((await request("/voice-sessions/style/suggestions", "POST", undefined, alex)).statusCode, 403);
+    const made = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.deepEqual(made.suggestions.intro, ["Let's own this session together."]);
+    assert.deepEqual(made.suggestions.encouragement, ["Stay strong through every rep."]);
+    assert.equal(made.rejected.length, 2);
+    const prompt = JSON.parse(modelPrompts.at(-1).messages[1].content);
+    assert.equal(prompt.exercises, undefined, "no exercises: technique is never the model's");
+    assert.equal(JSON.stringify(prompt).includes("Alex"), false, "no member data in the prompt");
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM cost_events WHERE task='voice_session_suggestions'")).n, 1);
+    // Members never see suggestions, and sessions do not speak them.
+    const helper = await db.tenant(alex, (tx) => tx.query("SELECT * FROM voice_session_style()"));
+    assert.equal(JSON.stringify(helper).includes("own this session"), false);
     await ok(`/workouts/${alexWorkout}/finish`, "POST", undefined, alex);
     const workout = await startWorkout(alex, "Brain day");
     const session = await ok("/voice-sessions", "POST", { workoutId: workout }, alex);
-    assert.equal(session.generator, "brain_model");
-    assert.equal(session.styleVersion, 1);
-    assert.equal(session.script.intro[0].text, "Let's own this session together.");
-    assert.equal(session.script.intro[0].owner, "brain");
-    assert.equal(session.script.exercises[0].encouragement[0].text, "That's how we do it!");
-    assert.equal(session.script.exercises[0].form[0].text, "Keep your chest proud.");
-    assert.deepEqual(session.script.rules, { tooHeavyReducePercent: 5, allowSkip: false });
-    const prompt = JSON.parse(modelPrompts.at(-1).messages[1].content);
-    assert.deepEqual(prompt.exercises.map((e: any) => e.name), ["Back squat", "Push-up"]);
-    assert.equal(JSON.stringify(prompt).includes("Alex"), false, "no member data in the prompt");
-    assert.equal(JSON.stringify(prompt).includes("60"), false, "no prescribed numbers in the prompt");
-    const accounted = await scalar("SELECT count(*)::int AS n FROM cost_events WHERE task='voice_session_script'");
-    assert.equal(accounted.n, 1);
+    assert.equal(session.generator, "rules");
+    assert.equal(JSON.stringify(session.script).includes("own this session"), false);
+    assert.ok([...session.script.intro, session.script.finish].every((l: any) => ["code", "trainer"].includes(l.owner)));
+    // The trainer approves one line by saving it into the style.
+    const style = await ok("/voice-sessions/style", "GET", undefined, coach);
+    assert.deepEqual(style.suggestions.intro, ["Let's own this session together."]);
+    const saved = await ok(
+      "/voice-sessions/style",
+      "PUT",
+      { revision: style.version, style: { ...style.style, intro: ["Let's own this session together."] } },
+      coach,
+    );
+    assert.deepEqual(saved.suggestions.intro, []);
+    assert.deepEqual(saved.suggestions.encouragement, ["Stay strong through every rep."]);
+    await ok(`/workouts/${workout}/finish`, "POST", undefined, alex);
+    const next = await startWorkout(alex, "Brain day two");
+    const approved = await ok("/voice-sessions", "POST", { workoutId: next }, alex);
+    assert.equal(approved.script.intro[0].text, "Let's own this session together.");
+    assert.equal(approved.script.intro[0].owner, "trainer");
+    assert.equal(approved.styleVersion, saved.version);
+    assert.deepEqual(approved.script.rules, { tooHeavyReducePercent: 5, allowSkip: false });
+    // Dismissing clears what is left.
+    await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
+    assert.equal((await ok("/voice-sessions/style", "GET", undefined, coach)).suggestions.encouragement.length, 0);
   } finally {
     for (const k of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"])
       if (saved[k] === undefined) delete process.env[k];

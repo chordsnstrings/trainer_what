@@ -7,7 +7,7 @@ import { z } from "zod";
 import { safetySignal, screeningText } from "./index.ts";
 
 export const VOICE_SCRIPT_VERSION = "voice-session-script-v1";
-export const VOICE_PHRASING_PROMPT_VERSION = "voice-session-phrasing-v1";
+export const VOICE_SUGGESTION_PROMPT_VERSION = "voice-session-suggestions-v1";
 /** The spoken safety line is code-owned and always part of the intro. */
 export const VOICE_SAFETY_LINE =
   "If anything hurts, or you feel dizzy or unwell, say pain or tap Stop and I will stop the session and tell your trainer.";
@@ -25,8 +25,12 @@ export type LineKind =
   | "encourage"
   | "cooldown"
   | "finish";
-/** code: written by code from the plan; trainer: the trainer's own words; brain: model wording checked by code. */
-export type LineOwner = "code" | "trainer" | "brain";
+/**
+ * code: written by code from the plan; trainer: the trainer's own words (their
+ * phrases, their plan cue, or a Brain suggestion the trainer approved and saved).
+ * Model wording is never spoken without the trainer's approval.
+ */
+export type LineOwner = "code" | "trainer";
 export type ScriptLine = {
   id: string;
   kind: LineKind;
@@ -66,25 +70,42 @@ export type SessionScript = {
 };
 
 // ---------------------------------------------------------------------------
-// Free-wording checks. Numbers belong to code: a phrase, a trainer line or a
-// model line may not contain digits or number words, medical or treatment
-// language, red-flag terms, links, or instructions to change the prescription.
+// Free-wording checks. Numbers belong to code: a trainer phrase or a Brain
+// suggestion may not contain digits or number words, medical or treatment
+// language, red-flag terms, unsafe technique, links, or instructions to change
+// the prescription.
 // ---------------------------------------------------------------------------
 const B = "(?:^|[^\\p{L}\\p{N}])",
   E = "(?![\\p{L}\\p{N}])";
-const word = (alternatives: string) => new RegExp(B + "(?:" + alternatives + ")" + E, "iu");
-const NUMBER_WORDS = word(
+const word = (alternatives: string, flags = "iu") =>
+  new RegExp(B + "(?:" + alternatives + ")" + E, flags);
+const NUMBER_ALTS =
   "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|half|double|triple|twice|" +
-    "صفر|واحده?|اثنين|اثنان|ثنتين|ثلاث|ثلاثه|اربع|اربعه|خمس|خمسه|ست|سته|سبع|سبعه|ثمان|ثماني|ثمانيه|تسع|تسعه|عشر|عشره|عشرين|ثلاثين|اربعين|خمسين|ستين|مئه|ميه|نصف|ضعف",
-);
+  "صفر|واحده?|اثنين|اثنان|ثنتين|ثلاث|ثلاثه|اربع|اربعه|خمس|خمسه|ست|سته|سبع|سبعه|ثمان|ثماني|ثمانيه|تسع|تسعه|عشر|عشره|عشرين|ثلاثين|اربعين|خمسين|ستين|مئه|ميه|نصف|ضعف";
+const NUMBER_WORDS = word(NUMBER_ALTS);
 const MEDICAL = word(
-  "diagnos\\p{L}*|medicines?|medications?|medical|prescri(?:be|bed|bes|ption|ptions)|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|rehab\\p{L}*|therap\\p{L}*|treat(?:s|ed|ing|ment|ments)?|cures?|heal(?:s|ed|ing)?|doctors?|physio\\p{L}*|symptoms?|diseases?|injections?|ice\\s+it|ignore\\s+(?:the\\s+|your\\s+)?(?:pain|hurt)|push\\s+through|work\\s+through\\s+(?:the\\s+)?(?:pain|hurt)|no\\s+pain\\s*,?\\s*no\\s+gain|" +
+  "diagnos\\p{L}*|medicines?|medications?|medical|prescri(?:be|bed|bes|ption|ptions)|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|rehab\\p{L}*|therap\\p{L}*|treat(?:s|ed|ing|ment|ments)?|cures?|heal(?:s|ed|ing)?|doctors?|physio\\p{L}*|symptoms?|diseases?|injections?|ice\\s+it|push\\s+through|work\\s+through\\s+(?:it|the\\s+\\p{L}+)|no\\s+pain\\s*,?\\s*no\\s+gain|" +
+    // Telling someone to ignore or train through a symptom.
+    "ignore\\s+(?:it|that|this|(?:the|your|any)\\s+\\p{L}+|\\p{L}*(?:pain|ache|dizz\\p{L}*|hurt\\p{L}*))|through\\s+the\\s+(?:burn|pain|discomfort|ache)|shake\\s+it\\s+off|tough\\s+it\\s+out|keep\\s+going\\s+(?:if|even|when|though|through|anyway|regardless)|(?:if|even\\s+if|when)\\s[^.!?;]{0,60}(?:just\\s+)?(?:keep|carry)\\s+(?:going|on)|clicks?|clicking|pops|popping|popped|numb\\p{L}*|tingl\\p{L}*|twinges?|swell\\p{L}*|swollen|" +
     "دواء|ادويه|علاج|طبيب|دكتور|تشخيص|مسكن|مسكنات|حبوب|مكملات",
 );
 const PRESCRIPTION_CHANGE = word(
   "(?:extra|additional|another|bonus|more)\\s+(?:sets?|reps?|rounds?|weight|load)|(?:add|increase|decrease|reduce|drop|lower|raise|double|change)\\s+(?:the\\s+|your\\s+)?(?:weight|load|reps?|sets?|kilos?|kilograms?|rest)|heavier|lighter|less\\s+weight|go\\s+up|max(?:imum)?\\s+out|to\\s+failure|skip\\s+(?:the\\s+)?rest|" +
+    // Training to failure or beyond the plan, and dropping the warm-up.
+    "until\\s+(?:you\\s+)?(?:can'?t|cannot|fail\\p{L}*|drop)|as\\s+many\\s+as\\s+(?:you\\s+)?(?:can|possible)|amrap|(?:a\\s+)?few\\s+(?:more|extra)|squeeze\\s+out|skip\\s+(?:the\\s+|your\\s+)?(?:warm\\s*-?\\s*ups?|cool\\s*-?\\s*downs?|stretch\\p{L}*)|go\\s+straight\\s+in|no\\s+(?:need\\s+(?:for|to)\\s+)?(?:a\\s+)?warm\\s*-?\\s*up|" +
     "زيد|زود|نقص|قلل|اثقل|اخف",
 );
+// Technique instructions that are unsafe as a spoken default. "Don't round
+// your back" is a good cue, so a negated instruction is removed first.
+const UNSAFE_ALTS =
+  "hold\\s+(?:your|the)\\s+breath|strain\\s+(?:hard|harder|as\\s+hard)|bear\\s+down|round\\s+(?:your|the)\\s+(?:back|spine)|yank\\p{L}*|jerk\\p{L}*|bounce\\p{L}*|swing\\s+(?:it|the\\s+\\p{L}+)\\s+up|cheat\\p{L}*|lock\\s+(?:out\\s+)?your\\s+(?:knees|elbows)|as\\s+heavy\\s+as\\s+(?:you\\s+)?(?:can|possible)|ego\\s+lift\\p{L}*|use\\s+momentum";
+const UNSAFE_TECHNIQUE = word(UNSAFE_ALTS);
+const NEGATED_UNSAFE = new RegExp(
+  B + "(?:don'?t|do\\s+not|never|avoid|no|without)\\s+(?:\\p{L}+\\s+){0,2}?(?:" + UNSAFE_ALTS + ")" + E,
+  "giu",
+);
+const unsafeTechnique = (folded: string) =>
+  UNSAFE_TECHNIQUE.test(folded.replace(NEGATED_UNSAFE, " "));
 const LINK = /https?:\/\/|www\.|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/iu;
 const MARKUP = /[<>{}[\]\\`|#*_~^]|[\u0000-\u001f\u007f]/u;
 export type PhraseIssue =
@@ -94,10 +115,11 @@ export type PhraseIssue =
   | "medical"
   | "red_flag"
   | "prescription_change"
+  | "unsafe_technique"
   | "link"
   | "unsupported_characters";
 
-/** Checks one free-worded spoken line (trainer phrase or model wording). */
+/** Checks one free-worded spoken line (a trainer phrase or a Brain suggestion). */
 export function phraseIssues(text: string, maxLength = 200): PhraseIssue[] {
   const value = String(text ?? "").trim();
   if (!value) return ["empty"];
@@ -108,21 +130,43 @@ export function phraseIssues(text: string, maxLength = 200): PhraseIssue[] {
   if (MEDICAL.test(folded)) issues.push("medical");
   if (safetySignal(value)) issues.push("red_flag");
   if (PRESCRIPTION_CHANGE.test(folded)) issues.push("prescription_change");
+  if (unsafeTechnique(folded)) issues.push("unsafe_technique");
   if (LINK.test(value)) issues.push("link");
   if (MARKUP.test(value)) issues.push("unsupported_characters");
   return issues;
 }
+const SMALL = "\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten";
+// A number that sets load, reps, sets or rounds ("5 extra sets", "two more").
+const PRESCRIBED_NUMBER = word(
+  "(?:\\d+(?:[.,]\\d+)?|" +
+    NUMBER_ALTS +
+    ")\\s*(?:x\\s*)?(?:(?:more|extra|additional)\\s+)?(?:kg|kgs|kilos?|kilograms?|lbs?|pounds?|reps?|repetitions?|sets?|rounds?|times|laps?|more|extra)|(?:sets?|reps?|rounds?)\\s+of\\s+(?:\\d|" +
+    NUMBER_ALTS +
+    ")",
+);
+// Tempo and timing are part of the trainer's cue ("three seconds down", "3-1-1").
+const TEMPO_OR_TIME = word(
+  "(?:" + SMALL + ")(?:\\s*(?:-|to)\\s*(?:" + SMALL + "))?\\s*(?:seconds?|secs?|counts?|beats?)|(?:a\\s+)?count\\s+(?:of\\s+)?(?:" + SMALL + ")|\\d(?:\\s*-\\s*\\d){2,3}",
+  "giu",
+);
 /**
- * The trainer's own exercise cue from the plan. It is part of the prescription
- * the trainer wrote (a tempo such as "three seconds down" is allowed) but it
- * must still be speakable and free of medical or treatment language.
+ * The trainer's exercise cue from the plan. It is spoken verbatim, so it gets
+ * the same red-flag, medical, prescription and technique checks as any spoken
+ * line; numbers are allowed only as tempo or timing ("three seconds down",
+ * "3-1-1"), never next to load, reps, sets or rounds.
  */
 export function cueIssues(text: string): PhraseIssue[] {
   const value = String(text ?? "").trim();
   if (!value) return ["empty"];
+  const folded = screeningText(value);
   const issues: PhraseIssue[] = [];
   if (value.length > 400) issues.push("too_long");
-  if (MEDICAL.test(screeningText(value))) issues.push("medical");
+  if (PRESCRIBED_NUMBER.test(folded) || PRESCRIPTION_CHANGE.test(folded))
+    issues.push("prescription_change");
+  else if (/\p{Nd}/u.test(folded.replace(TEMPO_OR_TIME, " "))) issues.push("number");
+  if (MEDICAL.test(folded)) issues.push("medical");
+  if (safetySignal(value)) issues.push("red_flag");
+  if (unsafeTechnique(folded)) issues.push("unsafe_technique");
   if (LINK.test(value)) issues.push("link");
   if (MARKUP.test(value)) issues.push("unsupported_characters");
   return issues;
@@ -133,12 +177,16 @@ export function cueIssues(text: string): PhraseIssue[] {
 // ---------------------------------------------------------------------------
 export type VoiceTone = "calm" | "steady" | "energetic";
 const phrase = z.string().trim().min(2).max(200);
+/**
+ * Adjustments the voice coach may make without the trainer. Both are off until
+ * the trainer opts in and saves a style version: the default keeps the plan.
+ */
 export const voiceAdjustmentRulesSchema = z
   .object({
     /** 0 disables load reduction; otherwise one reduction of at most this percentage of the prescribed load. */
-    tooHeavyReducePercent: z.number().int().min(0).max(20).default(10),
+    tooHeavyReducePercent: z.number().int().min(0).max(20).default(0),
     /** Whether "skip" may skip a set or an exercise. Pain always stops the session. */
-    allowSkip: z.boolean().default(true),
+    allowSkip: z.boolean().default(false),
   })
   .strict();
 export type VoiceAdjustmentRules = z.infer<typeof voiceAdjustmentRulesSchema>;
@@ -151,11 +199,9 @@ export const voiceStyleSchema = z
     formReminders: z.array(phrase).max(12).default([]),
     cooldown: z.array(phrase).max(6).default([]),
     finish: z.array(phrase).max(4).default([]),
-    /** Let the configured model reword lines from the Brain's communication rules. */
-    modelPhrasing: z.boolean().default(false),
     adjustments: voiceAdjustmentRulesSchema.default({
-      tooHeavyReducePercent: 10,
-      allowSkip: true,
+      tooHeavyReducePercent: 0,
+      allowSkip: false,
     }),
   })
   .strict();
@@ -296,59 +342,71 @@ export const codeLines = {
   restEnd: () => "Rest is over. Get ready.",
 };
 
-/** Optional model wording (from the Brain's communication rules), checked line by line. */
-export const voicePhrasingSchema = z
+/**
+ * Brain wording suggestions (from the published communication rules and the
+ * trainer's phrases). They are stored for the trainer's review and are never
+ * spoken: only lines the trainer adds to the style are. No per-exercise
+ * technique: form and cues stay the trainer's own words.
+ */
+export const SUGGESTION_FIELDS = ["intro", "warmup", "encouragement", "cooldown", "finish"] as const;
+export type SuggestionField = (typeof SUGGESTION_FIELDS)[number];
+export const voiceSuggestionsSchema = z
   .object({
-    intro: z.string().max(400).optional(),
+    intro: z.array(z.string().max(400)).max(4).optional(),
     warmup: z.array(z.string().max(400)).max(4).optional(),
     encouragement: z.array(z.string().max(400)).max(8).optional(),
-    form: z
-      .array(
-        z
-          .object({ exercise: z.string().max(100), text: z.string().max(400) })
-          .strict(),
-      )
-      .max(40)
-      .optional(),
     cooldown: z.array(z.string().max(400)).max(4).optional(),
-    finish: z.string().max(400).optional(),
+    finish: z.array(z.string().max(400)).max(4).optional(),
   })
   .strict();
-export type VoicePhrasing = z.infer<typeof voicePhrasingSchema>;
+export type VoiceSuggestions = z.infer<typeof voiceSuggestionsSchema>;
+/** The suggestions that pass every wording check and are not already in the style. */
+export function checkedSuggestions(raw: VoiceSuggestions, style: VoiceStyle) {
+  const accepted: Record<SuggestionField, string[]> = {
+    intro: [],
+    warmup: [],
+    encouragement: [],
+    cooldown: [],
+    finish: [],
+  };
+  const rejected: Array<{ field: SuggestionField; text: string; issues: PhraseIssue[] }> = [];
+  for (const field of SUGGESTION_FIELDS)
+    for (const text of (raw[field] ?? []).map((t) => String(t).trim())) {
+      const issues = phraseIssues(text);
+      if (issues.length) rejected.push({ field, text, issues });
+      else if (!style[field].includes(text) && !accepted[field].includes(text))
+        accepted[field].push(text);
+    }
+  return { accepted, rejected };
+}
 export type RejectedLine = {
-  source: "trainer" | "brain" | "cue";
+  source: "trainer" | "cue";
   text: string;
   issues: PhraseIssue[];
 };
 
 /**
  * Builds the session script. Numbers come only from the plan; free lines come
- * from the model wording when it passes the checks, then the trainer's own
- * phrases, then a safe default for the tone.
+ * from the trainer's saved phrases when they pass the checks, then a safe
+ * default for the tone. Nothing the model wrote is spoken unless the trainer
+ * approved it into the style.
  */
 export function buildSessionScript(input: {
   title: string;
   exercises: PlanExercise[];
   style?: VoiceStyle;
-  phrasing?: VoicePhrasing | null;
-}): { script: SessionScript; rejected: RejectedLine[]; usedBrain: boolean } {
+}): { script: SessionScript; rejected: RejectedLine[] } {
   const style = input.style ?? defaultVoiceStyle();
   const defaults = DEFAULTS[style.tone];
   const rejected: RejectedLine[] = [];
-  let usedBrain = false;
-  const accept = (source: "trainer" | "brain", texts: string[] | undefined) =>
+  const accept = (texts: string[] | undefined) =>
     (texts ?? []).map((t) => String(t).trim()).filter((text) => {
       const issues = phraseIssues(text);
-      if (issues.length) rejected.push({ source, text, issues });
+      if (issues.length) rejected.push({ source: "trainer", text, issues });
       return !issues.length;
     });
-  const pick = (brain: string[] | undefined, trainer: string[], fallback: string[]) => {
-    const fromBrain = accept("brain", brain);
-    if (fromBrain.length) {
-      usedBrain = true;
-      return fromBrain.map((text) => ({ text, owner: "brain" as const }));
-    }
-    const fromTrainer = accept("trainer", trainer);
+  const pick = (trainer: string[], fallback: string[]) => {
+    const fromTrainer = accept(trainer);
     if (fromTrainer.length)
       return fromTrainer.map((text) => ({ text, owner: "trainer" as const }));
     return fallback.map((text) => ({ text, owner: "code" as const }));
@@ -359,24 +417,16 @@ export function buildSessionScript(input: {
     picked: Array<{ text: string; owner: LineOwner }>,
   ): ScriptLine[] =>
     picked.map((p, i) => ({ id: `${prefix}:${i}`, kind, owner: p.owner, text: p.text }));
-  const p = input.phrasing ?? {};
-  const intro = pick(p.intro ? [p.intro] : undefined, style.intro, [defaults.intro]).slice(0, 2);
-  const encouragement = pick(p.encouragement, style.encouragement, defaults.encouragement);
-  const genericForm = accept("trainer", style.formReminders);
+  const intro = pick(style.intro, [defaults.intro]).slice(0, 2);
+  const encouragement = pick(style.encouragement, defaults.encouragement);
+  const genericForm = accept(style.formReminders);
   const exercises: ScriptExercise[] = input.exercises.map((ex, index) => {
-    const own = accept(
-      "brain",
-      (p.form ?? []).filter((f) => f.exercise === ex.name).map((f) => f.text),
-    ).slice(0, 2);
-    if (own.length) usedBrain = true;
-    const form = own.length
-      ? own.map((text) => ({ text, owner: "brain" as const }))
-      : genericForm.length
-        ? [0, 1]
-            .map((k) => genericForm[(index * 2 + k) % genericForm.length])
-            .filter((t, k, all) => all.indexOf(t) === k)
-            .map((text) => ({ text, owner: "trainer" as const }))
-        : [{ text: defaults.form[index % defaults.form.length], owner: "code" as const }];
+    const form = genericForm.length
+      ? [0, 1]
+          .map((k) => genericForm[(index * 2 + k) % genericForm.length])
+          .filter((t, k, all) => all.indexOf(t) === k)
+          .map((text) => ({ text, owner: "trainer" as const }))
+      : [{ text: defaults.form[index % defaults.form.length], owner: "code" as const }];
     let cueLine: ScriptLine | null = null;
     if (ex.cue) {
       const issues = cueIssues(ex.cue);
@@ -408,7 +458,7 @@ export function buildSessionScript(input: {
       encouragement: lines(`ex:${index}:encourage`, "encourage", enc),
     };
   });
-  const finish = pick(p.finish ? [p.finish] : undefined, style.finish, [defaults.finish])[0];
+  const finish = pick(style.finish, [defaults.finish])[0];
   const script: SessionScript = {
     version: VOICE_SCRIPT_VERSION,
     title: String(input.title || "Workout").trim().slice(0, 120) || "Workout",
@@ -417,13 +467,13 @@ export function buildSessionScript(input: {
       ...lines("intro", "intro", intro),
       { id: "safety", kind: "safety", owner: "code", text: VOICE_SAFETY_LINE },
     ],
-    warmup: lines("warmup", "warmup", pick(p.warmup, style.warmup, defaults.warmup).slice(0, 4)),
+    warmup: lines("warmup", "warmup", pick(style.warmup, defaults.warmup).slice(0, 4)),
     exercises,
-    cooldown: lines("cooldown", "cooldown", pick(p.cooldown, style.cooldown, defaults.cooldown).slice(0, 4)),
+    cooldown: lines("cooldown", "cooldown", pick(style.cooldown, defaults.cooldown).slice(0, 4)),
     finish: { id: "finish", kind: "finish", owner: finish.owner, text: finish.text },
     rules: { ...style.adjustments },
   };
-  return { script, rejected, usedBrain };
+  return { script, rejected };
 }
 
 /** Every spoken line in play order. */
@@ -514,6 +564,7 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
   for (const line of free) {
     const found = phraseIssues(line.text);
     if (found.length) issues.push(`wording:${line.id}:${found.join(",")}`);
+    if (line.owner !== "code" && line.owner !== "trainer") issues.push("owner:" + line.id);
   }
   return issues;
 }
@@ -561,9 +612,10 @@ export const SHARED_PHRASES: Record<string, string> = {
   resuming: "Resuming.",
   lighter: "Lighter weight for the next set.",
   check_screen: "Check the new weight on screen.",
-  keep_weight: "Your trainer's plan keeps this weight. Say skip to move on, or pain if something hurts.",
+  keep_weight: "Your trainer's plan keeps this weight. Say pain if something hurts.",
   no_skip: "Your trainer's plan keeps this part. Say pain if something hurts.",
-  too_easy: "Noted. Your trainer will review it.",
+  noted: "Noted. Your trainer will review it.",
+  say_done: "Say done when you finish the set, or tell me how many reps you did.",
   help: "Say done, a number of reps, too heavy, pause, skip or pain.",
   stopping:
     "Stopping the session now. Your trainer has been told. If your symptoms are severe, get urgent medical help.",

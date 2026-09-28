@@ -6,8 +6,9 @@
 // device queue as the workout page, pain opens the existing safety hold.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ECHO_GRACE_MS,
+  heardReply,
   initialRunnerState,
-  parseVoiceCommand,
   runnerStatus,
   stepRunner,
   type RunnerEffect,
@@ -66,9 +67,13 @@ type Gate = {
 };
 type SessionView = {
   id: string;
-  workoutId: string;
+  workoutId: string | null;
+  plannedSessionId?: string | null;
   mode: "voice" | "text";
   status: string;
+  runnable?: boolean;
+  stale?: boolean;
+  scriptFingerprint?: string;
   audioStatus: string;
   unavailableReason: { code: string; message: string } | null;
   script: SessionScript;
@@ -78,6 +83,7 @@ type SessionView = {
     failed: number;
     sharedReady: number;
     sharedTotal: number;
+    readyKeys?: string[];
   };
   gate?: Gate;
 };
@@ -122,30 +128,61 @@ async function blobBase64(blob: Blob) {
   return btoa(binary);
 }
 
+type Planned = {
+  id: string;
+  status: string;
+  date: string | null;
+  label: string | null;
+  programId: string | null;
+  title: string | null;
+  workoutId: string | null;
+};
+type Loaded = {
+  gate: Gate;
+  session: SessionView | null;
+  stale?: boolean;
+  planned?: Planned;
+  workoutStatus?: string;
+};
+
+/**
+ * The voice-led session page. `workoutId` runs the session for an active
+ * workout; `plannedSessionId` prepares it ahead of the day, so the trainer's
+ * voice is ready before the member starts.
+ */
 export function VoiceSessionRunner({
   workoutId,
+  plannedSessionId,
   tenantId,
   userId,
 }: {
-  workoutId: string;
+  workoutId?: string;
+  plannedSessionId?: string;
   tenantId: string;
   userId: string;
 }) {
   const [gate, setGate] = useState<Gate | null>(null),
     [session, setSession] = useState<SessionView | null>(null),
+    [planned, setPlanned] = useState<Planned | null>(null),
+    [stale, setStale] = useState(false),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
     [loaded, setLoaded] = useState(false);
+  const ahead = !workoutId && !!plannedSessionId;
   const refresh = useCallback(async () => {
-    const r = await api<{ gate: Gate; session: SessionView | null }>(
-      `/voice-sessions/workout/${workoutId}`,
+    const r = await api<Loaded>(
+      ahead
+        ? `/voice-sessions/planned/${plannedSessionId}`
+        : `/voice-sessions/workout/${workoutId}`,
     );
     setGate(r.gate);
     setSession(r.session);
+    setStale(!!r.stale);
+    setPlanned(r.planned ?? null);
     setLoaded(true);
     return r;
-  }, [workoutId]);
+  }, [ahead, workoutId, plannedSessionId]);
   useEffect(() => {
     void refresh().catch((e) => {
       setNotice(message(e));
@@ -163,14 +200,30 @@ export function VoiceSessionRunner({
     setNotice("");
     try {
       const view = await api<SessionView>("/voice-sessions", "POST", {
-        workoutId,
+        ...(ahead ? { plannedSessionId } : { workoutId }),
         ...(playbackConsent ? { playbackConsent: true } : {}),
       });
       setSession(view);
+      setStale(false);
       if (view.gate) setGate(view.gate);
     } catch (e) {
       setNotice(message(e));
     } finally {
+      setBusy(false);
+    }
+  };
+  const startWorkout = async () => {
+    if (!planned?.programId) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const workout = await api<{ id: string }>("/workouts/start", "POST", {
+        programId: planned.programId,
+        plannedSessionId: planned.id,
+      });
+      window.location.assign(`/app/voice-session/${workout.id}`);
+    } catch (e) {
+      setNotice(message(e));
       setBusy(false);
     }
   };
@@ -184,12 +237,18 @@ export function VoiceSessionRunner({
         <p role="status">Loading your session…</p>
       </div>
     );
+  const startedWorkout =
+    ahead && planned?.status === "started" && planned.workoutId ? planned.workoutId : null;
+  const plannedOpen = !ahead || planned?.status === "planned";
   return (
     <div className="stack voice-session">
       <div className="page-heading">
         <p className="eyebrow">VOICE-LED SESSION</p>
-        <h1>{session?.script.title ?? "Your workout, guided"}</h1>
+        <h1>{session?.script.title ?? planned?.title ?? "Your workout, guided"}</h1>
         <p className="muted">
+          {ahead
+            ? `Get your trainer's voice ready before ${planned?.date ? planned.date : "the day"}. `
+            : ""}
           Your trainer's session plan, one step at a time. Say or tap “pain”
           at any moment and the session stops and your trainer is told.
         </p>
@@ -199,9 +258,26 @@ export function VoiceSessionRunner({
           {notice}
         </p>
       )}
-      {!session && gate && (
+      {startedWorkout && (
+        <p className="notice">
+          This session has started.{" "}
+          <a className="text-link" href={`/app/voice-session/${startedWorkout}`}>
+            Open the voice-led session
+          </a>
+        </p>
+      )}
+      {ahead && !plannedOpen && !startedWorkout && (
+        <p className="notice">This planned session is no longer open.</p>
+      )}
+      {!session && gate && plannedOpen && !startedWorkout && (
         <section className="card" aria-labelledby="voice-prepare">
           <h2 id="voice-prepare">Prepare this session</h2>
+          {stale && (
+            <p className="notice">
+              Your trainer changed this workout. Prepare the session again so it
+              follows the current plan.
+            </p>
+          )}
           {gate.held ? (
             <p className="notice error" role="alert">
               Training is paused for your trainer's review.
@@ -253,7 +329,7 @@ export function VoiceSessionRunner({
                     disabled={busy}
                     onClick={() => void prepare(false)}
                   >
-                    Start text-guided session
+                    {ahead ? "Prepare text-guided session" : "Start text-guided session"}
                   </button>
                 </>
               )}
@@ -261,24 +337,74 @@ export function VoiceSessionRunner({
           )}
         </section>
       )}
-      {session && gate && (
+      {session && gate && ahead && plannedOpen && (
+        <section className="card voice-status-card" aria-labelledby="voice-ahead">
+          <div className="card-heading">
+            <h2 id="voice-ahead">
+              {session.mode === "voice" ? "Your trainer's voice" : "Text-guided session"}
+            </h2>
+            <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
+              {audioBadge(session)}
+            </span>
+          </div>
+          {session.unavailableReason && (
+            <p className="muted">{session.unavailableReason.message}</p>
+          )}
+          <p className="muted">
+            {session.audioStatus === "generating"
+              ? "Your trainer's voice is being prepared. You can leave this page; it carries on in the background."
+              : "Ready. Start the workout when you are, and the session will be waiting."}
+          </p>
+          {session.mode === "text" && gate.mode === "voice" && (
+            <button className="button secondary" disabled={busy} onClick={() => void prepare(false)}>
+              Switch to your trainer's voice
+            </button>
+          )}
+          <button className="button" disabled={busy || gate.held} onClick={() => void startWorkout()}>
+            Start this workout with the voice-led session
+          </button>
+        </section>
+      )}
+      {session && gate && !ahead && (
         <Runner
-          key={session.id + ":" + session.mode}
+          key={session.id}
           session={session}
           gate={gate}
-          workoutId={workoutId}
+          workoutId={workoutId!}
           tenantId={tenantId}
           userId={userId}
           onRefresh={refresh}
           onPrepare={prepare}
         />
       )}
-      <a className="text-link" href={`/app/workouts/${workoutId}`}>
-        Open the workout log
-      </a>
+      {workoutId ? (
+        <a className="text-link" href={`/app/workouts/${workoutId}`}>
+          Open the workout log
+        </a>
+      ) : (
+        <a className="text-link" href="/app/program">
+          Back to your training calendar
+        </a>
+      )}
     </div>
   );
 }
+const audioBadge = (session: SessionView) =>
+  session.audioStatus === "generating"
+    ? `Preparing ${session.audio.ready}/${session.audio.total}`
+    : session.mode === "voice"
+      ? session.audioStatus === "capped"
+        ? "Voice paused"
+        : "Voice ready"
+      : "Text";
+
+/** Holds whether the trainer's voice is audible now, for the echo guard. */
+type Playback = {
+  playing: boolean;
+  endedAt: number;
+  prompts: string[];
+  listeners: Set<(playing: boolean) => void>;
+};
 
 function Runner({
   session,
@@ -297,19 +423,21 @@ function Runner({
   onRefresh: () => Promise<unknown>;
   onPrepare: (consent: boolean) => Promise<void>;
 }) {
-  const ctx = useMemo(
-    () => ({ script: session.script, rules: session.script.rules }),
-    [session.script],
+  // The script only changes with its fingerprint; a progress poll hands over a
+  // new object each time, which must not reset listening or the runner.
+  const script = useMemo(
+    () => session.script,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.id, session.scriptFingerprint],
   );
-  const [state, setState] = useState<RunnerState>(() =>
-    initialRunnerState(session.script),
-  );
+  const ctx = useMemo(() => ({ script, rules: script.rules }), [script]);
+  const [state, setState] = useState<RunnerState>(() => initialRunnerState(script));
   const stateRef = useRef(state);
   stateRef.current = state;
   const [prompt, setPrompt] = useState(""),
     [notice, setNotice] = useState(""),
     [alert, setAlert] = useState(""),
-    [muted, setMuted] = useState(session.mode !== "voice"),
+    [muted, setMuted] = useState(false),
     [listening, setListening] = useState<Listening>("off"),
     [deviceSpeech, setDeviceSpeech] = useState(false),
     [heard, setHeard] = useState(""),
@@ -318,34 +446,56 @@ function Runner({
     [finishState, setFinishState] = useState<"none" | "waiting" | "done">("none"),
     [repsDraft, setRepsDraft] = useState(""),
     [transcriptionConsent, setTranscriptionConsent] = useState(false),
-    [clipCount, setClipCount] = useState(0);
+    [clipCount, setClipCount] = useState(0),
+    [changed, setChanged] = useState(false);
   const clips = useRef(new Map<string, string>());
   const player = useRef<HTMLAudioElement | null>(null);
   const speaking = useRef(false);
+  const playback = useRef<Playback>({ playing: false, endedAt: 0, prompts: [], listeners: new Set() });
   const sayQueue = useRef<Array<Extract<RunnerEffect, { type: "say" }>>>([]);
   const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Finishes the prompt on screen now (used when the voice is muted mid-prompt). */
   const currentDone = useRef<(() => void) | null>(null);
   const outcomes = useRef<RunnerOutcome[]>([]);
   const keys = offlineQueueKeys("workout", tenantId, userId);
-  const voiceAvailable = session.mode === "voice" && clipCount > 0;
+  const voiceMode = session.mode === "voice";
+  const voiceAvailable = voiceMode && clipCount > 0;
+  const runnable = session.runnable !== false && ["ready", "running"].includes(session.status);
+
+  const setPlaying = useCallback((playing: boolean) => {
+    const p = playback.current;
+    if (p.playing === playing) return;
+    p.playing = playing;
+    if (!playing) p.endedAt = Date.now();
+    for (const listener of p.listeners) listener(playing);
+  }, []);
 
   // ---------------------------------------------------------------- audio
+  // Clips are fetched by key as they become ready, so early lines play in the
+  // trainer's voice while the rest of the session is still being prepared.
+  const readyKeys = voiceMode ? session.audio.readyKeys ?? [] : [];
+  const readySignature = readyKeys.join(",");
   useEffect(() => {
-    if (session.mode !== "voice") return;
-    let cancelled = false;
     const loaded = clips.current;
+    if (!voiceMode) {
+      // Voice withdrawn or revoked: the session carries on as text.
+      player.current?.pause();
+      for (const url of loaded.values()) URL.revokeObjectURL(url);
+      loaded.clear();
+      setClipCount(0);
+      return;
+    }
+    const missing = readySignature ? readySignature.split(",").filter((k) => !loaded.has(k)) : [];
+    if (!missing.length) return;
+    let cancelled = false;
     void (async () => {
       try {
-        let after: string | null = null;
-        do {
+        for (let i = 0; i < missing.length && !cancelled; i += 40) {
+          const chunk = missing.slice(i, i + 40);
           const page: {
             clips: Array<{ key: string; shared: boolean; audio: string }>;
-            next: string | null;
             type: string;
-          } = await api(
-            `/voice-sessions/${session.id}/audio${after ? `?after=${encodeURIComponent(after)}` : ""}`,
-          );
+          } = await api(`/voice-sessions/${session.id}/audio?keys=${encodeURIComponent(chunk.join(","))}`);
           for (const clip of page.clips) {
             const bytes = Uint8Array.from(atob(clip.audio), (c) => c.charCodeAt(0));
             const url = URL.createObjectURL(new Blob([bytes], { type: page.type }));
@@ -354,9 +504,9 @@ function Runner({
             if (prior) URL.revokeObjectURL(prior);
             loaded.set(key, url);
           }
-          after = page.next;
-        } while (after && !cancelled);
-        if (!cancelled) setClipCount(loaded.size);
+          setClipCount(loaded.size);
+          if (!page.clips.length) break;
+        }
       } catch (e) {
         if (!cancelled) setNotice("Trainer voice could not be loaded: " + message(e) + " The session continues with text.");
       }
@@ -364,8 +514,7 @@ function Runner({
     return () => {
       cancelled = true;
     };
-    // Loaded once when the session opens and again when preparation settles.
-  }, [session.id, session.mode, session.audioStatus]);
+  }, [session.id, voiceMode, readySignature]);
   useEffect(
     () => () => {
       for (const url of clips.current.values()) URL.revokeObjectURL(url);
@@ -391,6 +540,10 @@ function Runner({
     },
     [session.id],
   );
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  // Buffered outcomes are sent when the page closes or the session is replaced.
+  useEffect(() => () => void flushRef.current(), []);
 
   // ----------------------------------------------------------- set queue
   const refreshQueue = useCallback(() => {
@@ -417,6 +570,7 @@ function Runner({
 
   // ------------------------------------------------------------- effects
   const dispatchRef = useRef<(event: RunnerEvent) => void>(() => {});
+  const audible = !muted && voiceAvailable;
   const playNext = useCallback(() => {
     const next = sayQueue.current.shift();
     if (!next) {
@@ -433,14 +587,18 @@ function Runner({
       if (finished) return;
       finished = true;
       currentDone.current = null;
+      setPlaying(false);
       if (next.wait && !sayQueue.current.length) {
         speaking.current = false;
         dispatchRef.current({ type: "prompt_done" });
       } else playNext();
     };
     currentDone.current = done;
-    if (!muted && voiceAvailable && urls.length === next.items.length && player.current) {
+    if (audible && urls.length === next.items.length && player.current) {
       const audio = player.current;
+      // The echo guard ignores replies while this plays and briefly after.
+      playback.current.prompts = [next.text, ...playback.current.prompts].slice(0, 3);
+      setPlaying(true);
       let index = 0;
       const playOne = () => {
         if (index >= urls.length) return done();
@@ -449,13 +607,14 @@ function Runner({
         audio.onerror = playOne;
         void audio.play().catch(() => {
           // Autoplay refused or the file failed: show the words instead.
+          setPlaying(false);
           promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
         });
       };
       playOne();
     } else if (next.wait) promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
     else done();
-  }, [muted, voiceAvailable]);
+  }, [audible, setPlaying]);
   const logSet = useCallback(
     async (effect: Extract<RunnerEffect, { type: "log_set" }>) => {
       const logicalKey = workoutId + ":" + effect.exercise + ":" + effect.set;
@@ -482,6 +641,7 @@ function Runner({
   const reportPain = useCallback(
     async (description: string) => {
       player.current?.pause();
+      setPlaying(false);
       sayQueue.current = [];
       setAlert(
         "Stop exercising. Your trainer is being told. If your symptoms are severe or urgent, get local medical help now.",
@@ -501,7 +661,7 @@ function Runner({
         }
       setAlert("You appear to be offline. Stop exercising and contact your trainer; get local medical help if symptoms are severe.");
     },
-    [workoutId],
+    [workoutId, setPlaying],
   );
   const finish = useCallback(async () => {
     await flush("completed");
@@ -548,13 +708,14 @@ function Runner({
       const before = stateRef.current;
       const [next, effects] = stepRunner(ctx, before, event);
       if (
-        (event.type === "command" && event.command.type !== "unknown") ||
+        (event.type === "command" && !["unknown", "ack"].includes(event.command.type)) ||
         event.type === "held" ||
         event.type === "end"
       ) {
         // A reply interrupts the current prompt.
         if (promptTimer.current) clearTimeout(promptTimer.current);
         player.current?.pause();
+        setPlaying(false);
         sayQueue.current = [];
         speaking.current = false;
         currentDone.current = null;
@@ -567,13 +728,22 @@ function Runner({
         void flush("stopped");
       }
     },
-    [ctx, perform, flush],
+    [ctx, perform, flush, setPlaying],
   );
   dispatchRef.current = dispatch;
   const command = useCallback(
     (c: VoiceCommand) => dispatch({ type: "command", command: c }),
     [dispatch],
   );
+  // Voice switched off mid-prompt: the words stay on screen for reading time.
+  useEffect(() => {
+    if (audible || !playback.current.playing) return;
+    player.current?.pause();
+    setPlaying(false);
+    const done = currentDone.current;
+    if (done) promptTimer.current = setTimeout(done, readingSeconds(prompt) * 1000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audible]);
 
   // ----------------------------------------------------------------- clock
   useEffect(() => {
@@ -589,14 +759,19 @@ function Runner({
     }, 250);
     return () => clearInterval(timer);
   }, [state.phase]);
-  // The trainer may place a hold (for example from a note); check now and then.
+  // The trainer may place a hold (for example from a note) or change the
+  // workout (a substitution); check now and then.
   const inProgress = !["ready", "finished", "stopped"].includes(state.phase);
   useEffect(() => {
     if (!inProgress) return;
     const timer = setInterval(() => {
-      void api<{ gate?: Gate }>(`/voice-sessions/${session.id}`)
+      void api<SessionView & { gate?: Gate }>(`/voice-sessions/${session.id}`)
         .then((view) => {
           if (view.gate?.held) dispatchRef.current({ type: "held" });
+          else if (view.stale) {
+            dispatchRef.current({ type: "end" });
+            setChanged(true);
+          }
         })
         .catch(() => {});
     }, 30000);
@@ -605,11 +780,28 @@ function Runner({
 
   // ------------------------------------------------------ spoken replies
   const handleTranscript = useCallback(
-    async (transcript: string, screened?: { command: VoiceCommand; trainingHeld: boolean }) => {
+    async (
+      transcript: string,
+      screened?: { command: VoiceCommand; trainingHeld: boolean; sincePlaybackMs: number },
+    ) => {
       const text = transcript.trim();
       if (!text) return;
+      // A hold opened by the server's screening is final, whatever was heard.
+      if (screened?.trainingHeld) {
+        setHeard(text);
+        command({ type: "pain", transcript: text });
+        return;
+      }
+      const p = playback.current;
+      const local = heardReply({
+        transcript: text,
+        playing: screened ? false : p.playing,
+        sincePlaybackMs: screened ? screened.sincePlaybackMs : Date.now() - p.endedAt,
+        prompts: p.prompts,
+      });
+      // The trainer's own voice from the speaker is not a reply.
+      if (!local) return;
       setHeard(text);
-      const local = parseVoiceCommand(text);
       if (local.type === "pain") {
         command(local);
         if (!screened) void api(`/voice-sessions/${session.id}/utterance`, "POST", { transcript: text }).catch(() => {});
@@ -631,6 +823,10 @@ function Runner({
     },
     [command, session.id],
   );
+  // The listening effects read the latest handler through a ref, so progress
+  // polls and runner changes never restart the microphone mid-reply.
+  const transcriptRef = useRef(handleTranscript);
+  transcriptRef.current = handleTranscript;
   useEffect(() => {
     void onDeviceRecognition(document.documentElement.lang || "en-US").then(setDeviceSpeech);
   }, []);
@@ -643,17 +839,23 @@ function Runner({
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = document.documentElement.lang || "en-US";
-    let active = true;
+    let active = true,
+      running = false,
+      restart: ReturnType<typeof setTimeout> | null = null;
+    const start = () => {
+      if (!active || running || playback.current.playing) return;
+      try {
+        recognition.start();
+        running = true;
+      } catch {}
+    };
     recognition.onresult = (e: any) => {
       const result = e.results[e.results.length - 1];
-      if (result?.isFinal) void handleTranscript(String(result[0]?.transcript ?? ""));
+      if (result?.isFinal) void transcriptRef.current(String(result[0]?.transcript ?? ""));
     };
     recognition.onend = () => {
-      if (active) {
-        try {
-          recognition.start();
-        } catch {}
-      }
+      running = false;
+      if (active && !playback.current.playing) restart = setTimeout(start, 250);
     };
     recognition.onerror = (e: any) => {
       if (["not-allowed", "service-not-allowed", "language-not-supported"].includes(e?.error)) {
@@ -662,22 +864,47 @@ function Runner({
         setNotice("Spoken replies stopped: the microphone or on-device recognition is unavailable. Use the buttons.");
       }
     };
-    try {
-      recognition.start();
-    } catch {}
+    // Recognition is off while the trainer's voice plays (its echo would be
+    // heard as a reply) and resumes shortly after.
+    const onPlayback = (playing: boolean) => {
+      if (restart) clearTimeout(restart);
+      if (playing) {
+        try {
+          recognition.abort();
+        } catch {}
+      } else restart = setTimeout(start, ECHO_GRACE_MS);
+    };
+    playback.current.listeners.add(onPlayback);
+    start();
     return () => {
       active = false;
+      playback.current.listeners.delete(onPlayback);
+      if (restart) clearTimeout(restart);
       try {
-        recognition.stop();
+        recognition.abort();
       } catch {}
     };
-  }, [listening, handleTranscript]);
+  }, [listening]);
   useEffect(() => {
     if (listening !== "server") return;
     let stream: MediaStream | null = null,
       audioContext: AudioContext | null = null,
       stopped = false,
       frame = 0;
+    let recorder: MediaRecorder | null = null,
+      discard = false;
+    // A recording that overlaps the trainer's voice is thrown away unsent.
+    const onPlayback = (playing: boolean) => {
+      if (playing && recorder) {
+        discard = true;
+        const r = recorder;
+        recorder = null;
+        try {
+          r.stop();
+        } catch {}
+      }
+    };
+    playback.current.listeners.add(onPlayback);
     void (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -686,13 +913,16 @@ function Runner({
         setNotice("Microphone permission is needed for spoken replies. Use the buttons.");
         return;
       }
+      if (stopped) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       audioContext = new AudioContext();
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 1024;
       audioContext.createMediaStreamSource(stream).connect(analyser);
       const samples = new Float32Array(analyser.fftSize);
-      let recorder: MediaRecorder | null = null,
-        started = 0,
+      let started = 0,
         quietSince = 0,
         chunks: Blob[] = [];
       const loop = () => {
@@ -702,14 +932,25 @@ function Runner({
         for (const v of samples) sum += v * v;
         const loud = Math.sqrt(sum / samples.length) > 0.03,
           now = performance.now();
-        // Never transcribe the trainer's own voice while it plays.
-        if (!recorder && loud && !speaking.current) {
+        const p = playback.current;
+        // Never record while the trainer's voice plays or just after it.
+        const quietSpeaker = !p.playing && Date.now() - p.endedAt >= ECHO_GRACE_MS;
+        if (!recorder && loud && quietSpeaker) {
           chunks = [];
-          recorder = new MediaRecorder(stream!);
-          recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-          recorder.onstop = () => {
+          discard = false;
+          const sincePlaybackMs = Date.now() - p.endedAt;
+          let rec: MediaRecorder;
+          try {
+            rec = new MediaRecorder(stream!, { audioBitsPerSecond: 16000 });
+          } catch {
+            rec = new MediaRecorder(stream!);
+          }
+          recorder = rec;
+          rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+          rec.onstop = () => {
+            if (discard || stopped) return;
             const duration = performance.now() - started;
-            const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
+            const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
             const type = speechType(blob.type);
             if (duration < 300 || !type || blob.size > 480000) return;
             void blobBase64(blob).then((audio) =>
@@ -718,11 +959,13 @@ function Runner({
                 "POST",
                 { audio, type, durationMs: Math.min(15000, Math.max(200, Math.round(duration))) },
               )
-                .then((r) => handleTranscript(r.transcript, { command: r.command, trainingHeld: r.trainingHeld }))
+                .then((r) =>
+                  transcriptRef.current(r.transcript, { command: r.command, trainingHeld: r.trainingHeld, sincePlaybackMs }),
+                )
                 .catch((e) => setNotice(message(e))),
             );
           };
-          recorder.start();
+          rec.start();
           started = now;
           quietSince = 0;
         } else if (recorder) {
@@ -740,11 +983,12 @@ function Runner({
     })();
     return () => {
       stopped = true;
+      playback.current.listeners.delete(onPlayback);
       cancelAnimationFrame(frame);
       stream?.getTracks().forEach((t) => t.stop());
       void audioContext?.close().catch(() => {});
     };
-  }, [listening, handleTranscript, session.id]);
+  }, [listening, session.id]);
 
   const startListening = async (mode: Listening) => {
     if (mode === "server" && !gate.transcriptionConsent) {
@@ -765,7 +1009,7 @@ function Runner({
   const withdrawVoice = async () => {
     try {
       await api("/voice-sessions/consent", "POST", { playback: false });
-      setListening("off");
+      if (listening === "server") setListening("off");
       await onRefresh();
       setNotice("Your trainer's voice is off and its stored audio for you was removed. The session continues with text.");
     } catch (e) {
@@ -773,7 +1017,7 @@ function Runner({
     }
   };
 
-  const ex = session.script.exercises[state.exercise];
+  const ex = script.exercises[state.exercise];
   const target = state.targets[state.exercise]?.[state.set - 1];
   const running = !["ready", "finished", "stopped"].includes(state.phase);
   const clock =
@@ -787,60 +1031,43 @@ function Runner({
       <section className="card voice-status-card" aria-labelledby="voice-mode">
         <div className="card-heading">
           <h2 id="voice-mode">
-            {session.mode === "voice" ? "Your trainer's voice" : "Text-guided session"}
+            {voiceMode ? "Your trainer's voice" : "Text-guided session"}
           </h2>
-          <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
-            {session.audioStatus === "generating"
-              ? `Preparing ${session.audio.ready}/${session.audio.total}`
-              : session.mode === "voice"
-                ? session.audioStatus === "capped"
-                  ? "Voice limit reached"
-                  : "Voice ready"
-                : "Text"}
-          </span>
+          <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session)}</span>
         </div>
         {session.unavailableReason && <p className="muted">{session.unavailableReason.message}</p>}
         {session.audioStatus === "generating" && (
           <p className="muted">
-            Your trainer's voice is being prepared. You can start now; lines that are not ready are shown as text.
+            Your trainer's voice is being prepared. You can start now; lines that are not ready yet are shown as text.
           </p>
         )}
         {session.audioStatus === "capped" && (
-          <p className="muted">Today's voice limit was reached. The rest of this session is shown as text.</p>
+          <p className="muted">Your trainer's voice is paused for now. The rest of this session is shown as text.</p>
         )}
-        {session.mode === "text" && gate.mode === "voice" && (
+        {session.mode === "text" && gate.mode === "voice" && runnable && (
           <button className="button secondary" onClick={() => void onPrepare(false)}>
             Switch to your trainer's voice
           </button>
         )}
-        {session.mode === "text" && gate.reasons.length === 1 && gate.reasons[0].code === "PLAYBACK_CONSENT" && (
+        {session.mode === "text" && runnable && gate.reasons.length === 1 && gate.reasons[0].code === "PLAYBACK_CONSENT" && (
           <button className="button secondary" onClick={() => void onPrepare(true)}>
             Use my trainer's approved voice
           </button>
         )}
-        <div className="button-row">
-          <button
-            className="button secondary"
-            aria-pressed={muted}
-            onClick={() => {
-              if (!muted) {
-                // Muting mid-prompt: the words stay on screen for reading time.
-                player.current?.pause();
-                const done = currentDone.current;
-                if (done)
-                  promptTimer.current = setTimeout(done, readingSeconds(prompt) * 1000);
-              }
-              setMuted(!muted);
-            }}
-          >
-            {muted ? "Unmute voice" : "Mute voice"}
-          </button>
-          {session.mode === "voice" && (
+        {voiceMode && (
+          <div className="button-row">
+            <button
+              className="button secondary"
+              aria-pressed={muted}
+              onClick={() => setMuted(!muted)}
+            >
+              {muted ? "Unmute voice" : "Mute voice"}
+            </button>
             <button className="text-button" onClick={() => void withdrawVoice()}>
               Stop using my trainer's voice
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </section>
 
       {alert && (
@@ -874,16 +1101,40 @@ function Runner({
           {prompt}
         </p>
         <audio ref={player} preload="none" hidden />
-        {state.phase === "ready" ? (
-          <button
-            className="button voice-start"
-            onClick={() => {
-              void flush("running");
-              dispatch({ type: "start" });
-            }}
-          >
-            Start session
-          </button>
+        {changed ? (
+          <div className="stack">
+            <p className="notice">
+              Your trainer changed this workout, so this session stopped. Sets
+              you logged are saved. Prepare the session again to follow the
+              current plan.
+            </p>
+            <button className="button" onClick={() => void onPrepare(false)}>
+              Prepare again
+            </button>
+          </div>
+        ) : state.phase === "ready" ? (
+          runnable ? (
+            <button
+              className="button voice-start"
+              onClick={() => {
+                void flush("running");
+                dispatch({ type: "start" });
+              }}
+            >
+              Start session
+            </button>
+          ) : session.status === "revoked" || session.stale ? (
+            <div className="stack">
+              <p className="notice">This session no longer matches your workout.</p>
+              <button className="button" onClick={() => void onPrepare(false)}>
+                Prepare again
+              </button>
+            </div>
+          ) : (
+            <p className="notice">
+              This voice session has ended. Continue on the workout log.
+            </p>
+          )
         ) : running ? (
           <>
             <div className="voice-commands" role="group" aria-label="Session replies">
@@ -896,9 +1147,11 @@ function Runner({
               <button className="button secondary" onClick={() => command({ type: "too_easy" })}>
                 Too easy
               </button>
-              <button className="button secondary" onClick={() => command({ type: "skip" })}>
-                Skip
-              </button>
+              {script.rules.allowSkip && (
+                <button className="button secondary" onClick={() => command({ type: "skip" })}>
+                  Skip
+                </button>
+              )}
               <button className="button secondary" onClick={() => command({ type: "repeat" })}>
                 Repeat
               </button>
@@ -978,8 +1231,9 @@ function Runner({
         <section className="card" aria-labelledby="voice-replies">
           <h2 id="voice-replies">Spoken replies</h2>
           <p className="muted">
-            Say “done”, a number of reps, “too heavy”, “pause”, “skip” or “pain”.
-            The buttons always work.
+            Say “done”, a number of reps, “too heavy”, “pause” or “pain”.
+            While your trainer's voice is speaking, replies are not heard: tap
+            a button instead. The buttons always work.
           </p>
           {listening === "off" ? (
             <div className="stack">
@@ -988,7 +1242,7 @@ function Runner({
                   Listen on this device
                 </button>
               )}
-              {gate.speechToText && session.mode === "voice" && (
+              {gate.speechToText && voiceMode && (
                 <>
                   {!gate.transcriptionConsent && (
                     <label className="voice-check">
@@ -1010,7 +1264,7 @@ function Runner({
                   </button>
                 </>
               )}
-              {!deviceSpeech && !(gate.speechToText && session.mode === "voice") && (
+              {!deviceSpeech && !(gate.speechToText && voiceMode) && (
                 <p className="muted">Spoken replies are not available on this device. Use the buttons.</p>
               )}
             </div>

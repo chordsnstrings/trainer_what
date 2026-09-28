@@ -472,8 +472,14 @@ export async function transcribeSpeech(
     throw new ConfigurationError(
       "The speech provider returned an unexpected result.",
     );
+  // The end of the last recognised word: a lower bound of the audio the
+  // provider billed, kept for reconciliation.
+  const ends = (Array.isArray(payload.words) ? payload.words : [])
+    .map((w: any) => Number(w?.end))
+    .filter((n: number) => Number.isFinite(n) && n >= 0 && n < 86400);
   return {
     text: payload.text.slice(0, 500),
+    durationSeconds: ends.length ? Math.max(...ends) : null,
     languageCode:
       typeof payload.language_code === "string"
         ? payload.language_code.slice(0, 12)

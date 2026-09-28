@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import {
   adjustmentAllowed,
   buildSessionScript,
+  checkedSuggestions,
+  cueIssues,
   defaultVoiceStyle,
   numberClipKeys,
   phraseIssues,
@@ -17,11 +19,15 @@ import {
   styleIssues,
   voiceStyleSchema,
   PlanError,
+  SHARED_PHRASES,
   VOICE_SAFETY_LINE,
   type SessionScript,
 } from "../packages/domain/src/voice-session.ts";
 import {
+  ECHO_GRACE_MS,
+  heardReply,
   initialRunnerState,
+  isPromptEcho,
   parseVoiceCommand,
   runnerStatus,
   stepRunner,
@@ -55,12 +61,21 @@ test("free wording may not carry numbers, medical advice, red flags, prescriptio
     ["Add weight when it feels easy", "prescription_change"],
     ["Try an extra set today", "prescription_change"],
     ["Go heavier next time", "prescription_change"],
+    // Failure, ignoring symptoms, skipping the warm-up and unsafe technique.
+    ["Keep going until you can't move the bar.", "prescription_change"],
+    ["Squeeze out a few extra if you can.", "prescription_change"],
+    ["Skip the warm-up today and go straight in.", "prescription_change"],
+    ["If your shoulder clicks, just keep going.", "medical"],
+    ["Keep going even if it aches.", "medical"],
+    ["Work through the burn", "medical"],
+    ["Hold your breath and strain hard.", "unsafe_technique"],
+    ["Round your back and yank the bar up.", "unsafe_technique"],
     ["Visit https://example.com", "link"],
     ["<b>Great</b>", "unsupported_characters"],
     ["x".repeat(201), "too_long"],
   ] as const)
     assert.ok(phraseIssues(text).includes(issue), `${text} -> ${issue}: ${phraseIssues(text)}`);
-  for (const ok of ["Great work!", "Let's get to it.", "Stay tall and breathe out as you push.", "Well done, everyone."])
+  for (const ok of ["Great work!", "Let's get to it.", "Stay tall and breathe out as you push.", "Well done, everyone.", "Don't round your back.", "Don't hold your breath."])
     assert.deepEqual(phraseIssues(ok), [], ok);
   const style = voiceStyleSchema.parse({ encouragement: ["Nice.", "Do 5 more"], cooldown: ["Stretch well"] });
   assert.deepEqual(styleIssues(style), [{ field: "encouragement", index: 1, issues: ["number"] }]);
@@ -86,7 +101,8 @@ test("every number is written by code from the plan and the script validates", (
   assert.equal(script.exercises[1].setup.text, "Last exercise: Push-up. 1 set of 10 reps.");
   assert.equal(script.exercises[0].cueLine?.text, "Brace, then sit between your heels.");
   assert.equal(script.intro.at(-1)?.text, VOICE_SAFETY_LINE);
-  assert.deepEqual(script.rules, { tooHeavyReducePercent: 10, allowSkip: true });
+  // No load reduction and no skipping until the trainer opts in.
+  assert.deepEqual(script.rules, { tooHeavyReducePercent: 0, allowSkip: false });
   // Rest prompts that can never play get no audio.
   const spoken = spokenLines(script).map((l) => l.id);
   assert.ok(spoken.includes("ex:0:rest"));
@@ -117,36 +133,66 @@ test("a changed number, rule, safety line or wording makes the stored script inv
   assert.deepEqual(scriptIssues(built(), plan.slice(0, 1)), ["exercise_count"]);
 });
 
-test("Brain wording is used only when it passes; trainer phrases and defaults fill the rest", () => {
+test("Brain suggestions are checked for the trainer's review; only the trainer's saved phrases are spoken", () => {
   const style = voiceStyleSchema.parse({ tone: "energetic", encouragement: ["That's the way!"], finish: ["See you next time."] });
-  const { script, rejected, usedBrain } = buildSessionScript({
-    title: "Lower body",
-    exercises: plan,
-    style,
-    phrasing: {
-      intro: "Welcome back, let's move well today.",
-      encouragement: ["Do 2 extra reps!", "Take paracetamol"],
-      form: [
-        { exercise: "Back squat", text: "Knees track over your toes." },
-        { exercise: "Back squat", text: "Go heavier on the last set" },
-      ],
+  const { accepted, rejected } = checkedSuggestions(
+    {
+      intro: ["Welcome back, let's move well today."],
+      encouragement: ["Do 2 extra reps!", "Take paracetamol", "That's the way!", "Keep going until you can't move the bar."],
       cooldown: ["Walk it off slowly."],
     },
-  });
-  assert.equal(usedBrain, true);
-  assert.equal(script.intro[0].owner, "brain");
+    style,
+  );
+  assert.deepEqual(accepted.intro, ["Welcome back, let's move well today."]);
+  // Already in the style, so not suggested again.
+  assert.deepEqual(accepted.encouragement, []);
+  assert.deepEqual(rejected.map((r) => r.issues[0]), ["number", "medical", "prescription_change"]);
+  // The script uses the trainer's phrases, then the tone's defaults; nothing else.
+  const { script } = buildSessionScript({ title: "Lower body", exercises: plan, style });
   assert.equal(script.exercises[0].encouragement[0].text, "That's the way!");
   assert.equal(script.exercises[0].encouragement[0].owner, "trainer");
-  assert.deepEqual(script.exercises[0].form.map((l) => l.text), ["Knees track over your toes."]);
+  assert.equal(script.intro[0].owner, "code");
   assert.equal(script.finish.text, "See you next time.");
-  assert.equal(rejected.filter((r) => r.source === "brain").length, 3);
+  assert.ok(scriptLines(script).every((l) => l.owner === "code" || l.owner === "trainer"));
   assert.deepEqual(scriptIssues(script, plan), []);
+  const forged = clone(script);
+  (forged.intro[0] as any).owner = "brain";
+  assert.ok(scriptIssues(forged, plan).includes("owner:intro:0"));
+});
+
+test("the plan cue gets the red-flag, medical, prescription and technique checks; numbers only as tempo", () => {
+  for (const [text, issue] of [
+    ["Go to failure; ignore dizziness, chest pain is normal", "red_flag"],
+    ["Go to failure; ignore dizziness, chest pain is normal", "prescription_change"],
+    ["Do 5 extra sets", "prescription_change"],
+    ["Do five sets", "prescription_change"],
+    ["Add two more", "prescription_change"],
+    ["Use 20 kg", "prescription_change"],
+    ["Go 2 inches deeper", "number"],
+    ["Take ibuprofen first", "medical"],
+    ["Hold your breath at the bottom", "unsafe_technique"],
+  ] as const)
+    assert.ok(cueIssues(text).includes(issue), `${text} -> ${issue}: ${cueIssues(text)}`);
+  for (const ok of [
+    "Brace, then sit between your heels.",
+    "Three seconds down, pause, drive up.",
+    "3-1-1 tempo.",
+    "Lower for 3 seconds.",
+    "Pause for a count of two at the bottom.",
+    "Keep one foot planted.",
+    "Don't round your back.",
+  ])
+    assert.deepEqual(cueIssues(ok), [], ok);
   const cue = buildSessionScript({
     title: "x",
-    exercises: [{ ...plan[0], cue: "Take ibuprofen first" }],
+    exercises: [{ ...plan[0], cue: "Go to failure; chest pain is normal" }],
   });
   assert.equal(cue.script.exercises[0].cueLine, null);
   assert.equal(cue.rejected[0].source, "cue");
+  // A stored script whose cue no longer passes is refused.
+  const stored = clone(built());
+  stored.exercises[0].cueLine!.text = "Do 5 extra sets";
+  assert.ok(scriptIssues(stored, [{ ...plan[0], cue: "Do 5 extra sets" }, plan[1]]).includes("cue:0"));
 });
 
 test("load reductions stay within the trainer's rule and never raise the plan", () => {
@@ -173,6 +219,22 @@ test("spoken replies map to commands; pain and red flags always win", () => {
   const cases: Array<[string, string, number?]> = [
     ["done", "done"],
     ["Finished!", "done"],
+    // Acknowledgements and "go" never complete a set.
+    ["okay", "ack"],
+    ["yes", "ack"],
+    ["yeah sure", "ack"],
+    ["let's go", "resume"],
+    ["ready", "resume"],
+    ["next", "resume"],
+    // Negated effort is not a complaint.
+    ["not heavy", "unknown"],
+    ["it's not too heavy", "unknown"],
+    ["wasn't that hard", "unknown"],
+    ["not easy at all", "unknown"],
+    ["can't lift it", "too_heavy"],
+    // A number names reps only; sets, loads and times are not reps.
+    ["60 kilograms is too heavy", "too_heavy"],
+    ["skip set 2", "skip"],
     ["eight reps", "reps", 8],
     ["I did 12", "reps", 12],
     ["twenty five", "reps", 25],
@@ -204,6 +266,57 @@ test("spoken replies map to commands; pain and red flags always win", () => {
     assert.equal(c.type, type, `${text}: ${JSON.stringify(c)}`);
     if (reps !== undefined) assert.equal((c as any).reps, reps);
   }
+  // A rep count wins over "heavy" in the same reply; the heaviness is kept.
+  assert.deepEqual(parseVoiceCommand("I did 6 reps but it was heavy"), { type: "reps", reps: 6, heavy: true });
+});
+
+test("the trainer's own voice is never taken as a reply", () => {
+  const script = built();
+  const texts = [
+    ...spokenLines(script).map((l) => l.text),
+    ...Object.values(SHARED_PHRASES),
+  ];
+  // Without the guard these lines would act: the set prompt logs one rep, the
+  // safety line reports pain, "Next set." skips the rest.
+  assert.deepEqual(parseVoiceCommand(script.exercises[0].setLines[0].text).type, "reps");
+  assert.equal(parseVoiceCommand(VOICE_SAFETY_LINE).type, "pain");
+  // Every phase the runner can be in when a clip plays.
+  const { send, cmd, run, ctx } = runner();
+  const states: RunnerState[] = [run.state];
+  send({ type: "start" });
+  states.push(run.state);
+  send({ type: "prompt_done" });
+  states.push(run.state);
+  cmd("done");
+  states.push(run.state);
+  send({ type: "prompt_done" });
+  states.push(run.state);
+  cmd("done");
+  states.push(run.state);
+  cmd("pause");
+  states.push(run.state);
+  for (const text of texts) {
+    for (const sincePlaybackMs of [0, ECHO_GRACE_MS - 1])
+      assert.equal(heardReply({ transcript: text, playing: true, sincePlaybackMs, prompts: [] }), null, text);
+    assert.equal(heardReply({ transcript: text, playing: false, sincePlaybackMs: 100, prompts: [] }), null, text);
+    // Heard a little later as the echo of the prompt that just played.
+    const late = heardReply({ transcript: text, playing: false, sincePlaybackMs: 1500, prompts: [text] });
+    assert.equal(late, null, text);
+    for (const state of states) {
+      const heard = heardReply({ transcript: text, playing: true, sincePlaybackMs: 0, prompts: [text] });
+      const [next, effects] = heard ? stepRunner(ctx, state, { type: "command", command: heard }) : [state, []];
+      assert.equal(next, state, text);
+      assert.deepEqual(effects, []);
+    }
+  }
+  // A partial echo ("say pain or tap stop") is recognised too.
+  assert.ok(isPromptEcho("say pain or tap stop", [VOICE_SAFETY_LINE]));
+  assert.ok(isPromptEcho("set one of three eight reps", [script.exercises[0].setLines[0].text]));
+  // Real replies still work once the voice has stopped.
+  const prompt = script.exercises[0].setLines[0].text;
+  assert.deepEqual(heardReply({ transcript: "done", playing: false, sincePlaybackMs: 1500, prompts: [prompt] }), { type: "done" });
+  assert.deepEqual(heardReply({ transcript: "eight reps", playing: false, sincePlaybackMs: 20000, prompts: [prompt] }), { type: "reps", reps: 8 });
+  assert.deepEqual(heardReply({ transcript: "my knee hurts", playing: false, sincePlaybackMs: 1500, prompts: [prompt] })?.type, "pain");
 });
 
 type Run = { state: RunnerState; effects: RunnerEffect[] };
@@ -249,7 +362,15 @@ test("the runner walks the whole plan: prompts, sets, rest countdown, cool-down 
   assert.equal(run.state.set, 2);
   const prompt = next.find((e) => e.type === "say" && e.wait) as any;
   assert.deepEqual(prompt.items.map((i: any) => i.line ?? i.clip), ["ex:0:set:2", "ex:0:form:0"]);
+  // Acknowledging the set prompt neither logs the set nor starts the rest.
+  const ack = cmd("ack");
+  assert.deepEqual(logs(ack), []);
+  assert.ok(ack.some((e) => e.type === "say" && e.items.some((i) => "clip" in i && i.clip === "say_done")));
+  assert.deepEqual(logs(cmd("resume")), []);
+  assert.equal(run.state.phase, "set");
   cmd("reps", { reps: 7 });
+  cmd("ack"); // "okay" during the rest does not skip it
+  assert.equal(run.state.phase, "rest");
   cmd("skip"); // skip the rest
   cmd("done");
   assert.equal(run.state.phase, "rest");
@@ -302,6 +423,37 @@ test("too heavy lowers the next set once within the rule; the rule can forbid it
   const skip = strict.cmd("skip");
   assert.ok(skip.some((e) => e.type === "say" && e.items.some((i) => "clip" in i && i.clip === "no_skip")));
   assert.equal(strict.run.state.phase, "set");
+});
+
+test("reps with a heavy flag are logged as said and lighten the next set; heavy after a final set is only noted", () => {
+  const { run, send, cmd } = runner();
+  send({ type: "start" });
+  send({ type: "prompt_done" });
+  cmd("done");
+  send({ type: "prompt_done" });
+  const effects = cmd("reps", { reps: 6, heavy: true });
+  assert.deepEqual(logs(effects).map((l) => [l.set, l.reps, l.loadKg]), [[1, 6, 60]]);
+  assert.ok(effects.some((e) => e.type === "outcome" && e.outcome.type === "adjusted" && e.outcome.set === 2));
+  assert.deepEqual(run.state.targets[0].map((t) => t.loadKg), [60, 54, 54]);
+  assert.equal(run.state.phase, "rest");
+  // Final set of the exercise, then "too heavy" in the rest before the next exercise.
+  const strict = runner();
+  strict.send({ type: "start" });
+  strict.send({ type: "prompt_done" });
+  strict.cmd("done");
+  strict.send({ type: "prompt_done" });
+  strict.cmd("done");
+  strict.send({ type: "tick", seconds: 30 });
+  strict.cmd("done");
+  strict.send({ type: "tick", seconds: 30 });
+  strict.cmd("done"); // set 3 logged, resting before the push-up
+  assert.equal(strict.run.state.phase, "rest");
+  assert.equal(strict.run.state.set, 3);
+  const late = strict.cmd("too_heavy");
+  assert.ok(late.some((e) => e.type === "say" && e.items.some((i) => "clip" in i && i.clip === "noted")));
+  assert.ok(late.some((e) => e.type === "outcome" && e.outcome.type === "too_heavy_kept" && e.outcome.exercise === 0));
+  assert.ok(!late.some((e) => e.type === "outcome" && e.outcome.type === "adjusted"));
+  assert.deepEqual(strict.run.state.targets[0].map((t) => t.loadKg), [60, 60, 60]);
 });
 
 test("pain stops the session from any phase and reports it; a hold stops it too", () => {

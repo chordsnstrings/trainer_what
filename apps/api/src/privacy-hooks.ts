@@ -148,7 +148,7 @@ export const privacyHooks: PrivacyHooks = {
       voiceSessions: await rows(
         tx,
         "voice_sessions",
-        "id,workout_id,mode,status,audio_status,script,outcomes,events,started_at,ended_at,end_reason,created_at",
+        "id,workout_id,planned_session_id,mode,status,audio_status,script,outcomes,events,started_at,ended_at,end_reason,created_at",
         "user_id=$1",
         [userId],
       ),

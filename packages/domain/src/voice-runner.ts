@@ -17,11 +17,14 @@ import {
 // ---------------------------------------------------------------------------
 export type VoiceCommand =
   | { type: "done" }
-  | { type: "reps"; reps: number }
+  /** A rep count; `heavy` when the same reply also said it was too heavy. */
+  | { type: "reps"; reps: number; heavy?: boolean }
   | { type: "too_heavy" }
   | { type: "too_easy" }
   | { type: "pause" }
   | { type: "resume" }
+  /** A plain acknowledgement ("okay", "yes"): never completes, skips or resumes anything. */
+  | { type: "ack" }
   | { type: "skip" }
   | { type: "repeat" }
   | { type: "pain"; transcript: string }
@@ -36,17 +39,37 @@ const has = (alternatives: string) => new RegExp(B + "(?:" + alternatives + ")" 
 const PAIN = has(
   "ouch|ow|twinge|tweaked|cramp\\p{L}*|feel(?:ing)?\\s+sick|nause\\p{L}*|something\\s+(?:is\\s+)?wrong",
 );
+const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|صعب|صعبه",
+  EFFORT_EASY = "easy|light|سهل|سهله|خفيف";
 const TOO_HEAVY = has(
   "too\\s+heavy|heavy|too\\s+hard|too\\s+much|can'?t\\s+(?:lift|do\\s+it|finish|manage)|cannot\\s+(?:lift|finish)|struggling|ثقيل|ثقيله|صعب|صعبه",
 );
 const TOO_EASY = has("too\\s+(?:easy|light)|easy|light|سهل|سهله|خفيف");
+// "Not heavy", "it's not too heavy", "wasn't that hard": negated effort words
+// are removed before the too-heavy and too-easy checks.
+const NEGATED_EFFORT = new RegExp(
+  B +
+    "(?:not|isn'?t|wasn'?t|never|مو|مش|ما|ليس|مب)\\s+(?:(?:that|so|too|very|really|it'?s|it|is|was|feel|feels|felt|at\\s+all)\\s+){0,3}(?:" +
+    EFFORT_HEAVY +
+    "|" +
+    EFFORT_EASY +
+    ")" +
+    E,
+  "giu",
+);
 const SKIP = has("skip|next\\s+exercise|pass|move\\s+on|تخطى|تخطي|تجاوز|التالي");
 const PAUSE = has("pause|wait|hold\\s+on|stop|break|one\\s+moment|hang\\s+on|توقف|وقف|انتظر|لحظه");
-const RESUME = has("resume|continue|carry\\s+on|go\\s+on|ready|start|let'?s\\s+go|go|كمل|استمر|جاهز|يلا|ابدا");
+// Asking to carry on. Never a set completion.
+const RESUME = has("resume|continue|carry\\s+on|go\\s+on|ready|start|let'?s\\s+go|go|next|كمل|استمر|جاهز|يلا|ابدا");
 const REPEAT = has("repeat|again|say\\s+again|what|pardon|sorry|اعد|كرر|عيد");
-const DONE = has(
-  "done|finished|finish|complete|completed|got\\s+it|next|that'?s\\s+it|that\\s+is\\s+it|yes|yeah|yep|ok|okay|تم|خلصت|انتهيت|خلاص|نعم|اوكي",
+// Only explicit completion words finish a set.
+const COMPLETE = has(
+  "done|finished|finish|complete|completed|that'?s\\s+it|that\\s+is\\s+it|تم|خلصت|انتهيت|خلاص",
 );
+const ACK = has("yes|yeah|yep|yup|ok|okay|sure|alright|all\\s+right|got\\s+it|fine|right|نعم|اوكي|تمام|طيب");
+// The instruction form of a command ("say done when you finish") is the
+// trainer's prompt, not a reply. Pain is read before this is removed.
+const INSTRUCTION = new RegExp(B + "say\\s+(?!again" + E + ")(?:[\\p{L}']+)", "giu");
 const UNITS: Record<string, number> = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
   ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
@@ -60,19 +83,39 @@ const TENS: Record<string, number> = {
   عشرين: 20, ثلاثين: 30, اربعين: 40, خمسين: 50,
 };
 const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
+const westernDigits = (text: string) =>
+  text.replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10));
+// A number is a rep count unless it names a set or exercise ("set 1 of 3") or
+// a load or time ("60 kilograms", "30 seconds").
+const NOT_REPS_BEFORE = new Set(["set", "sets", "of", "exercise", "round", "number", "مجموعه", "من"]);
+const NOT_REPS_AFTER =
+  /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|sets?|rounds?|كيلو|كيلوغرام|ثانيه|ثواني|دقيقه|دقائق)$/u;
 function spokenNumber(folded: string): number | null {
-  const digits = folded
-    .replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10))
-    .match(/(?:^|[^\p{L}\p{N}])(\d{1,3})(?![\p{N}])/u);
-  if (digits) return Number(digits[1]);
-  const words = folded.split(/[^\p{L}]+/u).filter(Boolean);
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    if (w in TENS) {
-      const next = words[i + 1];
-      return TENS[w] + (next && next in UNITS && UNITS[next] < 10 ? UNITS[next] : 0);
+  const tokens = westernDigits(folded)
+    .split(/[^\p{L}\p{N}'%]+/u)
+    .filter(Boolean);
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    let value: number | null = null,
+      width = 1,
+      unit: string | undefined;
+    const digits = /^(\d{1,3})(\p{L}*)$/u.exec(t);
+    if (digits) {
+      value = Number(digits[1]);
+      unit = digits[2] || undefined;
+    } else if (t in TENS) {
+      const next = tokens[i + 1];
+      const units = next && next in UNITS && UNITS[next] < 10 ? UNITS[next] : 0;
+      value = TENS[t] + units;
+      if (units) width = 2;
+    } else if (t in UNITS) value = UNITS[t];
+    if (value === null) continue;
+    unit ??= tokens[i + width];
+    if (NOT_REPS_BEFORE.has(tokens[i - 1] ?? "") || (unit && NOT_REPS_AFTER.test(unit))) {
+      i += width - 1;
+      continue;
     }
-    if (w in UNITS) return UNITS[w];
+    return value;
   }
   return null;
 }
@@ -80,24 +123,89 @@ function spokenNumber(folded: string): number | null {
 /**
  * Maps one spoken reply to a command. Pain and red-flag wording (the code floor
  * `safetySignal`, which also reads Arabic) always wins; the server re-screens
- * every transcript with the trainer's published policy as well.
+ * every transcript with the trainer's published policy as well. Plain
+ * acknowledgements never complete a set, and a rep count wins over "heavy" in
+ * the same reply (the heaviness is kept as a flag).
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
-  const folded = screeningText(raw).trim().replace(/[-_]/g, " ");
-  if (!folded) return { type: "unknown" };
-  if (safetySignal(raw) || PAIN.test(folded))
+  const screened = screeningText(raw).trim().replace(/[-_]/g, " ");
+  if (!screened) return { type: "unknown" };
+  if (safetySignal(raw) || PAIN.test(screened))
     return { type: "pain", transcript: raw.trim() };
-  if (TOO_HEAVY.test(folded)) return { type: "too_heavy" };
-  if (TOO_EASY.test(folded)) return { type: "too_easy" };
-  if (SKIP.test(folded)) return { type: "skip" };
-  if (PAUSE.test(folded)) return { type: "pause" };
+  const folded = screened.replace(INSTRUCTION, " ");
+  const effort = folded.replace(NEGATED_EFFORT, " ");
+  const heavy = TOO_HEAVY.test(effort);
+  const skip = SKIP.test(folded),
+    pause = PAUSE.test(folded);
   const reps = spokenNumber(folded);
-  if (reps !== null && reps <= 200) return { type: "reps", reps };
+  if (reps !== null && reps <= 200 && !skip && !pause)
+    return heavy ? { type: "reps", reps, heavy: true } : { type: "reps", reps };
+  if (heavy) return { type: "too_heavy" };
+  if (TOO_EASY.test(effort)) return { type: "too_easy" };
+  if (skip) return { type: "skip" };
+  if (pause) return { type: "pause" };
   if (REPEAT.test(folded)) return { type: "repeat" };
-  if (DONE.test(folded)) return { type: "done" };
+  if (COMPLETE.test(folded)) return { type: "done" };
   if (RESUME.test(folded)) return { type: "resume" };
+  if (ACK.test(folded)) return { type: "ack" };
   return { type: "unknown" };
+}
+
+// ---------------------------------------------------------------------------
+// Hearing the trainer's own voice. A phone speaker's echo reaches the
+// microphone, and many prompts contain command words ("say pain", "say done",
+// "8 reps"). Replies are ignored while a clip plays and briefly after it, and
+// a reply that repeats a recent prompt is treated as its echo.
+// ---------------------------------------------------------------------------
+/** Replies heard during playback or this soon after it are dropped. */
+export const ECHO_GRACE_MS = 700;
+/** For this long after playback, a reply that repeats a recent prompt is dropped. */
+export const ECHO_WINDOW_MS = 4000;
+const echoTokens = (text: string) =>
+  westernDigits(screeningText(String(text ?? "")))
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((t) => (t in UNITS ? String(UNITS[t]) : t in TENS ? String(TENS[t]) : t));
+function containsRun(haystack: string[], needle: string[]) {
+  outer: for (let i = 0; i + needle.length <= haystack.length; i++) {
+    for (let k = 0; k < needle.length; k++) if (haystack[i + k] !== needle[k]) continue outer;
+    return true;
+  }
+  return false;
+}
+/** Whether a transcript is (part of) one of the recently spoken prompts. */
+export function isPromptEcho(transcript: string, prompts: string[]) {
+  const heard = echoTokens(transcript);
+  if (!heard.length) return true;
+  for (const prompt of prompts) {
+    const said = echoTokens(prompt);
+    if (!said.length) continue;
+    if (heard.join(" ") === said.join(" ")) return true;
+    if (heard.length >= 2 && containsRun(said, heard)) return true;
+    if (heard.length >= 3) {
+      const words = new Set(said);
+      if (heard.filter((w) => words.has(w)).length / heard.length >= 0.7) return true;
+    }
+  }
+  return false;
+}
+/**
+ * The command for a recognised reply, or null when it must be ignored as the
+ * trainer's own voice: while a clip plays, within `ECHO_GRACE_MS` after it,
+ * or a repeat of a recent prompt within `ECHO_WINDOW_MS`. The Pain button is
+ * never affected.
+ */
+export function heardReply(input: {
+  transcript: string;
+  playing: boolean;
+  sincePlaybackMs: number;
+  prompts: string[];
+}): VoiceCommand | null {
+  if (input.playing || input.sincePlaybackMs < ECHO_GRACE_MS) return null;
+  if (input.sincePlaybackMs < ECHO_WINDOW_MS && isPromptEcho(input.transcript, input.prompts))
+    return null;
+  return parseVoiceCommand(input.transcript);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +318,9 @@ const phrase = (clip: string, text: string, wait = false): RunnerEffect => ({
   wait,
 });
 const outcome = (o: RunnerOutcome): RunnerEffect => ({ type: "outcome", outcome: o });
+const sayDone = () =>
+  phrase("say_done", "Say done when you finish the set, or tell me how many reps you did.");
+const noted = () => phrase("noted", "Noted. Your trainer will review it.");
 /** A set prompt; an adjusted target is composed from shared clips. */
 function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: number): RunnerEffect {
   const ex = ctx.script.exercises[exercise];
@@ -309,7 +420,7 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
     return [
       s,
       [
-        phrase("keep_weight", "Your trainer's plan keeps this weight. Say skip to move on, or pain if something hurts."),
+        phrase("keep_weight", "Your trainer's plan keeps this weight. Say pain if something hurts."),
         outcome({ type: "too_heavy_kept", exercise, set }),
       ],
     ];
@@ -368,7 +479,7 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       if (back === "cooldown") return [resumed, [say([...ctx.script.cooldown, ctx.script.finish])]];
       return [resumed, [phrase("resuming", "Resuming.")]];
     }
-    if (event.type === "command" && event.command.type !== "unknown")
+    if (event.type === "command" && !["unknown", "ack"].includes(event.command.type))
       return [s, [phrase("paused", "Paused. Say resume when you are ready.")]];
     return [s, []];
   }
@@ -379,6 +490,9 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
     ];
   if (event.type === "command" && event.command.type === "unknown")
     return [s, [phrase("help", "Say done, a number of reps, too heavy, pause, skip or pain.")]];
+  // An acknowledgement never moves the session on; during a set it earns a hint.
+  if (event.type === "command" && event.command.type === "ack")
+    return [s, s.phase === "set" ? [sayDone()] : []];
   const ex = ctx.script.exercises[s.exercise];
   switch (s.phase) {
     case "ready":
@@ -413,15 +527,28 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       if (event.type === "tick") return [{ ...s, setElapsed: s.setElapsed + Math.max(0, event.seconds) }, []];
       if (event.type !== "command") return [s, []];
       switch (event.command.type) {
+        // Only an explicit completion or a rep count logs the set.
         case "done":
-        case "resume":
           return logSet(ctx, s, s.targets[s.exercise][s.set - 1].reps);
-        case "reps":
-          return logSet(ctx, s, Math.max(0, Math.min(200, Math.round(event.command.reps))));
+        case "resume":
+          return [s, [sayDone()]];
+        case "reps": {
+          const reps = Math.max(0, Math.min(200, Math.round(event.command.reps)));
+          if (!event.command.heavy) return logSet(ctx, s, reps);
+          // "6 reps but it was heavy": the reps are logged as said, and the
+          // heaviness is its own outcome (a lighter next set within the rule).
+          if (s.set < ex.sets) {
+            const [adjusted, adjust] = tooHeavy(ctx, s, s.exercise, s.set + 1);
+            const [next, logged] = logSet(ctx, adjusted, reps);
+            return [next, [...logged, ...adjust]];
+          }
+          const [next, logged] = logSet(ctx, s, reps);
+          return [next, [...logged, outcome({ type: "too_heavy_kept", exercise: s.exercise, set: s.set })]];
+        }
         case "too_heavy":
           return tooHeavy(ctx, s, s.exercise, s.set);
         case "too_easy":
-          return [s, [phrase("too_easy", "Noted. Your trainer will review it."), outcome({ type: "too_easy", exercise: s.exercise, set: s.set })]];
+          return [s, [noted(), outcome({ type: "too_easy", exercise: s.exercise, set: s.set })]];
         case "repeat":
           return [s, [setPrompt(ctx, s, s.exercise, s.set)]];
         case "skip": {
@@ -452,9 +579,13 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
         case "skip":
           return advance(ctx, { ...s, restRemaining: 0 });
         case "too_heavy":
-          return tooHeavy(ctx, s, s.exercise, s.set + 1 <= ex.sets ? s.set + 1 : s.set);
+          // After an exercise's final set there is no next set of it to lighten:
+          // the feedback is kept for the trainer and the next exercise stays as planned.
+          if (s.set >= ex.sets)
+            return [s, [noted(), outcome({ type: "too_heavy_kept", exercise: s.exercise, set: s.set })]];
+          return tooHeavy(ctx, s, s.exercise, s.set + 1);
         case "too_easy":
-          return [s, [phrase("too_easy", "Noted. Your trainer will review it."), outcome({ type: "too_easy", exercise: s.exercise, set: s.set })]];
+          return [s, [noted(), outcome({ type: "too_easy", exercise: s.exercise, set: s.set })]];
         case "repeat":
           return [s, [say([ex.rest], [], [], false)]];
       }

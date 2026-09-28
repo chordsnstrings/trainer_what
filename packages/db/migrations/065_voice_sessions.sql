@@ -3,18 +3,24 @@
 -- voice_session_styles: the trainer's versioned voice-session style and
 -- adjustment rules (Brain material). The coaching team reads and writes it; a
 -- follower reads only the current style through voice_session_style().
+-- suggestions: Brain wording waiting for the trainer's review; never spoken
+-- (only phrases the trainer saves into the style are). Version 0 is the
+-- default style with suggestions only.
 CREATE TABLE voice_session_styles (
  tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
- version integer NOT NULL DEFAULT 1 CHECK(version>=1),
+ version integer NOT NULL DEFAULT 1 CHECK(version>=0),
  style jsonb NOT NULL CHECK(jsonb_typeof(style)='object' AND octet_length(style::text)<=40000),
+ suggestions jsonb NOT NULL DEFAULT '{}' CHECK(jsonb_typeof(suggestions)='object' AND octet_length(suggestions::text)<=40000),
  updated_by uuid REFERENCES users(id),
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
 -- One prepared session per member, workout and script. The script holds only
--- code-validated lines built from the workout's plan.
+-- code-validated lines built from the workout's plan. A session can be
+-- prepared ahead from a planned session (workout_id NULL, audio made before the
+-- day); it is bound to the workout, after re-validation, when that starts.
 CREATE TABLE voice_sessions (
  id uuid PRIMARY KEY, tenant_id uuid NOT NULL REFERENCES tenants(id), user_id uuid NOT NULL REFERENCES users(id),
- workout_id uuid NOT NULL,
+ workout_id uuid, planned_session_id uuid,
  script_fingerprint text NOT NULL CHECK(script_fingerprint ~ '^[a-f0-9]{64}$'),
  mode text NOT NULL CHECK(mode IN ('voice','text')),
  status text NOT NULL CHECK(status IN ('ready','running','completed','stopped','revoked')),
@@ -34,9 +40,13 @@ CREATE TABLE voice_sessions (
  UNIQUE(tenant_id,id),
  UNIQUE(tenant_id,user_id,workout_id,script_fingerprint),
  FOREIGN KEY(tenant_id,workout_id) REFERENCES records(tenant_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(tenant_id,planned_session_id) REFERENCES records(tenant_id,id) ON DELETE CASCADE,
+ CHECK(workout_id IS NOT NULL OR planned_session_id IS NOT NULL),
  CHECK((status IN ('completed','stopped'))=(ended_at IS NOT NULL))
 );
+CREATE UNIQUE INDEX voice_sessions_planned ON voice_sessions(tenant_id,user_id,planned_session_id,script_fingerprint) WHERE workout_id IS NULL;
 CREATE INDEX voice_sessions_member ON voice_sessions(tenant_id,user_id,created_at DESC);
+CREATE INDEX voice_sessions_generating ON voice_sessions(tenant_id,updated_at) WHERE audio_status='generating';
 -- Generated trainer-voice audio. A session clip (session_id and user_id set)
 -- speaks one script line; a shared clip (both NULL) is a short reusable phrase
 -- or number for the current voice version. Audio is kept only while ready.

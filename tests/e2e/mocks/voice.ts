@@ -84,7 +84,16 @@ export class VoiceMock {
       });
       return {
         headers: { "request-id": randomId("stt") },
-        body: { language_code: "eng", language_probability: 0.99, text, words: [] },
+        body: {
+          language_code: "eng",
+          language_probability: 0.99,
+          text,
+          // Word timings like the real response: 0.4 s per word.
+          words: text
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((w, i) => ({ text: w, type: "word", start: i * 0.4, end: i * 0.4 + 0.35 })),
+        },
       };
     });
     this.server.route("GET", "/v1/models", (r) =>

@@ -1131,7 +1131,9 @@ export default function Workspace() {
             <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.startsWith("/app/voice-session/") ? (
             <VoiceSessionRunner
-              workoutId={path.split("/")[3]}
+              {...(path.split("/")[3] === "planned"
+                ? { plannedSessionId: path.split("/")[4] }
+                : { workoutId: path.split("/")[3] })}
               tenantId={state.user.tenantId}
               userId={state.user.userId}
             />

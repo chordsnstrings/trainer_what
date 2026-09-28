@@ -1,7 +1,8 @@
 "use client";
 // The trainer's voice-session style: the Brain material the voice coach speaks
-// from (tone, the trainer's own phrases, adjustment rules), a preview of the
-// script and members' recent session outcomes for Brain corrections.
+// from (tone, the trainer's own phrases, adjustment rules), Brain wording
+// suggestions the trainer reviews (none is spoken until the trainer saves it),
+// a preview of the script and members' recent session outcomes.
 import { useCallback, useEffect, useState } from "react";
 import { phraseIssues } from "../../../packages/domain/src/voice-session.ts";
 
@@ -13,9 +14,9 @@ type Style = {
   formReminders: string[];
   cooldown: string[];
   finish: string[];
-  modelPhrasing: boolean;
   adjustments: { tooHeavyReducePercent: number; allowSkip: boolean };
 };
+type Suggestions = Partial<Record<"intro" | "warmup" | "encouragement" | "cooldown" | "finish", string[]>>;
 const FIELDS: Array<[keyof Style, string, string]> = [
   ["intro", "Opening lines", "How you greet a client at the start."],
   ["warmup", "Warm-up prompts", "Ask them to say done when warm."],
@@ -28,7 +29,8 @@ const ISSUE_TEXT: Record<string, string> = {
   number: "numbers (the app adds every number from the plan)",
   medical: "medical or treatment wording",
   red_flag: "safety terms (the app handles pain and symptoms itself)",
-  prescription_change: "changes to sets, reps, weight or rest",
+  prescription_change: "changes to sets, reps, weight or rest, or training to failure",
+  unsafe_technique: "unsafe technique (for example holding your breath or rounding the back)",
   link: "links or addresses",
   unsupported_characters: "symbols or markup",
   too_long: "more than 200 characters",
@@ -57,6 +59,7 @@ export function VoiceSessionStyle() {
     [drafts, setDrafts] = useState<Record<string, string>>({}),
     [preview, setPreview] = useState<any>(null),
     [outcomes, setOutcomes] = useState<any[]>([]),
+    [suggestions, setSuggestions] = useState<Suggestions | null>(null),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -64,6 +67,7 @@ export function VoiceSessionStyle() {
     setRevision(r.version);
     setStyle(r.style);
     setDrafts(Object.fromEntries(FIELDS.map(([key]) => [key, (r.style[key] as string[]).join("\n")])));
+    setSuggestions(r.suggestions ?? null);
     const o = await call("/voice-sessions/outcomes").catch(() => ({ sessions: [] }));
     setOutcomes(o.sessions);
   }, []);
@@ -115,6 +119,7 @@ export function VoiceSessionStyle() {
               const saved = await call("/voice-sessions/style", "PUT", { revision, style: draft() });
               setRevision(saved.version);
               setStyle(saved.style);
+              setSuggestions(saved.suggestions ?? null);
               setNotice(`Saved as version ${saved.version}. New sessions use it.`);
             });
           }}
@@ -167,7 +172,10 @@ export function VoiceSessionStyle() {
                 })
               }
             />
-            <small className="muted">0 keeps the planned weight. Reps and sets are never raised.</small>
+            <small className="muted">
+              Off (0) until you choose a number: the planned weight is kept and
+              “too heavy” comes to you as feedback. Reps and sets are never raised.
+            </small>
           </label>
           <label className="voice-check">
             <input
@@ -177,16 +185,7 @@ export function VoiceSessionStyle() {
                 setStyle({ ...style, adjustments: { ...style.adjustments, allowSkip: e.target.checked } })
               }
             />{" "}
-            Clients may say “skip” to skip a set or exercise
-          </label>
-          <label className="voice-check">
-            <input
-              type="checkbox"
-              checked={style.modelPhrasing}
-              onChange={(e) => setStyle({ ...style, modelPhrasing: e.target.checked })}
-            />{" "}
-            Let the Brain reword lines from my published communication rules
-            (each line is checked; no client data is sent)
+            Clients may say “skip” to skip a set or exercise (off until you allow it)
           </label>
           <div className="button-row">
             <button className="button" disabled={busy || blocked}>
@@ -204,13 +203,80 @@ export function VoiceSessionStyle() {
             </button>
           </div>
         </form>
+        <div className="voice-suggestions stack">
+          <h3>Brain suggestions</h3>
+          <p className="muted">
+            The Brain can suggest lines in your style from your published
+            communication rules. Nothing it writes is spoken until you add it
+            to your phrases above and save. No client data is sent.
+          </p>
+          <div className="button-row">
+            <button
+              className="button secondary"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const r = await call("/voice-sessions/style/suggestions", "POST");
+                  setSuggestions(r.suggestions);
+                  if (r.version !== undefined && revision === 0) setRevision(r.version);
+                  if (r.rejected?.length)
+                    setNotice(`${r.rejected.length} suggested line(s) failed the wording checks and were dropped.`);
+                })
+              }
+            >
+              Suggest lines
+            </button>
+            {suggestions && FIELDS.some(([key]) => (suggestions as any)[key]?.length) && (
+              <button
+                className="text-button"
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await call("/voice-sessions/style/suggestions", "DELETE");
+                    setSuggestions(null);
+                  })
+                }
+              >
+                Dismiss suggestions
+              </button>
+            )}
+          </div>
+          {suggestions &&
+            FIELDS.filter(([key]) => (suggestions as any)[key]?.length).map(([key, label]) => (
+              <div key={key}>
+                <strong>{label}</strong>
+                <ul className="voice-outcomes">
+                  {((suggestions as any)[key] as string[]).map((text) => (
+                    <li key={text}>
+                      {text}{" "}
+                      {lines(drafts[key] ?? "").includes(text) ? (
+                        <small className="muted">added (save to use it)</small>
+                      ) : (
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() =>
+                            setDrafts({ ...drafts, [key]: [...lines(drafts[key] ?? ""), text].join("\n") })
+                          }
+                        >
+                          Add to my phrases
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
         {preview && (
           <div className="voice-preview">
             <h3>Preview</h3>
             <ol>
               {preview.lines.map((l: any) => (
                 <li key={l.id}>
-                  <span className="badge">{l.owner === "code" ? "from the plan" : l.owner === "trainer" ? "your words" : "Brain"}</span>{" "}
+                  <span className="badge">{l.owner === "code" ? "from the plan" : "your words"}</span>{" "}
                   {l.text}
                 </li>
               ))}

@@ -46,7 +46,7 @@ export function classifyPrompt(body: any): { kind: PromptKind; task: string | nu
   if (system.startsWith("Estimate visible food"))
     return { kind: "meal_photo", task: "meal_photo_estimate", input };
   if (system.startsWith("Voice session phrasing"))
-    return { kind: "voice_session_phrasing", task: "voice_session_script", input };
+    return { kind: "voice_session_phrasing", task: "voice_session_suggestions", input };
   return { kind: "unknown", task: null, input };
 }
 
@@ -396,20 +396,19 @@ function mealPhoto() {
  * Voice-session wording from the trainer's own phrases (no invented style).
  * It never adds numbers; the application checks every line again.
  */
+// Wording suggestions for the trainer's review (never spoken until saved).
 function voiceSessionPhrasing(input: any) {
   const phrases = input?.trainerPhrases ?? {};
   const first = (list: unknown, fallback: string) =>
     Array.isArray(list) && typeof list[0] === "string" ? list[0] : fallback;
-  const exercises: Array<{ name: string; cue?: string }> = Array.isArray(input?.exercises) ? input.exercises : [];
   return {
-    intro: first(phrases.intro, "Let's get to work together."),
+    intro: [first(phrases.intro, "Let's get to work together.")],
     warmup: [first(phrases.warmup, "Ease into it and warm up. Say done when you are ready.")],
     encouragement: Array.isArray(phrases.encouragement) && phrases.encouragement.length
       ? phrases.encouragement.slice(0, 4)
       : ["Nice work.", "Stay with it."],
-    form: exercises.slice(0, 20).map((ex) => ({ exercise: ex.name, text: "Move with control and keep your posture tall." })),
     cooldown: [first(phrases.cooldown, "Well done. Walk it off and breathe easily.")],
-    finish: first(phrases.finish, "That is the session done. Great effort."),
+    finish: [first(phrases.finish, "That is the session done. Great effort.")],
   };
 }
 
