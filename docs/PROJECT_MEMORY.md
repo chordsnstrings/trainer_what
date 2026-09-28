@@ -12,6 +12,7 @@ Updated: 28 September 2026. This is durable project context for future build ses
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification. On 25 September at 13:44 Asia/Dubai, the owner explicitly requested multiple agents for speed; split nonoverlapping implementation/review work and keep cloud writes with the coordinating agent. Avoid repeated planning/research and unnecessary confirmation. |
 | Collections | Existing operator Stripe account for subscriber subscriptions, refunds and disputes |
 | Trainer payouts | Lean Technologies initiates monthly payouts from the company's bank account to eligible verified personal/business UAE IBANs, after reconciliation |
+| Stripe live setup | Live keys and webhook saved in Super admin (28 Sep 2026); live commerce stays off until the owner approves and Stripe activates charges/payouts; prefer a restricted key |
 | Payment history | The earlier Stripe Connect payout direction is superseded by Stripe collection + Lean payout |
 | Finance | One immutable ledger, marginal 25%/20%/15%/10% commission bands, transparent AI/voice charges and gross-to-net statements |
 | Product | Trainer Brain Compiler + Client Twin + governed first-person Coach Runtime; trainer identity and control are central |
