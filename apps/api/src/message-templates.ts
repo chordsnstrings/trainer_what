@@ -715,7 +715,7 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "The month's AI Coach Service Fee, posted to the trainer's statement",
     {
       title: "AI Coach Service Fee for September 2026",
-      body: "AI Coach Service Fee: AED 42.00. It is deducted from your earnings and shown on your monthly statement.",
+      body: "AI Coach Service Fee: AED 42.00. It is deducted from your earnings and shown on your October 2026 statement.",
       href: "/trainer/finance",
     },
   ),

@@ -84,8 +84,8 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
       <h2 id="comp-title">Complimentary access</h2>
       <p className="muted">
         Give a follower access without payment for a fixed period or until you
-        end it. No charge, invoice or commission is created; AI and voice usage
-        is still counted to your workspace.
+        end it. No charge, invoice or commission is created for them; their
+        usage is included in your AI Coach Service Fee.
       </p>
       {notice && (
         <p className="notice success" role="status">

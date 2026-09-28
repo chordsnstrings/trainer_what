@@ -102,12 +102,17 @@ test("owner decisions: 100% markup by default, trainers see only the AI Coach Se
   assert.match(notice.body, /^AI Coach Service Fee: AED 12\.00\./);
   assert.doesNotMatch(notice.body, /USD|provider|markup|cost/i);
   // The trainer's statement: one line, no provider cost, calls or features.
-  // Posted now, so it is on this month's statement (cash basis).
+  // Posted now, so it is on this month's statement (cash basis), and the
+  // notice names that statement.
   const posted = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  const postedName = new Date(posted + "-15T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  assert.match(notice.body, new RegExp(`shown on your ${postedName} statement\\.$`));
   const view = await f.call(`/finance/statements/${posted}`, { cookie: owner.cookie });
   assert.equal(view.statusCode, 200, view.body);
   const s = view.json();
   assert.equal(s.aiCoachServiceFeeMinor, 1200);
+  // Each fee on the statement is named by the month it is for.
+  assert.deepEqual(s.aiCoachServiceFees, [{ period: "2026-05", adjustment: false, amountMinor: 1200 }]);
   for (const hidden of ["usageCost", "usage", "usageByFeature"])
     assert.equal(hidden in s, false, hidden);
   const entry = s.entries.find((e: any) => e.source_key === "usage:2026-05");
@@ -119,12 +124,19 @@ test("owner decisions: 100% markup by default, trainers see only the AI Coach Se
   assert.equal(pages.statusCode, 200, pages.body);
   assert.doesNotMatch(pages.body, /chargeableUsd|markupPercent/);
   const usage = await f.call("/workspace/pages/usageStatements", { cookie: owner.cookie });
-  assert.deepEqual(Object.keys(usage.json().items[0]).sort(), ["charge_minor", "period"]);
+  assert.deepEqual(Object.keys(usage.json().items[0]).sort(), ["adjustments_minor", "charge_minor", "period"]);
   const calls = await f.call("/workspace/pages/costs", { cookie: owner.cookie });
   assert.doesNotMatch(calls.body, /cost_usd|cartesia|fixture-model/);
   // The trainer's CSV names each line; the usage charge by its name.
   const csv = await f.call("/finance/export", { cookie: owner.cookie });
   assert.match(csv.body, /"usage:2026-05","AI Coach Service Fee"/);
+  // One line for the fee: its effect on the trainer's balance, not the
+  // platform's side of it.
+  assert.equal(csv.body.split("\n").filter((l: string) => l.includes('"usage:2026-05"')).length, 1);
+  assert.doesNotMatch(csv.body, /platform_cost_recovery/);
+  // The fee for May is deducted from May's payout: named by its month.
+  const deductions = await f.call("/finance/deductions", { cookie: owner.cookie });
+  assert.deepEqual(deductions.json().aiCoachServiceFees, [{ period: "2026-05", feeMinor: 1200, adjustmentsMinor: 0 }]);
   // Operators still see the provider cost and the markup.
   const admin = await f.operator("finance");
   const operatorView = await f.call(`/admin/tenants/${owner.tenantId}/finance/statements/2026-05`, { cookie: admin.cookie });
@@ -148,8 +160,15 @@ test("Stripe fees are shown to trainers before they set a price and with each mo
   assert.equal(fees.statusCode, 200, fees.body);
   assert.deepEqual(fees.json().commissionBps, [2500, 2000, 1500, 1000]);
   assert.equal(fees.json().stripe.percentBps, 290);
+  assert.equal(fees.json().bookingFeeBps, 0);
+  // Staff set paid session prices: they see Stripe's fee and the booking
+  // fee, not the commission bands.
   const staff = await f.person({ tenantId: owner.tenantId, role: "staff" });
-  assert.equal((await f.call("/finance/fees", { cookie: staff.cookie })).statusCode, 403);
+  const staffFees = await f.call("/finance/fees", { cookie: staff.cookie });
+  assert.equal(staffFees.statusCode, 200, staffFees.body);
+  assert.deepEqual([staffFees.json().commissionBps, staffFees.json().bookingFeeBps, staffFees.json().stripe.percentBps], [null, 0, 290]);
+  const member = await f.person({ tenantId: owner.tenantId, role: "subscriber" });
+  assert.equal((await f.call("/finance/fees", { cookie: member.cookie })).statusCode, 403);
   // Stripe fees deducted at settlement are named per month and on the statement.
   const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
   await post(owner.tenantId, "stripe-settlement:po_fixture", new Date().toISOString(), [
@@ -162,6 +181,7 @@ test("Stripe fees are shown to trainers before they set a price and with each mo
     deductions.json().months.find((m: any) => m.month === month),
     { month, stripeFeesMinor: 677, aiCoachServiceFeeMinor: 0, otherChargesMinor: 0 },
   );
+  assert.deepEqual(deductions.json().aiCoachServiceFees, []);
   const statement = await f.call(`/finance/statements/${month}`, { cookie: owner.cookie });
   assert.equal(statement.json().stripeFeesMinor, 677);
 });
@@ -203,7 +223,13 @@ test("the Platform finance screen: profit and loss, trainers, features, provider
   assert.equal(line("income", "domains"), Math.round(1999 * 3.6725));
   assert.equal(line("costs", "aiProvider"), Math.round(5 * 3.6725 * 100));
   assert.equal(line("costs", "voiceProvider"), Math.round(1 * 3.6725 * 100));
-  assert.equal(line("costs", "stripeFees"), 2000);
+  // No payment's fee was read from Stripe: each is estimated at the fee
+  // settings (2.9% + AED 1.00; about 27 US cents on a dollar payment), never
+  // replaced by the fees recorded at settlement (those are income here).
+  const stripeLine = m.costs.find((l: any) => l.key === "stripeFees");
+  assert.equal(stripeLine.aedMinor, 680 + 1260 + Math.round((58 + 27) * 3.6725));
+  assert.equal(stripeLine.estimatedMinor, stripeLine.aedMinor);
+  assert.ok(m.notes.some((n: string) => n.includes("read from Stripe for 0 of 3")), m.notes.join(" | "));
   assert.equal(line("costs", "registrar"), Math.round(1148 * 3.6725));
   assert.equal(line("costs", "refundsDisputes"), 5000);
   assert.equal(m.profitMinor, m.incomeMinor - m.costsMinor);
@@ -391,10 +417,14 @@ test("a provider invoice prices calls, records plan fees and adjusts a month alr
   const [statement] = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) => tx.query("SELECT charge_minor FROM usage_statements WHERE period='2024-12'"));
   assert.equal(Number(statement.charge_minor), 1600);
   const [adjustment] = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
-    tx.query("SELECT description,data FROM journals WHERE source_key='usage-adjustment:2024-12:ACME-2024-12'"),
+    tx.query("SELECT source_key,description,data FROM journals WHERE source_key LIKE 'usage-adjustment:2024-12:%'"),
   );
   assert.equal(adjustment.description, "AI Coach Service Fee adjustment");
   assert.equal(adjustment.data.markupPercent, 100);
+  // The key trainers can see carries a hash, never the invoice reference
+  // (which may name the provider); the reference stays in operator data.
+  assert.match(adjustment.source_key, /^usage-adjustment:2024-12:[0-9a-f]{16}$/);
+  assert.equal(adjustment.data.reference, "ACME-2024-12");
   // The same import again changes nothing; other content under the reference is refused.
   const repeat = await importInvoice();
   assert.equal(repeat.json().alreadyImported, true);
@@ -411,7 +441,39 @@ test("a provider invoice prices calls, records plan fees and adjusts a month alr
   assert.equal(view.json().aiCoachServiceFeeMinor, 1600 + 480);
   const entry = view.json().entries.find((e: any) => e.source_key.startsWith("usage-adjustment:"));
   assert.deepEqual([entry.description, entry.data], ["AI Coach Service Fee adjustment", { period: "2024-12", amountMinor: 480 }]);
-  assert.doesNotMatch(view.body, /acmeai|chargeableUsd|markupPercent/);
+  assert.deepEqual(view.json().aiCoachServiceFees, [
+    { period: "2024-12", adjustment: false, amountMinor: 1600 },
+    { period: "2024-12", adjustment: true, amountMinor: 480 },
+  ]);
+  assert.doesNotMatch(view.body, /acmeai|ACME|chargeableUsd|markupPercent/);
+  const usage = await f.call("/workspace/pages/usageStatements", { cookie: owner.cookie });
+  const december = usage.json().items.find((i: any) => i.period === "2024-12");
+  assert.deepEqual([Number(december.charge_minor), Number(december.adjustments_minor)], [1600, 480]);
+  // The adjustment notice names the month it is for and the statement it is on.
+  const [notice] = await f.db.tenant(f.scoped(owner.tenantId, "owner"), (tx) =>
+    tx.query("SELECT dedupe_key,body FROM notifications WHERE user_id=$1 AND dedupe_key LIKE 'ai-coach-service-fee:2024-12:%'", [owner.userId]),
+  );
+  assert.doesNotMatch(notice.dedupe_key, /ACME/);
+  assert.match(notice.body, /AED 4\.80 more for December 2024\. .* shown on your .* statement\.$/);
+  // The workspace's events carry no provider, provider cost or rate: the
+  // platform's pricing events are not listed and cost fields are removed.
+  const events = await f.call("/workspace/pages/events", { cookie: owner.cookie });
+  assert.equal(events.statusCode, 200, events.body);
+  assert.doesNotMatch(events.body, /acmeai|costUsd|allocatedUsd|estimatedUsd|AedPerUsd|providerRequestId|req-inv-1/);
+  assert.ok(!events.json().items.some((e: any) => ["finance.usage_reconciled", "finance.provider_usage_priced", "finance.usage_corrected_after_charge", "finance.usage_estimated"].includes(e.name)));
+  const boot = await f.call("/bootstrap", { cookie: owner.cookie });
+  assert.equal(boot.statusCode, 200, boot.body);
+  assert.doesNotMatch(JSON.stringify(boot.json().events ?? []), /acmeai|costUsd|allocatedUsd|AedPerUsd/);
+  // The invoice import rebuilt the month's summary: its calls are priced
+  // at the invoice (2.60 USD) without a manual rebuild.
+  const pnl2 = await platformPnl(f.db, { from: "2024-12", to: "2024-12" });
+  const trainer = pnl2.trainers.find((t: any) => t.tenantId === owner.tenantId);
+  assert.equal(trainer?.providerCostMinor, Math.round(2.6 * pnl2.months[0].rate.aedPerUsd * 100));
+  assert.deepEqual(pnl2.summary.missingMonths, []);
+  // A CSV with a very wide header, or rows wider than it, is refused.
+  assert.throws(() => parseInvoice("csv", "cost_usd," + Array.from({ length: 60 }, (_, i) => "c" + i).join(",") + "\n1\n"), /at most 50 columns/);
+  assert.throws(() => parseInvoice("csv", "cost_usd,description\n1,a,b\n"), /more fields than the header/);
+  assert.equal(parseInvoice("csv", "cost_usd,description\n1,a,\n").lines.length, 1);
 });
 
 test("Stripe's fee per charge, refund and dispute is read once from its balance transaction", async () => {
@@ -486,9 +548,22 @@ test("DigitalOcean billing: only the project's items, a month estimate from its 
   // Only GET requests, only the platform project's resources.
   assert.ok(mock.calls.every((c) => c.method === "GET"));
   assert.ok(!mock.calls.some((c) => c.path.includes("500000009")));
-  let pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09" });
+  // Once September has ended, the whole month's estimate counts (until the
+  // invoice arrives); while it runs, the cost so far, beside income to date.
+  const afterMonth = new Date("2026-10-05T00:00:00Z");
+  let pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09", now: afterMonth });
   const estimate = pnl.platformCosts.find((c: any) => c.source === "estimate");
   assert.ok(estimate && estimate.estimated && estimate.amountMinor === Math.round(first.estimate!.projectedUsd * 100));
+  assert.equal(pnl.months[0].inProgress, false);
+  const platformLine = pnl.months[0].costs.find((l: any) => l.key === "platform")!;
+  // The estimate is counted in the estimated part of the costs.
+  assert.ok(platformLine.estimatedMinor! >= Math.round(estimate.amountMinor * pnl.months[0].rate.aedPerUsd));
+  assert.ok(pnl.months[0].estimatedCostMinor >= platformLine.estimatedMinor!);
+  const during = await platformPnl(f.db, { from: "2026-09", to: "2026-09", now });
+  const soFar = during.platformCosts.find((c: any) => c.source === "estimate");
+  assert.equal(soFar?.amountMinor, Math.round(first.estimate!.toDateUsd * 100));
+  assert.equal(during.months[0].inProgress, true);
+  assert.ok(during.months[0].notes.some((n: string) => n.includes("in progress")));
   // A repeat reads the invoices again but records nothing twice.
   const again = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now });
   assert.deepEqual(again.invoicesImported, []);
@@ -496,7 +571,7 @@ test("DigitalOcean billing: only the project's items, a month estimate from its 
   mock.seedBilling({ months: ["2026-07", "2026-08", "2026-09"], firstPlatformMonth: "2026-09" });
   const later = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now: new Date("2026-10-02T12:00:00Z") });
   assert.deepEqual(later.invoicesImported.map((i: any) => [i.month, i.items, i.usd]), [["2026-09", 2, "3.72"]]);
-  pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09" });
+  pnl = await platformPnl(f.db, { from: "2026-09", to: "2026-09", now: afterMonth });
   const september = pnl.platformCosts.filter((c: any) => c.vendor === "DigitalOcean");
   assert.deepEqual(september.map((c: any) => [c.source, c.amountMinor, c.estimated]).sort(), [["digitalocean", 310, false], ["digitalocean", 62, false]]);
   // Unrelated projects never reach the platform's costs.
@@ -504,10 +579,26 @@ test("DigitalOcean billing: only the project's items, a month estimate from its 
   assert.equal(items.length, 2);
   const [row] = await f.db.system((tx) => tx.query("SELECT count(*)::int AS n FROM platform_costs WHERE source='digitalocean' AND description LIKE '%shop%'"));
   assert.equal(row.n, 0);
+  // Only the project's figures are kept: never the team's total.
+  const stored = await f.db.system((tx) => tx.query("SELECT * FROM digitalocean_invoices WHERE month='2026-09'"));
+  assert.deepEqual(stored.map((r: any) => [r.project_name, r.project_items, Number(r.project_amount_usd)]), [["GymMembership", 2, 3.72]]);
+  assert.ok(stored.every((r: any) => !("team_amount_usd" in r)));
   // The adapter refuses anything but GET, and never echoes the token.
   mock.failNext("GET", /^\/v2\/customers\/my\/invoices$/, 401);
   const failed = await importDigitalOceanBilling(f.db, { client, project: "GymMembership", now }).catch((e: Error) => e);
   assert.ok(failed instanceof Error && !String(failed.message).includes(token));
+  // A project name that is not in the team (a typo, a renamed project)
+  // fails the run instead of importing every invoice as costing nothing.
+  const typo = await importDigitalOceanBilling(f.db, { client, project: "GymMembershp", now }).catch((e: Error) => e);
+  assert.ok(typo instanceof Error && /not found/.test(typo.message), String(typo));
+  const [run] = await f.db.system((tx) => tx.query("SELECT status,error FROM platform_finance_runs WHERE kind='digitalocean' ORDER BY started_at DESC LIMIT 1"));
+  assert.equal(run.status, "failed");
+  // Invoices are read once per project: a changed project setting reads the
+  // earlier invoices again for the new project.
+  const switched = await importDigitalOceanBilling(f.db, { client, project: "Unrelated Shop", now: new Date("2026-10-02T12:00:00Z") });
+  assert.deepEqual(switched.invoicesImported.map((i: any) => [i.month, i.items]), [["2026-09", 1], ["2026-08", 1], ["2026-07", 1]]);
+  const both = await f.db.system((tx) => tx.query("SELECT project_name FROM digitalocean_invoices WHERE month='2026-09' ORDER BY project_name"));
+  assert.deepEqual(both.map((r: any) => r.project_name), ["GymMembership", "Unrelated Shop"]);
 });
 
 test("the Super admin DigitalOcean import route, the billing settings and the finance alerts", async () => {
@@ -530,17 +621,243 @@ test("the Super admin DigitalOcean import route, the billing settings and the fi
   const reading = await startRun(f.db, "registrar_balance", null);
   await finishRun(f.db, reading, { result: { currency: "USD", available: "3.50", registrar: "namecheap" } });
   const owner = await f.person({ name: "Owner Alert Cost" });
+  const busy = await f.person({ name: "Owner Alert Open Month" });
+  const owes = await f.person({ name: "Owner Alert Owes" });
   const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
-  await costs(owner.tenantId, [{ task: "coaching", provider: "openai", status: "recorded", cost: 4, estimate: 4, at: new Date().toISOString() }]);
-  await rebuildPlatformSummary(f.db, [month]);
-  const rules = platformAlertRules().filter((r) => r.id.startsWith("finance.") && ["finance.cost_without_income", "finance.digitalocean_import", "finance.registrar_balance_low"].includes(r.id));
+  const [y, mo] = month.split("-").map(Number);
+  const earlier = new Date(Date.UTC(y, mo - 3, 1)).toISOString().slice(0, 7);
+  // A finished month with usage, no AI Coach Service Fee and no income.
+  await costs(owner.tenantId, [{ task: "coaching", provider: "openai", status: "recorded", cost: 4, estimate: 4, at: earlier + "-10T10:00:00Z" }]);
+  // Usage in the month in progress: its fee is not due yet, so no alert.
+  await costs(busy.tenantId, [{ task: "coaching", provider: "openai", status: "recorded", cost: 4, estimate: 4, at: new Date().toISOString() }]);
+  // A fee the trainer's earnings do not cover (only complimentary members).
+  await post(owes.tenantId, `usage:${earlier}`, new Date().toISOString(), [["trainer_payable", 2938], ["platform_cost_recovery", -2938]], { period: earlier, chargeMinor: 2938 });
+  await rebuildPlatformSummary(f.db, [earlier, month]);
+  const rules = platformAlertRules().filter((r) => ["finance.cost_without_income", "finance.service_fee_owed", "finance.digitalocean_import", "finance.registrar_balance_low"].includes(r.id));
   await evaluatePlatformAlerts(f.db, { rules });
-  const alerts = await f.db.system((tx) => tx.query("SELECT rule,severity,dedupe_key FROM platform_alerts WHERE status<>'resolved' AND rule LIKE 'finance.%'"));
+  const alerts = await f.db.system((tx) => tx.query("SELECT rule,severity,dedupe_key,detail FROM platform_alerts WHERE status<>'resolved' AND rule LIKE 'finance.%'"));
   assert.ok(alerts.some((a: any) => a.rule === "finance.digitalocean_import"));
   assert.ok(alerts.some((a: any) => a.rule === "finance.registrar_balance_low" && a.severity === "critical"));
-  assert.ok(alerts.some((a: any) => a.rule === "finance.cost_without_income" && a.dedupe_key.includes(owner.tenantId)));
+  assert.ok(alerts.some((a: any) => a.rule === "finance.cost_without_income" && a.dedupe_key === `finance.cost_without_income:${owner.tenantId}:${earlier}`));
+  assert.ok(!alerts.some((a: any) => a.rule === "finance.cost_without_income" && a.dedupe_key.includes(busy.tenantId)));
+  const owed = alerts.find((a: any) => a.rule === "finance.service_fee_owed" && a.dedupe_key.includes(owes.tenantId));
+  assert.ok(owed && /AED 29\.38/.test(owed.detail), JSON.stringify(alerts));
+  // The Platform finance screen shows the same: nothing received, owed.
+  const view = await platformPnl(f.db, { from: month, to: month });
+  const debtor = view.trainers.find((t: any) => t.tenantId === owes.tenantId)!;
+  assert.deepEqual([debtor.aiCoachServiceFeeMinor, debtor.aiCoachServiceFeeOwedMinor], [0, 2938]);
+  assert.ok(debtor.flags.includes("service_fee_owed"));
+  assert.ok(!view.flags.some((x: any) => x.kind === "cost_without_income" && x.tenantId === busy.tenantId));
+  assert.equal(view.months[0].inProgress, true);
   // Month over month trends for each cost line.
   const pnl = await f.call(`/admin/platform-finance?from=${month}&to=${month}`, { cookie: fin.cookie });
   assert.ok(Array.isArray(pnl.json().trends));
+  // The DigitalOcean view shows the project's own figures only.
+  const billing = await f.call("/admin/platform-finance/digitalocean", { cookie: fin.cookie });
+  assert.equal(billing.statusCode, 200, billing.body);
+  assert.doesNotMatch(billing.body, /team/i);
   void DigitalOceanMock;
+});
+
+// ---- Review round 1 (stage 2026-09-28w) ---------------------------------------
+
+test("cash basis: the AI Coach Service Fee is income when the trainer's earnings cover it, and owed until then", async () => {
+  // A trainer with only complimentary members: no earnings in January or
+  // February, the platform paid for their usage and charged the fee.
+  const owner = await f.person({ name: "Owner Complimentary Only" });
+  const at = (month: string, day = 10) => `${month}-${String(day).padStart(2, "0")}T10:00:00Z`;
+  await costs(owner.tenantId, [
+    { task: "coaching", provider: "openai", status: "recorded", cost: 10, estimate: 10, at: at("2023-01"), complimentary: true },
+    { task: "coaching", provider: "openai", status: "recorded", cost: 5, estimate: 5, at: at("2023-02"), complimentary: true },
+  ]);
+  // January's fee (USD 10 at 3.6725, 100% markup) posted in February,
+  // February's in March; the statements record what each month charged.
+  const fee = async (period: string, postedMonth: string, charge: number) => {
+    await post(owner.tenantId, `usage:${period}`, at(postedMonth, 3), [["trainer_payable", charge], ["platform_cost_recovery", -charge]], { period, chargeMinor: charge });
+    await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+      tx.query(
+        "INSERT INTO usage_statements(id,tenant_id,period,total_cost_usd,fx_aed_per_usd,charge_minor,cost_event_count,fee_schedule_version,evidence_reference,journal_id) VALUES($1,$2,$3,1,3.6725,$4,1,'fixture-v1','Synthetic usage evidence',(SELECT id FROM journals WHERE source_key=$5))",
+        [randomUUID(), owner.tenantId, period, charge, `usage:${period}`],
+      ),
+    );
+  };
+  await fee("2023-01", "2023-02", 7345);
+  await fee("2023-02", "2023-03", 3673);
+  // In April the trainer's first paid member: earnings of AED 150.00.
+  await post(owner.tenantId, "stripe-invoice:in_cash1", at("2023-04"), [["stripe_receivable", 20000], ["trainer_payable", -15000], ["platform_commission", -5000]], { grossMinor: 20000, commissionMinor: 5000, userId: randomUUID() });
+  await rebuildPlatformSummary(f.db, monthsBetween("2023-01", "2023-04"));
+  const fee4 = (d: any, month: string) => d.months.find((m: any) => m.month === month);
+  const received = (m: any) => m.income.find((l: any) => l.key === "aiCoachServiceFee").aedMinor;
+  // Only this workspace is active in 2023.
+  const q1 = await platformPnl(f.db, { from: "2023-01", to: "2023-03" });
+  assert.deepEqual(["2023-01", "2023-02", "2023-03"].map((m) => received(fee4(q1, m))), [0, 0, 0]);
+  assert.deepEqual(["2023-01", "2023-02", "2023-03"].map((m) => fee4(q1, m).feeOwedMinor), [0, 7345, 7345 + 3673]);
+  assert.ok(fee4(q1, "2023-03").notes.some((n: string) => n.includes("Owed by trainers") && n.includes("AED 110.18")));
+  const trainer = q1.trainers.find((t: any) => t.tenantId === owner.tenantId)!;
+  assert.deepEqual([trainer.aiCoachServiceFeeMinor, trainer.aiCoachServiceFeeOwedMinor], [0, 7345 + 3673]);
+  assert.ok(trainer.flags.includes("service_fee_owed"));
+  // The fee charged for a month's usage matches its cost: no "cost without
+  // income" for January or February (the fee is owed, flagged above).
+  assert.ok(!q1.flags.some((x: any) => x.kind === "cost_without_income" && x.tenantId === owner.tenantId), JSON.stringify(q1.flags));
+  // April's earnings cover both fees: received in April, nothing owed.
+  const april = await platformPnl(f.db, { from: "2023-04", to: "2023-04" });
+  assert.equal(received(april.months[0]), 7345 + 3673);
+  assert.equal(april.months[0].feeOwedMinor, 0);
+  const paid = april.trainers.find((t: any) => t.tenantId === owner.tenantId)!;
+  assert.deepEqual([paid.aiCoachServiceFeeMinor, paid.aiCoachServiceFeeOwedMinor], [7345 + 3673, 0]);
+  assert.ok(!paid.flags.includes("service_fee_owed"));
+  // A domain payment for no open order is owed back: not domain income.
+  const orderId = randomUUID();
+  await post(owner.tenantId, "web-address-invoice:in_unmatched", at("2023-04", 12), [["web_address_receivable", 1999], ["web_address_refund_liability", -1999]], { orderId, hostname: "unmatched.example", kind: "unmatched", grossMinor: 1999 }, "USD");
+  await post(owner.tenantId, "web-address-refund:re_unmatched", at("2023-04", 13), [["web_address_refund_liability", 1999], ["web_address_receivable", -1999]], { orderId, hostname: "unmatched.example", refundAmountMinor: 1999, ofUnmatchedPayment: true }, "USD");
+  await rebuildPlatformSummary(f.db, ["2023-04"]);
+  const domains = await platformPnl(f.db, { from: "2023-04", to: "2023-04" });
+  assert.equal(domains.months[0].income.find((l: any) => l.key === "domains")!.aedMinor, 0);
+  assert.equal(domains.months[0].costs.find((l: any) => l.key === "refundsDisputes")!.aedMinor, 0);
+  assert.deepEqual(domains.domains.orders.filter((o: any) => o.orderId === orderId).map((o: any) => [o.paidMinor, o.refundedMinor]), [[0, 0]]);
+});
+
+test("Stripe fees: read per payment, estimated until read, and a won dispute read again", async () => {
+  const { sweepStripeFees, captureFeesAfterWebhook } = await import("../apps/api/src/stripe-fees.ts");
+  const { runStripeFeeSweep } = await import("../apps/api/src/platform-pnl.ts");
+  const owner = await f.person({ name: "Owner Fee Coverage" });
+  const now = new Date().toISOString();
+  // Seconds apart, so the newest (read first) is the second payment.
+  const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
+  const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  await post(owner.tenantId, "stripe-invoice:in_cov1", ago(3), [["stripe_receivable", 10000], ["trainer_payable", -7500], ["platform_commission", -2500]], { grossMinor: 10000, commissionMinor: 2500, chargeId: "ch_cov1" });
+  await post(owner.tenantId, "dispute-reserve:dp_cov1", ago(2), [["trainer_payable", 10000], ["dispute_reserve", -10000]], { chargeId: "ch_cov1" });
+  await post(owner.tenantId, "stripe-invoice:in_cov2", ago(1), [["stripe_receivable", 20000], ["trainer_payable", -15000], ["platform_commission", -5000]], { grossMinor: 20000, commissionMinor: 5000, chargeId: "ch_cov2" });
+  const created = Math.floor(Date.now() / 1000);
+  const bt = (id: string, amount: number, fee: number) => ({ id, object: "balance_transaction", amount, currency: "aed", fee, net: amount - fee, created, fee_details: [] });
+  let reinstated = false;
+  const reads: string[] = [];
+  const stripe = {
+    // Any other workspace's charge in the window answers too.
+    charges: { retrieve: async (id: string) => (reads.push(id), { id, balance_transaction: bt("txn_" + id.replace(/[^A-Za-z0-9]/g, ""), 10000, id === "ch_cov1" ? 390 : id === "ch_cov2" ? 680 : 100) }) },
+    refunds: { retrieve: async (id: string) => (reads.push(id), { id, charge: "ch_x", balance_transaction: bt("txn_" + id.replace(/[^A-Za-z0-9]/g, ""), -100, 0) }) },
+    disputes: {
+      retrieve: async (id: string) => (
+        reads.push(id),
+        {
+          id,
+          charge: id === "dp_dom" ? "ch_dom" : "ch_cov1",
+          balance_transactions: id === "dp_cov1" && reinstated
+            ? [bt("txn_dpcov1", -10000, 5500), bt("txn_dpcov1back", 10000, -5500)]
+            : [bt("txn_" + id.replace(/[^A-Za-z0-9]/g, ""), -10000, 5500)],
+        }
+      ),
+    },
+    paymentIntents: { retrieve: async () => { throw new Error("not used"); } },
+  };
+  // One read now: one payment is read, the other is estimated.
+  const one = await sweepStripeFees(f.db, stripe, { tenantId: owner.tenantId, limit: 1 });
+  assert.equal(one.recorded, 1);
+  assert.deepEqual(one.touched, [{ tenantId: owner.tenantId, months: [month] }]);
+  await rebuildPlatformSummary(f.db, [month], null, { tenantIds: [owner.tenantId] });
+  let pnl = await platformPnl(f.db, { from: month, to: month });
+  let trainer = pnl.trainers.find((t: any) => t.tenantId === owner.tenantId)!;
+  // The second payment's fee was read (680); the first is estimated at
+  // 2.9% + AED 1.00 (390); the dispute not read yet counts as nothing.
+  assert.deepEqual(reads, ["ch_cov2"]);
+  assert.equal(trainer.stripeFeesMinor, 680 + 390);
+  assert.ok(pnl.months[0].notes.some((n: string) => /read from Stripe for \d+ of \d+/.test(n)));
+  // The worker's sweep reads the rest and rebuilds the months it touched.
+  await runStripeFeeSweep(f.db, stripe as any);
+  pnl = await platformPnl(f.db, { from: month, to: month });
+  trainer = pnl.trainers.find((t: any) => t.tenantId === owner.tenantId)!;
+  assert.equal(trainer.stripeFeesMinor, 390 + 680 + 5500);
+  // The dispute is won: Stripe reinstates the funds (and here the fee); the
+  // closed dispute is read again for its second balance transaction, once.
+  await post(owner.tenantId, "dispute-resolution:dp_cov1", now, [["dispute_reserve", 10000], ["trainer_payable", -10000]], { disputeId: "dp_cov1", status: "won" });
+  reinstated = true;
+  const again = await sweepStripeFees(f.db, stripe, { tenantId: owner.tenantId });
+  assert.equal(again.recorded, 1);
+  const before = reads.length;
+  assert.equal((await sweepStripeFees(f.db, stripe, { tenantId: owner.tenantId })).recorded, 0);
+  assert.equal(reads.length, before);
+  // A domain payment's dispute has no ledger entry until lost: its webhook
+  // reads it, and the fee is the platform's (product domain).
+  await post(owner.tenantId, "web-address-invoice:in_dom", now, [["web_address_receivable", 1999], ["web_address_revenue", -1999]], { grossMinor: 1999, chargeId: "ch_dom" }, "USD");
+  await captureFeesAfterWebhook(f.db, stripe, { type: "charge.dispute.created", data: { object: { id: "dp_dom", object: "dispute", charge: "ch_dom", metadata: { tenant_id: owner.tenantId } } } });
+  const [domainFee] = await f.db.system((tx) => tx.query("SELECT product,fee_minor FROM stripe_fees WHERE source_id='dp_dom'"));
+  assert.deepEqual([domainFee.product, Number(domainFee.fee_minor)], ["domain", 5500]);
+  await rebuildPlatformSummary(f.db, [month], null, { tenantIds: [owner.tenantId] });
+  pnl = await platformPnl(f.db, { from: month, to: month });
+  trainer = pnl.trainers.find((t: any) => t.tenantId === owner.tenantId)!;
+  // Read fees: the two charges, the dispute withdrawn and reinstated, the
+  // domain dispute, and the domain payment's own fee (read by the same
+  // webhook's sweep of the workspace).
+  assert.equal(trainer.stripeFeesMinor, 390 + 680 + 5500 - 5500 + 5500 + 100);
+  // The trainer's statement says how many were read, and names refunds and disputes.
+  const view = await f.call(`/finance/statements/${month}`, { cookie: owner.cookie });
+  assert.deepEqual(view.json().stripeFeesRead, { sources: 3, read: 3 });
+});
+
+test("payout bank fees can be corrected after a reversal, and the registrar book is kept in US dollars", async () => {
+  const fin = await f.operator("finance");
+  const owner = await f.person({ name: "Owner Fee Correction" });
+  const payoutId = randomUUID();
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("INSERT INTO payouts(id,tenant_id,period,amount_minor,beneficiary_id,revision,status,prepared_by) VALUES($1,$2,'2023-06',50000,$3,1,'submitted',$4)", [payoutId, owner.tenantId, randomUUID(), fin.userId]),
+  );
+  const fee = { tenantId: owner.tenantId, payoutId, amount: "5.25", currency: "AED", receiptReference: "BANK-STMT-9" };
+  const wrong = await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: fee });
+  assert.equal(wrong.statusCode, 200, wrong.body);
+  assert.equal((await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: { ...fee, amount: "4.75" } })).json().code, "INTENT_CONFLICT");
+  const reversal = await f.call(`/admin/platform-finance/costs/${wrong.json().id}/reverse`, { cookie: fin.cookie, body: { reason: "The bank charged 4.75, not 5.25" } });
+  assert.equal(reversal.statusCode, 200, reversal.body);
+  // After the reversal the correct fee is recorded; a retry returns it.
+  const right = await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: { ...fee, amount: "4.75" } });
+  assert.equal(right.statusCode, 200, right.body);
+  assert.equal(right.json().amountMinor, 475);
+  assert.equal((await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: { ...fee, amount: "4.75" } })).json().id, right.json().id);
+  assert.equal((await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: { ...fee, amount: "6.00" } })).json().code, "INTENT_CONFLICT");
+  await rebuildPlatformSummary(f.db, ["2023-06"], null, { tenantIds: [owner.tenantId] });
+  const pnl = await platformPnl(f.db, { from: "2023-06", to: "2023-06" });
+  const payout: any = pnl.payouts.find((p: any) => p.id === payoutId);
+  assert.deepEqual([payout?.bankFeeMinor, payout?.bankFeeCurrency], [475, "AED"]);
+  // The registrar charges in dollars: an order quoted in AED journals its
+  // cost in AED at the quote's rate, and the book counts its USD cost.
+  const book = async (): Promise<any> => (await platformPnl(f.db, { from: "2023-06", to: "2023-06" })).domains.registrar;
+  const start = await book();
+  await post(owner.tenantId, "web-address-registrar:op_aed", "2023-06-10T10:00:00Z", [["registrar_cost", 4216], ["registrar_prepaid", -4216]], { orderId: randomUUID(), hostname: "aed-order.example", currency: "AED", usd: "11.48", usdToAed: "3.6725" }, "AED");
+  await post(owner.tenantId, "web-address-registrar:op_usd", "2023-06-10T10:00:00Z", [["registrar_cost", 1148], ["registrar_prepaid", -1148]], { orderId: randomUUID(), hostname: "usd-order.example", currency: "USD", usd: "11.48" }, "USD");
+  const after = await book();
+  assert.equal(after.chargedMinor.USD - (start.chargedMinor.USD ?? 0), 2296);
+  if (after.bookBalanceMinor && start.bookBalanceMinor)
+    assert.equal(start.bookBalanceMinor.USD - after.bookBalanceMinor.USD, 2296);
+});
+
+test("the worker's daily pass rebuilds older months, and personal exports carry no provider cost", async () => {
+  const owner = await f.person({ name: "Owner Daily Rebuild" });
+  const now = new Date();
+  const month = new Date(now.getTime() + 4 * 3600000).toISOString().slice(0, 7);
+  const [y, m] = month.split("-").map(Number);
+  const old = new Date(Date.UTC(y, m - 6, 1)).toISOString().slice(0, 7);
+  await costs(owner.tenantId, [{ task: "coaching", provider: "openai", status: "estimated", cost: 1, estimate: 1, at: old + "-10T10:00:00Z" }]);
+  await rebuildPlatformSummary(f.db, [old], null, { tenantIds: [owner.tenantId] });
+  // An invoice correction to that month without an operation's refresh:
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("UPDATE cost_events SET status='reconciled',cost_usd=3,reconciliation='{\"evidence\":\"synthetic\"}' WHERE tenant_id=$1", [owner.tenantId]),
+  );
+  const cost = async () => (await platformPnl(f.db, { from: old, to: old })).trainers.find((t: any) => t.tenantId === owner.tenantId)!.providerCostMinor;
+  const rate = (await platformPnl(f.db, { from: old, to: old })).months[0].rate.aedPerUsd;
+  assert.equal(await cost(), Math.round(1 * rate * 100));
+  // The next daily pass (over the last 13 months) brings it up to date.
+  await runPlatformFinanceJobs(f.db, new Date(now.getTime() + 21 * 3600000));
+  assert.equal(await cost(), Math.round(3 * rate * 100));
+  const built = (await platformPnl(f.db, { from: old, to: old })).months[0].builtAt;
+  assert.ok(built && Date.parse(built) >= now.getTime() - 60000);
+  // A member's personal export lists what ran and when, never the
+  // provider, model or price of a call.
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,cost_usd,estimated_cost_usd,status,product,pricing) VALUES($1,$2,$3,'coaching','secretai','secret-model',0.5,0.5,'recorded','membership','{}')", [randomUUID(), owner.tenantId, owner.userId]),
+  );
+  const exported = await f.call("/privacy/export", { cookie: owner.cookie });
+  assert.equal(exported.statusCode, 200, exported.body);
+  const usage = exported.json().usage;
+  assert.ok(Array.isArray(usage) && usage.length >= 1);
+  assert.deepEqual(Object.keys(usage[0]).sort(), ["created_at", "id", "task"]);
+  assert.doesNotMatch(JSON.stringify(usage), /secretai|secret-model|0\.5/);
 });

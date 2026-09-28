@@ -2171,7 +2171,9 @@ export async function buildApp(
         // trainer's ledger (docs/features/web-addresses.md).
         // Each line carries its journal's currency: AED, or USD for the
         // trainer's own web address payments and refunds (migration 071).
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
+        // The AI Coach Service Fee is one line, its effect on the trainer's
+        // balance: the platform's own side of it is not the trainer's ledger.
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' AND NOT ((j.source_key LIKE 'usage:%' OR j.source_key LIKE 'usage-adjustment:%') AND l.account<>'trainer_payable') ORDER BY j.created_at,l.account",
       ),
     );
     reply

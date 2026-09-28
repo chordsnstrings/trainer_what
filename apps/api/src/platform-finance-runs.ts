@@ -65,6 +65,32 @@ export async function ranWithin(
   );
   return !!row;
 }
+type Rebuilder = (db: Database, months: string[], tenantIds?: string[]) => Promise<unknown>;
+let rebuilder: Rebuilder | null = null;
+/** The monthly summary's rebuild (registered by platform-pnl.ts at load). */
+export function registerSummaryRebuilder(fn: Rebuilder) {
+  rebuilder = fn;
+}
+/**
+ * Rebuilds the monthly summary of `months` (for `tenantIds` only, when
+ * given) after an operation changed those months' figures: an invoice
+ * import, provider pricing, an estimate or reconciliation, Stripe fees read.
+ * Best effort after the operation's own transaction: the worker's daily pass
+ * over the last 13 months catches anything a failure here leaves.
+ */
+export async function refreshSummary(
+  db: Database,
+  months: Array<string | null | undefined>,
+  tenantIds?: string[],
+) {
+  const list = [...new Set(months.filter((m): m is string => !!m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)))];
+  if (!rebuilder || !list.length || (tenantIds && !tenantIds.length)) return;
+  try {
+    await rebuilder(db, list, tenantIds);
+  } catch (error) {
+    console.error("Platform finance summary refresh failed; the daily rebuild will retry", (error as Error).message);
+  }
+}
 const platformJobs: Array<{
   id: string;
   run: (db: Database, now: Date) => Promise<unknown>;

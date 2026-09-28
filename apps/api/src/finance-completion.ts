@@ -3,6 +3,7 @@ import { elevated, type Database, event } from "@trainer/db";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import {
+  bookingFeePolicy,
   effectiveFinancePolicy,
   publishFinancePolicy,
 } from "./finance-policy.ts";
@@ -64,29 +65,58 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
   // September 2026) and the platform commission bands in effect.
   app.get("/api/v1/finance/fees", async (req) => {
     const a = identity(req);
-    if (!["owner", "finance"].includes(a.role))
+    // Staff create paid sessions, so they see Stripe's fee and the booking
+    // fee too; the commission bands are for the owner and finance.
+    if (!["owner", "finance", "staff"].includes(a.role))
       throw fail(403, "FINANCE_REQUIRED", "Finance access required");
-    const policy = await db.tenant(a, (tx) => effectiveFinancePolicy(tx));
+    const policy = await db.tenant(a, async (tx) => {
+      if (a.role === "staff")
+        return {
+          commissionBps: null,
+          bookingFeeBps: Number((await bookingFeePolicy(tx)).data.bookingFeeBps ?? 0),
+        };
+      const p = await effectiveFinancePolicy(tx);
+      return {
+        commissionBps: p.data.commissionBps as number[],
+        bookingFeeBps: Number(p.data.bookingFeeBps ?? 0),
+      };
+    });
     return {
       stripe: stripeFeeSettings(),
-      commissionBps: policy.data.commissionBps,
+      commissionBps: policy.commissionBps,
+      /** The platform's fee on each paid 1:1 session (basis points). */
+      bookingFeeBps: policy.bookingFeeBps,
       bands: ["Members 1–100", "Members 101–300", "Members 301–1,000", "Members 1,001+"],
       note: "An estimate for a card issued in the UAE. Stripe's fees are paid by you; the actual fee of each payment comes from Stripe and is shown on your monthly statement.",
     };
   });
-  // Per Dubai month: Stripe's fees and the AI Coach Service Fee deducted
-  // from the trainer's earnings, shown beside each monthly payout.
+  // Per Dubai month: Stripe's fees and other charges deducted from the
+  // trainer's earnings (by when they were posted), and the AI Coach Service
+  // Fee by the month it is for: a month's fee is posted after the month ends
+  // and deducted from that month's payout, so each payout shows its own
+  // month's fee (and any later adjustment of it), named by month.
   app.get("/api/v1/finance/deductions", async (req) => {
     const a = identity(req);
     if (!["owner", "finance"].includes(a.role))
       throw fail(403, "FINANCE_REQUIRED", "Finance access required");
-    const months = await db.tenant(a, (tx) => trainerRevenue(tx));
+    const { months, fees } = await db.tenant(a, async (tx) => ({
+      months: await trainerRevenue(tx),
+      fees: await tx.query(
+        "SELECT j.data->>'period' AS period,coalesce(sum(l.amount_minor) FILTER(WHERE j.source_key LIKE 'usage:%'),0)::text AS fee,coalesce(sum(l.amount_minor) FILTER(WHERE j.source_key LIKE 'usage-adjustment:%'),0)::text AS adjustments FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE l.account='trainer_payable' AND (j.source_key LIKE 'usage:%' OR j.source_key LIKE 'usage-adjustment:%') AND j.data ? 'period' GROUP BY 1 ORDER BY 1 DESC",
+      ),
+    }));
     return {
       months: months.map((m) => ({
         month: m.month,
         stripeFeesMinor: m.stripe_fees_minor,
+        /** The AI Coach Service Fee posted in the month (for earlier months). */
         aiCoachServiceFeeMinor: m.ai_coach_service_fee_minor,
         otherChargesMinor: m.other_charges_minor,
+      })),
+      aiCoachServiceFees: fees.map((f: any) => ({
+        period: f.period as string,
+        feeMinor: Number(f.fee),
+        adjustmentsMinor: Number(f.adjustments),
       })),
     };
   });
@@ -98,12 +128,17 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
       .parse((req.params as any).period);
-    return monthRate(db, period).then(async (rate) => ({
-      ...(await db.tenant(a, (tx) => financialStatement(tx, period, { rate }))),
-      // Stripe's own fee on this month's member payments (the trainer pays
-      // them), read from Stripe per payment.
-      stripeFeesOnPayments: await tenantStripeFees(db, a.tenantId, period),
-    }));
+    return monthRate(db, period).then(async (rate) => {
+      // Stripe's own fee on this month's member payments, refunds and
+      // disputes (the trainer pays them), read from Stripe per payment, and
+      // for how many of them it has been read yet.
+      const stripe = await tenantStripeFees(db, a, period);
+      return {
+        ...(await db.tenant(a, (tx) => financialStatement(tx, period, { rate }))),
+        stripeFeesOnPayments: stripe.fees,
+        stripeFeesRead: { sources: stripe.sources, read: stripe.read },
+      };
+    });
   });
   app.post("/api/v1/finance/promotions", (req) =>
     createPromotion(db, owner(req), req.body),

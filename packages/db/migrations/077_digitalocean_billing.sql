@@ -4,10 +4,13 @@
 -- The DigitalOcean token is team-wide and unrelated projects share the bill,
 -- so only the invoice items of the configured project become platform costs
 -- (platform_costs, source 'digitalocean', keyed by invoice and item).
--- 1. digitalocean_invoices: each final monthly invoice read, once, with how
---    many of its items belonged to the project and their total. An invoice
---    with none of the project's items is recorded too, so it is not read
---    again; its month then has no DigitalOcean cost for the platform.
+-- 1. digitalocean_invoices: each final monthly invoice read, once per
+--    configured project, with how many of its items belonged to the project
+--    and their total. An invoice with none of the project's items is
+--    recorded too, so it is not read again for that project; its month then
+--    has no DigitalOcean cost for the platform. Changing the project setting
+--    reads earlier invoices again for the new project. The team's own total
+--    (other, unrelated projects) is never stored.
 -- 2. digitalocean_estimates: the current month's cost estimated from the
 --    project's own resources (DigitalOcean splits by project only on final
 --    invoices), recomputed daily; a month whose invoice was imported uses
@@ -16,13 +19,13 @@
 -- Platform data: service role only. Additive: the previous release never
 -- reads these tables.
 CREATE TABLE digitalocean_invoices (
- invoice_uuid text PRIMARY KEY CHECK(invoice_uuid ~ '^[0-9A-Za-z-]{8,64}$'),
+ invoice_uuid text NOT NULL CHECK(invoice_uuid ~ '^[0-9A-Za-z-]{8,64}$'),
  month text NOT NULL CHECK(month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
- team_amount_usd numeric(14,2) NOT NULL,
  project_name text NOT NULL CHECK(char_length(project_name) BETWEEN 1 AND 175),
  project_items integer NOT NULL CHECK(project_items>=0),
  project_amount_usd numeric(14,2) NOT NULL,
- imported_at timestamptz NOT NULL DEFAULT now()
+ imported_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(invoice_uuid,project_name)
 );
 CREATE INDEX digitalocean_invoices_month ON digitalocean_invoices(month);
 CREATE TRIGGER digitalocean_invoice_history BEFORE UPDATE OR DELETE ON digitalocean_invoices FOR EACH ROW EXECUTE FUNCTION immutable_record();

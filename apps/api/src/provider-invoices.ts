@@ -28,7 +28,28 @@ import { recordInvoiceCost } from "./platform-costs.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const MAX_LINES = 10000;
+/** A provider export has a handful of columns; a wide header is refused. */
+const MAX_COLUMNS = 50;
 const USD = /^\d{1,9}(\.\d{1,8})?$/;
+/** The CSV columns read (header names, lower case with underscores). */
+const CSV_COLUMNS = [
+  "cost_usd",
+  "amount_usd",
+  "amount",
+  "kind",
+  "type",
+  "request_id",
+  "provider_request_id",
+  "description",
+];
+/**
+ * The key of an invoice reference in the trainer's ledger: an adjustment's
+ * source key and notification carry this hash, never the operator's
+ * reference (which may name the AI provider); the reference itself stays in
+ * the journal's data, which trainers never see.
+ */
+export const referenceKey = (reference: string) =>
+  createHash("sha256").update(reference).digest("hex").slice(0, 16);
 
 export type InvoiceLine = {
   kind: "usage" | "plan";
@@ -102,10 +123,21 @@ export function parseInvoice(format: "csv" | "json", content: string) {
   if (format === "csv") {
     const [header, ...rows] = csvRecords(content);
     if (!header) throw fail(400, "INVOICE_UNREADABLE", "The CSV is empty");
+    if (header.length > MAX_COLUMNS)
+      throw fail(400, "INVOICE_UNREADABLE", `The CSV may have at most ${MAX_COLUMNS} columns`);
     const names = header.map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
     if (!names.some((n) => ["cost_usd", "amount_usd", "amount"].includes(n)))
       throw fail(400, "INVOICE_UNREADABLE", "The CSV needs a cost_usd column");
-    lines = rows.map((r, i) => line(Object.fromEntries(names.map((n, j) => [n, r[j]])), i + 2));
+    // Each column read is found once; a row is read by position.
+    const columns = CSV_COLUMNS.flatMap((name) => {
+      const at = names.indexOf(name);
+      return at < 0 ? [] : [[name, at] as const];
+    });
+    lines = rows.map((r, i) => {
+      if (r.length > names.length && r.slice(names.length).some((x) => x.trim() !== ""))
+        throw fail(400, "INVOICE_UNREADABLE", `Line ${i + 2} has more fields than the header`);
+      return line(Object.fromEntries(columns.map(([name, at]) => [name, r[at]])), i + 2);
+    });
   } else {
     let data: any;
     try {
@@ -362,7 +394,7 @@ export async function postUsageCorrections(
       );
       if (!statement) return null;
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [w.id]);
-      const source = `usage-adjustment:${period}:${reference}`;
+      const source = `usage-adjustment:${period}:${referenceKey(reference)}`;
       const [done] = await tx.query("SELECT 1 FROM journals WHERE source_key=$1", [source]);
       if (done) return { skipped: "already_adjusted" };
       const settings = financeSettings();
@@ -418,16 +450,20 @@ export async function postUsageCorrections(
         [w.id],
       );
       const amount = (Math.abs(difference) / 100).toFixed(2);
+      // Posted now: it is on this month's statement.
+      const statementMonth = monthName(
+        new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7),
+      );
       for (const o of owners)
         await notifyUser(tx, scope, {
           userId: o.user_id,
           category: "account",
-          dedupeKey: `ai-coach-service-fee:${period}:${reference}`,
+          dedupeKey: `ai-coach-service-fee:${period}:${referenceKey(reference)}`,
           title: `${AI_COACH_SERVICE_FEE} adjustment for ${monthName(period)}`,
           body:
             difference > 0
-              ? `${AI_COACH_SERVICE_FEE} adjustment: AED ${amount} more for ${monthName(period)}. It is deducted from your earnings and shown on your monthly statement.`
-              : `${AI_COACH_SERVICE_FEE} adjustment: AED ${amount} back for ${monthName(period)}. It is added to your earnings and shown on your monthly statement.`,
+              ? `${AI_COACH_SERVICE_FEE} adjustment: AED ${amount} more for ${monthName(period)}. It is deducted from your earnings and shown on your ${statementMonth} statement.`
+              : `${AI_COACH_SERVICE_FEE} adjustment: AED ${amount} back for ${monthName(period)}. It is added to your earnings and shown on your ${statementMonth} statement.`,
           href: "/trainer/finance",
           templateKey: "ai-coach-service-fee",
           email: false,

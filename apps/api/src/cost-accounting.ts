@@ -376,7 +376,7 @@ export async function estimateUnresolvedUsage(
   // One set-based update for every row with a basis.
   const updated = priced.length
     ? await tx.query(
-        "UPDATE cost_events c SET estimated_cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),status='estimated',reconciliation=$5::jsonb||jsonb_build_object('basis',v.basis,'previousStatus',v.previous) FROM unnest($1::uuid[],$2::numeric[],$3::text[],$4::text[]) AS v(id,value,basis,previous) WHERE c.id=v.id AND c.cost_usd IS NULL AND c.status IN ('unknown','reserved') RETURNING c.cost_usd::text AS cost",
+        "UPDATE cost_events c SET estimated_cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),cost_usd=coalesce(c.estimated_cost_usd,round(v.value,8)),status='estimated',reconciliation=$5::jsonb||jsonb_build_object('basis',v.basis,'previousStatus',v.previous) FROM unnest($1::uuid[],$2::numeric[],$3::text[],$4::text[]) AS v(id,value,basis,previous) WHERE c.id=v.id AND c.cost_usd IS NULL AND c.status IN ('unknown','reserved') RETURNING c.cost_usd::text AS cost,to_char(c.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM') AS month",
         [
           priced.map((r) => r.id),
           priced.map((r) => r.value),
@@ -406,5 +406,7 @@ export async function estimateUnresolvedUsage(
     estimatedUsd: Math.round(estimatedUsd * 1e8) / 1e8,
     remaining: remaining.length,
     remainingRows: remaining.slice(0, 20),
+    /** The Dubai months whose rows were estimated. */
+    months: [...new Set(updated.map((r) => r.month as string))].sort(),
   };
 }

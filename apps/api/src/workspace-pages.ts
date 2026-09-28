@@ -444,6 +444,26 @@ const simple =
     });
   };
 const FINANCE = ["owner", "finance"] as const;
+/** Events of the platform's pricing of provider calls: operators only. */
+const PLATFORM_EVENTS = [
+  "finance.usage_reconciled",
+  "finance.usage_corrected_after_charge",
+  "finance.provider_usage_priced",
+  "finance.usage_estimated",
+];
+/** Event data that shows a provider, a provider's cost or a conversion rate. */
+const PLATFORM_ONLY_KEY =
+  /usd$|cost|^provider$|^providerRequestId$|^model$|aedperusd|^invoiceReference$/i;
+/** An event as the workspace sees it: without provider cost detail. */
+export function trainerEvent(e: any) {
+  if (!e?.data || typeof e.data !== "object" || Array.isArray(e.data)) return e;
+  const keys = Object.keys(e.data);
+  if (!keys.some((k) => PLATFORM_ONLY_KEY.test(k))) return e;
+  return {
+    ...e,
+    data: Object.fromEntries(keys.filter((k) => !PLATFORM_ONLY_KEY.test(k)).map((k) => [k, e.data[k]])),
+  };
+}
 export const COLLECTIONS: Record<string, Collection> = {
   records: {
     page: async (tx, a, q) => {
@@ -540,7 +560,17 @@ export const COLLECTIONS: Record<string, Collection> = {
   },
   events: {
     exceptRoles: ["subscriber"],
-    page: simple("*", "events", PAGE_SIZES.events),
+    // Provider cost is platform data (owner decision, 28 September 2026):
+    // the platform's own pricing and reconciliation events are not listed to
+    // the workspace, and cost, provider and rate figures are removed from the
+    // others (trainerEvent).
+    page: async (tx, a, q) => {
+      const page = await simple("*", "events", PAGE_SIZES.events, () => ({
+        where: ["name<>ALL(ARRAY['" + PLATFORM_EVENTS.join("','") + "'])"],
+        params: [],
+      }))(tx, a, q);
+      return { ...page, items: page.items.map(trainerEvent) };
+    },
   },
   costs: {
     roles: FINANCE,
@@ -574,8 +604,10 @@ export const COLLECTIONS: Record<string, Collection> = {
     roles: FINANCE,
     page: (tx, _a, q) =>
       keysetPage(tx, {
-        // One line per month: the AI Coach Service Fee and its amount.
-        select: "period,charge_minor",
+        // One line per month: the AI Coach Service Fee and its amount, with
+        // any later adjustment of that month's fee.
+        select:
+          "period,charge_minor,(SELECT coalesce(sum((j.data->>'differenceMinor')::bigint),0) FROM journals j WHERE j.source_key LIKE 'usage-adjustment:'||usage_statements.period||':%')::text AS adjustments_minor",
         from: "usage_statements",
         key: [{ sql: "period", cursorSql: "period", type: "text" }],
         descending: true,

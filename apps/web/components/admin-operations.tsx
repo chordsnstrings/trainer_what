@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { money } from "@trainer/domain";
 import { SupportPreview, SupportPreviewLaunch } from "./support-preview";
 import { MessagingConfiguration } from "./messaging-admin";
 import { LeadAnalytics } from "./lead-analytics";
@@ -134,8 +135,18 @@ export function TrainerAnalytics() {
           </section>
           <LeadAnalytics leads={data.leads} />
           <section className="card">
-            <h2>Revenue by month (AED minor units, Dubai months)</h2>
-            <Table rows={data.revenue} labels={REVENUE_LABELS} />
+            <h2>Revenue by month (AED, Dubai months)</h2>
+            <Table
+              rows={(data.revenue as any[]).map((r) =>
+                Object.fromEntries(
+                  Object.entries(r).map(([k, v]) => [
+                    k,
+                    k.endsWith("_minor") ? money(Number(v ?? 0)) : v,
+                  ]),
+                ),
+              )}
+              labels={REVENUE_LABELS}
+            />
           </section>
         </>
       )}

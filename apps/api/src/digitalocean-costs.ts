@@ -139,10 +139,25 @@ export async function importDigitalOceanBilling(
     project: input.project,
   });
   try {
-    // 1. Final invoices not imported yet: the project's items become costs.
+    // The configured project must exist in the team: a wrong or renamed
+    // project would otherwise import every invoice as "none of our items"
+    // and estimate nothing, as if the servers cost nothing. The run fails
+    // (and raises the import alert) until the setting is corrected.
+    const project = (await input.client.projects()).find(
+      (p) => p.name.trim().toLowerCase() === input.project.trim().toLowerCase(),
+    );
+    if (!project)
+      throw new Error(
+        `The DigitalOcean project "${input.project.slice(0, 80)}" was not found in the team; check the project under Settings → DigitalOcean billing`,
+      );
+    // 1. Final invoices not imported for this project yet: its items become costs.
     const known = new Set(
       (
-        await db.system((tx) => tx.query("SELECT invoice_uuid FROM digitalocean_invoices"))
+        await db.system((tx) =>
+          tx.query("SELECT invoice_uuid FROM digitalocean_invoices WHERE lower(project_name)=lower($1)", [
+            project.name,
+          ]),
+        )
       ).map((r: any) => r.invoice_uuid),
     );
     const invoices = await input.client.invoices();
@@ -175,25 +190,17 @@ export async function importDigitalOceanBilling(
             ],
           );
         }
+        // Only the project's own figures: the team's total includes other,
+        // unrelated projects and is not kept.
         await tx.query(
-          "INSERT INTO digitalocean_invoices(invoice_uuid,month,team_amount_usd,project_name,project_items,project_amount_usd) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-          [
-            invoice.invoice_uuid,
-            invoice.invoice_period,
-            Number(invoice.amount ?? 0),
-            input.project,
-            mine.length,
-            total / 100,
-          ],
+          "INSERT INTO digitalocean_invoices(invoice_uuid,month,project_name,project_items,project_amount_usd) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+          [invoice.invoice_uuid, invoice.invoice_period, project.name, mine.length, total / 100],
         );
       });
       imported.push({ month: invoice.invoice_period, items: mine.length, usd: (total / 100).toFixed(2) });
     }
     // 2. This month (no invoice yet): an estimate from the project's resources.
     const month = utcMonth(now);
-    const project = (await input.client.projects()).find(
-      (p) => p.name.trim().toLowerCase() === input.project.trim().toLowerCase(),
-    );
     let estimate: {
       month: string;
       projectedUsd: number;
@@ -201,7 +208,7 @@ export async function importDigitalOceanBilling(
       resources: number;
       notEstimated: string[];
     } | null = null;
-    if (project) {
+    {
       const resources = await input.client.projectResources(project.id);
       const lines: ResourceEstimate[] = [];
       for (const r of resources.slice(0, 100))
@@ -223,8 +230,8 @@ export async function importDigitalOceanBilling(
       };
     }
     const result = {
-      project: input.project,
-      projectFound: !!project,
+      project: project.name,
+      projectFound: true,
       invoicesChecked: invoices.length,
       invoicesImported: imported,
       estimate,
@@ -245,20 +252,27 @@ export async function importDigitalOceanBilling(
  * estimate, marked as one. A month whose invoice was imported shows the
  * invoice's items (platform_costs) only: the estimate is replaced.
  */
-registerPlatformCostSource(async (db, months): Promise<PlatformCostRow[]> => {
+registerPlatformCostSource(async (db, months, now): Promise<PlatformCostRow[]> => {
   const rows = await db.system((tx) =>
     tx.query(
-      "SELECT e.month,e.project_name,e.amount_usd::text AS usd,e.computed_at FROM digitalocean_estimates e WHERE e.month=ANY($1::text[]) AND NOT EXISTS(SELECT 1 FROM digitalocean_invoices i WHERE i.month=e.month)",
+      "SELECT e.month,e.project_name,e.amount_usd::text AS usd,e.to_date_usd::text AS to_date,e.computed_at FROM digitalocean_estimates e WHERE e.month=ANY($1::text[]) AND NOT EXISTS(SELECT 1 FROM digitalocean_invoices i WHERE i.month=e.month AND lower(i.project_name)=lower(e.project_name))",
       [months],
     ),
   );
+  // The month in progress counts what the resources cost so far (income is
+  // to date too); the projection to the month end is in the description.
+  const open = utcMonth(now);
   return rows
+    .map((r: any) => ({ ...r, projected: r.usd, usd: r.month === open ? r.to_date : r.usd }))
     .filter((r) => cents(r.usd) > 0)
     .map((r) => ({
       id: "digitalocean-estimate:" + r.month,
       month: r.month,
       category: "server",
-      description: `DigitalOcean ${r.project_name}: estimate from the project's resources until the invoice arrives`,
+      description:
+        r.month === open
+          ? `DigitalOcean ${r.project_name}: cost so far this month, estimated from the project's resources (about USD ${Number(r.projected).toFixed(2)} for the whole month) until the invoice arrives`
+          : `DigitalOcean ${r.project_name}: estimate from the project's resources until the invoice arrives`,
       vendor: "DigitalOcean",
       amountMinor: cents(r.usd),
       currency: "USD",

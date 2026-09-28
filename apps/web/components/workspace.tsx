@@ -3538,6 +3538,11 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           {!!state.usageStatements?.length && (
             <Card>
               <h2>AI Coach Service Fee</h2>
+              <p className="muted">
+                By the month it is for. A month&apos;s fee is posted after the
+                month ends: it is on the next month&apos;s statement and is
+                deducted from the payout for the month it is for.
+              </p>
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -3547,14 +3552,26 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {state.usageStatements.map((s) => (
-                      <tr key={s.period}>
-                        <td>{s.period}</td>
-                        <td>
-                          <span dir="ltr">{money(Number(s.charge_minor))}</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {state.usageStatements.map((s) => {
+                      const adjustments = Number(s.adjustments_minor ?? 0);
+                      return (
+                        <tr key={s.period}>
+                          <td>{monthName(s.period)}</td>
+                          <td>
+                            <span dir="ltr">
+                              {money(Number(s.charge_minor) + adjustments)}
+                            </span>
+                            {adjustments !== 0 && (
+                              <span className="muted">
+                                {" "}
+                                (including an adjustment of{" "}
+                                <span dir="ltr">{money(adjustments)}</span>)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3734,33 +3751,59 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                   <table>
                     <thead>
                       <tr>
-                        <th>Date</th>
-                        <th>Description</th>
-                        <th>Gross</th>
-                        <th>Commission</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Gross</th>
+                        <th scope="col">Commission</th>
+                        <th scope="col">Deducted from your earnings</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {state.journals.map((j) => (
-                        <tr key={j.id}>
-                          <td>{new Date(j.created_at).toLocaleDateString()}</td>
-                          <td>{j.description}</td>
-                          <td>
-                            <span dir="ltr">
-                              {j.data.grossMinor
-                                ? money(j.data.grossMinor)
-                                : "—"}
-                            </span>
-                          </td>
-                          <td>
-                            <span dir="ltr">
-                              {j.data.commissionMinor
-                                ? money(j.data.commissionMinor)
-                                : "—"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {state.journals.map((j) => {
+                        // The AI Coach Service Fee (and its adjustments),
+                        // Stripe's fee at settlement and other charges: what
+                        // the entry takes from the trainer's earnings.
+                        const key = String(j.source_key ?? "");
+                        const fee =
+                          key.startsWith("usage:") ||
+                          key.startsWith("usage-adjustment:");
+                        const deducted =
+                          fee || key.startsWith("allocated-cost:")
+                            ? (j.data?.amountMinor ?? null)
+                            : key.startsWith("stripe-settlement:")
+                              ? (j.data?.feeMinor ?? null)
+                              : null;
+                        return (
+                          <tr key={j.id}>
+                            <td>{new Date(j.created_at).toLocaleDateString()}</td>
+                            <td>
+                              {j.description}
+                              {fee && j.data?.period
+                                ? ` for ${monthName(j.data.period)}`
+                                : ""}
+                            </td>
+                            <td>
+                              <span dir="ltr">
+                                {j.data.grossMinor
+                                  ? money(j.data.grossMinor)
+                                  : "—"}
+                              </span>
+                            </td>
+                            <td>
+                              <span dir="ltr">
+                                {j.data.commissionMinor
+                                  ? money(j.data.commissionMinor)
+                                  : "—"}
+                              </span>
+                            </td>
+                            <td>
+                              <span dir="ltr">
+                                {deducted === null ? "—" : money(Number(deducted))}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   <LoadMore
@@ -3789,23 +3832,40 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
  * fees are paid by the trainer and shown plainly with each payout).
  */
 function usePayoutDeductions() {
-  const [months, setMonths] = useState<Record<string, any>>({});
+  const [data, setData] = useState<{
+    months: Record<string, any>;
+    fees: Record<string, any>;
+  }>({ months: {}, fees: {} });
   useEffect(() => {
     let live = true;
     void fetch("/api/v1/finance/deductions", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { months: [] }))
       .then((d) => {
         if (live)
-          setMonths(
-            Object.fromEntries((d.months ?? []).map((m: any) => [m.month, m])),
-          );
+          setData({
+            months: Object.fromEntries(
+              (d.months ?? []).map((m: any) => [m.month, m]),
+            ),
+            // A month's AI Coach Service Fee, by the month it is for.
+            fees: Object.fromEntries(
+              (d.aiCoachServiceFees ?? []).map((f: any) => [f.period, f]),
+            ),
+          });
       })
       .catch(() => {});
     return () => {
       live = false;
     };
   }, []);
-  return months;
+  return data;
+}
+/** "July 2026" for a YYYY-MM month. */
+function monthName(period: string) {
+  return new Date(period + "-15T00:00:00Z").toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 function PayoutView({ state, records, action, busy, more }: ViewProps) {
   const deductions = usePayoutDeductions();
@@ -3893,23 +3953,43 @@ function PayoutView({ state, records, action, busy, more }: ViewProps) {
               <div>
                 <strong>{money(p.amount_minor)}</strong>
                 <p>{p.period}</p>
-                {deductions[p.period] && (
+                {(deductions.months[p.period] || deductions.fees[p.period]) && (
                   <p className="muted">
-                    Deducted in {p.period}: Stripe fees (paid by you){" "}
-                    <span dir="ltr">
-                      {money(deductions[p.period].stripeFeesMinor)}
-                    </span>{" "}
-                    · AI Coach Service Fee{" "}
-                    <span dir="ltr">
-                      {money(deductions[p.period].aiCoachServiceFeeMinor)}
-                    </span>
-                    {deductions[p.period].otherChargesMinor > 0 && (
+                    {deductions.fees[p.period] && (
                       <>
-                        {" "}
-                        · Other charges{" "}
+                        AI Coach Service Fee for {monthName(p.period)}{" "}
                         <span dir="ltr">
-                          {money(deductions[p.period].otherChargesMinor)}
+                          {money(deductions.fees[p.period].feeMinor)}
                         </span>
+                        {deductions.fees[p.period].adjustmentsMinor !== 0 && (
+                          <>
+                            {" "}
+                            (adjusted later by{" "}
+                            <span dir="ltr">
+                              {money(deductions.fees[p.period].adjustmentsMinor)}
+                            </span>
+                            )
+                          </>
+                        )}
+                        {deductions.months[p.period] && " · "}
+                      </>
+                    )}
+                    {deductions.months[p.period] && (
+                      <>
+                        Stripe fees (paid by you) settled in{" "}
+                        {monthName(p.period)}{" "}
+                        <span dir="ltr">
+                          {money(deductions.months[p.period].stripeFeesMinor)}
+                        </span>
+                        {deductions.months[p.period].otherChargesMinor > 0 && (
+                          <>
+                            {" "}
+                            · Other charges in {monthName(p.period)}{" "}
+                            <span dir="ltr">
+                              {money(deductions.months[p.period].otherChargesMinor)}
+                            </span>
+                          </>
+                        )}
                       </>
                     )}
                   </p>

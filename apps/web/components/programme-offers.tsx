@@ -46,7 +46,9 @@ export function OfferTerms({ data }: { data: any }) {
 
 type FeeTerms = {
   stripe: { percentBps: number; fixedMinor: number; internationalBps: number };
-  commissionBps: number[];
+  /** Null for staff, who set session prices but not the offer. */
+  commissionBps: number[] | null;
+  bookingFeeBps?: number;
   note: string;
 };
 let feeTerms: Promise<FeeTerms | null> | null = null;
@@ -56,7 +58,12 @@ function useFeeTerms() {
   useEffect(() => {
     feeTerms ??= fetch("/api/v1/finance/fees", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null);
+      .catch(() => null)
+      .then((t) => {
+        // A failed read is tried again on the next form, not kept.
+        if (!t) feeTerms = null;
+        return t;
+      });
     let live = true;
     void feeTerms.then((t) => {
       if (live) setTerms(t);
@@ -75,42 +82,68 @@ function useFeeTerms() {
 export function PaymentEstimate({ price }: { price: string }) {
   const terms = useFeeTerms();
   const minor = Math.round(Number(price) * 100);
-  if (!terms || !Number.isSafeInteger(minor) || minor <= 0) return null;
-  const first = paymentBreakdown(minor, terms.stripe, terms.commissionBps[0]);
-  const last = paymentBreakdown(
-    minor,
-    terms.stripe,
-    terms.commissionBps[terms.commissionBps.length - 1],
+  const bands = terms?.commissionBps ?? null;
+  const valid = !!terms && !!bands?.length && Number.isSafeInteger(minor) && minor > 0;
+  const first = valid ? paymentBreakdown(minor, terms!.stripe, bands![0]) : null;
+  // One short announcement once typing pauses; the breakdown below is not
+  // read out again on every keystroke.
+  const [spoken, setSpoken] = useState("");
+  const summary = first
+    ? `Each payment of ${money(minor)}: you receive about ${money(first.youReceiveMinor)} after Stripe's fee and the platform commission.`
+    : "";
+  useEffect(() => {
+    const timer = setTimeout(() => setSpoken(summary), 900);
+    return () => clearTimeout(timer);
+  }, [summary]);
+  const live = (
+    <p className="sr-only" role="status" aria-live="polite">
+      {spoken}
+    </p>
   );
+  if (!valid || !first) return live;
+  const last = paymentBreakdown(minor, terms!.stripe, bands![bands!.length - 1]);
   const pct = (bps: number) => `${(bps / 100).toLocaleString("en")}%`;
+  const t = terms!;
   return (
-    <div className="notice" role="status" aria-live="polite">
-      <p>
-        <strong>Each payment of <span dir="ltr">{money(minor)}</span>:</strong>{" "}
-        Stripe fee, paid by you, about{" "}
-        <span dir="ltr">{money(first.stripeFeeMinor)}</span> (
-        {pct(terms.stripe.percentBps)} + <span dir="ltr">{money(terms.stripe.fixedMinor)}</span>
-        ; a card issued outside the UAE about{" "}
-        <span dir="ltr">{money(first.internationalFeeMinor)}</span>). Platform
-        commission <span dir="ltr">{money(first.commissionMinor)}</span> (
-        {pct(terms.commissionBps[0])} for your first 100 paying members, down to{" "}
-        {pct(terms.commissionBps[terms.commissionBps.length - 1])}).
-      </p>
-      <p>
-        You receive about{" "}
-        <strong>
-          <span dir="ltr">{money(first.youReceiveMinor)}</span>
-        </strong>{" "}
-        (up to <span dir="ltr">{money(last.youReceiveMinor)}</span> in the lowest
-        commission band).
-      </p>
-      <p className="muted">{terms.note}</p>
-    </div>
+    <>
+      {live}
+      <div className="notice">
+        <p>
+          <strong>Each payment of <span dir="ltr">{money(minor)}</span>:</strong>{" "}
+          Stripe fee, paid by you, about{" "}
+          <span dir="ltr">{money(first.stripeFeeMinor)}</span> (
+          {pct(t.stripe.percentBps)} + <span dir="ltr">{money(t.stripe.fixedMinor)}</span>
+          ; a card issued outside the UAE about{" "}
+          <span dir="ltr">{money(first.internationalFeeMinor)}</span>). Platform
+          commission <span dir="ltr">{money(first.commissionMinor)}</span> (
+          {pct(bands![0])} for your first 100 paying members, down to{" "}
+          {pct(bands![bands!.length - 1])}).
+        </p>
+        <p>
+          You receive about{" "}
+          <strong>
+            <span dir="ltr">{money(first.youReceiveMinor)}</span>
+          </strong>{" "}
+          (up to <span dir="ltr">{money(last.youReceiveMinor)}</span> in the lowest
+          commission band).
+        </p>
+        <p className="muted">{t.note}</p>
+      </div>
+    </>
   );
 }
 
-/** Stripe's fee terms in one sentence, for prices without commission bands. */
-export function StripeFeeNote({ subject }: { subject: string }) {
+/**
+ * Stripe's fee terms in one sentence, for prices without commission bands;
+ * `bookingFee` adds the platform's booking fee (paid sessions).
+ */
+export function StripeFeeNote({
+  subject,
+  bookingFee = false,
+}: {
+  subject: string;
+  bookingFee?: boolean;
+}) {
   const terms = useFeeTerms();
   if (!terms) return null;
   const pct = (bps: number) => `${(bps / 100).toLocaleString("en")}%`;
@@ -120,7 +153,12 @@ export function StripeFeeNote({ subject }: { subject: string }) {
       {pct(terms.stripe.percentBps)} +{" "}
       <span dir="ltr">{money(terms.stripe.fixedMinor)}</span> per payment, and{" "}
       {pct(terms.stripe.internationalBps)} more for a card issued outside the
-      UAE. The actual fee is on your monthly statement.
+      UAE.
+      {bookingFee &&
+        (terms.bookingFeeBps
+          ? ` The platform's booking fee is ${pct(terms.bookingFeeBps)} of each paid session.`
+          : " The platform charges no booking fee on sessions.")}{" "}
+      The actual fee is on your monthly statement.
     </p>
   );
 }

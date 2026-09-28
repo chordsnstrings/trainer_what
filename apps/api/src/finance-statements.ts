@@ -320,6 +320,19 @@ export async function financialStatement(
   return {
     ...statement,
     aiCoachServiceFeeMinor: totals.usageMinor,
+    // A month's fee is posted after the month ends, so this statement shows
+    // earlier months' fees: each one is named by the month it is for.
+    aiCoachServiceFees: entries
+      .filter(
+        (entry: any) =>
+          entry.source_key.startsWith("usage:") ||
+          entry.source_key.startsWith("usage-adjustment:"),
+      )
+      .map((entry: any) => ({
+        period: entry.data?.period ?? null,
+        adjustment: entry.source_key.startsWith("usage-adjustment:"),
+        amountMinor: lineSum(entry, "trainer_payable"),
+      })),
     stripeFeesMinor: totals.processingFeesMinor,
     entries: entries
       .filter(
@@ -346,8 +359,14 @@ export function trainerEntry(entry: any) {
           entry.data?.chargeMinor ?? entry.data?.differenceMinor ?? null,
       },
     };
+  // A settlement's gross is the members' payments already listed; what the
+  // trainer pays in it is Stripe's fee.
   if (key.startsWith("stripe-settlement:"))
-    return { ...entry, description: "Stripe fees (paid by you) and bank settlement" };
+    return {
+      ...entry,
+      description: "Stripe fees (paid by you) and bank settlement",
+      data: { feeMinor: Number(entry.data?.feeMinor ?? 0) },
+    };
   return entry;
 }
 

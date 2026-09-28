@@ -89,6 +89,7 @@ const costRow = (r: any): PlatformCostRow => ({
 export async function platformCostsForMonths(
   db: Database,
   months: string[],
+  now = new Date(),
 ): Promise<PlatformCostRow[]> {
   if (!months.length) return [];
   const rows = await db.system((tx) =>
@@ -97,16 +98,15 @@ export async function platformCostsForMonths(
       [months],
     ),
   );
-  return [...rows.map(costRow), ...(await Promise.all(extraCosts.map((x) => x(db, months)))).flat()];
+  return [...rows.map(costRow), ...(await Promise.all(extraCosts.map((x) => x(db, months, now)))).flat()];
 }
+type CostSource = (db: Database, months: string[], now: Date) => Promise<PlatformCostRow[]>;
 /**
  * Costs another module supplies for months (phase D: DigitalOcean's
  * estimate for a month whose invoice has not arrived), registered at load.
  */
-const extraCosts: Array<(db: Database, months: string[]) => Promise<PlatformCostRow[]>> = [];
-export function registerPlatformCostSource(
-  source: (db: Database, months: string[]) => Promise<PlatformCostRow[]>,
-) {
+const extraCosts: CostSource[] = [];
+export function registerPlatformCostSource(source: CostSource) {
   extraCosts.push(source);
 }
 
@@ -157,10 +157,12 @@ export async function stripeFeesForMonths(db: Database, months: string[]) {
 }
 
 /**
- * The registrar's cost of every trainer domain, all time, per currency (the
- * platform's own figure, never shown to trainers), the top-ups recorded as
- * platform costs, the book balance they leave, and the last balance the
- * registrar reported.
+ * The registrar's cost of every trainer domain, all time (the platform's own
+ * figure, never shown to trainers), the top-ups recorded as platform costs,
+ * the book balance they leave, and the last balance the registrar reported.
+ * The registrar charges in US dollars, so every charge counts at its USD
+ * cost, including orders quoted in AED (their journal is in AED at the
+ * quote's rate and records the USD cost), and the book is kept in USD.
  */
 export async function registrarBook(db: Database) {
   const workspaces = await db.system((tx) =>
@@ -170,17 +172,20 @@ export async function registrarBook(db: Database) {
         " ORDER BY t.id",
     ),
   );
-  const charged: Record<string, number> = {};
+  let chargedUsdCents = 0;
+  const byCurrency: Record<string, number> = {};
   for (const w of workspaces) {
     const rows = await db.tenant(
       elevated("worker", { tenantId: w.id, role: "finance" }),
       (tx) =>
         tx.query(
-          "SELECT j.currency,coalesce(sum(l.amount_minor),0)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE l.account='registrar_cost' GROUP BY j.currency",
+          "SELECT j.currency,coalesce(sum(l.amount_minor),0)::text AS amount,coalesce(sum(CASE WHEN j.currency='USD' THEN l.amount_minor WHEN j.data->>'usd' ~ '^[0-9]{1,9}([.][0-9]{1,8})?$' THEN ceil((j.data->>'usd')::numeric*100) WHEN j.data->>'usdToAed' ~ '^[0-9]{1,3}([.][0-9]{1,8})?$' AND (j.data->>'usdToAed')::numeric>0 THEN round(l.amount_minor/(j.data->>'usdToAed')::numeric) ELSE 0 END),0)::text AS usd_cents FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE l.account='registrar_cost' GROUP BY j.currency",
         ),
     );
-    for (const r of rows)
-      charged[r.currency] = (charged[r.currency] ?? 0) + Number(r.amount);
+    for (const r of rows) {
+      byCurrency[r.currency] = (byCurrency[r.currency] ?? 0) + Number(r.amount);
+      chargedUsdCents += Number(r.usd_cents);
+    }
   }
   const topUps: Record<string, number> = {};
   for (const r of await db.system((tx) =>
@@ -189,19 +194,22 @@ export async function registrarBook(db: Database) {
     ),
   ))
     topUps[r.currency] = Number(r.amount);
-  const book: Record<string, number> = {};
-  for (const c of new Set([...Object.keys(charged), ...Object.keys(topUps)]))
-    book[c] = (topUps[c] ?? 0) - (charged[c] ?? 0);
   const [reading] = await db.system((tx) =>
     tx.query(
       "SELECT result,finished_at,status,error FROM platform_finance_runs WHERE kind='registrar_balance' AND status<>'running' ORDER BY started_at DESC LIMIT 1",
     ),
   );
   return {
-    chargedMinor: charged,
+    /** Every registrar charge at its USD cost (US cents). */
+    chargedMinor: Object.keys(byCurrency).length ? { USD: chargedUsdCents } : {},
+    /** The same charges as journaled (AED for orders quoted in AED). */
+    chargedByJournalCurrencyMinor: byCurrency,
     topUpsMinor: topUps,
-    /** Top-ups less registrar charges: what the prepaid balance should hold. */
-    bookBalanceMinor: Object.keys(topUps).length ? book : null,
+    /**
+     * USD top-ups less every registrar charge at its USD cost: what the
+     * prepaid balance should hold (top-ups in another currency are not in it).
+     */
+    bookBalanceMinor: topUps.USD !== undefined ? { USD: topUps.USD - chargedUsdCents } : null,
     lastReading: reading
       ? {
           at: reading.finished_at,
@@ -472,6 +480,20 @@ export async function recordPayoutFee(db: Database, a: Actor, raw: unknown) {
   if (!payout) throw fail(404, "NOT_FOUND", "Payout unavailable");
   if (!["submitted", "processing", "paid", "returned", "failed", "unknown"].includes(payout.status))
     throw fail(409, "PAYOUT_NOT_SENT", "A bank fee is recorded for a payout sent to the bank");
+  // One fee per payout at a time: a retried request returns it, another
+  // amount is refused until it is reversed; after a reversal the correct fee
+  // is a new entry (each attempt its own key).
+  const earlier = await db.system((tx) =>
+    tx.query(
+      "SELECT c.*,EXISTS(SELECT 1 FROM platform_costs r WHERE r.reverses_id=c.id) AS reversed FROM platform_costs c WHERE c.category='payout_fee' AND c.payout_id=$1 AND c.reverses_id IS NULL ORDER BY c.created_at,c.id",
+      [b.payoutId],
+    ),
+  );
+  const live = earlier.find((c: any) => !c.reversed);
+  if (live) {
+    if (Number(live.amount_minor) === minor && live.currency === b.currency) return costRow(live);
+    throw fail(409, "INTENT_CONFLICT", "This payout already has a different bank fee; reverse it first");
+  }
   const result = await insertCost(db, {
     month: new Date(new Date(payout.updated_at).getTime() + 4 * 3600000).toISOString().slice(0, 7),
     category: "payout_fee",
@@ -481,7 +503,7 @@ export async function recordPayoutFee(db: Database, a: Actor, raw: unknown) {
     currency: b.currency,
     receiptReference: b.receiptReference,
     source: "payout_fee",
-    externalKey: "payout-fee:" + b.payoutId,
+    externalKey: "payout-fee:" + b.payoutId + (earlier.length ? ":" + (earlier.length + 1) : ""),
     tenantId: b.tenantId,
     payoutId: b.payoutId,
     createdBy: a.userId,

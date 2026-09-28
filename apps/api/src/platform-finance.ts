@@ -4,6 +4,7 @@ import { z } from "zod";
 import { elevated, event, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { monthCutoff } from "./finance-operations.ts";
+import { refreshSummary } from "./platform-finance-runs.ts";
 import {
   dubaiMonthRange,
   financeSettings,
@@ -690,6 +691,9 @@ export function registerPlatformFinance(
       })
       .strict()
       .parse(req.body);
-    return priceProviderUsage(db, a, b);
+    const result = await priceProviderUsage(db, a, b);
+    // The month's priced calls change on Platform finance.
+    await refreshSummary(db, [b.period]);
+    return result;
   });
 }

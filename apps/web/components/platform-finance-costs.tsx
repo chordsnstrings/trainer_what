@@ -9,10 +9,12 @@ import { GovernanceError, governanceApi, usd, when } from "./governance-shared";
 // adjustments for months already charged and Stripe's fees per payment.
 
 type Failure = { message: string; code?: string } | null;
+/** An amount with its currency code ("USD 24.00"), as on the rest of the screen. */
 const inCurrency = (minor: number, currency: string) =>
   new Intl.NumberFormat("en-AE", {
     style: "currency",
     currency,
+    currencyDisplay: "code",
     maximumFractionDigits: 2,
   }).format(minor / 100);
 const CATEGORY: Record<string, string> = {
@@ -128,10 +130,14 @@ export function PlatformCostsView({
                           disabled={busy}
                           onClick={() => {
                             const reason = window.prompt("Why is this entry wrong? (at least 10 characters)");
-                            if (reason && reason.trim().length >= 10)
-                              void act("Entry reversed.", () =>
-                                governanceApi(`/admin/platform-finance/costs/${c.id}/reverse`, "POST", { reason }),
-                              );
+                            if (reason === null) return;
+                            if (reason.trim().length < 10)
+                              return setError({
+                                message: "Not reversed: give a reason of at least 10 characters.",
+                              });
+                            void act("Entry reversed.", () =>
+                              governanceApi(`/admin/platform-finance/costs/${c.id}/reverse`, "POST", { reason }),
+                            );
                           }}
                         >
                           Reverse
@@ -226,13 +232,17 @@ export function PlatformCostsView({
                       disabled={busy}
                       onClick={() => {
                         const endsMonth = window.prompt("Last month (YYYY-MM)", range.to);
-                        if (endsMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(endsMonth))
-                          void act("Recurring cost ended.", () =>
-                            governanceApi(`/admin/platform-finance/recurring/${r.id}/end`, "POST", {
-                              revision: r.revision,
-                              endsMonth,
-                            }),
-                          );
+                        if (endsMonth === null) return;
+                        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(endsMonth.trim()))
+                          return setError({
+                            message: "Not changed: give the last month as YYYY-MM, for example 2026-12.",
+                          });
+                        void act("Recurring cost ended.", () =>
+                          governanceApi(`/admin/platform-finance/recurring/${r.id}/end`, "POST", {
+                            revision: r.revision,
+                            endsMonth: endsMonth.trim(),
+                          }),
+                        );
                       }}
                     >
                       Set last month
@@ -513,8 +523,7 @@ export function DigitalOceanBillingView({ onChanged }: { onChanged: () => Promis
             <ul>
               {data.invoices.map((i: any) => (
                 <li key={i.invoice_uuid}>
-                  Invoice {i.month}: {i.project_items} item(s) of the project, {usd(i.project_usd)} (the whole team{" "}
-                  {usd(i.team_usd)}, not counted)
+                  Invoice {i.month}: {i.project_items} item(s) of the project, {usd(i.project_usd)}
                 </li>
               ))}
             </ul>
@@ -559,12 +568,21 @@ export function PayoutFeeForm({
         }
       }}
     >
-      <input name="amount" aria-label={`Bank fee for the ${payout.period} payout`} required inputMode="decimal" pattern="\d{1,9}(\.\d{1,2})?" size={8} />
-      <select name="currency" aria-label="Fee currency" defaultValue="AED">
-        <option>AED</option>
-        <option>USD</option>
-      </select>
-      <input name="receipt" aria-label="Bank statement reference" required minLength={3} maxLength={300} size={14} />
+      <label>
+        Fee{" "}
+        <input name="amount" aria-label={`Bank fee for the ${payout.period} payout`} placeholder="5.25" required inputMode="decimal" pattern="\d{1,9}(\.\d{1,2})?" size={8} />
+      </label>
+      <label>
+        Currency{" "}
+        <select name="currency" defaultValue="AED">
+          <option>AED</option>
+          <option>USD</option>
+        </select>
+      </label>
+      <label>
+        Bank reference{" "}
+        <input name="receipt" placeholder="Statement line" required minLength={3} maxLength={300} size={14} />
+      </label>
       <button className="button secondary" disabled={busy}>
         Record fee
       </button>

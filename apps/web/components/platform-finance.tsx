@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Field } from "./field";
 import { PayoutFeeForm, PlatformCostsView } from "./platform-finance-costs";
 import {
@@ -31,11 +31,15 @@ const monthLabel = (month: string) =>
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(month + "-01T00:00:00Z"));
-/** A domain amount in the currency it was charged in. */
+/**
+ * An amount in the currency it was charged in, always with the currency code
+ * ("USD 24.00", "AED 1,234.50"), as the AED figures are shown.
+ */
 const inCurrency = (minor: number, currency: string) =>
   new Intl.NumberFormat("en-AE", {
     style: "currency",
     currency,
+    currencyDisplay: "code",
     maximumFractionDigits: 2,
   }).format(minor / 100);
 const signed = (minor: number | null) =>
@@ -78,6 +82,24 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
     [notice, setNotice] = useState("");
   const range = rangeFor(period, month, custom);
   const query = `from=${range.from}&to=${range.to}`;
+  // Tabs: one tab stop; arrow keys, Home and End move between them.
+  const moveTab = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const ids = TABS.map(([id]) => id);
+    const index = ids.indexOf(tab);
+    // The row mirrors right to left, so ArrowLeft then moves forward.
+    const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+    const forward = event.key === (rtl ? "ArrowLeft" : "ArrowRight");
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? ids.length - 1
+          : (index + (forward ? 1 : -1) + ids.length) % ids.length;
+    setTab(ids[next]);
+    document.getElementById(`pf-tab-${ids[next]}`)?.focus();
+  };
   const load = useCallback(async () => {
     setError(null);
     setData(await governanceApi(`/admin/platform-finance?${query}`));
@@ -180,7 +202,10 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
               <p className="muted">
                 {monthLabel(data.range.from)}
                 {data.range.to !== data.range.from && ` to ${monthLabel(data.range.to)}`}
-                . Summary built {when(data.summary.computedAt)}.{" "}
+                {data.total.inProgress &&
+                  ` (${monthLabel(data.range.current)} is in progress: its figures are to date)`}
+                . Summary last built for every trainer {when(data.summary.computedAt)}; each
+                month&apos;s build time is in the monthly summary.{" "}
                 {data.basis}
               </p>
               {data.summary.missingMonths.length > 0 && (
@@ -192,14 +217,18 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
                 </div>
               )}
               <div className="stats-grid governance-stats">
-                <Tile label="Income" value={aed(data.total.incomeMinor)}
-                  detail="Commission, AI Coach Service Fee, domains and costs charged" />
-                <Tile label="Costs" value={aed(data.total.costsMinor)}
-                  detail={`Of which ${aed(data.total.estimatedCostMinor)} estimated`} />
-                <Tile label="Profit" value={aed(data.total.profitMinor)}
-                  detail={`Margin ${percent(data.total.margin)}`} />
+                <Tile label={data.total.inProgress ? "Income (to date)" : "Income"} value={aed(data.total.incomeMinor)}
+                  detail={`${(data.total.income as any[]).map((l) => l.label.replace(/ \(.*\)$/, "")).join(", ")}; the AI Coach Service Fee as far as received`} />
+                <Tile label={data.total.inProgress ? "Costs (to date)" : "Costs"} value={aed(data.total.costsMinor)}
+                  detail={`Of which ${aed(data.total.estimatedCostMinor)} estimated (AI and voice, Stripe fees not read yet, costs awaiting their invoice)`} />
+                <Tile label={data.total.inProgress ? "Profit (to date)" : "Profit"} value={aed(data.total.profitMinor)}
+                  detail={`Margin ${percent(data.total.margin)}${data.total.feeOwedMinor > 0 ? `; ${aed(data.total.feeOwedMinor)} of AI Coach Service Fee owed by trainers, not counted` : ""}`} />
                 <Tile label="Cost against income" value={String(data.flags.filter((f: any) => f.severity === "warning").length)}
-                  detail={`${data.flags.length} flag(s); no budget limits apply`} />
+                  detail={(() => {
+                    const warnings = data.flags.filter((f: any) => f.severity === "warning").length;
+                    const notes = data.flags.length - warnings;
+                    return `${warnings} warning${warnings === 1 ? "" : "s"}, ${notes} note${notes === 1 ? "" : "s"}; no budget limits apply`;
+                  })()} />
               </div>
               <div role="tablist" aria-label="Platform finance views" className="button-row">
                 {TABS.map(([id, label]) => (
@@ -209,9 +238,11 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
                     role="tab"
                     id={`pf-tab-${id}`}
                     aria-selected={tab === id}
-                    aria-controls={`pf-panel-${id}`}
+                    aria-controls="pf-panel"
+                    tabIndex={tab === id ? 0 : -1}
                     className={tab === id ? "button" : "button secondary"}
                     onClick={() => setTab(id)}
+                    onKeyDown={moveTab}
                   >
                     {label}
                   </button>
@@ -220,7 +251,7 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
               <section
                 className="card"
                 role="tabpanel"
-                id={`pf-panel-${tab}`}
+                id="pf-panel"
                 aria-labelledby={`pf-tab-${tab}`}
               >
                 <div className="button-row">
@@ -276,7 +307,18 @@ function Tile({ label, value, detail }: { label: string; value: string; detail: 
     </section>
   );
 }
-function Table({ label, head, children }: { label: string; head: ReactNode[]; children: ReactNode }) {
+function Table({
+  label,
+  head,
+  children,
+  bodies = false,
+}: {
+  label: string;
+  head: ReactNode[];
+  children: ReactNode;
+  /** The children are <tbody> row groups (each with its own heading). */
+  bodies?: boolean;
+}) {
   return (
     <div className="table-scroll" role="region" aria-label={label} tabIndex={0}>
       <table>
@@ -289,11 +331,14 @@ function Table({ label, head, children }: { label: string; head: ReactNode[]; ch
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        {bodies ? children : <tbody>{children}</tbody>}
       </table>
     </div>
   );
 }
+/** A month's column heading; the month in progress is marked as to date. */
+const monthHeading = (m: { month: string; inProgress?: boolean }) =>
+  monthLabel(m.month) + (m.inProgress ? " (to date)" : "");
 const Money = ({ minor }: { minor: number | null | undefined }) => (
   <span dir="ltr">{aed(minor)}</span>
 );
@@ -304,34 +349,36 @@ function PnlView({ data }: { data: any }) {
   return (
     <>
       <h2>Profit and loss</h2>
-      <Table label="Profit and loss by month" head={["Line", ...months.map((m) => monthLabel(m.month)), "Period total"]}>
+      <Table bodies label="Profit and loss by month" head={["Line", ...months.map(monthHeading), "Period total"]}>
         {(["income", "costs"] as const).map((side) => (
           <PnlSide key={side} side={side} months={months} lines={lines(side)} total={data.total} />
         ))}
-        <tr>
-          <th scope="row">Profit</th>
-          {months.map((m) => (
-            <td key={m.month}>
-              <strong><Money minor={m.profitMinor} /></strong>
+        <tbody>
+          <tr>
+            <th scope="row">Profit</th>
+            {months.map((m) => (
+              <td key={m.month}>
+                <strong><Money minor={m.profitMinor} /></strong>
+              </td>
+            ))}
+            <td>
+              <strong><Money minor={data.total.profitMinor} /></strong>
             </td>
-          ))}
-          <td>
-            <strong><Money minor={data.total.profitMinor} /></strong>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">Margin</th>
-          {months.map((m) => (
-            <td key={m.month}>{percent(m.margin)}</td>
-          ))}
-          <td>{percent(data.total.margin)}</td>
-        </tr>
+          </tr>
+          <tr>
+            <th scope="row">Margin</th>
+            {months.map((m) => (
+              <td key={m.month}>{percent(m.margin)}</td>
+            ))}
+            <td>{percent(data.total.margin)}</td>
+          </tr>
+        </tbody>
       </Table>
       <h3>Monthly summary and change on the month before</h3>
-      <Table label="Monthly summary" head={["Month", "Income", "Costs", "Profit", "Profit change", "AED per USD", "Estimated cost", "Unpriced calls"]}>
+      <Table label="Monthly summary" head={["Month", "Income", "Costs", "Profit", "Profit change", "AED per USD", "Estimated cost", "Unpriced calls", "Fee owed by trainers", "Summary built"]}>
         {months.map((m) => (
           <tr key={m.month}>
-            <th scope="row">{monthLabel(m.month)}</th>
+            <th scope="row">{monthHeading(m)}</th>
             <td><Money minor={m.incomeMinor} /></td>
             <td><Money minor={m.costsMinor} /></td>
             <td><Money minor={m.profitMinor} /></td>
@@ -341,13 +388,15 @@ function PnlView({ data }: { data: any }) {
             </td>
             <td><Money minor={m.estimatedCostMinor} /></td>
             <td>{m.unpricedCalls}</td>
+            <td><Money minor={m.feeOwedMinor} /></td>
+            <td>{m.builtAt ? when(m.builtAt) : "Not built"}</td>
           </tr>
         ))}
       </Table>
       {data.trends?.length > 0 && months.length > 1 && (
         <>
           <h3>Trends: change on the month before</h3>
-          <Table label="Month over month change per line" head={["Line", ...months.slice(1).map((m) => monthLabel(m.month))]}>
+          <Table label="Month over month change per line" head={["Line", ...months.slice(1).map(monthHeading)]}>
             {data.trends
               .filter((t: any) => t.series.some((x: any) => x.aedMinor !== 0))
               .map((t: any) => (
@@ -385,8 +434,9 @@ function PnlView({ data }: { data: any }) {
   );
 }
 function PnlSide({ side, months, lines, total }: { side: "income" | "costs"; months: any[]; lines: any[]; total: any }) {
+  // Each side is its own row group, so its heading covers only its rows.
   return (
-    <>
+    <tbody>
       <tr>
         <th scope="rowgroup" colSpan={months.length + 2}>
           {side === "income" ? "Income" : "Costs"}
@@ -395,12 +445,27 @@ function PnlSide({ side, months, lines, total }: { side: "income" | "costs"; mon
       {lines.map((l) => (
         <tr key={l.key}>
           <th scope="row">{l.label}</th>
-          {months.map((m) => (
-            <td key={m.month}>
-              <Money minor={m[side].find((x: any) => x.key === l.key)?.aedMinor ?? 0} />
-            </td>
-          ))}
-          <td><Money minor={l.aedMinor} /></td>
+          {months.map((m) => {
+            const line = m[side].find((x: any) => x.key === l.key);
+            return (
+              <td key={m.month}>
+                <Money minor={line?.aedMinor ?? 0} />
+                {line?.estimatedMinor > 0 && (
+                  <span className="muted">
+                    {" "}(<Money minor={line.estimatedMinor} /> estimated)
+                  </span>
+                )}
+              </td>
+            );
+          })}
+          <td>
+            <Money minor={l.aedMinor} />
+            {l.estimatedMinor > 0 && (
+              <span className="muted">
+                {" "}(<Money minor={l.estimatedMinor} /> estimated)
+              </span>
+            )}
+          </td>
         </tr>
       ))}
       <tr>
@@ -414,7 +479,7 @@ function PnlSide({ side, months, lines, total }: { side: "income" | "costs"; mon
           <strong><Money minor={side === "income" ? total.incomeMinor : total.costsMinor} /></strong>
         </td>
       </tr>
-    </>
+    </tbody>
   );
 }
 function TrainersView({ rows }: { rows: any[] }) {
@@ -423,18 +488,19 @@ function TrainersView({ rows }: { rows: any[] }) {
     <>
       <h2>Contribution per trainer</h2>
       <p className="muted">
-        Platform income from each trainer (net commission, AI Coach Service
-        Fee, costs charged and domain payments) against what serving them cost
-        (AI and voice, registrar, refunds and disputes). Lowest contribution
-        first.
+        Platform income from each trainer (net commission, the AI Coach
+        Service Fee as far as their earnings covered it, costs charged and
+        domain payments) against what serving them cost (AI and voice,
+        registrar, refunds and disputes). Lowest contribution first.
       </p>
-      <Table label="Contribution per trainer" head={["Trainer", "Gross", "Platform income", "AI Coach Service Fee", "AI and voice cost", "Domain profit", "Contribution", "Margin", "Cost per paying member", "Stripe fees", "Flags"]}>
+      <Table label="Contribution per trainer" head={["Trainer", "Gross", "Platform income", "AI Coach Service Fee received", "Fee owed", "AI and voice cost", "Domain profit", "Contribution", "Margin", "Cost per paying member", "Stripe fees", "Flags"]}>
         {rows.map((t) => (
           <tr key={t.tenantId}>
             <th scope="row">{t.name}</th>
             <td><Money minor={t.grossMinor} /></td>
             <td><Money minor={t.platformIncomeMinor} /></td>
             <td><Money minor={t.aiCoachServiceFeeMinor} /></td>
+            <td><Money minor={t.aiCoachServiceFeeOwedMinor ?? 0} /></td>
             <td><Money minor={t.providerCostMinor} /></td>
             <td><Money minor={t.domainProfitMinor} /></td>
             <td><strong><Money minor={t.contributionMinor} /></strong></td>
@@ -548,7 +614,7 @@ function DomainsView({ domains, busy, onCheck }: { domains: any; busy: boolean; 
       )}
       <h3>Registrar balance</h3>
       <p>
-        Registrar charges, all time:{" "}
+        Registrar charges, all time, at their US dollar cost:{" "}
         {Object.entries(reg.chargedMinor ?? {}).length
           ? Object.entries(reg.chargedMinor).map(([c, v]) => inCurrency(Number(v), c)).join(" + ")
           : "none"}
@@ -564,6 +630,8 @@ function DomainsView({ domains, busy, onCheck }: { domains: any; busy: boolean; 
             {Object.entries(reg.bookBalanceMinor).map(([c, v]) => inCurrency(Number(v), c)).join(" + ")}
           </>
         )}
+        {Object.keys(reg.topUpsMinor ?? {}).some((c) => c !== "USD") &&
+          " (top-ups in another currency than USD are not in the book balance)"}
       </p>
       <p>
         {reg.lastReading
@@ -614,8 +682,11 @@ function FlagsView({ rows }: { rows: any[] }) {
       <h2>Cost against income</h2>
       <p className="muted">
         No budget limits apply: the platform pays for usage only when it is
-        paid. These are costs with no matching income, negative contribution,
-        usage not yet charged and domains below cost.
+        paid. These are costs with no matching income (a month&apos;s AI Coach
+        Service Fee, posted after the month ends, matches its usage; the month
+        in progress is not flagged), AI Coach Service Fee trainers owe because
+        their earnings did not cover it, negative contribution, usage not yet
+        charged and domains below cost.
       </p>
       {!rows.length ? (
         <p>Nothing to flag in this period.</p>

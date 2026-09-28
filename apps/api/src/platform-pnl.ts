@@ -11,6 +11,7 @@ import {
   dubaiMonthRange,
   monthRates,
   periodSchemaText,
+  stripeFeeSettings,
   type MonthRate,
 } from "./cost-accounting.ts";
 import {
@@ -18,6 +19,8 @@ import {
   lastRun,
   platformFinanceJobs,
   ranWithin,
+  refreshSummary,
+  registerSummaryRebuilder,
   startRun,
 } from "./platform-finance-runs.ts";
 import {
@@ -36,7 +39,12 @@ import {
   type PlatformCostRow,
 } from "./platform-costs.ts";
 import { importProviderInvoice, postUsageCorrections } from "./provider-invoices.ts";
-import { sweepStripeFees, type StripeFeeClient } from "./stripe-fees.ts";
+import {
+  ledgerStripeSources,
+  sweepStripeFees,
+  type LedgerStripeSource,
+  type StripeFeeClient,
+} from "./stripe-fees.ts";
 import { monthCutoff } from "./finance-operations.ts";
 import { ProviderUnavailable, stripeClient } from "../../../packages/providers/src/index.ts";
 import {
@@ -105,6 +113,15 @@ export type WorkspaceMonth = {
   disputesLostMinor: number;
   /** The usage charge (with its markup) and its adjustments, as posted. */
   aiCoachServiceFeeMinor: number;
+  /**
+   * The part of the AI Coach Service Fee received in the month (cash basis):
+   * a fee is received when the trainer's earnings cover it, since it is
+   * deducted from them; a fee their earnings do not cover is owed until
+   * later earnings do (then it is received in that later month).
+   */
+  aiCoachServiceFeeCollectedMinor: number;
+  /** AI Coach Service Fee still owed by the trainer at the end of the month. */
+  aiCoachServiceFeeOwedMinor: number;
   /** Allocated costs charged to the trainer. */
   otherChargesMinor: number;
   /** Stripe fees deducted from the trainer at settlement (they pay them). */
@@ -126,6 +143,8 @@ export type WorkspaceMonth = {
     aiUsd: number;
     voiceUsd: number;
     estimatedUsd: number;
+    /** The voice part of `estimatedUsd`. */
+    estimatedVoiceUsd: number;
     reconciledUsd: number;
     unpricedCalls: number;
     unpricedEstimateUsd: number;
@@ -154,6 +173,26 @@ export type WorkspaceMonth = {
   usageStatement: { chargeMinor: number } | null;
   /** Emails delivered to the provider for this workspace (phase C email cost). */
   emailsSent: number;
+  /**
+   * Stripe's fees on the month's payments, refunds and disputes (by the
+   * month of their journal): what was read from Stripe, and an estimate at
+   * the Stripe fee settings for payments whose fee is not read yet (refunds
+   * and disputes not read yet count as nothing and are counted apart).
+   * Filled in by the summary rebuild from the platform's fee records.
+   */
+  stripeFees: StripeFeeCoverage | null;
+};
+export type StripeFeeCoverage = {
+  /** Payments, refunds and disputes of the month. */
+  sources: number;
+  /** Of which Stripe's fee was read. */
+  read: number;
+  /** Fees read, per settlement currency (minor units). */
+  recordedMinor: Record<string, number>;
+  /** Estimated fees of the payments not read yet, per payment currency. */
+  estimatedMinor: Record<string, number>;
+  /** Refunds and disputes whose fee is not read yet (counted as nothing). */
+  unreadRefundsDisputes: number;
 };
 const emptyDomain = (): DomainFigures => ({
   paymentsMinor: 0,
@@ -178,6 +217,8 @@ export function emptyWorkspaceMonth(): WorkspaceMonth {
     refundsMinor: 0,
     disputesLostMinor: 0,
     aiCoachServiceFeeMinor: 0,
+    aiCoachServiceFeeCollectedMinor: 0,
+    aiCoachServiceFeeOwedMinor: 0,
     otherChargesMinor: 0,
     stripeFeesRecoveredMinor: 0,
     payoutsPaidMinor: 0,
@@ -189,6 +230,7 @@ export function emptyWorkspaceMonth(): WorkspaceMonth {
       aiUsd: 0,
       voiceUsd: 0,
       estimatedUsd: 0,
+      estimatedVoiceUsd: 0,
       reconciledUsd: 0,
       unpricedCalls: 0,
       unpricedEstimateUsd: 0,
@@ -200,7 +242,19 @@ export function emptyWorkspaceMonth(): WorkspaceMonth {
     payouts: [],
     usageStatement: null,
     emailsSent: 0,
+    stripeFees: null,
   };
+}
+/**
+ * Figures from a summary row, filling what an older row lacks: a row built
+ * before the fee was split into received and owed counts it as received.
+ */
+export function storedWorkspaceMonth(figures: Record<string, any>): WorkspaceMonth {
+  const f = { ...emptyWorkspaceMonth(), ...figures } as WorkspaceMonth;
+  f.cost = { ...emptyWorkspaceMonth().cost, ...(figures.cost ?? {}) };
+  if (figures.aiCoachServiceFeeCollectedMinor === undefined)
+    f.aiCoachServiceFeeCollectedMinor = Number(figures.aiCoachServiceFeeMinor ?? 0);
+  return f;
 }
 
 const SOURCE = `CASE
@@ -256,12 +310,15 @@ export async function workspaceMonths(
     const source = row.source as string;
     if (source.startsWith("domain_")) {
       const d = (m.domains[row.currency] ??= emptyDomain());
-      if (row.account === "web_address_receivable") {
-        if (source === "domain_payment") d.paymentsMinor += amount;
+      // Only money earned on an order counts: a payment for no open order is
+      // booked to the refund liability (it is owed back), and so is its
+      // refund, so both are read from the revenue account.
+      if (row.account === "web_address_revenue") {
+        d.netSalesMinor -= amount;
+        if (source === "domain_payment") d.paymentsMinor -= amount;
         if (source === "domain_refund" || source === "domain_refund_reversal")
-          d.refundsMinor -= amount;
+          d.refundsMinor += amount;
       }
-      if (row.account === "web_address_revenue") d.netSalesMinor -= amount;
       if (row.account === "registrar_cost") d.registrarCostMinor += amount;
       if (row.account === "web_address_dispute_loss")
         d.disputeLossMinor += amount;
@@ -298,10 +355,44 @@ export async function workspaceMonths(
       if (source === "payout_return") m.payoutsReturnedMinor -= amount;
     }
   }
+  // The AI Coach Service Fee is deducted from the trainer's earnings, so it
+  // is received only as far as earnings cover it (cash basis, owner decision
+  // of 28 September 2026). Month by month over the whole ledger: the fee
+  // still owed at a month end is at most the fees owed before plus the
+  // month's fees, and at most what the trainer owes the platform then (a
+  // positive payable balance); the fee received in a month is its fees less
+  // the growth of what is owed (an earlier fee is received when later
+  // earnings cover it).
+  const history = await tx.query(
+    `SELECT ${MONTH("j.created_at")} AS month,sum(l.amount_minor)::text AS payable,coalesce(sum(l.amount_minor) FILTER(WHERE j.source_key LIKE 'usage:%' OR j.source_key LIKE 'usage-adjustment:%'),0)::text AS fee FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE l.account='trainer_payable' AND j.currency='AED' AND j.created_at<$1 GROUP BY 1 ORDER BY 1`,
+    [to],
+  );
+  if (history.length) {
+    const byMonth = new Map(history.map((h) => [h.month as string, h]));
+    let payable = 0,
+      owed = 0;
+    for (
+      let month = history[0].month < sorted[0] ? history[0].month : sorted[0];
+      month <= sorted.at(-1)!;
+      month = nextMonth(month)
+    ) {
+      const h = byMonth.get(month);
+      const fee = h ? Number(h.fee) : 0;
+      payable += h ? Number(h.payable) : 0;
+      const before = owed;
+      owed = Math.max(0, Math.min(before + fee, payable));
+      const collected = fee - (owed - before);
+      const m = owed || fee || collected ? at(month) : wanted.has(month) ? (out.get(month) ?? null) : null;
+      if (!m) continue;
+      m.aiCoachServiceFeeCollectedMinor = collected;
+      m.aiCoachServiceFeeOwedMinor = owed;
+    }
+  }
   // Domain profit per order: what the trainer paid, what was refunded and
-  // what the registrar charged, in the order's currency.
+  // what the registrar charged, in the order's currency (money for no open
+  // order is owed back and not counted, as above).
   const orders = await tx.query(
-    `SELECT ${MONTH("j.created_at")} AS month,j.data->>'orderId' AS order_id,max(j.data->>'hostname') AS hostname,j.currency,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='web_address_receivable' AND j.source_key LIKE 'web-address-invoice:%'),0)::text AS paid,coalesce(-sum(l.amount_minor) FILTER(WHERE l.account='web_address_receivable' AND j.source_key LIKE 'web-address-refund%'),0)::text AS refunded,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='registrar_cost'),0)::text AS registrar FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.source_key LIKE 'web-address-%' AND j.data ? 'orderId' AND j.created_at>=$1 AND j.created_at<$2 GROUP BY 1,2,4`,
+    `SELECT ${MONTH("j.created_at")} AS month,j.data->>'orderId' AS order_id,max(j.data->>'hostname') AS hostname,j.currency,coalesce(-sum(l.amount_minor) FILTER(WHERE l.account='web_address_revenue' AND j.source_key LIKE 'web-address-invoice:%'),0)::text AS paid,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='web_address_revenue' AND j.source_key LIKE 'web-address-refund%'),0)::text AS refunded,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='registrar_cost'),0)::text AS registrar FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.source_key LIKE 'web-address-%' AND j.data ? 'orderId' AND j.created_at>=$1 AND j.created_at<$2 GROUP BY 1,2,4`,
     [from, to],
   );
   for (const o of orders) {
@@ -328,6 +419,7 @@ export async function workspaceMonths(
     if (r.voice) m.cost.voiceUsd += usd;
     else m.cost.aiUsd += usd;
     m.cost.estimatedUsd += Number(r.estimated);
+    if (r.voice) m.cost.estimatedVoiceUsd += Number(r.estimated);
     m.cost.reconciledUsd += Number(r.reconciled);
     m.cost.unpricedCalls += r.unpriced;
     m.cost.unpricedEstimateUsd += Number(r.unpriced_estimate);
@@ -461,27 +553,120 @@ export function previousMonth(month: string) {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
 }
+export function nextMonth(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+}
+
+/**
+ * Stripe's fees on each month's payments, refunds and disputes: read from
+ * the platform's fee records where Stripe's fee was read, estimated at the
+ * Stripe fee settings for payments not read yet (docs/features/
+ * platform-finance.md). Also counts the fees of disputes that have no
+ * ledger entry (a domain payment's dispute before it is lost).
+ */
+async function stripeFeeCoverage(
+  db: Database,
+  tenantId: string,
+  months: string[],
+  sources: LedgerStripeSource[],
+  /** Every dispute with a ledger entry in the workspace, any month. */
+  ledgerDisputes: string[],
+) {
+  const ids = sources.flatMap((s) => (s.sourceId ? [s.sourceId] : []));
+  const [fees, unlisted] = await db.system(async (tx) => [
+    ids.length
+      ? await tx.query(
+          "SELECT source_id,currency,coalesce(sum(fee_minor),0)::text AS fee FROM stripe_fees WHERE tenant_id=$1 AND source_id=ANY($2::text[]) GROUP BY 1,2",
+          [tenantId, ids],
+        )
+      : [],
+    await tx.query(
+      "SELECT month,currency,coalesce(sum(fee_minor),0)::text AS fee FROM stripe_fees WHERE tenant_id=$1 AND source_type='dispute' AND month=ANY($2::text[]) AND NOT (source_id=ANY($3::text[])) GROUP BY 1,2",
+      [tenantId, months, ledgerDisputes],
+    ),
+  ]);
+  const byId = new Map<string, Array<{ currency: string; fee: number }>>();
+  for (const f of fees)
+    byId.set(f.source_id, [...(byId.get(f.source_id) ?? []), { currency: f.currency, fee: Number(f.fee) }]);
+  const settings = stripeFeeSettings();
+  const part = (minor: number, bps: number) => Math.round((minor * bps) / 10000);
+  const out = new Map<string, StripeFeeCoverage>();
+  const of = (month: string) => {
+    let c = out.get(month);
+    if (!c)
+      out.set(month, (c = { sources: 0, read: 0, recordedMinor: {}, estimatedMinor: {}, unreadRefundsDisputes: 0 }));
+    return c;
+  };
+  for (const s of sources) {
+    const c = of(s.month);
+    c.sources++;
+    const read = s.sourceId ? byId.get(s.sourceId) : undefined;
+    if (read) {
+      c.read++;
+      for (const r of read) c.recordedMinor[r.currency] = (c.recordedMinor[r.currency] ?? 0) + r.fee;
+    } else if (s.sourceType === "charge") {
+      // Stripe's percentage and fixed fee (AED 1.00; about 27 US cents on a
+      // payment in dollars) on what was paid.
+      const fixed = s.currency === "AED" ? settings.fixedMinor : Math.round(settings.fixedMinor / 3.6725);
+      c.estimatedMinor[s.currency] = (c.estimatedMinor[s.currency] ?? 0) + part(s.grossMinor, settings.percentBps) + fixed;
+    } else c.unreadRefundsDisputes++;
+  }
+  for (const u of unlisted) {
+    const c = of(u.month);
+    c.recordedMinor[u.currency] = (c.recordedMinor[u.currency] ?? 0) + Number(u.fee);
+  }
+  return out;
+}
 
 /**
  * Rebuilds the monthly summary for `months` from every trainer workspace's
- * ledger and cost rows (one scoped read per workspace). Replaces the rows'
- * figures; the ledger is never changed.
+ * ledger and cost rows (one scoped read per workspace), or only for
+ * `tenantIds` (an operation that changed those workspaces' figures).
+ * Replaces the rows' figures; the ledger is never changed. `scope` records
+ * why it ran: the worker's hourly and daily passes, an operator's request,
+ * or a refresh after an operation.
  */
 export async function rebuildPlatformSummary(
   db: Database,
   months: string[],
   actorId: string | null = null,
+  options: { tenantIds?: string[]; scope?: "hourly" | "daily" | "request" | "refresh" } = {},
 ) {
-  const run = await startRun(db, "summary", actorId, { months });
+  months = [...new Set(months)].sort();
+  const partial = !!options.tenantIds;
+  const run = await startRun(db, "summary", actorId, {
+    // Only a run over every workspace covers a month (missingMonths).
+    ...(partial ? { tenantMonths: months, tenants: options.tenantIds!.length } : { months }),
+    scope: options.scope ?? (actorId ? "request" : "refresh"),
+  });
   try {
     let rows = 0;
+    const from = dubaiMonthRange(months[0]).from.toISOString();
+    const to = dubaiMonthRange(months.at(-1)!).to.toISOString();
     for (const w of await trainerWorkspaces(db)) {
-      const figures = await db.tenant(operatorScope(actorId, w.id), (tx) =>
-        workspaceMonths(tx, months),
-      );
+      if (partial && !options.tenantIds!.includes(w.id)) continue;
+      const { figures, sources, disputes } = await db.tenant(operatorScope(actorId, w.id), async (tx) => ({
+        figures: await workspaceMonths(tx, months),
+        sources: await ledgerStripeSources(tx, { from, to }),
+        disputes: (
+          await tx.query(
+            "SELECT substr(source_key,strpos(source_key,':')+1) AS id FROM journals WHERE source_key LIKE 'dispute-reserve:%' OR source_key LIKE 'web-address-dispute:%'",
+          )
+        ).map((r: any) => r.id as string),
+      }));
       if (!figures.size) continue;
+      const coverage = await stripeFeeCoverage(db, w.id, months, sources, disputes);
       await db.system(async (tx) => {
         for (const [month, m] of figures) {
+          // A month with no payment, refund or dispute has no Stripe fee.
+          m.stripeFees = coverage.get(month) ?? {
+            sources: 0,
+            read: 0,
+            recordedMinor: {},
+            estimatedMinor: {},
+            unreadRefundsDisputes: 0,
+          };
           await tx.query(
             "INSERT INTO platform_finance_months(month,tenant_id,figures,computed_at) VALUES($1,$2,$3,now()) ON CONFLICT(month,tenant_id) DO UPDATE SET figures=EXCLUDED.figures,computed_at=now()",
             [month, w.id, JSON.stringify(m)],
@@ -499,6 +684,11 @@ export async function rebuildPlatformSummary(
     throw error;
   }
 }
+// Operations that change a past month's figures (an invoice import, pricing,
+// an estimate, a reconciliation, a fee read from Stripe) refresh it at once.
+registerSummaryRebuilder((db, months, tenantIds) =>
+  rebuildPlatformSummary(db, months, null, { tenantIds, scope: "refresh" }),
+);
 
 /** Throws ProviderUnavailable when no registrar is configured (nothing is sent). */
 function readRegistrarBalanceCheck() {
@@ -521,10 +711,18 @@ export async function checkRegistrarBalance(db: Database, actorId: string | null
 
 // ---- The profit and loss ------------------------------------------------------
 
-export type PnlLine = { key: string; label: string; aedMinor: number };
+export type PnlLine = {
+  key: string;
+  label: string;
+  aedMinor: number;
+  /** The part of the line that is an estimate (costs only). */
+  estimatedMinor?: number;
+};
 export type MonthPnl = {
   month: string;
   rate: MonthRate;
+  /** The month is still running: its figures are to date. */
+  inProgress: boolean;
   income: PnlLine[];
   costs: PnlLine[];
   incomeMinor: number;
@@ -536,6 +734,10 @@ export type MonthPnl = {
   estimatedCostMinor: number;
   unpricedCalls: number;
   unpricedEstimateMinor: number;
+  /** AI Coach Service Fee owed by trainers at the month end (not income). */
+  feeOwedMinor: number;
+  /** When the oldest of the month's summary rows was built (null: none). */
+  builtAt: string | null;
   change: { incomeMinor: number | null; costsMinor: number | null; profitMinor: number | null };
 };
 const toAed = (minor: number, currency: string, rate: number) =>
@@ -543,6 +745,26 @@ const toAed = (minor: number, currency: string, rate: number) =>
 const usdToAedMinor = (usd: number, rate: number) => Math.round(usd * rate * 100);
 const rateOf = (n: number, d: number) =>
   d > 0 ? Math.round((n / d) * 10000) / 10000 : null;
+const aedText = (minor: number) => "AED " + (minor / 100).toFixed(2);
+/**
+ * Stripe's fees of one workspace's month in AED: the fees read from Stripe
+ * and the estimate for payments not read yet. A summary row built before
+ * fees were read per payment falls back to the fees deducted at settlement.
+ */
+function stripeFeesOf(w: WorkspaceMonth, rate: number) {
+  const c = w.stripeFees;
+  if (!c) return { minor: w.stripeFeesRecoveredMinor, estimatedMinor: 0, sources: 0, read: 0, unread: 0 };
+  const total = (by: Record<string, number>) =>
+    Object.entries(by).reduce((n, [currency, v]) => n + toAed(v, currency, rate), 0);
+  const estimatedMinor = total(c.estimatedMinor);
+  return {
+    minor: total(c.recordedMinor) + estimatedMinor,
+    estimatedMinor,
+    sources: c.sources,
+    read: c.read,
+    unread: c.unreadRefundsDisputes,
+  };
+}
 
 /** One month's profit and loss from its workspace figures and platform costs. */
 export function monthPnl(
@@ -551,12 +773,12 @@ export function monthPnl(
   workspaces: WorkspaceMonth[],
   platform: PlatformCostRow[],
   extras: {
-    /** Stripe's fees per payment recorded for the month (AED), or null. */
-    stripeFeesMinor?: number | null;
     /** Email messages delivered and the configured price per message. */
     emails?: { sent: number; usdPerMessage: number };
+    /** The month is still running (its figures are to date). */
+    inProgress?: boolean;
   } = {},
-): Omit<MonthPnl, "change"> {
+): Omit<MonthPnl, "change" | "builtAt"> {
   const r = rate.aedPerUsd;
   const sum = (pick: (w: WorkspaceMonth) => number) =>
     workspaces.reduce((n, w) => n + pick(w), 0);
@@ -571,19 +793,25 @@ export function monthPnl(
       0,
     );
   const notes: string[] = [];
-  // Stripe's fee on each payment (domain payments included) when it was
-  // read from Stripe; otherwise the fees deducted at settlement.
-  const recorded = extras.stripeFeesMinor ?? null;
-  const stripeFeesMinor = recorded ?? sum((w) => w.stripeFeesRecoveredMinor);
-  if (
-    recorded === null &&
-    sum((w) => w.gross.membership + w.gross.programme + w.gross.voiceAddOn + w.gross.booking) +
-      domain((d) => d.paymentsMinor) >
-      0
-  )
+  if (extras.inProgress)
     notes.push(
-      "Stripe fees are the fees recorded at settlement; Stripe's fee per payment is not recorded for this month yet.",
+      "This month is in progress: income and usage are to date; recurring monthly costs are counted in full, and DigitalOcean's estimate is its cost so far.",
     );
+  // Stripe's fee on each payment, refund and dispute (domain payments
+  // included): read from Stripe, or estimated for payments not read yet.
+  const stripe = workspaces.map((w) => stripeFeesOf(w, r));
+  const stripeFeesMinor = stripe.reduce((n, s) => n + s.minor, 0);
+  const stripeEstimatedMinor = stripe.reduce((n, s) => n + s.estimatedMinor, 0);
+  const sources = stripe.reduce((n, s) => n + s.sources, 0);
+  const read = stripe.reduce((n, s) => n + s.read, 0);
+  const unread = stripe.reduce((n, s) => n + s.unread, 0);
+  if (sources > read)
+    notes.push(
+      `Stripe's fee was read from Stripe for ${read} of ${sources} payments, refunds and disputes; the other payments' fees (${aedText(stripeEstimatedMinor)}) are estimated at the Stripe fee settings` +
+        (unread ? `, and ${unread} refund(s) and dispute(s) not read yet count as nothing.` : "."),
+    );
+  if (workspaces.some((w) => !w.stripeFees) && sum((w) => w.stripeFeesRecoveredMinor) > 0)
+    notes.push("Some trainers' Stripe fees are the fees recorded at settlement (their summary predates fees per payment); rebuild the summary.");
   const emailMinor = extras.emails
     ? usdToAedMinor(extras.emails.sent * extras.emails.usdPerMessage, r)
     : 0;
@@ -591,14 +819,25 @@ export function monthPnl(
     notes.push(
       `${extras.emails.sent} email(s) delivered; no price per message is set (Settings → Platform finance), so only the email plan (platform costs) is counted.`,
     );
-  const platformCost = (categories: string[] | null, exclude: string[] = []) =>
-    platform
-      .filter(
-        (c) =>
-          (categories ? categories.includes(c.category) : true) &&
-          !exclude.includes(c.category),
-      )
-      .reduce((n, c) => n + toAed(c.amountMinor, c.currency, r), 0);
+  const platformRows = (categories: string[] | null, exclude: string[] = []) =>
+    platform.filter(
+      (c) =>
+        (categories ? categories.includes(c.category) : true) &&
+        !exclude.includes(c.category),
+    );
+  const aedOf = (rows: PlatformCostRow[]) =>
+    rows.reduce((n, c) => n + toAed(c.amountMinor, c.currency, r), 0);
+  const platformLine = (rows: PlatformCostRow[]) => ({
+    aedMinor: aedOf(rows),
+    estimatedMinor: aedOf(rows.filter((c) => c.estimated)),
+  });
+  const owedMinor = sum((w) => w.aiCoachServiceFeeOwedMinor ?? 0);
+  const postedFeeMinor = sum((w) => w.aiCoachServiceFeeMinor);
+  const collectedFeeMinor = sum((w) => w.aiCoachServiceFeeCollectedMinor);
+  if (owedMinor > 0 || postedFeeMinor !== collectedFeeMinor)
+    notes.push(
+      `AI Coach Service Fee posted in the month: ${aedText(postedFeeMinor)}; received (covered by the trainers' earnings): ${aedText(collectedFeeMinor)}. Owed by trainers whose earnings did not cover it at the month end: ${aedText(owedMinor)}, not income until their earnings cover it.`,
+    );
   const income: PnlLine[] = [
     { key: "subscriptions", label: "Subscriptions (commission)", aedMinor: sum((w) => w.commission.membership) },
     { key: "programmes", label: "Upfront programmes (commission)", aedMinor: sum((w) => w.commission.programme) },
@@ -606,20 +845,25 @@ export function monthPnl(
     { key: "sessions", label: "1:1 sessions (booking fee)", aedMinor: sum((w) => w.commission.booking) },
     { key: "affiliate", label: "Affiliate settlements", aedMinor: sum((w) => w.commission.affiliate + w.commission.other) },
     { key: "domains", label: "Domains (trainer payments)", aedMinor: domain((d) => d.paymentsMinor) },
-    { key: "aiCoachServiceFee", label: "AI Coach Service Fee", aedMinor: sum((w) => w.aiCoachServiceFeeMinor) },
+    { key: "aiCoachServiceFee", label: "AI Coach Service Fee (received)", aedMinor: collectedFeeMinor },
     { key: "otherCharges", label: "Other costs charged to trainers", aedMinor: sum((w) => w.otherChargesMinor) },
     { key: "stripeFeesRecovered", label: "Stripe fees paid by trainers", aedMinor: sum((w) => w.stripeFeesRecoveredMinor) },
   ];
   const aiUsd = workspaces.reduce((n, w) => n + w.cost.aiUsd, 0);
   const voiceUsd = workspaces.reduce((n, w) => n + w.cost.voiceUsd, 0);
+  const estimatedUsd = workspaces.reduce((n, w) => n + w.cost.estimatedUsd, 0);
+  const estimatedVoiceUsd = workspaces.reduce((n, w) => n + (w.cost.estimatedVoiceUsd ?? 0), 0);
+  const platformCosts = platformLine(platformRows(null, ["payout_fee", "registrar_topup", "provider_invoice"]));
+  const invoiceCosts = platformLine(platformRows(["provider_invoice"]));
+  const payoutFees = platformLine(platformRows(["payout_fee"]));
   const costs: PnlLine[] = [
-    { key: "aiProvider", label: "AI provider cost", aedMinor: usdToAedMinor(aiUsd, r) },
-    { key: "voiceProvider", label: "Voice provider cost", aedMinor: usdToAedMinor(voiceUsd, r) },
-    { key: "stripeFees", label: "Stripe fees", aedMinor: stripeFeesMinor },
-    { key: "payoutFees", label: "Payout bank fees", aedMinor: platformCost(["payout_fee"]) },
+    { key: "aiProvider", label: "AI provider cost", aedMinor: usdToAedMinor(aiUsd, r), estimatedMinor: usdToAedMinor(estimatedUsd - estimatedVoiceUsd, r) },
+    { key: "voiceProvider", label: "Voice provider cost", aedMinor: usdToAedMinor(voiceUsd, r), estimatedMinor: usdToAedMinor(estimatedVoiceUsd, r) },
+    { key: "stripeFees", label: "Stripe fees", aedMinor: stripeFeesMinor, estimatedMinor: stripeEstimatedMinor },
+    { key: "payoutFees", label: "Payout bank fees", ...payoutFees },
     { key: "registrar", label: "Domain registrar cost", aedMinor: domain((d) => d.registrarCostMinor) },
-    { key: "platform", label: "Platform costs (servers, email plan, provider plans)", aedMinor: platformCost(null, ["payout_fee", "registrar_topup", "provider_invoice"]) },
-    { key: "providerInvoices", label: "Provider invoice charges not attributed to calls", aedMinor: platformCost(["provider_invoice"]) },
+    { key: "platform", label: "Platform costs (servers, email plan, provider plans)", ...platformCosts },
+    { key: "providerInvoices", label: "Provider invoice charges not attributed to calls", ...invoiceCosts },
     { key: "email", label: "Email (per message)", aedMinor: emailMinor },
     {
       key: "refundsDisputes",
@@ -635,15 +879,16 @@ export function monthPnl(
   const unpricedUsd = workspaces.reduce((n, w) => n + w.cost.unpricedEstimateUsd, 0);
   if (unpricedCalls)
     notes.push(
-      `${unpricedCalls} provider call(s) are not priced yet (about ${usdToAedMinor(unpricedUsd, r) / 100} AED, not included).`,
+      `${unpricedCalls} provider call(s) are not priced yet (about ${aedText(usdToAedMinor(unpricedUsd, r))}, not included).`,
     );
   if (rate.source === "default")
     notes.push(`No reviewed USD to AED rate for ${month}: the default rate ${r} converts USD figures.`);
   if (platform.some((c) => c.estimated))
-    notes.push("Some platform costs are estimates until their invoice arrives.");
+    notes.push("Some platform costs are estimates until their invoice arrives (marked in the costs).");
   return {
     month,
     rate,
+    inProgress: !!extras.inProgress,
     income,
     costs,
     incomeMinor,
@@ -651,12 +896,12 @@ export function monthPnl(
     profitMinor: incomeMinor - costsMinor,
     margin: rateOf(incomeMinor - costsMinor, incomeMinor),
     notes,
-    estimatedCostMinor: usdToAedMinor(
-      workspaces.reduce((n, w) => n + w.cost.estimatedUsd, 0),
-      r,
-    ),
+    // Every estimate in the costs: AI and voice priced at estimates, Stripe
+    // fees not read yet, and platform costs awaiting their invoice.
+    estimatedCostMinor: costs.reduce((n, l) => n + (l.estimatedMinor ?? 0), 0),
     unpricedCalls,
     unpricedEstimateMinor: usdToAedMinor(unpricedUsd, r),
+    feeOwedMinor: owedMinor,
   };
 }
 
@@ -666,7 +911,10 @@ export type TrainerRow = {
   state: string;
   grossMinor: number;
   commissionMinor: number;
+  /** The AI Coach Service Fee received (covered by the trainer's earnings). */
   aiCoachServiceFeeMinor: number;
+  /** AI Coach Service Fee the trainer still owes at the end of the range. */
+  aiCoachServiceFeeOwedMinor: number;
   otherChargesMinor: number;
   domainPaymentsMinor: number;
   domainProfitMinor: number;
@@ -685,6 +933,7 @@ export type TrainerRow = {
 export type Flag = {
   kind:
     | "cost_without_income"
+    | "service_fee_owed"
     | "negative_contribution"
     | "usage_not_charged"
     | "unpriced_usage"
@@ -696,6 +945,15 @@ export type Flag = {
   name: string | null;
   detail: string;
 };
+/**
+ * Whether a month's AI Coach Service Fee is due yet: it is posted after the
+ * month ends, so not for the month in progress, nor for last month until
+ * its usage statement is posted.
+ */
+export function serviceFeeDue(month: string, current: string, posted: boolean) {
+  if (month >= current) return false;
+  return posted || month !== previousMonth(current);
+}
 
 /**
  * The Platform finance screen's data for a range of Dubai months, from the
@@ -715,59 +973,65 @@ export async function platformPnl(
       [months],
     ),
   );
+  // Runs over every workspace: the last one, and each month's latest.
   const [summaryRun] = await db.system((tx) =>
     tx.query(
-      "SELECT max(finished_at) AS at,bool_or(result->'months' ?| $1::text[]) AS covered FROM platform_finance_runs WHERE kind='summary' AND status='succeeded'",
-      [months],
+      "SELECT max(finished_at) AS at FROM platform_finance_runs WHERE kind='summary' AND status='succeeded' AND result ? 'months'",
     ),
   );
-  const covered = new Set<string>(
+  const builtRuns = new Map<string, string>(
     (
       await db.system((tx) =>
         tx.query(
-          "SELECT DISTINCT jsonb_array_elements_text(result->'months') AS month FROM platform_finance_runs WHERE kind='summary' AND status='succeeded' AND result ? 'months'",
+          "SELECT m.month,max(r.finished_at) AS at FROM platform_finance_runs r CROSS JOIN LATERAL jsonb_array_elements_text(r.result->'months') AS m(month) WHERE r.kind='summary' AND r.status='succeeded' AND r.result ? 'months' AND m.month=ANY($1::text[]) GROUP BY m.month",
+          [months],
         ),
       )
-    ).map((r: any) => r.month),
+    ).map((r: any) => [r.month, new Date(r.at).toISOString()]),
   );
-  const missingMonths = months.filter((m) => !covered.has(m));
+  const missingMonths = months.filter((m) => !builtRuns.has(m));
   const rates = await monthRates(db, [...new Set([...months, previousMonth(months[0])])]);
-  const platformCosts = await platformCostsForMonths(db, months);
-  const stripeFees = await stripeFeesForMonths(db, months);
-  const feeMinor = (month: string, tenantId?: string) => {
-    const rows = stripeFees.filter(
-      (f) => f.month === month && (tenantId === undefined || f.tenantId === tenantId),
-    );
-    if (!rows.length) return null;
-    const r = rates.get(month)?.aedPerUsd ?? 3.6725;
-    return rows.reduce((n, f) => n + toAed(f.feeMinor, f.currency, r), 0);
-  };
+  const platformCosts = await platformCostsForMonths(db, months, now);
   const usdPerEmail = emailPrice();
-  const byMonth = new Map<string, Array<{ tenantId: string; name: string; state: string; f: WorkspaceMonth }>>();
+  const byMonth = new Map<
+    string,
+    Array<{ tenantId: string; name: string; state: string; f: WorkspaceMonth; computedAt: string }>
+  >();
   for (const r of rows) {
     const list = byMonth.get(r.month) ?? [];
-    list.push({ tenantId: r.tenant_id, name: r.name, state: r.lifecycle_state, f: { ...emptyWorkspaceMonth(), ...r.figures } });
+    list.push({
+      tenantId: r.tenant_id,
+      name: r.name,
+      state: r.lifecycle_state,
+      f: storedWorkspaceMonth(r.figures),
+      computedAt: new Date(r.computed_at).toISOString(),
+    });
     byMonth.set(r.month, list);
   }
   const pnl: MonthPnl[] = [];
-  let previous: Omit<MonthPnl, "change"> | null = null;
+  let previous: Omit<MonthPnl, "change" | "builtAt"> | null = null;
   for (const month of months) {
-    const list = (byMonth.get(month) ?? []).map((x) => x.f);
+    const entries = byMonth.get(month) ?? [];
+    const list = entries.map((x) => x.f);
     const p = monthPnl(
       month,
       rates.get(month)!,
       list,
       platformCosts.filter((c) => c.month === month),
       {
-        stripeFeesMinor: feeMinor(month),
         emails: {
           sent: list.reduce((n, f) => n + (f.emailsSent ?? 0), 0),
           usdPerMessage: usdPerEmail,
         },
+        inProgress: month === current,
       },
     );
     pnl.push({
       ...p,
+      // The oldest row shows how current the month's figures are.
+      builtAt: entries.length
+        ? entries.map((e) => e.computedAt).sort()[0]
+        : (builtRuns.get(month) ?? null),
       change: previous
         ? {
             incomeMinor: p.incomeMinor - previous.incomeMinor,
@@ -787,6 +1051,10 @@ export async function platformPnl(
           (n, m) => n + (m[side].find((x) => x.key === l.key)?.aedMinor ?? 0),
           0,
         ),
+        estimatedMinor: pnl.reduce(
+          (n, m) => n + (m[side].find((x) => x.key === l.key)?.estimatedMinor ?? 0),
+          0,
+        ),
       })) ?? [];
     const incomeMinor = pnl.reduce((n, m) => n + m.incomeMinor, 0);
     const costsMinor = pnl.reduce((n, m) => n + m.costsMinor, 0);
@@ -799,6 +1067,10 @@ export async function platformPnl(
       margin: rateOf(incomeMinor - costsMinor, incomeMinor),
       estimatedCostMinor: pnl.reduce((n, m) => n + m.estimatedCostMinor, 0),
       unpricedCalls: pnl.reduce((n, m) => n + m.unpricedCalls, 0),
+      /** Owed by trainers at the end of the range (a balance, not a sum). */
+      feeOwedMinor: pnl.at(-1)?.feeOwedMinor ?? 0,
+      /** The range includes the month in progress (figures to date). */
+      inProgress: pnl.some((m) => m.inProgress),
     };
   })();
 
@@ -819,6 +1091,7 @@ export async function platformPnl(
           grossMinor: 0,
           commissionMinor: 0,
           aiCoachServiceFeeMinor: 0,
+          aiCoachServiceFeeOwedMinor: 0,
           otherChargesMinor: 0,
           domainPaymentsMinor: 0,
           domainProfitMinor: 0,
@@ -852,10 +1125,14 @@ export async function platformPnl(
         0,
       );
       const provider = usdToAedMinor(f.cost.aiUsd + f.cost.voiceUsd, r);
-      const income = commission + f.aiCoachServiceFeeMinor + f.otherChargesMinor + domainPaid;
+      // Cash basis: the AI Coach Service Fee as far as it was received.
+      const income =
+        commission + f.aiCoachServiceFeeCollectedMinor + f.otherChargesMinor + domainPaid;
       t.grossMinor += f.gross.membership + f.gross.programme + f.gross.voiceAddOn + f.gross.booking;
       t.commissionMinor += commission - returned;
-      t.aiCoachServiceFeeMinor += f.aiCoachServiceFeeMinor;
+      t.aiCoachServiceFeeMinor += f.aiCoachServiceFeeCollectedMinor;
+      // Months come oldest first: what is owed at the end of the latest.
+      t.aiCoachServiceFeeOwedMinor = f.aiCoachServiceFeeOwedMinor ?? 0;
       t.otherChargesMinor += f.otherChargesMinor;
       t.domainPaymentsMinor += domainPaid;
       t.domainProfitMinor += domainPaid - domainLoss;
@@ -864,20 +1141,28 @@ export async function platformPnl(
       t.refundsDisputesMinor += returned;
       t.contributionMinor += income - returned - domainLoss - provider;
       t.payingMemberMonths += f.payingMembers;
-      t.stripeFeesMinor += feeMinor(month, x.tenantId) ?? f.stripeFeesRecoveredMinor;
+      t.stripeFeesMinor += stripeFeesOf(f, r).minor;
       t.payoutsPaidMinor += f.payoutsPaidMinor - f.payoutsReturnedMinor;
       t.unpricedCalls += f.cost.unpricedCalls;
       trainers.set(x.tenantId, t);
       // Cost against income, month by month (owner decision: no budget
-      // limits; costs without matching income are flagged instead).
-      if (provider > 0 && income - returned <= 0)
+      // limits; costs without matching income are flagged instead). The
+      // month's own AI Coach Service Fee (posted after the month ends)
+      // matches its usage; months whose fee is not due yet are not flagged.
+      const charged = (f.usageStatement?.chargeMinor ?? 0) > 0;
+      if (
+        provider > 0 &&
+        serviceFeeDue(month, current, !!f.usageStatement) &&
+        !charged &&
+        income - returned <= 0
+      )
         flags.push({
           kind: "cost_without_income",
           severity: "warning",
           month,
           tenantId: x.tenantId,
           name: x.name,
-          detail: `${x.name}: AI and voice cost of AED ${(provider / 100).toFixed(2)} in ${month} with no platform income from this trainer in the month.`,
+          detail: `${x.name}: AI and voice cost of AED ${(provider / 100).toFixed(2)} in ${month}, with no AI Coach Service Fee charged for it and no other platform income from this trainer in the month.`,
         });
       if (
         month < current &&
@@ -931,6 +1216,17 @@ export async function platformPnl(
         detail: `${t.name}: serving this trainer cost AED ${(-t.contributionMinor / 100).toFixed(2)} more than the platform earned from them over the period.`,
       });
     }
+    // The fee is deducted from earnings; a trainer whose earnings do not
+    // cover it owes it, and the platform has not been paid for that usage.
+    if (t.aiCoachServiceFeeOwedMinor > 0)
+      flags.push({
+        kind: "service_fee_owed",
+        severity: "warning",
+        month: null,
+        tenantId: t.tenantId,
+        name: t.name,
+        detail: `${t.name}: owes AED ${(t.aiCoachServiceFeeOwedMinor / 100).toFixed(2)} of AI Coach Service Fee that their earnings did not cover; it counts as income only when their earnings cover it.`,
+      });
     for (const f of flags)
       if (f.tenantId === t.tenantId && !t.flags.includes(f.kind)) t.flags.push(f.kind);
   }
@@ -944,11 +1240,12 @@ export async function platformPnl(
     if (platformMinor > 0 && m.incomeMinor <= 0)
       flags.push({
         kind: "platform_cost_without_income",
-        severity: "warning",
+        // The month in progress may still bring income: provisional.
+        severity: m.inProgress ? "info" : "warning",
         month: m.month,
         tenantId: null,
         name: null,
-        detail: `${m.month}: platform costs of AED ${(platformMinor / 100).toFixed(2)} with no income in the month.`,
+        detail: `${m.month}: platform costs of AED ${(platformMinor / 100).toFixed(2)} with no income in the month${m.inProgress ? " so far (the month is in progress)" : ""}.`,
       });
   }
 
@@ -1024,10 +1321,20 @@ export async function platformPnl(
       workspace: r.name,
     })),
   );
-  const payoutFees = platformCosts.filter((c) => c.category === "payout_fee");
+  // Each payout's bank fee, net of reversals, whatever month it was entered
+  // in: a reversed fee leaves none, so the correct fee can be recorded.
+  const payoutIds = payouts.map((p: any) => p.id);
+  const bankFees = payoutIds.length
+    ? await db.system((tx) =>
+        tx.query(
+          "SELECT payout_id::text AS payout_id,currency,sum(amount_minor)::text AS net FROM platform_costs WHERE category='payout_fee' AND payout_id=ANY($1::uuid[]) GROUP BY 1,2 HAVING sum(amount_minor)<>0",
+          [payoutIds],
+        ),
+      )
+    : [];
   for (const p of payouts as any[]) {
-    const fee = payoutFees.find((c) => c.payoutId === p.id);
-    p.bankFeeMinor = fee ? fee.amountMinor : null;
+    const fee = bankFees.find((c: any) => c.payout_id === p.id);
+    p.bankFeeMinor = fee ? Number(fee.net) : null;
     p.bankFeeCurrency = fee ? fee.currency : null;
   }
 
@@ -1050,12 +1357,12 @@ export async function platformPnl(
     })),
   );
   return {
-    range: { from: months[0], to: months.at(-1)!, months },
+    range: { from: months[0], to: months.at(-1)!, months, current },
     trends,
     currency: "AED",
     timezone: "Asia/Dubai",
     basis:
-      "Cash basis (owner decision, 28 September 2026): income is counted in the month it was received and never spread over a programme's or domain's term; costs in the month they were incurred. USD figures are converted at each month's reviewed rate, or the default rate where none is reviewed.",
+      "Cash basis (owner decision, 28 September 2026): income is counted in the month it was received and never spread over a programme's or domain's term; the AI Coach Service Fee counts when the trainer's earnings cover it (it is deducted from them); costs in the month they were incurred. USD figures are converted at each month's reviewed rate, or the default rate where none is reviewed.",
     summary: {
       computedAt: summaryRun?.at ?? null,
       missingMonths,
@@ -1104,9 +1411,10 @@ export function pnlCsv(data: Awaited<ReturnType<typeof platformPnl>>, tab: strin
       ...(data.months[0]?.costs ?? []).map((l) => ["costs", l.key, l.label] as const),
     ];
     return toCsv(
-      ["month", "aed_per_usd", "rate_source", ...keys.map(([side, key]) => `${side}_${key}_aed`), "income_aed", "costs_aed", "profit_aed", "margin", "income_change_aed", "costs_change_aed", "profit_change_aed", "estimated_cost_aed", "unpriced_calls", "notes"],
+      ["month", "in_progress", "aed_per_usd", "rate_source", ...keys.map(([side, key]) => `${side}_${key}_aed`), "income_aed", "costs_aed", "profit_aed", "margin", "income_change_aed", "costs_change_aed", "profit_change_aed", "estimated_cost_aed", "unpriced_calls", "service_fee_owed_aed", "summary_built_at", "notes"],
       data.months.map((m) => [
         m.month,
+        m.inProgress,
         m.rate.aedPerUsd,
         m.rate.source,
         ...keys.map(([side, key]) => aed(m[side].find((l) => l.key === key)?.aedMinor ?? 0)),
@@ -1119,14 +1427,16 @@ export function pnlCsv(data: Awaited<ReturnType<typeof platformPnl>>, tab: strin
         m.change.profitMinor === null ? "" : aed(m.change.profitMinor),
         aed(m.estimatedCostMinor),
         m.unpricedCalls,
+        aed(m.feeOwedMinor),
+        m.builtAt ?? "",
         m.notes.join(" "),
       ]),
     );
   }
   if (tab === "trainers")
     return toCsv(
-      ["tenant_id", "trainer", "state", "gross_aed", "net_commission_aed", "ai_coach_service_fee_aed", "other_charges_aed", "domain_payments_aed", "domain_profit_aed", "platform_income_aed", "ai_voice_cost_aed", "refunds_disputes_aed", "contribution_aed", "margin", "paying_member_months", "cost_per_paying_member_aed", "stripe_fees_aed", "payouts_paid_aed", "unpriced_calls", "flags"],
-      data.trainers.map((t) => [t.tenantId, t.name, t.state, aed(t.grossMinor), aed(t.commissionMinor), aed(t.aiCoachServiceFeeMinor), aed(t.otherChargesMinor), aed(t.domainPaymentsMinor), aed(t.domainProfitMinor), aed(t.platformIncomeMinor), aed(t.providerCostMinor), aed(t.refundsDisputesMinor), aed(t.contributionMinor), t.margin, t.payingMemberMonths, t.costPerPayingMemberMinor === null ? "" : aed(t.costPerPayingMemberMinor), aed(t.stripeFeesMinor), aed(t.payoutsPaidMinor), t.unpricedCalls, t.flags.join(" ")]),
+      ["tenant_id", "trainer", "state", "gross_aed", "net_commission_aed", "ai_coach_service_fee_received_aed", "ai_coach_service_fee_owed_aed", "other_charges_aed", "domain_payments_aed", "domain_profit_aed", "platform_income_aed", "ai_voice_cost_aed", "refunds_disputes_aed", "contribution_aed", "margin", "paying_member_months", "cost_per_paying_member_aed", "stripe_fees_aed", "payouts_paid_aed", "unpriced_calls", "flags"],
+      data.trainers.map((t) => [t.tenantId, t.name, t.state, aed(t.grossMinor), aed(t.commissionMinor), aed(t.aiCoachServiceFeeMinor), aed(t.aiCoachServiceFeeOwedMinor), aed(t.otherChargesMinor), aed(t.domainPaymentsMinor), aed(t.domainProfitMinor), aed(t.platformIncomeMinor), aed(t.providerCostMinor), aed(t.refundsDisputesMinor), aed(t.contributionMinor), t.margin, t.payingMemberMonths, t.costPerPayingMemberMinor === null ? "" : aed(t.costPerPayingMemberMinor), aed(t.stripeFeesMinor), aed(t.payoutsPaidMinor), t.unpricedCalls, t.flags.join(" ")]),
     );
   if (tab === "features")
     return toCsv(
@@ -1330,7 +1640,11 @@ export function registerPlatformPnl(
   });
   app.post(prefix + "/invoices", async (req) => {
     const a = access(req);
-    return importProviderInvoice(db, a, req.body);
+    const result = await importProviderInvoice(db, a, req.body);
+    // The invoice's month (calls priced, platform costs) and this month (the
+    // adjustments posted now) are rebuilt at once.
+    await refreshSummary(db, [(req.body as any)?.month, currentDubaiMonth()]);
+    return result;
   });
   app.post(prefix + "/usage-corrections", async (req) => {
     const a = access(req);
@@ -1345,6 +1659,7 @@ export function registerPlatformPnl(
       throw fail(409, "PERIOD_OPEN", "Adjust a month after it ends");
     const result = await postUsageCorrections(db, a, b.period, b.reference);
     await audit(a, "platform_finance.usage_corrections", { ...b, posted: result.posted.length, skipped: result.skipped.length });
+    await refreshSummary(db, [currentDubaiMonth()], result.posted.map((p) => p.tenantId));
     return result;
   });
   app.post(prefix + "/stripe-fees/sweep", async (req) => {
@@ -1369,7 +1684,7 @@ export function registerPlatformPnl(
     const a = access(req);
     const settings = digitalOceanBillingSettings();
     const [invoices, estimates] = await db.system(async (tx) => [
-      await tx.query("SELECT invoice_uuid,month,team_amount_usd::text AS team_usd,project_name,project_items,project_amount_usd::text AS project_usd,imported_at FROM digitalocean_invoices ORDER BY month DESC LIMIT 24"),
+      await tx.query("SELECT invoice_uuid,month,project_name,project_items,project_amount_usd::text AS project_usd,imported_at FROM digitalocean_invoices WHERE lower(project_name)=lower($1) ORDER BY month DESC LIMIT 24", [settings.project]),
       await tx.query("SELECT month,project_name,amount_usd::text AS amount_usd,to_date_usd::text AS to_date_usd,resources,computed_at FROM digitalocean_estimates ORDER BY month DESC LIMIT 6"),
     ]);
     await audit(a, "platform_finance.digitalocean_read", {});
@@ -1407,28 +1722,50 @@ export function registerPlatformPnl(
 const HOUR = 3600000;
 export { registerPlatformFinanceJob } from "./platform-finance-runs.ts";
 import { registerPlatformFinanceJob } from "./platform-finance-runs.ts";
+/** Whether the worker's summary pass of `scopes` ran (or is running) within `ms`. */
+async function summaryPassWithin(db: Database, scopes: string[], ms: number, now: Date) {
+  const [row] = await db.system((tx) =>
+    tx.query(
+      "SELECT 1 FROM platform_finance_runs WHERE kind='summary' AND status IN ('succeeded','running') AND result->>'scope'=ANY($1::text[]) AND started_at>$2 LIMIT 1",
+      [scopes, new Date(now.getTime() - ms).toISOString()],
+    ),
+  );
+  return !!row;
+}
 /**
  * Platform finance jobs the worker runs (idempotent; each records a run):
- * the monthly summary for this and last month every hour (the last 24
- * months on the first run), then the jobs later phases register.
+ * the monthly summary for this and last month every hour, and once a day
+ * for the last 13 months (the last 24 on the first run), so invoice
+ * imports, pricing, late usage charges and fees read from Stripe for older
+ * months reach it even when the operation's own refresh failed; then the
+ * jobs later phases register.
  */
 export async function runPlatformFinanceJobs(db: Database, now = new Date()) {
   const results: Record<string, unknown> = {};
-  if (!(await ranWithin(db, "summary", HOUR, now))) {
-    const current = currentDubaiMonth(now);
-    const first = !(await lastRun(db, "summary", "succeeded"));
-    const months = first
-      ? monthsBetween(
-          new Date(Date.UTC(Number(current.slice(0, 4)), Number(current.slice(5)) - 24, 1))
-            .toISOString()
-            .slice(0, 7),
-          current,
-        )
-      : [previousMonth(current), current];
-    results.summary = await rebuildPlatformSummary(db, months).catch(
-      (e: Error) => ({ error: e.message }),
+  const current = currentDubaiMonth(now);
+  const span = (count: number) =>
+    monthsBetween(
+      new Date(Date.UTC(Number(current.slice(0, 4)), Number(current.slice(5)) - count, 1))
+        .toISOString()
+        .slice(0, 7),
+      current,
     );
-  }
+  // The first daily pass fills the last 24 months (operations may have
+  // refreshed a month or two before it).
+  const [daily] = await db.system((tx) =>
+    tx.query(
+      "SELECT 1 FROM platform_finance_runs WHERE kind='summary' AND status='succeeded' AND result->>'scope'='daily' LIMIT 1",
+    ),
+  );
+  const first = !daily;
+  if (first || !(await summaryPassWithin(db, ["daily"], 20 * HOUR, now)))
+    results.summary = await rebuildPlatformSummary(db, span(first ? 24 : 13), null, {
+      scope: "daily",
+    }).catch((e: Error) => ({ error: e.message }));
+  else if (!(await summaryPassWithin(db, ["hourly", "daily"], HOUR, now)))
+    results.summary = await rebuildPlatformSummary(db, [previousMonth(current), current], null, {
+      scope: "hourly",
+    }).catch((e: Error) => ({ error: e.message }));
   for (const job of platformFinanceJobs()) {
     try {
       results[job.id] = await job.run(db, now);
@@ -1456,6 +1793,9 @@ export async function runStripeFeeSweep(
   try {
     const result = await sweepStripeFees(db, stripe);
     await finishRun(db, run, { result });
+    // Fees read for older months change those months' Stripe fee lines.
+    for (const t of result.touched)
+      await refreshSummary(db, t.months, [t.tenantId]);
     return result;
   } catch (error) {
     await finishRun(db, run, { error: (error as Error).message || "Stripe fee sweep failed" });

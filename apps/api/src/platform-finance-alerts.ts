@@ -28,29 +28,36 @@ const commission = (f: any) =>
 registerPlatformAlertRule({
   id: "finance.cost_without_income",
   description:
-    "A trainer's AI and voice cost in this or last month with no platform income from them in that month (no budget limits apply).",
+    "A trainer's AI and voice cost in a finished month with no AI Coach Service Fee charged for it and no other platform income from them in that month (no budget limits apply).",
   async evaluate({ db, now }) {
     const current = monthOf(now);
+    // A month's fee is posted after the month ends: the month in progress
+    // is never alerted, nor last month before its fee is posted.
     const rows = await db.system((tx) =>
       tx.query(
-        "SELECT s.month,s.tenant_id,s.figures,t.name FROM platform_finance_months s JOIN tenants t ON t.id=s.tenant_id WHERE s.month=ANY($1::text[]) ORDER BY s.month,s.tenant_id",
-        [[shift(current, -1), current]],
+        "SELECT s.month,s.tenant_id,s.figures,t.name FROM platform_finance_months s JOIN tenants t ON t.id=s.tenant_id WHERE s.month>=$1 AND s.month<$2 ORDER BY s.month,s.tenant_id",
+        [shift(current, -3), current],
       ),
     );
     const out: AlertCandidate[] = [];
     for (const r of rows) {
       const f = r.figures ?? {};
       const costUsd = Number(f.cost?.aiUsd ?? 0) + Number(f.cost?.voiceUsd ?? 0);
+      if (costUsd <= 0) continue;
+      const statement = f.usageStatement ?? null;
+      if (!statement && r.month === shift(current, -1)) continue;
+      if (Number(statement?.chargeMinor ?? 0) > 0) continue;
       const domains = Object.values(f.domains ?? {}).reduce(
         (n: number, d: any) => n + Number(d?.paymentsMinor ?? 0),
         0,
       );
+      // Cash basis: the fee counts as far as the trainer's earnings covered it.
       const income =
         commission(f) +
-        Number(f.aiCoachServiceFeeMinor ?? 0) +
+        Number(f.aiCoachServiceFeeCollectedMinor ?? f.aiCoachServiceFeeMinor ?? 0) +
         Number(f.otherChargesMinor ?? 0) +
         domains;
-      if (costUsd <= 0 || income > 0) continue;
+      if (income > 0) continue;
       out.push({
         dedupeKey: `finance.cost_without_income:${r.tenant_id}:${r.month}`,
         fingerprint: String(Math.round(costUsd * 100)),
@@ -58,11 +65,41 @@ registerPlatformAlertRule({
         scope: ["finance"],
         tenantId: r.tenant_id,
         title: `Cost without income: ${r.name} (${r.month})`,
-        detail: `${r.name} used about USD ${costUsd.toFixed(2)} of AI and voice in ${r.month} with no platform income from them in that month. No budget limit applies; review it on Platform finance.`,
+        detail: `${r.name} used about USD ${costUsd.toFixed(2)} of AI and voice in ${r.month}, with no AI Coach Service Fee charged for it and no other platform income from them in that month. No budget limit applies; review it on Platform finance.`,
         data: { month: r.month, costUsd: Math.round(costUsd * 10000) / 10000, href: "/admin/platform-finance" },
       });
     }
     return out;
+  },
+});
+
+registerPlatformAlertRule({
+  id: "finance.service_fee_owed",
+  description:
+    "A trainer owes AI Coach Service Fee that their earnings did not cover (the platform paid for the usage and has not been paid for it).",
+  async evaluate({ db, now }) {
+    const current = monthOf(now);
+    // Each trainer's latest summary month: what they owed at its end.
+    const rows = await db.system((tx) =>
+      tx.query(
+        "SELECT DISTINCT ON (s.tenant_id) s.month,s.tenant_id,s.figures->>'aiCoachServiceFeeOwedMinor' AS owed,t.name FROM platform_finance_months s JOIN tenants t ON t.id=s.tenant_id WHERE s.month>=$1 AND s.month<=$2 ORDER BY s.tenant_id,s.month DESC",
+        [shift(current, -12), current],
+      ),
+    );
+    return rows
+      .filter((r: any) => Number(r.owed ?? 0) > 0)
+      .map(
+        (r: any): AlertCandidate => ({
+          dedupeKey: `finance.service_fee_owed:${r.tenant_id}`,
+          fingerprint: String(r.owed),
+          severity: "warning",
+          scope: ["finance"],
+          tenantId: r.tenant_id,
+          title: `AI Coach Service Fee not covered: ${r.name}`,
+          detail: `${r.name} owes AED ${(Number(r.owed) / 100).toFixed(2)} of AI Coach Service Fee that their earnings did not cover (at the end of ${r.month}). It is income only when their earnings cover it; no budget limit applies.`,
+          data: { month: r.month, owedMinor: Number(r.owed), href: "/admin/platform-finance" },
+        }),
+      );
   },
 });
 

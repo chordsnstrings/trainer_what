@@ -171,7 +171,7 @@ export function Bookings({ role }: { role: string }) {
               missing daylight-saving times must be changed before saving. A
               price above zero is a separate session payment.
             </p>
-            <StripeFeeNote subject="each paid session" />
+            <StripeFeeNote subject="each paid session" bookingFee />
             <button className="button" disabled={busy}>
               Add sessions
             </button>

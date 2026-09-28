@@ -1256,7 +1256,11 @@ per currency and per order, what the trainer paid, what was refunded, what the r
 than the price kept flagged "below cost". Registrar top-ups are recorded as platform costs
 (category "Registrar top-up", a prepayment), so the screen shows top-ups less registrar charges as
 the registrar's book balance next to the balance the registrar reports ("Check registrar
-balance", and read daily by the worker when a registrar is configured; read-only). The alert
+balance", and read daily by the worker when a registrar is configured; read-only). The book is
+in US dollars, like the registrar's balance: an order quoted in AED journals its registrar
+charge in AED at the quote's rate, and counts at the USD cost that journal records (review
+round 1, stage 2026-09-28w). A payment for no open order (booked to the refund liability) and
+its refund are not domain income or cost. The alert
 `finance.registrar_balance_low` fires below "Alert when the registrar balance is below (USD)"
 (Settings → Platform finance, default 20). Trainers never see any of this. The domain price rule
 itself is unchanged here (the parallel domain margin track owns it).
