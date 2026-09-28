@@ -64,6 +64,7 @@ import {
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
+import { registerVoiceClones } from "./voice-clones.ts";
 import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
 import type { WebAddressDeps } from "./web-address-orders.ts";
 import {
@@ -93,6 +94,7 @@ import {
 } from "./workspace-pages.ts";
 import { registerInfrastructureObserver } from "./infrastructure-observer.ts";
 import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
+import type { PlatformDnsDeps } from "./platform-dns.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
 import { hasMemberAccess } from "./entitlements.ts";
@@ -155,6 +157,8 @@ import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
 import { registerGovernance } from "./governance.ts";
 import { registerBusinessMetrics } from "./business-metrics.ts";
+import { registerPlatformFinance } from "./platform-finance.ts";
+import { VOICE_TASK_SQL } from "./cost-accounting.ts";
 import { registerPlatformAlerts } from "./platform-alerts.ts";
 import {
   ACCOUNT_LOCKED_SQLSTATE,
@@ -333,6 +337,8 @@ export async function buildApp(
       stripe?: () => ReturnType<typeof stripeClient>;
       /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
       webAddresses?: WebAddressDeps;
+      /** DNS host doubles for Check and repair platform DNS. */
+      platformDns?: PlatformDnsDeps;
       /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
       instagram?: InstagramTransport;
     };
@@ -645,6 +651,7 @@ export async function buildApp(
   registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
   registerVoiceSessions(app, db);
+  registerVoiceClones(app, db);
   registerWebAddresses(app, db, options.providers?.webAddresses);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
@@ -667,6 +674,7 @@ export async function buildApp(
   });
   registerHostOperations(app, db, identity, {
     startSampler: !options.testing,
+    platformDns: options.providers?.platformDns,
   });
   registerAcquisition(app, db);
   securityRoutes(app, db, identity);
@@ -703,6 +711,7 @@ export async function buildApp(
   registerComplimentaryAccess(app, db, identity);
   registerGovernance(app, db, identity);
   registerBusinessMetrics(app, db, identity);
+  registerPlatformFinance(app, db, identity);
   registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
@@ -2151,7 +2160,9 @@ export async function buildApp(
       tx.query(
         // The platform's registrar cost for the trainer's domain is not the
         // trainer's ledger (docs/features/web-addresses.md).
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
+        // Each line carries its journal's currency: AED, or USD for the
+        // trainer's own web address payments and refunds (migration 071).
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
       ),
     );
     reply
@@ -2159,9 +2170,16 @@ export async function buildApp(
       .header("Content-Disposition", 'attachment; filename="ledger.csv"');
     const cell = (v: any) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
     return [
-      "journal_id,source_key,created_at,account,amount_minor",
+      "journal_id,source_key,created_at,account,amount_minor,currency",
       ...rows.map((r) =>
-        [r.id, r.source_key, r.created_at, r.account, r.amount_minor]
+        [
+          r.id,
+          r.source_key,
+          r.created_at,
+          r.account,
+          r.amount_minor,
+          r.currency,
+        ]
           .map(cell)
           .join(","),
       ),
@@ -2448,10 +2466,37 @@ export async function buildApp(
           return {
             ...(["admin", "finance"].includes(a.platformRole)
               ? {
-                  finance: await financeSummary(tx),
-                  costs: await tx.query(
-                    "SELECT task,count(*)::int AS requests,sum(cost_usd) AS cost_usd FROM cost_events GROUP BY task",
-                  ),
+                  finance: await financeSummary(tx, { platformView: true }),
+                  // One scan: per-task figures, and the all-time AI and
+                  // voice cost in USD split by what is priced at an
+                  // estimate and what is still unpriced.
+                  ...(await (async () => {
+                    const rows = await tx.query(
+                      `SELECT task,(${VOICE_TASK_SQL}) AS voice,count(*)::int AS requests,sum(cost_usd) AS cost_usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events GROUP BY task`,
+                    );
+                    const costSummary: Record<
+                      "ai" | "voice",
+                      { requests: number; costUsd: number; estimatedUsd: number; unpriced: number }
+                    > = {
+                      ai: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
+                      voice: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
+                    };
+                    for (const r of rows) {
+                      const c = costSummary[r.voice ? "voice" : "ai"];
+                      c.requests += r.requests;
+                      c.costUsd += Number(r.cost_usd ?? 0);
+                      c.estimatedUsd += Number(r.estimated_usd);
+                      c.unpriced += r.unpriced;
+                    }
+                    return {
+                      costs: rows.map((r) => ({
+                        task: r.task,
+                        requests: r.requests,
+                        cost_usd: r.cost_usd,
+                      })),
+                      costSummary,
+                    };
+                  })()),
                 }
               : {}),
             // A bounded sample with the exact count.

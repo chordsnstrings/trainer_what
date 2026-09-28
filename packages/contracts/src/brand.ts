@@ -20,6 +20,11 @@ export const BRAND_COPY = {
     "trainsyou helps personal trainers teach their own AI, keep control of how it coaches and build a paid offering around access to their expertise.",
   primaryAction: "Teach your AI",
   secondaryAction: "Explore the platform",
+  /**
+   * The home page H1 (28 September 2026 refresh): the relay in seven words.
+   * The brand line closes every marketing page instead.
+   */
+  homeHeadline: "Teach your AI. It trains your subscribers.",
 } as const;
 
 /** The palette (sRGB) from digital/design-tokens.css. */
@@ -54,6 +59,8 @@ export const BRAND_ASSETS = {
   icon512: BASE + "app-icon-512.png",
   shareImage: BASE + "social-share-1200x630.png",
 } as const;
+/** The words on the supplied share card, for its alternative text. */
+export const BRAND_SHARE_IMAGE_ALT = `${BRAND_NAME}: ${BRAND_COPY.line} Teach your AI. Grow your coaching business.`;
 /** The lockup's intrinsic size (SVG viewBox 505 × 128). */
 export const BRAND_LOCKUP_SIZE = { width: 505, height: 128 } as const;
 

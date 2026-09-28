@@ -116,6 +116,11 @@ export async function verifyRuntimeAccess(client) {
     workspace_app_icons: ["SELECT", "INSERT"],
     tenant_slug_redirects: ["SELECT", "INSERT", "UPDATE"],
     early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    // Domain pricing (071): registrar prices per ending, platform-level.
+    registrar_prices: ["SELECT", "INSERT", "UPDATE"],
+    // Platform finance reference data (072, 073): append-only, service only.
+    exchange_rates: ["SELECT", "INSERT"],
+    model_prices: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -132,6 +137,35 @@ export async function verifyRuntimeAccess(client) {
     // Also plans actual statements, exercising RLS helper-function permissions.
     await query(`SELECT * FROM public.${table} LIMIT 0`);
   }
+  // Domain pricing (071): registrar prices are platform rows hidden from the
+  // tenant role by row security as well as by grants.
+  const [prices] = await query(
+    "SELECT relrowsecurity,relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename='registrar_prices' AND p.qual LIKE '%trainer_app%') AS service_only FROM pg_class WHERE oid='registrar_prices'::regclass",
+  );
+  assert.deepEqual(
+    prices,
+    { relrowsecurity: true, relforcerowsecurity: true, service_only: true },
+    "registrar_prices must be service-only under forced row security",
+  );
+  // Journals carry their currency (071): only web address journals may use
+  // another currency than AED, and the balance check keeps such journals off
+  // every account but the web address and registrar ones.
+  const [currency] = await query(
+    "SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c WHERE c.conrelid='journals'::regclass AND c.conname='journals_currency_check'",
+  );
+  assert.match(
+    String(currency?.def ?? ""),
+    /currency = 'AED'::text\) OR \(source_key ~~ 'web-address-%'::text/,
+    "journals: only web address journals may use another currency",
+  );
+  const [balance] = await query(
+    "SELECT prosrc FROM pg_proc WHERE oid='balanced_journal()'::regprocedure",
+  );
+  assert.match(
+    String(balance?.prosrc ?? ""),
+    /NEW\.currency<>'AED'[\s\S]*web_address_receivable[\s\S]*registrar_prepaid/,
+    "journals: the balance check must keep other currencies off AED accounts",
+  );
   const scopedTables = [
     "affiliate_contracts",
     "affiliate_receipts",
@@ -175,6 +209,11 @@ export async function verifyRuntimeAccess(client) {
     "voice_sessions",
     "voice_session_clips",
     "registrar_operations",
+    // Trainer voice clones (069): owner-only tenant tables; the deletion queue
+    // has no DELETE grant so it outlives erasure and workspace closure.
+    "trainer_voice_clones",
+    "trainer_voice_samples",
+    "voice_provider_deletions",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -204,6 +243,38 @@ export async function verifyRuntimeAccess(client) {
     assert.equal(r.relforcerowsecurity, true, `${table} must force RLS`);
     assert.notEqual(r.owner, "trainer_service");
   }
+  // Trainer voice clones (069): members, team members and other roles never
+  // read a clone, a recording or a provider reference (restrictive owner-only
+  // policy), and the provider deletion queue outlives erasure and closure
+  // because the application role cannot delete from it.
+  for (const table of [
+    "trainer_voice_clones",
+    "trainer_voice_samples",
+    "voice_provider_deletions",
+  ]) {
+    const policies = await query(
+      "SELECT policyname,permissive,cmd,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename=$1 AND policyname='voice_clone_owner'",
+      [table],
+    );
+    assert.equal(policies.length, 1, `${table}: owner-only policy missing`);
+    const [policy] = policies;
+    assert.equal(policy.permissive, "RESTRICTIVE", `${table}: owner-only policy must be restrictive`);
+    assert.equal(policy.cmd, "ALL", `${table}: owner-only policy must cover every command`);
+    for (const clause of [policy.qual, policy.with_check])
+      assert.match(
+        String(clause ?? ""),
+        /current_setting\('app\.role'::text,\s*true\)\s*=\s*'owner'::text/,
+        `${table}: owner-only policy must require app.role = 'owner'`,
+      );
+  }
+  const [queueDelete] = await query(
+    "SELECT has_table_privilege('trainer_app','voice_provider_deletions','DELETE') AS app,has_table_privilege(current_user,'voice_provider_deletions','DELETE') AS service",
+  );
+  assert.deepEqual(
+    queueDelete,
+    { app: false, service: false },
+    "voice_provider_deletions must not be deletable by the runtime roles",
+  );
   const functions = [
     "trainer_media_brand_reference(uuid,uuid)",
     "trainer_brand_tenant()",
@@ -252,6 +323,15 @@ export async function verifyRuntimeAccess(client) {
     "member_plan_status()",
     // Migration 065: the trainer's current voice-session style for members.
     "voice_session_style()",
+    // Migration 069: Pro clone slots in use across the provider account (a count).
+    "voice_pro_clones_in_use()",
+    // Migration 069: platform administrators only (checked inside): open
+    // provider deletions across workspaces, and the settings guard's counts.
+    "voice_provider_deletions_outstanding(integer)",
+    "voice_provider_work_outstanding()",
+    // Migration 070: whether another open order uses a lapsed domain's name
+    // (the worker, for its own order only).
+    "domain_name_other_order(uuid)",
   ];
   for (const name of functions) {
     const [r] = await query(
@@ -508,6 +588,9 @@ export async function verifyRuntimeAccess(client) {
       "workspace_app_icons",
       "tenant_slug_redirects",
       "early_access_requests",
+      "registrar_prices",
+      "exchange_rates",
+      "model_prices",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
@@ -534,7 +617,9 @@ export async function verifyRuntimeAccess(client) {
       },
       "Tenant actors must not reassign or create domain mappings",
     );
-    for (const column of ["hostname", "tenant_id", "verified_at"]) {
+    // redirect (070) decides whether a mapped name forwards elsewhere: only
+    // the service sets it, from the owner's audited choice.
+    for (const column of ["hostname", "tenant_id", "verified_at", "redirect"]) {
       const [r] = await query(
         "SELECT has_column_privilege(current_user,'domain_mappings',$1,'UPDATE') AS allowed",
         [column],

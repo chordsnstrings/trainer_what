@@ -8,10 +8,14 @@ import {
   testIntegration,
   validateIntegrationValues,
   integrationCapability,
+  READ_ONLY_CHECK_BEFORE_APPROVAL,
   type IntegrationDefinition,
   type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
-import { followerSettingsNeedNote } from "../../../packages/domain/src/marketing-calculators.ts";
+import {
+  followerSettingsNeedNote,
+  followerSettingsProblem,
+} from "../../../packages/domain/src/marketing-calculators.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
   encryptionReady,
@@ -184,6 +188,93 @@ function configuredValues(def: IntegrationDefinition, row: SettingsRow) {
       ? open(def.id, field.key, row.encrypted_secrets[field.key])
       : "";
   return out;
+}
+
+/**
+ * The saved values of one integration, credentials opened, whether or not it
+ * is active (the environment when nothing is saved). Only for work that must
+ * outlive a paused or unchecked integration, such as deleting trainer voice
+ * clones at the provider; null when the saved credentials cannot be opened,
+ * or when `needed` says the plain values are of no use (nothing is opened).
+ */
+export async function storedIntegrationValues(
+  db: Database,
+  integrationId: string,
+  needed: (values: Record<string, string>) => boolean = () => true,
+): Promise<Record<string, string> | null> {
+  const def = definition(integrationId);
+  const row = await db.system((tx) => findRow(tx, def.id));
+  if (!needed(fieldValues(def, row))) return null;
+  if (!row) {
+    const out = fieldValues(def);
+    for (const field of def.fields.filter((field) => field.type === "secret"))
+      out[field.key] = process.env[field.key] ?? "";
+    return out;
+  }
+  try {
+    return configuredValues(def, row);
+  } catch {
+    return null;
+  }
+}
+
+/** What a settings change would leave in place, for a registered guard. */
+export type SettingsChange = {
+  integrationId: string;
+  before: { values: Record<string, string>; secrets: Set<string> };
+  after: { values: Record<string, string>; secrets: Set<string> };
+  /** Credentials given a new value in this change. */
+  replacedSecrets: string[];
+};
+type SettingsGuard = (
+  db: Database,
+  actor: AdminIdentity,
+  change: SettingsChange,
+) => Promise<void>;
+const settingsGuards = new Map<string, Map<string, SettingsGuard>>();
+/**
+ * Lets a feature refuse a settings change that would strand its own work (it
+ * throws an error with statusCode and code). Runs before saves and
+ * disconnects of that integration, outside the settings transaction.
+ * Registering the same name again replaces the guard.
+ */
+export function registerSettingsGuard(
+  integrationId: string,
+  name: string,
+  guard: SettingsGuard,
+) {
+  const guards = settingsGuards.get(integrationId) ?? new Map();
+  guards.set(name, guard);
+  settingsGuards.set(integrationId, guards);
+}
+function secretsPresent(def: IntegrationDefinition, row?: SettingsRow) {
+  return new Set(
+    def.fields
+      .filter(
+        (field) =>
+          field.type === "secret" &&
+          (row ? row.encrypted_secrets[field.key] : process.env[field.key]),
+      )
+      .map((field) => field.key),
+  );
+}
+async function runSettingsGuards(
+  db: Database,
+  actor: AdminIdentity,
+  def: IntegrationDefinition,
+  revision: number,
+  next: (before: SettingsChange["before"]) => Omit<SettingsChange, "integrationId" | "before">,
+) {
+  const guards = [...(settingsGuards.get(def.id)?.values() ?? [])];
+  if (!guards.length) return;
+  const previous = await db.system((tx) => findRow(tx, def.id));
+  if ((previous?.revision ?? 0) !== revision) throw conflict();
+  const before = {
+    values: fieldValues(def, previous),
+    secrets: secretsPresent(def, previous),
+  };
+  const change = { integrationId: def.id, before, ...next(before) };
+  for (const guard of guards) await guard(db, actor, change);
 }
 
 /** Request/job scoped overrides. Persisted rows are authoritative, including blanks. */
@@ -430,6 +521,17 @@ export function platformSettingsRoutes(
         body.secrets ?? {},
         body.clearSecrets ?? [],
       );
+      await runSettingsGuards(db, actor, def, body.revision, (before) => {
+        const values = { ...before.values };
+        for (const key of Object.keys(body.values)) values[key] = submitted[key];
+        const secrets = new Set(before.secrets);
+        for (const key of body.clearSecrets ?? []) secrets.delete(key);
+        for (const key of Object.keys(body.secrets ?? {})) secrets.add(key);
+        return {
+          after: { values, secrets },
+          replacedSecrets: Object.keys(body.secrets ?? {}),
+        };
+      });
       return db.system(async (tx) => {
         const previous = await findRow(tx, def.id, true);
         if ((previous?.revision ?? 0) !== body.revision) throw conflict();
@@ -471,6 +573,18 @@ export function platformSettingsRoutes(
           if (next.encrypted_secrets[key]) changed.push(key);
           delete next.encrypted_secrets[key];
         }
+        // An inconsistent set would be ignored by the public pages (they fall
+        // back to the cited defaults), so it is refused rather than saved.
+        const followerProblem =
+          def.id === "marketing"
+            ? followerSettingsProblem(next.settings_values)
+            : null;
+        if (followerProblem)
+          throw fail(
+            400,
+            "SETTINGS_INVALID",
+            `The follower assumptions are inconsistent: ${followerProblem}. To lower a strong value below its typical one, lower typical and cautious too.`,
+          );
         // An assumption that no longer matches its cited source needs the
         // operator's reason, which /methodology shows next to it.
         if (
@@ -515,7 +629,9 @@ export function platformSettingsRoutes(
         const values = configuredValues(def, snapshot);
         const capability = integrationCapability(def.id, values);
         const result =
-          capability && !capability.approved
+          capability &&
+          !capability.approved &&
+          !READ_ONLY_CHECK_BEFORE_APPROVAL.has(def.id)
             ? { status: "unavailable" as const }
             : await probe(def.id, values);
         if (
@@ -571,6 +687,10 @@ export function platformSettingsRoutes(
           `${def.name} cannot be disconnected.`,
         );
       const body = parseBody(revisionBody, request.body);
+      await runSettingsGuards(db, actor, def, body.revision, (before) => ({
+        after: { values: before.values, secrets: new Set<string>() },
+        replacedSecrets: [],
+      }));
       return db.system(async (tx) => {
         const previous = await findRow(tx, def.id, true);
         if ((previous?.revision ?? 0) !== body.revision) throw conflict();

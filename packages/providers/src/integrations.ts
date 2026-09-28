@@ -6,6 +6,13 @@ import {
   runtimeConfig,
 } from "./configuration.ts";
 import { sandboxOverride } from "./sandbox.ts";
+import {
+  CARTESIA_API_VERSION,
+  CARTESIA_BASE_URL,
+  CARTESIA_STT_MODEL,
+  CartesiaClient,
+  CartesiaError,
+} from "./cartesia.ts";
 
 type FixtureTransport = (value: string, init: RequestInit) => Promise<Response>;
 const fixtureTransport = new AsyncLocalStorage<FixtureTransport>();
@@ -318,87 +325,220 @@ export async function fetchWearableObservations(
   return observations;
 }
 
+/** The implemented voice providers (Superadmin setting VOICE_PROVIDER). */
+export const VOICE_PROVIDERS = ["elevenlabs", "cartesia"] as const;
+export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
+const PROVIDER_BASE: Record<VoiceProvider, string> = {
+  elevenlabs: "https://api.elevenlabs.io/v1",
+  cartesia: CARTESIA_BASE_URL,
+};
+export function isVoiceProvider(value: unknown): value is VoiceProvider {
+  return VOICE_PROVIDERS.includes(value as VoiceProvider);
+}
+/**
+ * The API address for a provider: the saved one, or the provider's standard
+ * address when none is saved or the saved one is another provider's standard
+ * address (an operator switching provider keeps a working default).
+ */
+export function voiceBaseUrl(provider: VoiceProvider, saved: string | undefined) {
+  const value = (saved ?? "").trim().replace(/\/$/, "");
+  return !value || Object.values(PROVIDER_BASE).includes(value)
+    ? PROVIDER_BASE[provider]
+    : value;
+}
+const API_VERSION = /^\d{4}-\d{2}-\d{2}$/;
+/** Cartesia-Version header: the saved value or the reviewed default. */
+export function cartesiaVersion(saved: string | undefined) {
+  const value = (saved ?? "").trim();
+  if (!value) return CARTESIA_API_VERSION;
+  if (!API_VERSION.test(value))
+    throw new ConfigurationError(
+      "The Cartesia API version must look like 2026-08-14.",
+    );
+  return value;
+}
+const flag = (value: string | undefined, fallback: boolean) =>
+  value === "true" ? true : value === "false" ? false : fallback;
+
 export function voiceContract() {
   const c = runtimeConfig();
+  const provider = c.VOICE_PROVIDER;
   if (
     c.VOICE_CONTRACT_VERIFIED !== "true" ||
-    c.VOICE_PROVIDER !== "elevenlabs" ||
+    !isVoiceProvider(provider) ||
     !c.VOICE_API_KEY ||
     !c.VOICE_MODEL ||
-    !c.VOICE_PRICE_VERSION ||
-    !c.VOICE_BASE_URL
+    !c.VOICE_PRICE_VERSION
   )
     throw new ConfigurationError(
-      "Trainer voice requires an approved ElevenLabs account, model, price and rights contract.",
+      "Trainer voice requires an approved ElevenLabs or Cartesia account, model, price and rights contract.",
     );
   const price = Number(c.VOICE_USD_PER_1000_CHARACTERS),
-    cap = Number(c.VOICE_DAILY_USD_LIMIT);
+    cap = Number(c.VOICE_DAILY_USD_LIMIT),
+    cloneUsd = Number(c.VOICE_CLONE_USD || 0),
+    proPrice = Number(c.VOICE_PRO_CLONE_PRICE_AED || 0),
+    proSlots = Number(c.VOICE_PRO_CLONE_SLOTS ?? 2);
   if (!Number.isFinite(price) || price < 0 || !Number.isFinite(cap) || cap <= 0)
     throw new ConfigurationError(
       "Reviewed voice pricing and a daily USD cap are required.",
     );
+  const cartesia = provider === "cartesia";
   return {
-    base: c.VOICE_BASE_URL.replace(/\/$/, ""),
+    provider,
+    base: voiceBaseUrl(provider, c.VOICE_BASE_URL),
     key: c.VOICE_API_KEY,
     model: c.VOICE_MODEL,
     price,
     cap,
     priceVersion: c.VOICE_PRICE_VERSION,
+    apiVersion: cartesia ? cartesiaVersion(c.VOICE_API_VERSION) : null,
+    /** Clones are made through the app only with Cartesia. */
+    cloning: {
+      quick: cartesia && flag(c.VOICE_QUICK_CLONE_ENABLED, true),
+      pro: cartesia && flag(c.VOICE_PRO_CLONE_ENABLED, false),
+      proSlots: Number.isInteger(proSlots) && proSlots > 0 ? proSlots : 0,
+      proPriceAed: Number.isFinite(proPrice) && proPrice > 0 ? proPrice : null,
+      cloneUsd: Number.isFinite(cloneUsd) && cloneUsd >= 0 ? cloneUsd : 0,
+      // On until the owner decides otherwise: an operator checks identity and
+      // rights before members hear a clone, as for linked ElevenLabs voices.
+      reviewRequired: flag(c.VOICE_CLONE_REVIEW_REQUIRED, false),
+      providerTrainingOptOut: flag(c.VOICE_TRAINING_OPT_OUT, false),
+    },
   };
 }
+export type VoiceContract = ReturnType<typeof voiceContract>;
+/** The approved Cartesia account for clone work, or ConfigurationError. */
+export function cartesiaVoiceClient(contract: VoiceContract = voiceContract()) {
+  if (contract.provider !== "cartesia" || !contract.apiVersion)
+    throw new ConfigurationError(
+      "Voice clones are made through the app only with the Cartesia provider.",
+    );
+  return new CartesiaClient(
+    { base: contract.base, key: contract.key, version: contract.apiVersion },
+    integrationRequest,
+  );
+}
+/**
+ * A Cartesia client for deleting what trainer voice clones left at the
+ * provider, built from the saved voice settings whether or not the voice
+ * integration is active: a paused contract, a pending connection check or a
+ * disabled switch never stops a deletion the trainer was promised. Null when
+ * the saved provider is not Cartesia or no key is saved. Never used to make
+ * anything.
+ */
+export function cartesiaDeletionClient(values: Record<string, string | undefined>) {
+  if (values.VOICE_PROVIDER !== "cartesia" || !values.VOICE_API_KEY) return null;
+  let version: string;
+  try {
+    version = cartesiaVersion(values.VOICE_API_VERSION);
+  } catch {
+    version = CARTESIA_API_VERSION;
+  }
+  return new CartesiaClient(
+    {
+      base: voiceBaseUrl("cartesia", values.VOICE_BASE_URL),
+      key: values.VOICE_API_KEY,
+      version,
+    },
+    integrationRequest,
+  );
+}
+/**
+ * Speaks one line in a trainer voice. `voice.provider` is the provider that
+ * holds the voice: a voice of another provider is never sent (its ID means
+ * nothing there and the attempt would only add an unknown cost).
+ * `voice.language` is the language the voice was recorded in and is not sent:
+ * Cartesia reads `language` as the language of the text, which is
+ * `textLanguage` (English for today's scripts, shared phrases and previews).
+ */
 export async function generateTrainerVoice(
   voiceId: string,
   text: string,
   beforeSend: () => Promise<void>,
+  voice: {
+    provider?: string | null;
+    model?: string | null;
+    language?: string | null;
+    textLanguage?: string;
+  } = {},
 ) {
   const c = voiceContract();
-  const response = await integrationRequest(
-    c.base +
-      "/text-to-speech/" +
-      encodeURIComponent(voiceId) +
-      "?output_format=mp3_44100_128",
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": c.key,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({ text, model_id: c.model }),
-    },
-    beforeSend,
-  );
-  if (!response.ok)
+  if ((voice.provider ?? "elevenlabs") !== c.provider)
     throw new ConfigurationError(
-      "Voice generation could not be confirmed. Use written guidance while the request is reconciled.",
+      "This trainer voice belongs to another voice provider.",
     );
-  const audio = Buffer.from(await response.arrayBuffer());
+  const model = voice.model || c.model;
+  let audio: Buffer, contentType: string, requestId: string | null;
+  if (c.provider === "cartesia") {
+    try {
+      ({ audio, contentType, requestId } = await cartesiaVoiceClient(c).speech(
+        { voiceId, text, model, language: voice.textLanguage ?? "en" },
+        beforeSend,
+      ));
+    } catch (error) {
+      if (!(error instanceof CartesiaError)) throw error;
+      throw new ConfigurationError(
+        "Voice generation could not be confirmed. Use written guidance while the request is reconciled.",
+      );
+    }
+  } else {
+    const response = await integrationRequest(
+      c.base +
+        "/text-to-speech/" +
+        encodeURIComponent(voiceId) +
+        "?output_format=mp3_44100_128",
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": c.key,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({ text, model_id: model }),
+      },
+      beforeSend,
+    );
+    if (!response.ok)
+      throw new ConfigurationError(
+        "Voice generation could not be confirmed. Use written guidance while the request is reconciled.",
+      );
+    audio = Buffer.from(await response.arrayBuffer());
+    contentType = response.headers.get("content-type") ?? "";
+    requestId =
+      response.headers.get("request-id") ?? response.headers.get("x-request-id");
+  }
   if (
     !audio.length ||
     audio.length > 2097152 ||
-    !/^audio\/(mpeg|mp3)(;|$)/.test(response.headers.get("content-type") ?? "")
+    !/^audio\/(mpeg|mp3)(;|$)/.test(contentType)
   )
     throw new ConfigurationError("Provider returned unsupported audio.");
   return {
     audio,
-    requestId:
-      response.headers.get("request-id") ??
-      response.headers.get("x-request-id"),
+    requestId,
+    provider: c.provider,
+    model,
     estimatedCost: (text.length * c.price) / 1000,
     priceVersion: c.priceVersion,
   };
 }
 
-/** Approved speech-to-text account (ElevenLabs), or ConfigurationError. */
+/**
+ * The app cannot ask Cartesia for zero retention (it is an Enterprise account
+ * setting), so a zero-retention request is never silently dropped: the
+ * speech-to-text contract stays unapproved until the operator turns it off.
+ */
+export const CARTESIA_ZERO_RETENTION =
+  "Cartesia zero retention is an Enterprise account setting the app cannot request. Turn off Request zero retention to use Cartesia speech-to-text; members are told the provider's own retention applies.";
+/** Approved speech-to-text account (ElevenLabs or Cartesia), or ConfigurationError. */
 export function speechToTextContract() {
   const c = runtimeConfig();
+  const provider = c.STT_PROVIDER;
   if (
     c.STT_CONTRACT_VERIFIED !== "true" ||
-    c.STT_PROVIDER !== "elevenlabs" ||
+    !isVoiceProvider(provider) ||
     !c.STT_API_KEY ||
-    !c.STT_MODEL ||
-    !c.STT_PRICE_VERSION ||
-    !c.STT_BASE_URL
+    !c.STT_PRICE_VERSION
   )
     throw new ConfigurationError(
       "Spoken replies need an approved speech-to-text account, model, price and audio processing contract.",
@@ -406,14 +546,30 @@ export function speechToTextContract() {
   const pricePerHour = Number(c.STT_USD_PER_HOUR);
   if (!Number.isFinite(pricePerHour) || pricePerHour < 0)
     throw new ConfigurationError("A reviewed speech-to-text price is required.");
+  if (provider === "cartesia" && c.STT_ZERO_RETENTION === "true")
+    throw new ConfigurationError(CARTESIA_ZERO_RETENTION);
   return {
-    base: c.STT_BASE_URL.replace(/\/$/, ""),
+    provider,
+    base: voiceBaseUrl(provider, c.STT_BASE_URL),
     key: c.STT_API_KEY,
-    model: c.STT_MODEL,
+    model: speechModel(provider, c.STT_MODEL),
     pricePerHour,
     priceVersion: c.STT_PRICE_VERSION,
     zeroRetention: c.STT_ZERO_RETENTION === "true",
+    apiVersion:
+      provider === "cartesia" ? cartesiaVersion(c.STT_API_VERSION) : null,
   };
+}
+/** The saved transcription model, or the provider's batch model. */
+export function speechModel(provider: VoiceProvider, saved: string | undefined) {
+  const value = (saved ?? "").trim();
+  const defaults: Record<VoiceProvider, string> = {
+    elevenlabs: "scribe_v1",
+    cartesia: CARTESIA_STT_MODEL,
+  };
+  return !value || Object.values(defaults).includes(value)
+    ? defaults[provider]
+    : value;
 }
 export const SPEECH_AUDIO_TYPES = {
   "audio/webm": "webm",
@@ -431,8 +587,43 @@ export async function transcribeSpeech(
   audio: Buffer,
   type: SpeechAudioType,
   beforeSend: () => Promise<void>,
+  options: { language?: "en" | "ar" } = {},
 ) {
   const c = speechToTextContract();
+  if (c.provider === "cartesia") {
+    try {
+      const result = await new CartesiaClient(
+        { base: c.base, key: c.key, version: c.apiVersion! },
+        integrationRequest,
+      ).transcribe(
+        {
+          audio,
+          type,
+          extension: SPEECH_AUDIO_TYPES[type],
+          model: c.model,
+          // Batch ink-whisper does not detect the language (it defaults to
+          // English), and replies are parsed in English and Arabic
+          // (packages/domain/src/voice-runner.ts, safetySignal): the member's
+          // language decides. ElevenLabs detects it itself.
+          language: options.language ?? "en",
+        },
+        beforeSend,
+      );
+      return {
+        text: result.text.slice(0, 500),
+        durationSeconds: result.durationSeconds,
+        languageCode: result.language,
+        requestId: result.requestId,
+        provider: c.provider,
+        priceVersion: c.priceVersion,
+      };
+    } catch (error) {
+      if (!(error instanceof CartesiaError)) throw error;
+      throw new ConfigurationError(
+        "Transcription could not be confirmed. Use the buttons or say it again.",
+      );
+    }
+  }
   const boundary = "trainer" + Math.random().toString(36).slice(2, 14);
   const part = (name: string, value: string) =>
     `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
@@ -487,6 +678,7 @@ export async function transcribeSpeech(
     requestId:
       response.headers.get("request-id") ??
       response.headers.get("x-request-id"),
+    provider: c.provider,
     priceVersion: c.priceVersion,
   };
 }

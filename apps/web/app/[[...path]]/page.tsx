@@ -8,6 +8,7 @@ import {
   publicWebsite as website,
 } from "../../components/public-website";
 import {
+  BRAND_COLORS,
   DIRECTORY_PATH,
   isIndexablePlatformPath,
   isUnknownMarketingChild,
@@ -64,10 +65,41 @@ const directory = cache(async (query: string): Promise<DirectoryResult> => {
     throw new Error("The coach directory is temporarily unavailable.");
   return response.json();
 });
+// Sign-in, sign-up, recovery and joining pages the workspace renders as
+// `public platform-ui` on the platform address (components/workspace.tsx).
+const PUBLIC_AUTH_PATHS = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/magic-link",
+  "/recover-authenticator",
+  "/sign-in/verify",
+];
+const PUBLIC_AUTH_PREFIXES = [
+  "/magic-link/",
+  "/verify-email-change/",
+  "/account-recovery/",
+  "/reset-password/",
+  "/verify-email/",
+  "/join-coach/",
+  "/join/",
+];
+/** Public platform pages, which are always light (docs/features/brand.md). */
+function isPublicPlatformRoute(route: string) {
+  return (
+    !!marketingPage(route) ||
+    route === DIRECTORY_PATH ||
+    route.startsWith(DIRECTORY_PATH + "/") ||
+    PUBLIC_AUTH_PATHS.includes(route) ||
+    PUBLIC_AUTH_PREFIXES.some((prefix) => route.startsWith(prefix))
+  );
+}
 /**
  * A coach website, and any page on a trainer's own address, takes the coach's
- * own browser colour (Design Studio primary, as in its public manifest);
- * every other page keeps the platform colour from the root layout.
+ * own browser colour (Design Studio primary, as in its public manifest). The
+ * public platform pages (marketing, directory, sign-in) are always light, so
+ * their browser colour is white in every device scheme. The workspace keeps
+ * the root layout's paper and ink pair.
  */
 export async function generateViewport({
   params,
@@ -77,7 +109,10 @@ export async function generateViewport({
   const { path = [] } = await params;
   const slug =
     path[0] === "coach" ? path[1] : (await requestOrigin()).coachSlug;
-  if (!slug) return {};
+  if (!slug)
+    return isPublicPlatformRoute("/" + path.join("/"))
+      ? { themeColor: BRAND_COLORS.white, colorScheme: "light" }
+      : {};
   const data = await website(slug);
   return data
     ? { themeColor: resolveBrandDesign(data.tenant.theme).primary }

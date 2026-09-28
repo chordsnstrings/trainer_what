@@ -14,9 +14,14 @@
  *   suggestions, a script prepared ahead with audio made by the worker, spoken
  *   replies through the speech-to-text double, and pain stopping the session
  *   and opening a training hold.
+ * - Trainer voice clones (docs/features/trainer-voice.md, voice-clone.e2e.ts):
+ *   the Cartesia double, a Quick clone previewed, activated, spoken in a
+ *   session and deleted.
  * - Web addresses (docs/features/web-addresses.md): the automatic subdomain
  *   through the coach-domain edge, domain search, purchase and yearly renewal
- *   through the Namecheap double, never naming the registrar to the trainer.
+ *   through the Namecheap double, the domain's zone at the DigitalOcean DNS
+ *   double and its delegation there, and the forwarding choice, never naming
+ *   the registrar or the DNS host to the trainer.
  * - Marketing site (docs/features/marketing-site.md): key pages, sitemap,
  *   llms.txt and the follower calculator's model.
  *
@@ -32,6 +37,7 @@ import type { E2EContext, TrainerSeed } from "../harness/context.ts";
 import { PASSWORD } from "../harness/data.ts";
 import { PLATFORM_ROOT_DOMAIN, WEB_ADDRESS_SANDBOX_IPV4 } from "../mocks/index.ts";
 import { estimateFollowerConversion } from "../../../packages/domain/src/marketing-calculators.ts";
+import { trainerVoiceCloneScenarios } from "./voice-clone.e2e.ts";
 
 const A = "Super admin" as const;
 const T = "Trainers" as const;
@@ -85,6 +91,8 @@ export async function coreFeatureScenarios(ctx: E2EContext) {
   if (member) {
     await weeklyAdaptation(ctx, layla, member);
     await voiceSession(ctx, layla, member);
+    // Cartesia Quick clone -> preview -> activate -> session audio -> delete.
+    await trainerVoiceCloneScenarios(ctx, layla, member);
   }
   // Supervised again, so the scheduler's own later passes in this run send
   // other members' plans to the trainer rather than delivering them.
@@ -148,19 +156,22 @@ async function marketing(ctx: E2EContext) {
       assert.doesNotMatch(text, /namecheap/i, "public pages never name a registrar");
     return `llms.txt ${index.text.length} characters, llms-full.txt ${full.text.length}`;
   });
-  await r.step(P, "Follower calculator", "the public platform endpoint serves the follower model; its estimate is a bounded range", async () => {
+  await r.step(P, "Follower calculator", "the public platform endpoint serves the follower model; its scenarios are ordered and bounded", async () => {
     const platform = await visitor.get("/api/v1/public/platform");
     const model = platform.followerModel;
-    assert.ok(model?.version && Array.isArray(model.tiers) && model.tiers.length, JSON.stringify(platform).slice(0, 300));
-    const estimate = estimateFollowerConversion({ followers: 5000, linkStoriesPerMonth: 8, priceAed: 299 }, model);
+    assert.ok(model?.version && Array.isArray(model.tiers) && model.tiers.length && model.scenarios?.strong, JSON.stringify(platform).slice(0, 300));
+    const estimate = estimateFollowerConversion({ followers: 7000, linkStoriesPerMonth: 8, priceAed: 199 }, model);
     assert.equal(estimate.assumptionsVersion, model.version);
-    for (const range of [estimate.storyViewers, estimate.visitors, estimate.subscribers, estimate.monthlyRevenueMinor])
-      assert.ok(range.low >= 0 && range.low <= range.high, JSON.stringify(range));
-    assert.ok(estimate.subscribers.high > 0 && estimate.subscribers.high <= estimate.ceiling.high);
-    assert.ok(estimate.twelveMonthSubscribers.high <= estimate.ceiling.high + 1e-9, "twelve months never exceed the audience ceiling");
+    const { cautious, typical, strong } = estimate.scenarios;
+    for (const r of [cautious, typical, strong]) {
+      assert.ok(r.month1New >= 0 && r.month1New <= r.signups12 + 1e-9, JSON.stringify(r));
+      assert.ok(r.activeMonth12 <= r.signups12 + 1e-9 && r.signups12 <= r.visitors12 + 1e-9);
+    }
+    assert.ok(cautious.signups12 <= typical.signups12 && typical.signups12 <= strong.signups12, "scenarios are ordered");
+    assert.ok(strong.activeMonth12 > 0);
     const page = pages["/follower-calculator"];
     assert.match(page, /follower/i);
-    return `5,000 followers, 8 link Stories: ${estimate.subscribers.low.toFixed(1)}–${estimate.subscribers.high.toFixed(1)} subscribers in the first month (model ${model.version})`;
+    return `7,000 followers, 8 link Stories, 4 keyword Reels: strong case ${strong.month1New.toFixed(1)} in the first month, ${strong.activeMonth12.toFixed(1)} active after 12 months (typical ${typical.activeMonth12.toFixed(1)}; model ${model.version})`;
   });
 }
 
@@ -168,9 +179,9 @@ async function marketing(ctx: E2EContext) {
 
 type Purchase = { orderId: string; domain: string; subscriptionId: string };
 
-/** No registrar name, cost, rate or margin in anything the trainer receives. */
+/** No registrar name or cost (USD 10.46 / 16.06 at the double) in anything the trainer receives. */
 function assertNoRegistrar(text: string, where: string) {
-  assert.doesNotMatch(text, /namecheap|registrar-servers|16\.06|3\.6725/i, `${where} names the registrar or its cost`);
+  assert.doesNotMatch(text, /namecheap|registrar-servers|10\.46|16\.06|registerUsd|renewUsd|priceRule/i, `${where} names the registrar or its cost`);
 }
 
 async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<Purchase | undefined> {
@@ -201,18 +212,49 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     return `home ${home.status}; unknown subdomain refused in the TLS handshake`;
   });
   let found: any;
-  await r.step(T, "Search for a domain", `${layla.slug}: availability and yearly AED prices from the registrar double, without naming it`, async () => {
-    const search = await t.request("GET", "/api/v1/web-address/search?q=laylastrength.com");
-    assert.equal(search.status, 200, search.text);
+  await r.step(T, "Search for a domain", `${layla.slug}: the name on every suggested ending in one registrar request, USD first-year and renewal prices, taken and over-USD-100 names left out, without naming the registrar`, async () => {
+    const nc = ctx.mocks.namecheap;
+    // Someone holds laylastrength.fit; laylastrength.coach is a premium name
+    // over the USD 100 limit; the double does not sell .ae.
+    nc.taken.add("laylastrength.fit");
+    nc.premium.set("laylastrength.coach", "250.00");
+    // Ending prices come from the registrar once a day (the worker keeps
+    // them warm); right after start-up a search may still say some endings
+    // could not be checked yet, and a later one is complete.
+    let search: any;
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      search = await t.request("GET", "/api/v1/web-address/search?q=laylastrength");
+      assert.equal(search.status, 200, search.text);
+      if (!search.body.incomplete) break;
+      await new Promise((done) => setTimeout(done, 15000));
+    }
+    assert.equal(search.body.incomplete, false, "every ending priced and checked");
     assertNoRegistrar(search.text, "search");
-    found = search.body.results.find((x: any) => x.domain === "laylastrength.com");
-    assert.ok(found?.available, JSON.stringify(search.body).slice(0, 400));
-    // USD 16.06 (the higher of 10.28 + 0.18 and 15.88 + 0.18) × 3.6725 → AED 59, + AED 25 margin.
-    assert.equal(found.firstYearPriceMinor, 8400);
-    assert.equal(found.renewalPriceMinor, 8400);
-    assert.equal(found.currency, "AED");
-    assert.ok(ctx.mocks.namecheap.commands("domains.check").length >= 1);
-    return search.body.results.map((x: any) => `${x.domain}:${x.available ? x.firstYearPriceMinor / 100 : "-"}`).join(" ");
+    const checks = nc.commands("domains.check").length;
+    const again = await t.request("GET", "/api/v1/web-address/search?q=Laylastrength");
+    assert.equal(again.status, 200, again.text);
+    assert.ok(nc.commands("domains.check").length <= checks + 1, "at most one availability request for every ending");
+    assert.deepEqual(search.body.requested, { domain: "laylastrength.com", status: "available" });
+    // Owner's rule: the cost rounded up to USD 5, plus USD 4.99.
+    assert.deepEqual(
+      search.body.results.map((x: any) => [x.domain, x.firstYearPriceMinor, x.renewalPriceMinor, x.currency]),
+      [
+        ["laylastrength.com", 1999, 2499, "USD"],
+        ["laylastrength.fitness", 1499, 4499, "USD"],
+        ["laylastrength.training", 1499, 4499, "USD"],
+        ["laylastrength.club", 999, 2499, "USD"],
+        ["laylastrength.pro", 999, 2999, "USD"],
+        ["laylastrength.app", 1999, 2499, "USD"],
+        ["laylastrength.me", 1499, 2999, "USD"],
+      ],
+    );
+    // A typed name that is taken shows as taken, with the other endings offered.
+    const taken = await t.request("GET", "/api/v1/web-address/search?q=laylastrength.fit");
+    assert.equal(taken.status, 200, taken.text);
+    assert.deepEqual(taken.body.requested, { domain: "laylastrength.fit", status: "taken" });
+    assert.equal(taken.body.results[0].domain, "laylastrength.com");
+    found = search.body.results[0];
+    return search.body.results.map((x: any) => `${x.domain}:${x.firstYearPriceMinor / 100}/${x.renewalPriceMinor / 100}`).join(" ");
   });
   if (!found?.available) return undefined;
   let purchase: Purchase | undefined;
@@ -221,6 +263,7 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
       domain: found.domain,
       firstYearPriceMinor: found.firstYearPriceMinor,
       renewalPriceMinor: found.renewalPriceMinor,
+      currency: "USD",
       accepted: true,
     });
     assert.ok(created.orderId && created.url, JSON.stringify(created));
@@ -228,6 +271,11 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     const paid = await ctx.mocks.stripe.completeCheckout(sessionId);
     for (const d of paid.deliveries ?? []) assert.equal(d.status, 200, `${d.type} webhook: ${d.body}`);
     assert.ok(paid.subscription?.id, "a yearly subscription");
+    // USD 24.99 a year, with the first invoice at USD 19.99 (a once-only coupon).
+    assert.equal(paid.session.currency, "usd");
+    assert.equal(paid.invoice.amount_paid, 1999);
+    assert.equal(paid.invoice.currency, "usd");
+    assert.equal(paid.subscription.items.data[0].price.unit_amount, 2499);
     purchase = { orderId: created.orderId, domain: found.domain, subscriptionId: paid.subscription.id };
     const view = await t.request("GET", `/api/v1/web-address/orders/${created.orderId}`);
     assertNoRegistrar(view.text, "order view");
@@ -247,31 +295,48 @@ async function webAddressLifecycle(ctx: E2EContext, layla: TrainerSeed, order: P
     return view.body.order ?? view.body;
   };
   let expiresAt = "";
-  await r.step(T, "Domain registered and set up automatically", `${order.domain}: the worker registers it for the platform company with privacy and writes its DNS records`, async () => {
-    const dns = await ctx.waitUntil("the order reaches DNS set-up", async () => {
+  const zones = ctx.mocks.digitalocean;
+  await r.step(T, "Domain registered and set up automatically", `${order.domain}: the worker registers it for the platform company with privacy, creates its zone and A records at the DigitalOcean DNS double, then delegates it there through the registrar`, async () => {
+    const dns = await ctx.waitUntil("delegation is visible and the order reaches the DNS check", async () => {
       const o = await orderView();
       return o.status === "dns" && o;
     }, 180000);
     const steps = dns.progress.map((p: any) => p.step);
-    for (const step of ["paid", "purchasing", "registered", "dns"]) assert.ok(steps.includes(step), `progress ${steps.join(",")}`);
+    for (const step of ["paid", "purchasing", "registered", "zone", "connecting", "dns"])
+      assert.ok(steps.includes(step), `progress ${steps.join(",")}`);
+    assert.doesNotMatch(JSON.stringify(dns), /digitalocean|nameserver/i, "the trainer never sees the DNS host");
     const registration = nc.registrations.get(order.domain);
     assert.ok(registration, "registered at the registrar double");
     assert.equal(registration.whoisguard, true, "WHOIS privacy");
     assert.equal(registration.contact.FirstName, "Sandbox", "the platform company is the registrant");
     const created = nc.commands("domains.create").find((c) => c.params.DomainName === order.domain);
     assert.equal(created?.params.RegistrantOrganizationName, "Sandbox Platform Company LLC");
-    assert.deepEqual(
-      registration.hosts.map((h) => `${h.name} ${h.type} ${h.address}`).sort(),
-      [`@ A ${WEB_ADDRESS_SANDBOX_IPV4.target}`, `www A ${WEB_ADDRESS_SANDBOX_IPV4.target}`],
-    );
+    // The zone holds A records for the domain and www only: never a wildcard.
+    assert.deepEqual(zones.view(order.domain), [
+      `@ A ${WEB_ADDRESS_SANDBOX_IPV4.target}`,
+      `www A ${WEB_ADDRESS_SANDBOX_IPV4.target}`,
+    ]);
+    // Delegated to DigitalOcean after the zone existed; registrar host records untouched.
+    assert.deepEqual(registration.nameservers, ["ns1.digitalocean.com", "ns2.digitalocean.com", "ns3.digitalocean.com"]);
+    assert.equal(nc.commands("domains.dns.setHosts").filter((c) => `${c.params.SLD}.${c.params.TLD}` === order.domain).length, 0);
     expiresAt = dns.expiresAt;
     assert.ok(Date.parse(expiresAt) > Date.now() + 360 * 86400000, "registered for a year");
-    return `${steps.join(" → ")}; expires ${expiresAt.slice(0, 10)}; the name is not published to the DNS double, so the Live step (DNS check and HTTPS) stays pending in the sandbox`;
+    return `${steps.join(" → ")}; expires ${expiresAt.slice(0, 10)}; the name resolves to the sandbox target address, which no edge serves, so the Live step (HTTPS) stays pending in the sandbox`;
+  });
+  await r.step(T, "Forward the domain to the workspace address", `${order.domain}: the trainer switches between showing the site and a 301 to the subdomain`, async () => {
+    const forward = await t.post(`/api/v1/web-address/orders/${order.orderId}/serve-mode`, { mode: "forward" });
+    assert.equal(forward.serveMode, "forward");
+    const site = await t.post(`/api/v1/web-address/orders/${order.orderId}/serve-mode`, { mode: "site" });
+    assert.equal(site.serveMode, "site");
+    assertNoRegistrar(JSON.stringify(site), "serve mode answer");
+    return "forward, then site";
   });
   if (!expiresAt) return;
   await r.step(T, "Domain renews every year", `${order.domain}: the yearly invoice is paid at the Stripe double and the worker renews it at the registrar once`, async () => {
     const renewed = await ctx.mocks.stripe.renew(order.subscriptionId);
     for (const d of renewed.deliveries) assert.equal(d.status, 200, `${d.type} webhook: ${d.body}`);
+    assert.equal(renewed.invoice.amount_paid, 2499, "renewal charged at USD 24.99");
+    assert.equal(renewed.invoice.currency, "usd");
     const done = await ctx.waitUntil("the renewal is recorded", async () => {
       const o = await orderView();
       return o.renewalStatus === "renewed" && o;
@@ -288,7 +353,9 @@ async function webAddressLifecycle(ctx: E2EContext, layla: TrainerSeed, order: P
     const ops = await ctx.admin.get("/api/v1/admin/web-addresses");
     const text = JSON.stringify(ops);
     assert.ok(text.includes(order.domain), text.slice(0, 300));
-    for (const kind of ["register", "set_hosts", "renew"]) assert.ok(text.includes(kind), `${kind} in the operator view`);
+    for (const kind of ["register", "create_zone", "set_records", "set_nameservers", "renew"])
+      assert.ok(text.includes(kind), `${kind} in the operator view`);
+    assert.ok(text.includes('"dns_provider":"digitalocean"'), "the operator sees the DNS host");
   });
 }
 

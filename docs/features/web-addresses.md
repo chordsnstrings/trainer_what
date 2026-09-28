@@ -109,12 +109,14 @@ Deployment stays separately assigned.
 6. **Super admin → Settings → Web addresses and registrar**: registrar Namecheap; API user,
    API key (stored encrypted), account username, whitelisted client IPv4; keep "Use the Namecheap
    test environment" on for the rehearsal; registrant contact of the platform company
-   (organization required); yearly margin in AED (default 25);
-   USD→AED rate (default 3.6725, the AED peg); offered endings (default `com,net,org,co`);
+   (organization required); the price rule in USD (step 5.00, ending 4.99, cap 100.00) and the
+   suggested endings in order (default `com,fit,fitness,coach,training,ae,club,pro,app,me`; see
+   "Prices in USD and suggestions" below; the AED margin and USD→AED rate settings are gone);
    optionally the server IPv4 for domain DNS. Run **Test connection** (it reads the balance only),
    then switch **Enable automatic purchases and renewals** on and test again: the settings only
    take effect when the row is enabled, approved and tested at the current revision.
-7. **Stripe**: nothing new to create. Checkout uses inline yearly AED prices, and the existing
+7. **Stripe**: nothing new to create. Checkout uses inline yearly USD prices (with a once-only
+   coupon or a one-time line when the first year differs from the renewal), and the existing
    webhook endpoint already receives the events (`checkout.session.*`, `customer.subscription.*`,
    `invoice.paid`, `invoice.payment_failed`, refunds, disputes). `COMMERCE_APPROVED` must be true.
 8. **Rehearse**, then go live. The Stripe mode and the registrar environment must match: with
@@ -130,6 +132,28 @@ Deployment stays separately assigned.
 9. **Owner decision still open**: the accounting policy for yearly domain revenue (recognised in
    full when paid, see "Left out"). Decided on 28 September 2026: the registrant is the platform
    company (step 5), and trainers never see the registrar's name or cost.
+10. **DNS hosting (stage 2026-09-28h)**: Super admin → Settings → **DNS hosting**: DNS provider
+    DigitalOcean DNS, the DigitalOcean API token (stored encrypted; domain create, read, update
+    and delete scopes), optionally its expiry date, the platform root zone (`trainsyou.com`) and
+    the record TTL (default 1800). **Test connection** lists at most one domain and reports how
+    many zones the token reaches; a DigitalOcean token reaches every domain of its team, so keep
+    the platform's domains in a dedicated DigitalOcean team (the owner's current team also holds
+    other companies' domains; the code never touches them, but a dedicated team removes the
+    exposure). Enable and test again. From then on every bought domain gets its zone at
+    DigitalOcean and is delegated there; see "DNS hosting, delegation and forwarding" below.
+    Credentials live only in these encrypted settings, never in the repository (owner decision,
+    28 September 2026).
+11. **Platform DNS**: Super admin → Host and backups → **Check and repair platform DNS** (before
+    the platform address change) creates or fixes A `@`, `www` and `*` of the platform root zone
+    to this server's IPv4 from the verified host controller report; see `infra-ops.md`.
+12. **101domain as registrar (optional)**: Settings → Web addresses and registrar → Registrar
+    101domain, the API key (created by the account's primary user with two-factor sign-in, at
+    most one year valid) and its expiry date. The connection check reads the balance only.
+    101domain's `/v1` API has no live registration or renewal endpoint (checked again on
+    28 September 2026: registration is listed as "Coming Soon", renewal is not listed at all; see
+    "101domain registration and renewal: what exists" below), so purchases stay off with 101domain
+    and **101domain registration and renewal API verified** stays off; Namecheap remains the
+    buying registrar.
 
 ## What was built, per audience
 
@@ -151,11 +175,12 @@ Deployment stays separately assigned.
   `packages/domain/src/web-address.ts`), a trailing hyphen and
   a double hyphen (`xn--`) are refused at signup and at a change. Existing workspaces whose slug
   is now reserved keep `/coach/<slug>` and get no subdomain until they change it.
-- **Own domain.** Search a name (or a full domain under an offered ending); each result shows
-  availability, the first-year price and the yearly renewal price in AED (the same amount
-  today, see "Owner decision"). Premium names and names in an early-access phase
-  (Namecheap `EapFee`) are not offered. Choosing one shows
-  both prices again with an explicit "I agree to pay AED … now and AED … every year after,
+- **Own domain.** Search a name (or a full domain); since stage 2026-09-28q the answer shows
+  the typed name's status (available, taken or not offered) and the available names on the
+  suggested endings, each with its first-year price and yearly renewal price in USD, nothing
+  over USD 100 a year (see "Prices in USD and suggestions"). Names in an early-access phase
+  (Namecheap `EapFee`) are not offered; premium names only within the cap. Choosing one shows
+  both prices again with an explicit "I agree to pay USD … now and USD … every year after,
   renewed automatically"; paying opens Stripe Checkout (subscription, the trainer is the
   customer). If the price changed since the search, the order is refused with the new prices and
   must be confirmed again.
@@ -260,6 +285,11 @@ activated) → `expired` (lapse). Also `cancelled` (checkout expired or cancelle
 links immutable and forbids deleting automatic orders; a renewal paid late provisions again
 (`expired` → `dns`).
 
+With DigitalOcean DNS (migration 070): `owned` → `zone` (zone and A records at the DNS host,
+read back through its API) → `delegating` (the registrar was asked to delegate the domain to
+`ns1-3.digitalocean.com`) → `dns` (delegation visible in public DNS) → `active`. A late renewal
+goes `expired` → `owned` and provisions again. See "DNS hosting, delegation and forwarding".
+
 - **Lease.** A worker step claims the order with a lease (10 minutes) and a random token; only
   the run holding that token releases it, and no route clears it. The operator's Reconcile runs
   a step only when no other run holds the order.
@@ -304,11 +334,11 @@ links immutable and forbids deleting automatic orders; a renewal paid late provi
   expiry, and after a lapse, the subscription's latest paid invoice is applied the same way when
   its event was lost. Such synthetic events go through the same handler, which ignores an
   invoice already journaled.
-- **Price.** `yearlyPriceMinor`: the higher of Namecheap's one-year registration and renewal
-  price (each including the ICANN fee Namecheap adds), times the configured rate, rounded up to
-  whole dirhams, plus the margin; the same price every year. With the test double's prices a `.com`
-  is USD 16.06 → AED 59 + 25 = AED 84. Registrar prices are cached per ending for an hour for
-  search; an order always takes a fresh quote. A later registrar price increase is absorbed at
+- **Price.** Superseded on 28 September 2026 (stage 2026-09-28q): first-year and renewal
+  prices in USD from the owner's rule, see "Prices in USD and suggestions". Before it:
+  `yearlyPriceMinor`, the higher of the registration and renewal price times the USD→AED rate
+  plus an AED margin, the same every year; such orders keep that price. Registrar prices are
+  cached per ending (now in `registrar_prices`, 24 hours); an order always takes a fresh quote. A later registrar price increase is absorbed at
   renewal (the registrar cost journal shows it); changing a running subscription's price is not
   built.
 - **Lapse.** At expiry without a paid renewal: `expired`, both mappings inactive (the subdomain
@@ -342,11 +372,13 @@ workspace):
 | `web-address-invoice:<invoice>` | `web_address_receivable` +amount, `web_address_revenue` −amount; for a payment matching no open order (`kind=unmatched`) `web_address_refund_liability` −amount instead |
 | `web-address-refund:<refund>` | `web_address_revenue` +amount (or `web_address_refund_liability` for a refund of an unmatched payment), `web_address_receivable` −amount |
 | `web-address-dispute:<dispute>` | a lost dispute: `web_address_dispute_loss` +amount, `web_address_receivable` −amount (won or open disputes post nothing and flag the order) |
-| `web-address-registrar:<operation>` | `registrar_cost` +AED, `registrar_prepaid` −AED (USD × rate, rounded up; `estimated` when the registrar did not report a charge, and for renewals or registrations recorded from `getInfo`) |
+| `web-address-registrar:<operation>` | `registrar_cost` +amount, `registrar_prepaid` −amount: in USD cents for orders priced in USD (stage 2026-09-28q), in AED (USD × the order's stored rate, rounded up) for older orders; `estimated` when the registrar did not report a charge, and for renewals or registrations recorded from `getInfo` |
 
-None of them touches `trainer_payable`, `stripe_receivable` or commission, so month close,
-settlement, statements' payable bridge and payouts are unaffected. The trainer's statement adds
-`webAddresses: {paymentsMinor, refundsMinor}`; the operator's statement of the same workspace
+Each journal carries its currency (`journals.currency`): USD for orders priced in USD, AED for
+older ones (migration 071). None of them touches `trainer_payable`, `stripe_receivable` or
+commission, so month close, settlement, statements' payable bridge and payouts are unaffected.
+The trainer's statement adds `webAddresses: {currency: "USD", paymentsMinor, refundsMinor}`
+(older AED entries under `otherCurrencies`); the operator's statement of the same workspace
 also has `registrarCostMinor` and the registrar cost entries, which the trainer's statement and
 ledger export (`/finance/export`) leave out because they would show the platform's margin. Reconciling these receipts
 with Stripe payouts to the company bank is outside the per-workspace settlement flow (a
@@ -368,8 +400,14 @@ answered with an error) or `unknown` (network, timeout, non-200, unreadable body
   `users.getBalances`. `api.sandbox.namecheap.com` unless "test environment" is explicitly off.
   A small XML reader refuses DOCTYPE/entity declarations.
 - **Generic JSON registrar** (bearer `DOMAIN_API_KEY` at `DOMAIN_API_URL`, from the Custom
-  domains settings): `GET v1/domains/check?domain=`, `GET v1/pricing/<tld>` → `{currency:"USD",
-  register, renew}`, `POST v1/domains` `{domain, years, registrant, privacy:true}` (409 =
+  domains settings): `POST v1/domains/check` `{domains: [...]}` (1 to 50 names) →
+  `{results: [{domain, available, premium, premiumRegisterUsd?, premiumRenewUsd?}]}` (a name
+  missing from `results` counts as not checked; a 200 answer without `results` is unreadable,
+  never "all taken"); a registrar built to the earlier one-name contract, `GET
+  v1/domains/check?domain=` → `{available, premium}`, answers the POST with 404 or 405 and is
+  then asked name by name. `GET v1/pricing/<tld>` → `{currency:"USD", register, renew}` (404 or
+  no one-year USD price: the ending is not sold; 401/403/429/5xx say nothing about the
+  ending), `POST v1/domains` `{domain, years, registrant, privacy:true, premiumPriceUsd?}` (409 =
   unavailable), `GET v1/domains?search=`, `GET v1/domains/<domain>`, `PUT`/`GET
   v1/domains/<domain>/records`, `POST v1/domains/<domain>/renew` `{years}`, `GET v1/account` →
   `{balanceUsd}`. The e2e registrar double implements it. It has no test environment, so it
@@ -395,14 +433,16 @@ category, so the built-in text is always kept).
 | `GET /api/v1/web-address` | Owner | Subdomain, slug, change allowance, redirects, purchase availability, automatic orders |
 | `POST /api/v1/web-address/slug` | Owner, fresh MFA | `{slug, currentSlug}`; 400 `RESERVED_SLUG`/`INVALID_SLUG`, 409 `SLUG_TAKEN`/`SLUG_CHANGED`, 429 `SLUG_CHANGE_LIMIT` |
 | `GET /api/v1/public/slug-redirect/:slug` | Platform web | The current slug of a previous one during its redirect; 404 otherwise and on coach hosts |
-| `GET /api/v1/web-address/search?q=` | Owner | Availability, `firstYearPriceMinor` and `renewalPriceMinor` (AED); 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
-| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, firstYearPriceMinor, renewalPriceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with both prices), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
+| `GET /api/v1/web-address/search?q=` | Owner | `{requested: {domain, status}, results: [{domain, available, premium, firstYearPriceMinor, renewalPriceMinor, currency: "USD", renewsYearly}], incomplete, currency, priceCapMinor}`; 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
+| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, firstYearPriceMinor, renewalPriceMinor, currency?: "USD", accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with both prices), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
 | `POST /api/v1/web-address/orders/:id/checkout` | Owner | Returns to the same open Checkout (idempotent replay) |
 | `GET /api/v1/web-address/orders/:id` | Owner | Progress and the two prices (never the registrar, its cost, the rate or the margin) |
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
 | `POST /api/v1/web-address/orders/:id/renewal` | Owner, fresh MFA | `{enabled}` → Stripe `cancel_at_period_end` |
-| `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view |
-| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order) |
+| `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view (orders with `attention`, `needsReconciliation` and `costAlert`) |
+| `GET /api/v1/admin/web-addresses/prices` | Super admin, fresh MFA | Every allowed ending: state, registrar costs, trainer prices, margin before Stripe fees |
+| `POST /api/v1/admin/web-addresses/prices/refresh` | Super admin, fresh MFA | `{reason}`; asks the registrar again within the call budget; audited |
+| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order; retry also accepts a held purchase's new registrar cost and clears a cost alert) |
 | `POST /api/v1/admin/web-addresses/:id/record` | Super admin, fresh MFA | `{reason}`; records a registration or renewal made at the registrar by hand; 409 `NOT_RECORDED` with the reason |
 | `POST /api/v1/admin/web-addresses/:id/cancel-subscription` | Super admin, fresh MFA | `{reason}`; ends the yearly subscription; 502 when Stripe does not confirm (retried automatically) |
 
@@ -541,6 +581,365 @@ record case. Each finding, what changed and what was declined:
 Migration 066 changed in this pass (still unmerged and never applied anywhere): `lease_token`,
 and `expired` → `owned` after a late renewal.
 
+## DNS hosting, delegation and forwarding (stage 2026-09-28h, branch `core/dns-automation`)
+
+Owner direction (28 September 2026): everything is automated, including DNS for the platform root
+and for bought trainer domains, and bought domains forwarding to the right trainer subdomain.
+Credentials live in the Super admin panel's encrypted settings, which the automation reads; they
+are never committed to git. DigitalOcean DNS was chosen for the zones because 101domain's API has
+no zone-creation call (its managed zone only appears after a panel action) and web forwarding at a
+registrar needs the registrar's own nameservers (and a paid add-on for HTTPS).
+
+### Design
+
+- **`DnsProvider` interface** (`packages/providers/src/dns-hosting.ts`): `nameservers()`,
+  `getZone`, `ensureZone` (`existing` | `created` | `held_elsewhere`), `records`, `upsertRecords`
+  (converge the desired records of each name and type; `replaceTypes` removes AAAA or CNAME
+  records that would shadow them; nothing else is touched), `deleteZone` (guarded). Errors are
+  `DnsError` with `outcome` `definitive` (refused, nothing changed) or `unknown` (network,
+  timeout, 5xx, 429 with its Retry-After), like `RegistrarError`. Requests have a 30 s timeout and
+  go through `integrationRequest` (public-address pinning, no redirects); only the Node test
+  runner may inject a transport; the local mock sandbox may point the adapter at a loopback double
+  with `DIGITALOCEAN_API_BASE_URL`.
+- **`DigitalOceanDns`**: `GET/POST/DELETE /v2/domains[/{zone}]` (created without `ip_address`, so
+  every record is written explicitly), `GET /v2/domains/{zone}/records?per_page=200` following
+  `links.pages.next`, `POST`, `PATCH` and `DELETE` of records by id. A 422 "... already exists" on
+  create while the zone is not in this account means another DigitalOcean account holds the name
+  (`held_elsewhere`); any other 422 (an invalid or unsupported name) is an ordinary definitive
+  failure. A lost create answer is read back. `removeRecords` deletes the records of given names
+  and types (used for a zone kept after lapse). Nameservers are `ns1/ns2/ns3.digitalocean.com`.
+- **Zone guard.** A DigitalOcean token reaches every domain of its team, so every zone-level call
+  is refused (before any request) unless the caller's `mayManage` accepts the zone: an order's own
+  domain once the platform holds the registration (never the platform's own zones), or, for the
+  platform DNS action, exactly `PLATFORM_ROOT_DOMAIN` or the platform root zone saved in DNS hosting
+  settings.
+- **`RegistrarHostedDns`**: the previous behaviour as a `DnsProvider` (the registrar's own DNS: the
+  complete host set written with `setHosts` and read back; a domain delegated elsewhere is first
+  returned to the registrar's nameservers, because Namecheap refuses host records otherwise).
+- **Registrar nameservers**: `getNameservers` and `setNameservers(domain, list | null)` on every
+  adapter. Namecheap: `domains.dns.getList`, `domains.dns.setCustom` (comma list), `domains.dns.setDefault`;
+  the read-back is the evidence. Generic JSON API: `GET/PUT/DELETE v1/domains/<d>/nameservers`.
+  101domain: `GET/PUT /v1/dns/<d>/nameservers` (200 when already set, 202 while the registry
+  applies the change: `pending`, then polled). The GET answer (checked live) is a plain upper-case
+  list of the nameservers in force with no pending flag, so a change still at the registry reads as
+  the old list; the worker's 6-hour wait before re-sending covers it.
+- **101domain registrar adapter** (`OneOhOneRegistrar`): availability (`GET /v1/domains/search`
+  for one name, `POST /v1/domains/bulk-search` up to 50, `invalid[]`, premium refused), one-year
+  USD prices (`GET /v1/tlds/<tld>`, endings that need documents refused: 101domain marks them with
+`has_requirements`, true for `.co.ae`), domain
+  list and details, the finance balance, pending orders, DNS records (only on 101domain
+  nameservers). Registration (`POST /v1/domains/registration` with the platform company as every
+  contact, private registration except for endings without it such as `.ae`, auto-renew off:
+  the path is the announced one, every field is a guess) and renewal (`POST
+  /v1/domains/<d>/renew`: a guessed path that 101domain answers with 404, see "101domain
+  registration and renewal: what exists" below) are not published endpoints: they are sent only when **101domain
+  registration and renewal API verified** is on; until then they refuse without sending, purchases
+  stay off with 101domain (trainers see "not available yet", operators the reason), and a paid
+  renewal waits for 101domain's own auto-renewal (about 60 days before expiry), recognised from
+  the moved expiry date. An order 101domain is still processing is an unknown outcome: before any
+  "absent", new purchase or refund decision the worker asks whether an order for the name is still
+  open, whatever availability says, and waits while it is (or cannot be asked); the same check
+  comes before sending a renewal again. The order list ignores every domain filter and its rows
+  name no domain (checked live), so `pendingOrder` reads the history newest first
+  (`/v1/finance/orders?per_page=50&page=N`, back 45 days, at most 5 pages, otherwise "cannot
+  tell") and opens each order that is not finished (`/v1/finance/orders/<number>`,
+  `items[].domain`); a finished order reads "processed", and any status the adapter does not know
+  counts as open. A registration or renewal answer
+  without a final status the adapter knows is unknown (reconciled), never a refusal; only an
+  explicit failed/rejected/cancelled status is definitive. A renewal counts only when the reported
+  (or read-back) expiry moved past the one the invoice extends; otherwise it is reconciled.
+- **101domain live read-only check (28 September 2026, GET only).** Confirmed against the live API:
+  single search (one object, upper-case name, `pricing` null when taken), endings
+  (`has_requirements`), domain details and list (`expires_at`, `registered_at`, upper-case
+  nameservers, `auto_renew`, no privacy flag: private registration is an add-on product, so
+  `whoisPrivacy` reads false; nothing depends on it), the balance (`credit_balance`, `amount_due`),
+  the order history and order details, the nameserver read, the records refusal on third-party
+  nameservers (400 `NAMESERVERS_NOT_LOCAL`) and the 404 `NOT_FOUND` for a name outside the account.
+  Three adapter differences were fixed (document requirements, the balance field, the order
+  check); see `docs/COMPLETION_STAGES.md` stage 2026-09-28h. Still provisional and not callable
+  read-only: bulk search, the nameserver PUT answer, record writes, registration and renewal, and
+  the status of an order still being processed. Their field names must be checked against the live
+  API reference (behind a browser challenge at `https://api.101domain.com/api/documentation`)
+  before **101domain registration and renewal API verified** is turned on.
+
+### 101domain registration and renewal: what exists (stage 2026-09-28m, 28 September 2026)
+
+The owner was sure that 101domain offers registration and renewal through an API. That is true,
+but not through the `/v1` REST API (Bearer key) this adapter uses: there they are not live. They
+exist in 101domain's older reseller XML API (DOMAPI), which needs a separate reseller account and
+other credentials, and whose current request format is not public. So nothing was confirmed that
+the adapter could be switched to, and no code changed in this stage (the stage's research was
+read-only: GET and OPTIONS requests only, recorded in `docs/COMPLETION_STAGES.md` stage
+2026-09-28m).
+
+**`/v1` REST API (`https://api.101domain.com/v1`).** Confirmed from 101domain's own pages and the
+live server:
+
+- The official endpoint reference (help.101domain.com/kb/api-endpoints-reference, modified
+  2026-09-21) lists `POST /v1/domains/registration` as "(Coming Soon): Will allow clients to place
+  an order to register new domains programmatically", with no body, answer, status codes or scope.
+  Renewal is not listed, not even as Coming Soon. Also Coming Soon: `PATCH /v1/domains/{domainname}`
+  (auto-renew status, nameservers, add-ons, contact handles), `GET/POST/DELETE /v1/account/contacts`
+  (contact handles; a contact used by an active domain cannot be deleted) and `GET/PUT
+  /v1/domains/token/{domainname}` (auth codes).
+- The blog post introducing the API (published 2026-04-28, modified 2026-09-14) lists "Register
+  and Renew Domains" under what is coming next; the KB page "10 use cases for the 101domain API"
+  (2026-09-21) speaks of "the upcoming `registration` endpoint (coming soon)". The MCP server's 12
+  tools (KB "101domain MCP server tools", 2026-06-20) include none that registers, renews or
+  transfers.
+- Live (28 September 2026, 11:42 UTC, OPTIONS without a key): the `Allow` header lists each route's
+  methods correctly for the known write routes (records `GET,HEAD,POST,PATCH,DELETE`, nameservers
+  `GET,HEAD,PUT`, bulk search and bulk TLD lookup `POST`, forwarding `POST,PATCH,DELETE`) and
+  `GET,HEAD` for a made-up path. `/v1/domains/registration`, `/v1/domains`, `/v1/domains/<d>`,
+  `/v1/domains/<d>/renew`, `/v1/domains/renew`, `/v1/domains/renewal`, `/v1/account/contacts` and
+  `/v1/domains/token/<d>` all answer only `GET,HEAD` (about 170 path variants in an earlier
+  research pass, all `GET,HEAD`). `GET /v1/domains/example.com/renew` and `GET
+  /v1/account/contacts` answer 404 `{"code":"NOT_FOUND","message":"The requested API endpoint does
+  not exist."}`. So the adapter's renewal path does not exist, and the announced registration path
+  is not live. A POST route at a path nobody guessed cannot be ruled out completely (inference).
+
+**Order tracking (live, read-only, confirmed).**
+
+- `GET /v1/finance/orders`: `{status, code:"OK", message, meta.pagination{total, current_page,
+  per_page, total_pages}, data[]}`, rows `{order_number, status, order_date, subtotal, tax, total,
+  currency}` without a domain; 10 a page by default, `per_page=50` and `page` honoured.
+- The `status` filter accepts only `processing`, `processed` and `cancelled` (any case, comma
+  lists work); every other value tried (`pending`, `queued`, `submitted`, `in_progress`,
+  `completed`, `failed`, `rejected`, `canceled`, `declined`, `paid`, `refunded` and about 50 more)
+  is refused with 422 `VALIDATION_ERROR` "The selected statuses.0 is invalid.". Those three
+  together cover every order of the account. Inference: they are the complete list, and a new
+  order reads `processing` until it is finished (not observed: no order was in progress).
+- `date_from` and `date_to` work (`date_to` excludes orders placed on that day). No domain filter
+  works (17 parameter names tried, all ignored).
+- `GET /v1/finance/orders/<number>`: `{order_number, status, order_date, quote_number,
+  account_manager, invoice_numbers[], currency, subtotal, tax, total, items[{description, domain,
+  type: "domain"|"product", product_id, term_months, quantity}]}`. Real examples: a registration
+  order ("trainsyou.com - Registration", 12 months, plus "ICANN Fee (trainsyou.com)", product 397,
+  0.20 USD, as a separate item) and two renewal orders ("<domain> - Renewal", 12 months) placed
+  around 00:41 UTC, about 60 days before expiry (inference: 101domain's nightly auto-renewal;
+  the order data has no channel field).
+- `GET /v1/domains/<d>`: `id, domain_name, tld, status ("ACTIVE"), status_note,
+  registry_statuses[], created_at, registered_at, expires_at, nameservers[], auto_renew,
+  product_ids[], web_forwarding, contacts{registrant, admin, tech, billing}` (contact handle ids).
+  There is no "Paid Until" field (the KB says the Account Manager shows one). Two days after its
+  renewal order, a renewed `.ae` name read an `expires_at` in November 2027 (inference: its old
+  expiry was about 60 days after the order, so it moved by one year; when it moved was not
+  observed).
+
+**101domain's own auto-renewal** (KB "understanding domain name and product auto-renewal" and
+"unchanged expiration date on renewed domain name"): on by default; terms of a year or more renew
+60 days before expiry on the default billing method, for the original registration term (a
+different term needs a support ticket); `.ai` renews only in 2-year steps; a failed renewal on an
+annual plan is retried twice, 3 days apart; a gTLD such as `.com` shows the new expiry within
+minutes, a ccTLD can take days, and a registry that refuses early renewal keeps the domain queued
+with the old expiry until near the expiry date.
+
+**Reseller XML API (DOMAPI).** A GET on `https://api.101domain.com/` answers a DOMAPI XML error
+2001 "Command Syntax Error: Empty Request"; a test environment at `https://api.ote.101domain.com/`
+answers the same with `testmode="1"`. The answer names an `api.xsd` schema, which is 404 on both
+hosts. 101domain's reseller programme page promises "Register, renew, transfer, and maintain
+domain names" and a "Robust API to fully-integrate into an automated system" (plan fee 499 USD
+with no deposit, 399 USD plus a 1,500 USD non-refundable deposit, or 99 USD plus a 3,000 USD
+non-refundable deposit; the page does not say whether the fee is yearly); the WHMCS 101Domain module (docs modified 2026-08-04) supports Register,
+Transfer and Renew with "101Domain credentials". The only public request format is a 2016
+community client (github.com/rajeshrolen/101DomainAPI, commit 471915b): a
+`<DOMAPI xmlns="https://api.101domain.com"><Request><Login><id/><Key/></Login>…</Request></DOMAPI>`
+wrapper; `Register` with `Domain`, `Period`, `Trustee`, `UserAccount`, contacts as
+`<Registrant><id>HANDLE</id></Registrant>` (plus `Admin`, `Technical`, `Billing`), `NameServers/Host`
+and TLD `Fields`; `Renew` with `Domain` and `Period`; success codes 1000/1001; a new registration
+answers `pendingCreate` without an expiry and is followed with `Info`; renewing a `pendingCreate`
+domain fails with "Object status prohibits operation". Inference: the login is a reseller id and
+key, not the `/v1` Bearer key, and `Period` is in months. Whether this account has reseller access,
+whether the 2016 format is current and which production path (`/` or `/do`) applies are unknown;
+testing even the test environment needs a POST and reseller credentials.
+
+**Where `OneOhOneRegistrar` disagrees with this evidence** (not changed; the ordering switch keeps
+all of it unsent):
+
+- `register` sends `domain_name`, `term_years`, inline contact objects, `private_registration` and
+  `auto_renew` to the announced path; none of these fields is confirmed, and a future `/v1`
+  registration will more likely take contact handle ids (inference: domain details return handles
+  and the Coming Soon contacts endpoint creates them).
+- `renew` posts to `/v1/domains/<d>/renew`, which 101domain answers with 404.
+- The provisional status lists (`ONEOHONE_PENDING`, `ONEOHONE_DONE`, `ONEOHONE_REFUSED`) are mostly
+  words 101domain refuses as order statuses; only `processing`, `processed` and `cancelled` are
+  real. They still stand in for the unpublished registration answer, whose words may differ.
+  `pendingOrder` already behaves correctly on the real statuses (`processed` and `cancelled` are
+  finished, `processing` is opened and matched by `items[].domain`, anything else counts as open).
+- `pendingOrder` could ask `GET /v1/finance/orders?status=processing&date_from=<45 days ago>`
+  once instead of paging through 45 days of history; each order found must still be opened for
+  its domain.
+- The class comment says 101domain has no test environment: true for `/v1`, not for DOMAPI.
+
+**What only a real order (or a published endpoint) can settle:** whether `POST
+/v1/domains/registration` launches at that path; its fields, term unit, contact model,
+nameservers, privacy add-on, `auto_renew` and TLD fields; its answer (200/201/202, immediate or
+queued, status words, `order_number`, domain id, amount charged); payment (the account's credit
+balance was 0.00, so the card on file or a refusal); whether API prices include the ICANN fee
+(the one manual order carried it as a separate 0.20 USD item); how long an order stays
+`processing`, what domain details show meanwhile, how failures are refunded; what a repeated
+request does (no idempotency key is documented); whether `/v1` renewal will exist, whether a
+manual renewal next to auto-renewal charges twice, minimum terms and queued ccTLD renewals; rate
+limits and scopes for write calls. For DOMAPI: reseller access, the current command format and
+the production path.
+
+**Before switching the ordering on (owner decisions):** keep Namecheap as the buying registrar
+and wait for 101domain to publish `POST /v1/domains/registration` (and a renewal endpoint), or
+join 101domain's reseller programme and have a DOMAPI adapter built from its current official
+specification. Either way the first real order must be a cheap test domain the owner approves.
+
+### States and steps (DigitalOcean path)
+
+1. `owned` → `zone`: `create_zone` (intent `zone:<order>:<n>`, `ensureZone`), then `set_records`
+   (`records:<order>:<n>`: A `@` and A `www` to the server IPv4, the configured TTL, never a
+   wildcard for a bought domain), read back through the API (missing or shadowing records fail
+   the step). A zone held by another account is never used: the order switches to the registrar's
+   DNS (`dns_fallback`), because delegating to it would hand the name to that account, and an
+   operator attention item (a takeover signal) stays through activation until an operator clears
+   it with Retry. For a registrar whose own DNS cannot be set up through its API (101domain) there
+   is no fallback: the order waits for an operator.
+2. `zone` → `delegating`: only while the zone is still in the platform's account (re-read), and
+   never when public DNS shows a DS (DNSSEC) record for the name (DigitalOcean does not sign zones;
+   the order waits with attention, looked at again at expiry so it still lapses on time). When
+   public DNS cannot be asked about DS the step is retried (attention after 5 attempts): an
+   unknown answer is never read as "no DS". `set_nameservers` (`nameservers:<order>:<n>`) at the
+   registrar, read back.
+3. `delegating` → `dns`: the zone must still be in the platform's account (re-read at every visit;
+   a missing zone sends the order back to `owned`, which creates it again), the registrar shows the
+   DigitalOcean nameservers applied and public DNS (Cloudflare, then Google, over HTTPS) answers
+   with them; checked with the usual backoff and flagged 72 hours after the first change of this
+   delegation (`delegationStartedAt`, never restarted by a change sent again). A registrar whose
+   read-back still shows other nameservers is given 6 hours after the last accepted change (a 202
+   at 101domain may not be flagged as pending on a read); after that the order goes back to `zone`
+   and the change is sent again, at most 3 times (`delegationResets`), then an operator is asked.
+4. `dns` → `active`: as before (A of the domain and `www` resolve to the server, certificate
+   allowances, an HTTPS request to both names, mappings). The HTTPS check now accepts any HTTP
+   answer, a 301 included, so a forwarded domain activates; the certificate is still verified.
+
+Every external step is recorded in `registrar_operations` before it is sent. These DNS calls
+converge (they read the current state first), so a later attempt runs without waiting; when it
+succeeds, earlier attempts of the same kind that never got an answer (`sent` or `unknown`) are
+settled: `confirmed` by that read-back (`via: "read-back"`) when they asked for the same result
+(same nameservers, zone, records or host set), `absent` (`via: "superseded"`) when they asked for
+another one (nameservers set in the opposite direction, for example). A definitive failure stays
+`failed`. Only purchases and renewals keep the reconcile-before-retry
+block. After five failed attempts of a DNS step the order is flagged for an operator. The registrar
+path (DNS provider "registrar") is unchanged: `owned` → `dns` with the complete host set, first
+returning a delegated domain to the registrar's nameservers (recorded as `set_nameservers` with
+`nameservers: null`).
+
+### Takeover safety, lapse, refund and closure
+
+- Any DigitalOcean account can add a zone nobody holds there. So the zone is created **before**
+  the registrar delegates to DigitalOcean, delegation is never set when the zone is held
+  elsewhere, and a zone is **never deleted while the name still delegates to DigitalOcean**.
+- At lapse the mappings go inactive (their `redirect` cleared) and the zone is kept
+  (`zoneRetained`), but its A and AAAA records for `@` and `www` are removed at once
+  (`zoneRecordsClearedAt`; the zone, its SOA and NS stay), so a kept zone never points the lapsed
+  name at an address the platform may give up; a late renewal writes them again. After the
+  subscription is settled, the release step waits until `ZONE_RELEASE_DAYS` (45) after expiry, then
+  deletes the zone only when neither the registrar (for a name still in the platform's account)
+  nor public DNS lists a DigitalOcean nameserver, or the name no longer exists; otherwise it looks
+  again every 7 days. It never deletes (or clears records in) a zone while another open order for
+  the same name exists in any workspace: once that newer order has written its records there, the
+  zone is handed over (`zoneHandedOverAt`). An operator is asked when the name has left the
+  platform's registrar account but public DNS still delegates it to DigitalOcean (a new holder may
+  be blocked by the kept zone), after 3 weekly checks that still find a delegation, or after 5
+  failed daily checks.
+- A zone left at DigitalOcean after an operator moved a live domain to the registrar's DNS is
+  tracked from the order's evidence (`zoneWrittenAt` without `zoneReleasedAt`), whatever DNS host
+  the order uses now: the active domain's maintenance deletes it (checked weekly) once neither the
+  registrar nor public DNS delegates the name there, and at lapse it goes through the release step.
+- An operator's **Re-run DNS setup** on a live domain moves it back to `owned`; while it is in
+  `owned`, `zone`, `delegating` or `dns`, the worker still sends its grace notices and lapses it at
+  expiry (mappings off, subscription ended) before any DNS step, and every DNS step that waits for
+  an operator is looked at again at expiry. `deleteZone` itself refuses with that evidence missing and always refuses the
+  platform's own zone. The deletion is recorded (`delete_zone`, `release:<order>:<n>`) with the
+  evidence.
+- A late renewal (`expired` → `owned`) provisions again: the zone is created again if it was
+  released (if another account took it meanwhile, the registrar's DNS is used) and the
+  nameservers are set again.
+- A refunded order never registered a name, so no zone ever existed. A closed workspace keeps its
+  zones (the worker no longer visits closed workspaces; keeping a zone is always safe).
+- 101domain (and any registrar whose API cannot switch auto-renewal off) renews by itself: when a
+  trainer turns renewal off, and at lapse, operators get an attention item to turn auto-renewal
+  off in the registrar's panel.
+
+### Forwarding
+
+- Per bought domain, the owner chooses **Show my site on this domain** (default, the previous
+  behaviour) or **Forward to my `<slug>.<root>` address** (a 301 that keeps the path and query).
+  `www.<domain>` always redirects to `<domain>` (in forward mode it then forwards on). The choice
+  is offered at purchase and on the order card, only when the workspace has an eligible subdomain;
+  no DNS host or registrar is ever named.
+- Storage: `domain_orders.serve_mode` (`site` | `forward`) and `domain_mappings.redirect` (`apex`
+  for www, `subdomain` for a forwarded domain, NULL to serve the site). Migration 070 sets `apex`
+  on `www.<domain>` of domains that went live before it; a lapse or workspace closure clears
+  `redirect`, and a manually connected domain (the operator's custom-domain activation) always
+  starts with NULL, so a forwarding choice never carries over to another connection of the name.
+  The live notice of a forwarded domain says where visitors go. Tenant actors cannot set
+  `redirect` (column privilege, checked by the runtime verifier and a PGlite test); the owner's
+  route `POST /api/v1/web-address/orders/:id/serve-mode {mode}` (recent authenticator) updates
+  the order and its own mapping through the service and records `web_address.serve_mode`.
+- Host routing reads the mapping's `redirect` and the workspace's **current** slug, so a renamed
+  workspace forwards to its new subdomain; without a platform root or an eligible slug the site is
+  served. `/api/v1/public/host` carries `redirect`; the web proxy follows it only for an https
+  origin that is a one-label subdomain of the configured root or the apex of the requested www
+  name, answers 301 with `Cache-Control: public, max-age=3600` (switching back takes effect within
+  the hour) and never redirects `/api/*`. Certificates are still issued for the domain and www
+  (their mappings stay active), so the redirect is served over HTTPS.
+
+### What the owner configures in Super admin
+
+- **DNS hosting**: DNS provider (DigitalOcean DNS or the registrar's own DNS), DigitalOcean API
+  token (secret), its expiry date (warning 30 days before), the platform root zone, the record TTL
+  (30 to 86400 s). Test connection: `GET /v2/domains?per_page=1` only (no domain named in the
+  result; the number of zones the token reaches, with the dedicated-team advice when it reaches
+  more than one).
+- **Web addresses and registrar**: registrar Namecheap, 101domain or the generic API; 101domain
+  API key (secret), its expiry date, and the ordering switch; test connection reads the balance
+  only. 101domain purchases also need DigitalOcean DNS (its own DNS cannot be set up through its
+  API), and **Use registrar DNS** is not offered for its domains. The registrar chosen here is used
+  for new searches and purchases only: every existing order keeps the registrar it was bought
+  through (`domain_orders.registrar`) for reconciliation, renewal, nameservers and zone release; if
+  that registrar's settings are incomplete, the order waits with an operator attention item and
+  nothing is sent to another registrar. A registrar configuration problem is never shown to a
+  trainer (it names the registrar): search and checkout answer "not available yet".
+- Existing active domains keep the DNS they were set up with; **Re-run DNS setup** (operator view)
+  moves one to the current setting, **Use registrar DNS** moves it back to the registrar's DNS.
+
+### Files
+
+`packages/providers/src/dns-hosting.ts` (new), `packages/providers/src/registrar.ts` (nameservers,
+`OneOhOneRegistrar`, capabilities, `registrarPurchaseProblem`), `packages/providers/src/configuration.ts`
+(`dns_hosting` entry, 101domain fields, validation, capability, connection checks),
+`packages/providers/src/sandbox.ts` (two sandbox overrides), `packages/db/migrations/070_dns_hosting.sql`,
+`apps/api/src/web-address-orders.ts` (zone, delegation, release, forwarding mappings, HTTPS check,
+controller IPv4), `apps/api/src/web-addresses.ts` (serve mode, operator DNS action, trainer
+labels), `apps/api/src/host-routing.ts` (`redirect`), `apps/api/src/platform-dns.ts` (new),
+`apps/api/src/host-operations.ts`, `apps/api/src/app.ts`, `apps/api/src/privacy-lifecycle.ts`
+(comment), `apps/web/host-proxy.ts` (`forwardLocation`), `apps/web/proxy.ts`,
+`apps/web/components/web-address.tsx`, `web-address-operations.tsx`, `host-operations.tsx`,
+`apps/web/app/web-address.css`, `scripts/verify-runtime-access.mjs`, tests
+`web-address-dns.test.ts`, `web-address-dns-orders.test.ts`, `platform-dns.test.ts`,
+`web-address-moat.test.ts`, doubles `tests/e2e/mocks/digitalocean.ts`, `oneohone.ts`, and changes
+to `namecheap.ts`, `registrar.ts`, `dns.ts`, `index.ts`, `tests/e2e/scenarios/core-features.e2e.ts`.
+
+### Migration 070 (`packages/db/migrations/070_dns_hosting.sql`)
+
+Additive: `domain_orders.dns_provider` (`registrar` | `digitalocean`), `domain_orders.serve_mode`
+(`site` default | `forward`), automatic statuses `zone` and `delegating` with the widened
+transition guard (owned → zone/dns/expired; zone → delegating/owned/expired; delegating →
+dns/zone/owned/expired; dns → owned/active/expired; active → expired/dns/owned; expired →
+owned/dns), registrar `101domain`; `registrar_operations` kinds `create_zone`, `set_records`,
+`set_nameservers`, `delete_zone` and providers `101domain`, `digitalocean` (the
+reconcile-before-retry block stays on register and renew only); `domain_mappings.redirect`
+(`apex` | `subdomain` | NULL) without any tenant grant, backfilled to `apex` on `www.<domain>` of
+existing bought domains; the tenant definer helper `domain_name_other_order(uuid)` (worker
+elevation and the caller's own order only; classified in `scripts/verify-runtime-access.mjs`)
+tells zone release whether another open order in any workspace uses the same name. A previous release pauses orders in the new
+statuses (its default branch); the new worker picks them up again.
+
 ## Owner decision: the platform holds custom domains (28 September 2026)
 
 The owner decided that the platform holds trainers' custom domains as a business moat. Applied:
@@ -553,8 +952,9 @@ The owner decided that the platform holds trainers' custom domains as a business
   authorisation (EPP) code. The settings page notes the decision.
 - **What trainers and subscribers see.** Never the registrar's name or cost. The trainer screen
   (`apps/web/components/web-address.tsx`) shows only the first-year price and the yearly renewal
-  price in AED ("First year AED 84.00 · renews at AED 84.00 per year"), and the agreement names
-  both. Search results and order status carry `firstYearPriceMinor` and `renewalPriceMinor`
+  price, in USD since stage 2026-09-28q ("First year USD 19.99 · renews at USD 24.99 per year";
+  older orders keep their AED prices), and the agreement names both. The paragraph below
+  describes the AED build before that stage. Search results and order status carry `firstYearPriceMinor` and `renewalPriceMinor`
   only; `PRICE_CHANGED` carries both. The stored quote keeps the registrar, its USD price, the
   rate and the margin for operators. The Checkout subscription charges one yearly price (the
   higher of the registrar's registration and renewal price, converted, plus the margin), so the
@@ -585,6 +985,268 @@ exit 0; `node --import tsx --test tests/web-address-*.test.ts tests/messaging-te
 51 tests, 51 passed (including the 6 new moat tests and 1 new notice test); also
 `logical-css`, `healthkit-ui`, `integrations-completion`, `platform-settings`, `fix-settings`
 and `settings-runtime`: 47 tests, 47 passed (after Prettier on the changed files). Not run: the full suite, `next build`, e2e, a browser.
+
+## Prices in USD and suggestions (stage 2026-09-28q, branch `core/domain-pricing`)
+
+Owner decisions of 28 September 2026 ("1. 19.99 / 2. let's talk in USD for the trainer's ease /
+3. default is those. / 4. hide anything over 100$"). Unchanged: the registrar is never named to
+trainers, the platform company is the registrant, Stripe Checkout charges yearly, renewal and
+lapse, reconciliation and DNS on DigitalOcean.
+
+### The price rule
+
+- **Formula.** For the first year and for the renewal separately: registrar one-year cost in USD
+  (ICANN fee included), rounded up to the next multiple of USD 5, plus USD 4.99. Integer cents
+  only (`markupPriceCents` in `packages/domain/src/web-address.ts`): 11.00 → 19.99,
+  11.48 → 19.99, 15.00 → 19.99, 15.01 → 24.99, 18.68 → 24.99, 20.00 → 24.99, 20.01 → 29.99. A
+  registrar cost becomes whole cents with any fraction of a cent rounded up; a zero, negative
+  or non-numeric cost is refused, never priced at the ending alone. `trainerDomainPrices` answers `{firstYearCents, renewalCents, offered}`; a name whose
+  first-year **or** renewal price is over the cap (USD 100.00) is not offered.
+- **Settings** (Super admin → Web addresses and registrar): `WEB_ADDRESS_PRICE_STEP_USD` (5.00,
+  0.01–1000), `WEB_ADDRESS_PRICE_ENDING_USD` (4.99, 0–1000), `WEB_ADDRESS_PRICE_CAP_USD`
+  (100.00, 0.01–1000), two decimals each. An invalid stored rule turns purchases off
+  (`WEB_ADDRESS_DISABLED`) rather than charging a wrong price. `WEB_ADDRESS_MARGIN_AED` and
+  `WEB_ADDRESS_USD_TO_AED` are removed: saving them is refused and stored values are ignored.
+  The AED rate is not needed for accounting: USD orders are journaled in USD, and an older AED
+  order converts its registrar cost with the rate stored in its own quote (3.6725 if absent).
+- **Live Namecheap prices read on 28 September 2026** (`users.getPricing`, one year, ICANN fee
+  included; read-only) and the resulting trainer prices, first year / renewal: `.com` 11.48 /
+  18.68 → **USD 19.99 / 24.99**; `.fit` 3.18 / 46.18 → 9.99 / 54.99; `.fitness` 3.68 / 55.18 →
+  9.99 / 64.99; `.coach` 12.18 / 96.18 → 19.99 / 104.99, **hidden** (renewal over USD 100);
+  `.training` 9.18 / 54.18 → 14.99 / 59.99; `.club` 5.18 / 25.18 → 14.99 / 34.99; `.pro` 3.68 /
+  34.18 → 9.99 / 39.99; `.app` 11.18 / 23.18 → 19.99 / 29.99; `.me` 10.98 / 23.98 → 19.99 /
+  29.99; `.ae` has no API price at Namecheap (not offered). Several endings have a low first
+  year and a much higher renewal; trainers see both before paying. Registrar promotions change;
+  the cache refreshes daily.
+
+### Suggestions
+
+- **Input.** A name (`athena`) or a full domain (`athena.com`, `Athena.IO`). Cleaned the same
+  way with or without an ending: a scheme, a leading `@` (an Instagram handle), `www.`, a path,
+  a `:port` and a trailing dot are dropped; spaces and underscores become hyphens
+  (`layla strength` and `layla strength.com` → `layla-strength.com`). A double hyphen is refused
+  only in the third and fourth place (reserved for `xn--` names). A deeper name
+  (`shop.athena.com`, `coach.athena.com`, `athena.com.evil`) is refused unless its last two
+  labels are an allowed two-part ending (`co.uk`), so a subdomain never becomes the label and
+  nothing is priced for it. Anything else is a 400 `DOMAIN_SEARCH`: "Use English letters,
+  digits and hyphens: a name such as laylastrength, or a full domain such as
+  laylastrength.com. Accented and Arabic letters are not supported yet." No variations of the
+  name are generated.
+- **Endings.** `WEB_ADDRESS_TLDS`, in order, operator-editable (at most 20; default
+  `com,fit,fitness,coach,training,ae,club,pro,app,me`; the old default `com,net,org,co` is read
+  as the new default). Only these endings and the operator's `WEB_ADDRESS_EXTRA_TLDS` ("Other
+  endings sold when a trainer types them", empty by default, at most 20) can be bought, in the
+  search and at checkout. A typed ending outside both lists is answered `not_offered` without
+  asking the registrar (no price call, no stored row), so an adult, protest or local-presence
+  ending is never priced or bought for the platform company; an allowed typed ending is checked
+  first. A typed name without an ending is the name on the first suggested ending (`.com` by
+  default). (Review round 1: the owner decided the default suggestions; letting any typed ending
+  be bought was not decided, so the allow-list stays with operators.)
+- **Protected brand names.** The platform's brand (`trainsyou`, the platform root's own label,
+  and the operator's `WEB_ADDRESS_PROTECTED_LABELS`) is never sold on any ending, hyphens
+  ignored, and a protected name of five or more letters is also refused inside a longer label
+  (`trains-you.app`, `trainsyou-login.com`, `mytrainsyou.fit`): the search answers `not_offered`
+  with no results and no registrar request, and checkout refuses it. A site on
+  `trainsyou.app` held by the platform company would look official.
+- **Answer.** `requested: {domain, status}` with status `available`, `taken`, `not_offered`
+  (the registrar does not sell the ending, the price is over the cap, a premium price cannot be
+  used, or an early-access fee) or `unknown` (not priced or not checked right now, including a
+  name the registrar answered with an error of its own, Namecheap's per-name `ErrorNo`, which is
+  never shown as taken); `results`: only available names within the cap,
+  the typed name first, then the endings in order; `incomplete` when some ending could not be
+  priced or checked right now (the screen says so); `priceCapMinor`. The platform's own domain
+  is simply not offered.
+- **One availability request.** Every name is checked in one `domains.check` (Namecheap takes
+  50 names a request; more are split). Only names whose ending has a price are checked: live
+  Namecheap refuses the **whole** request when one name is under an ending it does not sell
+  ("Tld for 'athena.ae' is not found", error 2030280, observed 28 September 2026), and a quote
+  now prices the ending before its availability request for the same reason.
+- **Premium names.** Offered only if the marked-up premium registration and premium renewal
+  (each plus the ICANN fee from the check) are both within the cap, and only with a registrar
+  that can pass a premium price on (Namecheap: `IsPremiumDomain`/`PremiumPrice` on
+  `domains.create` and `domains.renew`; 101domain and the generic registrar: never). The order
+  stores the checked premium prices; a renewal names the stored premium renewal price, and if
+  the registrar has changed it the renewal is refused definitively and waits for an operator.
+  Live, taken names also report premium prices (for example a premium registration of USD
+  260.00 with a USD 32.50 renewal), so premium prices differ between years too.
+- **Endings needing registrant documents** (Namecheap extended attributes: `us`, `eu`, `ca`,
+  `co.uk`, `org.uk`, `me.uk`, `nu`, `com.au`, `net.au`, `org.au`, `es`, `nom.es`, `com.es`,
+  `org.es`, `de`, `fr`) are refused as not offered before any request (`REQUIREMENTS`). The list
+  is written from Namecheap's documentation and was not re-read live.
+
+### Price cache and call budget
+
+- `registrar_prices` (migration 071, platform-level, service-only): one row per registrar, test
+  environment and ending with the USD register and renew cost, or `not_offered` with the reason,
+  and `fetched_at`. Fresh for 24 hours; a stale price up to 7 days old is still shown when the
+  call budget is used up; an order always asks the registrar again (and stores the answer).
+- **Only a not-sold answer is stored as not offered** (review round 1): the registrar's
+  readable answer without a one-year product (Namecheap `.ae`), Namecheap error 2030280, a
+  generic or 101domain 404 for the ending, or an ending needing registrant documents
+  (`RegistrarError.code` `NOT_SOLD` or `REQUIREMENTS`, `endingNotSold()`). A refused request
+  (Namecheap 1011150 client address not whitelisted, 1011102 key or API access, 500000 or any
+  other code; generic or 101domain 401/403/429/5xx) stores nothing and leaves the last good
+  price; a search then falls back to it or says it is incomplete, and a search whose
+  availability request is refused answers 503 `REGISTRAR_UNAVAILABLE` instead of "nothing can
+  be bought". A `not_offered` row is trusted for one hour (searches and the worker ask again
+  after that), a price for 24 hours.
+- The worker refreshes the prices of every ending that can be bought (suggested first, then the
+  other allowed endings), at most four a run (missing first, then the oldest), only while
+  purchases are enabled and the registrar settings are complete.
+- **Operators** (Super admin → Integration operations → Web addresses, "Registrar prices per
+  ending"; `GET /api/v1/admin/web-addresses/prices`) see every allowed ending with its state
+  (offered, hidden over the cap, not sold by the registrar's API with the reason, not priced
+  yet), the registrar's one-year costs, the trainer's two prices under the current rule, the
+  margin before Stripe's fees and when it was priced. "Refresh prices now"
+  (`POST /api/v1/admin/web-addresses/prices/refresh`, `{reason}`, audited in
+  `admin_operations_audit`) asks the registrar again for each allowed ending within the
+  interactive call budget and reports any ending it could not refresh.
+- A search prices missing endings only while the API process's registrar budget (8 a minute,
+  300 an hour, 3,500 a day) still leaves room for its availability request; otherwise the
+  answer is marked incomplete. Right after start-up the first search may therefore be
+  incomplete until the worker has warmed the cache.
+
+### Checkout, renewal, refunds and ledger in USD
+
+- **Checkout** (`mode=subscription`, currency `usd`): the recurring yearly price is the renewal
+  price. A lower first year gets a once-only `amount_off` coupon for the difference (idempotency
+  key `web-address-first-year:<order>`, `max_redemptions` 1, name "Custom web address —
+  first-year price"); a higher first year adds a one-time line for the difference. So the first
+  invoice is the first-year price and every renewal invoice the renewal price.
+- **First payment** must match the quote's currency and first-year amount, or it is flagged and
+  held as a refund liability, as before. **A renewal payment** of another amount or currency
+  still renews the domain (the trainer has paid) and flags the order: "A renewal payment of …
+  differs from the agreed renewal price of … USD; check the Stripe subscription's price."
+- **Refunds and disputes** use the currency of the payment they refer to.
+- **Ledger.** `journals.currency` may now be any ISO code, but only for web address journals
+  (`source_key LIKE 'web-address-%'`); the deferred balance check refuses a non-AED journal on
+  any account other than `web_address_receivable`, `web_address_revenue`,
+  `web_address_refund_liability`, `web_address_dispute_loss`, `registrar_cost` and
+  `registrar_prepaid`, so USD never reaches `trainer_payable`, settlement or payouts. Finance
+  summaries, business metrics, finance operations and admin operations read AED journals only;
+  the finance summary lists other currencies separately (`otherCurrencies`); the ledger CSV gains
+  a `currency` column; the statement's `webAddresses` is USD with older AED amounts under
+  `otherCurrencies`.
+- **Older orders** (priced in AED before this stage) keep working unchanged: their stored quote
+  (`priceMinor`, `currency` AED, `usdToAed`) drives the order card, Checkout, the payment check
+  and the registrar cost journal.
+- **Stripe settlement.** Charging in USD means Stripe converts to the account's settlement
+  currency and charges its conversion fee, unless the account holds a USD balance. Owner note,
+  not changed in code.
+- **Stripe permissions.** Most checkouts (a first year cheaper than the renewal, for example
+  .com at 19.99 then 24.99) create a once-only coupon, so a restricted Stripe key needs write
+  access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices,
+  Payment Intents and Charges (also in the web addresses setup notes in Super admin). Without
+  Coupons write, checkout answers 502 `CHECKOUT_UNRESOLVED`. The connection check does not test
+  coupon creation (it would write to the live account).
+
+### Purchase and renewal cost guard (review round 1)
+
+- **Before buying a regular name** the worker asks the registrar for the ending's price again.
+  If its registration cost under the order's own rule (`quote.priceRule`) is now above the
+  first-year price the trainer paid (a first-year promotion ended while the order waited for
+  purchases to be switched on, a registrar balance top-up or a retry), nothing is bought: the
+  order waits (`next_attempt_at` null) with an operator message naming the new and quoted cost,
+  and `evidence.priceHold`. **Retry** accepts buying at up to that cost (the platform absorbs
+  the difference; `evidence.acceptedCost`, recorded with the reason); **Refund and close**
+  refunds the trainer. A rise within the same USD 5 step keeps the owner's margin and is not
+  held. The ending no longer sold also holds the order. A price that cannot be read retries
+  later (flagged after six tries). Premium names are bought only at their checked premium
+  price, which the registrar enforces.
+- **After a registration or renewal** a registrar charge (`ChargedAmount`) whose price under the
+  rule is above what the trainer pays for that year (and above any accepted cost) is recorded
+  as `evidence.costAlert`, shown to operators as attention and counted in the operator view;
+  later steps never clear it, Retry acknowledges it, and the trainer never sees it. The domain
+  is renewed either way (the trainer paid).
+- **Sixty days before expiry** (a month before the renewal charge), once per period, the
+  ending's current renewal cost is compared with the renewal price the trainer pays; a rise
+  past it is recorded the same way ("now asks USD … for the next renewal"), so the owner can
+  act before the charge. Re-pricing a running Stripe subscription is not built.
+- **Margin note for the owner.** The rule's margin over cost is between USD 4.99 and 9.98 per
+  year. On charges near USD 100, Stripe's percentage and fixed fee plus currency conversion can
+  approach that, so an ending whose cost sits on a step boundary (for example exactly 95.00 →
+  99.99) may earn little or nothing after fees. The operator prices panel shows the margin
+  before fees per ending; changing the rule (a minimum margin, a percentage, or a lower cap) is
+  an owner decision.
+
+### Migration 071 (`packages/db/migrations/071_domain_pricing_usd.sql`)
+
+- `journals_currency_check`: `currency ~ '^[A-Z]{3}$' AND (currency = 'AED' OR source_key LIKE
+  'web-address-%')`.
+- `balanced_journal()` (SECURITY DEFINER, `REVOKE ALL … FROM PUBLIC`): also refuses a non-AED
+  journal posting to an account outside the web address accounts ("a USD journal cannot post
+  to trainer_payable").
+- `registrar_prices`: primary key (registrar, sandbox, tld), RLS forced with a `service_only`
+  policy, revoked from `PUBLIC` and `trainer_app`; `SELECT, INSERT, UPDATE` for `trainer_service`
+  (`infra/runtime-role.sql`). `scripts/verify-runtime-access.mjs` checks the grants, that no
+  tenant actor reads it, the policy, the currency check and the balance check's account guard.
+- Only additions and a widened check, so the previous release keeps working between migrate and
+  restart (it writes AED only).
+- **Rolling the code back is unsafe once a USD order exists** (review round 1): the previous
+  release compares a USD first invoice with an AED price (flagged, and journaled as AED under
+  the refund liability), sends an open USD checkout with no amount, and journals USD renewals as
+  AED. Before any rollback, switch purchases off (`WEB_ADDRESS_PURCHASES_ENABLED`) and confirm
+  no order has `quote.currency = 'USD'`; otherwise roll forward.
+
+### Files (stage 2026-09-28q)
+
+- **New:** `packages/db/migrations/071_domain_pricing_usd.sql`, `apps/api/src/web-address-prices.ts`,
+  `tests/web-address-pricing.test.ts`, `tests/web-address-suggestions.test.ts`.
+- **Changed:** `packages/domain/src/web-address.ts` (price rule, search plan, endings),
+  `packages/providers/src/registrar.ts` (batched checks, premium prices and purchase, extended
+  attributes, generic batch check), `packages/providers/src/configuration.ts` (settings),
+  `apps/api/src/web-addresses.ts` (search, quote, Checkout), `apps/api/src/web-address-orders.ts`
+  (order prices, currency in payments, refunds, disputes, registrar cost, premium register and
+  renew), `apps/api/src/finance.ts` (journal currency, summary), `finance-statements.ts`,
+  `finance-operations.ts`, `business-metrics.ts`, `admin-operations.ts`, the ledger export in
+  `app.ts`, `apps/worker/src/index.ts` (price refresh), `apps/web/components/web-address.tsx`
+  (USD, taken name, suggestions, premium badge, incomplete note, cap),
+  `apps/web/components/web-address-operations.tsx` (quote in USD), `apps/web/app/web-address.css`,
+  `infra/runtime-role.sql`, `scripts/verify-runtime-access.mjs`, the Namecheap, generic
+  registrar, 101domain and Stripe doubles and `tests/e2e/mocks/index.ts`,
+  `tests/e2e/scenarios/core-features.e2e.ts` (expectations only; not run), and the web address,
+  moat, Stripe and DNS test files.
+
+### Checks actually run for this stage (local, 28 September 2026)
+
+After the last code change (the quote prices the ending before its availability request; the
+Namecheap double fails a whole check that names an unsold ending) and after Prettier on the
+changed files that were Prettier-clean at the base and on the new files:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: exit 0.
+- PGlite: every `tests/web-address-*.test.ts` file with `e2e-harness-mocks`, `finance-completion`,
+  `fix-ledger` and `governance-metrics`: 141 tests, 141 passed.
+- `/opt/tools/pg-sandbox.sh 56349 <worktree>` (PostgreSQL 16, restricted `trainer_service`):
+  `{"runtimeAccess":"verified","migrations":63,"systemTables":55,"scopedTables":44,…}` (migration
+  071 applied, the new verifier checks passed), then 18 files (`web-address-orders`, `-stripe`,
+  `-suggestions`, `-dns-orders`, `-dns-registrar`, `-moat`, `-subdomains`, `-registrar`,
+  `finance-completion`, `fix-ledger`, `fix2-finance`, `finance-checkout`, `governance-metrics`,
+  `isolation-elevation`, `platform`, `admin-completion`, `programme-billing`, `fix-payouts`):
+  177 tests, 177 passed, `PG_SELECTED_FAILED_FILES=0`.
+- `python3 -m unittest discover -s tests -p 'test_*deployment.py'`: 151 tests OK, 3 skipped.
+
+Earlier in the stage, before those last changes: PGlite batches of `finance-completion`,
+`fix-ledger`, `fix2-finance`, `finance-checkout`, `platform-settings`, `provider-configuration`,
+`isolation-elevation`, `messaging-templates`, `logical-css`, `e2e-harness-mocks`,
+`e2e-harness-sandbox`, `governance-metrics` and `platform` (133 passed), and of `acquisition`, `admin-completion`, `fix-db`, `fix-nutrition-ops`,
+`fix-payouts`, `fix-settings`, `governance-alerts`, `governance-locks`, `governance-step-up`,
+`governance-suspension`, `governance-web`, `programme-billing`, `programme-voice` (89 passed).
+A first sandbox run of 17 files failed one test in `web-address-suggestions` (the test deleted
+`registrar_prices` rows, which the runtime role may not do; it now ages them instead).
+
+- **Live, read-only** (Namecheap production, the account's API user; only
+  `users.getBalances`, `domains.check` and `users.getPricing`, each through its own curl process
+  with retries for the rotating egress address; nothing bought or renewed): balance USD 50.00;
+  the prices above; `athena` is taken on all nine sold endings (three of them premium); a random
+  name is available on all nine; a check naming `.ae` fails as a whole (error 2030280). The
+  stage's search, replayed from those answers, returned for the random name `.com` 19.99/24.99,
+  `.fit` 9.99/54.99, `.fitness` 9.99/64.99, `.training` 14.99/59.99, `.club` 14.99/34.99, `.pro`
+  9.99/39.99, `.app` 19.99/29.99, `.me` 19.99/29.99 (no `.coach`, over the cap; no `.ae`), and
+  for `athena` "taken" with no results. 32 requests including retries. The scripts are in the
+  session scratchpad, not committed.
+- Not run: the e2e harness (its core web address expectations were updated only), the full
+  PGlite and PostgreSQL suites, `next build`, a browser or 390 px check, anything on the live
+  server, Stripe live or test mode.
 
 ## Checks actually run (local, 28 September 2026, in this worktree)
 
@@ -660,8 +1322,26 @@ First pass:
 - **E2E scenario.** Added on 28 September 2026: the runner starts the Namecheap double and sets
   `PLATFORM_ROOT_DOMAIN`, and the harness core suite covers the subdomain, search, purchase,
   registration with DNS records, yearly renewal and the operator view (docs/E2E_MOCK_PROVIDERS.md).
-  The Live step is not reached locally: the target IPv4 must be public, so the name is never
-  published to the DNS double and no HTTPS check is attempted.
+  The Live step is not reached locally: the target IPv4 must be public, so no edge serves it.
+  Stage 2026-09-28h changed the scenario to the DigitalOcean DNS double (zone, delegation through
+  the Namecheap double, forwarding switch); after the review fixes it ran once in the full harness
+  (431 passed, 0 failed).
+- **DNS drift maintenance** (stage 2026-09-28h). An active domain's nameservers and records are
+  not re-checked on a schedule; a changed delegation is noticed only when the order next passes
+  through `zone`/`delegating` (late renewal, operator re-run). A daily read-only drift check
+  (including re-pointing held zones' A records when the server IPv4 changes) and a platform-DNS
+  drift alert are not built.
+- **101domain ordering.** Registration and renewal through 101domain's API are built against
+  guessed shapes (the announced registration path, a renewal path that does not exist) and
+  switched off. Rechecked on 28 September 2026 (stage 2026-09-28m): the `/v1` API has no live
+  registration or renewal endpoint (registration "Coming Soon", renewal not listed); the reseller
+  XML API (DOMAPI) has `Register` and `Renew` but needs a reseller account and an adapter built
+  from its current specification. Early-access fees and whether API prices include the ICANN fee
+  are also unverified. See "101domain registration and renewal: what exists". The root domain's
+  own nameservers at 101domain are not changed by the platform (the root is already delegated to
+  DigitalOcean).
+- **DNSSEC on bought domains.** DigitalOcean does not sign zones; a domain with a DS record at the
+  registry waits for an operator (remove DNSSEC, or use the registrar's DNS).
 - **390 px and browser check.** The panel uses wrapping flex rows, `min-inline-size: 0` and
   `overflow-wrap` with logical properties only (the RTL lint passes), but it was not rendered in
   a browser at 390 px.

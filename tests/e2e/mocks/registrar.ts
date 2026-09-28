@@ -16,9 +16,18 @@ export class RegistrarMock {
   pricesUsd: Record<string, { register: string; renew: string }> = {
     com: { register: "11.00", renew: "15.00" },
     net: { register: "12.00", renew: "16.00" },
+    fit: { register: "5.00", renew: "35.00" },
+    coach: { register: "10.00", renew: "59.00" },
   };
+  /** Premium names with their own one-year prices (registration and renewal refuse any other). */
+  readonly premium = new Map<string, { register: string; renew: string }>();
+  /** Names registered elsewhere. */
+  readonly taken = new Set<string>();
   balanceUsd = "200.00";
   records = new Map<string, Array<{ type: string; name: string; value: string }>>();
+  /** Custom nameservers per domain; absent while the registrar's own DNS is used. */
+  nameservers = new Map<string, string[]>();
+  onNameservers?: (domain: string, nameservers: string[] | null) => void;
   /** Publishes saved records to the DNS double, as the registrar's name servers would. */
   onRecords?: (domain: string, records: Array<{ type: string; name: string; value: string }>) => void;
   constructor(
@@ -41,11 +50,38 @@ export class RegistrarMock {
         },
       };
     });
+    // The generic contract's availability check: up to 50 names a request.
+    s.route("POST", "/v1/domains/check", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      const names: string[] = (Array.isArray(r.json?.domains) ? r.json.domains : []).map((n: unknown) =>
+        String(n).toLowerCase(),
+      );
+      if (!names.length || names.length > 50) return { status: 422, body: { error: "1 to 50 domains" } };
+      return {
+        body: {
+          results: names.map((domain) => {
+            const premium = this.premium.get(domain);
+            return {
+              domain,
+              available:
+                !!this.pricesUsd[domain.slice(domain.indexOf(".") + 1)] &&
+                !this.registrations.has(domain) &&
+                !this.taken.has(domain),
+              premium: !!premium,
+              ...(premium ? { premiumRegisterUsd: premium.register, premiumRenewUsd: premium.renew } : {}),
+            };
+          }),
+        },
+      };
+    });
     s.route("POST", "/v1/domains", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();
       const domain = String(r.json?.domain ?? "").toLowerCase();
-      if (!domain || this.registrations.has(domain))
+      if (!domain || this.registrations.has(domain) || this.taken.has(domain))
         return { status: 409, body: { error: "unavailable" } };
+      const premium = this.premium.get(domain);
+      if (premium ? Number(r.json?.premiumPriceUsd) !== Number(premium.register) : r.json?.premiumPriceUsd !== undefined)
+        return { status: 422, body: { error: "premium price mismatch" } };
       const registration = {
         id: randomId("reg"),
         domain,
@@ -88,14 +124,49 @@ export class RegistrarMock {
       if (bearer(r) !== this.apiKey) return unauthorized();
       const registration = this.registrations.get(r.params.domain);
       if (!registration) return { status: 404, body: { error: "not found" } };
+      const premium = this.premium.get(registration.domain);
+      if (premium ? Number(r.json?.premiumPriceUsd) !== Number(premium.renew) : r.json?.premiumPriceUsd !== undefined)
+        return { status: 422, body: { error: "premium price mismatch" } };
       const next = new Date(registration.expiresAt);
       next.setUTCFullYear(next.getUTCFullYear() + Number(r.json?.years ?? 1));
       registration.expiresAt = next.toISOString();
-      return { body: { domain: registration.domain, expiresAt: registration.expiresAt, chargedUsd: this.pricesUsd[registration.domain.split(".").slice(1).join(".")]?.renew } };
+      return {
+        body: {
+          domain: registration.domain,
+          expiresAt: registration.expiresAt,
+          chargedUsd: premium?.renew ?? this.pricesUsd[registration.domain.split(".").slice(1).join(".")]?.renew,
+        },
+      };
     });
     s.route("GET", "/v1/account", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();
       return { body: { balanceUsd: this.balanceUsd } };
+    });
+    const nameservers = (domain: string) => ({
+      domain,
+      nameservers: this.nameservers.get(domain) ?? ["ns1.registrar.test", "ns2.registrar.test"],
+      custom: this.nameservers.has(domain),
+    });
+    s.route("GET", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      return { body: nameservers(r.params.domain) };
+    });
+    s.route("PUT", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      const list = (r.json?.nameservers ?? []).map((n: string) => String(n).toLowerCase());
+      if (list.length < 2) return { status: 422, body: { error: "at least two nameservers" } };
+      this.nameservers.set(r.params.domain, list);
+      this.onNameservers?.(r.params.domain, list);
+      return { body: nameservers(r.params.domain) };
+    });
+    s.route("DELETE", "/v1/domains/:domain/nameservers", (r) => {
+      if (bearer(r) !== this.apiKey) return unauthorized();
+      if (!this.registrations.has(r.params.domain)) return { status: 404, body: { error: "not found" } };
+      this.nameservers.delete(r.params.domain);
+      this.onNameservers?.(r.params.domain, null);
+      return { body: nameservers(r.params.domain) };
     });
     s.route("PUT", "/v1/domains/:domain/records", (r) => {
       if (bearer(r) !== this.apiKey) return unauthorized();

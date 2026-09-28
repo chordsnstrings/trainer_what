@@ -9,6 +9,22 @@ const log = createWriteStream(root + "test-results/browser-servers.log");
 const children = [];
 const proxySecret =
   process.env.INTERNAL_PROXY_SECRET ?? randomBytes(32).toString("hex");
+// BROWSER_WEB_PORT / BROWSER_API_PORT let two checks run on one machine.
+const webPort = process.env.BROWSER_WEB_PORT ?? "3000",
+  apiPort = process.env.BROWSER_API_PORT ?? "4000";
+const appUrl = `http://localhost:${webPort}`,
+  apiUrl = `http://127.0.0.1:${apiPort}`;
+// Never check someone else's servers.
+for (const url of [apiUrl + "/health", appUrl]) {
+  const answered = await fetch(url, { signal: AbortSignal.timeout(2000) }).then(
+    () => true,
+    () => false,
+  );
+  if (answered)
+    throw new Error(
+      `${url} is already answering; stop that server or set BROWSER_WEB_PORT/BROWSER_API_PORT`,
+    );
+}
 function start(args, cwd, extra = {}) {
   const child = spawn(process.execPath, args, {
     cwd,
@@ -16,10 +32,11 @@ function start(args, cwd, extra = {}) {
       ...process.env,
       ...extra,
       NEXT_TELEMETRY_DISABLED: "1",
-      PUBLIC_APP_URL: "http://localhost:3000",
-      API_INTERNAL_URL: "http://127.0.0.1:4000",
+      PUBLIC_APP_URL: appUrl,
+      API_INTERNAL_URL: apiUrl,
       INTERNAL_PROXY_SECRET: proxySecret,
       API_HOST: "127.0.0.1",
+      API_PORT: apiPort,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -49,7 +66,7 @@ try {
         cwd: root,
         env: {
           ...process.env,
-          PUBLIC_APP_URL: process.env.PUBLIC_APP_URL ?? "http://localhost:3000",
+          PUBLIC_APP_URL: process.env.PUBLIC_APP_URL ?? appUrl,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -78,11 +95,14 @@ try {
       "start",
       "--hostname",
       "127.0.0.1",
+      "--port",
+      webPort,
     ],
     root + "apps/web",
   );
-  await ready("http://127.0.0.1:4000/health");
-  await ready("http://localhost:3000");
+  await ready(apiUrl + "/health");
+  await ready(appUrl);
+  process.env.TEST_APP_URL ??= appUrl;
   await import("./browser-check.mjs");
 } finally {
   for (const c of children) c.kill("SIGTERM");

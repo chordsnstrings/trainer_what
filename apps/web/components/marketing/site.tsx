@@ -3,12 +3,18 @@
 // JSON-LD and llms-full.txt agree. Interactive parts are small client islands.
 import Link from "next/link";
 import {
+  Apple,
   ArrowRight,
+  CalendarCheck,
+  CalendarDays,
   Check,
   CheckCircle,
   CircleAlert,
-  ShieldCheck,
+  Dumbbell,
+  MessageCircle,
+  TrendingUp,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -23,16 +29,21 @@ import {
   marketingJsonLd,
   marketingPage,
   sourceById,
-  type AvailabilityKey,
+  usesBrandIdentity,
   type MarketingPage,
   type MarketingSection,
 } from "@trainer/contracts";
+import { BANDS } from "@trainer/domain";
 import {
   aedWhole as aed,
-  displayRange,
+  DEFAULT_FOLLOWER_INPUTS,
+  FOLLOWER_SCENARIOS,
+  displayCount,
   estimateEarnings,
   estimateFollowerConversion,
   followerModelAdjustments,
+  type FollowerRateKey,
+  type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
 import { claimCta, MarketingFooter, MarketingHeader, type Cta } from "./frame";
 import {
@@ -42,6 +53,8 @@ import {
   EarningsCalculator,
   FollowerCalculator,
 } from "./islands";
+import { availabilityChip, Chip } from "./chip";
+import { HeroFlow } from "./hero-flow";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -49,6 +62,7 @@ import {
   ProductScreens,
   Replaces,
 } from "./showcase";
+export { availabilityChip };
 
 type Ctx = { page: MarketingPage; platform: PublicPlatform; origin: string };
 const dateLabel = (iso: string) =>
@@ -70,23 +84,6 @@ function secondaryCta(page: MarketingPage): Cta {
   return page.path === "/follower-calculator"
     ? { label: "Estimate my earnings", href: "/earnings-calculator" }
     : { label: "Estimate what your followers are worth", href: "/follower-calculator" };
-}
-
-/** "Available soon" when a required provider is off at runtime. */
-export function availabilityChip(
-  page: MarketingPage,
-  availability: Record<AvailabilityKey, boolean>,
-): { label: string; soon: boolean } | null {
-  if (!page.offering) return null;
-  const soon = (page.availability ?? []).some((key) => !availability[key]);
-  return soon
-    ? { label: "Available soon", soon: true }
-    : { label: page.offering, soon: false };
-}
-function Chip({ chip }: { chip: { label: string; soon: boolean } | null }) {
-  return chip ? (
-    <span className={"badge " + (chip.soon ? "amber" : "green")}>{chip.label}</span>
-  ) : null;
 }
 
 function SourceNote({ ids }: { ids?: string[] }) {
@@ -194,11 +191,19 @@ export function Section({
   );
 }
 
-function Faqs({ page, t }: { page: MarketingPage; t: (s: string) => string }) {
+function Faqs({
+  page,
+  t,
+  heading = "Frequently asked questions",
+}: {
+  page: MarketingPage;
+  t: (s: string) => string;
+  heading?: string;
+}) {
   if (!page.faqs.length) return null;
   return (
     <section className="mk-section mk-faqs" id="faq" aria-labelledby="faq-h">
-      <h2 id="faq-h">Frequently asked questions</h2>
+      <h2 id="faq-h">{heading}</h2>
       {page.faqs.map((f) => (
         <details key={f.q} className="mk-faq">
           <summary>{t(f.q)}</summary>
@@ -255,21 +260,81 @@ function Breadcrumbs({ page, t }: { page: MarketingPage; t: (s: string) => strin
   );
 }
 
-function Closing({ cta, t }: { cta: Cta; t: (s: string) => string }) {
+/**
+ * The closing panel on every marketing page: a contained Pace panel with ink
+ * text and an ink button. The brand line is its heading on the trainsyou
+ * platform; a renamed platform asks the call to action instead.
+ */
+function Closing({
+  cta,
+  platform,
+  secondary,
+}: {
+  cta: Cta;
+  platform: PublicPlatform;
+  secondary: Cta;
+}) {
   return (
-    <section className="mk-closing">
-      <p className="eyebrow">YOU ALREADY HAVE THE EXPERIENCE</p>
-      <h2>{t("Give your method somewhere new to go.")}</h2>
-      <div className="button-row">
-        <Link className="button large" href={cta.href}>
-          {cta.label} <ArrowRight size={17} aria-hidden="true" />
-        </Link>
-        <Link className="text-link" href="/follower-calculator">
-          What are my followers worth? <ArrowRight size={15} aria-hidden="true" />
-        </Link>
-      </div>
-    </section>
+    <div className="mk-container mk-closing-wrap">
+      <section className="mk-closing" aria-labelledby="mk-closing-h">
+        <h2 id="mk-closing-h">
+          {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
+        </h2>
+        <p>Guided setup. Nothing goes live until you publish.</p>
+        <div className="button-row">
+          <Link className="button large mk-closing-cta" href={cta.href}>
+            {cta.label} <ArrowRight size={17} aria-hidden="true" />
+          </Link>
+          <Link className="text-link mk-link" href={secondary.href}>
+            {secondary.label} <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
+    </div>
   );
+}
+const HOW_IT_WORKS: Cta = { label: "See how it works", href: "/how-it-works" };
+/** The closing panel's second link: the follower estimate, or how it works. */
+function closingLink(path: string): Cta {
+  return path === "/" || path === "/follower-calculator"
+    ? HOW_IT_WORKS
+    : { label: "What are my followers worth?", href: "/follower-calculator" };
+}
+
+/**
+ * The Pace highlight on part of a heading; the text itself is unchanged. A
+ * span, not <mark>: the emphasis is decorative, and screen readers can
+ * announce <mark> as "highlight" in the middle of the H1.
+ */
+function Highlighted({ text, mark }: { text: string; mark?: string }) {
+  const at = mark ? text.indexOf(mark) : -1;
+  if (!mark || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="mk-mark">{mark}</span>
+      {text.slice(at + mark.length)}
+    </>
+  );
+}
+
+/**
+ * The commission bands as short labels, from the ledger's own bands. The
+ * list is labelled "Commission by paying subscriber", so the ranges count
+ * paying subscribers: "25% · first 100", "20% · 101–300", ...
+ */
+export function bandPills(): string[] {
+  const n = (v: number) => v.toLocaleString("en-GB");
+  let from = 1;
+  return BANDS.map((band) => {
+    const range = !Number.isFinite(band.count)
+      ? `${n(from)}+`
+      : from === 1
+        ? `first ${n(band.count)}`
+        : `${n(from)}–${n(from + band.count - 1)}`;
+    from += band.count;
+    return `${band.bps / 100}% · ${range}`;
+  });
 }
 
 /** A grid of child pages (hubs and the home feature grid). */
@@ -303,45 +368,45 @@ function PageTiles({
 const childrenOf = (path: string) =>
   MARKETING_PAGES.filter((p) => p.parent === path && p.indexable);
 
-/** Three example accounts, computed live from the assumptions in use. */
+/** Three example accounts in the strong case, computed live from the assumptions in use. */
 function FollowerExamples({ platform }: { platform: PublicPlatform }) {
-  const accounts: Array<[number, number]> = [
-    [2000, 8],
-    [8000, 8],
-    [30000, 12],
-  ];
+  const accounts = [3000, 7000, 30000];
   const whole = (n: number) => n.toLocaleString("en-AE");
-  const span = (r: { low: number; high: number }) =>
-    r.low === r.high ? whole(r.low) : `${whole(r.low)}–${whole(r.high)}`;
+  const count = (n: number) => {
+    const c = displayCount(n);
+    return c === null ? "< 1" : whole(c);
+  };
   return (
     <div className="mk-table-wrap">
       <table className="mk-table">
         <caption>
-          Estimate ranges at AED 199 a month (assumptions version{" "}
+          Strong case, a best case for an engaged, growing audience and not a
+          typical result: AED 199 a month, 8 link Stories and 4 keyword Reels
+          a month, 30% yearly cancellations (assumptions version{" "}
           {platform.followerModel.version})
         </caption>
         <thead>
           <tr>
             <th scope="col">Followers</th>
-            <th scope="col">Link Stories a month</th>
-            <th scope="col">People who see your Stories</th>
             <th scope="col">New subscribers, first month</th>
-            <th scope="col">After twelve months</th>
+            <th scope="col">Active after 12 months</th>
+            <th scope="col">Sign-ups over 12 months</th>
+            <th scope="col">A month at month 12</th>
           </tr>
         </thead>
         <tbody>
-          {accounts.map(([followers, stories]) => {
+          {accounts.map((followers) => {
             const e = estimateFollowerConversion(
-              { followers, linkStoriesPerMonth: stories, priceAed: 199 },
+              { ...DEFAULT_FOLLOWER_INPUTS, followers },
               platform.followerModel,
-            );
+            ).scenarios.strong;
             return (
               <tr key={followers}>
                 <td>{whole(followers)}</td>
-                <td>{stories}</td>
-                <td>{span(displayRange(e.storyViewers))}</td>
-                <td>{span(displayRange(e.subscribers))}</td>
-                <td>{span(displayRange(e.twelveMonthSubscribers))}</td>
+                <td>{count(e.month1New)}</td>
+                <td>{count(e.activeMonth12)}</td>
+                <td>{count(e.signups12)}</td>
+                <td>{aed(e.revenueMonth12Minor)}</td>
               </tr>
             );
           })}
@@ -386,6 +451,59 @@ function WorkedExample() {
   );
 }
 
+const SCENARIO_NAMES: Record<FollowerScenario, string> = {
+  cautious: "Cautious",
+  typical: "Typical",
+  strong: "Strong case",
+};
+/** One rate row on /methodology: the per-scenario values and their basis. */
+const RATE_ROWS: Array<{
+  key: FollowerRateKey;
+  label: string;
+  basis: string;
+  sources: Array<[string, string]>;
+}> = [
+  {
+    key: "linkClickPct",
+    label: "Link-sticker click, per viewer per link Story",
+    basis: "Creator reports 1-5%, no industry benchmark (rule of thumb); IQFluence median 4.1%, strong creators 6-7% (vendor data)",
+    sources: [["creatorflow-link-sticker", "Creatorflow"], ["iqfluence-story-links", "IQFluence"]],
+  },
+  {
+    key: "dmOpenPct",
+    label: "Keyword commenters who open the DM link",
+    basis: "Vendor claims, no dataset",
+    sources: [["communipass-auto-dm", "CommuniPass"], ["chatautodm-2026", "ChatAutoDM"]],
+  },
+  {
+    key: "broadcastClickPct",
+    label: "Broadcast members who open one link message",
+    basis: "Email click medians for sports, health and fitness, all industries (measured; used as a proxy)",
+    sources: [["mailerlite-benchmarks", "MailerLite"]],
+  },
+  {
+    key: "bioClickPct",
+    label: "Profile visitors who open the bio link in a month (only when you enter visits)",
+    basis: "Rule of thumb, 1-3%",
+    sources: [["hopp-bio-link", "Hopp by Wix"]],
+  },
+  {
+    key: "paidPct",
+    label: "Visit to paid subscriber",
+    basis: "Luxury retail; Health & Fitness app downloads that turn paid within 35 days, median and upper quartile (measured; used as a proxy: an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions",
+    sources: [
+      ["dynamicyield-conversion", "Dynamic Yield"],
+      ["revenuecat-state-2026", "RevenueCat"],
+    ],
+  },
+  {
+    key: "audienceRenewalPct",
+    label: "New people each month: share of each audience new to your link",
+    basis: "Cautious: the same people all year. Typical: about the yearly follower growth Socialinsider measured on brand accounts, 11-22% by tier, about 1-1.7% a month (measured; our rounding). Strong: our assumption for a growing audience, new followers plus people Instagram starts showing your content to; above the default monthly cancellations (2.9%), so more sharing never lowers month-12 subscribers",
+    sources: [["socialinsider-engagement", "Socialinsider"]],
+  },
+];
+
 function Methodology({ platform }: { platform: PublicPlatform }) {
   const m = platform.followerModel;
   const adjusted = new Set(followerModelAdjustments(m).map((a) => a.field));
@@ -399,26 +517,50 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
   // A value the operator changed no longer rests on the cited source.
   const Source = ({
     fields,
-    href,
-    label,
+    links,
   }: {
     fields: string[];
-    href: string;
-    label: string;
-  }) =>
-    fields.some((f) => adjusted.has(f)) ? (
+    links: Array<[string, string]>;
+  }) => {
+    const list = links.map(([id, label], i) => (
+      <span key={id}>
+        {i > 0 && ", "}
+        <a href={"#" + id}>{label}</a>
+      </span>
+    ));
+    return fields.some((f) => adjusted.has(f)) ? (
       <span>
         <span className="badge amber">Adjusted by the operator</span> version{" "}
-        {m.version}; differs from the cited source (
-        <a href={href}>{label}</a>)
+        {m.version}; differs from the cited source ({list})
       </span>
     ) : (
-      <a href={href}>{label}</a>
+      <span>{list}</span>
     );
+  };
+  const worked = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS, m);
+  const count = (n: number) => {
+    const c = displayCount(n);
+    return c === null ? "fewer than 1" : c.toLocaleString("en-AE");
+  };
+  const strong = m.scenarios.strong;
+  const perStory = Math.round(strong.linkClickPct * strong.paidPct) / 100;
+  const signupShare =
+    Math.round(
+      (worked.scenarios.strong.signups12 / DEFAULT_FOLLOWER_INPUTS.followers) * 1000,
+    ) / 10;
   return (
     <>
       <section className="mk-section" id="follower-assumptions" aria-labelledby="fa-h">
         <h2 id="fa-h">Follower calculator assumptions (version {m.version})</h2>
+        <p className="mk-body">
+          The calculator runs three scenarios with the same arithmetic. Cautious
+          and typical use published averages. The strong case is a best case
+          for an engaged, growing audience and weekly sharing, from the top
+          values found in the research and our stated assumptions. It is not a typical result and not a promise, and you
+          may get fewer subscribers than the cautious figure. The calculator
+          headline shows the strong case and the other two sit under How we
+          estimate.
+        </p>
         {adjusted.size > 0 && (
           <p className="mk-body">
             <strong>Operator note:</strong>{" "}
@@ -427,67 +569,185 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
         )}
         <div className="mk-table-wrap">
           <table className="mk-table">
-            <caption>Values in use now; the platform operator can review them</caption>
+            <caption>
+              Story audience: % of followers who see at least one of your
+              Stories a month (your own Story views replace it)
+            </caption>
             <thead>
               <tr>
-                <th scope="col">Assumption</th>
-                <th scope="col">Low</th>
-                <th scope="col">High</th>
-                <th scope="col">Source</th>
+                <th scope="col">Followers</th>
+                <th scope="col">Cautious</th>
+                <th scope="col">Typical</th>
+                <th scope="col">Strong case</th>
+                <th scope="col">Basis and label</th>
               </tr>
             </thead>
             <tbody>
               {m.tiers.map((tier, i) => (
                 <tr key={i}>
-                  <td>Story reach, {tierLabel(i)} followers</td>
-                  <td>{tier.reachLowPct}%</td>
-                  <td>{tier.reachHighPct}%</td>
+                  <td>{tierLabel(i)}</td>
+                  <td>{tier.storyPct.cautious}%</td>
+                  <td>{tier.storyPct.typical}%</td>
+                  <td>{tier.storyPct.strong}%</td>
                   <td>
+                    {i === 0
+                      ? "Cautious and typical: Socialinsider image and video reach (measured, brand accounts). Strong: our assumption, the 20.5% a six-frame Story sequence reached (measured on brand accounts of all sizes) used as a monthly audience. "
+                      : i === 1
+                        ? "Cautious: image reach, 3.5% (measured, brand accounts). Typical: the 5% vendor floor, above the measured 4.2% video reach (vendor claim). Strong: our assumption, the six-frame 20.5% used as a monthly audience, against a measured reach of 3.5-4.2% for this tier; HypeAuditor finds accounts of 1,000-10,000 followers engage most (vendor data). "
+                        : "Image reach (measured); at least 5% (vendor claim); strong: the IQFluence 5-8% band, lower for larger accounts (vendor claim, no dataset). "}
                     <Source
-                      fields={[`tiers.${i}.reachLowPct`, `tiers.${i}.reachHighPct`]}
-                      href="#socialinsider-stories"
-                      label="Socialinsider"
+                      fields={FOLLOWER_SCENARIOS.map((s) => `tiers.${i}.storyPct.${s}`)}
+                      links={
+                        i === 0
+                          ? [["socialinsider-stories", "Socialinsider"]]
+                          : i === 1
+                            ? [
+                                ["socialinsider-stories", "Socialinsider"],
+                                ["iqfluence-engagement", "IQFluence"],
+                                ["hypeauditor-2025", "HypeAuditor"],
+                              ]
+                            : [
+                                ["socialinsider-stories", "Socialinsider"],
+                                ["iqfluence-engagement", "IQFluence"],
+                              ]
+                      }
                     />
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>Rates per scenario</caption>
+            <thead>
               <tr>
-                <td>Link-sticker click-through, per viewer per link Story</td>
-                <td>{m.linkClickLowPct}%</td>
-                <td>{m.linkClickHighPct}%</td>
+                <th scope="col">Assumption</th>
+                <th scope="col">Cautious</th>
+                <th scope="col">Typical</th>
+                <th scope="col">Strong case</th>
+                <th scope="col">Basis and label</th>
+              </tr>
+            </thead>
+            <tbody>
+              {RATE_ROWS.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td>{m.scenarios.cautious[row.key]}%</td>
+                  <td>{m.scenarios.typical[row.key]}%</td>
+                  <td>{m.scenarios.strong[row.key]}%</td>
+                  <td>
+                    {row.basis}.{" "}
+                    <Source
+                      fields={FOLLOWER_SCENARIOS.map((s) => `scenarios.${s}.${row.key}`)}
+                      links={row.sources}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>Other assumptions</caption>
+            <thead>
+              <tr>
+                <th scope="col">Assumption</th>
+                <th scope="col">Value</th>
+                <th scope="col">Basis and label</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Reach of one call-to-action Reel or post, by tier</td>
                 <td>
+                  Cautious (feed posts):{" "}
+                  {m.tiers.map((t) => t.reelPct.cautious + "%").join(" / ")}. Typical
+                  and strong (Reels):{" "}
+                  {m.tiers.map((t) => t.reelPct.strong + "%").join(" / ")}
+                </td>
+                <td>
+                  Measured, brand accounts.{" "}
                   <Source
-                    fields={["linkClickLowPct", "linkClickHighPct"]}
-                    href="#creatorflow-link-sticker"
-                    label="Creator reports"
+                    fields={m.tiers.flatMap((_, i) =>
+                      FOLLOWER_SCENARIOS.map((s) => `tiers.${i}.reelPct.${s}`),
+                    )}
+                    links={[
+                      ["socialinsider-reach", "Socialinsider"],
+                      ["socialinsider-reels", "Socialinsider"],
+                    ]}
                   />
                 </td>
               </tr>
               <tr>
+                <td>Comments per Reel view, by tier</td>
+                <td>{m.tiers.map((t) => t.commentsPerViewPct + "%").join(" / ")}</td>
                 <td>
-                  Visit to paid subscriber (retail e-commerce purchase rates; no
-                  published benchmark exists for coaching subscriptions)
-                </td>
-                <td>{m.purchaseLowPct}%</td>
-                <td>{m.purchaseHighPct}%</td>
-                <td>
+                  Measured, brand accounts; our division of published medians.{" "}
                   <Source
-                    fields={["purchaseLowPct", "purchaseHighPct"]}
-                    href="#dynamicyield-conversion"
-                    label="Dynamic Yield"
+                    fields={m.tiers.map((_, i) => `tiers.${i}.commentsPerViewPct`)}
+                    links={[["socialinsider-engagement", "Socialinsider"]]}
                   />
                 </td>
               </tr>
               <tr>
-                <td>Average engagement (for scaling reach)</td>
-                <td colSpan={2}>
+                <td>Keyword comments per view</td>
+                <td>Comments per view × {m.keywordCommentFactor}</td>
+                <td>
+                  Measured (+202.78% comments with a comment call to action);
+                  treating the extra comments as keyword comments is our
+                  inference.{" "}
+                  <Source
+                    fields={["keywordCommentFactor"]}
+                    links={[["metricool-2026", "Metricool"]]}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td>How channels overlap</td>
+                <td>
+                  Cautious: Reels reach the same people as Stories. Typical and
+                  strong: each Reel reaches new people. Stories and broadcast
+                  are nested in every scenario
+                </td>
+                <td>
+                  Our assumption, from a platform statement.{" "}
+                  <Source fields={[]} links={[["meta-instagram-ranking", "Instagram"]]} />
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Average engagement (scales Story reach and comments; the strong
+                  Story share only down, as it already assumes an engaged
+                  audience)
+                </td>
+                <td>
                   {m.engagementBenchmarkPct}%, scaling at most ×{m.engagementFactorMax}
                 </td>
                 <td>
+                  Measured, brand accounts.{" "}
                   <Source
                     fields={["engagementBenchmarkPct", "engagementFactorMax"]}
-                    href="#socialinsider-engagement"
-                    label="Socialinsider"
+                    links={[["socialinsider-engagement", "Socialinsider"]]}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td>Members who cancel per year</td>
+                <td>Your input, 5-80%; 30% unless you change it</td>
+                <td>
+                  Owner assumption. Published data show more cancellations: 32-54%
+                  of Health &amp; Fitness app subscribers leave after the first
+                  month (measured), and 45% of online coaching clients remain at
+                  month 12 (vendor data).{" "}
+                  <Source
+                    fields={[]}
+                    links={[
+                      ["revenuecat-renewals", "RevenueCat"],
+                      ["coachway-2026", "Coachway"],
+                    ]}
                   />
                 </td>
               </tr>
@@ -495,12 +755,116 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
           </table>
         </div>
       </section>
+      <section className="mk-section" id="strong-case" aria-labelledby="sc-h">
+        <h2 id="sc-h">How the strong case is calibrated</h2>
+        <p className="mk-body">
+          The strong case is a best case for an engaged, growing audience and
+          weekly sharing. It is not a typical result and not a promise.
+        </p>
+        <ul className="mk-list">
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Per link Story, {strong.linkClickPct}% of viewers tap and{" "}
+              {strong.paidPct}% of them pay: about {perStory}% of the people
+              who see it each time. Each month {strong.audienceRenewalPct}% of
+              the audience is new to your link, so sign-ups keep coming and
+              active subscribers are still growing at month 12. [Our
+              assumption; measured proxies]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Over 12 months the worked example below signs up about{" "}
+              {signupShare}% of its followers, far above published creator
+              averages. Passion.io’s course benchmarks put conversion at
+              0.1-1% of an audience (low), 1.5-5% (mid) and 0.52-1.1% for
+              higher-priced courses, and Stan’s creators with 1,000-10,000
+              followers sell about USD 273 a month on average, against{" "}
+              {aed(worked.scenarios.strong.revenueMonth12Minor)} a month in the
+              strong case. [Rule of thumb; vendor data]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              Our founder’s reading of creator sales, a fitness creator selling
+              a USD 20 plan to roughly 0.5-1.5% of one video’s viewers, is an
+              unverified example with no public source, so it is not used as
+              evidence. Per view, the strong case’s {perStory}% is below it; the
+              12-month figure adds repeat chances for the same viewers and the
+              new people each month. [Unverified founder example]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              The strong rates are the top values found in the research:{" "}
+              {strong.linkClickPct}% link clicks (creator reports),{" "}
+              {strong.dmOpenPct}% of keyword commenters opening the DM link
+              (vendor claims) and {strong.paidPct}% visit to paid, the upper
+              quartile of Health &amp; Fitness apps (measured; an app install
+              shows more intent than a Story tap, so it may overstate). The
+              Story audience up to 10,000 followers and the new people each
+              month are our assumptions. [Measured; vendor claims; our
+              assumption]
+            </span>
+          </li>
+        </ul>
+        <div className="mk-table-wrap">
+          <table className="mk-table">
+            <caption>
+              Worked example: {DEFAULT_FOLLOWER_INPUTS.followers.toLocaleString("en-AE")}{" "}
+              followers, AED {DEFAULT_FOLLOWER_INPUTS.priceAed},{" "}
+              {DEFAULT_FOLLOWER_INPUTS.linkStoriesPerMonth} link Stories and{" "}
+              {DEFAULT_FOLLOWER_INPUTS.ctaReelsPerMonth} keyword Reels a month,{" "}
+              {DEFAULT_FOLLOWER_INPUTS.yearlyCancelPct}% yearly cancellations
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Scenario</th>
+                <th scope="col">First month</th>
+                <th scope="col">Active after 12 months</th>
+                <th scope="col">Sign-ups over 12 months</th>
+                <th scope="col">A month at month 12</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FOLLOWER_SCENARIOS.map((s) => {
+                const r = worked.scenarios[s];
+                return (
+                  <tr key={s}>
+                    <th scope="row">{SCENARIO_NAMES[s]}</th>
+                    <td>{count(r.month1New)}</td>
+                    <td>{count(r.activeMonth12)}</td>
+                    <td>{count(r.signups12)}</td>
+                    <td>{aed(r.revenueMonth12Minor)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="fine-print muted">
+          Before platform commission, payment processing and tax. Trials,
+          discounts, refunds and failed payments are not included; new
+          followers count only through the new people each month.
+        </p>
+      </section>
       <section className="mk-section" id="sources" aria-labelledby="src-h">
         <h2 id="src-h">Sources</h2>
+        <p className="mk-body">
+          Each source is labelled by how much weight it can bear: measured
+          (a dataset with a stated sample), used as a proxy, vendor data or
+          claim, rule of thumb, platform statement, official figure, price
+          guide or press report.
+        </p>
         <ol className="mk-source-list">
           {MARKETING_SOURCES.map((s) => (
             <li key={s.id} id={s.id}>
               <p>
+                <span className="badge">{s.evidence}</span>{" "}
                 <strong>{s.publisher}</strong>,{" "}
                 <a href={s.url} rel="noopener" target="_blank">
                   {s.title}
@@ -537,6 +901,36 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
               purchase and the UAE is in EMEA.
             </span>
           </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.3): three scenarios instead
+              of one range, with the strong case as the headline at our owner’s
+              direction; Reels with a comment keyword, the bio link and a
+              broadcast channel join Stories; cancellations per year (30% unless
+              you change it) give active subscribers after 12 months; your own
+              Story views can replace the reach guess; and tier boundaries no
+              longer lower an estimate (5,001 followers used to give fewer
+              subscribers than 5,000).
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.4): each audience now gains
+              new people every month (typical about measured follower growth,
+              strong our assumption), so sign-ups keep coming and more sharing
+              never lowers the strong case’s month-12 subscribers; strong visit
+              to paid is 6.2%, the Health &amp; Fitness upper quartile, instead
+              of 10.7%, an all-category median for apps that charge before
+              use; engagement no longer raises the strong Story share, which
+              already assumes an engaged audience; keyword Reels count each
+              Reel’s commenters afresh in the typical and strong cases; the
+              monthly amount uses the whole number of subscribers shown; and an
+              unverified creator sales figure is no longer presented as a
+              source.
+            </span>
+          </li>
           {adjusted.size > 0 && (
             <li>
               <Check size={16} aria-hidden="true" />
@@ -558,7 +952,8 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
     return (
       <section className="mk-section" id="claim" aria-labelledby="claim-h">
         <h2 id="claim-h">Claim your coaching address</h2>
-        <AddressPreview template={platform.coachAddressTemplate} />
+        {/* Shown without the scheme, as on the home page. */}
+        <AddressPreview template={platform.coachAddressTemplate.replace(/^https?:\/\//, "")} />
       </section>
     );
   return (
@@ -600,22 +995,8 @@ function CustomBlock({ page, platform, t }: Ctx & { t: (s: string) => string }) 
         </>
       );
     case "/features":
-      return (
-        <>
-          <ProductScreens t={t} />
-          <FeatureMatrix platform={platform} t={t} />
-          <Replaces t={t} />
-          <section className="mk-section" aria-labelledby="all-features-h">
-            <h2 id="all-features-h">Feature guides</h2>
-            <PageTiles
-              pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
-              platform={platform}
-              t={t}
-              withChips
-            />
-          </section>
-        </>
-      );
+      // The home page's "everything included" counts, as a paper strip.
+      return <IncludedStrip t={t} />;
     case "/for-trainers":
     case "/guides":
       return <PageTiles pages={childrenOf(page.path)} platform={platform} t={t} />;
@@ -641,16 +1022,57 @@ function DirectoryBlock({ place }: { place: string }) {
     </aside>
   );
 }
+/** Published price anchors for one-to-one and online coaching (cited). */
+function PriceAnchors() {
+  return (
+    <div className="mk-anchors">
+      <div>
+        <strong>AED 70–350</strong>
+        <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
+      </div>
+      <div>
+        <strong>AED 200–700+</strong>
+        <span>per session, basic to premium (Embody Fitness, 2025)</span>
+      </div>
+      <div>
+        <strong>AED 400–2,000</strong>
+        <span>a month for online coaching (369MMAFIT, 2026)</span>
+      </div>
+    </div>
+  );
+}
 /** Blocks placed after a section, by section id. */
 function AfterSection({
   page,
   section,
   platform,
+  t,
 }: {
   page: MarketingPage;
   section: MarketingSection;
   platform: PublicPlatform;
+  t: (s: string) => string;
 }) {
+  if (page.path === "/pricing" && section.id === "hours") return <PriceAnchors />;
+  // /features: screens and guides first; the full capability matrix (still
+  // server-rendered and indexed) sits lower on the page.
+  if (page.path === "/features" && section.id === "subscribers")
+    return (
+      <>
+        <ProductScreens t={t} />
+        <section className="mk-section" id="feature-guides" aria-labelledby="all-features-h">
+          <h2 id="all-features-h">Feature guides</h2>
+          <PageTiles
+            pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
+            platform={platform}
+            t={t}
+            withChips
+          />
+        </section>
+        <Replaces t={t} />
+        <FeatureMatrix platform={platform} t={t} />
+      </>
+    );
   if (page.path === "/get-started" && section.id === "checklist")
     return (
       <ol className="mk-checklist">
@@ -687,19 +1109,21 @@ function StandardPage({ page, platform, origin }: Ctx) {
   const demo = page.path === "/demo";
   return (
     <>
-      <div className="mk-page">
+      <div className="mk-container mk-page">
         <Breadcrumbs page={page} t={t} />
         <header className="mk-page-head">
           <p className="eyebrow">{t(page.eyebrow)}</p>
           <h1>{t(page.h1)}</h1>
           {chip && <Chip chip={chip} />}
-          <p className="mk-answer">{t(page.intro)}</p>
+          {/* One short statement above the fold: the lede, or the
+              answer-first introduction on pages without one. */}
+          <p className={page.lede ? "mk-lede" : "mk-answer"}>{t(page.lede ?? page.intro)}</p>
           <div className="button-row">
-            <Link className="button large" href={cta.href}>
+            <Link className="button large mk-cta" href={cta.href}>
               {cta.label} <ArrowRight size={17} aria-hidden="true" />
             </Link>
             {!page.path.endsWith("-calculator") && (
-              <Link className="text-link" href={second.href}>
+              <Link className="text-link mk-link" href={second.href}>
                 {second.label} <ArrowRight size={15} aria-hidden="true" />
               </Link>
             )}
@@ -722,7 +1146,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
           ) : (
             <div key={section.id}>
               <Section section={section} t={t} />
-              <AfterSection page={page} section={section} platform={platform} />
+              <AfterSection page={page} section={section} platform={platform} t={t} />
             </div>
           ),
         )}
@@ -746,35 +1170,247 @@ function StandardPage({ page, platform, origin }: Ctx) {
           </section>
         )}
         {page.path === "/methodology" && <Methodology platform={platform} />}
+        {/* A page with a lede keeps its answer-first introduction (the text
+            in JSON-LD and llms-full.txt) as a short summary before the FAQs,
+            instead of repeating the lede straight under it. */}
+        {page.lede && (
+          <section className="mk-section mk-in-short" id="in-short" aria-labelledby="in-short-h">
+            <h2 id="in-short-h">In short</h2>
+            <p className="mk-body">{t(page.intro)}</p>
+          </section>
+        )}
         <Faqs page={page} t={t} />
         <Related page={page} t={t} />
         <p className="mk-updated muted">
           Last updated <time dateTime={page.lastUpdated}>{dateLabel(page.lastUpdated)}</time>
         </p>
       </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }
 
+/**
+ * A home band: the registry heading and body, a visual and up to two links.
+ * Bands alternate white and paper; "split" puts the text beside the visual
+ * on wide screens. Every band shares the one page container.
+ */
 function HomeSection({
   page,
   id,
   t,
-  children,
+  tone,
+  split = false,
+  visual,
+  links = [],
   className = "",
 }: {
   page: MarketingPage;
   id: string;
   t: (s: string) => string;
-  children?: ReactNode;
+  tone: "white" | "paper";
+  split?: boolean;
+  visual?: ReactNode;
+  links?: Cta[];
   className?: string;
 }) {
   const section = page.sections.find((s) => s.id === id)!;
+  const more = links.length > 0 && (
+    <p className="mk-home-more">
+      {links.map((link) => (
+        <Link key={link.href} className="text-link mk-link" href={link.href}>
+          {link.label} <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+      ))}
+    </p>
+  );
   return (
-    <div className={"mk-band " + className}>
-      <Section section={section} t={t} />
-      {children}
+    <section
+      className={`mk-home-band mk-home-${tone} ${className}`.trim()}
+      id={id}
+      aria-labelledby={id + "-h"}
+    >
+      <div className={"mk-container mk-home-inner" + (split ? " mk-home-split" : "")}>
+        <div className="mk-home-text">
+          <h2 id={id + "-h"}>{t(section.heading)}</h2>
+          {section.body?.map((p) => (
+            <p key={p} className="mk-home-body">
+              {t(p)}
+            </p>
+          ))}
+          {split && more}
+        </div>
+        {visual && <div className="mk-home-visual">{visual}</div>}
+        {!split && more}
+      </div>
+    </section>
+  );
+}
+
+type Tile = {
+  icon: LucideIcon;
+  label: string;
+  line: string;
+  href: string;
+  /** The feature page whose availability decides whether the tile shows. */
+  gate?: string;
+};
+/**
+ * What subscribers get: four flat tiles, each linking to its feature page
+ * with one short line. Only features available now are shown ("Available
+ * soon" stays on /features): the fourth tile is nutrition when that tier is
+ * on, otherwise the first available of chat and bookings.
+ */
+function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
+  const core: Tile[] = [
+    {
+      icon: CalendarDays,
+      label: "Daily plan",
+      line: "Dated, built from your rules.",
+      href: "/features/ai-training-plans",
+    },
+    {
+      icon: Dumbbell,
+      label: "Guided workouts",
+      line: "Cues, set logging and rest timers.",
+      href: "/features/subscriber-app",
+    },
+    {
+      icon: TrendingUp,
+      label: "Progress they can see",
+      line: "Sessions and best loads, in one place.",
+      href: "/features/progress-and-client-twin",
+    },
+  ];
+  const extra: Tile[] = [
+    {
+      icon: Apple,
+      label: "Nutrition",
+      line: "Meal plans and a food diary, as an optional tier.",
+      href: "/features/nutrition",
+      gate: "/features/nutrition",
+    },
+    {
+      icon: MessageCircle,
+      label: "Chat",
+      line: "With you and a clearly labelled digital coach.",
+      href: "/features/chat-and-digital-coach",
+      gate: "/features/chat-and-digital-coach",
+    },
+    {
+      icon: CalendarCheck,
+      label: "Sessions with you",
+      line: "Paid one-to-one bookings, when it matters.",
+      href: "/features/bookings",
+      gate: "/features/bookings",
+    },
+  ];
+  const available = (tile: Tile) =>
+    !tile.gate ||
+    !availabilityChip(marketingPage(tile.gate), platform.availability)?.soon;
+  const tiles = [...core, ...extra.filter(available).slice(0, 1)];
+  return (
+    <ul className="mk-icon-tiles">
+      {tiles.map(({ icon: Icon, label, line, href }) => (
+        <li key={label}>
+          <Link className="mk-icon-tile" href={href}>
+            <span className="mk-icon-square" aria-hidden="true">
+              <Icon size={22} />
+            </span>
+            <span className="mk-icon-label">{label}</span>
+            <span className="mk-icon-line">{line}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The trainer stays in charge: the decision flow (sample data). */
+function ControlFlow() {
+  // One image for assistive technology: the tag and the three paths are
+  // summarised in its label; the drawn cards are presentational.
+  return (
+    <div
+      className="mk-flow-card"
+      role="img"
+      aria-label="Illustration with sample data: a subscriber says squats felt easy; your rule adds 2.5 kg automatically. Unsure changes come to you, and pain pauses the workout and comes to you."
+    >
+      <p className="mk-relay-tag" aria-hidden="true">
+        Illustration with sample data
+      </p>
+      <div className="mk-flow" aria-hidden="true">
+        <div className="mk-flow-msg">
+          <span className="small-label">SUBSCRIBER</span>
+          <p>“Week three done. Squats felt easy.”</p>
+        </div>
+        <div className="mk-flow-brain">
+          <span className="small-label">YOUR AI</span>
+          <p>
+            <strong>Your rule:</strong> two easy sessions at 3+ reps in reserve →
+            add 2.5 kg.
+          </p>
+          <div className="mk-meter">
+            <span style={{ inlineSize: "86%" }} />
+          </div>
+          <small>Confidence above your threshold</small>
+        </div>
+        <div className="mk-flow-lanes">
+          <span className="mk-lane mk-lane-auto">
+            <CheckCircle size={14} /> Applied automatically
+          </span>
+          <span className="mk-lane">
+            <UserRound size={14} /> Unsure → to you
+          </span>
+          <span className="mk-lane mk-lane-safety">
+            <CircleAlert size={14} /> Pain → paused, to you
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Your site and your price: the coaching address from the platform's
+ * template (never a hard-coded domain), shown without the scheme, and the
+ * commission bands by paying subscriber.
+ */
+function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
+  const template = platform.coachAddressTemplate.replace(/^https?:\/\//, "");
+  const address = template.replace("{slug}", "yourname");
+  return (
+    <div className="mk-econ">
+      {platform.registrationOpen ? (
+        <AddressPreview template={template} />
+      ) : (
+        <div className="mk-browser">
+          <span className="mk-browser-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="mk-browser-address ltr-data">{address}</span>
+        </div>
+      )}
+      <div className="mk-bands-box">
+        <p className="small-label" id="mk-bands-label">
+          Commission by paying subscriber
+        </p>
+        <ul className="mk-band-pills" aria-labelledby="mk-bands-label">
+          {bandPills().map((pill) => {
+            const [rate, range] = pill.split(" · ");
+            return (
+              <li key={pill}>
+                <strong>{rate}</strong> · {range}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="fine-print muted">
+          Each rate applies only to the subscribers in its band.
+        </p>
+      </div>
     </div>
   );
 }
@@ -782,144 +1418,89 @@ function HomeSection({
 function Home({ page, platform }: Ctx) {
   const t = (s: string) => brandText(s, platform.name, platform.followerModel);
   const cta = primaryCta(page, platform);
-  const features = [
-    marketingPage("/trainer-brain")!,
-    ...childrenOf("/features"),
-  ];
+  // The follower estimate keeps its own block (the calculator is owned by
+  // the calculator package; only its container is styled here).
+  const calculator = (
+    <div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>
+  );
   return (
     <>
-      <section className="mk-hero">
-        <div className="mk-hero-copy">
-          <p className="eyebrow">
-            <span className="tiny-line" />
-            {t(page.eyebrow)}
-          </p>
-          <h1>{t(page.h1)}</h1>
-          <p className="mk-hero-sub">{t(page.intro)}</p>
-          <div className="button-row">
-            <Link className="button large" href={cta.href}>
-              {cta.label} <ArrowRight size={18} aria-hidden="true" />
-            </Link>
-            <Link className="text-link" href="/how-it-works">
-              {BRAND_COPY.secondaryAction}{" "}
-              <ArrowRight size={16} aria-hidden="true" />
-            </Link>
-          </div>
-          <ul className="mk-hero-notes">
-            <li>
-              <Check size={14} aria-hidden="true" /> You set the price in AED
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Pain and red flags always go to you
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Monthly payouts to a UAE bank
-            </li>
-          </ul>
-        </div>
-        <div className="mk-hero-art" aria-hidden="true">
-          <div className="mk-flow">
-            <div className="mk-flow-msg">
-              <span className="small-label">SUBSCRIBER</span>
-              <p>“Week three done. Squats felt easy.”</p>
+      <section className="mk-hero" aria-labelledby="mk-hero-h">
+        <div className="mk-container mk-hero-inner">
+          <div className="mk-hero-copy">
+            <div className="mk-hero-head">
+              <p className="eyebrow">{t(page.eyebrow)}</p>
+              <h1 id="mk-hero-h">
+                <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
+              </h1>
             </div>
-            <div className="mk-flow-brain">
-              <span className="small-label">YOUR TRAINER BRAIN</span>
-              <p>
-                <strong>Your rule:</strong> two easy sessions at 3+ reps in
-                reserve → add 2.5 kg.
-              </p>
-              <div className="mk-meter">
-                <span style={{ inlineSize: "86%" }} />
+            <div className="mk-hero-body">
+              {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
+              <div className="button-row">
+                <Link className="button large mk-cta" href={cta.href}>
+                  {cta.label} <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+                <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
+                  {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
+                </Link>
               </div>
-              <small>Confidence above your threshold</small>
-            </div>
-            <div className="mk-flow-lanes">
-              <span className="mk-lane mk-lane-auto">
-                <CheckCircle size={14} /> Applied automatically
-              </span>
-              <span className="mk-lane">
-                <UserRound size={14} /> Unsure → to you
-              </span>
-              <span className="mk-lane mk-lane-safety">
-                <CircleAlert size={14} /> Pain → paused, to you
-              </span>
+              <p className="mk-hero-micro">
+                Built for UAE trainers · You set the price in AED · No technical
+                skills needed
+              </p>
             </div>
           </div>
+          <HeroFlow platform={platform} t={t} />
         </div>
       </section>
-      <div className="mk-entity">
-        <HomeSection page={page} id="what-is" t={t} />
-      </div>
-      <IncludedStrip t={t} />
-      <HomeSection page={page} id="hours" t={t} className="mk-band-sand">
-        <div className="mk-anchors">
-          <div>
-            <strong>AED 70–350</strong>
-            <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
-          </div>
-          <div>
-            <strong>AED 200–700+</strong>
-            <span>per session, basic to premium (Embody Fitness, 2025)</span>
-          </div>
-          <div>
-            <strong>AED 400–2,000</strong>
-            <span>a month for online coaching (369MMAFIT, 2026)</span>
-          </div>
+      <HomeSection
+        page={page}
+        id="subscribers"
+        t={t}
+        tone="white"
+        visual={<SubscriberTiles platform={platform} />}
+        links={[{ label: "All features", href: "/features" }]}
+      />
+      <HomeSection
+        page={page}
+        id="control"
+        t={t}
+        tone="paper"
+        split
+        visual={<ControlFlow />}
+        links={[
+          { label: "How your AI decides", href: "/trainer-brain" },
+          { label: "Try the demo", href: "/demo" },
+        ]}
+      />
+      <HomeSection
+        page={page}
+        id="economics"
+        t={t}
+        tone="white"
+        split
+        visual={<EconomicsVisual platform={platform} />}
+        links={[{ label: "Pricing in detail", href: "/pricing" }]}
+      />
+      <HomeSection
+        page={page}
+        id="followers"
+        t={t}
+        tone="paper"
+        className="mk-home-followers"
+        visual={calculator}
+        links={[{ label: "Open the full calculator", href: "/follower-calculator" }]}
+      />
+      <div className="mk-home-band mk-home-white">
+        <div className="mk-container mk-home-inner">
+          {/* All answers start closed: the home page stays under its word
+              budget (scripts/brand-check.mjs). The first answer is the
+              answer-first introduction, in the page's HTML, the FAQPage
+              JSON-LD and llms-full.txt. */}
+          <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
-      </HomeSection>
-      <HomeSection page={page} id="steps" t={t} />
-      <HomeSection page={page} id="brain" t={t} className="mk-band-mint">
-        <p>
-          <Link className="text-link" href="/demo">
-            See four decisions in the demo <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="subscribers" t={t} />
-      <div className="mk-band">
-        <ProductScreens t={t} />
       </div>
-      <div className="mk-band" id="followers">
-        <section className="mk-section" aria-labelledby="followers-h">
-          <h2 id="followers-h">What could your followers be worth?</h2>
-          <p className="mk-body">
-            A quick estimate from published Instagram and conversion benchmarks.
-            Change the numbers to yours.
-          </p>
-          <FollowerCalculator model={platform.followerModel} compact headingLevel={3} />
-          <p>
-            <Link className="text-link" href="/follower-calculator">
-              Open the full follower calculator <ArrowRight size={15} aria-hidden="true" />
-            </Link>
-          </p>
-        </section>
-      </div>
-      <HomeSection page={page} id="economics" t={t} className="mk-band-sand">
-        <WorkedExample />
-        <p>
-          <Link className="text-link" href="/pricing">
-            Pricing in detail <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="control" t={t}>
-        <p>
-          <Link className="text-link" href="/security-and-privacy">
-            <ShieldCheck size={15} aria-hidden="true" /> Security and privacy
-          </Link>
-        </p>
-      </HomeSection>
-      <div className="mk-band">
-        <section className="mk-section" aria-labelledby="features-h">
-          <h2 id="features-h">One platform, every part of the business</h2>
-          <PageTiles pages={features} platform={platform} t={t} withChips />
-        </section>
-      </div>
-      <div className="mk-band">
-        <Faqs page={page} t={t} />
-      </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }

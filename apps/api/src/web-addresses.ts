@@ -16,28 +16,49 @@ import {
 import { requireCommerce, stripeClient } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
+  CHECK_BATCH,
+  canBuyPremium,
+  canRenew,
+  canUseRegistrarDns,
   paymentModeProblem,
+  premiumCostUsd,
+  registrarFor,
   registrarFromConfig,
+  registrarPurchaseProblem,
   registrarSandboxSetting,
   RegistrarError,
   stripeKeyMode,
   type Availability,
   type Registrar,
-  type TldPrice,
 } from "../../../packages/providers/src/registrar.ts";
+import { dnsHostingSettings } from "../../../packages/providers/src/dns-hosting.ts";
 import {
   RESERVED_SLUGS,
   SLUG_CHANGES_PER_YEAR,
   SLUG_PROBLEM_MESSAGES,
   SLUG_REDIRECT_DAYS,
-  allowedTlds,
-  searchCandidates,
+  cleanDomainQuery,
+  domainSearchPlan,
+  isProtectedLabel,
+  priceRuleFromSettings,
+  protectedLabels,
+  purchasableTlds,
   slugProblem,
   splitRegistrableDomain,
   subdomainEligible,
   subdomainHost,
-  yearlyPriceMinor,
+  suggestedTlds,
+  trainerDomainPrices,
+  usdCents,
+  type PriceRule,
 } from "../../../packages/domain/src/web-address.ts";
+import {
+  fetchPrice,
+  pricesForSearch,
+  readPrices,
+  refreshPricesNow,
+  type EndingPrice,
+} from "./web-address-prices.ts";
 import { newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import { platformRoot } from "./host-routing.ts";
@@ -46,6 +67,8 @@ import { normalizeDomain } from "./integrations-completion.ts";
 import {
   cancelSubscription,
   failOrder,
+  mappingRedirects,
+  orderPrices,
   processWebAddressOrder,
   purchasesEnabled,
   recordRegistrarState,
@@ -136,6 +159,23 @@ async function slugState(db: Database, tenantId: string) {
   });
 }
 
+/** Forwarding needs a live workspace subdomain to forward to. */
+async function assertForwardable(db: Database, tenantId: string) {
+  const root = platformRoot();
+  const { tenant } = await slugState(db, tenantId);
+  if (
+    !root ||
+    !tenant ||
+    !subdomainEligible(tenant.slug) ||
+    RESERVED_SLUGS.has(tenant.slug)
+  )
+    throw fail(
+      409,
+      "FORWARD_UNAVAILABLE",
+      "Forwarding needs your platform web address. Choose an address first, or show your site on the domain.",
+    );
+}
+
 async function slugChangesThisYear(tx: Tx) {
   const [row] = await tx.query(
     "SELECT count(*)::int AS n FROM events WHERE name='web_address.slug_changed' AND created_at>now()-interval '365 days'",
@@ -154,23 +194,36 @@ async function slugChangesThisYear(tx: Tx) {
  */
 export const INTERACTIVE_REGISTRAR_BUDGET = { minute: 8, hour: 300, day: 3500 };
 const interactiveCalls: number[] = [];
-function takeRegistrarCalls(count: number) {
+/** Registrar calls the budget still allows now (the tightest window). */
+function registrarCallsLeft() {
   const now = Date.now();
   while (interactiveCalls.length && interactiveCalls[0] <= now - 86400000)
     interactiveCalls.shift();
   const within = (ms: number) =>
     interactiveCalls.filter((at) => at > now - ms).length;
-  if (
-    within(60000) + count > INTERACTIVE_REGISTRAR_BUDGET.minute ||
-    within(3600000) + count > INTERACTIVE_REGISTRAR_BUDGET.hour ||
-    interactiveCalls.length + count > INTERACTIVE_REGISTRAR_BUDGET.day
-  )
+  return Math.min(
+    INTERACTIVE_REGISTRAR_BUDGET.minute - within(60000),
+    INTERACTIVE_REGISTRAR_BUDGET.hour - within(3600000),
+    INTERACTIVE_REGISTRAR_BUDGET.day - interactiveCalls.length,
+  );
+}
+function takeRegistrarCalls(count: number) {
+  if (registrarCallsLeft() < count)
     throw fail(
       503,
       "REGISTRAR_BUSY",
       "Domain search is busy right now. Please try again in a minute.",
     );
-  for (let i = 0; i < count; i++) interactiveCalls.push(now);
+  for (let i = 0; i < count; i++) interactiveCalls.push(Date.now());
+}
+/**
+ * Takes one call when the budget still leaves `reserve` calls after it (a
+ * search keeps its availability request); never throws.
+ */
+function tryTakeRegistrarCall(reserve = 0) {
+  if (registrarCallsLeft() < 1 + reserve) return false;
+  interactiveCalls.push(Date.now());
+  return true;
 }
 /** Availability answers reused for a minute (the order always asks again). */
 const checkCache = new Map<string, { at: number; result: Availability[] }>();
@@ -179,7 +232,8 @@ async function checkNames(registrar: Registrar, names: string[]) {
   const key = `${registrar.id}:${registrar.sandbox}:${names.join(",")}`;
   const hit = checkCache.get(key);
   if (hit && Date.now() - hit.at < CHECK_TTL_MS) return hit.result;
-  takeRegistrarCalls(1);
+  // One request checks up to CHECK_BATCH names.
+  takeRegistrarCalls(Math.ceil(names.length / CHECK_BATCH));
   const result = await registrar.check(names);
   if (checkCache.size > 500) checkCache.clear();
   checkCache.set(key, { at: Date.now(), result });
@@ -189,6 +243,10 @@ async function checkNames(registrar: Registrar, names: string[]) {
 export function resetRegistrarBudget() {
   interactiveCalls.length = 0;
   checkCache.clear();
+}
+/** Uses up this many calls of the budget now (tests). */
+export function spendRegistrarBudget(count: number) {
+  for (let i = 0; i < count; i++) interactiveCalls.push(Date.now());
 }
 /**
  * Why purchases cannot run with the configured payment and registrar
@@ -201,54 +259,63 @@ export function configuredModeProblem() {
     ? paymentModeProblem(mode === "live", registrarSandboxSetting())
     : null;
 }
+/** Why no domain can be bought right now (operators see the reason), or null. */
+export function buyingProblem() {
+  return configuredModeProblem() ?? registrarPurchaseProblem();
+}
 
 // ---- Search and prices ---------------------------------------------------------
 
-const priceCache = new Map<string, { at: number; price: TldPrice }>();
-const PRICE_TTL_MS = 3600000;
-async function tldPrice(registrar: Registrar, tld: string) {
-  const key = `${registrar.id}:${registrar.sandbox}:${tld}`;
-  const hit = priceCache.get(key);
-  if (hit && Date.now() - hit.at < PRICE_TTL_MS) return hit.price;
-  takeRegistrarCalls(1);
-  const price = await registrar.pricing(tld);
-  priceCache.set(key, { at: Date.now(), price });
-  return price;
-}
-/** Forget cached registrar prices (tests; a settings change takes effect within an hour otherwise). */
-export function clearWebAddressPriceCache() {
-  priceCache.clear();
-  resetRegistrarBudget();
-}
-function pricing() {
+/**
+ * The price rule, the suggested endings, every ending that can be bought and
+ * the protected brand names, from Super admin settings. An invalid rule
+ * (possible only through the server environment: saved settings are
+ * validated) stops buying rather than pricing wrongly.
+ */
+function pricing(): {
+  rule: PriceRule;
+  tlds: string[];
+  allowed: string[];
+  protectedNames: string[];
+} {
   const config = runtimeConfig();
+  let rule: PriceRule;
+  try {
+    rule = priceRuleFromSettings({
+      step: config.WEB_ADDRESS_PRICE_STEP_USD,
+      ending: config.WEB_ADDRESS_PRICE_ENDING_USD,
+      cap: config.WEB_ADDRESS_PRICE_CAP_USD,
+    });
+  } catch {
+    throw fail(
+      409,
+      "WEB_ADDRESS_DISABLED",
+      "Buying a domain is not available yet.",
+    );
+  }
+  const tlds = suggestedTlds(config.WEB_ADDRESS_TLDS);
   return {
-    usdToAed: config.WEB_ADDRESS_USD_TO_AED?.trim() || "3.6725",
-    marginAed: config.WEB_ADDRESS_MARGIN_AED?.trim() || "25",
-    tlds: allowedTlds(config.WEB_ADDRESS_TLDS),
+    rule,
+    tlds,
+    allowed: purchasableTlds(tlds, config.WEB_ADDRESS_EXTRA_TLDS),
+    protectedNames: protectedLabels(
+      config.WEB_ADDRESS_PROTECTED_LABELS,
+      platformRoot(),
+    ),
   };
 }
-function assertNotPlatformName(domain: string) {
+/** The platform's own domain and names under it are never sold. */
+function isPlatformName(domain: string) {
   const root = platformRoot();
-  if (root && (domain === root || domain.endsWith("." + root)))
+  return !!root && (domain === root || domain.endsWith("." + root));
+}
+function assertNotPlatformName(domain: string) {
+  if (isPlatformName(domain))
     throw fail(
       400,
       "DOMAIN_NAME",
       "Addresses under the platform domain are given automatically.",
     );
-}
-/**
- * What a trainer sees and agrees to: the first-year price and the yearly
- * renewal price in AED fils. The registrar's name and cost never reach a
- * trainer (owner decision, 28 September 2026). The Checkout subscription
- * charges one yearly price, so both are the same amount today; they are
- * separate fields so the screens and the agreement always name both.
- */
-export function trainerPrices(yearlyMinor: number | null) {
-  return {
-    firstYearPriceMinor: yearlyMinor,
-    renewalPriceMinor: yearlyMinor,
-  };
 }
 /** Neutral Stripe wording for a trainer's yearly domain (never the registrar). */
 export const WEB_ADDRESS_STRIPE_LABEL = "Custom web address — yearly";
@@ -256,73 +323,194 @@ export function webAddressStripeText(hostname: string) {
   return {
     productName: WEB_ADDRESS_STRIPE_LABEL,
     description: `${WEB_ADDRESS_STRIPE_LABEL}: ${hostname}`,
+    /** The first year's difference from the yearly renewal price. */
+    firstYearName: "Custom web address — first-year price",
   };
 }
+/**
+ * What a trainer sees and agrees to for one available name: the first-year
+ * price and the yearly renewal price in US cents (owner decision,
+ * 28 September 2026). The registrar's name and cost never reach a trainer.
+ */
 export type SearchResult = {
   domain: string;
-  available: boolean;
+  available: true;
   premium: boolean;
-  firstYearPriceMinor: number | null;
-  renewalPriceMinor: number | null;
-  currency: "AED";
+  firstYearPriceMinor: number;
+  renewalPriceMinor: number;
+  currency: "USD";
   renewsYearly: true;
 };
+/**
+ * available: offered at the prices in `results`; taken: registered by
+ * someone; not_offered: over the price limit, an ending that cannot be
+ * bought here, or an early-access name; unknown: its price or availability
+ * could not be read right now.
+ */
+export type NameStatus = "available" | "taken" | "not_offered" | "unknown";
+export type SearchAnswer = {
+  /** The name the trainer asked about and whether it can be bought. */
+  requested: { domain: string; status: NameStatus };
+  /**
+   * Names that can be bought, each within the price limit: the requested
+   * name first when available, then the name under each suggested ending in
+   * the configured order.
+   */
+  results: SearchResult[];
+  /** Some endings could not be priced or checked right now: search again shortly. */
+  incomplete: boolean;
+  currency: "USD";
+  /** Names over this first-year or renewal price are never shown. */
+  priceCapMinor: number;
+};
+/**
+ * The costs a name is priced from: the premium costs for a premium name (only
+ * where the registrar can buy it at that price), the ending's costs
+ * otherwise; null when the name cannot be offered.
+ */
+function nameCost(
+  registrar: Registrar,
+  availability: Availability,
+  ending: EndingPrice,
+) {
+  if (ending.kind !== "price" || availability.earlyAccessFeeUsd) return null;
+  if (!availability.premium)
+    return {
+      registerUsd: ending.registerUsd,
+      renewUsd: ending.renewUsd,
+      premium: null,
+    };
+  if (!canBuyPremium(registrar)) return null;
+  const cost = premiumCostUsd(availability);
+  return cost
+    ? {
+        ...cost,
+        // What the registrar's order and every renewal must name, as checked.
+        premium: {
+          registerUsd: availability.premiumRegisterUsd!,
+          renewUsd: availability.premiumRenewUsd!,
+        },
+      }
+    : null;
+}
+/**
+ * A trainer's search (owner decision, 28 September 2026): the typed name
+ * and the name under every suggested ending, checked in one registrar
+ * request, priced from the cached per-ending prices (premium names from the
+ * check), without taken names and without names whose first-year or renewal
+ * price is over the cap.
+ */
 export async function searchDomains(
   query: string,
-  deps: { registrar?: Registrar } = {},
-): Promise<SearchResult[]> {
+  deps: { registrar?: Registrar; db?: Database } = {},
+): Promise<SearchAnswer> {
   const settings = pricing();
-  const candidates = searchCandidates(query, settings.tlds).filter((name) => {
-    try {
-      assertNotPlatformName(name);
-      return true;
-    } catch {
-      return false;
-    }
+  // A name under the platform's domain is given automatically.
+  const typed = cleanDomainQuery(query);
+  if (typed !== platformRoot()) assertNotPlatformName(typed);
+  const plan = domainSearchPlan(query, settings.tlds, settings.allowed);
+  if (!plan) throw fail(400, "DOMAIN_SEARCH", DOMAIN_SEARCH_MESSAGE);
+  const answer = (
+    status: NameStatus,
+    results: SearchResult[] = [],
+    incomplete = false,
+  ): SearchAnswer => ({
+    requested: { domain: plan.requested, status },
+    results,
+    incomplete,
+    currency: "USD",
+    priceCapMinor: settings.rule.capCents,
   });
-  if (!candidates.length)
-    throw fail(
-      400,
-      "DOMAIN_SEARCH",
-      `Enter a name, or a full domain ending in ${settings.tlds.map((t) => "." + t).join(", ")}.`,
-    );
-  const registrar = deps.registrar ?? registrarFromConfig();
-  let availability;
+  // The platform's brand is never sold on any ending (it would look
+  // official): answered without asking the registrar.
+  if (isProtectedLabel(plan.label, settings.protectedNames))
+    return answer("not_offered");
+  const names = plan.names.filter((name) => !isPlatformName(name));
+  const registrar = trainerRegistrar(deps);
+  const endingOf = (name: string) => splitRegistrableDomain(name)![1];
+  let prices: Map<string, EndingPrice>;
+  // Missing prices are fetched while the budget still leaves room for the
+  // availability request; the typed name's ending is priced first.
+  const checkRequests = Math.ceil(names.length / CHECK_BATCH);
   try {
-    availability = await checkNames(registrar, candidates);
+    prices = await pricesForSearch(
+      deps.db,
+      registrar,
+      [...new Set(names.map(endingOf))],
+      () => tryTakeRegistrarCall(checkRequests),
+    );
   } catch (error) {
     throw registrarUnavailable(error);
   }
-  const out: SearchResult[] = [];
-  for (const name of candidates) {
+  // Only names under an ending the registrar sells are checked.
+  const checkable = names.filter(
+    (name) => prices.get(endingOf(name))?.kind === "price",
+  );
+  let availability: Availability[] = [];
+  if (checkable.length)
+    try {
+      availability = await checkNames(registrar, checkable);
+    } catch (error) {
+      throw registrarUnavailable(error);
+    }
+  const statuses = new Map<string, NameStatus>();
+  const results: SearchResult[] = [];
+  let incomplete = false;
+  for (const name of names) {
+    const price = prices.get(endingOf(name));
     const found = availability.find((item) => item.domain === name);
-    const tld = splitRegistrableDomain(name, settings.tlds)?.[1];
-    let priceMinor: number | null = null;
-    const offered =
-      !!found?.available && !found.premium && !found.earlyAccessFeeUsd;
-    if (offered && tld)
-      try {
-        const price = await tldPrice(registrar, tld);
-        priceMinor = yearlyPriceMinor({
-          registerUsd: price.registerUsd,
-          renewUsd: price.renewUsd,
-          usdToAed: settings.usdToAed,
-          marginAed: settings.marginAed,
+    let status: NameStatus;
+    if (!price) status = "unknown";
+    else if (price.kind === "not_offered") status = "not_offered";
+    else if (!found || found.checkFailed) status = "unknown";
+    else if (!found.available) status = "taken";
+    else {
+      const cost = nameCost(registrar, found, price);
+      const priced = cost && trainerDomainPrices(cost, settings.rule);
+      if (priced?.offered) {
+        status = "available";
+        results.push({
+          domain: name,
+          available: true,
+          premium: found.premium,
+          firstYearPriceMinor: priced.firstYearCents,
+          renewalPriceMinor: priced.renewalCents,
+          currency: "USD",
+          renewsYearly: true,
         });
-      } catch (error) {
-        if ((error as any)?.code === "REGISTRAR_BUSY") throw error;
-        priceMinor = null;
-      }
-    out.push({
-      domain: name,
-      available: offered && priceMinor !== null,
-      premium: !!found?.premium || !!found?.earlyAccessFeeUsd,
-      ...trainerPrices(priceMinor),
-      currency: "AED",
-      renewsYearly: true,
-    });
+      } else status = "not_offered";
+    }
+    if (status === "unknown") incomplete = true;
+    statuses.set(name, status);
   }
-  return out;
+  // A requested name outside the endings that can be bought was never
+  // checked: it is not offered here.
+  return answer(
+    statuses.get(plan.requested) ?? "not_offered",
+    results,
+    incomplete,
+  );
+}
+/** Why a search text was refused: the rule a trainer can follow. */
+const DOMAIN_SEARCH_MESSAGE =
+  "Use English letters, digits and hyphens: a name such as laylastrength, or a full domain such as laylastrength.com. Accented and Arabic letters are not supported yet.";
+/**
+ * The configured registrar for a trainer's search or checkout. Its
+ * configuration problem names the registrar, so a trainer only hears that
+ * buying is unavailable (owner decision: the registrar is never named to
+ * trainers); operators see the problem in Settings and the connection test.
+ */
+function trainerRegistrar(deps: { registrar?: Registrar }) {
+  if (deps.registrar) return deps.registrar;
+  try {
+    return registrarFromConfig();
+  } catch {
+    throw fail(
+      409,
+      "WEB_ADDRESS_DISABLED",
+      "Buying a domain is not available yet.",
+    );
+  }
 }
 function registrarUnavailable(error: unknown) {
   if (error instanceof RegistrarError)
@@ -333,52 +521,118 @@ function registrarUnavailable(error: unknown) {
     );
   return error;
 }
-/** A fresh quote for one name: available, not premium, with its current price. */
-async function quote(registrar: Registrar, domain: string) {
+/**
+ * A fresh quote for one name at checkout: available now, priced from its
+ * ending's price asked for again (and cached), a premium name at its checked
+ * premium price, within the cap. Stored on the order for operators; trainers
+ * see only the two USD prices.
+ */
+async function quote(registrar: Registrar, domain: string, db: Database) {
   const settings = pricing();
-  const split = splitRegistrableDomain(domain, settings.tlds);
+  const split = splitRegistrableDomain(domain);
   if (!split)
-    throw fail(400, "DOMAIN_NAME", "This domain ending is not offered.");
-  let availability, price;
+    throw fail(
+      400,
+      "DOMAIN_NAME",
+      "Enter a full domain such as laylastrength.com.",
+    );
+  // Only the endings an operator allows, and never the platform's brand;
+  // nothing is asked of the registrar for either.
+  if (
+    !settings.allowed.includes(split[1]) ||
+    isProtectedLabel(split[0], settings.protectedNames)
+  )
+    throw fail(409, "DOMAIN_UNAVAILABLE", "This domain is not offered here.");
+  let availability: Availability | undefined, price: EndingPrice;
   takeRegistrarCalls(2);
   try {
+    // The ending's price first: Namecheap refuses a whole availability
+    // request that names an ending it does not sell.
+    price = await fetchPrice(db, registrar, split[1]);
+    if (price.kind !== "price")
+      throw fail(409, "DOMAIN_UNAVAILABLE", "This domain is not offered here.");
     [availability] = await registrar.check([domain]);
-    price = await registrar.pricing(split[1]);
   } catch (error) {
     throw registrarUnavailable(error);
   }
   if (
     !availability?.available ||
-    availability.premium ||
-    availability.earlyAccessFeeUsd
+    availability.checkFailed ||
+    availability.domain !== domain
   )
-    throw fail(
-      409,
-      "DOMAIN_UNAVAILABLE",
-      "This domain is no longer available.",
-    );
-  priceCache.set(`${registrar.id}:${registrar.sandbox}:${split[1]}`, {
-    at: Date.now(),
-    price,
-  });
-  const priceMinor = yearlyPriceMinor({
-    registerUsd: price.registerUsd,
-    renewUsd: price.renewUsd,
-    usdToAed: settings.usdToAed,
-    marginAed: settings.marginAed,
-  });
-  // Stored on the order for operators; trainers see only the two prices.
+    throw fail(409, "DOMAIN_UNAVAILABLE", "This domain is no longer available.");
+  const cost = nameCost(registrar, availability, price);
+  const priced = cost && trainerDomainPrices(cost, settings.rule);
+  if (!cost || !priced?.offered)
+    throw fail(409, "DOMAIN_UNAVAILABLE", "This domain is not offered here.");
   return {
-    priceMinor,
-    ...trainerPrices(priceMinor),
-    currency: "AED",
-    registerUsd: price.registerUsd,
-    renewUsd: price.renewUsd,
-    usdToAed: settings.usdToAed,
-    marginAed: settings.marginAed,
+    currency: "USD" as const,
+    firstYearPriceMinor: priced.firstYearCents,
+    renewalPriceMinor: priced.renewalCents,
+    // The registrar's one-year costs the prices come from (ICANN fee
+    // included); for a premium name also its premium prices as checked,
+    // which the registration and every renewal must name.
+    registerUsd: cost.registerUsd,
+    renewUsd: cost.renewUsd,
+    premium: cost.premium,
+    priceRule: settings.rule,
     termYears: 1,
     registrar: registrar.id,
     registrarSandbox: registrar.sandbox,
+  };
+}
+
+/** The registrar for new purchases, for operators (its problem is shown as it is). */
+function operatorRegistrar(deps: { registrar?: Registrar }) {
+  if (deps.registrar) return deps.registrar;
+  try {
+    return registrarFromConfig();
+  } catch (error) {
+    throw fail(
+      409,
+      "REGISTRAR_NOT_CONFIGURED",
+      (error as Error)?.message ?? "The registrar settings are incomplete.",
+    );
+  }
+}
+/**
+ * Every ending trainers can buy, as the cache holds it now: the registrar's
+ * one-year costs, the trainer's two prices by the current rule, whether the
+ * cap hides it, and the margin before Stripe fees. Operators only.
+ */
+async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
+  const settings = pricing();
+  const registrar = operatorRegistrar(deps);
+  const cached = await readPrices(db, registrar, settings.allowed);
+  const endings = settings.allowed.map((tld) => {
+    const price = cached.get(tld);
+    const base = {
+      tld,
+      suggested: settings.tlds.includes(tld),
+      fetchedAt: price ? new Date(price.fetchedAt).toISOString() : null,
+    };
+    if (!price) return { ...base, state: "unknown" as const };
+    if (price.kind === "not_offered")
+      return { ...base, state: "not_offered" as const, reason: price.reason };
+    const priced = trainerDomainPrices(price, settings.rule);
+    return {
+      ...base,
+      state: priced.offered ? ("offered" as const) : ("over_cap" as const),
+      registerUsd: price.registerUsd,
+      renewUsd: price.renewUsd,
+      firstYearPriceMinor: priced.firstYearCents,
+      renewalPriceMinor: priced.renewalCents,
+      // What is left of each price after the registrar's cost, before
+      // Stripe's fees (and any currency conversion) are taken.
+      firstYearMarginMinor: priced.firstYearCents - usdCents(price.registerUsd),
+      renewalMarginMinor: priced.renewalCents - usdCents(price.renewUsd),
+    };
+  });
+  return {
+    registrar: registrar.id,
+    testEnvironment: registrar.sandbox,
+    rule: settings.rule,
+    endings,
   };
 }
 
@@ -389,6 +643,8 @@ const TRAINER_STEPS: Record<string, string> = {
   paid: "Paid; registering your domain",
   purchasing: "Registering your domain",
   owned: "Registered; setting up DNS",
+  zone: "Registered; setting up DNS",
+  delegating: "Connecting your domain to your website",
   dns: "Waiting for DNS and the security certificate",
   active: "Live",
   expired: "Expired",
@@ -396,26 +652,27 @@ const TRAINER_STEPS: Record<string, string> = {
   failed: "Could not be registered; refunded",
 };
 export function trainerOrderView(order: Record<string, any>) {
+  // Only the first-year and renewal price, in the currency the order was
+  // priced in (USD; orders placed before 28 September 2026 in AED): never
+  // the registrar, its cost or the price rule kept in the quote.
+  const prices = orderPrices(order);
   return {
     id: order.id,
     hostname: order.hostname,
     status: order.status,
     statusLabel: TRAINER_STEPS[order.status] ?? order.status,
-    // Only the first-year and renewal price: never the registrar, its cost,
-    // the exchange rate or the margin kept in the quote.
-    firstYearPriceMinor: Number(
-      order.quote?.firstYearPriceMinor ?? order.quote?.priceMinor ?? 0,
-    ),
-    renewalPriceMinor: Number(
-      order.quote?.renewalPriceMinor ?? order.quote?.priceMinor ?? 0,
-    ),
-    currency: "AED",
+    firstYearPriceMinor: prices.firstYearMinor,
+    renewalPriceMinor: prices.renewalMinor,
+    currency: prices.currency,
     expiresAt: order.expires_at,
     liveAt: order.live_at,
     renewalEnabled: order.renewal_enabled,
     renewalStatus: order.renewal_status,
     billingStatus: order.billing_status,
     nextRenewalChargeAt: order.evidence?.nextRenewalChargeAt ?? null,
+    // "site" shows the website on the domain; "forward" sends visitors to
+    // the workspace subdomain. Never which DNS host serves it.
+    serveMode: order.serve_mode === "forward" ? "forward" : "site",
     progress: (order.progress ?? []).map((p: any) => ({
       step: p.step,
       at: p.at,
@@ -457,10 +714,12 @@ async function operatorOrders(db: Database, operator: Identity, id?: string) {
         tenant_name: tenant.name,
         tenant_slug: tenant.slug,
         // A request sent moments ago may still be running: it is shown as
-        // in flight, not as an item to reconcile.
+        // in flight, not as an item to reconcile. DNS calls converge on
+        // their next attempt (they read the current state back), so only
+        // purchases and renewals wait for reconciliation.
         needsReconciliation: (order.operations ?? []).some(
           (op: any) =>
-            op.kind !== "set_hosts" &&
+            ["register", "renew"].includes(op.kind) &&
             (["failed", "unknown"].includes(op.status) ||
               (op.status === "sent" &&
                 Date.now() - Date.parse(op.created_at) >= SETTLE_MS)),
@@ -470,14 +729,17 @@ async function operatorOrders(db: Database, operator: Identity, id?: string) {
             op.status === "sent" &&
             Date.now() - Date.parse(op.created_at) < SETTLE_MS,
         ),
+        // The registrar charged, or now asks, more than the trainer's price
+        // covers (cleared by Retry).
+        costAlert: order.evidence?.costAlert?.message ?? null,
       })),
     );
     if (id && out.length) break;
   }
   return out.sort(
     (a, b) =>
-      Number(!!b.attention || b.needsReconciliation) -
-        Number(!!a.attention || a.needsReconciliation) ||
+      Number(!!b.attention || b.needsReconciliation || !!b.costAlert) -
+        Number(!!a.attention || a.needsReconciliation || !!a.costAlert) ||
       Date.parse(b.updated_at) - Date.parse(a.updated_at),
   );
 }
@@ -512,6 +774,12 @@ export function registerWebAddresses(
     const eligible =
       subdomainEligible(tenant.slug) && !RESERVED_SLUGS.has(tenant.slug);
     const recent = await db.tenant(a, (tx) => slugChangesThisYear(tx));
+    let rule: PriceRule | null = null;
+    try {
+      rule = pricing().rule;
+    } catch {
+      rule = null;
+    }
     return {
       slug: tenant.slug,
       published: tenant.published === true,
@@ -536,14 +804,53 @@ export function registerWebAddresses(
         .filter((r: any) => Date.parse(r.redirect_until) > Date.now())
         .map((r: any) => ({ slug: r.slug, until: r.redirect_until })),
       purchases: {
-        enabled: purchasesEnabled() && !configuredModeProblem(),
-        currency: "AED",
-        endings: allowedTlds(config.WEB_ADDRESS_TLDS),
+        enabled: purchasesEnabled() && !buyingProblem() && !!rule,
+        // Trainers see and pay domain prices in USD (owner decision,
+        // 28 September 2026).
+        currency: "USD",
+        endings: suggestedTlds(config.WEB_ADDRESS_TLDS),
+        priceCapMinor: rule?.capCents ?? null,
         testEnvironment: registrarSandboxSetting(config),
       },
       orders: orders.map(trainerOrderView),
     };
   });
+  // The owner decides how a bought domain is served: the website itself, or
+  // a permanent redirect to the workspace's subdomain (path and query kept).
+  // Applied at once to an active domain's mapping; www always redirects to
+  // the domain.
+  app.post(
+    "/api/v1/web-address/orders/:id/serve-mode",
+    { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      requireRecentMfa(a);
+      const id = uuid.parse((req.params as any).id);
+      const b = z
+        .object({ mode: z.enum(["site", "forward"]) })
+        .strict()
+        .parse(req.body);
+      if (b.mode === "forward") await assertForwardable(db, a.tenantId);
+      return db.system(async (tx) => {
+        const row = await tx.tenant(a, async (tx) => {
+          const [row] = await tx.query(
+            "UPDATE domain_orders SET serve_mode=$2,version=version+1,updated_at=now() WHERE id=$1 AND mode='automatic' AND status NOT IN ('cancelled','failed') RETURNING *",
+            [id, b.mode],
+          );
+          if (!row) throw fail(404, "NOT_FOUND", "Order not found.");
+          await event(tx, a, "web_address.serve_mode", id, { mode: b.mode });
+          return row;
+        });
+        // Only this workspace's mapping of this domain changes.
+        const [apex] = mappingRedirects(row.hostname, row.serve_mode);
+        await tx.query(
+          "UPDATE domain_mappings SET redirect=$3 WHERE hostname=$1 AND tenant_id=$2",
+          [apex.hostname, a.tenantId, apex.redirect],
+        );
+        return trainerOrderView(row);
+      });
+    },
+  );
 
   app.post(
     "/api/v1/web-address/slug",
@@ -646,14 +953,14 @@ export function registerWebAddresses(
     { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } },
     async (req) => {
       owner(req);
-      if (!purchasesEnabled())
+      if (!purchasesEnabled() || registrarPurchaseProblem())
         throw fail(
           409,
           "WEB_ADDRESS_DISABLED",
           "Buying a domain is not available yet.",
         );
       const q = z.object({ q: z.string().min(1).max(80) }).parse(req.query).q;
-      return { results: await searchDomains(q, { registrar: deps.registrar }) };
+      return searchDomains(q, { registrar: deps.registrar, db });
     },
   );
 
@@ -663,7 +970,7 @@ export function registerWebAddresses(
     async (req) => {
       const a = owner(req);
       requireRecentMfa(a);
-      if (!purchasesEnabled())
+      if (!purchasesEnabled() || registrarPurchaseProblem())
         throw fail(
           409,
           "WEB_ADDRESS_DISABLED",
@@ -672,16 +979,22 @@ export function registerWebAddresses(
       const b = z
         .object({
           domain: z.string().max(253),
+          // The two prices the trainer agreed to, in US cents.
           firstYearPriceMinor: z.number().int().positive().max(10000000),
           renewalPriceMinor: z.number().int().positive().max(10000000),
+          currency: z.literal("USD").optional(),
           accepted: z.literal(true),
+          // Show the website on the domain (default) or forward to the subdomain.
+          serveMode: z.enum(["site", "forward"]).optional(),
         })
         .strict()
         .parse(req.body);
       const domain = normalizeDomain(b.domain);
       assertNotPlatformName(domain);
+      const serveMode = b.serveMode ?? "site";
+      if (serveMode === "forward") await assertForwardable(db, a.tenantId);
       const client = commerce();
-      const registrar = deps.registrar ?? registrarFromConfig();
+      const registrar = trainerRegistrar(deps);
       // Real money never buys in a test environment, a test payment never
       // buys a real domain.
       const keyMode = stripeKeyMode();
@@ -693,7 +1006,7 @@ export function registerWebAddresses(
           "WEB_ADDRESS_DISABLED",
           "Buying a domain is not available yet.",
         );
-      const fresh = await quote(registrar, domain);
+      const fresh = await quote(registrar, domain, db);
       if (
         fresh.firstYearPriceMinor !== b.firstYearPriceMinor ||
         fresh.renewalPriceMinor !== b.renewalPriceMinor
@@ -735,7 +1048,7 @@ export function registerWebAddresses(
           "SELECT stripe_customer_id FROM domain_orders WHERE mode='automatic' AND stripe_customer_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
         );
         const [row] = await tx.query(
-          "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,mode,registrar,quote,progress,next_attempt_at) VALUES($1,$2,$3,'checkout',$4,$5,'automatic',$6,$7,$8,now()+interval '2 hours') ON CONFLICT DO NOTHING RETURNING *",
+          "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,mode,registrar,quote,progress,next_attempt_at,serve_mode) VALUES($1,$2,$3,'checkout',$4,$5,'automatic',$6,$7,$8,now()+interval '2 hours',$9) ON CONFLICT DO NOTHING RETURNING *",
           [
             orderId,
             a.tenantId,
@@ -758,6 +1071,7 @@ export function registerWebAddresses(
             JSON.stringify([
               { step: "checkout", at: new Date(at).toISOString(), note: null },
             ]),
+            serveMode,
           ],
         );
         if (!row)
@@ -768,13 +1082,79 @@ export function registerWebAddresses(
           );
         await event(tx, a, "web_address.checkout_started", row.id, {
           hostname: domain,
-          priceMinor: fresh.priceMinor,
+          currency: fresh.currency,
+          firstYearPriceMinor: fresh.firstYearPriceMinor,
+          renewalPriceMinor: fresh.renewalPriceMinor,
         });
         return row;
       });
       return createCheckout(client, created);
     },
   );
+  /**
+   * What the Checkout subscription charges: the yearly renewal price as the
+   * recurring USD price, and the first year's difference on the first
+   * invoice only, so Checkout, the invoice and the receipt show both prices:
+   * a one-time line when the first year costs more, a once-only coupon when
+   * it costs less (the usual case: USD 19.99 now, then USD 24.99 a year).
+   * Orders quoted in AED before 28 September 2026 keep their one yearly AED
+   * price; a return to an open checkout sends identical parameters.
+   */
+  async function checkoutPrices(
+    client: WebAddressStripe,
+    order: Record<string, any>,
+    text: ReturnType<typeof webAddressStripeText>,
+    metadata: Record<string, string>,
+  ) {
+    const prices = orderPrices(order);
+    const currency = prices.currency.toLowerCase();
+    const line_items: any[] = [
+      {
+        quantity: 1,
+        price_data: {
+          currency,
+          unit_amount: prices.renewalMinor,
+          recurring: { interval: "year" },
+          product_data: { name: text.productName },
+        },
+      },
+    ];
+    const difference = prices.firstYearMinor - prices.renewalMinor;
+    if (difference > 0)
+      line_items.push({
+        quantity: 1,
+        price_data: {
+          currency,
+          unit_amount: difference,
+          product_data: { name: text.firstYearName },
+        },
+      });
+    if (difference >= 0) return { line_items };
+    if (!client.coupons)
+      throw fail(
+        502,
+        "CHECKOUT_UNRESOLVED",
+        "The payment page could not be prepared. Try again from Web address.",
+      );
+    const coupon = await client.coupons.create(
+      {
+        amount_off: -difference,
+        currency,
+        duration: "once",
+        max_redemptions: 1,
+        name: text.firstYearName,
+        metadata,
+      },
+      { idempotencyKey: "web-address-first-year:" + order.id },
+    );
+    if (!coupon?.id || Number(coupon.amount_off) !== -difference)
+      throw fail(
+        502,
+        "CHECKOUT_UNRESOLVED",
+        "The payment page could not be prepared. Try again from Web address.",
+      );
+    return { line_items, discounts: [{ coupon: coupon.id as string }] };
+  }
   async function createCheckout(
     client: WebAddressStripe,
     order: Record<string, any>,
@@ -788,6 +1168,7 @@ export function registerWebAddresses(
       tenant_id: order.tenant_id,
       web_address_order_id: order.id,
     };
+    const priced = await checkoutPrices(client, order, text, metadata);
     const session = await client.checkout.sessions.create(
       {
         mode: "subscription",
@@ -797,17 +1178,7 @@ export function registerWebAddresses(
           : c.email
             ? { customer_email: c.email }
             : {}),
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: "aed",
-              unit_amount: Number(order.quote.priceMinor),
-              recurring: { interval: "year" },
-              product_data: { name: text.productName },
-            },
-          },
-        ],
+        ...priced,
         expires_at: c.expiresAt,
         metadata,
         subscription_data: {
@@ -935,7 +1306,7 @@ export function registerWebAddresses(
     const b = z.object({ enabled: z.boolean() }).strict().parse(req.body);
     const [order] = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','dns','active')",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','zone','delegating','dns','active')",
         [id],
       ),
     );
@@ -961,11 +1332,33 @@ export function registerWebAddresses(
         idempotencyKey: `web-address-renewal:${id}:${b.enabled}:${order.version}`,
       },
     );
+    // A registrar that renews by itself (its API cannot switch that off)
+    // would renew the domain at the platform's cost: operators turn its
+    // auto-renewal off in the registrar's panel.
+    // The registrar this domain was bought through, not the one chosen for
+    // new purchases.
+    let autoRenews = false;
+    try {
+      autoRenews = !canRenew(
+        deps.registrar && deps.registrar.id === order.registrar
+          ? deps.registrar
+          : registrarFor(String(order.registrar ?? "")),
+      );
+    } catch {
+      autoRenews = false;
+    }
     return db.tenant(a, async (tx) => {
       const [row] = await tx.query(
         // The switch time lets an older Stripe event never undo this choice.
-        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-        [id, b.enabled, Math.floor(Date.now() / 1000)],
+        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),attention=CASE WHEN $4::text IS NOT NULL THEN $4 ELSE attention END,next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+        [
+          id,
+          b.enabled,
+          Math.floor(Date.now() / 1000),
+          autoRenews && !b.enabled
+            ? "The trainer turned renewal off. The registrar renews its domains by itself about 60 days before expiry: turn auto-renewal off for this domain in the registrar's panel."
+            : null,
+        ],
       );
       await event(
         tx,
@@ -988,11 +1381,55 @@ export function registerWebAddresses(
       testEnvironment: registrarSandboxSetting(config),
       purchasesEnabled: purchasesEnabled(),
       modeProblem: configuredModeProblem(),
+      purchaseProblem: registrarPurchaseProblem(),
+      dnsProvider: dnsHostingSettings().provider,
       orders,
-      attention: orders.filter((o) => o.attention || o.needsReconciliation)
-        .length,
+      attention: orders.filter(
+        (o) => o.attention || o.needsReconciliation || o.costAlert,
+      ).length,
     };
   });
+  // Registrar prices per ending as trainers are charged them, with the
+  // platform's margin before Stripe fees (operators only), so an ending that
+  // is hidden, not sold or thin on margin is visible.
+  app.get("/api/v1/admin/web-addresses/prices", async (req) => {
+    admin(req);
+    return operatorPrices(db, deps);
+  });
+  // Asks the registrar again for every ending that can be bought, within the
+  // interactive call budget; a refused request changes nothing stored.
+  app.post(
+    "/api/v1/admin/web-addresses/prices/refresh",
+    { config: { rateLimit: { max: 6, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const operator = admin(req);
+      const b = z
+        .object({ reason: z.string().trim().min(10).max(500) })
+        .strict()
+        .parse(req.body);
+      const settings = pricing();
+      const registrar = operatorRegistrar(deps);
+      const refreshed = await refreshPricesNow(
+        db,
+        registrar,
+        settings.allowed,
+        () => tryTakeRegistrarCall(),
+      );
+      await db.system((tx) =>
+        tx.query(
+          "INSERT INTO admin_operations_audit(id,actor_id,action,subject_id,data) VALUES($1,$2,$3,$4,$5)",
+          [
+            randomUUID(),
+            operator.userId,
+            "web_address.prices_refreshed",
+            null,
+            JSON.stringify({ reason: b.reason, refreshed }),
+          ],
+        ),
+      );
+      return { refreshed, ...(await operatorPrices(db, deps)) };
+    },
+  );
   const operatorAction = z
     .object({ reason: z.string().trim().min(10).max(500) })
     .strict();
@@ -1040,7 +1477,9 @@ export function registerWebAddresses(
           }),
     };
   });
-  // Clears the attention flag and starts the current step again.
+  // Clears the attention flag and starts the current step again. A purchase
+  // held because the registrar's cost rose past the trainer's price is then
+  // bought at that cost (at most): the operator accepts the difference.
   app.post("/api/v1/admin/web-addresses/:id/retry", async (req) => {
     const { order, scope, reason } = await operatorOrder(req);
     if (["cancelled", "failed"].includes(order.status))
@@ -1049,11 +1488,75 @@ export function registerWebAddresses(
       await tx.query(
         // The lease stays: a running step finishes first. A failed renewal
         // is checked against the registrar's expiry before any new request.
-        'UPDATE domain_orders SET attention=NULL,attempts=0,evidence=evidence||\'{"purchaseAttempts":0,"renewalAttempts":0,"alignFailures":0,"checkoutChecks":0,"cancelAttempts":0}\'::jsonb,next_attempt_at=now(),renewal_status=CASE WHEN renewal_status=\'failed\' THEN \'paid\' ELSE renewal_status END,version=version+1,updated_at=now() WHERE id=$1',
+        "UPDATE domain_orders SET attention=NULL,attempts=0,evidence=(evidence||'{\"purchaseAttempts\":0,\"renewalAttempts\":0,\"alignFailures\":0,\"checkoutChecks\":0,\"cancelAttempts\":0}'::jsonb||CASE WHEN evidence->'priceHold' IS NOT NULL THEN jsonb_build_object('acceptedCost',evidence->'priceHold') ELSE '{}'::jsonb END)-'{priceHold,costAlert}'::text[],next_attempt_at=now(),renewal_status=CASE WHEN renewal_status='failed' THEN 'paid' ELSE renewal_status END,version=version+1,updated_at=now() WHERE id=$1",
         [order.id],
       );
+      // The accepted cost stays on the order (evidence.acceptedCost):
+      // workspace events are listed to the trainer.
       await event(tx, scope, "web_address.operator_retry", order.id, {
         reason,
+      });
+    });
+    return (await operatorOrders(db, identity(req), order.id))[0];
+  });
+  // Sets the domain's DNS up again at the chosen DNS host ("digitalocean",
+  // "registrar", or "settings" for the current DNS hosting setting). The
+  // worker then converges the zone or host records and the nameservers,
+  // each recorded under its own intent; nothing is deleted here.
+  app.post("/api/v1/admin/web-addresses/:id/dns", async (req) => {
+    const operator = admin(req);
+    const b = z
+      .object({
+        reason: z.string().trim().min(10).max(500),
+        provider: z.enum(["digitalocean", "registrar", "settings"]),
+      })
+      .strict()
+      .parse(req.body);
+    const [order] = await operatorOrders(
+      db,
+      operator,
+      uuid.parse((req.params as any).id),
+    );
+    if (!order) throw fail(404, "NOT_FOUND", "Order not found.");
+    if (!["owned", "zone", "delegating", "dns", "active"].includes(order.status))
+      throw fail(
+        409,
+        "ORDER_STATE",
+        "DNS can be set up again only for a registered domain that has not lapsed.",
+      );
+    // A registrar whose own DNS cannot be set up through its API would leave
+    // the domain unserved: only the DNS host is offered for it.
+    const wanted =
+      b.provider === "settings" ? dnsHostingSettings().provider : b.provider;
+    if (wanted === "registrar" && !canUseRegistrarDns(String(order.registrar)))
+      throw fail(
+        409,
+        "REGISTRAR_DNS_UNSUPPORTED",
+        "This domain's registrar cannot serve it from its own DNS through its API; use DigitalOcean DNS.",
+      );
+    const scope = elevated("platform-operator", {
+      tenantId: order.tenant_id,
+      userId: operator.userId,
+      role: "owner",
+    });
+    await db.tenant(scope, async (tx) => {
+      const [row] = await tx.query(
+        "UPDATE domain_orders SET status='owned',dns_provider=$2,attention=NULL,attempts=0,next_attempt_at=now(),evidence=evidence||'{\"delegationStartedAt\":null,\"delegationResets\":0}'::jsonb,progress=CASE WHEN jsonb_array_length(progress)>=60 THEN progress ELSE progress||jsonb_build_array(jsonb_build_object('step','dns_again','at',now(),'note',$3::text)) END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('owned','zone','delegating','dns','active') AND (lease_until IS NULL OR lease_until<now()) RETURNING id",
+        [
+          order.id,
+          b.provider === "settings" ? null : b.provider,
+          b.provider,
+        ],
+      );
+      if (!row)
+        throw fail(
+          409,
+          "ORDER_STATE",
+          "This order changed or the worker is on it; try again in a minute.",
+        );
+      await event(tx, scope, "web_address.operator_dns", order.id, {
+        reason: b.reason,
+        provider: b.provider,
       });
     });
     return (await operatorOrders(db, identity(req), order.id))[0];

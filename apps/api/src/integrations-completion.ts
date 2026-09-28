@@ -31,6 +31,7 @@ import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { memberAccess } from "./entitlements.ts";
+import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
 import {
   readCoachWearablePolicy,
   revokeHealthKitDevices,
@@ -44,6 +45,7 @@ import {
   sealContexts,
   sealValue,
 } from "./sealing.ts";
+import { retireTrainerVoiceClones } from "./voice-clones.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
@@ -179,7 +181,7 @@ async function scopedAdminRows(
     const rows = await db.tenant(operatorScope, (tx) =>
       tx.query(
         table === "trainer_voices"
-          ? "SELECT id,tenant_id,user_id,status,version,provider_voice_id,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
+          ? "SELECT id,tenant_id,user_id,status,version,provider,provider_voice_id,clone_id,model,language,evidence,consent_version,sample IS NOT NULL AS has_sample,sample_type,verified_at,created_at,updated_at" +
               (includeSample ? ",sample" : "") +
               " FROM trainer_voices WHERE ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100"
           : "SELECT * FROM domain_orders WHERE mode='manual' AND ($1::uuid IS NULL OR id=$1) ORDER BY updated_at DESC LIMIT 100",
@@ -262,8 +264,11 @@ export async function disableUserIntegrations(
     await revokeHealthKitDevices(tx, userId, "consent");
   }
   if (kind !== "wearable") {
+    // Clones the trainer made in the app are deleted here and queued for
+    // deletion at the provider (voice-clones.ts).
+    await retireTrainerVoiceClones(tx, userId, "consent_withdrawn");
     await tx.query(
-      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,version=version+1,updated_at=now() WHERE user_id=$1",
+      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,clone_id=NULL,version=version+1,updated_at=now() WHERE user_id=$1",
       [userId],
     );
     await tx.query(
@@ -919,6 +924,8 @@ function voicePublic(r: any) {
         id: r.id,
         status: r.status,
         version: r.version,
+        provider: r.provider,
+        cloneId: r.clone_id ?? null,
         providerVoiceId: r.provider_voice_id,
         consentVersion: r.consent_version,
         evidence: r.evidence,
@@ -978,6 +985,14 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         })
         .parse(req.body),
       sample = b.sample ? decodeAudio(b.sample.base64, b.sample.type) : null;
+    // With Cartesia the trainer's voice is cloned in the app (voice-clones.ts);
+    // a pasted provider ID could name another workspace's clone.
+    if (runtimeConfig().VOICE_PROVIDER === "cartesia")
+      throw fail(
+        409,
+        "VOICE_CLONE_REQUIRED",
+        "Record your voice below to make your trainer voice.",
+      );
     const consentVersion =
       (await legalAcceptanceVersion(db, "voice")) + "|trainer-voice:v1";
     if (b.voiceKind === "professional" && !b.creatorVerified)
@@ -1001,7 +1016,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "Assigned workout guidance only; no advertising use or automatic cloning.",
       };
       const [r] = await tx.query(
-        "INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider_voice_id,evidence,consent_version,sample,sample_type) VALUES($1,$2,$3,'pending',$4,$5,'trainer-voice-v1',$6,$7) ON CONFLICT(tenant_id) DO UPDATE SET user_id=EXCLUDED.user_id,status='pending',provider_voice_id=EXCLUDED.provider_voice_id,evidence=EXCLUDED.evidence,consent_version=EXCLUDED.consent_version,sample=EXCLUDED.sample,sample_type=EXCLUDED.sample_type,verified_by=NULL,verified_at=NULL,version=trainer_voices.version+1,updated_at=now() RETURNING *",
+        "INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider,provider_voice_id,evidence,consent_version,sample,sample_type) VALUES($1,$2,$3,'pending','elevenlabs',$4,$5,'trainer-voice-v1',$6,$7) ON CONFLICT(tenant_id) DO UPDATE SET user_id=EXCLUDED.user_id,status='pending',provider='elevenlabs',provider_voice_id=EXCLUDED.provider_voice_id,clone_id=NULL,model=NULL,language=NULL,evidence=EXCLUDED.evidence,consent_version=EXCLUDED.consent_version,sample=EXCLUDED.sample,sample_type=EXCLUDED.sample_type,verified_by=NULL,verified_at=NULL,version=trainer_voices.version+1,updated_at=now() RETURNING *",
         [
           prior?.id ?? randomUUID(),
           a.tenantId,
@@ -1025,6 +1040,10 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE voice_id=$1 AND audio_status<>'revoked'",
         [r.id],
       );
+      // A clone in use steps back to ready: the linked voice replaces it.
+      await tx.query(
+        "UPDATE trainer_voice_clones SET status='ready',version=version+1,updated_at=now() WHERE status='active'",
+      );
       await event(tx, a, "voice.enrollment_requested", r.id);
       return voicePublic(r);
     });
@@ -1033,13 +1052,20 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
     const a = owner(req);
     return db.tenant(a, async (tx) => {
       await lock(tx, a, "voice");
+      // A voice ID linked by hand lives in the trainer's own provider account;
+      // clones made in the app are deleted at the provider by the app.
+      const [linked] = await tx.query(
+        "SELECT provider FROM trainer_voices WHERE user_id=$1 AND clone_id IS NULL AND provider_voice_id IS NOT NULL",
+        [a.userId],
+      );
       await consent(tx, a, "voice", false);
       await disableUserIntegrations(tx, a.userId, "voice");
       await event(tx, a, "voice.revoked");
       return {
         ok: true,
-        message:
-          "Voice generation and stored playback stopped. Remove the voice in the provider account to revoke the provider-side clone.",
+        message: linked
+          ? "Voice generation and stored playback stopped. Remove the voice in the provider account to revoke the provider-side clone."
+          : "Voice generation and stored playback stopped. Voice clones made here are deleted, and their copies at the voice provider are being deleted.",
       };
     });
   });
@@ -1133,11 +1159,11 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a,
         id.parse((req.params as any).workoutId),
       );
-      const [voice] = await tx.query("SELECT id,version FROM guided_voice()");
+      const [voice] = await tx.query("SELECT id,version,provider FROM guided_voice()");
       let available = false;
       try {
-        voiceContract();
-        available = true;
+        // The voice must be held by the provider now configured.
+        available = voiceContract().provider === voice?.provider;
       } catch {}
       return {
         workoutId: m.workout.id,
@@ -1181,9 +1207,9 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       // The verified voice's playback facts only (no sample), with the
       // trainer's current voice consent (guided_voice(), migration 061).
       const [voice] = await tx.query(
-        "SELECT id,version,provider_voice_id,consented FROM guided_voice()",
+        "SELECT id,version,provider_voice_id,consented,provider,model,language FROM guided_voice()",
       );
-      if (!voice || !voice.consented)
+      if (!voice || !voice.consented || voice.provider !== pricing.provider)
         throw fail(
           409,
           "VOICE_UNAVAILABLE",
@@ -1196,7 +1222,8 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           voice.id,
           voice.version,
           segment.text,
-          pricing.model,
+          voice.provider,
+          voice.model ?? pricing.model,
           pricing.priceVersion,
         ].join(":"),
       );
@@ -1220,24 +1247,23 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         );
       const usageId = randomUUID(),
         audioId = randomUUID();
-      await tx.query(
-        "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.guidance','elevenlabs',$4,'reserved',$5,$6,$7)",
-        [
-          usageId,
-          a.tenantId,
-          a.userId,
-          pricing.model,
-          pricing.priceVersion,
-          JSON.stringify({
-            basis: "characters",
-            characters: segment.text.length,
-            usdPer1000Characters: pricing.price,
-            reservedCostUsd: estimatedCost,
-            estimated: true,
-          }),
-          audioId,
-        ],
-      );
+      await reserveVoiceCost(tx, {
+        id: usageId,
+        tenantId: a.tenantId,
+        userId: a.userId,
+        memberId: a.userId,
+        task: "voice.guidance",
+        provider: pricing.provider,
+        model: voice.model ?? pricing.model,
+        priceVersion: pricing.priceVersion,
+        pricing: {
+          basis: "characters",
+          characters: segment.text.length,
+          usdPer1000Characters: pricing.price,
+          reservedCostUsd: estimatedCost,
+        },
+        traceId: audioId,
+      });
       await tx.query(
         "INSERT INTO guided_audio(id,tenant_id,user_id,workout_id,voice_id,voice_version,fingerprint,status,text_content,usage_id) VALUES($1,$2,$3,$4,$5,$6,$7,'reserved',$8,$9)",
         [
@@ -1294,6 +1320,11 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
             );
           });
         },
+        {
+          provider: reservation.voice.provider,
+          model: reservation.voice.model,
+          language: reservation.voice.language,
+        },
       );
       return await db.tenant(internal(a), async (tx) => {
         const [voice] = await tx.query(
@@ -1310,11 +1341,16 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
               providerRequestId: audio.requestId,
               estimatedCostUsd: audio.estimatedCost,
               reconciliation:
-                "Confirm the charge against the provider invoice before statement finalization.",
+                "Priced at its estimate when made; the provider invoice can correct it.",
             }),
           ],
         );
-        // A generated response proves audio delivery, not provider-billed usage. The reserved cost stays unknown until provider invoice reconciliation.
+        // Delivered audio is priced now at the reserved estimate ('estimated'),
+        // so it never blocks the usage charge, month close or payouts; the
+        // provider invoice can still correct it (docs/features/platform-finance.md).
+        await costEstimated(tx, reservation.usageId, {
+          providerRequestId: audio.requestId,
+        });
         await event(tx, a, "voice.guidance_generated", reservation.id, {
           workoutId,
           estimatedCostUsd: audio.estimatedCost,
@@ -1329,15 +1365,14 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         };
       });
     } catch {
+      // A call still reserved was never sent (the send step marks it
+      // 'unknown' first): it costs nothing.
       await db.tenant(internal(a), async (tx) => {
         await tx.query(
           "UPDATE guided_audio SET status='unknown' WHERE id=$1 AND status='reserved'",
           [reservation.id],
         );
-        await tx.query(
-          "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-          [reservation.usageId],
-        );
+        await costNotSent(tx, reservation.usageId);
       });
       return {
         id: reservation.id,
@@ -1783,7 +1818,9 @@ function registerDomainRoutes(
         return r;
       });
       await tx.query(
-        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active) VALUES($1,$2,now(),true) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true",
+        // A manually connected domain shows the site: a forwarding choice
+        // left from an earlier automatic order never carries over.
+        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),true,NULL) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true,redirect=NULL",
         [r.hostname, r.tenant_id],
       );
       return r;

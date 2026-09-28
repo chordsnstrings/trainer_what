@@ -244,10 +244,11 @@ test("the snapshot reader and authorize address need no stored token", async () 
 
 test("marketing settings refuse percentages above 100 and an out-of-range scaling", () => {
   assert.deepEqual(
-    validateIntegrationValues("marketing", { FOLLOWER_LINK_CLICK_HIGH: 4, FOLLOWER_MODEL_VERSION: "v2" }),
-    { FOLLOWER_LINK_CLICK_HIGH: "4", FOLLOWER_MODEL_VERSION: "v2" },
+    validateIntegrationValues("marketing", { FOLLOWER_CLICK_STRONG: 4, FOLLOWER_MODEL_VERSION: "v2" }),
+    { FOLLOWER_CLICK_STRONG: "4", FOLLOWER_MODEL_VERSION: "v2" },
   );
-  assert.throws(() => validateIntegrationValues("marketing", { FOLLOWER_PURCHASE_HIGH: 101 }), /percentage/);
+  assert.throws(() => validateIntegrationValues("marketing", { FOLLOWER_PAID_STRONG: 101 }), /percentage/);
+  assert.throws(() => validateIntegrationValues("marketing", { FOLLOWER_RENEWAL_STRONG: 51 }), /0 to 50/);
   assert.throws(() => validateIntegrationValues("marketing", { FOLLOWER_ENGAGEMENT_FACTOR_MAX: 20 }), /1 to 10/);
   assert.throws(() => validateIntegrationValues("marketing", { FOLLOWER_ENGAGEMENT_FACTOR_MAX: 0.5 }), /1 to 10/);
 });
@@ -416,9 +417,14 @@ test("marketing settings need the operator's reason when an assumption leaves it
       cookie,
       body: { revision, enabled: true, values },
     });
-  const refused = await save({ FOLLOWER_PURCHASE_HIGH: "4" });
+  const refused = await save({ FOLLOWER_PAID_STRONG: "9" });
   assert.equal(refused.statusCode, 400, refused.body);
   assert.match(refused.json().message, /reason and source/);
-  const saved = await save({ FOLLOWER_PURCHASE_HIGH: "4", FOLLOWER_MODEL_CHANGE_NOTE: "Own trial data, Q3 2026" });
+  // A strong value below its typical one would be ignored by the public pages
+  // (they fall back to the cited defaults), so the save refuses it.
+  const inconsistent = await save({ FOLLOWER_PAID_STRONG: "2", FOLLOWER_MODEL_CHANGE_NOTE: "Lower the headline" });
+  assert.equal(inconsistent.statusCode, 400, inconsistent.body);
+  assert.match(inconsistent.json().message, /inconsistent: Cautious must not exceed typical, nor typical strong\. To lower a strong value below its typical one, lower typical and cautious too/);
+  const saved = await save({ FOLLOWER_PAID_STRONG: "9", FOLLOWER_MODEL_CHANGE_NOTE: "Own trial data, Q3 2026" });
   assert.equal(saved.statusCode, 200, saved.body);
 });

@@ -110,7 +110,7 @@ export function TrainerAnalytics() {
           </section>
           <LeadAnalytics leads={data.leads} />
           <section className="card">
-            <h2>Ledger by month (AED minor units)</h2>
+            <h2>Revenue by month (AED minor units, Dubai months)</h2>
             <Table rows={data.revenue} />
           </section>
         </>

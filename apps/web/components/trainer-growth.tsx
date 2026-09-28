@@ -248,8 +248,10 @@ export function TrainerGrowth({
           <h1>Turn followers into subscribers</h1>
           <p>
             An estimate of what sharing your link could bring, from published
-            benchmarks and your own numbers. It is an estimate, never a
-            promise.
+            benchmarks, our stated assumptions and your own numbers. The
+            headline is a strong case for an engaged, growing audience; the
+            cautious and typical results are under How we estimate. It is an
+            estimate, never a promise.
           </p>
         </div>
       </div>

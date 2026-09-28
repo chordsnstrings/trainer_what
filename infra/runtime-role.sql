@@ -73,6 +73,14 @@ GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 -- Early access (067): platform-scoped requests from the public site, written
 -- by the public endpoint and listed, exported or erased by the Super admin.
 GRANT SELECT,INSERT,UPDATE,DELETE ON early_access_requests TO trainer_service;
+-- Domain pricing (071): registrar prices per ending, cached by trainer
+-- searches, checkouts and the worker; refreshed in place, never deleted.
+GRANT SELECT,INSERT,UPDATE ON registrar_prices TO trainer_service;
+
+-- Platform finance (072, 073): reviewed monthly USD to AED rates and model
+-- token prices are platform reference data, append-only history written and
+-- read by the Super admin and platform finance screens only.
+GRANT SELECT,INSERT ON exchange_rates,model_prices TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
@@ -90,3 +98,6 @@ GRANT EXECUTE ON FUNCTION healthkit_device_for_token(text),integration_oauth_rel
 -- Voice-led sessions (065): voice_session_styles, voice_sessions and
 -- voice_session_clips are tenant tables reached only through SET LOCAL ROLE
 -- trainer_app (grants in the migration); the service role gets no direct grant.
+-- Trainer voice clones (069): trainer_voice_clones, trainer_voice_samples and
+-- voice_provider_deletions are owner-only tenant tables reached the same way;
+-- trainer_app may not DELETE provider deletion rows (they outlive closure).

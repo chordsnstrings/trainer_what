@@ -30,6 +30,8 @@ export type PrivacyHooks = {
   ) => Promise<Record<string, unknown>>;
   eraseAdditional?: (tx: Tx, userId: string) => Promise<void>;
   closeAdditional?: (tx: Tx) => Promise<void>;
+  /** After an ownership transfer, in the new owner's scope. */
+  transferAdditional?: (tx: Tx, previousOwnerId: string) => Promise<void>;
 };
 // These kinds document money movement or retention. Keep their structured
 // references while removing optional personal prose from mutable refunds.
@@ -801,12 +803,16 @@ export function registerPrivacyLifecycle(
         [a.tenantId, [a.userId, r.requested_by]],
       );
       // The membership update above made this member the owner.
-      await tx.tenant(asOwner(a), (tx) =>
-        event(tx, asOwner(a), "workspace.ownership_transferred", r.id, {
+      await tx.tenant(asOwner(a), async (tx) => {
+        // The previous owner's voice (and clones) stop and are deleted: members
+        // never hear a former owner (docs/features/trainer-voice.md).
+        if (hooks.transferAdditional)
+          await hooks.transferAdditional(tx, r.requested_by);
+        await event(tx, asOwner(a), "workspace.ownership_transferred", r.id, {
           previousOwner: r.requested_by,
           newOwner: a.userId,
-        }),
-      );
+        });
+      });
       reply.clearCookie("session", { path: "/" });
       return { status: "completed", signInRequired: true };
     });
@@ -1046,8 +1052,12 @@ export function registerPrivacyLifecycle(
             "UPDATE tenants SET lifecycle_state='closed',closed_at=now(),published=false,name='Closed workspace',theme='{}'::jsonb WHERE id=$1",
             [a.tenantId],
           );
+          // A bought domain's DNS zone at the DNS host is deliberately kept:
+          // deleting it while the registry still delegates the name there
+          // would let another account take the name over (web-addresses.md,
+          // "DNS hosting"). The domain simply stops being served.
           await tx.query(
-            "UPDATE domain_mappings SET active=false,verified_at=NULL WHERE tenant_id=$1",
+            "UPDATE domain_mappings SET active=false,verified_at=NULL,redirect=NULL WHERE tenant_id=$1",
             [a.tenantId],
           );
           await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [

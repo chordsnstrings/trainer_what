@@ -66,10 +66,37 @@ export async function checkAcquisitionConsent({ page, base }) {
   const panel = page.getByRole("complementary", {
     name: "Optional analytics preferences",
   });
-  await page.goto(base + "/?utm_source=instagram&utm_campaign=consent-check");
-  await panel
-    .getByRole("button", { name: "Continue without analytics", exact: true })
-    .waitFor();
+  // Marketing pages have no floating button: the footer's "Analytics
+  // preferences" opens the full panel (retried until the page is hydrated).
+  const openPreferences = async () => {
+    for (let attempt = 0; ; attempt++) {
+      await page
+        .getByRole("button", { name: "Analytics preferences", exact: true })
+        .click();
+      const opened = await panel
+        .getByRole("heading", { name: "Optional site analytics" })
+        .waitFor({ timeout: 5000 })
+        .then(
+          () => true,
+          () => false,
+        );
+      if (opened) return;
+      if (attempt === 5) throw new Error("The analytics preferences did not open");
+    }
+  };
+  await page.goto(base + "/?utm_source=instagram&utm_campaign=consent-check", {
+    waitUntil: "networkidle",
+  });
+  // The first prompt waits for the visitor to scroll, so it never covers
+  // the hero on the first screen; then it is a slim bar.
+  await page.waitForTimeout(500);
+  assert.equal(
+    await panel.count(),
+    0,
+    "The analytics prompt must not cover the first screen before the visitor scrolls",
+  );
+  await page.mouse.wheel(0, 600);
+  await panel.getByRole("button", { name: "No thanks", exact: true }).waitFor();
   assert.equal(
     (await page.context().cookies(base)).some(
       (cookie) => cookie.name === "acquisition",
@@ -77,13 +104,12 @@ export async function checkAcquisitionConsent({ page, base }) {
     false,
     "An analytics identifier must not exist before consent",
   );
-  await panel
-    .getByRole("button", { name: "Continue without analytics", exact: true })
-    .click();
-  await page.reload();
-  await panel
-    .getByRole("button", { name: "Analytics preferences", exact: true })
-    .click();
+  await panel.getByRole("button", { name: "No thanks", exact: true }).click();
+  await page.reload({ waitUntil: "networkidle" });
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(500);
+  assert.equal(await panel.count(), 0, "A declined prompt must not return");
+  await openPreferences();
   assert.equal(
     (await page.context().cookies(base)).some(
       (cookie) => cookie.name === "acquisition",
@@ -127,14 +153,10 @@ export async function checkAcquisitionConsent({ page, base }) {
       ),
     (response) => response.request().postDataJSON()?.source === "newsletter",
   );
-  await panel
-    .getByRole("button", { name: "Analytics preferences", exact: true })
-    .click();
+  await openPreferences();
   // Reload the consent readback so the displayed last touch reflects the saved visit.
-  await page.reload();
-  await panel
-    .getByRole("button", { name: "Analytics preferences", exact: true })
-    .click();
+  await page.reload({ waitUntil: "networkidle" });
+  await openPreferences();
   await panel
     .getByText("First source: instagram. Last tagged source: newsletter.", {
       exact: true,
@@ -167,7 +189,7 @@ export async function checkAcquisitionConsent({ page, base }) {
     false,
   );
   await page.reload();
-  await panel
+  await page
     .getByRole("button", { name: "Analytics preferences", exact: true })
     .waitFor();
   assert.equal(

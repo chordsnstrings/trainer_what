@@ -106,32 +106,124 @@ Styles: `app/marketing.css`, logical properties only (checked by
 
 ### Calculators (`packages/domain/src/marketing-calculators.ts`)
 
-Follower estimate (version `2026-09-28.2`), as a low-high range:
+Follower estimate (version `2026-09-28.4`, stage 2026-09-28k and its review
+round 1): three scenarios from the same arithmetic. **The headline always
+shows the strong case** ("Strong case: an engaged, growing audience and weekly
+sharing"; "and weekly sharing" only when the inputs have 4 or more link
+Stories or keyword Reels a month), at the owner's direction; cautious and
+typical appear only in the "How we estimate" table. Every headline line
+carries the same best-case qualifier ("Up to N new paying subscribers in your
+first month", "Up to N active subscribers after 12 months, after X% yearly
+cancellations, and still growing" when month 12 still rises, "Up to AED N a
+month", "Up to N sign-ups over 12 months"). The research behind cautious and
+typical is the proposal of 28 September (Socialinsider, Metricool, IQFluence,
+vendor DM claims, MailerLite, RevenueCat, Dynamic Yield); the strong case uses
+the top values found in that research plus two stated assumptions (the Story
+audience up to 10,000 followers and the new people each month).
+
+Inputs: followers F, price, link Stories a month k (8), call-to-action Reels
+or posts a month n (4), comment-keyword DMs on/off (on), members who cancel
+per year (30%, 5-80%; a missing or non-numeric value is 30%), and optional
+profile visits a month (the bio link counts only when entered), broadcast
+members and link messages a month (4), own average Story views (replaces the
+Story audience guess) and engagement rate.
 
 ```
-V (people who see your Stories) = followers × Story reach(tier) [× engagement]
-p(k)  = 1 − (1 − click-through)^k            (k link Stories a month)
-first month  = V × p(k)   × conversion
-twelve months = V × p(12k) × conversion       (same audience, no turnover)
-ceiling      = V × conversion                 (nothing can exceed it)
+g     = your engagement / 0.48%, within ×0.5..×2 (1 if unknown)
+S     = Story audience = max over tiers j ≤ yours of min(F, top_j) × share_j × g, or your views
+        (strong: share × min(1, g), never below the typical share × g: the strong
+        share already assumes an engaged audience, so engagement is not counted twice)
+c     = 1 − (1 − rate)^times                    a person's chance of a visit in a month
+r     = new people each month (0 / 1.5 / 8%)    share of each group new to your link
+f_1   = 1;  f_(m+1) = (1 − r)(1 − c) f_m + r    share of a group not yet visited
+V_m   = Σ groups size × c × f_m                 Stories and broadcast nested (Reels too
+                                                 when cautious); profile visits × bio click
+        + n × Reel viewers × keyword visit chance (typical, strong: each Reel reaches
+          new people; viewers and comment rate from one tier)
+D(T)  = Σ_(m ≤ T) V_m, the most any tier at or below yours gives with its Reel figures
+N_m   = visit to paid × (D(m) − D(m − 1))       one decision per person
+A_m   = A_(m−1) × (1 − churn) + N_m;  churn = 1 − (1 − yearly)^(1/12)
+Outputs: N_1, A_12, D(12) × paid, whole A_12 shown ("fewer than 1" is 0) × price
 ```
 
-- Socialinsider's reach rate is the share of followers who viewed at least
-  one frame, so repeat Stories reach the same people: the visit chance
-  saturates and the "+4 link Stories" nudge uses the same curve.
-  Conversion is a share of people, so repeat visits never add subscribers.
-- Reach by follower tier (low = image, high = video): Socialinsider Stories
-  benchmarks. Click-through 1-5% per viewer per link Story: creator reports
-  (no industry benchmark exists; shown as such). Conversion 0.72-2.89%:
-  Dynamic Yield luxury and jewellery (high-consideration retail) to the EMEA
-  average, labelled "retail e-commerce purchase rates; no published benchmark
-  exists for coaching subscriptions" (was 1.51-5.39%, APAC to beauty).
-- An engagement rate (typed or from Instagram) scales reach by
-  rate / 0.48% (Socialinsider average), clamped to ×0.5-×2.
-- Also shown: the monthly value at the trainer's own price, the twelve-month
-  figure before cancellations, the range with four more link Stories and the
-  ceiling ("reaching more people raises it"). Only Stories are modelled.
-- Display rounds the low end down and the high end to nearest, never up.
+| Assumption | Cautious | Typical | Strong | Basis (label) |
+| --- | --- | --- | --- | --- |
+| Story audience, ≤5K / 5-10K / 10-50K / 50-100K / >100K | 9.55 / 3.5 / 1.35 / 0.55 / 0.5% | 10.4 / 5 / 5 / 5 / 5% | 20.5 / 20.5 / 8 / 6.5 / 5% | Socialinsider Stories, image and video (measured, brand accounts); typical floor 5% and strong above 10K: IQFluence "5-8% of followers" (vendor claim); strong up to 10K: **our assumption**, the 20.5% Socialinsider measured for a six-frame sequence (all account sizes) used as a monthly audience, against a measured 3.5-4.2% for 5-10K; HypeAuditor nano 1-10K engage most (vendor data, post engagement) |
+| New people each month | 0% | 1.5% | 8% | Cautious: the same people all year (research proposal). Typical: about Socialinsider's measured yearly follower growth, 11-22% by tier, 1-1.7% a month (measured; our rounding). Strong: **our assumption** for a growing audience (new followers plus people Instagram starts showing your content to), set above the default monthly cancellations (2.9%) |
+| Reel reach by tier | feed 6.65 / 5.75 / 5.5 / 4.5 / 3.5% | Reels 9.78 / 7.55 / 7.1 / 5.6 / 5% | as typical | Socialinsider reach and Reels studies (measured, brand accounts) |
+| Comments per Reel view | 0.52 / 0.60 / 0.49 / 0.36 / 0.37% | same | same | Socialinsider medians, our division |
+| Keyword comments per view | × 2.0278 | same | same | Metricool +202.78% (measured); treating them as keyword comments is inference |
+| DM link opened | 18% | 30% | 45% | CommuniPass 18-35%, ChatAutoDM 25-45% (vendor claims, no dataset) |
+| Link-sticker click per viewer per Story | 1% | 3% | 5% | Creatorflow 1-5% (rule of thumb); IQFluence median 4.1%, strong creators 6-7% (vendor data) |
+| Broadcast click per member per message | 1.27% | 1.45% | 2.09% | MailerLite email medians (measured; proxy) |
+| Bio click per profile visitor a month | 1% | 2% | 3% | Hopp by Wix 1-3% (rule of thumb) |
+| Visit to paid | 0.72% | 2.9% | 6.2% | Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (measured; proxies that may overstate, as an install shows more intent than a Story tap) |
+| Channel overlap | Reels nested in Stories | each Reel reaches new people | as typical | Instagram ranking statement (platform); our assumption |
+| Cancellations | input | input | input | 30% default is an owner assumption; RevenueCat H&F first renewal 46-68% and Coachway 45% at month 12 show more (context) |
+
+Strong-case calibration, as stated on /methodology: per link Story 5% tap ×
+6.2% pay = 0.31% of the viewers each time, and 8% of the audience is new to
+the link each month, so sign-ups keep coming and active subscribers still
+grow at month 12 (at up to 50% yearly cancellations). Over 12 months the
+strong case signs up about 2% of followers up to 10,000 followers, a smaller
+share for larger accounts. The page says plainly that this is far above
+published creator averages: Passion.io's course benchmarks (0.1-1% low,
+1.5-5% mid, 0.52-1.1% for higher-priced courses) and Stan's average creator
+sales (USD 273 a month for 1-10K followers, against AED 23,084 a month in the
+7,000-follower strong case). The owner's creator example (a named fitness
+creator selling roughly 500-1,500 USD 20 plans per 100,000 YouTube views) has
+no public source, so the public pages no longer name the creator or cite the
+figure as evidence: /methodology mentions it only as "an unverified example"
+from our founder, compared per view (0.31% is below it), with no name or link.
+The all-category RevenueCat hard-paywall median (10.7%, trial-to-paid) is kept
+as context only, with its overstatement caveat.
+
+Worked results at AED 199, 8 link Stories, 4 keyword Reels, DMs on, 30%
+cancellations a year (month 1 / active at month 12 / sign-ups over 12 months /
+AED a month at month 12):
+
+| Followers | Cautious | Typical | Strong |
+| --- | --- | --- | --- |
+| 3,000 | 0.2 / 1.1 / 1.3 / 199 | 2.1 / 8.4 / 10.5 / 1,592 | 13.2 / 50.3 / 61.9 / 9,950 |
+| 7,000 | 0.3 / 1.9 / 2.2 / 398 | 3.5 / 14.5 / 18.0 / 2,985 | 30.7 / 116.4 / 143.3 / 23,084 |
+| 20,000 | 0.3 / 2.2 / 2.6 / 398 | 6.8 / 28.6 / 35.4 / 5,771 | 44.4 / 171.9 / 211.3 / 34,228 |
+| 50,000 | 0.5 / 3.7 / 4.4 / 796 | 16.9 / 71.4 / 88.5 / 14,129 | 87.4 / 344.2 / 422.7 / 68,456 |
+| 150,000 | 0.6 / 4.6 / 5.5 / 995 | 49.0 / 196.6 / 244.7 / 39,203 | 162.8 / 634.2 / 779.3 / 126,166 |
+
+Strong case, 7,000 followers: new subscribers by month 30.7, 21.4, 15.7, 12.3,
+10.2, 8.9, 8.1, 7.6, 7.3, 7.1, 7.0, 7.0; active 30.7, 51.2, 65.4, 75.7, 83.7,
+90.1, 95.6, 100.4, 104.8, 108.9, 112.7, 116.4 (still rising at month 12).
+At 50% cancellations: 96.6 active; at 80%: 61.5 (then it no longer rises at
+month 12, and the headline drops "and still growing").
+
+- The tier cliff is fixed: each channel's audience is at least what an
+  account at the top of each smaller tier gets, and the Reel channel takes
+  its viewers and comment rate from one tier, choosing by month the most any
+  tier gives. Property test 100 to 1,000,000 followers (with fine steps at
+  4,900-7,000 and 110,000-113,000) in twelve variants: viewers, visitors,
+  every month's cumulative sign-ups and 12-month sign-ups never fall in any
+  scenario, and typical and strong active subscribers never fall. Cautious
+  keeps the same people all year, so where a larger tier's figures bring its
+  sign-ups sooner its month-12 count can dip: by up to a ten-thousandth of
+  itself at the default cancellations and up to 0.5% in the 80% variants.
+- Levers never lower the headline: property test over link Stories (0-60),
+  keyword Reels (0-60), broadcast members and links, engagement, own Story
+  views and profile visits at 1,000-150,000 followers and 5-80% yearly
+  cancellations: the strong case's active subscribers and monthly amount
+  never fall. Typical never falls up to 30% cancellations; cautious, and
+  typical above 30%, can fall by about 1% a step (sooner sign-ups have longer
+  to cancel; typical renews at 1.5%, below those cancellation rates).
+- Levers ("What raises your number", strong case, one change at a time):
+  bio link per 1,000 profile visits a month, keyword Reels (turn on, or 4
+  more), 4 more link Stories, a broadcast channel of 300 members, and "enter
+  your Story views" (shows the assumed strong-case viewers). Each shows the
+  gain in the first month and in active subscribers after 12 months (the
+  headline), with the monthly amount; a change that would lower the headline
+  is not offered.
+- Display: whole people or "fewer than 1"; the monthly amount is the whole
+  active subscribers shown × price, so "fewer than 1" is AED 0. Early access
+  keeps "cautious month 1 - strong month 1".
+- Default follower count on the page is 7,000 (the calibration example).
 
 Earnings estimate: subscribers, monthly or upfront (monthly equivalent =
 price / months), share on workout + nutrition, voice add-on uptake, paid
@@ -153,13 +245,23 @@ Platform settings gain a "Growth & marketing" group:
 
 - **Marketing estimates** (`marketing`, operator controls like the
   application settings: always enabled, no connection test, cannot be
-  disconnected). Fields: assumptions version, Story reach low/high for the
-  five tiers, link click-through low/high, visit-to-paid low/high, the
-  engagement benchmark and the largest scaling, plus "Public company details"
-  shown on `/about` only when set. Percentages above 100 and a scaling outside
-  1-10 are refused; an inconsistent set (a low above its high) is ignored and
-  the cited defaults apply. Changes are in the existing settings change
-  history.
+  disconnected). Fields (version 2026-09-28.4): assumptions version (the
+  earlier defaults `2026-09-28`, `2026-09-28.2` and `2026-09-28.3` read as the
+  current one), Story audience per tier for each scenario
+  (`FOLLOWER_STORY_<CAUTIOUS|TYPICAL|STRONG>_<5K|10K|50K|100K|ABOVE_100K>`),
+  per-scenario link click, DM open, broadcast click, bio click, visit to paid
+  and new people each month
+  (`FOLLOWER_<CLICK|DM_OPEN|BROADCAST_CLICK|BIO_CLICK|PAID|RENEWAL>_<SCENARIO>`),
+  the engagement benchmark and the largest scaling, plus "Public company
+  details" shown on `/about` only when set. Reel reach, comments per view and
+  the keyword factor are cited constants in code. Percentages above 100,
+  renewal above 50 and a scaling outside 1-10 are refused. An inconsistent
+  set (cautious above typical, or typical above strong) is refused on save
+  with the reason ("To lower a strong value below its typical one, lower
+  typical and cautious too"); if one is present anyway (for example saved
+  before this check) the public pages ignore it and the cited defaults apply.
+  A value that leaves its cited default needs the operator's reason. The old
+  low/high keys of version 2026-09-28.2 are no longer read.
 - `IntegrationDefinition.controls` replaces the hard-coded
   `id === "application"` checks in the settings API and page.
 
@@ -217,7 +319,12 @@ marketing sources name a domain registrar, when rendered pages or llms files
 name the payout provider, or contain hype and invented-proof phrases
 ("trusted by", "as seen in", "#1", "guaranteed", "passive income", …). No
 testimonials, logos, customer counts or ratings exist; market figures appear
-only with a cited source on `/methodology`. Headline candidates B and C from
+only with a cited source on `/methodology`. A figure without a public source
+(the founder's creator-sales example) is never cited as a source, never names
+a person and appears only on `/methodology`, labelled "unverified" and "not
+used as evidence"; the tests fail if the creator's name, the store link or
+the old "bought a USD 20 plan", "1-3% ... creators say", "sell far more" or
+"can do far better" wording returns to any public page or llms file. Headline candidates B and C from
 the brief can be tested with the existing landing wording experiments
 ("landing-welcome" slot); only true variants should be tested.
 
@@ -385,6 +492,222 @@ Checks run (this pass):
   harness. The early access form was checked by render tests and the API by
   PGlite and PostgreSQL tests, not submitted in the browser (the local
   deployment has registration open).
+
+## Light site, relay hero and shorter copy (28 September 2026, `core/marketing-light`)
+
+Owner feedback on the live site: dark green on a dark-mode device, not
+professional enough, too many words, and the first page does not show what
+the product does (the trainer teaches trainsyou, which then trains that
+trainer's subscribers). Theme changes are in [brand.md](brand.md) "Light
+public pages": every public platform page is always light.
+
+### Home structure
+
+Every region (header content, hero, bands, inner pages, closing, footer)
+sits in one container, `.mk-container`: `max-inline-size` 1280 px
+(`--ty-layout-max`) plus a gutter of 48 px, 24 px at 1150 px and below and
+16 px at 760 px and below, so all content starts at the same edge (x = 80 at
+1440 px, 320 at 1920 px). The header bar itself (background and rule) spans
+the page.
+
+1. **Hero** (`section.mk-hero`): the H1 and the copy side by side, the relay
+   full width beneath (copy stacked above it below 1024 px). Eyebrow, H1
+   `BRAND_COPY.homeHeadline` "Teach your AI. It trains your subscribers."
+   with `h1Highlight` "trains" in Pace (a `span.mk-mark`, not `<mark>`); the
+   15-word `lede` "Share your methods and rules. Your AI coaches every
+   subscriber day by day, your way."; the primary action (`button large
+   mk-cta`: "Teach your AI", or "Join early access" while registration is
+   closed, 15 px semibold at every width); "See how it works"; and "Built for
+   UAE trainers · You set the price in AED · No technical skills needed".
+   One name for the product in the hero: "your AI". The Trainer Brain is
+   introduced on deeper pages.
+2. **The relay** (`components/marketing/hero-flow.tsx`, a server
+   component): a `figure` labelled "How trainsyou works" with three steps
+   in an `ol`, one row of three cards at every width: 01 You teach
+   (Methods, Rules, Programmes, a sample rule), 02 trainsyou learns (the
+   relay mark on a Pace tile, or the initials for a renamed platform; "Your
+   coaching, applied to every day", "Confident: applies your rule"), 03
+   Subscribers train (today's session, next week's progression, and
+   "Voice-led session" with the /features/voice-coach chip only while the
+   voice provider is on; otherwise "Missed Tuesday · moved to Thursday"). A
+   dashed loop returns from 02 to 01: "Not sure? It asks you first. Pain and
+   red flags always come to you." Every card has the same 48 px icon slot so
+   the titles line up; wires sit at the icon row. Tagged "Illustration with
+   sample data"; no headings, metrics, counts, revenue or hard-coded domain.
+   At 760 px and below the relay is a compact row (icons and titles only,
+   short wires, the loop), so all three steps show on a 390×844 first
+   screen. Wires mirror right to left (`scale: var(--inline-sign) 1`); the
+   lockup and the mark never mirror. Motion is CSS only, plays once, ends at
+   2.5 s and runs only under `prefers-reduced-motion: no-preference`; every
+   card and word shows from the first paint (only the wires, the travelling
+   dot, the core tile's pulse and the row ticks move), and the decorative
+   dot rests hidden.
+3. **What your subscribers get** (white): flat tiles, each a link to its
+   feature page with one short line (Daily plan, Guided workouts, Progress
+   they can see, and the first available of Nutrition, Chat and Sessions
+   with you). Unavailable features are not shown here; "Available soon"
+   stays on /features. "All features".
+4. **You stay in charge** (paper): "You choose what runs on its own. Take
+   over any subscriber, any time." and the decision flow card (one
+   `role="img"` with a text summary; subscriber message, the 2.5 kg rule and
+   confidence meter, the three lanes). Links: "How your AI decides"
+   (/trainer-brain) and "Try the demo".
+5. **Your site. Your price.** (white): the coaching address from
+   `coachAddressTemplate` shown without the scheme in the body font (a
+   browser-bar mock with `yourname` while registration is closed, the live
+   `AddressPreview` with a Pace claim button while open), the band pills
+   from the ledger's `BANDS` under "Commission by paying subscriber" (25% ·
+   first 100, 20% · 101–300, 15% · 301–1,000, 10% · 1,001+) and "Each rate
+   applies only to the subscribers in its band."; the copy names card
+   processing and AI usage at cost; "Pricing in detail".
+6. **What are your followers worth?** (paper): "The headline is a strong
+   case for an engaged, growing audience, from published benchmarks and our
+   stated assumptions. An estimate, not a promise." and the compact follower
+   calculator (v3, strong-case headline) unchanged in its own
+   `.mk-home-calc` block (only its container is styled); "Open the full
+   calculator".
+7. **Questions trainers ask**: six FAQs, the same list as the FAQPage
+   JSON-LD; the first, "How does trainsyou work?", answers with the
+   answer-first introduction. All start closed, which keeps the home page
+   under its 400-word budget (an open first answer measured 435 words).
+   The budget counts the visible words in `main` outside the follower
+   calculator block (`.mk-home-calc`, block 6), which belongs to the
+   calculator package; `scripts/brand-check.mjs` reports both numbers. On
+   28 September: 392 words outside the calculator, 112 in the closed v3
+   compact calculator, 504 in total.
+8. **Closing** (every marketing page): a contained Pace panel, H2 the brand
+   line (or "Ready to teach your AI?" for a renamed platform), "Guided setup.
+   Nothing goes live until you publish.", the ink button and a link ("See
+   how it works" on / and /follower-calculator, otherwise "What are my
+   followers worth?").
+
+The optional-analytics prompt (`components/acquisition.tsx`) on marketing
+pages is a slim bottom bar (one sentence, "Allow analytics", "No thanks",
+"Details"; 58 px tall at 1440 px) that opens only after the visitor
+scrolls, so the first screen is never covered. The footer's "Analytics
+preferences" button opens the full panel; pages with that footer show no
+floating preferences button. Other pages keep the full panel as before.
+
+Measurements: see "Review fixes" below.
+
+### Where the home content went (moved, not deleted)
+
+| Former home block | Now |
+| --- | --- |
+| "What is trainsyou?" | Already the /about introduction (`ENTITY_SENTENCE`, still in llms.txt and the Organization JSON-LD); the "not" statements are /about's "What we are and are not" |
+| "Your income stops when your hours do." with the three price anchors and sources | /pricing "An hour sells only once" with its three sources and the anchor cards |
+| "Everything included" counts | /features, as a paper strip |
+| Eight subscriber cards | /features "What your subscribers get" |
+| "Inside the product" screens, feature tiles | Already on /features |
+| "Teach it. It coaches. You earn." steps | Replaced by the relay; /how-it-works has the eight steps |
+| Trainer Brain cards (Confident, Not sure, Safety) and "You stay in control" bullets | /trainer-brain "How it decides" and "You stay in control" |
+| The privacy and export bullet | Already on /security-and-privacy |
+| Worked example | Stays on /pricing |
+| The longer technical-skills FAQ | /faq (shared `TECH_FAQ`, shortened) |
+
+Every moved passage keeps its `sources`, so llms-full.txt carries it under
+its new page. `lastUpdated` stays 2026-09-28 on / and the receiving pages
+(the sitemap `lastmod`).
+
+### Copy limits
+
+Applied now to / and the header pages (/how-it-works, /trainer-brain,
+/features, /pricing, /about, /get-started), each with a `lede` (25 words or
+fewer) as the one statement above the fold. The answer-first introduction
+of those pages is an "In short" section before the FAQs (never straight
+under the lede it would repeat); JSON-LD and llms-full.txt carry it
+unchanged. Pages without a lede keep the introduction under the H1.
+Other pages follow when next edited; /methodology and the calculator copy
+belong to the calculator package.
+
+| Element | Limit |
+| --- | --- |
+| H1 | 8 words or fewer, one idea, no colon subtitle |
+| Eyebrow | 4 words or fewer |
+| Lede | 25 words or fewer |
+| Introduction | 35-65 words (tested), aim for 35-50 |
+| H2 | 6 words or fewer (guides 9, questions allowed) |
+| Section body | 2 paragraphs or fewer, 35 words each (guides 60) |
+| Sentences | 20 words or fewer; at most one colon or semicolon |
+| Cards and steps | Title 4 words, body 18 words |
+| Bullets | 12 words, 5 per list |
+| FAQ answers | 45 words; the first sentence answers |
+| Hub tiles | One line, 12 words |
+| Home page | 400 visible words in `main`, not counting the follower calculator block (reported separately) |
+
+Voice: second person, active, UAE/UK spelling. Not used: seamless,
+revolutionary, cutting-edge, unlock, empower, game-changing. Two text-only
+sections in a row at most. Known exceptions kept on purpose: the home
+introduction (locked by the brand test and reused as FAQ 1, 55 words), the
+shared safety FAQ (one 27-word sentence) and the /about introduction (the
+entity sentence).
+
+### Checks for this package
+
+- `tests/marketing-site.test.ts`: the home test (one H1 whose text is the
+  registry `h1`, the highlight inside it, the lede length, the relay's text,
+  tag and absence of headings, the voice and nutrition chips on and off,
+  the address from `/coach/{slug}` and `{slug}.<root>` templates open and
+  closed, no `yourname.trainsyou.com` literal, the band pills equal to
+  `BANDS`, the H2 list, six FAQs equal to the FAQPage JSON-LD, the
+  calculator line byte-identical); a copy-limits test for the header pages
+  and the moved-content map; the counts and screens checks moved to
+  /features. The 350-word floor is unchanged.
+- `scripts/brand-check.mjs`: the home page as a new visitor sees it (the
+  analytics notice in its default state) at 1440×900 (hero bottom, three
+  relay cards in one row with aligned titles, nothing covered by the
+  notice, one left edge for header, hero, bands, closing and footer, the
+  bar after a scroll at most 64 px, visible words, H2 count, one H1) and
+  390×844 (H1, primary action and all three relay titles on the first
+  screen, one compact row, nothing covered, one left edge); inner
+  marketing pages start at the header logo's edge; reduced motion (no
+  animation, everything visible), motion allowed (every card visible at
+  first paint, plays once, ends by 4.5 s, at rest after 5 s), right to
+  left at 1440 (steps mirrored, wires towards the next step, lockup and
+  mark not mirrored) and every public route at 390 with `?lang=ar` (no
+  overflow).
+- `scripts/browser-completion-check.mjs` (`npm run test:browser`): on `/`
+  no analytics prompt before a scroll, then the bar; "No thanks" sets no
+  identifier and does not return; the footer's "Analytics preferences"
+  opens the full panel for opt-in, the readback and withdrawal.
+
+### Review fixes (28 September 2026, second pass)
+
+The structure above is the state after review round 1. Measured by
+`npm run test:brand` on the production build, as a new visitor: at
+1440×900 the hero ends at 771 px, the three relay titles sit at 483 px,
+every region starts at x = 80, no notice shows before a scroll and the bar
+is 58 px after one, and `main` has 380 visible words and 6 H2s; at 390×844
+the H1 ends at 248 px, the primary action at 419 px and the three relay
+titles at 611 px, in one row. The motion ends at 2.5 s. Declined: opening
+the first home FAQ (435 words, over the 400 budget) and "your AI" in step
+02 (the owner's brief names trainsyou as the middle step). Full list and
+checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Review round 1".
+
+### Merged with calculator v3 (28 September 2026)
+
+The owner approved the light home page, and `core/marketing-light` was
+merged into the PR #4 branch (`integrate/round2`) on top of the follower
+calculator v3. The home page keeps this package's structure; the
+calculator keeps its own model, component, /methodology tables and copy.
+Calculator copy that this package added or kept now follows v3 (the
+headline is the strong case, labelled a best case and not a typical
+result, with cautious and typical results shown, and always an estimate,
+not a promise), within the copy limits above: the shared Instagram FAQ
+(`INSTAGRAM_FAQ`, 45 words), the home "What are your followers worth?"
+line, the /get-started minimum-followers answer, a second /about honesty
+bullet ("The follower headline is a strong case: a best case, not
+typical.") and the footer note ("Earnings and follower figures are
+labelled estimates, never promises.", the /about bullet's wording and
+the llms.txt scope; the merge first said "Figures on this site", which
+also covered firm terms such as the commission bands, and review narrowed
+it). The render test that no page calls the
+follower result an estimate range now also covers /, /get-started and the
+footer. The calculator's CSS uses the shared tokens, which resolve to the
+light palette on public pages (white card, paper result panel, ink figure,
+the green "Strong case" badge on its pale tint); no dark band returns.
+Checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Merge into the PR
+#4 branch".
 
 ## Not done / next
 

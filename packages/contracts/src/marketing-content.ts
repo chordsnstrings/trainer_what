@@ -3,9 +3,16 @@
 //   docs/features/marketing-site.md). No invented testimonials, logos,
 //   customer counts, ratings, awards or statistics.
 // - Every market figure cites a MARKETING_SOURCES entry and appears on
-//   /methodology. Earnings and follower figures are estimate ranges.
+//   /methodology. Earnings figures are estimates; the follower calculator
+//   headlines a strong case (a best case, not typical) with cautious and
+//   typical scenarios, and every assumption shown.
 // - Never name the domain registrar or the payout provider.
 // - {APP_NAME} is replaced with the configured platform name.
+// - Copy limits (docs/features/marketing-site.md "Copy limits"): H1 at most 8
+//   words, eyebrow 4, hero lede 25, H2 6, card titles 4 and bodies 18,
+//   bullets 12 (5 per list), FAQ answers 45. Long detail belongs on a deeper
+//   page, not on the home page.
+import { BRAND_COPY } from "./brand.ts";
 import type {
   MarketingCard,
   MarketingFaq,
@@ -23,6 +30,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "DataReportal",
     title: "Digital 2025: The United Arab Emirates",
     url: "https://datareportal.com/reports/digital-2025-united-arab-emirates",
+    evidence: "Measured",
     published: "2025",
     retrieved: RETRIEVED,
     claim:
@@ -35,6 +43,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     title:
       "Dubai Fitness Challenge inspires new records with public participation topping 2.73 million",
     url: "https://mediaoffice.ae/en/news/2024/november/29-11/dubai-fitness-challenge-inspires-new-records-with-public-participation-topping",
+    evidence: "Official statistic",
     published: "29 November 2024",
     retrieved: RETRIEVED,
     claim: "Public participation in Dubai Fitness Challenge 2024 topped 2.73 million.",
@@ -46,6 +55,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     title:
       "Abu Dhabi residents are getting fitter, and the numbers prove it (Fourth Abu Dhabi Sports and Physical Activity Survey)",
     url: "https://gulfnews.com/uae/health/abu-dhabi-residents-are-getting-fitter-and-the-numbers-prove-it-1.500559563",
+    evidence: "Press report",
     published: "1 June 2026",
     retrieved: RETRIEVED,
     claim:
@@ -57,6 +67,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Hey Trainer",
     title: "Personal trainer cost in Dubai",
     url: "https://www.heytrainer.ae/blog/personal-trainer-cost-dubai",
+    evidence: "Published price guide",
     published: "11 May 2026",
     retrieved: RETRIEVED,
     claim:
@@ -69,6 +80,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Embody Fitness",
     title: "How much does a personal trainer cost in Dubai?",
     url: "https://embodyfitness.ae/blog/how-much-does-personal-trainer-cost-dubai/",
+    evidence: "Published price guide",
     published: "2025",
     retrieved: RETRIEVED,
     claim:
@@ -81,6 +93,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "369MMAFIT",
     title: "Online personal trainer in Dubai",
     url: "https://369mmafit.com/en/blog/online-personal-trainer-dubai",
+    evidence: "Published price guide",
     published: "updated 25 February 2026",
     retrieved: RETRIEVED,
     claim:
@@ -93,53 +106,59 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Socialinsider",
     title: "Instagram Stories benchmarks",
     url: "https://www.socialinsider.io/social-media-benchmarks/instagram-stories-benchmarks",
+    evidence: "Measured, brand accounts",
     published: "2025",
     retrieved: RETRIEVED,
     claim:
-      "Stories reach rate by follower tier (image / video): 1-5K 9.55% / 10.40%; 5-10K 3.50% / 4.20%; 10-50K 1.35% / 2.00%; 50-100K 0.55% / 0.65%; 100K-1M 0.50% / 0.65%. Reach rises from 6.3% for a one-frame Story to 20.5% by the sixth frame. 161,180 Stories, January-May 2024 and 2025.",
+      "Stories reach rate by follower tier (image / video): 1-5K 9.55% / 10.40%; 5-10K 3.50% / 4.20%; 10-50K 1.35% / 2.00%; 50-100K 0.55% / 0.65%; 100K-1M 0.50% / 0.65%. Reach rises from 6.3% for a one-frame Story to 20.5% by the sixth frame, across accounts of all sizes. 161,180 Stories, January-May 2024 and 2025.",
     usedFor:
-      "Story reach assumption of the follower calculator. Reach rate is the share of followers who viewed at least one frame of a Story, so repeat Stories are treated as reaching the same people.",
+      "Story audience of the follower calculator: the image reach in the cautious scenario and the video reach (at least 5%) in the typical one. The strong case applies the 20.5% six-frame reach as a monthly audience up to 10,000 followers: our assumption, well above the measured 3.5-4.2% for 5,001-10,000 followers. Reach is the share of followers who viewed at least one frame, so repeat Stories in a month are treated as reaching the same people.",
   },
   {
     id: "socialinsider-engagement",
     publisher: "Socialinsider",
     title: "Instagram benchmarks",
     url: "https://www.socialinsider.io/social-media-benchmarks/instagram",
+    evidence: "Measured, brand accounts",
     published: "2025",
     retrieved: RETRIEVED,
     claim:
-      "Average Instagram engagement rate by followers (likes plus comments divided by followers) was 0.48% across 35 million posts from 447,613 pages in 2025, down 24% year on year.",
+      "Average Instagram engagement rate by followers (likes plus comments divided by followers) was 0.48% across 35 million posts from 447,613 pages in 2025, down 24% year on year. Median views and comments per Reel by follower tier give about 0.52%, 0.60%, 0.49%, 0.36% and 0.37% comments per view (our division of the published medians). Yearly follower growth in 2025 by tier: 1-5K 22.00%, 5-10K 20.29%, 10-50K 17.20%, 50-100K 13.62%, 100K-1M 11.25%.",
     usedFor:
-      "Engagement benchmark the follower calculator compares your own rate against.",
+      "Engagement benchmark the follower calculator compares your own rate against, comments per Reel view for the keyword DM funnel, and the typical scenario's new people each month (about 1.5%, near the measured growth of 1-1.7% a month).",
   },
   {
     id: "hypeauditor-2025",
     publisher: "HypeAuditor",
     title: "State of Influencer Marketing 2025",
     url: "https://hypeauditor.com/state-of-influencer-marketing-2025/",
+    evidence: "Vendor data",
     published: "2025 (2024 data)",
     retrieved: RETRIEVED,
     claim:
       "Nano-influencers (1K-10K followers) make up 76% of Instagram influencers and have the highest engagement rate, 2.19%.",
-    usedFor: "Context that smaller, engaged audiences are valuable.",
+    usedFor:
+      "Context that smaller, engaged audiences are valuable, why the strong case treats every account up to 10,000 followers alike, and why your engagement does not raise the strong Story share again. Influencer post engagement, not Story reach.",
   },
   {
     id: "creatorflow-link-sticker",
     publisher: "Creatorflow",
     title: "Instagram Story link sticker",
     url: "https://creatorflow.so/blog/instagram-story-link-sticker/",
+    evidence: "Rule of thumb",
     published: "May 2026",
     retrieved: RETRIEVED,
     claim:
       "There is no industry-standard published benchmark for Story link-sticker click-through; creators report roughly 1-5% of viewers, and below 5% is typical.",
     usedFor:
-      "Link-click assumption of the follower calculator (anecdotal; shown as such).",
+      "Link click per viewer per link Story: 1% cautious, 3% typical, 5% strong (creator reports; no industry benchmark exists).",
   },
   {
     id: "hootsuite-link-stickers",
     publisher: "Hootsuite",
     title: "Do links in Instagram Stories ruin engagement? (experiment)",
     url: "https://blog.hootsuite.com/adding-links-instagram-stories-ruin-engagement/",
+    evidence: "Experiment",
     retrieved: RETRIEVED,
     claim:
       "In Hootsuite's experiment, Stories with link stickers received less engagement (replies, shares, reach) than Stories without links.",
@@ -150,18 +169,20 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Dynamic Yield",
     title: "Conversion rate benchmarks",
     url: "https://marketing.dynamicyield.com/benchmarks/conversion-rate/",
+    evidence: "Measured; used as a proxy",
     published: "trailing 12 months",
     retrieved: RETRIEVED,
     claim:
       "Global e-commerce conversion rate 2.72% per session; EMEA 2.89%, Americas 2.66%, APAC 1.51%; by industry from luxury and jewellery 0.72% to beauty and personal care 5.39%.",
     usedFor:
-      "Visit-to-subscriber assumption of the follower calculator: 0.72% (luxury and jewellery, the high-consideration retail rate) to 2.89% (EMEA average). These are retail e-commerce purchase rates; no published benchmark exists for coaching subscriptions.",
+      "Visit to paid in the cautious scenario: 0.72% (luxury and jewellery, the high-consideration retail rate). A retail e-commerce purchase rate; no published benchmark exists for coaching subscriptions.",
   },
   {
     id: "unbounce-landing-pages",
     publisher: "Unbounce",
     title: "What's a good conversion rate?",
     url: "https://unbounce.com/landing-pages/whats-a-good-conversion-rate/",
+    evidence: "Measured",
     retrieved: RETRIEVED,
     claim:
       "Median landing page conversion rate 6.6% across industries (41,000 landing pages, 57 million conversions). These are mostly sign-ups, not purchases.",
@@ -173,6 +194,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Nielsen Norman Group",
     title: "Participation inequality: the 90-9-1 rule",
     url: "https://www.nngroup.com/articles/participation-inequality/",
+    evidence: "Rule of thumb",
     retrieved: RETRIEVED,
     claim:
       "In most online communities about 90% of people only watch, 9% contribute a little and 1% account for most activity.",
@@ -183,6 +205,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Meta for Developers",
     title: "Instagram API with Instagram Login",
     url: "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login",
+    evidence: "Platform statement",
     retrieved: RETRIEVED,
     claim:
       "The Instagram API with Instagram Login works only with professional (business and creator) accounts, with permissions such as instagram_business_basic.",
@@ -193,6 +216,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "TechCrunch",
     title: "Instagram locks out developers of third-party consumer apps",
     url: "https://techcrunch.com/2024/12/06/instagram-locks-out-developers-of-third-party-consumer-apps",
+    evidence: "Press report",
     published: "6 December 2024",
     retrieved: RETRIEVED,
     claim:
@@ -204,6 +228,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "Gulf News",
     title: "What is the UAE Advertiser Permit for social media?",
     url: "https://gulfnews.com/living-in-uae/ask-us/what-is-the-uae-advertiser-permit-for-social-media-1.500218180",
+    evidence: "Press report",
     published: "1 August 2025",
     retrieved: RETRIEVED,
     claim:
@@ -215,10 +240,213 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     publisher: "UAE Media Council",
     title: "Announcement of the Advertiser Permit",
     url: "https://uaemc.gov.ae/en/news/%D9%85%D8%AC%D9%84%D8%B3-%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D8%B1%D8%A7%D8%AA-%D9%84%D9%84%D8%A5%D8%B9%D9%84%D8%A7%D9%85-%D9%8A%D8%B7%D9%84%D9%82-%D8%AA%D8%B5%D8%B1%D9%8A%D8%AD-%D9%85%D8%B9%D9%84%D9%86/",
+    evidence: "Official announcement",
     retrieved: RETRIEVED,
     claim:
       "The official announcement of the Advertiser Permit (the page did not load when checked on 28 September 2026).",
     usedFor: "The authority to check for current permit rules.",
+  },
+  {
+    id: "socialinsider-reach",
+    publisher: "Socialinsider",
+    title: "Social media reach statistics",
+    url: "https://www.socialinsider.io/blog/social-media-reach/",
+    evidence: "Measured, brand accounts",
+    published: "3 September 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Instagram feed-post reach by follower tier, as a share of followers: 1-5K 6.65%; 5-10K 5.75%; 10-50K 5.50%; 50-100K 4.50%; 100K-1M 3.50%. 872,075 posts by brand pages, January 2025-August 2026.",
+    usedFor:
+      "Reach of a call-to-action Reel or post in the cautious scenario.",
+  },
+  {
+    id: "socialinsider-reels",
+    publisher: "Socialinsider",
+    title: "Instagram Reels statistics",
+    url: "https://www.socialinsider.io/blog/instagram-reels-statistics/",
+    evidence: "Measured, brand accounts",
+    published: "24 June 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Reels reach by follower tier: 1-5K 9.78%; 5-10K 7.55%; 10-50K 7.10%; 50-100K 5.60%; 100K-1M 5.00%. 140,000 Reels published by business pages, January-June 2026.",
+    usedFor: "Reach of a call-to-action Reel in the typical and strong scenarios.",
+  },
+  {
+    id: "metricool-2026",
+    publisher: "Metricool",
+    title: "Instagram study 2026",
+    url: "https://metricool.com/press-release-instagram-study-2026/",
+    evidence: "Measured",
+    published: "16 June 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Posts with a comment call to action received 202.78% more comments than the average. 24,364,803 posts from 375,118 accounts.",
+    usedFor:
+      "Keyword comments per Reel view: ordinary comments per view × 2.03. Treating the extra comments as keyword comments is our inference.",
+  },
+  {
+    id: "meta-instagram-ranking",
+    publisher: "Instagram",
+    title: "Instagram ranking explained",
+    url: "https://about.instagram.com/blog/announcements/instagram-ranking-explained/",
+    evidence: "Platform statement",
+    published: "31 May 2023",
+    retrieved: RETRIEVED,
+    claim:
+      "Stories are ranked by how often you view an account's Stories, how often you engage with them and how close you are to the author. Most of the Reels people see come from accounts they don't follow.",
+    usedFor:
+      "Why repeat Stories reach the same people, and why Reels count as reaching new people in the typical and strong scenarios.",
+  },
+  {
+    id: "iqfluence-engagement",
+    publisher: "IQFluence",
+    title: "Instagram engagement rate",
+    url: "https://iqfluence.io/public/blog/engagement-rate-instagram",
+    evidence: "Vendor claim, no dataset",
+    published: "18 June 2026",
+    retrieved: RETRIEVED,
+    claim: "Story views above 5-8% of followers mean the audience is showing up.",
+    usedFor:
+      "The typical Story audience floor (5%) and the strong Story audience above 10,000 followers (8%, 6.5% and 5%).",
+  },
+  {
+    id: "iqfluence-story-links",
+    publisher: "IQFluence",
+    title: "How to add a link to an Instagram Story",
+    url: "https://iqfluence.io/public/blog/how-to-add-a-link-to-instagram-story",
+    evidence: "Vendor data",
+    published: "14 May 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Link-sticker tap-through median 4.1%, strong creators 6-7%; bio links 1-2% of profile visitors. The sample is not disclosed.",
+    usedFor: "Supports the 1-5% link click range; the strong case uses 5%.",
+  },
+  {
+    id: "communipass-auto-dm",
+    publisher: "CommuniPass",
+    title: "Auto-DM statistics 2026: open rates and conversion benchmarks",
+    url: "https://communipass.com/blog/auto-dm-statistics-2026-open-rates-conversion-benchmarks/",
+    evidence: "Vendor claim, no dataset",
+    published: "2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Automated DMs are opened by 70-90% of recipients within the first hour, and a link in a DM to a high-intent recipient gets 18-35% click-through. No sample or method is disclosed.",
+    usedFor:
+      "Share of keyword commenters who open the link sent by DM: 18% cautious, 30% typical, 45% strong.",
+  },
+  {
+    id: "chatautodm-2026",
+    publisher: "ChatAutoDM",
+    title: "Instagram automation statistics 2026",
+    url: "https://www.chatautodm.com/blog/instagram-automation-statistics-2026",
+    evidence: "Vendor claim, no dataset",
+    published: "10 June 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Instagram DM automation: open rates of 80-90% (88% on average) and link click-through of 25-45% (35% on average), collected from brands, agencies and creators. No sample or method is disclosed.",
+    usedFor: "The top of the DM link range (45%) used in the strong case.",
+  },
+  {
+    id: "hopp-bio-link",
+    publisher: "Hopp by Wix",
+    title: "Understanding CTR and clicks on your link in bio",
+    url: "https://www.hopp.co/post/understanding-ctr-and-clicks-on-your-link-in-bio",
+    evidence: "Rule of thumb",
+    retrieved: RETRIEVED,
+    claim:
+      "Link-in-bio click-through benchmarks sit between 1% and 3% of profile visits; niche audiences with high purchase intent may reach 8-10%.",
+    usedFor:
+      "Bio-link clicks per profile visitor a month: 1% cautious, 2% typical, 3% strong. Counted only when you enter your profile visits.",
+  },
+  {
+    id: "mailerlite-benchmarks",
+    publisher: "MailerLite",
+    title: "Email marketing benchmarks by industry",
+    url: "https://www.mailerlite.com/blog/compare-your-email-performance-metrics-industry-benchmarks",
+    evidence: "Measured; used as a proxy",
+    published: "3 December 2025, updated 7 April 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Median email click rates: sports 1.27%, health and fitness 1.45%, all industries 2.09%. 3.6 million campaigns, December 2024-November 2025.",
+    usedFor:
+      "Broadcast channel link clicks per member per message (email stands in; no Instagram benchmark exists).",
+  },
+  {
+    id: "revenuecat-state-2026",
+    publisher: "RevenueCat",
+    title: "State of Subscription Apps 2026",
+    url: "https://www.revenuecat.com/state-of-subscription-apps",
+    evidence: "Measured; used as a proxy",
+    published: "2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Health & Fitness apps convert a median 2.9% of downloads to paid within 35 days; the upper quartile converts 6.2%. Over 115,000 apps.",
+    usedFor:
+      "Visit to paid in the typical scenario (2.9%, the median) and the strong case (6.2%, the upper quartile). An app install shows more intent than a Story tap, so both may overstate.",
+  },
+  {
+    id: "revenuecat-trends-2026",
+    publisher: "RevenueCat",
+    title: "Subscription app trends and benchmarks 2026",
+    url: "https://www.revenuecat.com/blog/growth/subscription-app-trends-benchmarks-2026",
+    evidence: "Measured; used as a proxy",
+    published: "19 March 2026, updated 22 April 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Apps with a hard paywall have a median day-35 trial-to-paid conversion of 10.7%, against 2.1% for freemium apps, across all app categories. Over 115,000 apps and USD 16 billion in revenue.",
+    usedFor:
+      "Context only, not a rate the calculator uses: an all-category median that counts trial conversions and app installs, so it would overstate a Story visitor's chance of paying. The strong case uses the Health & Fitness upper quartile (6.2%) instead.",
+  },
+  {
+    id: "revenuecat-renewals",
+    publisher: "RevenueCat",
+    title: "Average subscription renewal rates by app category",
+    url: "https://www.revenuecat.com/blog/growth/average-subscription-renewal-rates-by-app-category",
+    evidence: "Measured",
+    published: "updated 24 April 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Health & Fitness monthly plans: 46% (lower quartile), 57% (median) and 68% (upper quartile) renew for a second month.",
+    usedFor:
+      "Context for the cancellations you enter: many app subscribers leave after one month, more than the 30% a year default assumes.",
+  },
+  {
+    id: "coachway-2026",
+    publisher: "Coachway",
+    title: "Online fitness coaching statistics",
+    url: "https://coachway.io/articles/online-fitness-coaching-statistics/",
+    evidence: "Vendor data",
+    published: "August 2026, updated 6 September 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Human online coaching: 45% of 5,666 Nordic clients were still active at month 12, about 6.4% leaving a month (derived from the retention curve, not measured directly).",
+    usedFor: "Context for the cancellations you enter.",
+  },
+  {
+    id: "passion-creator-rates",
+    publisher: "Passion.io",
+    title: "Creator app revenue: calculate your course and subscription earnings",
+    url: "https://passion.io/blog/creator-app-revenue-calculate-your-course-subscription-earnings",
+    evidence: "Rule of thumb",
+    published: "19 October 2025",
+    retrieved: RETRIEVED,
+    claim:
+      "Course conversion rates of 0.1-1% (low), 1.5-5% (mid) and 6-10% (highly optimised) of an audience; 0.52-1.1% for higher-priced courses; its worked example uses 2%.",
+    usedFor:
+      "Comparison for the strong case: its 12-month sign-ups (about 2% of followers up to 10,000) sit in the mid band, well above the 0.52-1.1% for higher-priced courses, so it is a best case, not a typical result.",
+  },
+  {
+    id: "stan-creator-economy",
+    publisher: "Stan",
+    title: "The state of the creator economy 2026",
+    url: "https://stan.store/blog/state-of-the-creator-economy/",
+    evidence: "Vendor data",
+    published: "21 July 2026",
+    retrieved: RETRIEVED,
+    claim:
+      "Average monthly sales per creator by follower count: under 1K USD 89; 1-10K USD 273; 10-100K USD 666; 100K+ USD 1,378. Data from over 80,000 creators.",
+    usedFor:
+      "Comparison for the strong case: its monthly amount is far above these averages (for example, USD 273 a month for 1-10K followers). Larger accounts sell more in total but less per follower, so the strong case uses lower rates for larger accounts.",
   },
 ];
 
@@ -377,7 +605,7 @@ function specialty(
         id: "followers",
         heading: "What your followers could be worth",
         body: [
-          "The follower calculator below starts from an example price. Change it to your own; the result is an estimate range built from cited benchmarks, not a promise.",
+          "The follower calculator below starts from an example price. Change it to your own. The headline is a strong case for an engaged, growing audience, with cautious and typical results under How we estimate; it is an estimate from cited benchmarks and stated assumptions, not a promise.",
         ],
       },
     ],
@@ -440,8 +668,23 @@ const PRICE_FAQ: MarketingFaq = {
 };
 const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
-  a: "Your Trainer Brain is taught by you: your confirmed rules, coaching cases, examples and corrections, tested against held-out scenarios and published as versions you can roll back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
+const TECH_FAQ: MarketingFaq = {
+  q: "Do I need technical skills?",
+  a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
+};
+const INSTAGRAM_FAQ: MarketingFaq = {
+  q: "How do my Instagram followers become subscribers?",
+  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
+};
+/**
+ * The home page's answer-first introduction (35-65 words, opening with the
+ * copy bank's "Teach your own AI how you coach"). The hero shows the short
+ * lede; this answers the first home FAQ and leads the page in llms-full.txt.
+ */
+const HOME_INTRO =
+  "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.";
 
 export const MARKETING_CONTENT: MarketingPage[] = [
   {
@@ -450,124 +693,55 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     group: "product",
     navLabel: "Home",
     title: "AI personal trainer platform for UAE coaches",
-    // Headline, audience and product explanation from the trainsyou copy bank
-    // (docs/features/brand.md); the specifics that follow are what the
-    // platform does today.
+    // 28 September 2026 refresh: the H1 says what happens (the trainer
+    // teaches, the platform trains their subscribers); the brand line leads
+    // the description and closes every page. Removed home blocks now live
+    // on deeper pages (docs/features/marketing-site.md "Where the home
+    // content went").
     description:
-      "Your coaching. Beyond your hours. Teach your own AI how you coach and build a paid coaching offering around your methods, priced in AED.",
-    h1: "Your coaching. Beyond your hours.",
+      "Your coaching. Beyond your hours. Teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
+    h1: BRAND_COPY.homeHeadline,
+    h1Highlight: "trains",
     eyebrow: "FOR PERSONAL TRAINERS",
-    intro:
-      "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.",
+    // One name in the hero ("your AI", as in the H1 and the call to
+    // action); the relay's loop is the only place that says it asks you.
+    lede: "Share your methods and rules. Your AI coaches every subscriber day by day, your way.",
+    intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
       {
-        id: "what-is",
-        heading: "What is {APP_NAME}?",
-        body: [
-          "{APP_NAME} is a UAE platform that lets each personal trainer build a bespoke AI trainer, their Trainer Brain, from their own rules, cases and examples. It then sells personalised, day-by-day coaching to the trainer’s followers under the trainer’s own brand, priced in AED.",
-          "It is not a generic workout generator, not a medical service, and it does not replace you: anything the Brain is unsure about, and every safety issue, comes to you.",
-        ],
-      },
-      {
-        id: "hours",
-        heading: "Your income stops when your hours do.",
-        body: [
-          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, and experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month. Either way, an hour can be sold only once.",
-          "A Trainer Brain lets your method coach many people at the same time, at a monthly price far more followers can afford, while you keep the sessions and clients only you can serve.",
-        ],
-        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
-        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
-      },
-      {
-        id: "steps",
-        heading: "Teach it. It coaches. You earn.",
-        steps: [
-          {
-            title: "Teach it",
-            body: "Answer a guided coaching interview, write or confirm rules, add cases and examples, and import your own documents. Test the Brain on held-out scenarios before anything goes live.",
-          },
-          {
-            title: "It coaches",
-            body: "Each subscriber gets a personalised, dated plan built from their own input. The Brain adapts it as they log workouts, and hands you anything it is not confident about.",
-          },
-          {
-            title: "You earn",
-            body: "Subscribers pay you in AED through your own branded website and app. You set the price; payouts arrive monthly in your UAE bank account.",
-          },
-        ],
-      },
-      {
-        id: "brain",
-        heading: "The Trainer Brain: your judgment, working when you’re not.",
-        body: [
-          "Every decision starts from something you taught. When the Brain is confident, it applies the change and records why. When it is not, it drafts a suggestion and sends it to you. Pain, medical issues and red flags never stay with the AI.",
-        ],
-        cards: [
-          {
-            title: "Confident",
-            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
-            label: "Applied automatically",
-          },
-          {
-            title: "Not sure",
-            body: "Outside what you taught, or below your confidence threshold: a draft comes to you to approve or correct. Your correction becomes teaching.",
-            label: "Handed to you",
-          },
-          {
-            title: "Safety",
-            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
-            label: "Always to you",
-          },
-        ],
-      },
-      {
         id: "subscribers",
         heading: "What your subscribers get",
-        cards: [
-          { title: "A plan for every day", body: "A personalised, dated plan built from their goals, schedule, experience and equipment." },
-          { title: "Guided workouts", body: "Exercise cues, set logging and rest timers; it keeps working offline in the gym." },
-          { title: "Adapts as they train", body: "Progressions, missed sessions and swaps follow your rules automatically." },
-          { title: "Your voice, optionally", body: "An add-on where a voice in your own verified voice runs the session." },
-          { title: "Nutrition, optionally", body: "Meal plans, recipes, grocery lists, a food diary, meal photos and barcode scanning." },
-          { title: "You, when it matters", body: "Chat with you, a clearly labelled digital coach, and paid one-to-one sessions." },
-          { title: "Progress they can see", body: "Completed sessions, best loads and their coaching context in one place." },
-          { title: "Your brand throughout", body: "Your website, your address, your colours and an installable app with your icon." },
+        body: ["A plan for every day, built your way, that adapts as they train."],
+      },
+      {
+        id: "control",
+        heading: "You stay in charge",
+        body: [
+          "You choose what runs on its own. Take over any subscriber, any time.",
         ],
       },
       {
         id: "economics",
-        heading: "You set the price. We take a transparent share.",
+        heading: "Your site. Your price.",
         body: [
-          "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate.",
-          "AI usage is passed through at cost and listed line by line on your statement, with payment processing and any optional services you choose. Payouts are monthly to your UAE bank account.",
+          "Your own coaching site and app, under your name. You set the price in AED.",
+          "Our share starts at 25% and falls as you grow. Card processing is itemised; AI usage is passed on at cost.",
         ],
       },
       {
-        id: "control",
-        heading: "You stay in control",
-        bullets: [
-          "Your rules are inspectable and every release can be rolled back.",
-          "You choose which routine changes run automatically.",
-          "You can take over any subscriber or conversation at any time.",
-          "Safety routing is enforced in code and cannot be switched off.",
-          "Subscribers always see when guidance comes from the digital coach.",
-          "Your teaching is private to your workspace, and your data can be exported.",
-        ],
+        id: "followers",
+        heading: "What are your followers worth?",
+        body: ["The headline is a strong case for an engaged, growing audience, from published benchmarks and our stated assumptions. An estimate, not a promise."],
       },
     ],
     faqs: [
+      { q: "How does {APP_NAME} work?", a: HOME_INTRO },
       REPLACE_FAQ,
       SAFETY_FAQ,
       PRICE_FAQ,
-      {
-        q: "Do I need technical skills?",
-        a: "No. Setup is a guided checklist: you answer interview questions, confirm rules in plain language, write test scenarios, set your offer and add your bank account. The website, app, payments and payouts are set up for you.",
-      },
-      {
-        q: "How do my Instagram followers become subscribers?",
-        a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay by card in AED. The follower calculator estimates a realistic range from cited benchmarks; it is an estimate, not a promise.",
-      },
+      TECH_FAQ,
+      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
     lastUpdated: UPDATED,
@@ -584,22 +758,23 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "Eight steps from your address to monthly payouts: teach your Trainer Brain, test it, publish your offer, share your link and let it coach every day.",
     h1: "How {APP_NAME} turns your method into personalised coaching",
     eyebrow: "HOW IT WORKS",
+    lede: "Teach it your method, test it, then publish. It coaches every subscriber day by day and hands you what it’s unsure about.",
     intro:
-      "You teach a Trainer Brain your rules, cases and examples, test it on scenarios it has never seen, and publish an offer at your own price. It then plans and adapts each subscriber’s training day by day, hands you what it is unsure about, and learns from your corrections.",
+      "You teach a Trainer Brain your rules, cases and examples. You test it on scenarios it has never seen, then publish an offer at your own price. It plans each subscriber’s training day by day and adapts it. It hands you what it is unsure about and learns from your corrections.",
     primaryKeyword: "how does an AI personal trainer work",
     sections: [
       {
         id: "steps",
-        heading: "Eight steps from your method to monthly payouts",
+        heading: "Eight steps, start to finish",
         steps: [
-          { title: "Claim your address and brand", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
-          { title: "Teach your Brain", body: "Answer a guided coaching interview, confirm rules in plain language, add coaching cases and examples, and import your own documents with a private redaction review." },
-          { title: "Test it", body: "Write at least 20 held-out scenarios with the answer you expect. The Brain is evaluated against them before a version can be published." },
-          { title: "Create your offer", body: "Set your price in AED, the programme length, monthly or upfront billing, trials and promotions, and an optional nutrition tier or voice add-on." },
-          { title: "Publish and share your link", body: "Review a preview of exactly what subscribers see, launch, then share your tagged link in your bio and Stories." },
-          { title: "It plans and adapts daily", body: "Each subscriber gets a dated plan from their own input. Confident changes are applied automatically; anything uncertain is handed to you." },
+          { title: "Claim your address", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
+          { title: "Teach your Brain", body: "Answer a guided interview, confirm rules, add cases and examples, and import documents after a private redaction review." },
+          { title: "Test it", body: "Write at least 20 held-out scenarios with your expected answers. Each version is evaluated on them before publishing." },
+          { title: "Create your offer", body: "Set your AED price, programme length and billing, trials, and an optional nutrition tier or voice add-on." },
+          { title: "Publish and share", body: "Check the subscriber preview, launch, then share your tagged link in your bio and Stories." },
+          { title: "It coaches daily", body: "Each subscriber gets a dated plan from their input. Confident changes apply automatically; uncertain ones come to you." },
           { title: "You correct, it learns", body: "Approve or correct what comes to you. Corrections and subscriber outcomes become teaching for the next evaluated release." },
-          { title: "Get paid monthly", body: "Subscribers pay by card in AED. Your statement shows gross revenue, commission and itemised costs, and payouts go to your UAE bank account." },
+          { title: "Get paid monthly", body: "Subscribers pay by card in AED. Your statement itemises commission and costs; payouts go to your UAE bank." },
         ],
       },
       {
@@ -620,7 +795,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "control",
         heading: "Control stays visible",
         body: [
-          "You can inspect every rule and its source, roll back a release, take over any conversation and write programmes yourself. Subscribers see when guidance is digital.",
+          "Inspect every rule and its source, roll back a release, take over any conversation or write programmes yourself. Subscribers always see when guidance is digital.",
         ],
       },
     ],
@@ -650,35 +825,54 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Trainer Brain: an AI built from your judgment",
     description:
       "Teach an AI your coaching rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
-    h1: "The Trainer Brain: an AI trainer built from your judgment",
+    h1: "An AI trainer built from your judgment",
     eyebrow: "TRAINER BRAIN",
+    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident and asks you when it isn’t.",
     intro:
-      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples that plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, acts on its own only when confident, and learns from your corrections.",
+      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, and acts alone only when confident. It learns from your corrections.",
     primaryKeyword: "AI trained on my coaching method",
     sections: [
       {
         id: "what",
         heading: "What it is",
         body: [
-          "A bespoke AI trainer trained on your rules, cases and corrections, not a generic workout generator. Every plan and change traces back to something you taught, and every published version can be rolled back.",
+          "A bespoke AI trainer built from your rules, cases and corrections, not a generic workout generator. Every change traces back to something you taught, and every version can be rolled back.",
         ],
       },
       {
         id: "teach",
         heading: "What you teach it",
         bullets: [
-          "A guided coaching interview: what you recommend, why, the alternatives and the conditions that change your answer.",
-          "Rules in plain language that you confirm, edit or reject, each citing its source.",
+          "A guided interview: what you recommend, why, and what changes it.",
+          "Plain-language rules you confirm, edit or reject, each with its source.",
           "Coaching cases and worked examples of real decisions.",
-          "Your own documents, with a private review of the extracted text before anything is used.",
+          "Your own documents; you review the extracted text before use.",
           "Held-out test scenarios: at least 20 situations with the answer you expect.",
         ],
       },
       {
+        // The three paths moved here from the home page (28 September 2026).
         id: "decides",
         heading: "How it decides",
         body: [
-          "For each subscriber it combines your published rules with their goals, schedule, experience, equipment and logged training. When its confidence meets your threshold, it applies the change and records the reason. When it doesn’t, it hands the decision to you with a draft.",
+          "It combines your published rules with each subscriber’s goals, schedule, equipment and logged training. Then it takes one of three paths.",
+        ],
+        cards: [
+          {
+            title: "Confident",
+            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
+            label: "Applied automatically",
+          },
+          {
+            title: "Not sure",
+            body: "Outside what you taught or below your threshold, a draft comes to you. Your correction becomes teaching.",
+            label: "Handed to you",
+          },
+          {
+            title: "Safety",
+            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
+            label: "Always to you",
+          },
         ],
       },
       {
@@ -695,10 +889,22 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "never",
         heading: "What it never does",
         bullets: [
-          "Keep pain, medical issues or red flags to itself: they pause the workout and come to you, enforced in code.",
+          "Keep pain, medical issues or red flags from you.",
           "Pretend to be you: subscribers see a clearly labelled digital coach.",
           "Give medical or clinical advice.",
-          "Use your teaching for another trainer: your Brain is private to your workspace.",
+          "Use your teaching elsewhere: your Brain stays private to your workspace.",
+        ],
+      },
+      {
+        // Moved from the home page (28 September 2026).
+        id: "control",
+        heading: "You stay in control",
+        bullets: [
+          "Your rules are inspectable and every release can be rolled back.",
+          "You choose which routine changes run automatically.",
+          "You can take over any subscriber or conversation at any time.",
+          "Safety routing is enforced in code and cannot be switched off.",
+          "Subscribers always see when guidance comes from the digital coach.",
         ],
       },
     ],
@@ -791,10 +997,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Personal trainer software features",
     description:
       "Every capability in {APP_NAME}: the Trainer Brain, plans, a branded app and website, nutrition, voice, bookings, chat, payments, payouts and safety.",
-    h1: "Everything you need to run an AI coaching business under your own name",
+    h1: "Everything you need, under your own name",
     eyebrow: "FEATURES",
+    lede: "Your AI, a branded app and website, nutrition, bookings, payments and safety rules, in one workspace.",
     intro:
-      "{APP_NAME} combines a Trainer Brain that plans and adapts training, a subscriber app and website under your brand, optional nutrition and voice, bookings, chat, progress tracking, AED payments with monthly payouts, and safety rules enforced in code.",
+      "{APP_NAME} combines a Trainer Brain that plans and adapts training with a subscriber app and website under your brand. It adds optional nutrition and voice, bookings, chat and progress tracking. Payments are in AED, and safety rules are enforced in code.",
     primaryKeyword: "personal trainer software features",
     sections: [
       {
@@ -805,6 +1012,21 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           { title: "Subscriber experience", body: "Day-by-day plans, guided workouts, nutrition, voice, chat, bookings and progress." },
           { title: "Your business", body: "Website and address, offers and billing, promotions, statements, payouts and team roles." },
           { title: "Trust", body: "Safety routing in code, AI disclosure, privacy controls, workspace isolation and security." },
+        ],
+      },
+      {
+        // Moved from the home page (28 September 2026).
+        id: "subscribers",
+        heading: "What your subscribers get",
+        cards: [
+          { title: "A plan every day", body: "A personalised, dated plan built from their goals, schedule, experience and equipment." },
+          { title: "Guided workouts", body: "Exercise cues, set logging and rest timers; it keeps working offline in the gym." },
+          { title: "Adapts as they train", body: "Progressions, missed sessions and swaps follow your rules automatically." },
+          { title: "Your voice, optionally", body: "An add-on where a voice in your own verified voice runs the session." },
+          { title: "Nutrition, optionally", body: "Meal plans, recipes, grocery lists, a food diary, meal photos and barcode scanning." },
+          { title: "You, when it matters", body: "Chat with you, a clearly labelled digital coach, and paid one-to-one sessions." },
+          { title: "Progress they can see", body: "Completed sessions, best loads and their coaching context in one place." },
+          { title: "Your brand throughout", body: "Your website, your address, your colours and an installable app with your icon." },
         ],
       },
     ],
@@ -1582,10 +1804,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Online coaching platform fees and commission",
     description:
       "You set your price in AED. {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue; AI usage is passed through at cost.",
-    h1: "You set the price. We take a transparent share.",
+    h1: "Your price, our transparent share",
     eyebrow: "PRICING",
+    lede: "You set your price in AED. Our commission starts at 25% and falls in bands as you grow.",
     intro:
-      "You choose your subscription price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue that falls as you grow: 25%, 20%, 15% and 10% in marginal bands. AI usage is passed through at cost and itemised.",
+      "You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. AI usage is passed through at cost and itemised.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
@@ -1594,8 +1817,20 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Subscribers pay you monthly or upfront, by card, in AED.",
           "Commission applies to subscription revenue by band.",
-          "Your statement shows every cost, and payouts arrive monthly in your UAE bank account.",
+          "Your statement shows every cost; payouts arrive monthly in your UAE bank.",
         ],
+      },
+      {
+        // Moved from the home page (28 September 2026) with its sources; the
+        // page renders the three price anchors after it.
+        id: "hours",
+        heading: "An hour sells only once",
+        body: [
+          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
+          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        ],
+        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
+        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "bands",
@@ -1642,11 +1877,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       PRICE_FAQ,
       {
         q: "What will I pay?",
-        a: "Commission on subscription revenue by band, payment processing, AI usage at cost, and any optional services you choose, such as the voice add-on or your own domain. Every item appears on your monthly statement.",
+        a: "Commission on subscription revenue by band, payment processing and AI usage at cost. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
       },
       {
         q: "Why is AI usage passed through?",
-        a: "So you only pay for what your subscribers actually use, at cost, and can see it line by line instead of paying a hidden margin.",
+        a: "So you pay only for what your subscribers use, at cost. You see it line by line instead of paying a hidden margin.",
       },
       {
         q: "How is commission counted when I have different prices?",
@@ -1691,7 +1926,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         steps: [
           {
             title: "Start cautiously",
-            body: "Enter a number of subscribers you think you could reach in your first months, not your whole following. The follower calculator can suggest a range."
+            body: "Enter a number of subscribers you think you could reach in your first months, not your whole following. The follower calculator shows cautious, typical and strong scenarios."
           },
           {
             title: "Enter your offer",
@@ -1742,52 +1977,68 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "Follower calculator",
     title: "Instagram followers to paying clients calculator",
     description:
-      "Estimate how many Instagram followers could become paying subscribers when you share your link, from cited reach, click and purchase benchmarks.",
+      "Estimate how many followers could become paying subscribers from Stories, Reels and your bio link: a strong case, with cautious and typical scenarios.",
     h1: "How many of your followers could become paying subscribers?",
     eyebrow: "FOLLOWER CALCULATOR",
     intro:
-      "Enter your followers, how often you share your link in Stories and your price. The calculator applies published Story reach, link-click and purchase benchmarks to estimate a range of new paying subscribers in your first month and after a year. It is an estimate from market research, never a promise.",
+      "Enter your followers, your price and how you share your link. The headline is the strong case, for an engaged, growing audience and weekly sharing: new subscribers in your first month, active subscribers after 12 months of cancellations and what they pay each month. Cautious and typical results sit under How we estimate. It is an estimate, never a promise.",
     primaryKeyword: "Instagram followers to clients calculator",
     sections: [
       {
         id: "how",
         heading: "How we calculate",
         steps: [
-          { title: "People who see your Stories", body: "Followers × Story reach for your follower tier, from Socialinsider’s Stories benchmarks. Reach is the share of followers who view at least one frame, and the same people tend to watch each Story, so more Stories do not add viewers." },
-          { title: "Visits", body: "Each viewer has a {CLICK_RANGE} chance of opening one link Story, the range creators report (no industry benchmark exists). Across several Stories the chance that a viewer visits at least once is 1 − (1 − rate)^Stories: it rises quickly, then levels off." },
-          { title: "Subscribers", body: "Visitors × purchase conversion of {PURCHASE_RANGE}. These are Dynamic Yield’s retail e-commerce purchase rates, from high-consideration retail to the EMEA average; no published benchmark exists for coaching subscriptions." },
-          { title: "After twelve months", body: "The same formula over twelve months of the same sharing, from the same Story audience. It never exceeds the people who see your Stories × conversion. New followers, audience turnover and cancellations are not modelled." },
-          { title: "Your engagement", body: "If you enter or connect your engagement rate, reach is scaled by your rate compared with the {ENGAGEMENT_AVG} average, within limits." },
+          { title: "People who see your Stories", body: "Followers × the share who see at least one of your Stories in a month. Cautious and typical use Socialinsider’s Story reach for your follower tier, measured on brand accounts (typical at least 5%). The strong case assumes 20.5% up to 10,000 followers, the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience (our assumption; the measured reach for 5,001-10,000 followers is 3.5-4.2%), then 8%, 6.5% and 5% for larger accounts. Your own average Story views replace these guesses when you enter them." },
+          { title: "Visits from link Stories", body: "Each viewer has a {CLICK_SCENARIOS} chance (cautious, typical, strong) of opening one link Story, the range creators report; no industry benchmark exists. The same people watch each Story, so over several Stories in a month the chance that a viewer visits is 1 − (1 − rate)^Stories: it rises quickly, then levels off." },
+          { title: "New people each month", body: "Each month {RENEWAL_SCENARIOS} of each audience is new to your link (cautious, typical, strong): new followers, and people Instagram starts showing your content to. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured on brand accounts; strong is our assumption for a growing audience. So sign-ups keep coming after your first viewers have decided." },
+          { title: "Reels with a comment keyword", body: "People comment your keyword and get your link by DM. Reel reach and comments per view come from Socialinsider, a comment call to action roughly doubles the usual comments (Metricool), and {DM_SCENARIOS} of commenters open the link (vendor claims). Reels reach people your Stories miss." },
+          { title: "Bio link and broadcast channel", body: "Counted only when you enter them: {BIO_SCENARIOS} of monthly profile visitors open your bio link (a rule of thumb), and {BROADCAST_SCENARIOS} of broadcast members open each link message (email benchmarks stand in)." },
+          { title: "Subscribers", body: "People who visit × visit to paid of {PAID_SCENARIOS}: a luxury-retail purchase rate, then the median and upper quartile of Health & Fitness app downloads that turn paid within 35 days. An app install shows more intent than a Story tap, so these may overstate, and no published benchmark exists for coaching subscriptions. Each person decides once, so repeat visits never add subscribers." },
+          { title: "Cancellations", body: "The members who cancel per year that you enter, 30% unless you change it, become a monthly rate of 1 − (1 − yearly)^(1/12). Active subscribers after 12 months are after cancellations; sign-ups are before them." },
+          { title: "Your engagement", body: "If you enter or connect your engagement rate, Story reach and comments are scaled by your rate compared with the {ENGAGEMENT_AVG} average, within limits. The strong case’s Story share already assumes an engaged audience, so your rate can lower it but does not raise it again." },
         ],
-        sources: ["socialinsider-stories", "creatorflow-link-sticker", "dynamicyield-conversion", "socialinsider-engagement"],
+        sources: ["socialinsider-stories", "creatorflow-link-sticker", "socialinsider-reels", "metricool-2026", "communipass-auto-dm", "hopp-bio-link", "mailerlite-benchmarks", "dynamicyield-conversion", "revenuecat-state-2026", "socialinsider-engagement"],
+      },
+      {
+        id: "strong-case",
+        heading: "Why the headline shows the strong case",
+        body: [
+          "The strong case is a best case for an engaged, growing audience and weekly sharing. It is not a typical result and not a promise. Per link Story it turns {CLICK_STRONG} × {PAID_STRONG}, about {STRONG_PER_STORY} of the people who see it, into subscribers, and each month {RENEWAL_STRONG} of your audience is new to your link, so sign-ups keep coming and active subscribers are still growing at month 12.",
+          "Over a year it signs up about 2% of followers for accounts up to 10,000 followers, a smaller share for larger accounts. That is far above published creator averages: course benchmarks put 0.52-1.1% for higher-priced courses, and creators with 1,000-10,000 followers sell about USD 273 a month on average. Cautious and typical apply published averages from brand accounts, retail and apps, and you may get fewer subscribers than the cautious figure.",
+        ],
+        sources: ["passion-creator-rates", "stan-creator-economy", "revenuecat-state-2026", "socialinsider-engagement"],
       },
       {
         id: "moves",
         heading: "What moves your number",
         bullets: [
-          "Share regularly: each link Story gives the people who already watch you another chance to tap, though the gain levels off.",
-          "Reach more people: the audience who sees your Stories sets the ceiling, and repeating a Story does not raise it.",
+          "Put your page in your bio: your bio link reaches people your Stories miss, every day.",
+          "Add a comment keyword to your Reels: Reels reach people who don’t watch your Stories.",
+          "Share link Stories weekly: more of your viewers get a chance to tap before they drift away, and new followers see your link too.",
           "Use more frames: Story reach rose from 6.3% for one frame to 20.5% by the sixth.",
           "Mix link Stories with ordinary ones: link stickers can reduce replies and shares.",
           "Make the offer clear: say who it is for, the price and what they get each day.",
-          "Followers who never see your offer can’t subscribe.",
-          "Stories are one channel: your bio link, posts, Reels and existing clients are not in this estimate.",
+          "Keep subscribers: fewer cancellations raise your active subscribers more than any single post.",
         ],
-        sources: ["socialinsider-stories", "hootsuite-link-stickers", "nng-participation"],
+        sources: ["socialinsider-stories", "meta-instagram-ranking", "hootsuite-link-stickers", "nng-participation"],
       },
     ],
     faqs: [
       {
         q: "Is this a prediction of my results?",
-        a: "No. It applies published averages to your inputs and shows a range. Your content, audience, offer and price change the real number.",
+        a: "No. It applies published averages and our stated assumptions to your inputs. The headline is a strong case; the cautious and typical results are under How we estimate, and you may get fewer subscribers than the cautious figure. Your content, audience, offer and price change the real number.",
+      },
+      {
+        q: "Why does the headline show the strong case?",
+        a: "It shows what an engaged, growing audience with weekly sharing could reach, using the top values found in the research and our stated assumptions. It is far above published creator averages, so we label it a strong case, not a typical result, and show the cautious and typical results with it so you see the whole range.",
+      },
+      {
+        q: "Which of my numbers matter most?",
+        a: "Your own average Story views, your price and your cancellations. How many people see your Stories is the biggest guess in the estimate, so entering your views from Instagram Insights replaces it.",
       },
       {
         q: "Can I use my real Instagram numbers?",
         a: "After you sign up, you can connect an Instagram professional account to fill in your follower count and recent engagement. We read those numbers once and do not keep access to your account.",
-      },
-      {
-        q: "Why are the numbers lower than influencer marketing claims?",
-        a: "Because most followers do not see any single Story, and most people who see an offer do not buy. The ranges use published benchmarks rather than best cases.",
       },
     ],
     related: ["/earnings-calculator", "/methodology", "/guides/instagram-followers-to-clients"],
@@ -1912,7 +2163,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Will my followers pay?",
-        a: "Some will. Use the follower calculator for a realistic range based on published benchmarks, then test your offer. We never promise a number.",
+        a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
       },
       {
         q: "What does a subscriber get for their money?",
@@ -1928,6 +2179,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         a: "No. A subscriber can stop renewal at the end of the period. A refund is a separate request that your policy decides.",
       },
       SAFETY_FAQ,
+      TECH_FAQ,
       {
         q: "Does it work offline?",
         a: "Yes. A workout opened online can be saved for the gym; logged sets sync when the connection returns.",
@@ -1957,6 +2209,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "{APP_NAME} makes personal training affordable to more people by scaling real trainers’ judgment through a Trainer Brain each trainer controls.",
     h1: "About {APP_NAME}",
     eyebrow: "ABOUT",
+    lede: "We help personal trainers coach more people with an AI they teach, under their own name.",
+    // The entity sentence (ENTITY_SENTENCE), which the home page's former
+    // "What is {APP_NAME}?" block carried; it stays in llms.txt and JSON-LD.
     intro:
       "{APP_NAME} is a UAE platform that lets each personal trainer build a bespoke AI trainer, their Trainer Brain, from their own rules, cases and examples. It then sells personalised, day-by-day coaching to the trainer’s followers under the trainer’s own brand, priced in AED.",
     primaryKeyword: "{APP_NAME}",
@@ -1965,17 +2220,33 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "mission",
         heading: "Our mission",
         body: [
-          "Make personal training affordable to far more people by scaling real trainers’ judgment, not by replacing trainers with a generic app.",
+          "Make personal training affordable to more people by scaling real trainers’ judgment, not by replacing them with a generic app.",
+        ],
+      },
+      {
+        id: "what",
+        heading: "What we build",
+        body: [
+          "One workspace runs a trainer’s whole coaching business. It holds the Trainer Brain, a plan per subscriber, a branded website and app, bookings and AED payments.",
+          "Safety routing for pain, medical issues and red flags is enforced in code, outside the AI.",
         ],
       },
       {
         id: "is-not",
-        heading: "What we are, and what we are not",
+        heading: "What we are and are not",
         bullets: [
-          "We are a platform for trainers: the brand, the method and the relationship stay theirs.",
-          "We are not a generic workout generator.",
-          "We are not a medical service.",
-          "We do not replace the trainer: uncertain decisions and every safety issue go to them.",
+          "A platform for trainers: the brand, method and relationship stay theirs.",
+          "Not a generic workout generator.",
+          "Not a medical service.",
+          "Not a replacement: uncertain and safety decisions go to the trainer.",
+        ],
+      },
+      {
+        id: "who",
+        heading: "Who it is for",
+        body: [
+          "Personal trainers in the UAE with their own method and an audience that follows them. They want to coach more people without selling more hours.",
+          "Subscribers get that trainer’s method every day at a price far more people can afford.",
         ],
       },
       {
@@ -1986,35 +2257,22 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         ],
       },
       {
-        id: "what",
-        heading: "What we build",
-        body: [
-          "One workspace for a trainer’s whole coaching business: the Trainer Brain they teach, a personalised plan for every subscriber, a branded website and app, optional nutrition and voice, bookings, chat, progress tracking, payments in AED and monthly payouts. Safety routing for pain, medical issues and red flags is enforced in code, outside the AI."
-        ]
-      },
-      {
-        id: "who",
-        heading: "Who it is for",
-        body: [
-          "Personal trainers and coaches in the UAE who have a method of their own and an audience that follows them, and who want to coach more people without selling more hours. Subscribers get that trainer’s method every day at a price far more people can afford."
-        ]
-      },
-      {
         id: "honesty",
         heading: "How we talk about results",
         bullets: [
-          "Earnings and follower figures are estimate ranges with their assumptions shown, never promises.",
+          "Earnings and follower figures are labelled estimates, never promises.",
+          "The follower headline is a strong case: a best case, not typical.",
           "Every market figure cites its source on the methodology page.",
           "We publish no testimonials, logos, ratings or customer counts we cannot show.",
-          "Digital guidance is always labelled as digital."
-        ]
+          "Digital guidance is always labelled as digital.",
+        ],
       },
       {
         id: "where",
         heading: "Where we work",
         body: [
-          "{APP_NAME} is built for the UAE: prices and payouts in AED, English first with an Arabic-ready, right-to-left layout."
-        ]
+          "{APP_NAME} is built for the UAE: prices and payouts in AED, English first with an Arabic-ready, right-to-left layout.",
+        ],
       },
     ],
     faqs: [
@@ -2025,6 +2283,14 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       {
         q: "Does {APP_NAME} own my method?",
         a: "No. Your Brain is private to your workspace and is never used for another trainer."
+      },
+      {
+        q: "Is {APP_NAME} a medical service?",
+        a: "No. It is coaching, not medical advice. Pain, medical issues and red flags always go to the trainer, enforced in code outside the AI.",
+      },
+      {
+        q: "Whose brand do subscribers see?",
+        a: "The trainer’s. Subscribers join the trainer’s coaching through the trainer’s own website and app, with the trainer’s name, colours and prices.",
       },
     ],
     related: ["/methodology", "/security-and-privacy", "/how-it-works"],
@@ -2053,7 +2319,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Price guides are published price guides, not official statistics.",
           "Benchmarks are averages across many accounts and industries; yours will differ.",
-          "Estimates are shown as ranges, with their assumptions, and are never promises.",
+          "Estimates are shown with their assumptions and are never promises; the follower calculator’s headline is a strong case, labelled as not typical.",
           "We publish no customer counts, ratings or testimonials that we cannot show.",
         ],
       },
@@ -2061,24 +2327,37 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "follower-formula",
         heading: "How the follower estimate is calculated",
         body: [
-          "Low and high ends use the low and high assumptions throughout. Only Stories are modelled, not a bio link, posts or other channels. Purchase conversion uses retail e-commerce purchase rates, because no published benchmark exists for coaching subscriptions."
+          "Three scenarios use the same arithmetic with different rates. Cautious and typical use published averages. Strong is a best case for an engaged, growing audience and weekly sharing, from the top values found in the research and our stated assumptions: not a typical result and not a promise. The calculator headlines the strong case and shows cautious and typical under How we estimate.",
+          "Not included: trials, discounts, refunds, failed payments, platform commission, payment processing and tax. New followers count only through the new people each month."
         ],
         steps: [
           {
-            title: "People who see your Stories",
-            body: "V = followers × Story reach for your tier, scaled by your engagement when known. Reach is the share of followers who view at least one frame of a Story, and the same people tend to watch each one, so more Stories do not add viewers."
+            title: "Story audience",
+            body: "S = followers × the Story share for your tier and scenario, scaled by your engagement against the {ENGAGEMENT_AVG} average when known (the strong share only down, never below the typical share at your engagement), or your own average Story views. Tier boundaries never lower the result: an account gets at least what an account at the top of each smaller tier gets, so more followers never mean fewer viewers."
           },
           {
             title: "Chance of a visit",
-            body: "With k link Stories a month, each viewer visits at least once with probability 1 − (1 − click-through)^k. It rises with k and levels off; it never exceeds 100%."
+            body: "With k link Stories a month, a viewer who has not visited yet visits in a month with probability c = 1 − (1 − click)^k. Broadcast link messages work the same way for each member, and profile visitors open the bio link with probability bio click a month."
           },
           {
-            title: "New subscribers in the first month",
-            body: "V × chance of a visit × purchase conversion. Conversion is a share of people, so repeat visits by the same person never add subscribers, and the result never exceeds V × conversion."
+            title: "New people each month",
+            body: "Each month a share r of every audience ({RENEWAL_SCENARIOS}: cautious, typical, strong) is replaced by people new to your link. The share who have not visited yet is f(1) = 1 and f(m + 1) = (1 − r)(1 − c) f(m) + r; visitors in month m = audience × c × f(m). With r = 0 the same people stay all year and visitors by month T are audience × (1 − (1 − c)^T)."
           },
           {
-            title: "After twelve months",
-            body: "The same formula with 12 × k Stories and the same Story audience. New followers and audience turnover are not modelled, so it is a cautious figure that never exceeds V × conversion. Cancellations are not modelled."
+            title: "Keyword Reels",
+            body: "Per Reel viewer per Reel: comments per view × 2.03 (the extra comments a comment call to action brings) × the share who open the DM link. Typical and strong count each Reel’s commenters afresh, n Reels a month, because most Reels people see come from accounts they don’t follow. Cautious counts Reel viewers inside the Story audience, with 1 − (1 − that)^n a month. A Reel’s viewers and comment rate come from one tier; visitors by each month are the most any tier at or below yours gives."
+          },
+          {
+            title: "Channels together",
+            body: "Stories and the broadcast channel reach nested groups, because members mostly already watch your Stories: each person visits with 1 − Π(1 − chance) over the channels that reach them. Bio-link visits are added."
+          },
+          {
+            title: "Sign-ups",
+            body: "C(T) = visit to paid × the people who first visited by month T. Each person decides once. New subscribers in month m = C(m) − C(m − 1); sign-ups over 12 months = C(12)."
+          },
+          {
+            title: "Active subscribers and monthly amount",
+            body: "A(m) = A(m − 1) × (1 − churn) + new(m), where churn = 1 − (1 − yearly cancellations)^(1/12). The monthly amount at month 12 = active subscribers at month 12 in the whole people shown (none below one) × your price, before platform commission."
           }
         ]
       },
@@ -2115,8 +2394,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "What you need to start: your identity, your method, an offer and a UAE bank account for payouts, then a guided setup checklist from address to launch.",
     h1: "Start your coaching business in {APP_NAME}",
     eyebrow: "GET STARTED",
+    lede: "A guided checklist takes you from your address to launch. Start teaching before every business detail is ready.",
     intro:
-      "To start, you need your coaching method, a clear offer and a UAE bank account for payouts. A guided checklist takes you from claiming your address to teaching your Brain, testing it, setting your price and launching, and you can begin teaching before every business detail is ready.",
+      "To start, you need your coaching method, a clear offer and a UAE bank account for payouts. A guided checklist takes you from your address to teaching your Brain, testing it and setting your price. You can begin teaching before every business detail is ready.",
     primaryKeyword: "how to start online personal training UAE",
     sections: [
       {
@@ -2125,7 +2405,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Your identity and a short description of your coaching business.",
           "Your method: how you coach, and the limits you keep.",
-          "An offer: who it is for, the price in AED, the programme length and billing.",
+          "An offer: who it’s for, your AED price, length and billing.",
           "A UAE bank account (IBAN) for monthly payouts.",
           "Photos or a logo for your brand, if you have them.",
         ],
@@ -2160,7 +2440,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "time",
         heading: "How long it takes",
         body: [
-          "It depends on how much of your method you teach before launch. Most of the work is yours to shape: the coaching interview, confirming rules and writing at least 20 test scenarios. The checklist shows exactly what is left, and business details can follow while you teach."
+          "It depends on how much of your method you teach before launch. Most of the work is the interview, confirming rules and writing at least 20 test scenarios. The checklist shows what is left.",
         ]
       },
     ],
@@ -2168,7 +2448,15 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       { q: "Can I bring my existing clients?", a: "Yes. Invite subscribers you already coach with an invite link; each joins your workspace with their own account." },
       {
         q: "Do I need technical skills?",
-        a: "No. The website, app, payments and payouts are set up for you; you answer questions, confirm rules in plain language and set your offer."
+        a: "No. The website, app, payments and payouts are set up for you. You answer questions, confirm rules in plain language and set your offer."
+      },
+      {
+        q: "Can I see it before subscribers do?",
+        a: "Yes. The subscriber preview shows exactly what subscribers will see, and nothing goes live until you publish.",
+      },
+      {
+        q: "Do I need a minimum number of followers?",
+        a: "No minimum is required. For your numbers, the follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
       },
       {
         q: "Can I start before I have a trade licence ready?",
@@ -2769,24 +3057,28 @@ export const MARKETING_CONTENT: MarketingPage[] = [
   }),
   guide("instagram-followers-to-clients", "Followers to clients", {
     title: "Turning Instagram followers into paying clients",
-    description: "Why most followers never see a Story, what published reach, click and purchase benchmarks suggest, and practical steps to turn followers into clients.",
+    description: "Why most followers never see a Story, what published benchmarks and creator sales data suggest, and practical steps to turn followers into clients.",
     "h1": "Turning Instagram followers into paying clients",
-    intro: "Only a share of your followers see any one Story, a few of them tap a link, and a few visitors buy. Published benchmarks put each step in single-digit percentages, and the same people tend to watch each of your Stories, so reaching more people, a clear offer and steady sharing matter more than follower count alone.",
+    intro: "Only a share of your followers see any one Story, a few of them tap a link, and a few visitors buy. Published benchmarks put each step in single-digit percentages. Reaching more people, a clear offer and steady sharing matter more than follower count alone.",
     keyword: "how to monetise fitness followers",
     sections: [
       {
         id: "funnel",
         heading: "The follower funnel, with benchmarks",
         bullets: [
-          "Reach: Stories reached about 9.6-10.4% of followers for accounts with 1-5K followers, and about 0.5-0.65% above 100K.",
-          "Clicks: there is no industry benchmark for link stickers; the calculator uses {CLICK_RANGE} of viewers per link Story, the range creators report.",
-          "Purchase: the calculator uses {PURCHASE_RANGE} of visitors, from Dynamic Yield’s retail e-commerce rates (high-consideration retail to the EMEA average). No published benchmark exists for coaching subscriptions.",
+          "Reach: Stories reached about 9.6-10.4% of followers for brand accounts with 1-5K followers and about 0.5-0.65% above 100K; a six-frame Story sequence reached 20.5%.",
+          "Clicks: there is no industry benchmark for link stickers; the calculator uses {CLICK_SCENARIOS} of viewers per link Story (cautious, typical, strong), the range creators report.",
+          "Purchase: the calculator uses {PAID_SCENARIOS} of visitors, from a luxury-retail purchase rate to subscription-app medians. No published benchmark exists for coaching subscriptions.",
+          "Creators: a creator platform’s course benchmarks put mid-range sales at 1.5-5% of an audience and 0.52-1.1% for higher-priced courses, and creators with 1,000-10,000 followers sell about USD 273 a month on average.",
           "Participation: most people in online communities watch without acting."
         ],
         sources: [
           "socialinsider-stories",
           "creatorflow-link-sticker",
           "dynamicyield-conversion",
+          "revenuecat-state-2026",
+          "passion-creator-rates",
+          "stan-creator-economy",
           "nng-participation"
         ]
       },
@@ -2794,18 +3086,19 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "same-people",
         heading: "Why sharing the same link more often levels off",
         body: [
-          "Socialinsider measures Story reach as the share of followers who viewed at least one frame. The people who watch one Story are largely the people who watch the next, so ten link Stories do not reach ten times as many people. Each extra Story gives the same viewers another chance to tap, which helps at first and then levels off.",
-          "That is why the follower calculator treats repeat Stories as more chances for the same audience, and why its twelve-month figure can never exceed the people who see your Stories multiplied by the conversion rate. To raise that ceiling, reach more people."
+          "Socialinsider measures Story reach as the share of followers who viewed at least one frame. The people who watch one Story are largely the people who watch the next, so ten link Stories do not reach ten times as many people. Each extra Story gives the same viewers another chance to tap, which helps at first and then levels off within a month.",
+          "Over months your audience changes: new followers arrive and others drift away. That is why the follower calculator treats repeat Stories in a month as more chances for the same audience, and adds a share of new people each month, so steady sharing keeps reaching people who have not seen your link. Reels with a comment keyword, your bio link and a broadcast channel reach people your Stories miss, and Instagram says most Reels people see come from accounts they don’t follow."
         ],
         sources: [
-          "socialinsider-stories"
+          "socialinsider-stories",
+          "meta-instagram-ranking"
         ]
       },
       {
         id: "examples",
         heading: "Three example accounts",
         body: [
-          "The table applies the calculator’s current assumptions to three example accounts at AED 199 a month. It is an estimate range from published averages, not a prediction."
+          "The table applies the calculator’s current assumptions to three example accounts at AED 199 a month, with 8 link Stories, 4 keyword Reels and 30% yearly cancellations. It shows the strong case, a best case for an engaged, growing audience and weekly sharing, not a typical result or a prediction; the calculator shows the cautious and typical results too."
         ]
       },
       {
@@ -2855,7 +3148,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Engagement matters more than follower count",
         body: [
           "HypeAuditor reports that nano-influencers, accounts with 1,000 to 10,000 followers, make up 76% of Instagram influencers and have the highest engagement rate, 2.19%. Socialinsider’s average across 35 million posts in 2025 was 0.48%.",
-          "If you enter or connect your engagement rate, the calculator compares it with the {ENGAGEMENT_AVG} average it uses and scales your reach up or down, within limits. A smaller, engaged audience that trusts you can matter more than a large, quiet one."
+          "If you enter or connect your engagement rate, the calculator compares it with the {ENGAGEMENT_AVG} average it uses and scales your Story reach and comments up or down, within limits; the strong case already assumes an engaged audience, so your rate can lower its Story reach but does not raise it again. A smaller, engaged audience that trusts you can matter more than a large, quiet one."
         ],
         sources: [
           "hypeauditor-2025",
@@ -2879,12 +3172,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         a: "There is no minimum. Engagement and regular sharing matter; use the follower calculator with your own numbers."
       },
       {
-        q: "Why does the calculator show so few subscribers?",
-        a: "Because most followers do not see a given Story, few viewers tap a link, and few visitors buy. The ranges use published averages rather than best cases."
+        q: "Why do the calculator’s scenarios differ so much?",
+        a: "Because the cautious and typical results use published averages from brand accounts, retail and apps, while the strong case uses the top values found in the research and our assumptions for an engaged, growing audience. The headline is the strong case, a best case rather than a typical result. Your real number depends on your content, audience, offer and price."
       },
       {
         q: "Does sharing my link every day help?",
-        a: "Some. Each Story gives the same viewers another chance to tap, but the gain levels off and link stickers can reduce engagement. Reaching new people raises the ceiling more."
+        a: "Some. Each Story gives the same viewers another chance to tap, so within a month the gain levels off, and link stickers can reduce engagement. Over months, regular sharing reaches the new people who join your audience. Reels with a comment keyword and your bio link reach new people."
       },
       {
         q: "Can I use my real Instagram numbers?",

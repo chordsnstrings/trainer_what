@@ -7,10 +7,12 @@ import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
 import { processVoiceSessions } from "../../api/src/voice-session.ts";
+import { processVoiceClones } from "../../api/src/voice-clones.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
 import { processWebAddressOrders } from "../../api/src/web-address-orders.ts";
+import { refreshSuggestedPrices } from "../../api/src/web-address-prices.ts";
 import { assertProviderSandboxBinding } from "../../../packages/providers/src/sandbox.ts";
 // The mock-provider sandbox is refused anywhere but a loopback-only process.
 if (assertProviderSandboxBinding())
@@ -35,6 +37,8 @@ if (!process.env.DATABASE_URL) {
   let voiceTask: Promise<void> | undefined;
   let lastWebAddressTick = 0;
   let webAddressTask: Promise<void> | undefined;
+  let lastVoiceCloneTick = 0;
+  let voiceCloneTask: Promise<void> | undefined;
   async function tick() {
     if (!voiceTask)
       // Trainer-voice audio for prepared sessions, off the delivery path like
@@ -61,11 +65,23 @@ if (!process.env.DATABASE_URL) {
     if (!webAddressTask && Date.now() - lastWebAddressTick >= 30000) {
       lastWebAddressTick = Date.now();
       // Registrar calls can take tens of seconds; keep them off the main loop.
+      // Orders first, then the suggested endings' prices for trainer searches.
       webAddressTask = processWebAddressOrders(db)
+        .then(() => refreshSuggestedPrices(db))
         .then(() => undefined)
         .catch(() => console.error("Web address processing needs review"))
         .finally(() => {
           webAddressTask = undefined;
+        });
+    }
+    if (!voiceCloneTask && Date.now() - lastVoiceCloneTick >= 30000) {
+      lastVoiceCloneTick = Date.now();
+      // Pro clone uploads, training polls, unconfirmed clones and provider
+      // deletions (docs/features/trainer-voice.md); uploads can be slow.
+      voiceCloneTask = processVoiceClones(db)
+        .catch(() => console.error("Trainer voice clone work needs review"))
+        .finally(() => {
+          voiceCloneTask = undefined;
         });
     }
     const purgeMedia = Date.now() - lastMediaPurge >= 60 * 60 * 1000;
@@ -132,9 +148,9 @@ if (!process.env.DATABASE_URL) {
           webAddressTask,
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
-      if (integrationTask || voiceTask)
+      if (integrationTask || voiceTask || voiceCloneTask)
         await Promise.race([
-          Promise.all([integrationTask, voiceTask]),
+          Promise.all([integrationTask, voiceTask, voiceCloneTask]),
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
       await infrastructure.settled().catch(() => {});

@@ -469,12 +469,16 @@ test("voice enrollment requires reviewed identity/rights, premium membership and
   assert.equal(audioCalls, 1);
   const usage = await db.tenant(owner, (tx) =>
     tx.query(
-      "SELECT status,cost_usd,pricing FROM cost_events WHERE task='voice.guidance'",
+      "SELECT status,cost_usd,estimated_cost_usd,pricing,product FROM cost_events WHERE task='voice.guidance'",
     ),
   );
-  assert.equal(usage[0].status, "unknown");
-  assert.equal(usage[0].cost_usd, null);
+  // Delivered audio is priced at its reserved estimate when made
+  // ('estimated'); the provider invoice can still correct it
+  // (docs/features/platform-finance.md).
+  assert.equal(usage[0].status, "estimated");
   assert.ok(Number(usage[0].pricing.reservedCostUsd) > 0);
+  assert.equal(Number(usage[0].cost_usd), Number(usage[0].estimated_cost_usd));
+  assert.equal(usage[0].product, "voice_addon");
   assert.equal(
     (await ok(generated.audioUrl.replace("/api/v1", ""))).headers[
       "content-type"
@@ -590,6 +594,17 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
       owner,
     )
   ).json();
+  // A forwarding choice left on this name by an earlier bought domain (of
+  // another workspace) never carries over to a manual connection.
+  const [previous] = await db.system((tx) =>
+    tx.query("SELECT id FROM tenants WHERE id<>$1 ORDER BY id LIMIT 1", [tenantId]),
+  );
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),false,'subdomain')",
+      ["trainer.example.com", previous?.id ?? tenantId],
+    ),
+  );
   const active = (
     await ok(
       `/admin/integrations/domains/${order.id}/activate`,
@@ -604,6 +619,12 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
     )
   ).json();
   assert.equal(active.status, "active");
+  const [mapping] = await db.system((tx) =>
+    tx.query("SELECT tenant_id,active,redirect FROM domain_mappings WHERE hostname=$1", [
+      "trainer.example.com",
+    ]),
+  );
+  assert.deepEqual(mapping, { tenant_id: tenantId, active: true, redirect: null });
   assert.equal(
     (await ok("/domains", "GET", undefined, other)).json().length,
     0,

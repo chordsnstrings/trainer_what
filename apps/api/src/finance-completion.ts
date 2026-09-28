@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import { publishFinancePolicy } from "./finance-policy.ts";
 import { allocateCost, financialStatement } from "./finance-statements.ts";
+import { monthRate } from "./cost-accounting.ts";
 import { createPromotion, reconcilePromotion } from "./finance-promotions.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -57,8 +58,12 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
     const a = identity(req);
     if (!["owner", "finance"].includes(a.role))
       throw fail(403, "FINANCE_REQUIRED", "Finance access required");
-    return db.tenant(a, (tx) =>
-      financialStatement(tx, (req.params as any).period),
+    const period = z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .parse((req.params as any).period);
+    return monthRate(db, period).then((rate) =>
+      db.tenant(a, (tx) => financialStatement(tx, period, { rate })),
     );
   });
   app.post("/api/v1/finance/promotions", (req) =>
@@ -133,13 +138,17 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
   });
   const prefix = "/api/v1/admin/tenants/:tenantId/finance";
   app.get(prefix + "/controls", (req) => dashboard(operator(req, false)));
-  app.get(prefix + "/statements/:period", (req) =>
-    db.tenant(operator(req, false), (tx) =>
-      financialStatement(tx, (req.params as any).period, {
-        platformView: true,
-      }),
-    ),
-  );
+  app.get(prefix + "/statements/:period", async (req) => {
+    const a = operator(req, false);
+    const period = z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .parse((req.params as any).period);
+    const rate = await monthRate(db, period);
+    return db.tenant(a, (tx) =>
+      financialStatement(tx, period, { platformView: true, rate }),
+    );
+  });
   app.post(prefix + "/policies", (req) => {
     const a = operator(req);
     return db.tenant(a, (tx) => publishFinancePolicy(tx, a, req.body));

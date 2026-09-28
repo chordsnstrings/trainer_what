@@ -21,6 +21,8 @@ import {
   subdomainHost,
 } from "../../../packages/domain/src/web-address.ts";
 import { requireRecentMfa } from "./security.ts";
+import { registerPlatformDns, type PlatformDnsDeps } from "./platform-dns.ts";
+import { dnsHostingSettings } from "../../../packages/providers/src/dns-hosting.ts";
 
 /**
  * Host operations for the single-server deployment: signed host status reports,
@@ -1358,6 +1360,16 @@ export async function checkPlatformAddress(
         ? `Names under ${root} resolve to ${here}, so workspace addresses work.`
         : `A name under ${root} (${wildcard.name}) has ${describe(wildcard)}. Add a wildcard A record *.${root} pointing to ${serverIpv4 ?? "this server"}.`,
     });
+  const automation = dnsHostingSettings();
+  checks.push({
+    key: "dns_automation",
+    ok: true,
+    level: "info",
+    message:
+      automation.provider === "digitalocean" && automation.token
+        ? "DigitalOcean DNS is configured: Check and repair platform DNS (above) creates the A records for the root domain, www and * automatically."
+        : "The DNS records are created by hand unless DigitalOcean DNS is configured in Settings → DNS hosting; then Check and repair platform DNS creates them.",
+  });
   const v6 = [...next.aaaa, ...(wildcard?.aaaa ?? [])];
   // The controller report carries no IPv6 address (the droplet is created
   // without one), so any AAAA record points at another host and blocks the move.
@@ -1423,7 +1435,7 @@ export async function checkPlatformAddress(
 }
 
 /** This server's public IPv4 from the latest verified controller report. */
-async function reportedServerIpv4(db: Database, now = Date.now()) {
+export async function reportedServerIpv4(db: Database, now = Date.now()) {
   const key = hostOperationsKey();
   return db.system(async (tx) => {
     const rows = await statusRows(tx);
@@ -1508,7 +1520,12 @@ export function registerHostOperations(
   app: FastifyInstance,
   db: Database,
   identity: (req: FastifyRequest) => Identity,
-  options: { startSampler?: boolean; resolver?: Resolver } = {},
+  options: {
+    startSampler?: boolean;
+    resolver?: Resolver;
+    /** DNS host doubles for Check and repair platform DNS (tests). */
+    platformDns?: PlatformDnsDeps;
+  } = {},
 ) {
   const access = (req: FastifyRequest) => {
     const a = identity(req);
@@ -1534,6 +1551,8 @@ export function registerHostOperations(
       );
   }
   const reason = z.string().trim().min(10).max(500);
+  // Check and repair platform DNS: offered before the address change.
+  registerPlatformDns(app, db, access, options.platformDns);
 
   let timer: ReturnType<typeof setInterval> | undefined;
   if (options.startSampler)
@@ -1923,7 +1942,8 @@ export function registerHostOperations(
       return {
         ...result,
         procedure: [
-          "Create an A record for the new name pointing only at this server" +
+          "With DigitalOcean DNS configured, run Check and repair platform DNS above first: it creates the A records for the root domain, www and * and reports AAAA, CAA and DNSSEC problems. Otherwise, or when the new name is not under the platform root zone: " +
+            "create an A record for the new name pointing only at this server" +
             (result.serverIpv4 ? ` (${result.serverIpv4})` : "") +
             ", plus a wildcard A record *.<root domain> when you set one. Remove parking or forwarding records and every AAAA (IPv6) record for these names: this server has no IPv6 address. Wait until this check passes.",
           "Tell people with passkeys that they will sign in with password and authenticator once and add a new passkey, and that everyone signs in again at the new address.",

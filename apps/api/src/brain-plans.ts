@@ -937,7 +937,7 @@ export async function generateMemberPlan(
         material: p.retrieval.material,
         startingLoads: p.startingLoads,
       },
-      modelAccounting(db, a, "brain_plan"),
+      modelAccounting(db, a, "brain_plan", { memberId: userId }),
     );
   } catch (error) {
     return recordModelFailure(db, a, p.generationId, error, options.jobId);
@@ -1313,7 +1313,7 @@ export async function adaptMemberPlan(
         bounds: p.settings.bounds,
         material: p.retrieval.material,
       },
-      modelAccounting(db, a, "brain_plan_adaptation"),
+      modelAccounting(db, a, "brain_plan_adaptation", { memberId: userId }),
     );
   } catch (error) {
     return recordModelFailure(db, a, p.generationId, error, options.jobId);

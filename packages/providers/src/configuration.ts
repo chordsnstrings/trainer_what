@@ -50,6 +50,18 @@ export function assertSecurityModeBinding(env: RuntimeConfig = process.env) {
     );
 }
 
+/** Voice and speech-to-text providers with a working adapter (integrations.ts). */
+const IMPLEMENTED_VOICE_PROVIDERS = ["elevenlabs", "cartesia"];
+/** Standard addresses; a saved value equal to either reads as "not chosen". */
+const VOICE_PROVIDER_ADDRESSES = [
+  "https://api.elevenlabs.io/v1",
+  "https://api.cartesia.ai",
+];
+const VOICE_PROVIDER_OPTIONS = [
+  { value: "elevenlabs", label: "ElevenLabs (link an existing voice ID)" },
+  { value: "cartesia", label: "Cartesia (Quick and Pro clones made in the app)" },
+];
+
 /** Account approval never follows from saving a key or a successful probe. */
 export function integrationCapability(
   id: string,
@@ -105,9 +117,9 @@ export function integrationCapability(
     };
   }
   if (id === "voice") {
+    // The API address may be blank: each provider has a standard one.
     const configured = has(
       "VOICE_PROVIDER",
-      "VOICE_BASE_URL",
       "VOICE_API_KEY",
       "VOICE_MODEL",
       "VOICE_PRICE_VERSION",
@@ -119,7 +131,7 @@ export function integrationCapability(
       approved:
         configured &&
         config.VOICE_CONTRACT_VERIFIED === "true" &&
-        config.VOICE_PROVIDER === "elevenlabs" &&
+        IMPLEMENTED_VOICE_PROVIDERS.includes(config.VOICE_PROVIDER ?? "") &&
         Number.isFinite(Number(config.VOICE_USD_PER_1000_CHARACTERS)) &&
         Number(config.VOICE_USD_PER_1000_CHARACTERS) >= 0 &&
         Number.isFinite(Number(config.VOICE_DAILY_USD_LIMIT)) &&
@@ -129,9 +141,7 @@ export function integrationCapability(
   if (id === "speech_to_text") {
     const configured = has(
       "STT_PROVIDER",
-      "STT_BASE_URL",
       "STT_API_KEY",
-      "STT_MODEL",
       "STT_PRICE_VERSION",
       "STT_USD_PER_HOUR",
     );
@@ -140,9 +150,15 @@ export function integrationCapability(
       approved:
         configured &&
         config.STT_CONTRACT_VERIFIED === "true" &&
-        config.STT_PROVIDER === "elevenlabs" &&
+        IMPLEMENTED_VOICE_PROVIDERS.includes(config.STT_PROVIDER ?? "") &&
         Number.isFinite(Number(config.STT_USD_PER_HOUR)) &&
-        Number(config.STT_USD_PER_HOUR) >= 0,
+        Number(config.STT_USD_PER_HOUR) >= 0 &&
+        // The app cannot request Cartesia zero retention (an Enterprise
+        // account setting): a request for it is never silently ignored.
+        !(
+          config.STT_PROVIDER === "cartesia" &&
+          config.STT_ZERO_RETENTION === "true"
+        ),
     };
   }
   if (id === "lean") {
@@ -176,6 +192,7 @@ export function integrationCapability(
     const configured =
       has(...contact) &&
       (registrar === "generic" ||
+        (registrar === "101domain" && has("REGISTRAR_101DOMAIN_API_KEY")) ||
         (registrar === "namecheap" &&
           has(
             "NAMECHEAP_API_USER",
@@ -187,6 +204,13 @@ export function integrationCapability(
       configured,
       approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
     };
+  }
+  if (id === "dns_hosting") {
+    // The registrar's own DNS needs nothing; DigitalOcean needs its token.
+    const configured =
+      (config.DNS_PROVIDER || "registrar").trim() !== "digitalocean" ||
+      has("DIGITALOCEAN_DNS_TOKEN");
+    return { configured, approved: configured };
   }
   if (id === "domains") {
     const configured =
@@ -254,6 +278,71 @@ const field = (
   type: IntegrationField["type"],
   options: Omit<IntegrationField, "key" | "label" | "type"> = {},
 ): IntegrationField => ({ key, label, type, ...options });
+
+/**
+ * Follower calculator assumptions per scenario (Marketing estimates). The
+ * defaults equal DEFAULT_FOLLOWER_MODEL in packages/domain
+ * marketing-calculators.ts; a test keeps them equal.
+ */
+const FOLLOWER_SCENARIO_FIELDS = [
+  ["CAUTIOUS", "cautious"],
+  ["TYPICAL", "typical"],
+  ["STRONG", "strong case"],
+] as const;
+const FOLLOWER_TIER_FIELDS = [
+  ["5K", "up to 5,000 followers"],
+  ["10K", "5,001 to 10,000 followers"],
+  ["50K", "10,001 to 50,000 followers"],
+  ["100K", "50,001 to 100,000 followers"],
+  ["ABOVE_100K", "above 100,000 followers"],
+] as const;
+const FOLLOWER_STORY_DEFAULTS: Record<string, string[]> = {
+  CAUTIOUS: ["9.55", "3.5", "1.35", "0.55", "0.5"],
+  TYPICAL: ["10.4", "5", "5", "5", "5"],
+  STRONG: ["20.5", "20.5", "8", "6.5", "5"],
+};
+const FOLLOWER_STORY_HELP: Record<string, string> = {
+  CAUTIOUS: "Share of followers who see at least one Story a month. Default: Socialinsider Stories reach, image (brand accounts).",
+  TYPICAL: "Default: Socialinsider Stories reach, video, at least 5% (IQFluence: Story views above 5-8% of followers are healthy).",
+  STRONG: "Default: 20.5% up to 10,000 followers (our assumption: the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience; the measured 5-10K tier reach is 3.5-4.2%), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
+};
+const FOLLOWER_RATE_FIELDS: Array<
+  [key: string, label: string, defaults: [string, string, string], help: string]
+> = [
+  ["CLICK", "Link-sticker click per viewer per link Story", ["1", "3", "5"], "Creator reports 1-5% (no industry benchmark exists); IQFluence median 4.1%, strong creators 6-7%."],
+  ["DM_OPEN", "Keyword commenters who open the DM link", ["18", "30", "45"], "Vendor claims (CommuniPass, ChatAutoDM); no dataset."],
+  ["BROADCAST_CLICK", "Broadcast members who open one link message", ["1.27", "1.45", "2.09"], "MailerLite email click medians (sports, health and fitness, all industries), used as a proxy."],
+  ["BIO_CLICK", "Profile visitors who open the bio link in a month", ["1", "2", "3"], "Rule of thumb (Hopp by Wix: 1-3%)."],
+  ["PAID", "Visit to paid subscriber", ["0.72", "2.9", "6.2"], "Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions."],
+  ["RENEWAL", "Share of each audience new to your link each month", ["0", "1.5", "8"], "0 to 50. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured (11-22% a year by tier); strong is our assumption for a growing audience. Keep strong at or above the monthly cancellations (2.9% at 30% a year) so more sharing never lowers month-12 subscribers."],
+];
+function followerAssumptionFields(): IntegrationField[] {
+  const fields: IntegrationField[] = [];
+  for (const [scenario, name] of FOLLOWER_SCENARIO_FIELDS)
+    FOLLOWER_TIER_FIELDS.forEach(([tier, tierLabel], i) =>
+      fields.push(
+        field(
+          `FOLLOWER_STORY_${scenario}_${tier}`,
+          `Story audience, ${name}, ${tierLabel} (%)`,
+          "number",
+          {
+            defaultValue: FOLLOWER_STORY_DEFAULTS[scenario][i],
+            ...(i === 0 ? { help: FOLLOWER_STORY_HELP[scenario] } : {}),
+          },
+        ),
+      ),
+    );
+  for (const [key, label, defaults, help] of FOLLOWER_RATE_FIELDS)
+    FOLLOWER_SCENARIO_FIELDS.forEach(([scenario, name], i) =>
+      fields.push(
+        field(`FOLLOWER_${key}_${scenario}`, `${label}, ${name} (%)`, "number", {
+          defaultValue: defaults[i],
+          ...(i === 0 ? { help } : {}),
+        }),
+      ),
+    );
+  return fields;
+}
 
 export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
   {
@@ -368,73 +457,21 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Assumptions behind the public follower calculator, and public company details.",
     setupNotes:
-      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a cautious value above its typical one, or a typical value above its strong one) cannot be saved: to lower a strong value below its typical one, lower typical and cautious too. The strong case is the calculator's headline: a best case for an engaged, growing audience, not a typical result.",
     fields: [
       field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
-        defaultValue: "2026-09-28.2",
+        defaultValue: "2026-09-28.4",
         help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
+        // Earlier published versions read as the current default.
+        supersededValues: ["2026-09-28", "2026-09-28.2", "2026-09-28.3"],
       }),
       field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
         help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
       }),
-      field("FOLLOWER_REACH_UP_TO_5K_LOW", "Story reach, up to 5,000 followers: low (%)", "number", {
-        defaultValue: "9.55",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_5K_HIGH", "Story reach, up to 5,000 followers: high (%)", "number", {
-        defaultValue: "10.4",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_10K_LOW", "Story reach, 5,001 to 10,000 followers: low (%)", "number", {
-        defaultValue: "3.5",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_10K_HIGH", "Story reach, 5,001 to 10,000 followers: high (%)", "number", {
-        defaultValue: "4.2",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_50K_LOW", "Story reach, 10,001 to 50,000 followers: low (%)", "number", {
-        defaultValue: "1.35",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_50K_HIGH", "Story reach, 10,001 to 50,000 followers: high (%)", "number", {
-        defaultValue: "2",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_100K_LOW", "Story reach, 50,001 to 100,000 followers: low (%)", "number", {
-        defaultValue: "0.55",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_UP_TO_100K_HIGH", "Story reach, 50,001 to 100,000 followers: high (%)", "number", {
-        defaultValue: "0.65",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_REACH_ABOVE_100K_LOW", "Story reach, above 100,000 followers: low (%)", "number", {
-        defaultValue: "0.5",
-        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
-      }),
-      field("FOLLOWER_REACH_ABOVE_100K_HIGH", "Story reach, above 100,000 followers: high (%)", "number", {
-        defaultValue: "0.65",
-        help: "Default: Socialinsider Stories benchmarks (video).",
-      }),
-      field("FOLLOWER_LINK_CLICK_LOW", "Link-sticker click-through: low (%)", "number", {
-        defaultValue: "1",
-        help: "Chance that a Story viewer opens one link Story. Repeat Stories reach mostly the same viewers, so the calculator uses 1 − (1 − rate)^Stories. No industry benchmark exists; creators report 1-5%.",
-      }),
-      field("FOLLOWER_LINK_CLICK_HIGH", "Link-sticker click-through: high (%)", "number", {
-        defaultValue: "5",
-      }),
-      field("FOLLOWER_PURCHASE_LOW", "Visit to paid subscriber: low (%)", "number", {
-        defaultValue: "0.72",
-        help: "Share of people who visit that subscribe. Default: Dynamic Yield luxury and jewellery (high-consideration retail). Retail e-commerce purchase rates; no published benchmark exists for coaching subscriptions.",
-      }),
-      field("FOLLOWER_PURCHASE_HIGH", "Visit to paid subscriber: high (%)", "number", {
-        defaultValue: "2.89",
-        help: "Default: Dynamic Yield e-commerce conversion, EMEA average (the UAE is in EMEA).",
-      }),
+      ...followerAssumptionFields(),
       field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
         defaultValue: "0.48",
-        help: "A trainer's own engagement rate is compared with this to scale reach. Default: Socialinsider 2025.",
+        help: "A trainer's own engagement rate is compared with this to scale Story reach and Reel comments. Default: Socialinsider 2025.",
       }),
       field("FOLLOWER_ENGAGEMENT_FACTOR_MAX", "Largest engagement scaling (times)", "number", {
         defaultValue: "2",
@@ -527,6 +564,54 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "platform_finance",
+    name: "Platform finance",
+    category: "payments",
+    implemented: true,
+    controls: true,
+    description:
+      "Exchange rate and usage-charge rules behind the Super admin's cost and profit figures.",
+    setupNotes:
+      "These record operator decisions (docs/features/platform-finance.md). Every default keeps the behaviour the platform had before these settings existed. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
+    fields: [
+      field("FINANCE_USD_TO_AED", "Default USD to AED rate", "number", {
+        defaultValue: "3.6725",
+        help: "Converts provider costs in business metrics and usage previews for a month that has no reviewed rate yet. Automatic month close keeps its own approved rate for such a month. 3.6725 is the UAE dirham's peg to the US dollar. 1 to 10.",
+      }),
+      field(
+        "FINANCE_USAGE_MARKUP_PERCENT",
+        "Markup on AI and voice usage charged to trainers (%)",
+        "number",
+        {
+          defaultValue: "0",
+          help: "Owner decision pending. 0 charges trainers at cost, as today. 0 to 100. Applies to usage statements posted after the change.",
+        },
+      ),
+      field(
+        "FINANCE_COMPLIMENTARY_USAGE_BEARER",
+        "Who pays for AI and voice used by complimentary members",
+        "select",
+        {
+          defaultValue: "trainer",
+          options: [
+            { value: "trainer", label: "The trainer (in the monthly usage charge)" },
+            { value: "platform", label: "The platform (left out of the usage charge)" },
+          ],
+          help: "Owner decision pending. The trainer pays today. Applies to usage statements posted after the change.",
+        },
+      ),
+      field(
+        "FINANCE_ESTIMATE_UNRESOLVED_USAGE",
+        "Automatic month close estimates unresolved provider usage",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Off (today's behaviour): automatic month close waits until an operator reconciles unresolved provider calls from the invoice, or estimates them (Payments and payouts: Estimate unpriced usage). On: calls whose outcome was never confirmed are priced at their stored estimate, or the average of the same feature and model, and charged at that estimate; a later invoice correction does not change a usage charge already posted. Calls that answered are always priced at their estimate when made, and calls never sent cost nothing.",
+        },
+      ),
+    ],
+  },
+  {
     id: "model",
     name: "AI model",
     category: "intelligence",
@@ -542,6 +627,9 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("MODEL_API_KEY", "API key", "secret", { required: true }),
       field("MODEL_NAME", "Model ID", "text", { required: true }),
+      field("MODEL_PROVIDER", "Provider name for cost records", "text", {
+        help: "Recorded on every AI cost row, for example openai, anthropic or openrouter. Leave blank to use the name read from the API address. Lower-case letters, digits, dots, dashes and underscores.",
+      }),
       field(
         "MODEL_VISION_ENABLED",
         "Selected model supports image input",
@@ -762,19 +850,25 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     implemented: true,
     description: "Consented trainer-voice guidance for premium sessions.",
     setupNotes:
-      "ElevenLabs TTS uses an existing provider voice after trainer consent and administrator identity/rights verification. Professional clones must be created and identity-verified in the trainer’s own provider account, then shared with the configured account. This app never creates a clone automatically. Premium memberships and a daily cost cap are enforced; provider-billed usage requires reconciliation.",
+      "Cartesia: each trainer records or uploads their own voice in Trainer voice, gives explicit consent and chooses a Quick clone (10 to 60 seconds of audio, ready in seconds) or, when you switch Pro on, a Pro clone (at least 30 minutes of audio, trained by Cartesia for up to 3 hours; needs a Cartesia plan with Pro clone slots, counted for the whole account). Clones are private to the Cartesia account, attached only to the trainer's own workspace, and deleted at Cartesia when the trainer deletes them, withdraws voice consent, leaves ownership or the workspace closes. The trainer previews a line and activates the voice; members hear it only while the trainer's consent stands. ElevenLabs: the trainer links an existing provider voice ID, which an administrator verifies for identity and rights; the app makes no ElevenLabs clone. Premium memberships and the workspace daily cost cap apply to speech, transcription, previews and clones. Charges are estimates until reconciled with the provider invoice. The connection check reads one voice from the account (Cartesia) and makes no audio.",
     fields: [
-      field("VOICE_PROVIDER", "Provider name", "text", {
+      field("VOICE_PROVIDER", "Provider", "select", {
         required: true,
         defaultValue: "elevenlabs",
+        options: VOICE_PROVIDER_OPTIONS,
       }),
       field("VOICE_BASE_URL", "API base URL", "url", {
-        required: true,
-        defaultValue: "https://api.elevenlabs.io/v1",
+        help: "Leave blank for the provider's standard address: https://api.cartesia.ai (Cartesia) or https://api.elevenlabs.io/v1 (ElevenLabs).",
+        supersededValues: VOICE_PROVIDER_ADDRESSES,
       }),
       field("VOICE_API_KEY", "API key", "secret", { required: true }),
       field("VOICE_MODEL", "Approved speech model ID", "text", {
         required: true,
+        help: "Cartesia: sonic-3.6, or a dated snapshot such as sonic-3.6-2026-08-27 to keep the sound fixed (Pro clones always use a dated snapshot they were trained for). ElevenLabs: for example eleven_multilingual_v2.",
+      }),
+      field("VOICE_API_VERSION", "Cartesia API version", "text", {
+        defaultValue: "2026-08-14",
+        help: "Sent as the Cartesia-Version header. Change only after reviewing Cartesia's changelog. Not used by ElevenLabs.",
       }),
       field("VOICE_PRICE_VERSION", "Reviewed price version", "text", {
         required: true,
@@ -783,11 +877,67 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "VOICE_USD_PER_1000_CHARACTERS",
         "Estimated USD / 1,000 characters",
         "number",
-        { required: true },
+        {
+          required: true,
+          help: "Cartesia bills about 1 credit per character; at the plan prices published on 28 September 2026 that is roughly 0.04 to 0.065 USD per 1,000 characters. Use your own plan's rate.",
+        },
       ),
       field("VOICE_DAILY_USD_LIMIT", "Workspace daily USD limit", "number", {
         required: true,
+        help: "One limit per workspace per day for session audio, guided audio, previews, transcription and clones.",
       }),
+      field(
+        "VOICE_QUICK_CLONE_ENABLED",
+        "Let trainers make a Quick clone (Cartesia)",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Needs a paid Cartesia plan (Pro or higher on 28 September 2026). The free tier refuses cloning (HTTP 402, plan_upgrade_required) and has no commercial use licence; the connection check cannot see the plan. A refused clone alerts operators and the trainer can try again after the upgrade.",
+        },
+      ),
+      field(
+        "VOICE_PRO_CLONE_ENABLED",
+        "Let trainers make a Pro clone (Cartesia)",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Needs a Cartesia plan with Pro clone slots (Startup: 2, Scale: 4 on 28 September 2026). Training is free at Cartesia; speech from a Pro clone costs the same per character.",
+        },
+      ),
+      field("VOICE_PRO_CLONE_SLOTS", "Pro clone slots on the account", "number", {
+        defaultValue: "2",
+        help: "Whole number. A trainer cannot start a Pro clone while this many Pro clones exist across the platform.",
+      }),
+      field(
+        "VOICE_PRO_CLONE_PRICE_AED",
+        "Pro clone price shown to trainers (AED)",
+        "number",
+        {
+          help: "Optional. Shown to the trainer before they choose Pro. The app does not charge it; bill it separately.",
+        },
+      ),
+      field("VOICE_CLONE_USD", "Estimated USD per clone made", "number", {
+        defaultValue: "0",
+        help: "Counted against the workspace daily limit. Cartesia published no per-clone charge on 28 September 2026.",
+      }),
+      field(
+        "VOICE_CLONE_REVIEW_REQUIRED",
+        "Review each clone before members hear it",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Off by default: the trainer reviews their own clone (listens to its preview and accepts it) and members hear it once accepted. Turn on to also hold each accepted clone in Integration operations for your identity and rights check.",
+        },
+      ),
+      field(
+        "VOICE_TRAINING_OPT_OUT",
+        "The provider account opted out of model training on uploads",
+        "boolean",
+        {
+          defaultValue: "false",
+          help: "Cartesia may use uploaded recordings to train its models unless the account opted out with Cartesia's form. Trainers are told which applies before they consent.",
+        },
+      ),
       field(
         "VOICE_CONTRACT_VERIFIED",
         "Account contract and voice rights approved",
@@ -804,30 +954,39 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Spoken replies (done, reps, pause, pain) during voice-led workout sessions.",
     setupNotes:
-      "ElevenLabs speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app; turn on zero retention when the provider account supports it. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the provider model list; no audio is sent.",
+      "ElevenLabs or Cartesia speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the ElevenLabs model list, or one voice from the Cartesia account; no audio is sent.",
     fields: [
-      field("STT_PROVIDER", "Provider name", "text", {
+      field("STT_PROVIDER", "Provider", "select", {
         required: true,
         defaultValue: "elevenlabs",
+        options: [
+          { value: "elevenlabs", label: "ElevenLabs" },
+          { value: "cartesia", label: "Cartesia (batch ink-whisper)" },
+        ],
       }),
       field("STT_BASE_URL", "API base URL", "url", {
-        required: true,
-        defaultValue: "https://api.elevenlabs.io/v1",
+        help: "Leave blank for the provider's standard address: https://api.cartesia.ai (Cartesia) or https://api.elevenlabs.io/v1 (ElevenLabs).",
+        supersededValues: VOICE_PROVIDER_ADDRESSES,
       }),
       field("STT_API_KEY", "API key", "secret", { required: true }),
       field("STT_MODEL", "Approved transcription model ID", "text", {
-        required: true,
-        defaultValue: "scribe_v1",
+        help: "Leave blank for the provider's batch model: scribe_v1 (ElevenLabs) or ink-whisper (Cartesia).",
+        supersededValues: ["scribe_v1", "ink-whisper"],
+      }),
+      field("STT_API_VERSION", "Cartesia API version", "text", {
+        defaultValue: "2026-08-14",
+        help: "Sent as the Cartesia-Version header. Not used by ElevenLabs.",
       }),
       field("STT_PRICE_VERSION", "Reviewed price version", "text", {
         required: true,
       }),
       field("STT_USD_PER_HOUR", "Estimated USD / hour of audio", "number", {
         required: true,
+        help: "Cartesia batch ink-whisper bills 1 credit per 2 seconds, silence included: roughly 0.07 to 0.12 USD per hour at the plan prices published on 28 September 2026.",
       }),
       field("STT_ZERO_RETENTION", "Request zero retention", "boolean", {
         defaultValue: "false",
-        help: "Sends enable_logging=false. Only enable when the provider account supports zero-retention mode.",
+        help: "ElevenLabs only: sends enable_logging=false. Only enable when the provider account supports zero-retention mode. Cartesia zero retention is an Enterprise account setting the app cannot request: with Cartesia this must be off, and members are told the provider's own retention applies.",
       }),
       field(
         "STT_CONTRACT_VERIFIED",
@@ -872,19 +1031,40 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price in AED, which is the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
       defaultValue: "namecheap",
       options: [
         { value: "namecheap", label: "Namecheap" },
+        { value: "101domain", label: "101domain" },
         {
           value: "generic",
           label: "Generic registrar API (Custom domains settings)",
         },
       ],
     }),
+    field("REGISTRAR_101DOMAIN_API_KEY", "101domain API key", "secret", {
+      help: "Created by the account's primary user (two-factor sign-in required) under Developer Tools, with the domains, DNS and finance read and write scopes. It is shown once and expires after at most a year.",
+    }),
+    field(
+      "REGISTRAR_101DOMAIN_KEY_EXPIRES",
+      "101domain API key expiry date (YYYY-MM-DD)",
+      "text",
+      {
+        help: "The connection check warns 30 days before the key expires.",
+      },
+    ),
+    field(
+      "REGISTRAR_101DOMAIN_ORDERING",
+      "101domain registration and renewal API verified",
+      "boolean",
+      {
+        defaultValue: "false",
+        help: "101domain has announced but not yet published registration and renewal in its API. Switch this on only after checking those endpoints against its live API reference; until then no domain is bought through 101domain and renewals rely on its auto-renewal.",
+      },
+    ),
     field("NAMECHEAP_API_USER", "Namecheap API user", "text"),
     field("NAMECHEAP_API_KEY", "Namecheap API key", "secret"),
     field("NAMECHEAP_USERNAME", "Namecheap account username", "text"),
@@ -965,16 +1145,40 @@ INTEGRATION_CATALOG.push({
     field("WEB_ADDRESS_REGISTRANT_EMAIL", "Registrant email", "text", {
       required: true,
     }),
-    field("WEB_ADDRESS_MARGIN_AED", "Yearly margin (AED)", "number", {
-      defaultValue: "25",
+    field("WEB_ADDRESS_PRICE_STEP_USD", "Price step (USD)", "number", {
+      defaultValue: "5.00",
+      help: "The registrar's cost is rounded up to the next multiple of this amount.",
     }),
-    field("WEB_ADDRESS_USD_TO_AED", "USD to AED rate", "number", {
-      defaultValue: "3.6725",
+    field("WEB_ADDRESS_PRICE_ENDING_USD", "Price ending (USD)", "number", {
+      defaultValue: "4.99",
+      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 15.00 is 19.99.",
     }),
-    field("WEB_ADDRESS_TLDS", "Offered endings", "text", {
-      defaultValue: "com,net,org,co",
-      help: "Comma-separated, at most 12.",
+    field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
+      defaultValue: "100.00",
+      help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
     }),
+    field("WEB_ADDRESS_TLDS", "Suggested endings, in order", "text", {
+      defaultValue: "com,fit,fitness,coach,training,ae,club,pro,app,me",
+      // The earlier default (offered endings before 28 September 2026).
+      supersededValues: ["com,net,org,co"],
+      help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first. Only these endings and the other allowed endings below can be bought.",
+    }),
+    field(
+      "WEB_ADDRESS_EXTRA_TLDS",
+      "Other endings sold when a trainer types them",
+      "text",
+      {
+        help: "Optional, comma-separated, at most 20 (for example io,co). Never suggested; a trainer who types one of them can buy it within the price cap. Any ending not listed here or above is answered as not offered without asking the registrar.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_PROTECTED_LABELS",
+      "Protected brand names",
+      "text",
+      {
+        help: "Comma-separated names never sold on any ending, for example trainsyou,gymmembership. trainsyou and the platform domain's own name are always protected; a name of five or more letters is also refused inside a longer name (trainsyou-login).",
+      },
+    ),
     field(
       "WEB_ADDRESS_TARGET_IPV4",
       "Server IPv4 address for domain DNS",
@@ -989,6 +1193,43 @@ INTEGRATION_CATALOG.push({
       "boolean",
       { defaultValue: "false" },
     ),
+  ],
+});
+
+/** DNS hosting for bought trainer domains and the platform root domain. */
+INTEGRATION_CATALOG.push({
+  id: "dns_hosting",
+  name: "DNS hosting",
+  category: "branding",
+  implemented: true,
+  description:
+    "DNS zones for bought trainer domains and the platform root domain, set up automatically.",
+  setupNotes:
+    "With DigitalOcean DNS, every bought domain gets its own zone with A records for the domain and www (never a wildcard), and its nameservers are then pointed at ns1, ns2 and ns3.digitalocean.com; without it, the registrar's own DNS holds the records. The connection check lists at most one domain of the account and says how many zones the token can reach: a DigitalOcean token reaches every domain of its team, so a dedicated team for the platform's domains is recommended. The platform only ever changes the zone of a domain it bought and confirmed, and the platform root zone below; a zone is kept after a domain lapses and deleted only once nothing delegates the name to DigitalOcean any more, so no other account can take it over. Token scopes needed: domain create, read, update and delete. Credentials stay in these encrypted settings, never in the repository.",
+  fields: [
+    field("DNS_PROVIDER", "DNS provider", "select", {
+      required: true,
+      defaultValue: "registrar",
+      options: [
+        { value: "registrar", label: "The registrar's own DNS" },
+        { value: "digitalocean", label: "DigitalOcean DNS" },
+      ],
+    }),
+    field("DIGITALOCEAN_DNS_TOKEN", "DigitalOcean API token", "secret", {
+      help: "A personal access token with the domain scopes (create, read, update, delete).",
+    }),
+    field(
+      "DIGITALOCEAN_DNS_TOKEN_EXPIRES",
+      "Token expiry date (YYYY-MM-DD)",
+      "text",
+      { help: "Optional. The connection check warns 30 days before." },
+    ),
+    field("DNS_PLATFORM_ZONE", "Platform root zone", "text", {
+      help: "The platform's own domain (for example trainsyou.com) whose A records Check and repair platform DNS may create: @, www and *. Only this zone and PLATFORM_ROOT_DOMAIN are ever changed there. A zone that is neither PLATFORM_ROOT_DOMAIN nor the domain of the public app address (a new root prepared before the address change) is repaired only while its @, www and * names point nowhere else.",
+    }),
+    field("DNS_RECORD_TTL", "Record TTL (seconds)", "number", {
+      defaultValue: "1800",
+    }),
   ],
 });
 
@@ -1075,7 +1316,21 @@ export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
     FOLLOWER_INVITE_EMAILS_PLATFORM_PER_DAY: [0, 100000],
     COMPLIMENTARY_ACCESS_MAX_DAYS: [1, 3650],
     COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
+    VOICE_PRO_CLONE_SLOTS: [0, 100],
+    DNS_RECORD_TTL: [30, 86400],
   };
+/** A YYYY-MM-DD calendar date. */
+function calendarDate(text: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const date = new Date(text + "T00:00:00Z");
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(text);
+}
+/** Days until a YYYY-MM-DD expiry (negative once passed), or null. */
+export function daysUntil(date: string | undefined, now = Date.now()) {
+  const text = date?.trim() ?? "";
+  if (!calendarDate(text)) return null;
+  return Math.floor((Date.parse(text + "T00:00:00Z") - now) / 86400000);
+}
 export function validateIntegrationValues(
   id: string,
   values: Record<string, unknown>,
@@ -1173,28 +1428,103 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(`${entry.label} must be an email address`);
       if (
-        key === "WEB_ADDRESS_TLDS" &&
-        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,11}\s*$/i.test(
+        (key === "WEB_ADDRESS_TLDS" || key === "WEB_ADDRESS_EXTRA_TLDS") &&
+        !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,19}\s*$/i.test(
           text,
         )
       )
         throw new ConfigurationError(
-          `${entry.label} must be up to 12 comma-separated endings such as com,net`,
+          `${entry.label} must be up to 20 comma-separated endings such as com,fit`,
         );
       if (
-        key === "WEB_ADDRESS_USD_TO_AED" &&
+        key === "WEB_ADDRESS_PROTECTED_LABELS" &&
+        !/^\s*[a-z0-9-]{2,63}(\s*,\s*[a-z0-9-]{2,63}){0,49}\s*$/i.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be up to 50 comma-separated names such as trainsyou`,
+        );
+      // Whole cents: at most two decimals, never rounded.
+      const cents = /^\d{1,7}(\.\d{1,2})?$/.test(text)
+        ? Math.round(Number(text) * 100)
+        : NaN;
+      if (
+        key === "WEB_ADDRESS_PRICE_STEP_USD" &&
+        !(cents >= 1 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_PRICE_ENDING_USD" &&
+        !(cents >= 0 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_PRICE_CAP_USD" &&
+        !(cents >= 1 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "FINANCE_USD_TO_AED" &&
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
-      if (key === "WEB_ADDRESS_MARGIN_AED" && Number(text) > 10000)
+      if (key === "FINANCE_USAGE_MARKUP_PERCENT" && Number(text) > 100)
+        throw new ConfigurationError(`${entry.label} must be from 0 to 100`);
+      if (
+        key === "MODEL_PROVIDER" &&
+        !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a short name such as openai`,
+        );
+      if (
+        (key === "VOICE_API_VERSION" || key === "STT_API_VERSION") &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a date such as 2026-08-14`,
+        );
+      if (
+        (key === "VOICE_MODEL" || key === "STT_MODEL") &&
+        !/^[A-Za-z0-9._-]{1,80}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a provider model ID such as sonic-3.6`,
+        );
+      if (
+        (key === "VOICE_CLONE_USD" || key === "VOICE_PRO_CLONE_PRICE_AED") &&
+        Number(text) > 10000
+      )
         throw new ConfigurationError(`${entry.label} must be at most 10000`);
       if (
-        /^FOLLOWER_(REACH_|LINK_CLICK_|PURCHASE_|ENGAGEMENT_BENCHMARK)/.test(
+        (key === "DIGITALOCEAN_DNS_TOKEN_EXPIRES" ||
+          key === "REGISTRAR_101DOMAIN_KEY_EXPIRES") &&
+        !calendarDate(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be a date such as 2027-09-28`);
+      if (
+        key === "DNS_PLATFORM_ZONE" &&
+        !/^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,63}$/i.test(
+          text.replace(/\.$/, ""),
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a plain domain name such as trainsyou.com`,
+        );
+      if (
+        /^FOLLOWER_(STORY_|CLICK_|DM_OPEN_|BROADCAST_CLICK_|BIO_CLICK_|PAID_|ENGAGEMENT_BENCHMARK)/.test(
           key,
         ) &&
         Number(text) > 100
       )
         throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+      if (/^FOLLOWER_RENEWAL_/.test(key) && Number(text) > 50)
+        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 50`);
       if (
         key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
         (Number(text) < 1 || Number(text) > 10)
@@ -1377,6 +1707,56 @@ export type IntegrationTestResult = {
   checkedAt: string;
   details?: Record<string, string | number | boolean>;
 };
+/** A saved address, or the provider's standard one (see voiceBaseUrl). */
+function providerAddress(provider: "elevenlabs" | "cartesia", saved: string) {
+  const value = (saved ?? "").trim().replace(/\/$/, "");
+  return !value || VOICE_PROVIDER_ADDRESSES.includes(value)
+    ? VOICE_PROVIDER_ADDRESSES[provider === "elevenlabs" ? 0 : 1]
+    : value;
+}
+/** Read-only Cartesia check: GET /voices?limit=1 with the saved key and version. */
+async function cartesiaAccountCheck(
+  base: string,
+  key: string,
+  version: string,
+  checkedAt: string,
+  message: string,
+): Promise<IntegrationTestResult> {
+  const response = await providerRequest(
+    providerAddress("cartesia", base) + "/voices?limit=1",
+    {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Cartesia-Version": version || "2026-08-14",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!response.ok)
+    return {
+      status: "failed",
+      message: `Cartesia rejected the account check (HTTP ${response.status}). Check the key, its permissions and the API version.`,
+      checkedAt,
+    };
+  const body = (await response.json().catch(() => null)) as any;
+  if (!Array.isArray(body?.data))
+    throw new ConfigurationError("Cartesia returned an unexpected voice list");
+  return {
+    status: "verified",
+    message,
+    checkedAt,
+    details: { provider: "cartesia", apiVersion: version || "2026-08-14" },
+  };
+}
+/**
+ * Integrations whose connection check is a read-only provider request meant to
+ * run before purchases are approved (web addresses: the registrar balance), so
+ * the API access and IP whitelist can be proven first.
+ */
+export const READ_ONLY_CHECK_BEFORE_APPROVAL: ReadonlySet<string> = new Set([
+  "web_addresses",
+]);
 export async function testIntegration(
   id: string,
   config: RuntimeConfig,
@@ -1413,9 +1793,26 @@ export async function testIntegration(
       ]),
     );
     validateIntegrationValues(id, fields);
+    // The registrar check reads the balance only, so the registrant contact
+    // (needed for purchases) does not block proving the API access first.
+    const readOnlyBeforeApproval = READ_ONLY_CHECK_BEFORE_APPROVAL.has(id);
     const missing = definition.fields.filter(
-      (entry) => entry.required && !fields[entry.key],
+      (entry) =>
+        entry.required &&
+        !fields[entry.key] &&
+        !(readOnlyBeforeApproval && entry.key.startsWith("WEB_ADDRESS_REGISTRANT_")),
     );
+    const registrantMissing = readOnlyBeforeApproval
+      ? definition.fields.some(
+          (entry) =>
+            entry.required &&
+            entry.key.startsWith("WEB_ADDRESS_REGISTRANT_") &&
+            !fields[entry.key],
+        )
+      : false;
+    const purchaseNote = registrantMissing
+      ? " Purchases also need the registrant details and the purchases switch."
+      : "";
     if (missing.length)
       return {
         status: "failed",
@@ -1446,6 +1843,59 @@ export async function testIntegration(
       const modeNote = modeProblem
         ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
         : "";
+      if (registrar === "101domain") {
+        const { OneOhOneRegistrar, registrarPurchaseProblem } = await import(
+          "./registrar.ts"
+        );
+        if (!fields.REGISTRAR_101DOMAIN_API_KEY?.trim())
+          return {
+            status: "failed",
+            message: "101domain needs its API key.",
+            checkedAt,
+          };
+        const expiresIn = daysUntil(fields.REGISTRAR_101DOMAIN_KEY_EXPIRES);
+        if (expiresIn !== null && expiresIn < 0)
+          return {
+            status: "failed",
+            message:
+              "The 101domain API key expired; create a new key and save it here.",
+            checkedAt,
+          };
+        try {
+          // Read-only: the account balance. Nothing is bought.
+          const balance = await new OneOhOneRegistrar(
+            fields.REGISTRAR_101DOMAIN_API_KEY.trim(),
+          ).balance();
+          const ordering = registrarPurchaseProblem({ ...config, ...fields });
+          return {
+            status: "verified",
+            message:
+              "101domain API access verified with a balance read. No domain was bought." +
+              (ordering ? " " + ordering : "") +
+              (expiresIn !== null && expiresIn <= 30
+                ? ` The API key expires in ${expiresIn} day${expiresIn === 1 ? "" : "s"}; create a new one before then.`
+                : "") +
+              modeNote,
+            checkedAt,
+            details: {
+              currency: balance.currency,
+              availableBalance: balance.available,
+              ordering: !ordering,
+              paymentMode: stripeMode ?? "unknown",
+              modeMismatch: !!modeProblem,
+            },
+          };
+        } catch (error) {
+          return {
+            status: "failed",
+            message:
+              error instanceof RegistrarError && error.outcome === "definitive"
+                ? `101domain refused the check: ${error.message}. Check the key, its finance read scope and its expiry.`
+                : "101domain could not be reached. No domain was bought.",
+            checkedAt,
+          };
+        }
+      }
       if (registrar !== "namecheap")
         return {
           status: "validated",
@@ -1465,6 +1915,7 @@ export async function testIntegration(
           status: "verified",
           message:
             "Namecheap API access verified from the whitelisted address. No domain was bought." +
+            purchaseNote +
             (Number(balance.available) < 20
               ? " The available balance is low: purchases and renewals are paid from it."
               : "") +
@@ -1485,6 +1936,53 @@ export async function testIntegration(
             error instanceof RegistrarError && error.outcome === "definitive"
               ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
               : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
+    if (id === "dns_hosting") {
+      if ((fields.DNS_PROVIDER || "registrar").trim() !== "digitalocean")
+        return {
+          status: "validated",
+          message:
+            "Bought domains use the registrar's own DNS; there is no DNS host to check.",
+          checkedAt,
+        };
+      const expiresIn = daysUntil(fields.DIGITALOCEAN_DNS_TOKEN_EXPIRES);
+      if (expiresIn !== null && expiresIn < 0)
+        return {
+          status: "failed",
+          message:
+            "The DigitalOcean token expired; create a new token and save it here.",
+          checkedAt,
+        };
+      const { DigitalOceanDns, DnsError } = await import("./dns-hosting.ts");
+      try {
+        // Read-only: lists at most one domain of the account and reads the
+        // number of zones the token reaches. No zone or record changes.
+        const zones = await new DigitalOceanDns(fields.DIGITALOCEAN_DNS_TOKEN, {
+          mayManage: () => false,
+        }).accountZoneCount();
+        return {
+          status: "verified",
+          message:
+            `DigitalOcean DNS access verified; the token reaches ${zones} zone${zones === 1 ? "" : "s"}. The platform only ever changes zones of domains it bought and the platform root zone.` +
+            (zones > 1
+              ? " A DigitalOcean token reaches every domain of its team: keep the platform's domains in a dedicated team so this token cannot reach anything else."
+              : "") +
+            (expiresIn !== null && expiresIn <= 30
+              ? ` The token expires in ${expiresIn} day${expiresIn === 1 ? "" : "s"}; create a new one before then.`
+              : ""),
+          checkedAt,
+          details: { zonesVisible: zones },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message:
+            error instanceof DnsError && error.outcome === "definitive"
+              ? `DigitalOcean refused the check: ${error.message}. Check the token and its domain read scope.`
+              : "DigitalOcean could not be reached. Nothing was changed.",
           checkedAt,
         };
       }
@@ -1522,11 +2020,19 @@ export async function testIntegration(
         );
       if (
         id === "voice" &&
-        (fields.VOICE_PROVIDER !== "elevenlabs" ||
+        (!IMPLEMENTED_VOICE_PROVIDERS.includes(fields.VOICE_PROVIDER) ||
           Number(fields.VOICE_DAILY_USD_LIMIT) <= 0)
       )
         throw new ConfigurationError(
-          "Choose the implemented elevenlabs provider and set a positive daily cost limit.",
+          "Choose ElevenLabs or Cartesia and set a positive daily cost limit.",
+        );
+      if (id === "voice" && fields.VOICE_PROVIDER === "cartesia")
+        return cartesiaAccountCheck(
+          fields.VOICE_BASE_URL,
+          fields.VOICE_API_KEY,
+          fields.VOICE_API_VERSION,
+          checkedAt,
+          "Cartesia access verified by reading one voice; no audio was made and no clone was created.",
         );
       return {
         status: "validated",
@@ -1536,13 +2042,31 @@ export async function testIntegration(
       };
     }
     if (id === "speech_to_text") {
-      if (fields.STT_PROVIDER !== "elevenlabs")
+      if (!IMPLEMENTED_VOICE_PROVIDERS.includes(fields.STT_PROVIDER))
         throw new ConfigurationError(
-          "Choose the implemented elevenlabs speech-to-text provider.",
+          "Choose the ElevenLabs or Cartesia speech-to-text provider.",
+        );
+      if (
+        fields.STT_PROVIDER === "cartesia" &&
+        fields.STT_ZERO_RETENTION === "true"
+      )
+        return {
+          status: "unavailable",
+          message:
+            "Cartesia zero retention is an Enterprise account setting the app cannot request. Turn off Request zero retention to use Cartesia; members are told the provider's own retention applies. No provider request was sent.",
+          checkedAt,
+        };
+      if (fields.STT_PROVIDER === "cartesia")
+        return cartesiaAccountCheck(
+          fields.STT_BASE_URL,
+          fields.STT_API_KEY,
+          fields.STT_API_VERSION,
+          checkedAt,
+          "Cartesia access verified by reading one voice; no audio was sent. Transcription quality needs a separate check with consenting testers.",
         );
       // Read-only: the model list proves the key and base URL; no audio is sent.
       const response = await providerRequest(
-        fields.STT_BASE_URL.replace(/\/$/, "") + "/models",
+        providerAddress("elevenlabs", fields.STT_BASE_URL) + "/models",
         {
           headers: {
             "xi-api-key": fields.STT_API_KEY,

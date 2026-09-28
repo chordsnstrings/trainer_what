@@ -12,6 +12,7 @@ import {
   BRAND_ASSETS,
   BRAND_COPY,
   BRAND_NAME,
+  BRAND_SHARE_IMAGE_ALT,
   usesBrandIdentity,
 } from "./brand.ts";
 export { MARKETING_SOURCES, SETUP_CHECKLIST };
@@ -87,8 +88,24 @@ export type MarketingPage = {
   title: string;
   description: string;
   h1: string;
+  /**
+   * A substring of the H1 the renderer marks with the Pace highlight. The
+   * H1 itself stays plain text for metadata, JSON-LD and llms files.
+   */
+  h1Highlight?: string;
   eyebrow: string;
-  /** Answer-first introduction (about 40-60 words) under the H1. */
+  /**
+   * A short hero line (25 words or fewer) shown under the H1 instead of the
+   * introduction. The introduction then appears lower on the page, never
+   * straight under the lede it would repeat: an "In short" section before
+   * the FAQs, or on the home page the answer to its first FAQ. JSON-LD and
+   * llms-full.txt carry it unchanged.
+   */
+  lede?: string;
+  /**
+   * Answer-first introduction (about 40-60 words). Shown under the H1 on
+   * pages without a lede; see `lede` for where it goes on pages with one.
+   */
   intro: string;
   /** Keyword hypothesis to validate after launch; no volume is claimed. */
   primaryKeyword: string;
@@ -111,11 +128,32 @@ export type MarketingPage = {
   /** Legal pages keep their published-document renderer. */
   renderer?: "workspace";
 };
+/**
+ * How much weight a source can bear, shown next to it on /methodology:
+ * "Measured" (a dataset with a stated sample), "Measured; used as a proxy",
+ * "Vendor claim", "Rule of thumb", "Creator example", "Platform statement",
+ * "Official statistic", "Published price guide" or "Press report".
+ */
+export type SourceEvidence =
+  | "Measured"
+  | "Measured, brand accounts"
+  | "Measured; used as a proxy"
+  | "Vendor data"
+  | "Vendor claim, no dataset"
+  | "Rule of thumb"
+  | "Creator example (owner-supplied)"
+  | "Platform statement"
+  | "Official statistic"
+  | "Official announcement"
+  | "Published price guide"
+  | "Press report"
+  | "Experiment";
 export type MarketingSource = {
   id: string;
   publisher: string;
   title: string;
   url: string;
+  evidence: SourceEvidence;
   /** Publication or update date as stated by the source, if any. */
   published?: string;
   retrieved: string;
@@ -173,45 +211,89 @@ export const INDEXABLE_MARKETING_PAGES = MARKETING_PAGES.filter(
 );
 
 /**
- * The editable calculator assumptions that page copy quotes. Copy uses the
- * tokens {CLICK_RANGE}, {PURCHASE_RANGE} and {ENGAGEMENT_AVG} so the pages,
- * the FAQ JSON-LD and llms-full.txt always state the values the calculator
- * uses (the Super admin can change them in platform settings).
+ * The editable calculator assumptions that page copy quotes. Copy uses tokens
+ * such as {CLICK_SCENARIOS}, {PAID_SCENARIOS} and {ENGAGEMENT_AVG} so the
+ * pages, the FAQ JSON-LD and llms-full.txt always state the values the
+ * calculator uses (the Super admin can change them in platform settings).
  */
+export type AssumptionScenario = "cautious" | "typical" | "strong";
+export type AssumptionRates = {
+  linkClickPct: number;
+  dmOpenPct: number;
+  broadcastClickPct: number;
+  bioClickPct: number;
+  paidPct: number;
+  audienceRenewalPct: number;
+};
 export type AssumptionFigures = {
-  linkClickLowPct: number;
-  linkClickHighPct: number;
-  purchaseLowPct: number;
-  purchaseHighPct: number;
+  scenarios: Record<AssumptionScenario, AssumptionRates>;
   engagementBenchmarkPct: number;
 };
 /** The cited defaults; equal to DEFAULT_FOLLOWER_MODEL (a test keeps them equal). */
 export const CITED_ASSUMPTIONS: AssumptionFigures = {
-  linkClickLowPct: 1,
-  linkClickHighPct: 5,
-  purchaseLowPct: 0.72,
-  purchaseHighPct: 2.89,
+  scenarios: {
+    cautious: {
+      linkClickPct: 1,
+      dmOpenPct: 18,
+      broadcastClickPct: 1.27,
+      bioClickPct: 1,
+      paidPct: 0.72,
+      audienceRenewalPct: 0,
+    },
+    typical: {
+      linkClickPct: 3,
+      dmOpenPct: 30,
+      broadcastClickPct: 1.45,
+      bioClickPct: 2,
+      paidPct: 2.9,
+      audienceRenewalPct: 1.5,
+    },
+    strong: {
+      linkClickPct: 5,
+      dmOpenPct: 45,
+      broadcastClickPct: 2.09,
+      bioClickPct: 3,
+      paidPct: 6.2,
+      audienceRenewalPct: 8,
+    },
+  },
   engagementBenchmarkPct: 0.48,
 };
 const figure = (n: number) =>
   new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(n);
 const figureRange = (low: number, high: number) =>
   low === high ? `${figure(low)}%` : `${figure(low)}-${figure(high)}%`;
+/** "1%, 3% and 5%": cautious, typical and strong. */
+const scenarioList = (figures: AssumptionFigures, key: keyof AssumptionRates) => {
+  const { cautious, typical, strong } = figures.scenarios;
+  return `${figure(cautious[key])}%, ${figure(typical[key])}% and ${figure(strong[key])}%`;
+};
 /** Replaces the brand and assumption tokens in registry copy. */
 export function brandText(
   text: string,
   appName: string,
   figures: AssumptionFigures = CITED_ASSUMPTIONS,
 ): string {
+  const { cautious, strong } = figures.scenarios;
   return text
     .replaceAll("{APP_NAME}", appName)
     .replaceAll(
       "{CLICK_RANGE}",
-      figureRange(figures.linkClickLowPct, figures.linkClickHighPct),
+      figureRange(cautious.linkClickPct, strong.linkClickPct),
     )
+    .replaceAll("{PURCHASE_RANGE}", figureRange(cautious.paidPct, strong.paidPct))
+    .replaceAll("{CLICK_SCENARIOS}", scenarioList(figures, "linkClickPct"))
+    .replaceAll("{PAID_SCENARIOS}", scenarioList(figures, "paidPct"))
+    .replaceAll("{DM_SCENARIOS}", scenarioList(figures, "dmOpenPct"))
+    .replaceAll("{BIO_SCENARIOS}", scenarioList(figures, "bioClickPct"))
+    .replaceAll("{BROADCAST_SCENARIOS}", scenarioList(figures, "broadcastClickPct"))
+    .replaceAll("{RENEWAL_SCENARIOS}", scenarioList(figures, "audienceRenewalPct"))
+    .replaceAll("{RENEWAL_STRONG}", `${figure(strong.audienceRenewalPct)}%`)
+    .replaceAll("{CLICK_STRONG}", `${figure(strong.linkClickPct)}%`)
+    .replaceAll("{PAID_STRONG}", `${figure(strong.paidPct)}%`)
     .replaceAll(
-      "{PURCHASE_RANGE}",
-      figureRange(figures.purchaseLowPct, figures.purchaseHighPct),
+      "{STRONG_PER_STORY}",
+      `${figure((strong.linkClickPct * strong.paidPct) / 100)}%`,
     )
     .replaceAll("{ENGAGEMENT_AVG}", `${figure(figures.engagementBenchmarkPct)}%`);
 }
@@ -341,10 +423,16 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
   const title = `${brandText(page.title, ctx.appName, ctx.followerModel)} | ${ctx.appName}`;
   const description = brandText(page.description, ctx.appName, ctx.followerModel);
   const url = marketingCanonical(ctx.origin, page.path);
+  const imageUrl = marketingImage(ctx.origin, page.path, ctx.appName);
+  // The brand's home page shares the supplied card, whose alternative text
+  // describes the card's own words; generated cards show the page's H1.
+  const staticCard = imageUrl.endsWith(BRAND_ASSETS.shareImage);
   const image = {
-    url: marketingImage(ctx.origin, page.path, ctx.appName),
+    url: imageUrl,
     ...MARKETING_IMAGE_SIZE,
-    alt: brandText(page.h1, ctx.appName, ctx.followerModel),
+    alt: staticCard
+      ? BRAND_SHARE_IMAGE_ALT
+      : brandText(page.h1, ctx.appName, ctx.followerModel),
   };
   return {
     title,
@@ -530,7 +618,7 @@ export function llmsTxt(ctx: MarketingContext): string {
     "",
     ...brandSummary(ctx.appName),
     ...NOT_STATEMENTS.map((s) => `- ${s}`),
-    "- Earnings and follower figures on this site are estimates with shown assumptions and cited sources, never promises.",
+    "- Earnings and follower figures on this site are estimates with shown assumptions and cited sources, never promises. The follower calculator's headline is a strong case for an engaged, growing audience and weekly sharing, not a typical result; its cautious and typical scenarios are shown with it.",
     "",
     "## Product",
     ...group("product"),
@@ -615,7 +703,7 @@ export function llmsFullTxt(ctx: MarketingContext): string {
   out.push("## Sources", "");
   for (const s of MARKETING_SOURCES)
     out.push(
-      `- ${s.publisher}, "${s.title}"${s.published ? ` (${s.published})` : ""}, retrieved ${s.retrieved}: ${s.claim} ${s.url}`,
+      `- ${s.publisher}, "${s.title}"${s.published ? ` (${s.published})` : ""}, retrieved ${s.retrieved} [${s.evidence}]: ${s.claim} ${s.url}`,
     );
   out.push("");
   return out.join("\n");

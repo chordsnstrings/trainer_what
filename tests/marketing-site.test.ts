@@ -38,23 +38,22 @@ import {
   robotsPolicy,
   type MarketingPage,
 } from "@trainer/contracts";
-import { projectedCommission, safetySignal } from "@trainer/domain";
+import { BANDS, projectedCommission, safetySignal } from "@trainer/domain";
 import { SAFETY_FLOOR } from "../packages/domain/src/safety-policy.ts";
 import {
+  DEFAULT_FOLLOWER_INPUTS,
   DEFAULT_FOLLOWER_MODEL,
   FOLLOWER_MODEL_SETTING_KEYS,
   aedWhole,
+  displayCount,
   displayRange,
-  engagementRate,
   estimateEarnings,
   estimateFollowerConversion,
-  followerModelAdjustments,
   followerModelFromSettings,
-  followerSettingsNeedNote,
   type EarningsInputs,
 } from "../packages/domain/src/marketing-calculators.ts";
 import { baseRegistry } from "../apps/api/src/onboarding.ts";
-import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
+import { MarketingSite, bandPills } from "../apps/web/components/marketing/site.tsx";
 import {
   EarningsCalculator,
   FollowerCalculator,
@@ -108,6 +107,7 @@ const allText = (page: MarketingPage) =>
     page.title,
     page.description,
     page.h1,
+    page.lede ?? "",
     page.intro,
     page.eyebrow,
     ...page.sections.flatMap((s) => [
@@ -437,9 +437,10 @@ test("the product at full size: a complete capability matrix, screens and counts
   // Generic categories only: never a competitor's name.
   for (const r of REPLACES) assert.match(r.tool, /^(A|An|Programme) /);
   const features = decode(render(marketingPage("/features")!));
-  assert.match(features, new RegExp(`Every capability: ${CAPABILITY_COUNT} in ${FEATURE_MATRIX.length} areas`));
+  assert.match(features, new RegExp(`All ${CAPABILITY_COUNT} capabilities`));
+  assert.match(features, new RegExp(`in ${FEATURE_MATRIX.length} areas`));
   for (const name of names.slice(0, 5)) assert.ok(features.includes(name), name);
-  assert.match(features, /One workspace instead of 7 separate tools/);
+  assert.match(features, new RegExp(`The ${REPLACES.length} tools it replaces`));
   for (const screen of ["Your review queue.", "Your subscriber’s day.", "The workout logger.", "Your statement."])
     assert.ok(features.includes(screen), screen);
   assert.match(features, /Illustrations with sample data/);
@@ -448,10 +449,265 @@ test("the product at full size: a complete capability matrix, screens and counts
   assert.match(off, /Sessions in your own voice.*?Available soon/);
   const on = decode(render(marketingPage("/features")!, { ...platform, availability: { ...platform.availability, voice: true } }));
   assert.match(on, /Sessions in your own voice.*?Add-on/);
+  // The counts and the subscriber cards moved from the home page to /features.
+  assert.match(features, new RegExp(`Everything included in ${APP}`));
+  assert.ok(features.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
+  assert.ok(features.includes(`${REPLACES.length} separate tools it replaces`));
+  assert.ok(features.includes("What your subscribers get"));
+  // Two figures about the product, each jumping to its own section; no
+  // counts of marketing pages and no link back to the page itself.
+  const strip = render(marketingPage("/features")!).match(/<ul class="mk-included">([\s\S]*?)<\/ul>/)![1];
+  assert.deepEqual(
+    [...strip.matchAll(/href="([^"]+)"/g)].map((m) => m[1]),
+    ["/features#all-capabilities", "/features#replaces"],
+  );
+  assert.doesNotMatch(decode(strip), /feature guides|specialties/);
+  const featuresHtml = render(marketingPage("/features")!);
+  for (const id of ["all-capabilities", "replaces", "feature-guides"])
+    assert.match(featuresHtml, new RegExp(`id="${id}"`), id);
+  // The full matrix sits lower on the page than the screens and guides.
+  assert.ok(featuresHtml.indexOf('id="feature-guides"') < featuresHtml.indexOf('id="all-capabilities"'));
   const home = decode(render(marketingPage("/")!));
-  assert.match(home, new RegExp(`Everything included in ${APP}`));
-  assert.ok(home.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
-  assert.ok(home.includes("Your review queue."));
+  assert.doesNotMatch(home, /Everything included in/);
+  assert.ok(!home.includes("Your review queue."));
+});
+
+test("home: one H1 that says what happens, a short hero, the relay and five sections", async () => {
+  const page = marketingPage("/")!;
+  const html = render(page);
+  const text = decode(html);
+  assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1);
+  // The H1 is the registry string; the renderer only marks the highlight.
+  const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)![1];
+  assert.equal(h1.replace(/<[^>]+>/g, ""), brandText(page.h1, APP));
+  assert.ok(page.h1Highlight && page.h1.includes(page.h1Highlight));
+  // A span, not <mark> (screen readers can announce "highlight").
+  assert.match(h1, new RegExp(`<span class="mk-mark">${page.h1Highlight}</span>`));
+  assert.doesNotMatch(html, /<mark[\s>]/);
+  assert.ok(page.lede, "the home page has a lede");
+  assert.ok(brandText(page.lede!, APP).split(/\s+/).length <= 25);
+  assert.ok(text.includes(brandText(page.lede!, APP)));
+  assert.match(text, /Built for UAE trainers · You set the price in AED · No technical skills needed/);
+  // A short hero: payout details live on /pricing and /how-it-works.
+  assert.doesNotMatch(text, /payouts to a UAE bank/i, "the hero stays short");
+  // One name in the hero: "your AI" (H1, lede, call to action); the Trainer
+  // Brain is introduced on deeper pages, and the lede never opens with the
+  // lowercase brand.
+  const hero = html.match(/<section class="mk-hero"[\s\S]*?<\/section>/)![0];
+  assert.doesNotMatch(decode(hero), /Trainer Brain/);
+  assert.doesNotMatch(page.lede!, /^\{APP_NAME\}|[.?!] \{APP_NAME\}/);
+  // "It asks you when unsure" is said once in the hero, in the relay's
+  // loop; the lede and the "You stay in charge" body make other points.
+  assert.equal((decode(hero).match(/unsure|not sure/gi) ?? []).length, 1);
+  assert.doesNotMatch(page.lede!, /unsure|not sure/i);
+  assert.doesNotMatch(page.sections.find((s) => s.id === "control")!.body!.join(" "), /unsure|not sure/i);
+  // The home page's visible text names the UAE (nav and footer excluded).
+  const main = decode(html.match(/<main[\s\S]*?<\/main>/)![0]);
+  assert.match(main, /\bUAE\b/);
+  // Its body links to the key deeper pages.
+  const mainLinks = [...html.match(/<main[\s\S]*?<\/main>/)![0].matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  for (const href of ["/trainer-brain", "/demo", "/features", "/pricing", "/follower-calculator", "/how-it-works"])
+    assert.ok(mainLinks.includes(href), href);
+  // The relay: real text, labelled as an illustration, no H1 or headings.
+  const relay = html.match(/<figure class="mk-relay"[\s\S]*?<\/figure>/)![0];
+  assert.match(relay, /It asks you first/);
+  assert.match(relay, /Illustration with sample data/);
+  assert.doesNotMatch(relay, /<h[1-6][\s>]/);
+  assert.match(relay, /aria-labelledby="mk-relay-cap"/);
+  assert.deepEqual(
+    [...relay.matchAll(/<p class="mk-relay-title">([\s\S]*?)<\/p>/g)].map((m) => decode(m[1]).trim()),
+    ["You teach", `${APP} learns`, "Subscribers train"],
+  );
+  // Only features available now: while voice is off the third row is a
+  // capability that works today, and the tiles skip nutrition ("Available
+  // soon" stays on /features).
+  const voiceOff = decode(render(page, { ...platform, availability: { ...platform.availability, voice: false } }));
+  assert.doesNotMatch(voiceOff, /Available soon/);
+  assert.doesNotMatch(voiceOff, /Voice-led session/);
+  assert.match(voiceOff, /Missed Tuesday · moved to Thursday/);
+  const voiceOn = decode(render(page, { ...platform, availability: { ...platform.availability, voice: true } }));
+  assert.match(voiceOn, /Voice-led session\s+Add-on/);
+  assert.doesNotMatch(voiceOff, /Meal plans/);
+  assert.match(voiceOff, /With you and a clearly labelled digital coach/);
+  const nutritionOn = decode(render(page, { ...platform, availability: { ...platform.availability, nutrition: true } }));
+  assert.match(nutritionOn, /Nutrition Meal plans and a food diary, as an optional tier\./);
+  assert.doesNotMatch(nutritionOn, /With you and a clearly labelled digital coach/);
+  // The subscriber tiles are flat links to their feature pages.
+  const tiles = html.match(/<ul class="mk-icon-tiles">([\s\S]*?)<\/ul>/)![1];
+  assert.deepEqual(
+    [...tiles.matchAll(/<a class="mk-icon-tile" href="([^"]+)"/g)].map((m) => m[1]),
+    ["/features/ai-training-plans", "/features/subscriber-app", "/features/progress-and-client-twin", "/features/chat-and-digital-coach"],
+  );
+  // The control illustration is one labelled image; its tag is not an
+  // orphan label for assistive technology.
+  const flow = html.match(/<div class="mk-flow-card"[^>]*>/)![0];
+  assert.match(flow, /role="img"/);
+  assert.match(flow, /aria-label="Illustration with sample data: [^"]+pain pauses the workout[^"]*"/);
+  // The address comes from the platform's template, never a literal, and
+  // shows without the scheme.
+  const closed = { ...platform, registrationOpen: false };
+  for (const template of ["https://trainsyou.example/coach/{slug}", "https://{slug}.trainsyou.example"]) {
+    const shown = decode(render(page, { ...closed, coachAddressTemplate: template }));
+    assert.ok(shown.includes(template.replace("{slug}", "yourname").replace("https://", "")), template);
+    const openHtml = render(page, { ...platform, coachAddressTemplate: template });
+    const econ = decode(openHtml.match(/<div class="mk-econ">[\s\S]*?<\/ul>/)![0]);
+    assert.ok(econ.includes(template.replace("{slug}", "your-name").replace("https://", "")), template);
+    assert.doesNotMatch(econ, /https?:\/\//, template);
+  }
+  for (const file of ["site.tsx", "hero-flow.tsx", "chip.tsx", "showcase.tsx", "frame.tsx"]) {
+    const source = await readFile(new URL("../apps/web/components/marketing/" + file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /yourname\.trainsyou\.com/, file);
+  }
+  // The band pills are the ledger's own marginal bands, labelled as
+  // counting paying subscribers.
+  const pills = [...html.matchAll(/<ul class="mk-band-pills"[^>]*>([\s\S]*?)<\/ul>/g)][0][1]
+    .split("</li>")
+    .map((li) => decode(li).trim())
+    .filter(Boolean);
+  assert.deepEqual(pills, ["25% · first 100", "20% · 101–300", "15% · 301–1,000", "10% · 1,001+"]);
+  assert.deepEqual(pills, bandPills());
+  assert.match(html, /<p class="small-label" id="mk-bands-label">Commission by paying subscriber<\/p><ul class="mk-band-pills" aria-labelledby="mk-bands-label">/);
+  assert.match(text, /Each rate applies only to the subscribers in its band\./);
+  assert.doesNotMatch(text, /Marginal bands/);
+  let from = 1;
+  BANDS.forEach((band, i) => {
+    assert.ok(pills[i].startsWith(`${band.bps / 100}% · ${from === 1 ? "first " + band.count : from.toLocaleString("en-GB")}`));
+    from += band.count;
+  });
+  // The economics band names card processing as well as AI usage.
+  assert.match(text, /Card processing is itemised; AI usage is passed on at cost\./);
+  // At most six H2s (five sections and the FAQ) plus the closing heading.
+  const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => decode(m[1]).trim());
+  assert.ok(h2s.length - 1 <= 6, h2s.join(" | "));
+  assert.deepEqual(h2s, [
+    "What your subscribers get",
+    "You stay in charge",
+    "Your site. Your price.",
+    "What are your followers worth?",
+    "Questions trainers ask",
+    "Your coaching. Beyond your hours.",
+  ]);
+  // Six FAQs; the JSON-LD carries exactly the rendered ones, and the first
+  // answers with the answer-first introduction (closed, like the others:
+  // the home page keeps its word budget).
+  const details = [...html.matchAll(/<details class="mk-faq"><summary>([\s\S]*?)<\/summary><p>([\s\S]*?)<\/p><\/details>/g)];
+  assert.equal(details.length, 6);
+  const faq = (marketingJsonLd(page, ctx)["@graph"] as any[]).find((n) => n["@type"] === "FAQPage");
+  assert.equal(faq.mainEntity.length, 6);
+  faq.mainEntity.forEach((q: any, i: number) => {
+    assert.equal(q.name, decode(details[i][1]).trim());
+    assert.equal(q.acceptedAnswer.text, decode(details[i][2]).trim());
+  });
+  assert.equal(faq.mainEntity[0].name, `How does ${APP} work?`);
+  assert.equal(faq.mainEntity[0].acceptedAnswer.text, brandText(page.intro, APP));
+  // The follower calculator keeps its own block; only its container is styled.
+  const site = await readFile(new URL("../apps/web/components/marketing/site.tsx", import.meta.url), "utf8");
+  assert.ok(
+    site.includes(
+      '<div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>',
+    ),
+  );
+  assert.match(html, /<div class="mk-home-calc"><section class="mk-calculator card"/);
+});
+
+// Copy limits for the home page and the pages in the header navigation
+// (docs/features/marketing-site.md "Copy limits"). The shared FAQ constants
+// and the answer-first introductions keep their own tests.
+test("copy limits: short headings, ledes, cards, bullets and answers on the header pages", () => {
+  const words = (s: string) => brandText(s, APP).split(/\s+/).filter(Boolean).length;
+  for (const path of ["/", "/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+    const page = marketingPage(path)!;
+    assert.ok(words(page.h1) <= 8, `${path} H1: ${page.h1}`);
+    assert.doesNotMatch(page.h1, /:/, `${path} H1 has no colon subtitle`);
+    assert.ok(words(page.eyebrow) <= 4, `${path} eyebrow`);
+    assert.ok(page.lede && words(page.lede) <= 25, `${path} lede`);
+    for (const section of page.sections) {
+      assert.ok(words(section.heading) <= 6, `${path} H2: ${section.heading}`);
+      assert.ok((section.body ?? []).length <= 2, `${path} ${section.id} paragraphs`);
+      for (const p of section.body ?? []) assert.ok(words(p) <= 35, `${path} ${section.id}: ${p}`);
+      for (const card of [...(section.cards ?? []), ...(section.steps ?? [])]) {
+        assert.ok(words(card.title) <= 4, `${path} card title: ${card.title}`);
+        assert.ok(words(card.body) <= 18, `${path} card: ${card.body}`);
+      }
+      assert.ok((section.bullets ?? []).length <= 5, `${path} ${section.id} bullets`);
+      for (const b of section.bullets ?? []) assert.ok(words(b) <= 12, `${path} bullet: ${b}`);
+    }
+    for (const f of page.faqs)
+      if (f.a !== page.intro) assert.ok(words(f.a) <= 45, `${path} FAQ: ${f.q}`);
+    for (const banned of ["seamless", "revolutionary", "cutting-edge", "unlock", "empower", "game-changing"])
+      assert.doesNotMatch(allText(page), new RegExp(banned, "i"), `${path}: ${banned}`);
+  }
+  // Moved, not deleted: the home page's former blocks live on deeper pages
+  // with their sources, so llms-full.txt still carries them.
+  const pricing = marketingPage("/pricing")!;
+  const hours = pricing.sections.find((s) => s.id === "hours")!;
+  assert.deepEqual(hours.sources, ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"]);
+  assert.match(decode(render(pricing)), /AED 70–350.*AED 200–700\+.*AED 400–2,000/);
+  const brain = marketingPage("/trainer-brain")!;
+  assert.deepEqual(brain.sections.find((s) => s.id === "decides")!.cards!.map((c) => c.title), ["Confident", "Not sure", "Safety"]);
+  assert.ok(brain.sections.some((s) => s.id === "control"));
+  assert.equal(marketingPage("/features")!.sections.find((s) => s.id === "subscribers")!.cards!.length, 8);
+  assert.ok(marketingPage("/faq")!.faqs.some((f) => f.q === "Do I need technical skills?"));
+  const full = llmsFullTxt(ctx);
+  assert.ok(full.includes("### An hour sells only once"));
+  assert.ok(full.includes('Source: Hey Trainer, "Personal trainer cost in Dubai"'));
+  assert.ok(full.includes(brandText(marketingPage("/")!.intro, APP)));
+  // Every page carries the brand-line closing panel and one H1.
+  for (const p of site) {
+    const html = render(p);
+    assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1, p.path);
+    assert.match(html, /<section class="mk-closing"/, p.path);
+  }
+});
+
+// The header pages show one short statement above the fold: the lede. The
+// answer-first introduction (unchanged in JSON-LD and llms-full.txt) moves
+// to an "In short" section before the FAQs instead of repeating the lede.
+test("header pages: the lede once above the fold, the introduction lower as In short", () => {
+  const full = llmsFullTxt(ctx);
+  for (const path of ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+    const page = marketingPage(path)!;
+    const html = render(page);
+    const head = html.match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
+    assert.ok(decode(head).includes(brandText(page.lede!, APP)), path);
+    assert.ok(!decode(head).includes(brandText(page.intro, APP)), `${path}: the introduction is not in the hero`);
+    // Nothing between the hero and the first section repeats it.
+    const afterHead = html.slice(html.indexOf("</header>", html.indexOf("mk-page-head")));
+    const inShort = afterHead.indexOf('id="in-short"');
+    assert.ok(inShort > 0, `${path}: In short section`);
+    assert.ok(afterHead.indexOf(">In short</h2>") > 0, path);
+    assert.equal(decode(afterHead).split(brandText(page.intro, APP)).length - 1, 1, `${path}: the introduction once`);
+    assert.ok(decode(afterHead.slice(inShort)).includes(brandText(page.intro, APP)), path);
+    // It comes after every registry section and before the FAQs.
+    for (const section of page.sections)
+      assert.ok(afterHead.indexOf(`id="${section.id}"`) < inShort, `${path}: ${section.id} before In short`);
+    if (page.faqs.length) assert.ok(inShort < afterHead.indexOf('id="faq"'), path);
+    assert.ok(full.includes(brandText(page.intro, APP)), `${path}: llms-full.txt keeps the introduction`);
+  }
+  // A page without a lede keeps its introduction under the H1.
+  const demo = marketingPage("/demo")!;
+  assert.equal(demo.lede, undefined);
+  const demoHead = render(demo).match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
+  assert.ok(decode(demoHead).includes(brandText(demo.intro, APP)));
+  assert.doesNotMatch(render(demo), /id="in-short"/);
+  // The HowTo description is the introduction, still shown on the page.
+  const how = marketingPage("/how-it-works")!;
+  const howTo = (marketingJsonLd(how, ctx)["@graph"] as any[]).find((n) => n["@type"] === "HowTo");
+  assert.equal(howTo.description, brandText(how.intro, APP));
+});
+
+// The shortened Trainer Brain and how-it-works copy keeps its meaning.
+test("shortened copy keeps the privacy, review and safety promises", () => {
+  const brain = marketingPage("/trainer-brain")!;
+  const teach = brain.sections.find((s) => s.id === "teach")!.bullets!;
+  assert.ok(teach.includes("Your own documents; you review the extracted text before use."));
+  const never = brain.sections.find((s) => s.id === "never")!.bullets!;
+  assert.ok(never.includes("Keep pain, medical issues or red flags from you."));
+  assert.ok(never.includes("Use your teaching elsewhere: your Brain stays private to your workspace."));
+  assert.ok(brain.sections.find((s) => s.id === "control")!.bullets!.some((b) => /enforced in code/.test(b)));
+  const steps = marketingPage("/how-it-works")!.sections.find((s) => s.id === "steps")!.steps!;
+  assert.match(steps.find((s) => s.title === "Teach your Brain")!.body, /private redaction review/);
+  assert.match(llmsFullTxt(ctx), /redaction/);
 });
 
 test("registration closed: early access captures the visitor's details and numbers instead of a dead end", () => {
@@ -491,149 +747,154 @@ test("llms.txt follows llmstxt.org and llms-full.txt carries every page, FAQ and
   assert.doesNotMatch(full, /\{APP_NAME\}/);
 });
 
-test("follower calculator arithmetic: tiers, engagement scaling, clamping and honest rounding", () => {
-  const e = estimateFollowerConversion({
-    followers: 5000,
-    linkStoriesPerMonth: 8,
-    priceAed: 199,
-  });
-  assert.equal(e.tierIndex, 0);
-  assert.equal(e.engagementFactor, 1);
-  // Unique Story viewers, not views: V = followers × reach.
-  assert.ok(Math.abs(e.storyViewers.low - 477.5) < 1e-6);
-  assert.ok(Math.abs(e.storyViewers.high - 520) < 1e-6);
-  // Saturating chance of a visit: 1 - (1 - click-through)^Stories.
-  assert.ok(Math.abs(e.visitChancePct.low - (1 - 0.99 ** 8) * 100) < 1e-9);
-  assert.ok(Math.abs(e.visitChancePct.high - (1 - 0.95 ** 8) * 100) < 1e-9);
-  assert.ok(Math.abs(e.visitors.high - 520 * (1 - 0.95 ** 8)) < 1e-6);
-  assert.ok(Math.abs(e.subscribers.low - 477.5 * (1 - 0.99 ** 8) * 0.0072) < 1e-9);
-  assert.ok(Math.abs(e.subscribers.high - 520 * (1 - 0.95 ** 8) * 0.0289) < 1e-9);
-  assert.deepEqual(displayRange(e.subscribers), { low: 0, high: 5 });
-  assert.equal(e.monthlyRevenueMinor.high, Math.round(e.subscribers.high * 199 * 100));
-  // Twelve months: the same audience with 12 × 8 Stories, not monthly × 12.
-  assert.ok(Math.abs(e.twelveMonthSubscribers.high - 520 * (1 - 0.95 ** 96) * 0.0289) < 1e-9);
-  assert.deepEqual(displayRange(e.twelveMonthSubscribers), { low: 2, high: 15 });
-  assert.ok(Math.abs(e.ceiling.high - 520 * 0.0289) < 1e-9);
-  assert.equal(e.assumptionsVersion, DEFAULT_FOLLOWER_MODEL.version);
-  // Tier boundaries.
-  const tier = (followers: number) =>
-    estimateFollowerConversion({ followers, linkStoriesPerMonth: 4, priceAed: 100 }).tierIndex;
-  assert.deepEqual([tier(5000), tier(5001), tier(10000), tier(50001), tier(100001), tier(9_000_000)], [0, 1, 1, 3, 4, 4]);
-  // Engagement scales reach within the configured limits.
-  const eng = (rate: number | null) =>
-    estimateFollowerConversion({ followers: 5000, linkStoriesPerMonth: 8, priceAed: 199, engagementRatePct: rate });
-  assert.equal(eng(0.96).engagementFactor, 2);
-  assert.equal(eng(5).engagementFactor, 2);
-  assert.equal(eng(0.12).engagementFactor, 0.5);
-  assert.ok(Math.abs(eng(0.72).engagementFactor - 1.5) < 1e-9);
-  assert.equal(eng(null).engagementFactor, 1);
-  assert.ok(Math.abs(eng(0.96).reachPct.low - 19.1) < 1e-9);
-  // Inputs are clamped; nothing is negative and nobody subscribes twice.
-  const zero = estimateFollowerConversion({ followers: -50, linkStoriesPerMonth: -1, priceAed: -3 });
-  assert.equal(zero.inputs.followers, 0);
-  assert.equal(zero.subscribers.high, 0);
-  assert.equal(zero.inputs.priceAed, 1);
-  const tiny = estimateFollowerConversion(
-    { followers: 3, linkStoriesPerMonth: 60, priceAed: 100 },
-    { ...DEFAULT_FOLLOWER_MODEL, tiers: [{ upTo: null, reachLowPct: 100, reachHighPct: 100 }], linkClickLowPct: 100, linkClickHighPct: 100, purchaseLowPct: 100, purchaseHighPct: 100 },
+test("follower calculator: the headline is the strong case; cautious and typical sit under How we estimate", () => {
+  const html = renderToStaticMarkup(
+    createElement(FollowerCalculator, { model: DEFAULT_FOLLOWER_MODEL }),
   );
-  assert.equal(tiny.subscribers.high, 3);
-  assert.equal(tiny.twelveMonthSubscribers.high, 3);
-  assert.equal(tiny.ceiling.high, 3);
-  // Rounding never inflates the low end.
-  assert.deepEqual(displayRange({ low: 0.99, high: 1.4 }), { low: 0, high: 1 });
-  assert.deepEqual(displayRange({ low: 2, high: 1.2 }), { low: 2, high: 2 });
-  assert.equal(engagementRate(1000, [{ likes: 10, comments: 2 }, { likes: 6, comments: 0 }]), 0.9);
-  assert.equal(engagementRate(0, [{ likes: 1 }]), null);
-  assert.equal(engagementRate(100, []), null);
+  const text = decode(html);
+  const e = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS);
+  const { cautious, typical, strong } = e.scenarios;
+  // Defaults: 7,000 followers, AED 199, 8 link Stories, 4 keyword Reels, 30% a year.
+  assert.match(html, /value="7000"/);
+  assert.match(text, /ESTIMATE, NOT A PROMISE/);
+  assert.match(text, /Strong case an engaged, growing audience and weekly sharing/);
+  assert.match(text, new RegExp(`Up to ${displayCount(strong.month1New)} new paying subscribers in your first month`));
+  // One best-case qualifier on every headline line; the strong case is still
+  // growing at month 12 (the owner's direction).
+  assert.match(text, new RegExp(`Up to ${displayCount(strong.activeMonth12)} active subscribers after 12 months, after 30% yearly cancellations, and still growing`));
+  assert.ok(text.includes(`Up to ${aedText(strong.revenueMonth12Minor)} a month at your price, before platform commission`), text);
+  assert.ok(text.includes(`Up to ${displayCount(strong.signups12)} sign-ups over 12 months, before cancellations`), text);
+  assert.doesNotMatch(text, /About \d+ active/);
+  assert.match(text, /A best case for an engaged, growing audience, not a typical result and not a promise/);
+  // The headline figure is the strong case, not the typical one.
+  const figure = html.match(/class="mk-result-figure">([^<]*(?:<!-- -->)?[^<]*)</)![1].replace(/<!-- -->/g, "");
+  assert.equal(figure, `Up to ${displayCount(strong.month1New)}`);
+  // Cautious and typical appear only in the How we estimate table.
+  const details = text.slice(text.indexOf("How we estimate"));
+  assert.match(details, /How we estimate \(assumptions version 2026-09-28\.4\)/);
+  const row = (name: string, r: typeof strong) =>
+    `${name} ${r.month1New < 1 ? "fewer than 1" : displayCount(r.month1New)} ${displayCount(r.activeMonth12) ?? "fewer than 1"} ${displayCount(r.signups12) ?? "fewer than 1"} ${aedText(r.revenueMonth12Minor)}`;
+  assert.ok(details.includes(row("Cautious", cautious)), details);
+  assert.ok(details.includes(row("Typical", typical)), details);
+  assert.ok(details.includes(row("Strong case", strong)), details);
+  assert.ok(!text.slice(0, text.indexOf("How we estimate")).includes("Typical"));
+  // Levers: strong-case gains, worded for the trainer.
+  assert.match(text, /What raises your number/);
+  // Each lever shows its gain in the headline figure (active at month 12).
+  assert.ok(
+    text.includes(`Bio link to your page, per 1,000 profile visits a month +1.9 in your first month, +17 active after 12 months (+${aedText(338_300)} a month).`),
+    text,
+  );
+  assert.match(text, /Your bio link reaches people your Stories miss/);
+  assert.match(text, /4 more Reels a month with a comment keyword/);
+  assert.match(text, /4 more link Stories a month/);
+  assert.match(text, /get a chance to tap before they drift away, and they subscribe sooner/);
+  assert.match(text, /New people each month: 0%, 1\.5% and 8% of each audience is new to your link every month/);
+  assert.match(text, /the strong case is our assumption up to 10,000 followers/);
+  assert.match(text, /far above published creator averages/);
+  assert.doesNotMatch(text, /Humiston|1–3% of an engaged audience|pay before they start/);
+  assert.match(text, /A broadcast channel with 300 members and 4 link messages a month/);
+  assert.match(text, /The strong case assumes about 1,435 people see your Stories each month/);
+  // Labelled inputs, including cancellations and the optional channels.
+  for (const label of [
+    "Instagram followers",
+    "Your monthly price",
+    "Stories with your link each month",
+    "Reels or posts with a call to action each month",
+    "A comment keyword sends your link by DM",
+    "Members who cancel per year",
+    "Profile visits each month",
+    "Broadcast channel members",
+    "Link messages in your channel each month",
+    "Average Story views",
+    "Engagement rate",
+  ])
+    assert.ok(text.includes(label), label);
+  const labels = [...html.matchAll(/<label for="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(labels.length >= 11);
+  for (const id of labels) assert.ok(html.includes(`id="${id}"`), id);
+  assert.match(html, /type="checkbox"[^>]*checked=""/);
+  // Compact (home, specialty pages): the strong headline, no levers, fewer inputs.
+  const compact = decode(
+    renderToStaticMarkup(
+      createElement(FollowerCalculator, { model: DEFAULT_FOLLOWER_MODEL, compact: true, initial: { followers: 3000 } }),
+    ),
+  );
+  const small = estimateFollowerConversion({ ...DEFAULT_FOLLOWER_INPUTS, followers: 3000 }).scenarios.strong;
+  assert.match(compact, new RegExp(`Up to ${displayCount(small.month1New)} new paying subscribers`));
+  assert.doesNotMatch(compact, /What raises your number/);
+  assert.doesNotMatch(compact, /Members who cancel per year/);
+  assert.match(compact, /ESTIMATE, NOT A PROMISE/);
+  // Tiny accounts never show "Up to 0".
+  const tiny = decode(
+    renderToStaticMarkup(
+      createElement(FollowerCalculator, { model: DEFAULT_FOLLOWER_MODEL, initial: { followers: 20 } }),
+    ),
+  );
+  assert.match(tiny, /Fewer than 1 new paying subscriber in your first month/);
+  // "Fewer than 1" active subscriber is valued at nothing, not at the price.
+  assert.match(tiny, /Fewer than 1 active subscriber after 12 months/);
+  assert.match(tiny, /AED 0 a month at your price/);
+  assert.doesNotMatch(tiny, /Up to AED 0/);
+  // "Weekly sharing" only when the inputs share weekly.
+  const quiet = decode(
+    renderToStaticMarkup(
+      createElement(FollowerCalculator, {
+        model: DEFAULT_FOLLOWER_MODEL,
+        initial: { linkStoriesPerMonth: 2, ctaReelsPerMonth: 0 },
+      }),
+    ),
+  );
+  assert.match(quiet, /Strong case an engaged, growing audience Up to/);
+  assert.doesNotMatch(quiet, /weekly sharing/);
 });
 
-test("follower model bounds: never more than the Story audience, saturating in Stories", () => {
-  const m = DEFAULT_FOLLOWER_MODEL;
-  // The review's impossible cases: 1,000 followers with 60 link Stories, and
-  // 3,000 followers at 5% engagement with 60 Stories.
-  const small = estimateFollowerConversion({ followers: 1000, linkStoriesPerMonth: 60, priceAed: 199 });
-  assert.ok(Math.abs(small.storyViewers.high - 104) < 1e-9);
-  assert.ok(small.subscribers.high <= 104 * 0.0289 + 1e-9);
-  assert.ok(small.twelveMonthSubscribers.high <= 104 * 0.0289 + 1e-9);
-  assert.deepEqual(displayRange(small.twelveMonthSubscribers), { low: 0, high: 3 });
-  const engaged = estimateFollowerConversion({ followers: 3000, linkStoriesPerMonth: 60, priceAed: 199, engagementRatePct: 5 });
-  assert.ok(engaged.twelveMonthSubscribers.high <= engaged.storyViewers.high);
-  assert.ok(engaged.twelveMonthSubscribers.high < 20);
-  for (const followers of [0, 50, 999, 5000, 5001, 20_000, 80_000, 2_000_000])
-    for (const stories of [0, 1, 4, 8, 20, 60])
-      for (const engagementRatePct of [null, 0.1, 0.48, 3, 50]) {
-        const e = estimateFollowerConversion({ followers, linkStoriesPerMonth: stories, priceAed: 199, engagementRatePct }, m);
-        const cap = e.storyViewers.high * (m.purchaseHighPct / 100);
-        assert.ok(e.subscribers.high <= cap + 1e-9, "monthly above viewers × conversion");
-        assert.ok(e.twelveMonthSubscribers.high <= cap + 1e-9, "twelve months above viewers × conversion");
-        assert.ok(e.twelveMonthSubscribers.high <= e.storyViewers.high + 1e-9);
-        assert.ok(e.twelveMonthSubscribers.high >= e.subscribers.high - 1e-9);
-        assert.ok(e.subscribers.low <= e.subscribers.high + 1e-9);
-        assert.ok(e.storyViewers.high <= followers + 1e-9);
-      }
-  // More link Stories never lowers the estimate, and each extra 4 add less.
-  const at = (stories: number) =>
-    estimateFollowerConversion({ followers: 5000, linkStoriesPerMonth: stories, priceAed: 199 }).subscribers.high;
-  let previousGain = Infinity;
-  for (let k = 0; k <= 56; k += 4) {
-    const gain = at(k + 4) - at(k);
-    assert.ok(gain >= -1e-12, `not monotone at ${k}`);
-    assert.ok(gain <= previousGain + 1e-12, `not saturating at ${k}`);
-    previousGain = gain;
+test("the guide's example accounts and the methodology worked example use the model", () => {
+  const guide = decode(render(marketingPage("/guides/instagram-followers-to-clients")!));
+  assert.match(guide, /Strong case, a best case for an engaged, growing audience and not a typical result/);
+  const seven = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS).scenarios.strong;
+  assert.ok(
+    guide.includes(`7,000 ${displayCount(seven.month1New)} ${displayCount(seven.activeMonth12)} ${displayCount(seven.signups12)} ${aedText(seven.revenueMonth12Minor)}`),
+    "7,000 followers row",
+  );
+  const methodology = decode(render(marketingPage("/methodology")!));
+  assert.match(methodology, /How the strong case is calibrated/);
+  assert.match(methodology, /The strong case is a best case for an engaged, growing audience and weekly sharing\. It is not a typical result and not a promise\./);
+  // No named creator or unverified sales figure is presented as a source; the
+  // founder's example is labelled unverified and compared per view only.
+  const full = llmsFullTxt(ctx);
+  for (const [name, page] of [["methodology", methodology], ["guide", guide], ["llms-full.txt", full]] as const) {
+    assert.doesNotMatch(page, /Humiston|swoleaf|bought a USD 20 plan|creators say about 1-3%/, name);
+    assert.doesNotMatch(page, /sell far more|can do far better|pay before they start/, name);
   }
-  assert.ok(at(60) < 520 * 0.0289);
-  // The +4 Stories nudge uses the same curve: 8 -> 12 adds less than 0 -> 4.
-  assert.ok(at(12) - at(8) < at(4) - at(0));
-});
-
-test("the Super admin's assumptions: settings map onto the model and inconsistent sets fall back", () => {
-  const k = FOLLOWER_MODEL_SETTING_KEYS;
-  assert.deepEqual(followerModelFromSettings({}), DEFAULT_FOLLOWER_MODEL);
-  const edited = followerModelFromSettings({
-    [k.version]: "2026-10-01",
-    [k.tiers[0][0]]: "8",
-    [k.linkClickHighPct]: "4",
-  });
-  assert.equal(edited.version, "2026-10-01");
-  assert.equal(edited.tiers[0].reachLowPct, 8);
-  assert.equal(edited.linkClickHighPct, 4);
-  assert.equal(edited.purchaseLowPct, DEFAULT_FOLLOWER_MODEL.purchaseLowPct);
-  assert.deepEqual(
-    followerModelFromSettings({ [k.purchaseLowPct]: "9", [k.purchaseHighPct]: "2" }),
-    DEFAULT_FOLLOWER_MODEL,
+  assert.match(methodology, /an unverified example with no public source, so it is not used as evidence\. Per view, the strong case’s 0\.31% is below it/);
+  assert.match(methodology, /\[Unverified founder example\]/);
+  // The calibration states what the comparison sources actually say.
+  assert.match(methodology, /0\.1-1% of an audience \(low\), 1\.5-5% \(mid\) and 0\.52-1\.1% for higher-priced courses/);
+  assert.match(methodology, new RegExp(`about USD 273 a month on average, against ${aedText(seven.revenueMonth12Minor)} a month in the strong case`));
+  assert.match(methodology, /Strong: our assumption, the six-frame 20\.5% used as a monthly audience, against a measured reach of 3\.5-4\.2% for this tier/);
+  assert.match(methodology, /an app install shows more intent than a Story tap, so these may overstate/);
+  assert.match(methodology, /Owner assumption\./);
+  assert.ok(
+    methodology.includes(`Strong case ${displayCount(seven.month1New)} ${displayCount(seven.activeMonth12)} ${displayCount(seven.signups12)} ${aedText(seven.revenueMonth12Minor)}`),
+    "worked example row",
   );
-  // Each settings default equals the domain default (one source of truth).
-  const marketing = INTEGRATION_CATALOG.find((i) => i.id === "marketing")!;
-  assert.equal(marketing.controls, true);
-  const defaults = Object.fromEntries(marketing.fields.map((f) => [f.key, f.defaultValue]));
-  assert.deepEqual(
-    followerModelFromSettings(defaults as Record<string, string>),
-    DEFAULT_FOLLOWER_MODEL,
-  );
-  assert.equal(defaults[k.version], DEFAULT_FOLLOWER_MODEL.version);
-  // The copy's cited figures equal the domain defaults.
-  assert.deepEqual(CITED_ASSUMPTIONS, {
-    linkClickLowPct: DEFAULT_FOLLOWER_MODEL.linkClickLowPct,
-    linkClickHighPct: DEFAULT_FOLLOWER_MODEL.linkClickHighPct,
-    purchaseLowPct: DEFAULT_FOLLOWER_MODEL.purchaseLowPct,
-    purchaseHighPct: DEFAULT_FOLLOWER_MODEL.purchaseHighPct,
-    engagementBenchmarkPct: DEFAULT_FOLLOWER_MODEL.engagementBenchmarkPct,
-  });
-  // Conversion defaults: high-consideration retail to the EMEA average.
-  assert.equal(DEFAULT_FOLLOWER_MODEL.purchaseLowPct, 0.72);
-  assert.equal(DEFAULT_FOLLOWER_MODEL.purchaseHighPct, 2.89);
-  // A value that differs from its cited default needs the operator's reason.
-  assert.deepEqual(followerModelAdjustments(DEFAULT_FOLLOWER_MODEL), []);
-  assert.equal(followerSettingsNeedNote(defaults as Record<string, string>), false);
-  assert.equal(followerSettingsNeedNote({ [k.purchaseHighPct]: "4" }), true);
-  assert.equal(
-    followerSettingsNeedNote({ [k.purchaseHighPct]: "4", [k.changeNote]: "Own trial data, Q3 2026" }),
-    false,
-  );
-  const noted = followerModelFromSettings({ [k.purchaseHighPct]: "4", [k.changeNote]: "Own trial data" });
-  assert.equal(noted.changeNote, "Own trial data");
-  assert.deepEqual(followerModelAdjustments(noted).map((a) => a.field), ["purchaseHighPct"]);
+  // Every source carries its label.
+  for (const source of MARKETING_SOURCES)
+    assert.ok(methodology.includes(`${source.evidence} ${source.publisher}`), source.id);
+  for (const label of ["Measured, brand accounts", "Vendor claim, no dataset", "Rule of thumb", "Measured; used as a proxy"])
+    assert.ok(MARKETING_SOURCES.some((s) => s.evidence === label), label);
+  assert.ok(!MARKETING_SOURCES.some((s) => /creator example|owner-supplied/i.test(s.evidence)));
+  assert.match(methodology, /version 2026-09-28\.3\): three scenarios instead of one range/);
+  assert.match(methodology, /version 2026-09-28\.4\): each audience now gains new people every month/);
+  // No page calls the follower result an estimate range any more (the home
+  // page and /get-started FAQs and the shared footer included).
+  for (const path of ["/", "/about", "/features", "/get-started", "/methodology"])
+    assert.doesNotMatch(
+      decode(render(marketingPage(path)!)),
+      /estimate ranges?\b|shown as ranges|realistic range|quick range|illustrative ranges/,
+      path,
+    );
 });
 
 test("earnings calculator: marginal bands match the ledger's projection; upfront and tier mix", () => {
@@ -682,8 +943,10 @@ test("calculators and pages carry their estimate disclaimers", () => {
   );
   assert.match(follower, /ESTIMATE, NOT A PROMISE/);
   assert.match(follower, /not a prediction or promise of results/);
-  assert.match(follower, /Assumptions \(version 2026-09-28\.2\)/);
-  assert.match(follower, /no published benchmark exists for coaching subscriptions/);
+  assert.match(follower, /you may get fewer subscribers than the cautious figure/);
+  assert.match(follower, /A best case for an engaged, growing audience, not a typical result/);
+  assert.match(follower, /How we estimate \(assumptions version 2026-09-28\.4\)/);
+  assert.match(follower, /No published benchmark exists for coaching subscriptions/i);
   assert.match(follower, /no industry benchmark exists/);
   const earnings = decode(renderToStaticMarkup(createElement(EarningsCalculator, {})));
   assert.match(earnings, /Not an earnings promise/);
@@ -692,7 +955,8 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.match(pricing, /An arithmetic example, not a forecast or promise/);
   const methodology = decode(render(marketingPage("/methodology")!));
   for (const source of MARKETING_SOURCES) assert.ok(methodology.includes(source.publisher), source.id);
-  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.2\)/);
+  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.4\)/);
+  assert.match(methodology, /not a typical result and not a promise/);
   assert.doesNotMatch(methodology, /Adjusted by the operator/);
   assert.equal(slugFromName("Layla Strength!"), "layla-strength");
   assert.equal(slugFromName("  99 Élan  Fit "), "elan-fit");
@@ -703,31 +967,42 @@ test("the assumptions shown are the assumptions used: settings change the pages,
   const k = FOLLOWER_MODEL_SETTING_KEYS;
   const text = (p: PublicPlatform, path: string) => decode(render(marketingPage(path)!, p));
   const cited = text(platform, "/follower-calculator");
-  assert.match(cited, /1-5% chance of opening one link Story/);
-  assert.match(cited, /purchase conversion of 0\.72-2\.89%/);
+  assert.match(cited, /1%, 3% and 5% chance \(cautious, typical, strong\) of opening one link Story/);
+  assert.match(cited, /visit to paid of 0\.72%, 2\.9% and 6\.2%/);
+  assert.match(cited, /Each month 0%, 1\.5% and 8% of each audience is new to your link/);
+  assert.match(cited, /18%, 30% and 45% of commenters open the link/);
   assert.match(cited, /compared with the 0\.48% average/);
-  assert.doesNotMatch(cited, /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
+  assert.match(cited, /turns 5% × 6\.2%, about 0\.31% of the people who see it, into subscribers, and each month 8% of your audience is new to your link/);
+  assert.doesNotMatch(cited, /\{[A-Z_]+\}/);
   const model = followerModelFromSettings({
     [k.version]: "2026-11-01",
-    [k.linkClickLowPct]: "2",
-    [k.linkClickHighPct]: "4",
-    [k.purchaseHighPct]: "3.5",
+    [k.rates.linkClickPct.cautious]: "2",
+    [k.rates.linkClickPct.strong]: "4",
+    [k.rates.paidPct.strong]: "9",
     [k.engagementBenchmarkPct]: "0.6",
     [k.changeNote]: "Operator trial data, October 2026",
   });
+  assert.equal(model.version, "2026-11-01");
   const edited = { ...platform, followerModel: model };
   const page = text(edited, "/follower-calculator");
-  assert.match(page, /2-4% chance of opening one link Story/);
-  assert.match(page, /purchase conversion of 0\.72-3\.5%/);
+  assert.match(page, /2%, 3% and 4% chance \(cautious, typical, strong\)/);
+  assert.match(page, /visit to paid of 0\.72%, 2\.9% and 9%/);
   assert.match(page, /compared with the 0\.6% average/);
-  assert.match(text(edited, "/guides/instagram-followers-to-clients"), /uses 2-4% of viewers/);
+  assert.match(page, /turns 4% × 9%, about 0\.36% of the people who see it/);
+  assert.match(text(edited, "/guides/instagram-followers-to-clients"), /uses 2%, 3% and 4% of viewers per link Story/);
   const full = llmsFullTxt({ ...ctx, followerModel: model });
-  assert.match(full, /purchase conversion of 0\.72-3\.5%/);
-  assert.doesNotMatch(full, /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
-  assert.doesNotMatch(llmsFullTxt(ctx), /\{(CLICK_RANGE|PURCHASE_RANGE|ENGAGEMENT_AVG)\}/);
+  assert.match(full, /visit to paid of 0\.72%, 2\.9% and 9%/);
+  assert.doesNotMatch(full, /\{[A-Z_]+\}/);
+  assert.doesNotMatch(llmsFullTxt(ctx), /\{[A-Z_]+\}/);
+  // The calculator itself uses the edited values.
+  const calc = decode(renderToStaticMarkup(createElement(FollowerCalculator, { model })));
+  const strong = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS, model).scenarios.strong;
+  assert.match(calc, new RegExp(`Up to ${displayCount(strong.month1New)} new paying`));
+  assert.match(calc, /adjusted by the platform operator/);
   // Methodology marks edited values instead of crediting the source for them.
   const methodology = text(edited, "/methodology");
-  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Creator reports \)/);
+  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Creatorflow , IQFluence \)/);
+  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Dynamic Yield , RevenueCat \)/);
   assert.match(methodology, /Operator trial data, October 2026/);
   // No unresolved token anywhere in the registry output.
   for (const p of site)
