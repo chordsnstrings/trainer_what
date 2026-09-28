@@ -407,6 +407,20 @@ async function nutritionFlows(ctx: E2EContext, f: FollowerSeed) {
 
 async function premiumVoice(ctx: E2EContext, f: FollowerSeed) {
   const { client: c, trainer } = f;
+  await ctx.reporter.step(F, "Add premium voice to the membership", `${c.label}: buys the voice add-on through a subscription checkout at the Stripe mock`, async () => {
+    const before = await c.get("/api/v1/membership/voice-addon");
+    assert.equal(before.available, true, JSON.stringify(before));
+    assert.equal(before.active, false);
+    const { url } = await c.post("/api/v1/membership/voice-addon", {});
+    const sessionId = new URL(url).pathname.split("/").pop()!;
+    const completed = await ctx.mocks.stripe.completeCheckout(sessionId);
+    for (const d of completed.deliveries ?? []) assert.equal(d.status, 200, `${d.type}: ${d.body}`);
+    const after = await ctx.waitUntil("voice add-on active", async () => {
+      const v = await c.get("/api/v1/membership/voice-addon");
+      return v.active && v;
+    }, 30000);
+    return `voice add-on ${after.status} until ${after.periodEnd}`;
+  });
   await ctx.reporter.step(F, "Trainer's voice reading the guided session", `${c.label}: premium member hears the verified trainer voice`, async () => {
     const template = (await trainer.client.get("/api/v1/training/overview")).records.find((r: any) => r.id === trainer.programTemplateId);
     const program = await trainer.client.post(`/api/v1/programs/${trainer.programTemplateId}/assign`, {
@@ -417,7 +431,7 @@ async function premiumVoice(ctx: E2EContext, f: FollowerSeed) {
     });
     const workout = await c.post("/api/v1/workouts/start", { programId: program.id });
     const guided = await c.get(`/api/v1/guided/${workout.id}`);
-    assert.equal(guided.premium, true, "workout + nutrition offer includes premium voice");
+    assert.equal(guided.premium, true, "the voice add-on on the membership enables premium voice");
     assert.equal(guided.audioAvailable, true);
     const before = ctx.mocks.voice.syntheses.length;
     const audio = await c.post(`/api/v1/guided/${workout.id}/audio`, { segment: 0, consent: true });

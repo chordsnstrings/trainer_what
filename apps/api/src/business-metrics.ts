@@ -76,11 +76,11 @@ const previousMonth = (month: string) => {
 const DUBAI_MONTH = "to_char(%s AT TIME ZONE 'Asia/Dubai','YYYY-MM')";
 const month = (column: string) => DUBAI_MONTH.replace("%s", column);
 const POSITIVE_INVOICE =
-  "j.source_key LIKE 'stripe-invoice:%' AND coalesce((j.data->>'grossMinor')::bigint,0)>0";
+  "(j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND coalesce((j.data->>'grossMinor')::bigint,0)>0";
 
 async function workspaceFigures(tx: Tx, since: Date, before: Date) {
   const ledger = await tx.query(
-    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' THEN 'subscription' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' ELSE 'other' END AS source,l.account,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3`,
+    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%' THEN 'subscription' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' ELSE 'other' END AS source,l.account,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3`,
     [since],
   );
   const payers = await tx.query(

@@ -366,6 +366,39 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     },
   ),
   kind(
+    "programme-ending",
+    "member",
+    "coaching",
+    "An upfront programme ends in a few days",
+    {
+      title: "Your programme ends soon",
+      body: "Your programme ends in a few days. Open your membership to continue with the next one.",
+      href: "/app/membership",
+    },
+  ),
+  kind(
+    "programme-ended",
+    "member",
+    "coaching",
+    "An upfront programme reached the end of its paid access",
+    {
+      title: "Your programme is complete",
+      body: "You finished your programme. Open your membership to start the next one when you are ready.",
+      href: "/app/membership",
+    },
+  ),
+  kind(
+    "programme-next-block",
+    "member",
+    "coaching",
+    "A new block of a monthly programme started",
+    {
+      title: "Block 2 of your programme has started",
+      body: "A new 28-day block started. Today shows where you are and what comes next.",
+      href: "/app",
+    },
+  ),
+  kind(
     "complimentary-ended",
     "member",
     "coaching",

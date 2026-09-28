@@ -56,13 +56,40 @@ export const setSchema = z
     rir: z.number().min(0).max(10).optional(),
   })
   .strict();
+/** Trainer-set programme length bounds (days). `null` means rolling blocks of the Brain default. */
+export const PROGRAMME_DAYS_MIN = 7;
+export const PROGRAMME_DAYS_MAX = 365;
+export const programmeDaysSchema = z
+  .number()
+  .int()
+  .min(PROGRAMME_DAYS_MIN)
+  .max(PROGRAMME_DAYS_MAX);
+/** Trainer-set monthly price of the premium voice add-on a member may add to this offer. */
+export const voiceAddOnPriceSchema = z.number().int().min(100).max(100000);
+/**
+ * A trainer's offer. `billing: "monthly"` renews every month (a programme
+ * length then defines the block length); `billing: "upfront"` is one payment
+ * for the whole programme and needs a programme length. Premium voice is no
+ * longer a separate offer: `voiceAddOnMinor` prices the add-on members buy
+ * with their membership (older offers with `premiumVoice` keep including it).
+ */
 export const productSchema = z
   .object({
     name: z.string().min(2).max(100),
     description: z.string().max(1500),
     priceMinor: z.number().int().min(100).max(1000000),
     tier: z.enum(["workout", "workout_nutrition"]).default("workout"),
-    premiumVoice: z.boolean().default(false),
     baseProductId: z.string().uuid().optional(),
+    programmeDays: programmeDaysSchema.nullable().default(null),
+    billing: z.enum(["monthly", "upfront"]).default("monthly"),
+    voiceAddOnMinor: voiceAddOnPriceSchema.nullable().default(null),
   })
-  .strict();
+  .strict()
+  .superRefine((offer, ctx) => {
+    if (offer.billing === "upfront" && offer.programmeDays === null)
+      ctx.addIssue({
+        code: "custom",
+        path: ["programmeDays"],
+        message: "An upfront programme needs a length in days",
+      });
+  });

@@ -165,7 +165,10 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
   );
   await add(
     "checkout",
-    "SELECT count(*)::int n FROM records r WHERE r.kind='checkout' AND ($1::uuid IS NULL OR r.owner_user_id=$1) AND r.status NOT IN ('expired','closed') AND NOT (r.status='completed' AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id=r.tenant_id AND s.user_id=r.owner_user_id AND s.provider_id=r.data->>'subscriptionId' AND s.status IN ('canceled','incomplete_expired')))",
+    // A paid upfront programme's intent is settled once its payment posted
+    // (its access is the subscription row above); a voice add-on intent
+    // closes when its provider subscription ends (voice-addon.ts).
+    "SELECT count(*)::int n FROM records r WHERE r.kind='checkout' AND ($1::uuid IS NULL OR r.owner_user_id=$1) AND r.status NOT IN ('expired','closed') AND NOT (r.status='completed' AND coalesce(r.data->>'billing','')='upfront') AND NOT (r.status='completed' AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id=r.tenant_id AND s.user_id=r.owner_user_id AND s.provider_id=r.data->>'subscriptionId' AND s.status IN ('canceled','incomplete_expired')))",
     [userId ?? null],
   );
   await add(

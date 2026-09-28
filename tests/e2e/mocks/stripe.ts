@@ -284,6 +284,24 @@ export class StripeMock {
         return ok(sub);
       }),
     );
+    // subscriptions.cancel(): ends a subscription now (the voice add-on when
+    // its membership ended). Canceling an already canceled one is a 400, as
+    // Stripe does; the idempotency cache replays the first answer.
+    s.route(
+      "DELETE",
+      "/v1/subscriptions/:id",
+      guard((r) => {
+        const sub = this.subscriptions.get(r.params.id);
+        if (!sub) return stripeError(404, "No such subscription", "resource_missing");
+        if (sub.status === "canceled")
+          return stripeError(400, "This subscription is already canceled");
+        sub.status = "canceled";
+        sub.canceled_at = now();
+        sub.cancel_at_period_end = false;
+        this.later(() => this.sendEvent("customer.subscription.deleted", sub));
+        return ok(sub);
+      }),
+    );
     s.route(
       "GET",
       "/v1/invoices",

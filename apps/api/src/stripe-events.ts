@@ -3,6 +3,8 @@ import {
   settleCheckoutSubscription,
 } from "./finance-checkout.ts";
 import { processBookingStripeEvent } from "./finance-bookings.ts";
+import { processVoiceAddOnEvent } from "./voice-addon.ts";
+import { endRefundedProgramme } from "./programme-billing.ts";
 import { randomUUID } from "node:crypto";
 import {
   type Database,
@@ -13,7 +15,7 @@ import {
   elevated,
 } from "@trainer/db";
 import { stripeClient } from "@trainer/providers";
-import { recordCharge, journal } from "./finance.ts";
+import { recordCharge, journal, assignCommissionRank } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
 type StripeLike = ReturnType<typeof stripeClient>;
 /**
@@ -35,7 +37,7 @@ function optionalStripe(): StripeLike | undefined {
  * Basil and later invoices (the pinned dahlia API) carry no `charge`; the paid InvoicePayment
  * names a PaymentIntent, or a bare charge only when no PaymentIntent exists.
  */
-async function resolveInvoicePayment(object: any, stripe?: StripeLike) {
+export async function resolveInvoicePayment(object: any, stripe?: StripeLike) {
   let payments: any[] | undefined = object.payments?.has_more
     ? undefined
     : object.payments?.data;
@@ -80,7 +82,11 @@ export async function processStripeEvent(
   deps: { stripe?: StripeLike } = {},
 ) {
   if (await processBookingStripeEvent(db, e)) return { processed: true };
-  if (await processMembershipCheckoutEvent(db, e)) return { processed: true };
+  // A voice add-on is its own provider subscription tied to the membership;
+  // its checkout, subscription and invoice events never touch the membership.
+  if (await processVoiceAddOnEvent(db, e, deps)) return { processed: true };
+  if (await processMembershipCheckoutEvent(db, e, deps))
+    return { processed: true };
   if (!supported.has(e.type)) return { ignored: true };
   let object = e.data.object;
   const meta = object.metadata?.tenant_id
@@ -230,10 +236,13 @@ export async function processStripeEvent(
     );
     const lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
     const newer = !eventTime || eventTime >= lastTime;
+    // An upfront programme has no provider subscription: a subscription event
+    // for this member then concerns an older (or unexpected) membership.
     const differentSubscription = !!(
       subscriptionId &&
-      current?.provider_id &&
-      subscriptionId !== current.provider_id
+      (current?.provider_id
+        ? subscriptionId !== current.provider_id
+        : current?.data?.billing === "upfront")
     );
     const currentTerminal = ["canceled", "incomplete_expired"].includes(
       current?.status,
@@ -250,7 +259,10 @@ export async function processStripeEvent(
     if (
       newer &&
       priceId &&
-      (e.type.startsWith("customer.subscription.") || !current?.data?.priceId)
+      (e.type.startsWith("customer.subscription.") ||
+        !current?.data?.priceId ||
+        // A new membership after an upfront programme maps its own price.
+        (current?.data?.billing === "upfront" && differentSubscription))
     ) {
       const [offer] = await tx.query(
         "SELECT id,data FROM records WHERE kind='product' AND data->>'stripePriceId'=$1",
@@ -263,6 +275,10 @@ export async function processStripeEvent(
             modules: offer.data.modules ?? ["training"],
             premiumVoice: offer.data.premiumVoice === true,
             priceId,
+            // The membership snapshots the offer's billing and trainer-set
+            // programme length (block length for a monthly offer).
+            billing: "monthly",
+            programmeDays: offer.data.programmeDays ?? null,
           }
         : { modules: [], priceId, unmappedPrice: true, premiumVoice: false };
     } else if (!current?.data?.modules) {
@@ -280,6 +296,32 @@ export async function processStripeEvent(
         ),
       };
     }
+    // Day 1 of the programme: the start of a new membership (or of one that
+    // replaces an ended membership or upfront programme). A continuing
+    // membership keeps its start; one stored before programme starts existed
+    // starts at its first payment.
+    const startSeconds =
+      Number(
+        object.start_date ??
+          object.lines?.data?.[0]?.period?.start ??
+          object.created ??
+          eventTime,
+      ) || Math.floor(Date.now() / 1000);
+    const programme =
+      !current ||
+      (currentTerminal &&
+        (differentSubscription || current.data?.billing === "upfront"))
+        ? {
+            programmeStartsAt: new Date(startSeconds * 1000).toISOString(),
+            upfront: null,
+          }
+        : current.data?.programmeStartsAt
+          ? {}
+          : {
+              programmeStartsAt:
+                current.data?.firstPaidAt ??
+                new Date(startSeconds * 1000).toISOString(),
+            };
     if (["invoice.paid", "invoice.payment_failed"].includes(e.type)) {
       const safeLink = (value: unknown) => {
         try {
@@ -355,6 +397,7 @@ export async function processStripeEvent(
       const metadata = {
         ...current?.data,
         ...productAccess,
+        ...programme,
         ...(firstPaidAt ? { firstPaidAt } : {}),
         lastStripeEventAt: Math.max(lastTime, eventTime),
         ...(newer ? { graceUntil: null, pastDueSince: null } : {}),
@@ -383,25 +426,13 @@ export async function processStripeEvent(
         // A subscriber with no positive charge (a free trial) never takes a slot. Treatment of
         // churned and re-entering subscribers, and of a first charge processed after later payers
         // were ranked, remains a finance-policy decision.
-        let rank = Number(current?.data?.commissionRank);
-        if (!Number.isSafeInteger(rank) || rank < 1) {
-          const assigned = await tx.query(
-            "WITH top AS (SELECT coalesce(max((data->>'commissionRank')::int),0) AS n FROM subscriptions WHERE data ? 'commissionRank'), pending AS (SELECT s.id,row_number() OVER (ORDER BY coalesce((s.data->>'firstPaidAt')::timestamptz,$3::timestamptz),s.user_id) AS n FROM subscriptions s WHERE NOT s.data ? 'commissionRank' AND (s.user_id=$1 OR (s.data ? 'firstPaidAt' AND EXISTS(SELECT 1 FROM journals j WHERE j.source_key LIKE 'stripe-invoice:%' AND j.data->>'userId'=s.user_id::text AND (j.data->>'grossMinor')::numeric>0)))) UPDATE subscriptions s SET data=$2::jsonb||jsonb_build_object('commissionRank',top.n+pending.n)||s.data FROM top,pending WHERE s.id=pending.id RETURNING s.user_id=$1 AS payer,(s.data->>'commissionRank')::int AS rank",
-            [
-              userId,
-              JSON.stringify({
-                firstPaidAt,
-                commissionRankMethod: COMMISSION_RANK_METHOD,
-              }),
-              firstPaidAt,
-            ],
-          );
-          rank = Number(assigned.find((row) => row.payer)?.rank);
-          if (!Number.isSafeInteger(rank) || rank < 1)
-            throw new Error(
-              "Subscriber commission rank unavailable; retain receipt for reconciliation",
-            );
-        }
+        const rank = await assignCommissionRank(
+          tx,
+          userId,
+          current,
+          firstPaidAt,
+          COMMISSION_RANK_METHOD,
+        );
         await recordCharge(tx, a, `stripe-invoice:${object.id}`, amount, rank, {
           userId,
           chargeId: chargeId ?? null,
@@ -435,6 +466,7 @@ export async function processStripeEvent(
       const data = {
         ...current?.data,
         ...productAccess,
+        ...programme,
         lastStripeEventAt: eventTime,
         ...([
           "active",
@@ -507,7 +539,7 @@ export async function processStripeEvent(
       // A membership charge is found by its charge id; a paid coaching
       // session's charge journal records only its payment intent.
       const [original] = await tx.query(
-        "SELECT * FROM journals WHERE (data->>'chargeId'=$1 AND source_key LIKE 'stripe-invoice:%') OR ($2::text IS NOT NULL AND source_key LIKE 'booking-charge:%' AND data->>'paymentIntentId'=$2) ORDER BY created_at LIMIT 1",
+        "SELECT * FROM journals WHERE (data->>'chargeId'=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%')) OR ($2::text IS NOT NULL AND source_key LIKE 'booking-charge:%' AND data->>'paymentIntentId'=$2) ORDER BY created_at LIMIT 1",
         [chargeId, paymentIntentId ?? null],
       );
       if (!original) throw new Error("Disputed charge has not been reconciled");
@@ -606,9 +638,10 @@ async function applyRefund(
   );
   if (exists) return;
   const [original] = await tx.query(
-    "SELECT * FROM journals WHERE data->>'chargeId'=$1 AND source_key LIKE 'stripe-invoice:%'",
+    "SELECT * FROM journals WHERE data->>'chargeId'=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%')",
     [chargeId],
   );
+  const programmeCharge = original?.source_key.startsWith("stripe-programme:");
   if (!original) throw new Error("Refunded charge has not been reconciled");
   const amount = refund.amount;
   if (!Number.isSafeInteger(amount) || amount <= 0 || refund.currency !== "aed")
@@ -629,7 +662,11 @@ async function applyRefund(
     tx,
     a,
     `stripe-refund:${refund.id}`,
-    "Subscription refund",
+    programmeCharge
+      ? "Programme refund"
+      : original.data.purpose === "voice_addon"
+        ? "Voice add-on refund"
+        : "Subscription refund",
     [
       { account: "stripe_receivable", amount: -amount },
       { account: "trainer_payable", amount: amount - fee },
@@ -641,8 +678,12 @@ async function applyRefund(
       commissionReversalMinor: fee,
       chargeId,
       userId: memberId,
+      ...(original.data.purpose ? { purpose: original.data.purpose } : {}),
     },
   );
+  // A fully refunded upfront programme no longer grants access.
+  if (programmeCharge && final)
+    await endRefundedProgramme(tx, a, memberId, original, refund.id);
   await event(tx, a, "refund.succeeded", refund.id, {
     providerEventId: eventId,
   });

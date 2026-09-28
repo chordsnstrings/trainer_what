@@ -260,7 +260,7 @@ export async function requestRefund(
     // migration 061); an operator override reads the journal directly.
     const [charge] = override
       ? await tx.query(
-          "SELECT j.*,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.data->>'userId'=$1 AND j.data->>'chargeId'=$2 AND j.source_key LIKE 'stripe-invoice:%'",
+          "SELECT j.*,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.data->>'userId'=$1 AND j.data->>'chargeId'=$2 AND (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%')",
           [userId, input.chargeId],
         )
       : await tx.query(
@@ -489,7 +489,7 @@ export async function adminRefundReview(
       [chargeId ?? null],
     ),
     charges: await tx.query(
-      "SELECT j.id,j.data,j.created_at,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE j.source_key LIKE 'stripe-invoice:%' AND j.data->>'chargeId' IS NOT NULL AND ($1::text IS NULL OR j.data->>'chargeId'=$1) ORDER BY j.created_at DESC LIMIT 200",
+      "SELECT j.id,j.data,j.created_at,coalesce((SELECT sum((r.data->>'refundAmountMinor')::bigint) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)::text AS refunded_minor FROM journals j WHERE (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND j.data->>'chargeId' IS NOT NULL AND ($1::text IS NULL OR j.data->>'chargeId'=$1) ORDER BY j.created_at DESC LIMIT 200",
       [chargeId ?? null],
     ),
   }));

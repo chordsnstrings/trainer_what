@@ -239,7 +239,8 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
         description: "Everything in the workout tier plus weekly meal plans (sandbox)",
         priceMinor: plan.workoutPriceMinor + 15000,
         tier: "workout_nutrition",
-        premiumVoice: plan.voice,
+        // Voice is an add-on members buy with their membership (programme.md).
+        voiceAddOnMinor: plan.voice ? 4900 : null,
         baseProductId: seed.products.workout.id,
       });
     }

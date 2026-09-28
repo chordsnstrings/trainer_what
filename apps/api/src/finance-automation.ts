@@ -13,6 +13,8 @@ import { z } from "zod";
 import { processStripeEvent } from "./stripe-events.ts";
 import { reconcileRenewal, reconcileRefund } from "./finance-billing.ts";
 import { reconcileBookingPayment } from "./finance-bookings.ts";
+import { projectVoiceAddOn, reconcileVoiceCheckout } from "./voice-addon.ts";
+import { reconcileProgrammeCheckout } from "./programme-billing.ts";
 import {
   closeMonth,
   monthCutoff,
@@ -200,6 +202,25 @@ export async function syncStripeSubscription(
   const [s] = await db.tenant(a, (tx) =>
     tx.query("SELECT * FROM subscriptions WHERE user_id=$1", [userId]),
   );
+  // The voice add-on is its own provider subscription (voice-addon.ts).
+  const voice = s?.data?.voiceAddOn?.providerId;
+  if (voice) {
+    const remote: any = await stripe.subscriptions.retrieve(voice);
+    if (
+      remote.id !== voice ||
+      (remote.metadata?.tenant_id && remote.metadata.tenant_id !== a.tenantId) ||
+      (remote.metadata?.user_id && remote.metadata.user_id !== userId)
+    )
+      throw fail(
+        "PROVIDER_OWNER_MISMATCH",
+        "Voice add-on identity does not match the workspace",
+      );
+    await projectVoiceAddOn(db, a.tenantId, userId, remote, {
+      eventId: `reconcile-voice-addon:${remote.id}:${Date.now()}`,
+      eventTime: Math.floor(Date.now() / 1000),
+      stripe,
+    });
+  }
   if (!s?.provider_id) return;
   const remote = await stripe.subscriptions.retrieve(s.provider_id);
   if (
@@ -275,7 +296,7 @@ async function reconcileObligations(
 ) {
   const rows = await db.tenant(a, (tx) =>
     tx.query(
-      "SELECT * FROM records WHERE (kind='refund' AND status IN ('submitting','submitted','unknown')) OR (kind='subscription_transition' AND status IN ('submitting','unknown')) OR (kind='booking_payment' AND status IN ('pending','creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) ORDER BY created_at LIMIT 50",
+      "SELECT * FROM records WHERE (kind='refund' AND status IN ('submitting','submitted','unknown')) OR (kind='subscription_transition' AND status IN ('submitting','unknown')) OR (kind='booking_payment' AND status IN ('pending','creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) OR (kind='checkout' AND status IN ('creating','unknown') AND data->>'purpose' IN ('programme','voice_addon') AND created_at<now()-interval '2 minutes') ORDER BY created_at LIMIT 50",
     ),
   );
   let unresolved = 0;
@@ -284,6 +305,10 @@ async function reconcileObligations(
       if (r.kind === "refund") await reconcileRefund(db, a, r.id, stripe);
       else if (r.kind === "subscription_transition")
         await reconcileRenewal(db, { ...a, userId: r.owner_user_id }, stripe);
+      else if (r.kind === "checkout" && r.data.purpose === "voice_addon")
+        await reconcileVoiceCheckout(db, a, r, stripe);
+      else if (r.kind === "checkout")
+        await reconcileProgrammeCheckout(db, r, stripe);
       else await reconcileBookingPayment(db, a, r.data.bookingId, stripe);
     } catch {
       unresolved++;

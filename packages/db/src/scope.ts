@@ -55,6 +55,7 @@ export const ELEVATIONS = {
       "apps/api/src/notifications.ts",
       "apps/api/src/nutrition-schedule.ts",
       "apps/api/src/platform-alerts.ts",
+      "apps/api/src/programme-today.ts",
       "apps/api/src/safety-policy.ts",
       "apps/worker/src/dispatch.ts",
       "apps/worker/src/email-delivery.ts",
@@ -69,7 +70,9 @@ export const ELEVATIONS = {
       "apps/api/src/acquisition.ts",
       "apps/api/src/finance-bookings.ts",
       "apps/api/src/finance-checkout.ts",
+      "apps/api/src/programme-billing.ts",
       "apps/api/src/stripe-events.ts",
+      "apps/api/src/voice-addon.ts",
     ],
   },
   "platform-operator": {
