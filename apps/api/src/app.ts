@@ -26,7 +26,14 @@ import { registerVoiceAddOn } from "./voice-addon.ts";
 import { registerProgrammeToday } from "./programme-today.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
-import { registerBrainPlans } from "./brain-plans.ts";
+import { loadPlanSettings, registerBrainPlans } from "./brain-plans.ts";
+import {
+  evaluationAnswerIssues,
+  planLibrary,
+} from "../../../packages/domain/src/brain-plans.ts";
+import { compiledRuleFlags } from "../../../packages/domain/src/text-screen.ts";
+import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
+import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import {
   registerCoachingFeedback,
@@ -194,6 +201,7 @@ import {
   refundEligible,
 } from "@trainer/domain";
 import {
+  ModelOutputInvalid,
   ProviderUnavailable,
   integrationStatus,
   modelDecision,
@@ -1304,7 +1312,15 @@ export async function buildApp(
       const rules = [],
         conflicts = [],
         batchId = randomUUID();
-      for (const rule of generated.rules)
+      // Warnings the trainer sees on the draft before confirming it (medical
+      // advice, a red flag the directive does not stop for, links, contact
+      // details, approval claims, guarantees).
+      const policy = await activeSafetyPolicy(tx);
+      for (const rule of generated.rules) {
+        const flags = compiledRuleFlags(
+          rule,
+          (text) => screenSafety(text, policy).hold,
+        );
         rules.push(
           await putRecord(
             tx,
@@ -1312,6 +1328,7 @@ export async function buildApp(
             "rule",
             {
               ...rule,
+              ...(flags.length ? { flags } : {}),
               allowedUses: [
                 "render",
                 "model_prompt",
@@ -1323,6 +1340,7 @@ export async function buildApp(
             { status: "draft" },
           ),
         );
+      }
       for (const conflict of generated.conflicts)
         conflicts.push(
           await putRecord(tx, a, "conflict", conflict, { status: "open" }),
@@ -1331,6 +1349,7 @@ export async function buildApp(
         rules: rules.length,
         conflicts: generated.conflicts.length,
         coverage: generated.coverage,
+        flagged: rules.filter((r: any) => r.data.flags?.length).length,
         ruleIds: rules.map((r) => r.id),
         conflictIds: conflicts.map((c) => c.id),
       });
@@ -1431,10 +1450,21 @@ export async function buildApp(
     });
   });
   app.post("/api/v1/brain/rules/:id/confirm", async (req) => {
-    const a = owner(req);
+    const a = owner(req),
+      b = z
+        .object({ acknowledgeFlags: z.boolean().default(false) })
+        .parse(req.body ?? {});
     return db.tenant(a, async (tx) => {
       const r = await findRecord(tx, (req.params as any).id, "rule");
       if (r.status === "confirmed") return r;
+      // A flagged compiled rule is confirmed only one at a time with its
+      // warning shown; correcting the rule clears the flags.
+      if (r.data.flags?.length && !b.acknowledgeFlags)
+        throw fail(
+          409,
+          "RULE_FLAGGED",
+          `This draft rule was flagged (${r.data.flags.join(", ").replaceAll("_", " ")}); correct it, or confirm it with the warning acknowledged`,
+        );
       const [out] = await tx.query(
         "UPDATE records SET status='confirmed',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1 RETURNING *",
         [
@@ -1486,6 +1516,19 @@ export async function buildApp(
         "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT $1",
         [HELD_OUT_SCENARIO_LIMIT + 1],
       ),
+      // The trainer's library and plan bounds grade any program an answer
+      // proposes.
+      plan: {
+        library: planLibrary(
+          await tx.query(
+            "SELECT * FROM records WHERE kind='exercise' AND status='active' ORDER BY data->>'name',id LIMIT 1000",
+          ),
+          await tx.query(
+            "SELECT * FROM records WHERE kind='program' AND status='template' ORDER BY created_at DESC,id LIMIT 100",
+          ),
+        ),
+        bounds: (await loadPlanSettings(tx)).settings.bounds,
+      },
     }));
     // Every held-out scenario is evaluated; none is silently dropped.
     if (material.cases.length > HELD_OUT_SCENARIO_LIMIT)
@@ -1501,18 +1544,55 @@ export async function buildApp(
         "EVAL_COVERAGE",
         "Add at least 20 held-out scenarios before evaluating a release",
       );
-    const outcomes: Array<{ scenarioId: string; passed: boolean }> = [];
+    const outcomes: Array<{
+      scenarioId: string;
+      passed: boolean;
+      error?: string;
+      issues?: string[];
+    }> = [];
     for (const c of material.cases) {
-      const generated = await modelDecision(
-        "held_out_evaluation",
-        c.data.prompt,
-        material.rules.map((r) => ({ id: r.id, data: r.data })),
-        modelAccounting(db, a, "evaluation"),
-      );
-      const passed = c.data.expectEscalation
+      let generated: Awaited<ReturnType<typeof modelDecision>>;
+      try {
+        generated = await modelDecision(
+          "held_out_evaluation",
+          c.data.prompt,
+          material.rules.map((r) => ({ id: r.id, data: r.data })),
+          modelAccounting(db, a, "evaluation"),
+        );
+      } catch (error) {
+        // An invalid answer fails its scenario; the rest of the run and the
+        // calls already paid for are kept. Configuration and network
+        // failures still stop the evaluation.
+        if (!(error instanceof ModelOutputInvalid)) throw error;
+        outcomes.push({
+          scenarioId: c.id,
+          passed: false,
+          error: "invalid_model_answer",
+        });
+        continue;
+      }
+      const routed = c.data.expectEscalation
         ? generated.decision.type === "escalation"
         : generated.decision.evidenceIds.includes(c.data.expectedEvidenceId);
-      outcomes.push({ scenarioId: c.id, passed });
+      // Citing the right rule is not enough: the wording and any program
+      // must also be safe to show a member.
+      const cited = material.rules.filter((r) =>
+        generated.decision.evidenceIds.includes(r.id),
+      );
+      const issues = evaluationAnswerIssues(generated.decision, {
+        ...material.plan,
+        programExpected:
+          !c.data.expectEscalation &&
+          generated.decision.type === "program_build",
+        citedText: cited
+          .map((r) => [r.data.title, r.data.condition, r.data.directive].join(". "))
+          .join(" "),
+      });
+      outcomes.push({
+        scenarioId: c.id,
+        passed: routed && !issues.length,
+        ...(issues.length ? { issues } : {}),
+      });
     }
     const digest = createHash("sha256")
       .update(

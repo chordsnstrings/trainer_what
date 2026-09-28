@@ -31,6 +31,7 @@ import {
   startingLoadsFor,
   validateAdaptedWeek,
   validatePlan,
+  planTextIssues,
   type AdaptationWeek,
   type ExpandedExercise,
   type PlanDraft,
@@ -418,8 +419,19 @@ async function reviewedCount(tx: Tx) {
   );
   return row.n as number;
 }
-function toProgramExercise(e: ExpandedExercise, library: PlanLibrary) {
+/**
+ * A programme exercise for the member's record. `cueFrom: "library"` (an
+ * automatic delivery) keeps the trainer's library cue and never the model's
+ * wording, which is spoken as the trainer's in a voice session; a plan the
+ * trainer approved or edited keeps the draft's cue (the trainer saved it).
+ */
+function toProgramExercise(
+  e: ExpandedExercise,
+  library: PlanLibrary,
+  cueFrom: "library" | "draft" = "draft",
+) {
   const entry = library.get(normalizeTerm(e.name));
+  const cue = cueFrom === "library" ? (entry?.cue ?? "") : e.cue || entry?.cue || "";
   return {
     name: entry?.name ?? e.name,
     sets: Math.min(10, e.sets),
@@ -427,7 +439,7 @@ function toProgramExercise(e: ExpandedExercise, library: PlanLibrary) {
     restSeconds: e.restSeconds,
     loadKg: e.loadKg,
     rir: e.rir,
-    cue: (e.cue || entry?.cue || "").slice(0, 1000),
+    cue: cue.slice(0, 1000),
     ...(entry?.demonstrationUrl ? { demonstrationUrl: entry.demonstrationUrl } : {}),
     alternatives: e.alternatives.slice(0, 10).map((n) => {
       const alt = library.get(normalizeTerm(n));
@@ -435,6 +447,14 @@ function toProgramExercise(e: ExpandedExercise, library: PlanLibrary) {
     }),
   };
 }
+/** Every member-visible wording in a draft, trimmed. */
+const planTexts = (d: Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions">) =>
+  [
+    d.title,
+    d.summary,
+    ...d.weeks.map((w) => w.focus),
+    ...d.sessions.flatMap((s) => [s.label, ...s.exercises.map((e) => e.cue ?? "")]),
+  ].map((t) => String(t ?? "").trim());
 const fromProgramExercise = (e: any): ExpandedExercise => ({
   name: e.name,
   sets: e.sets,
@@ -477,8 +497,18 @@ async function deliverProgramme(
     library: PlanLibrary;
     fromDate?: string;
     replace?: "generated" | "all";
+    /** Delivered without the trainer: the text screen must pass and library cues are used. */
+    automatic?: boolean;
   },
 ) {
+  // Second layer behind validatePlan: nothing the model wrote reaches the
+  // member on the automatic route unless it passes the member-text screen.
+  if (input.automatic) {
+    const issues = planTextIssues(input.draft, input.library);
+    if (issues.length)
+      throw fail(409, "PLAN_TEXT_WITHHELD", "The plan's wording failed the member-text screen and was not delivered: " + issues[0].message);
+  }
+  const cueFrom = input.automatic ? "library" : "draft";
   const today = localDate(input.timezone);
   const startDate = input.fromDate
     ? input.startDate
@@ -510,7 +540,7 @@ async function deliverProgramme(
     label: s.label,
     weekday: s.weekday,
     exercises: (firstWeek.find((d) => d.key === s.key)?.exercises ?? s.exercises.map((e) => ({ ...e }))).map(
-      (e) => toProgramExercise(e as ExpandedExercise, input.library),
+      (e) => toProgramExercise(e as ExpandedExercise, input.library, cueFrom),
     ),
   }));
   const program = await putRecord(
@@ -570,7 +600,7 @@ async function deliverProgramme(
           goal: input.profile.goal,
           daysPerWeek: input.draft.sessions.length,
           weeks: Math.min(26, weeks),
-          exercises: slot.exercises.map((e) => toProgramExercise(e, input.library)),
+          exercises: slot.exercises.map((e) => toProgramExercise(e, input.library, cueFrom)),
         },
         programId: program.id,
         programVersion: program.version,
@@ -1031,6 +1061,7 @@ async function routeProgramme(
       timezone: p.timezone,
       library: ctx.material.library,
       replace: "generated",
+      automatic: true,
     });
     await updateGeneration(tx, gen.id, "delivered", {
       ...base,
@@ -1555,11 +1586,15 @@ export async function reviewPlanGeneration(db: Database, a: Actor, generationId:
       draft = original;
     }
     const programmeDays = gen.data.inputs.programmeDays;
+    // Wording the trainer typed is theirs; wording kept from the model's
+    // draft is screened like an automatic plan's.
+    const modelText = new Set(original ? planTexts(original) : []);
     const validation = validatePlan(draft, {
       profile,
       library: material.library,
       bounds: settings.bounds,
       programmeDays,
+      trainerText: new Set(b.action === "edit" ? planTexts(draft).filter((t) => !modelText.has(t)) : []),
     });
     if (validation.errors.length)
       throw Object.assign(fail(400, "PLAN_INVALID", "The plan does not pass your bounds: " + validation.errors.slice(0, 3).join("; ")), { errors: validation.errors });
@@ -1768,7 +1803,11 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
     const expectedReview = scenario.data.expected === "review";
     const safety = planSafetyReasons({ limitations: profile.limitations, redFlags: flagsOf(profile), painReports: 0 });
     if (safety.length) {
-      // The live route never calls the model for these either.
+      // The safety floor sends these to the trainer whatever the model
+      // writes, so the outcome cannot depend on the model and no model call
+      // is paid for here. The live route still calls the model so the
+      // trainer has a draft to edit; that draft's member-text screen and
+      // validator errors are shown on the review item.
       outcomes.push({ scenarioId: scenario.id, type: "programme", expected: scenario.data.expected, route: "review", passed: expectedReview, gate: "code_safety", reasons: safety });
       continue;
     }

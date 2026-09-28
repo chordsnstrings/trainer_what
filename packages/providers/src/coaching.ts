@@ -3,6 +3,7 @@ import { allowedModelEvidence } from "@trainer/domain";
 import { coachingPromptVersion } from "../../domain/src/coaching-completion.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { runtimeConfig } from "./configuration.ts";
+import { ModelOutputInvalid } from "./index.ts";
 import {
   coachingRetrievalPolicy,
   retrieveCoachingTeaching,
@@ -83,23 +84,27 @@ export async function selectCoachAction(
     },
     accounting,
   );
-  const selection = selectionSchema.parse(
-    JSON.parse(payload.choices?.[0]?.message?.content ?? "null"),
-  );
-  const ids = new Set(evidence.map((e) => e.id));
-  if (selection.evidenceIds.some((id) => !ids.has(id)))
-    throw Object.assign(
-      new Error("The model cited evidence outside the coach's release"),
-      { statusCode: 409 },
+  // A malformed answer, evidence outside the release or an unavailable
+  // action is withheld like any invalid model output (usage stays recorded);
+  // callers route it to the trainer or score it as a failed scenario.
+  let selection: z.infer<typeof selectionSchema>;
+  try {
+    selection = selectionSchema.parse(
+      JSON.parse(payload.choices?.[0]?.message?.content ?? "null"),
     );
-  if (
-    selection.actionId &&
-    !input.actions.some((a) => a.id === selection.actionId)
-  )
-    throw Object.assign(
-      new Error("The model selected an unavailable coach action"),
-      { statusCode: 409 },
+    const ids = new Set(evidence.map((e) => e.id));
+    if (selection.evidenceIds.some((id) => !ids.has(id)))
+      throw new Error("The model cited evidence outside the coach's release");
+    if (
+      selection.actionId &&
+      !input.actions.some((a) => a.id === selection.actionId)
+    )
+      throw new Error("The model selected an unavailable coach action");
+  } catch {
+    throw new ModelOutputInvalid(
+      "The coaching model response failed validation and was withheld. Provider usage remains recorded.",
     );
+  }
   return {
     selection,
     usage,

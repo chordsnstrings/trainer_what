@@ -259,7 +259,7 @@ test("the model receives only retrieved reviewed text and cannot cite omitted ev
     citeOmitted = true;
     await assert.rejects(
       () => selectCoachAction(data, accounting),
-      /outside the coach's release/,
+      /coaching model response failed validation and was withheld/,
     );
     assert.equal(reservations, 2);
   } finally {

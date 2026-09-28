@@ -42,7 +42,8 @@ optional on-device speech commands).
   `trainer`; model wording is never spoken unless the trainer saved it into the style):
   intro + a code-owned safety line,
   warm-up, per exercise a setup line ("Exercise 1 of 2: Back squat. 3 sets of 8 reps at 60
-  kilograms."), the trainer's cue, form reminders, one announcement per set, rest and
+  kilograms."), the trainer's cue (an automatically delivered Brain plan stores the library's
+  cue, never the model's; a plan the trainer approved keeps the cue they saved), form reminders, one announcement per set, rest and
   rest-over prompts, encouragement, cool-down and finish, plus the trainer's adjustment rules.
   Each line has an owner: `code` (numbers, safety and tone defaults) or `trainer` (their
   saved phrases or their plan cue).

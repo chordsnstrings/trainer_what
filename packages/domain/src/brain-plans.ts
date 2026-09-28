@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addTrainingDays, canonicalCoaching } from "./coaching-completion.ts";
+import { MEDICAL_ADVICE, modelCueIssues, numbersNotIn, proseIssues } from "./text-screen.ts";
 
 /**
  * Trainer Brain plan generation: the model's structured output, the code
@@ -414,6 +415,12 @@ export type PlanCheckContext = {
    * Omitted for a trainer's own edits (the trainer decides).
    */
   loadReference?: Map<string, number>;
+  /**
+   * Wording the trainer wrote in an edit. The member-text screen reports it
+   * as a warning (the trainer decides); every other title, summary, focus,
+   * label or non-library cue is the model's and an issue is an error.
+   */
+  trainerText?: Set<string>;
 };
 export type PlanValidation = {
   errors: string[];
@@ -586,6 +593,37 @@ function finish(result: PlanValidation, exerciseNames: string[], ctx: PlanCheckC
     );
   return result;
 }
+/**
+ * The member-text screen: every title, summary, week focus, session label and
+ * exercise cue the member reads or hears. A cue that is the library's own
+ * (the trainer's wording) is not screened. Returns one message per problem.
+ */
+export function planTextIssues(
+  draft: Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions">,
+  library: PlanLibrary,
+) {
+  const found: Array<{ text: string; message: string }> = [];
+  const prose: Array<[string, string]> = [
+    ["Title", draft.title],
+    ["Summary", draft.summary],
+    ...draft.weeks.map((w): [string, string] => [`Week ${w.week} focus`, w.focus]),
+    ...draft.sessions.map((s): [string, string] => [`Session ${s.key} label`, s.label]),
+  ];
+  for (const [where, text] of prose) {
+    const issues = proseIssues(text);
+    if (issues.length)
+      found.push({ text, message: `${where} cannot be shown to the subscriber (${issues.join(", ").replaceAll("_", " ")})` });
+  }
+  for (const s of draft.sessions)
+    for (const e of s.exercises) {
+      const cue = String(e.cue ?? "").trim();
+      if (!cue || cue === String(library.get(normalizeTerm(e.name))?.cue ?? "").trim()) continue;
+      const issues = modelCueIssues(cue);
+      if (issues.length)
+        found.push({ text: cue, message: `Session ${s.key}: ${e.name} cue cannot be shown to the subscriber (${issues.join(", ").replaceAll("_", " ")})` });
+    }
+  return found;
+}
 /** Validates a whole programme draft against the trainer's bounds and library. */
 export function validatePlan(
   draft: PlanDraft,
@@ -625,6 +663,13 @@ export function validatePlan(
     if (!draft.evidenceIds.length)
       result.warnings.push("The plan cites no trainer rule, case or example");
   }
+  // Model wording is screened before anything reaches the member: an issue
+  // is an error, which zeroes the validation signal and sends the plan to
+  // the trainer. The trainer's own edited wording is only warned about.
+  for (const issue of planTextIssues(draft, ctx.library))
+    if (ctx.trainerText?.has(issue.text.trim()))
+      result.warnings.push(issue.message.replace("cannot be shown to", "may not suit"));
+    else result.errors.push(issue.message);
   const expanded = expandPlan(draft);
   let reference = ctx.previousWeek?.length ? ctx.previousWeek : null;
   for (const week of expanded) {
@@ -691,6 +736,9 @@ export function applyAdaptation(
           (a) => normalizeTerm(a) !== normalizeTerm(change.replaceWith!),
         );
         exercise.name = change.replaceWith;
+        // The replaced exercise's cue does not describe the alternative; the
+        // library cue of the alternative is used when the week is written.
+        exercise.cue = "";
       }
     }
   }
@@ -990,4 +1038,58 @@ export function planDiff(before: any, after: any): PlanChange[] {
         out.push({ path: `weeks.${w.week}.${field}`, from: prior[field], to: w[field] });
   }
   return out.slice(0, 300);
+}
+
+/**
+ * Content grade for a held-out Brain evaluation answer (legacy coaching
+ * decisions): citing the expected rule is not enough when the wording gives
+ * medical advice, links or contact details, claims the trainer's approval or
+ * guarantees results, or when a program is outside the trainer's library or
+ * bounds. Returns the reasons the answer fails (empty when it is acceptable).
+ */
+export function evaluationAnswerIssues(
+  decision: {
+    type: string;
+    message: string;
+    reason: string;
+    program?: { exercises: Array<{ name: string; sets: number; reps: number; restSeconds: number; loadKg?: number; cue?: string }> };
+  },
+  ctx: {
+    library: PlanLibrary;
+    bounds: PlanBounds;
+    programExpected: boolean;
+    /** Title, condition and directive of the rules the answer cites. */
+    citedText?: string;
+  },
+) {
+  const issues = new Set<string>();
+  for (const text of [decision.message, decision.reason])
+    for (const i of proseIssues(text, MEDICAL_ADVICE)) issues.add(i);
+  // A restated rule must keep the rule's numbers ("add 10 kg" for a 2.5 kg
+  // rule, "six sessions" for three, "twice as often").
+  if (ctx.citedText !== undefined && numbersNotIn(decision.message, ctx.citedText).length)
+    issues.add("altered_numbers");
+  const program = decision.program;
+  if (program) {
+    if (!ctx.programExpected) issues.add("unrequested_program");
+    const cap = Math.max(
+      ...Object.values(ctx.bounds.startLoadCapKg ?? planBoundsSchema.parse({}).startLoadCapKg),
+    );
+    for (const e of program.exercises) {
+      const entry = ctx.library.get(normalizeTerm(e.name));
+      if (!entry) issues.add("outside_library");
+      if (
+        e.sets > 10 ||
+        e.restSeconds < ctx.bounds.minRestSeconds ||
+        e.restSeconds > ctx.bounds.maxRestSeconds
+      )
+        issues.add("outside_bounds");
+      const reference = entry?.loadKg ?? 0;
+      const limit = Math.max(cap, reference + Math.max((reference * ctx.bounds.maxLoadJumpPct) / 100, 1));
+      if ((e.loadKg ?? 0) > limit + 1e-9) issues.add("outside_bounds");
+      if (e.cue && e.cue.trim() !== String(entry?.cue ?? "").trim())
+        for (const i of modelCueIssues(e.cue)) issues.add(i === "prescription_change" ? "outside_bounds" : i);
+    }
+  }
+  return [...issues];
 }

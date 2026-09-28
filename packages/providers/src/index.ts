@@ -27,6 +27,17 @@ export class ProviderUnavailable extends Error {
     this.name = "ProviderUnavailable";
   }
 }
+/**
+ * The provider answered but its output failed validation and was withheld
+ * (usage stays recorded). Callers may score or route it instead of failing
+ * the whole request; configuration and network failures are not this.
+ */
+export class ModelOutputInvalid extends ProviderUnavailable {
+  constructor(message = "The model response failed validation and was withheld. Provider usage remains recorded.") {
+    super("model", message);
+    this.name = "ModelOutputInvalid";
+  }
+}
 export function integrationStatus() {
   const config = runtimeConfig();
   return [
@@ -237,10 +248,7 @@ export async function modelDecision(
     decision.requiresHumanReview = true;
     return { decision, usage };
   } catch {
-    throw new ProviderUnavailable(
-      "model",
-      "The model response failed validation and was withheld. Provider usage remains recorded.",
-    );
+    throw new ModelOutputInvalid();
   }
 }
 
@@ -462,8 +470,7 @@ export async function compileTrainerRules(
         );
     return { ...result, usage, coverage };
   } catch {
-    throw new ProviderUnavailable(
-      "model",
+    throw new ModelOutputInvalid(
       "The compiled rules failed validation and were withheld. Provider usage remains recorded.",
     );
   }

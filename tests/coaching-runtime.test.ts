@@ -33,7 +33,9 @@ const original = Object.fromEntries(
   ),
   originalFetch = globalThis.fetch;
 let calls = 0,
-  afterGeneration: (() => Promise<void>) | undefined;
+  afterGeneration: (() => Promise<void>) | undefined,
+  /** Replaces the action-selection answer (a string is sent as raw content). */
+  selectionAnswer: ((input: any) => unknown) | undefined;
 const facts = {
   profile: {
     experience: "beginner",
@@ -104,10 +106,18 @@ before(async () => {
           requiresHumanReview: true,
         };
     if (afterGeneration) await afterGeneration();
+    const scripted =
+      input.actions && selectionAnswer ? selectionAnswer(input) : undefined;
+    const content =
+      scripted === undefined
+        ? JSON.stringify(result)
+        : typeof scripted === "string"
+          ? scripted
+          : JSON.stringify(scripted);
     return Response.json({
       id: "qualified-fixture-call",
       usage: { prompt_tokens: 20, completion_tokens: 10 },
-      choices: [{ message: { content: JSON.stringify(result) } }],
+      choices: [{ message: { content } }],
     });
   };
   db = await createDatabase({ memory: true });
@@ -808,6 +818,94 @@ test("takeover, profile edits and erased membership during generation cannot pro
       [client.tenantId, client.userId],
     ),
   );
+});
+test("a malformed action selection reaches the trainer as a review item, and an invalid evaluation answer fails only its scenario", async () => {
+  const request = "Help me stay consistent with my routine this week";
+  // adversarial-s4 1ee4d4ae8816: wrong types throughout; then invalid JSON;
+  // then evidence from outside the release.
+  const answers: Array<(input: any) => unknown> = [
+    () => ({
+      actionId: "not-a-uuid",
+      requiresHumanReview: "no",
+      reason: "",
+      evidenceIds: "all of them",
+    }),
+    () => '{"actionId": null, "requiresHumanReview": true,',
+    (input) => ({
+      actionId: input.actions[0].id,
+      requiresHumanReview: false,
+      reason: "Cites another coach's rule",
+      evidenceIds: [input.actions[0].id, randomUUID()],
+    }),
+  ];
+  try {
+    for (const answer of answers) {
+      selectionAnswer = answer;
+      const costs = await db.tenant(coach, (tx) =>
+        tx.query("SELECT count(*)::int AS n FROM cost_events"),
+      );
+      const r = await req("/coaching/ask", "POST", { message: request }, client);
+      assert.equal(r.statusCode, 200, r.body);
+      assert.equal(r.json().pendingReview, true);
+      assert.equal(r.json().automatic, undefined);
+      assert.doesNotMatch(r.body, /Invalid input|requiresHumanReview|evidenceIds|expected/);
+      const [item] = await db.tenant(coach, (tx) =>
+        tx.query(
+          "SELECT * FROM records WHERE kind='exception' AND owner_user_id=$1 AND data->>'cause'='model_output_invalid' ORDER BY created_at DESC LIMIT 1",
+          [client.userId],
+        ),
+      );
+      assert.ok(item, "the question is filed for the trainer");
+      assert.equal(item.status, "open");
+      assert.equal(item.data.category, "human_review");
+      assert.equal(item.data.description, request);
+      assert.equal(item.data.subscriberId, client.userId);
+      const [review] = await db.tenant(coach, (tx) =>
+        tx.query(
+          "SELECT * FROM events WHERE name='coaching.review_required' AND subject_id=$1",
+          [item.id],
+        ),
+      );
+      assert.ok(review, "coaching.review_required is emitted");
+      const after = await db.tenant(coach, (tx) =>
+        tx.query("SELECT count(*)::int AS n FROM cost_events"),
+      );
+      assert.equal(after[0].n, costs[0].n + 1, "the paid call stays recorded");
+      await db.tenant(coach, (tx) =>
+        tx.query("UPDATE records SET status='resolved' WHERE id=$1", [item.id]),
+      );
+    }
+    // adversarial-s3 be60a2d7b89b: one invalid answer used to abort the
+    // whole coaching evaluation with 409; now that scenario fails and the
+    // rest are still scored.
+    selectionAnswer = (input) =>
+      /school holiday/.test(input.request)
+        ? {
+            actionId: input.actions[0].id,
+            requiresHumanReview: false,
+            reason: "Foreign evidence",
+            evidenceIds: [input.actions[0].id, randomUUID()],
+          }
+        : undefined;
+    const limit = process.env.MODEL_MAX_DAILY_CALLS;
+    process.env.MODEL_MAX_DAILY_CALLS = "1000";
+    try {
+      const evaluated = await req("/brain/coaching-evaluate", "POST", {}, coach);
+      assert.equal(evaluated.statusCode, 200, evaluated.body);
+      assert.equal(evaluated.json().status, "failed");
+      const outcomes = evaluated.json().data.outcomes;
+      assert.equal(outcomes.length, 20);
+      const invalid = outcomes.filter((o: any) => o.error === "invalid_model_answer");
+      assert.equal(invalid.length, 1);
+      assert.equal(invalid[0].passed, false);
+      assert.equal(invalid[0].gate, "model_output");
+      assert.equal(evaluated.json().data.passed, 19);
+    } finally {
+      process.env.MODEL_MAX_DAILY_CALLS = limit;
+    }
+  } finally {
+    selectionAnswer = undefined;
+  }
 });
 test("model change invalidates automation while safety takes the code path without a model request", async () => {
   process.env.MODEL_NAME = "unqualified-new-model";

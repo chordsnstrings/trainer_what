@@ -360,6 +360,16 @@ function Empty({
     </div>
   );
 }
+/** Trainer-facing wording for a compiled rule's flags (text-screen.ts). */
+const RULE_FLAG_TEXT: Record<string, string> = {
+  medical_advice: "it gives medicine, dose or diagnosis advice",
+  red_flag_not_stopped:
+    "it names a red flag but does not stop the session and send the member to you or to help",
+  link: "it contains a link or email address",
+  contact: "it contains a phone number",
+  approval_claim: "it claims your approval or tells the Brain to skip review",
+  guarantee: "it guarantees results or tells the member not to check with you",
+};
 function Badge({
   children,
   tone = "",
@@ -1959,18 +1969,34 @@ function BrainView({
                   </p>
                   <p>{r.data.directive}</p>
                   {r.data.reason && <p className="muted">{r.data.reason}</p>}
+                  {r.status !== "confirmed" && r.data.flags?.length > 0 && (
+                    <p role="alert">
+                      <Badge tone="amber">Check before confirming</Badge>{" "}
+                      The compiler flagged this draft:{" "}
+                      {(r.data.flags as string[])
+                        .map((f) => RULE_FLAG_TEXT[f] ?? f.replaceAll("_", " "))
+                        .join("; ")}
+                      . Correct it, or confirm it only if it is your method.
+                    </p>
+                  )}
                   {r.status !== "confirmed" && (
                     <Button
                       secondary
                       disabled={busy}
                       onClick={() =>
                         void action(
-                          () => api(`/brain/rules/${r.id}/confirm`, "POST", {}),
+                          () =>
+                            api(`/brain/rules/${r.id}/confirm`, "POST", {
+                              acknowledgeFlags: r.data.flags?.length > 0,
+                            }),
                           "Rule confirmed",
                         )
                       }
                     >
-                      Confirm this rule <Check size={16} />
+                      {r.data.flags?.length > 0
+                        ? "Confirm despite the warning"
+                        : "Confirm this rule"}{" "}
+                      <Check size={16} />
                     </Button>
                   )}
                 </Card>

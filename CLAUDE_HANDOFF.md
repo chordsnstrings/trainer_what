@@ -10,6 +10,8 @@ Stage 2026-09-28c (branch `core/e2e-ai`, unmerged): the e2e harness gained a 30-
 
 Stage 2026-09-28d (same branch, harness tooling only): `--model-outcomes=FILE` records per model call what the app did with the answer. Reviewed and adversarial answer files were replayed through full runs plus staged runs that reach later kinds; the reviewed compile answers change every later request, so most reviewed answers are reached only when the compile answers come from the capture. Application findings (not fixed): plan title, summary and cues are not screened, so a qualified automatic plan delivered injected text and a link to a member; draft rule compilation accepts invented methods and medical advice for the trainer to confirm; a malformed coach-action answer shows the member raw schema errors. Details in `docs/COMPLETION_STAGES.md` stage 2026-09-28d.
 
+Stage 2026-09-28e (same branch, application fixes): the judged adversarial findings are fixed with tests: a member-text screen for Brain plans (title, summary, week focus, session labels, model cues; `packages/domain/src/text-screen.ts`) so injected, medical or contact text goes to the trainer; malformed coach-action answers become a trainer review item instead of a raw schema error; one invalid evaluation answer fails its scenario instead of aborting the run; the held-out Brain evaluation grades content; compiled draft rules carry flags that need an acknowledged confirm; automatic plans keep library cues. Full harness 430/430; the replays confirm each blocked case. Details in `docs/COMPLETION_STAGES.md` stage 2026-09-28e.
+
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what
