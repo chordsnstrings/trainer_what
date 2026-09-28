@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
+import { VoiceSessionStyle } from "./voice-session-style";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -97,7 +98,10 @@ export function IntegrationCenter({
         </nav>
       )}
       {trainer && path.includes("/voice") ? (
-        <VoiceEnrollment />
+        <>
+          <VoiceEnrollment />
+          <VoiceSessionStyle />
+        </>
       ) : trainer && path.includes("/domains") ? (
         <DomainCenter />
       ) : (

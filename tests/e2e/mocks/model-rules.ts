@@ -25,6 +25,7 @@ export type PromptKind =
   | "meal_photo"
   | "plan_generation"
   | "plan_adaptation"
+  | "voice_session_phrasing"
   | "unknown";
 
 export function classifyPrompt(body: any): { kind: PromptKind; task: string | null; input: any } {
@@ -51,6 +52,8 @@ export function classifyPrompt(body: any): { kind: PromptKind; task: string | nu
     return { kind: "plan_adaptation", task: "plan_adaptation", input };
   if (system.startsWith("Estimate visible food"))
     return { kind: "meal_photo", task: "meal_photo_estimate", input };
+  if (system.startsWith("Voice session phrasing"))
+    return { kind: "voice_session_phrasing", task: "voice_session_suggestions", input };
   return { kind: "unknown", task: null, input };
 }
 
@@ -490,6 +493,26 @@ export function planAdaptation(input: any) {
   };
 }
 
+/**
+ * Voice-session wording from the trainer's own phrases (no invented style).
+ * It never adds numbers; the application checks every line again.
+ */
+// Wording suggestions for the trainer's review (never spoken until saved).
+function voiceSessionPhrasing(input: any) {
+  const phrases = input?.trainerPhrases ?? {};
+  const first = (list: unknown, fallback: string) =>
+    Array.isArray(list) && typeof list[0] === "string" ? list[0] : fallback;
+  return {
+    intro: [first(phrases.intro, "Let's get to work together.")],
+    warmup: [first(phrases.warmup, "Ease into it and warm up. Say done when you are ready.")],
+    encouragement: Array.isArray(phrases.encouragement) && phrases.encouragement.length
+      ? phrases.encouragement.slice(0, 4)
+      : ["Nice work.", "Stay with it."],
+    cooldown: [first(phrases.cooldown, "Well done. Walk it off and breathe easily.")],
+    finish: [first(phrases.finish, "That is the session done. Great effort.")],
+  };
+}
+
 export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | null; content: unknown } {
   const { kind, task, input } = classifyPrompt(body);
   switch (kind) {
@@ -505,6 +528,8 @@ export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | n
       return { kind, task, content: planGeneration(input) };
     case "plan_adaptation":
       return { kind, task, content: planAdaptation(input) };
+    case "voice_session_phrasing":
+      return { kind, task, content: voiceSessionPhrasing(input) };
     case "nutrition": {
       if (task === "nutrition_evaluation") return { kind, task, content: nutritionEvaluation(input) };
       if (task === "nutrition_week") return { kind, task, content: nutritionWeek(input) };

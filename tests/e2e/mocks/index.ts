@@ -191,6 +191,18 @@ export async function startMocks(
       },
       secrets: { VOICE_API_KEY: secrets.voice },
     },
+    speech_to_text: {
+      values: {
+        STT_PROVIDER: "elevenlabs",
+        STT_BASE_URL: voice.baseUrl,
+        STT_MODEL: "scribe_v1",
+        STT_PRICE_VERSION: "mock-2026-09",
+        STT_USD_PER_HOUR: "0.4",
+        STT_ZERO_RETENTION: "true",
+        STT_CONTRACT_VERIFIED: "true",
+      },
+      secrets: { STT_API_KEY: secrets.voice },
+    },
     domains: {
       values: {
         DOMAIN_PROVIDER: "mock-registrar",

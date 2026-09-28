@@ -168,6 +168,10 @@ export async function verifyRuntimeAccess(client) {
     "complimentary_access",
     "healthkit_devices",
     "healthkit_sync_batches",
+    // Voice-led sessions (065): tenant tables, no direct service grants.
+    "voice_session_styles",
+    "voice_sessions",
+    "voice_session_clips",
   ];
   const classifiedTables = new Set([
     ...Object.keys(systemTables),
@@ -243,6 +247,8 @@ export async function verifyRuntimeAccess(client) {
     "member_policy_review_append(jsonb,jsonb,integer)",
     // Migration 063: a follower's own plan-generation state (docs/features/brain-plans.md).
     "member_plan_status()",
+    // Migration 065: the trainer's current voice-session style for members.
+    "voice_session_style()",
   ];
   for (const name of functions) {
     const [r] = await query(

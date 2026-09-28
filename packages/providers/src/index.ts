@@ -131,6 +131,12 @@ export function integrationStatus() {
       ...integrationCapability("voice", config)!,
     },
     {
+      id: "speech_to_text",
+      name: "Speech-to-text",
+      purpose: "Spoken replies during voice-led sessions",
+      ...integrationCapability("speech_to_text", config)!,
+    },
+    {
       id: "domains",
       name: "Custom domains",
       purpose: "Connect an owned address or approve a registrar quote",

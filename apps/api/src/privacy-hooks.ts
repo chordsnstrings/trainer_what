@@ -66,6 +66,11 @@ export async function withdrawIntegrations(
       "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
       [userId],
     );
+    if (await exists(tx, "voice_session_clips"))
+      await tx.query(
+        "UPDATE voice_session_clips SET status='revoked',audio=NULL WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND status<>'revoked'",
+        [userId],
+      );
     await tx.query(
       "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,version=version+1 WHERE user_id=$1",
       [userId],
@@ -139,6 +144,14 @@ export const privacyHooks: PrivacyHooks = {
         "user_id=$1",
         [userId],
       ),
+      // Voice-led sessions: scripts and outcomes; generated audio is not exported.
+      voiceSessions: await rows(
+        tx,
+        "voice_sessions",
+        "id,workout_id,planned_session_id,mode,status,audio_status,script,outcomes,events,started_at,ended_at,end_reason,created_at",
+        "user_id=$1",
+        [userId],
+      ),
       notificationPreferences: await rows(
         tx,
         "notification_preferences",
@@ -182,6 +195,17 @@ export const privacyHooks: PrivacyHooks = {
     if (await exists(tx, "brand_media")) await eraseOwnedBrandMedia(tx, userId);
     // Remove guided audio before workout records because the audio has an FK to
     // its workout. Provider revocation/purge remains an explicit evidence task.
+    if (await exists(tx, "voice_sessions")) {
+      await tx.query(
+        "DELETE FROM voice_session_clips WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
+        [userId],
+      );
+      await tx.query("DELETE FROM voice_sessions WHERE user_id=$1", [userId]);
+      await tx.query(
+        "UPDATE voice_session_styles SET updated_by=NULL WHERE updated_by=$1",
+        [userId],
+      );
+    }
     if (await exists(tx, "trainer_voices")) {
       await tx.query(
         "DELETE FROM guided_audio WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
@@ -208,6 +232,9 @@ export const privacyHooks: PrivacyHooks = {
     await closeWorkspaceComplimentaryAccess(tx);
     if (await exists(tx, "healthkit_devices")) await closeHealthKitData(tx);
     for (const table of [
+      "voice_session_clips",
+      "voice_sessions",
+      "voice_session_styles",
       "guided_audio",
       "integration_oauth_states",
       "trainer_voices",
