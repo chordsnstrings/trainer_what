@@ -277,6 +277,9 @@ test("the Super admin connection check reads the balance only and reports the en
     environment: "sandbox",
     currency: "USD",
     availableBalance: "250.00",
+    // No Stripe key in this check: its mode cannot be compared.
+    paymentMode: "unknown",
+    modeMismatch: false,
   });
   assert.deepEqual(
     mock.calls.map((c) => c.command),
@@ -291,6 +294,16 @@ test("the Super admin connection check reads the balance only and reports the en
   );
   assert.equal(denied.status, "failed");
   assert.match(denied.message, /whitelisted/);
+  // Live Stripe keys with the Namecheap test environment: shown as refused.
+  const mismatched = await withMock(mock, () =>
+    testIntegration("web_addresses", {
+      ...fields,
+      STRIPE_SECRET_KEY: "sk_live_fixture_only",
+    }),
+  );
+  assert.equal(mismatched.details?.modeMismatch, true);
+  assert.equal(mismatched.details?.paymentMode, "live");
+  assert.match(mismatched.message, /Purchases are refused/);
   // Approval: configured is not enough; purchases need the explicit switch.
   assert.deepEqual(integrationCapability("web_addresses", fields), {
     configured: true,
@@ -401,4 +414,32 @@ test("the generic JSON adapter implements the same interface against the registr
       .catch((e) => e);
     assert.equal(wrong.outcome, "definitive");
   });
+});
+
+test("payment mode and registrar environment rules; early-access fees are read", async () => {
+  const { paymentModeProblem, stripeKeyMode, registrarSandboxSetting } =
+    await import("../packages/providers/src/registrar.ts");
+  assert.equal(stripeKeyMode({ STRIPE_SECRET_KEY: "sk_live_x" }), "live");
+  assert.equal(stripeKeyMode({ STRIPE_SECRET_KEY: "rk_test_x" }), "test");
+  assert.equal(stripeKeyMode({ STRIPE_SECRET_KEY: "whatever" }), null);
+  assert.equal(
+    registrarSandboxSetting({}),
+    true,
+    "test environment by default",
+  );
+  assert.equal(registrarSandboxSetting({ NAMECHEAP_SANDBOX: "false" }), false);
+  assert.equal(paymentModeProblem(false, true), null);
+  assert.equal(paymentModeProblem(true, false), null);
+  assert.match(String(paymentModeProblem(true, true)), /live Stripe payment/);
+  assert.match(String(paymentModeProblem(false, false)), /real domain/);
+  assert.match(String(paymentModeProblem(null, true)), /unknown/);
+  const mock = new NamecheapMock(tls, account);
+  mock.earlyAccess.set("launch.com", "95.00");
+  const registrar = new NamecheapRegistrar(
+    { ...account, sandbox: true },
+    { transport: mock.fetch },
+  );
+  const [eap, plain] = await registrar.check(["launch.com", "plain-coach.com"]);
+  assert.equal(eap.earlyAccessFeeUsd, "95.00");
+  assert.equal(plain.earlyAccessFeeUsd, undefined);
 });

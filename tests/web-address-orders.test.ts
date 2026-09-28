@@ -19,7 +19,11 @@ import {
   sameHostSet,
   type WebAddressDeps,
 } from "../apps/api/src/web-address-orders.ts";
-import { clearWebAddressPriceCache } from "../apps/api/src/web-addresses.ts";
+import {
+  clearWebAddressPriceCache,
+  resetRegistrarBudget,
+  searchDomains,
+} from "../apps/api/src/web-addresses.ts";
 import { financialStatement } from "../apps/api/src/finance-statements.ts";
 import { tlsIssuancePermitted } from "../apps/api/src/host-operations.ts";
 import { HOST_HEADERS, signHostRequest } from "../apps/api/src/host-routing.ts";
@@ -71,6 +75,12 @@ class FakeStripe {
   calls: Array<{ method: string; params: any; key?: string }> = [];
   sessions = new Map<string, any>();
   refundsMade: any[] = [];
+  /** Subscriptions and invoices as Stripe would return them (retrieve). */
+  subs = new Map<string, any>();
+  invoiceObjects = new Map<string, any>();
+  sessionLivemode = false;
+  failUpdates = 0;
+  failCancels = 0;
   private replay = new Map<string, any>();
   private n = 0;
   private once<T>(key: string | undefined, make: () => T): T {
@@ -96,6 +106,7 @@ class FakeStripe {
             url: "https://checkout.stripe.test/c/" + this.n,
             client_reference_id: params.client_reference_id,
             metadata: params.metadata,
+            livemode: this.sessionLivemode,
             amount_total: params.line_items[0].price_data.unit_amount,
           };
           this.sessions.set(session.id, session);
@@ -112,13 +123,18 @@ class FakeStripe {
     },
   };
   subscriptions = {
-    retrieve: async (id: string) => ({ id, status: "active" }),
+    retrieve: async (id: string) =>
+      this.subs.get(id) ?? { id, status: "active", livemode: false },
     update: async (id: string, params: any, options?: any) => {
       this.calls.push({
         method: "subscriptions.update",
         params: { id, ...params },
         key: options?.idempotencyKey,
       });
+      if (this.failUpdates > 0) {
+        this.failUpdates--;
+        throw new Error("Stripe is unavailable");
+      }
       return { id, ...params };
     },
     cancel: async (id: string, params?: any, options?: any) => {
@@ -127,8 +143,15 @@ class FakeStripe {
         params: { id },
         key: options?.idempotencyKey,
       });
+      if (this.failCancels > 0) {
+        this.failCancels--;
+        throw new Error("Stripe is unavailable");
+      }
       return { id, status: "canceled" };
     },
+  };
+  invoices = {
+    retrieve: async (id: string) => this.invoiceObjects.get(id),
   };
   refunds = {
     list: async (params: any) => ({
@@ -171,12 +194,38 @@ const stripe = new FakeStripe();
 const dns = new Map<string, string[]>();
 const httpsChecks: string[] = [];
 let httpsFails = false;
+/** Holds the next request for one registrar command until released (a request in flight). */
+let gate: {
+  command: string;
+  entered: () => void;
+  wait: Promise<void>;
+} | null = null;
+function holdNext(command: string) {
+  let entered!: () => void, release!: () => void;
+  const reached = new Promise<void>((r) => (entered = r));
+  gate = { command, entered, wait: new Promise<void>((r) => (release = r)) };
+  return { reached, release };
+}
+const registrarTransport = async (url: string, init: RequestInit) => {
+  const command = new URLSearchParams(String(init.body ?? ""))
+    .get("Command")
+    ?.replace(/^namecheap\./, "");
+  if (gate && command === gate.command) {
+    const held = gate;
+    gate = null;
+    held.entered();
+    await held.wait;
+  }
+  return mock.fetch(url, init);
+};
 const deps: WebAddressDeps = {
   // An explicit test transport: nothing can leave the process.
   registrar: new NamecheapRegistrar(
     { ...account, sandbox: true },
-    { transport: mock.fetch },
+    { transport: registrarTransport },
   ),
+  // Lost answers are reconciled at once here; the settle window has its own test.
+  settleMs: 0,
   stripe: stripe as any,
   resolve4: async (name) => {
     const answer = dns.get(name);
@@ -286,13 +335,18 @@ async function step(tenantId: string, id: string) {
   return order(tenantId, id);
 }
 let eventNumber = 0;
-const stripeEvent = (type: string, object: any) =>
+const stripeEvent = (
+  type: string,
+  object: any,
+  options: { livemode?: boolean; created?: number } = {},
+) =>
   processStripeEvent(
     db,
     {
       id: "evt_fixture_" + ++eventNumber,
       type,
-      created: Math.floor(Date.now() / 1000),
+      livemode: options.livemode ?? false,
+      created: options.created ?? Math.floor(Date.now() / 1000),
       data: { object },
     },
     { stripe: stripe as any },
@@ -317,7 +371,13 @@ function invoice(o: any, id: string, amount: number, sub: string, pi: string) {
     },
   };
 }
-async function buy(owner: any, domain: string, price: number) {
+async function buy(
+  owner: any,
+  domain: string,
+  price: number,
+  options: { livemode?: boolean } = {},
+) {
+  resetRegistrarBudget();
   const created = await inRegistrar(() =>
     request("/web-address/orders", {
       method: "POST",
@@ -347,6 +407,7 @@ async function buy(owner: any, domain: string, price: number) {
       sub,
       "pi_first_" + o.id.slice(0, 8),
     ),
+    options,
   );
   return { id: o.id as string, sub };
 }
@@ -369,6 +430,7 @@ async function journals(tenantId: string) {
 
 let layla: any, omar: any, sara: any, admin: any;
 let laylaOrder: { id: string; sub: string };
+let saraOrder: { id: string; sub: string };
 before(async () => {
   Object.assign(process.env, settings);
   clearWebAddressPriceCache();
@@ -553,18 +615,26 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
     ),
   );
   const period = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
-  const statement = await db.tenant(
-    elevated("provider-callback", {
-      tenantId: layla.tenantId,
-      role: "finance",
-    }),
-    (tx) => financialStatement(tx, period),
+  const finance = elevated("provider-callback", {
+    tenantId: layla.tenantId,
+    role: "finance",
+  });
+  const statement = await db.tenant(finance, (tx) =>
+    financialStatement(tx, period, { platformView: true }),
   );
   assert.deepEqual(statement.webAddresses, {
     paymentsMinor: 8400,
     refundsMinor: 0,
     registrarCostMinor: 3842,
   });
+  // The trainer's own statement does not show the platform's registrar cost.
+  const own = await db.tenant(finance, (tx) => financialStatement(tx, period));
+  assert.deepEqual(own.webAddresses, { paymentsMinor: 8400, refundsMinor: 0 });
+  assert.ok(
+    !own.entries.some((e: any) =>
+      e.source_key.startsWith("web-address-registrar:"),
+    ),
+  );
   assert.equal(statement.totals.grossMinor, 0, "not subscriber revenue");
   assert.equal(statement.totals.commissionMinor, 0, "no commission");
 
@@ -634,6 +704,7 @@ test("a lost purchase answer is reconciled with getList before anything else; no
 
 test("a name taken before purchase ends in a refund and a notice; the subscription is cancelled", async () => {
   const o = await buy(sara, "sara-fit.com", 8400);
+  saraOrder = o;
   mock.taken.add("sara-fit.com");
   let row = await step(sara.tenantId, o.id);
   assert.equal(row.status, "purchasing");
@@ -641,12 +712,34 @@ test("a name taken before purchase ends in a refund and a notice; the subscripti
     (await operations(sara.tenantId, o.id)).map((op) => op.status),
     ["failed"],
   );
+  // Not ours (getList and getInfo) and not available: looked at once more
+  // before concluding that someone else registered it.
+  row = await step(sara.tenantId, o.id);
+  assert.equal(row.status, "purchasing");
+  assert.deepEqual(
+    (await operations(sara.tenantId, o.id)).map((op) => op.status),
+    ["failed"],
+  );
+  assert.ok(
+    mock
+      .commands("domains.getInfo")
+      .some((c) => c.params.DomainName === "sara-fit.com"),
+    "getInfo asked before refunding",
+  );
+  stripe.failCancels = 1;
   row = await step(sara.tenantId, o.id);
   assert.equal(row.status, "failed");
   assert.deepEqual(
     (await operations(sara.tenantId, o.id)).map((op) => op.status),
     ["absent"],
   );
+  // The subscription cancel failed once: retried, not forgotten.
+  assert.equal(row.evidence.cancelPending, true);
+  assert.notEqual(row.billing_status, "canceled");
+  assert.ok(row.next_attempt_at, "the cancel is retried");
+  row = await step(sara.tenantId, o.id);
+  assert.equal(row.billing_status, "canceled");
+  assert.equal(row.evidence.cancelPending, false);
   const refund = stripe.calls.find(
     (c) =>
       c.method === "refunds.create" && c.key === "web-address-refund:" + o.id,
@@ -752,6 +845,26 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   assert.equal(
     (await order(layla.tenantId, laylaOrder.id)).renewal_status,
     "renewed",
+  );
+  // A late replay of last year's invoice neither reopens a renewal nor
+  // moves the expiry back.
+  const settled = await order(layla.tenantId, laylaOrder.id);
+  await stripeEvent(
+    "invoice.paid",
+    invoice(row, "in_renew_1", 8400, laylaOrder.sub, "pi_renew_1"),
+  );
+  const replayed = await order(layla.tenantId, laylaOrder.id);
+  assert.equal(replayed.renewal_status, "renewed");
+  assert.equal(replayed.renewal_invoice_id, "in_renew_2");
+  assert.equal(
+    new Date(replayed.expires_at).toISOString(),
+    new Date(settled.expires_at).toISOString(),
+  );
+  row = await step(layla.tenantId, laylaOrder.id);
+  assert.equal(
+    mock.commands("domains.renew").length,
+    2,
+    "no renewal from a replayed invoice",
   );
 });
 
@@ -903,6 +1016,7 @@ test("operator view lists every automatic order with reconciliation items and ke
     }),
   );
   assert.equal(reconciled.statusCode, 200, reconciled.body);
+  assert.equal(reconciled.json().ran, true);
   assert.equal(reconciled.json().status, "owned");
   assert.equal(reconciled.json().needsReconciliation, false);
   // The whole worker entry point runs every due order of every workspace.
@@ -967,4 +1081,595 @@ test("an empty registrar balance stops after three reconciled attempts; an opera
       .filter((c) => c.params.DomainName === "nadia-fit.com").length,
     4,
   );
+});
+
+const activate = async (tenantId: string, id: string) => {
+  for (const expected of ["owned", "dns", "active"])
+    assert.equal((await step(tenantId, id)).status, expected);
+  // The next visit aligns the yearly charge.
+  return step(tenantId, id);
+};
+const renewalOps = async (tenantId: string, id: string) =>
+  (await operations(tenantId, id))
+    .filter((op) => op.kind === "renew")
+    .map((op) => op.status);
+const sentFor = (command: string, domain: string) =>
+  mock
+    .commands(command)
+    .filter(
+      (c) => c.params.DomainName === domain || c.params.SearchTerm === domain,
+    ).length;
+
+test("an operator reconcile while a renewal request is in flight never renews twice", async () => {
+  const owner = await register("rami");
+  const o = await buy(owner, "rami-coach.com", 8400);
+  await activate(owner.tenantId, o.id);
+  const before = await order(owner.tenantId, o.id);
+  await stripeEvent(
+    "invoice.paid",
+    invoice(before, "in_rami_renew", 8400, o.sub, "pi_rami_renew"),
+  );
+  const registration = mock.registrations.get("rami-coach.com")!;
+  const yearBefore = registration.expires.getUTCFullYear();
+  const held = holdNext("domains.renew");
+  await db.tenant(worker(owner.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET next_attempt_at=now(),lease_until=NULL WHERE id=$1",
+      [o.id],
+    ),
+  );
+  const running = processWebAddressOrder(db, owner.tenantId, o.id, deps);
+  await held.reached;
+  // The operator view lists the open attempt; pressing Reconcile now must
+  // not touch the running step.
+  const pressed = await request(`/admin/web-addresses/${o.id}/reconcile`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Renewal looks stuck; reconcile it now" },
+  });
+  assert.equal(pressed.statusCode, 200, pressed.body);
+  assert.equal(pressed.json().ran, false, "the running step keeps its lease");
+  // A request sent moments ago is shown as in flight, not as work to do.
+  assert.equal(pressed.json().inFlight, true);
+  assert.equal(pressed.json().needsReconciliation, false);
+  // Even with the lease gone (a run stuck past it), an attempt that may
+  // still be running is left to settle instead of being called absent.
+  await db.tenant(worker(owner.tenantId), (tx) =>
+    tx.query("UPDATE domain_orders SET lease_until=NULL WHERE id=$1", [o.id]),
+  );
+  const late = await processWebAddressOrder(
+    db,
+    owner.tenantId,
+    o.id,
+    { ...deps, settleMs: undefined },
+    { force: true },
+  );
+  assert.equal(late, true);
+  assert.deepEqual(await renewalOps(owner.tenantId, o.id), ["sent"]);
+  const waiting = await order(owner.tenantId, o.id);
+  assert.ok(
+    Date.parse(waiting.next_attempt_at) > Date.now() + 60000,
+    "looked at again after the settle window",
+  );
+  held.release();
+  await running;
+  const after = await order(owner.tenantId, o.id);
+  assert.equal(after.renewal_status, "renewed");
+  assert.equal(sentFor("domains.renew", "rami-coach.com"), 1);
+  assert.equal(registration.expires.getUTCFullYear(), yearBefore + 1);
+  assert.equal(
+    new Date(after.expires_at).getUTCFullYear(),
+    yearBefore + 1,
+    "the recorded expiry matches the registrar",
+  );
+  assert.deepEqual(await renewalOps(owner.tenantId, o.id), ["succeeded"]);
+  assert.equal(after.lease_until, null, "no run left a lease behind");
+});
+
+test("a renewal made by hand at the registrar is recorded, never repeated", async () => {
+  const owner = await register("hana");
+  const domain = "hana-fit.com";
+  const o = await buy(owner, domain, 8400);
+  await activate(owner.tenantId, o.id);
+  const registration = mock.registrations.get(domain)!;
+  const renewByHand = () => {
+    registration.expires = new Date(registration.expires);
+    registration.expires.setUTCFullYear(
+      registration.expires.getUTCFullYear() + 1,
+    );
+  };
+  const failFiveTimes = async (invoiceId: string) => {
+    const paid = await order(owner.tenantId, o.id);
+    await stripeEvent(
+      "invoice.paid",
+      invoice(paid, invoiceId, 8400, o.sub, "pi_" + invoiceId),
+    );
+    mock.refuseNext(
+      "domains.renew",
+      "Order creation failed: insufficient funds",
+      "2528166",
+      5,
+    );
+    let row: any;
+    for (let i = 0; i < 6; i++) row = await step(owner.tenantId, o.id);
+    assert.equal(row.renewal_status, "failed");
+    assert.match(row.attention, /Record registrar state/);
+    return row;
+  };
+
+  // 1. Five refused renewals, then the operator renews at Namecheap by hand
+  // and presses Reconcile: the registrar's expiry is read, nothing is sent.
+  await failFiveTimes("in_hana_1");
+  assert.equal(sentFor("domains.renew", domain), 5);
+  renewByHand();
+  const reconciled = await inRegistrar(() =>
+    request(`/admin/web-addresses/${o.id}/reconcile`, {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Renewed by hand at Namecheap after low balance" },
+    }),
+  );
+  assert.equal(reconciled.statusCode, 200, reconciled.body);
+  assert.equal(reconciled.json().renewal_status, "renewed");
+  assert.equal(sentFor("domains.renew", domain), 5, "no renewal sent");
+  let row = await order(owner.tenantId, o.id);
+  assert.equal(
+    new Date(row.expires_at).getUTCFullYear(),
+    registration.expires.getUTCFullYear(),
+  );
+  assert.deepEqual(await renewalOps(owner.tenantId, o.id), [
+    ...Array(5).fill("absent"),
+    "confirmed",
+  ]);
+
+  // 2. Next year the same, but the operator presses Retry: the registrar's
+  // expiry is read before any request, so it is not renewed a second time.
+  await failFiveTimes("in_hana_2");
+  renewByHand();
+  const retried = await request(`/admin/web-addresses/${o.id}/retry`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Renewed by hand at Namecheap; retry the step" },
+  });
+  assert.equal(retried.statusCode, 200, retried.body);
+  row = await step(owner.tenantId, o.id);
+  assert.equal(row.renewal_status, "renewed");
+  assert.equal(sentFor("domains.renew", domain), 10, "no eleventh renewal");
+  assert.equal(
+    new Date(row.expires_at).getUTCFullYear(),
+    registration.expires.getUTCFullYear(),
+  );
+
+  // 3. An out-of-band renewal without any payment is recorded from getInfo;
+  // with nothing new at the registrar the action refuses.
+  renewByHand();
+  const recorded = await inRegistrar(() =>
+    request(`/admin/web-addresses/${o.id}/record`, {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Goodwill renewal made at Namecheap by support" },
+    }),
+  );
+  assert.equal(recorded.statusCode, 200, recorded.body);
+  assert.equal(
+    new Date(recorded.json().expires_at).getUTCFullYear(),
+    registration.expires.getUTCFullYear(),
+  );
+  const again = await inRegistrar(() =>
+    request(`/admin/web-addresses/${o.id}/record`, {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Pressed twice by mistake, nothing new" },
+    }),
+  );
+  assert.equal(again.statusCode, 409);
+  assert.equal(again.json().code, "NOT_RECORDED");
+  assert.equal(sentFor("domains.renew", domain), 10);
+
+  // The operator can also end the subscription by hand.
+  const cancelled = await request(
+    `/admin/web-addresses/${o.id}/cancel-subscription`,
+    {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Trainer asked to stop the yearly renewal" },
+    },
+  );
+  assert.equal(cancelled.statusCode, 200, cancelled.body);
+  assert.equal(cancelled.json().billing_status, "canceled");
+  assert.equal(cancelled.json().renewal_enabled, false);
+});
+
+test("a registration made by hand is recorded from the registrar", async () => {
+  const owner = await register("rana");
+  const domain = "rana-coach.com";
+  const o = await buy(owner, domain, 8400);
+  const balance = mock.balance;
+  mock.balance = 0;
+  let row = await step(owner.tenantId, o.id);
+  assert.equal(row.status, "purchasing");
+  mock.balance = balance;
+  // Not in the account yet: nothing to record.
+  const early = await inRegistrar(() =>
+    request(`/admin/web-addresses/${o.id}/record`, {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Checking before buying it by hand" },
+    }),
+  );
+  assert.equal(early.statusCode, 409);
+  // Support buys it in the Namecheap account by hand.
+  await deps.registrar!.register({
+    domain,
+    years: 1,
+    registrant: {
+      firstName: "Platform",
+      lastName: "Owner",
+      address1: "1 Fixture Street",
+      city: "Dubai",
+      stateProvince: "Dubai",
+      postalCode: "00000",
+      country: "AE",
+      phone: "+971.501234567",
+      email: "domains@trainsyou.example",
+    },
+  });
+  const recorded = await inRegistrar(() =>
+    request(`/admin/web-addresses/${o.id}/record`, {
+      method: "POST",
+      cookie: admin.cookie,
+      payload: { reason: "Bought by hand at Namecheap after top-up" },
+    }),
+  );
+  assert.equal(recorded.statusCode, 200, recorded.body);
+  assert.equal(recorded.json().status, "owned");
+  row = await order(owner.tenantId, o.id);
+  assert.ok(row.expires_at);
+  assert.deepEqual(
+    (await operations(owner.tenantId, o.id)).map((op) => op.status),
+    ["confirmed"],
+  );
+  assert.equal(
+    sentFor("domains.create", domain),
+    2,
+    "one refused, one by hand",
+  );
+});
+
+test("a registration missing from getList is confirmed with getInfo", async () => {
+  const owner = await register("lina");
+  const domain = "lina-coach.com";
+  const o = await buy(owner, domain, 8400);
+  mock.unlisted.add(domain);
+  mock.loseNextResponse("domains.create");
+  let row = await step(owner.tenantId, o.id);
+  assert.equal(row.status, "purchasing");
+  row = await step(owner.tenantId, o.id);
+  mock.unlisted.delete(domain);
+  assert.equal(row.status, "owned");
+  const [op] = await db.tenant(worker(owner.tenantId), (tx) =>
+    tx.query(
+      "SELECT status,outcome FROM registrar_operations WHERE order_id=$1",
+      [o.id],
+    ),
+  );
+  assert.equal(op.status, "confirmed");
+  assert.equal(op.outcome.via, "getInfo");
+  assert.equal(sentFor("domains.create", domain), 1);
+});
+
+let nour: any, nourOrderId: string;
+test("a completed checkout whose payment event was lost is reconciled from Stripe", async () => {
+  nour = await register("nour");
+  resetRegistrarBudget();
+  const created = await inRegistrar(() =>
+    request("/web-address/orders", {
+      method: "POST",
+      cookie: nour.cookie,
+      payload: { domain: "nour-coach.com", priceMinor: 8400, accepted: true },
+    }),
+  );
+  assert.equal(created.statusCode, 200, created.body);
+  nourOrderId = created.json().orderId;
+  let o = await order(nour.tenantId, nourOrderId);
+  // Paid at Stripe; neither webhook arrives.
+  const session = stripe.sessions.get(o.checkout_session_id)!;
+  Object.assign(session, {
+    status: "complete",
+    subscription: "sub_nour",
+    customer: "cus_nour",
+  });
+  const first = {
+    ...invoice(o, "in_nour_first", 8400, "sub_nour", "pi_nour_first"),
+    status: "open",
+    amount_paid: 0,
+    livemode: false,
+  };
+  stripe.invoiceObjects.set(first.id, first);
+  stripe.subs.set("sub_nour", {
+    id: "sub_nour",
+    object: "subscription",
+    status: "incomplete",
+    latest_invoice: first.id,
+    livemode: false,
+  });
+  for (let visit = 1; visit <= 6; visit++)
+    o = await step(nour.tenantId, nourOrderId);
+  assert.equal(o.status, "checkout");
+  assert.equal(o.stripe_subscription_id, "sub_nour", "linked from the session");
+  assert.match(o.attention, /first payment is not confirmed/);
+  // The invoice is paid now; the next sweep applies it.
+  Object.assign(first, { status: "paid", amount_paid: 8400 });
+  stripe.subs.get("sub_nour").status = "active";
+  o = await step(nour.tenantId, nourOrderId);
+  assert.equal(o.status, "paid");
+  assert.equal(o.first_invoice_id, "in_nour_first");
+  assert.equal(o.attention, null);
+  const [paid] = (await journals(nour.tenantId)).filter(
+    (l) => l.source_key === "web-address-invoice:in_nour_first",
+  );
+  assert.ok(paid, "journaled once");
+});
+
+test("a failed billing alignment is retried within minutes; a passed charge date charges now", async () => {
+  let o = await step(nour.tenantId, nourOrderId); // buy
+  assert.equal(o.status, "owned");
+  o = await step(nour.tenantId, nourOrderId);
+  o = await step(nour.tenantId, nourOrderId);
+  assert.equal(o.status, "active");
+  stripe.failUpdates = 1;
+  o = await step(nour.tenantId, nourOrderId);
+  assert.equal(o.billing_aligned_at, null);
+  assert.equal(o.evidence.alignFailures, 1);
+  assert.ok(
+    Date.parse(o.next_attempt_at) < Date.now() + 10 * 60000,
+    "retried within minutes, not at the first grace notice",
+  );
+  o = await step(nour.tenantId, nourOrderId);
+  assert.ok(o.billing_aligned_at);
+  assert.equal(o.evidence.alignFailures, 0);
+  // Alignment never happened before the charge date passed: the renewal is
+  // charged now (a new billing cycle, no proration), well before expiry.
+  await db.tenant(worker(nour.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET billing_aligned_at=NULL,expires_at=now()+interval '20 days' WHERE id=$1",
+      [nourOrderId],
+    ),
+  );
+  o = await step(nour.tenantId, nourOrderId);
+  const charge = stripe.calls.find(
+    (c) =>
+      c.method === "subscriptions.update" &&
+      c.params.id === "sub_nour" &&
+      c.params.billing_cycle_anchor === "now",
+  );
+  assert.ok(charge, "renewal charged now");
+  assert.equal(charge!.params.proration_behavior, "none");
+  assert.match(charge!.key!, /^web-address-charge:/);
+  assert.ok(o.billing_aligned_at);
+  assert.equal(o.evidence.renewalChargedEarly, true);
+  assert.equal(o.status, "active");
+});
+
+test("renewal switch: an older Stripe event never undoes the trainer's choice; notices use the current address", async () => {
+  const o = await order(nour.tenantId, nourOrderId);
+  for (const enabled of [false, true]) {
+    const r = await request(`/web-address/orders/${nourOrderId}/renewal`, {
+      method: "POST",
+      cookie: nour.cookie,
+      payload: { enabled },
+    });
+    assert.equal(r.statusCode, 200, r.body);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const subscription = (cancel: boolean) => ({
+    id: "sub_nour",
+    object: "subscription",
+    status: "active",
+    cancel_at_period_end: cancel,
+    metadata: metadata(o),
+  });
+  // The "off" event arrives after the trainer turned renewal back on.
+  await stripeEvent("customer.subscription.updated", subscription(true), {
+    created: now - 120,
+  });
+  assert.equal((await order(nour.tenantId, nourOrderId)).renewal_enabled, true);
+  // A newer change made at Stripe is applied.
+  await stripeEvent("customer.subscription.updated", subscription(true), {
+    created: now + 5,
+  });
+  assert.equal(
+    (await order(nour.tenantId, nourOrderId)).renewal_enabled,
+    false,
+  );
+  // An even older event after that changes nothing either.
+  await stripeEvent(
+    "customer.subscription.updated",
+    { ...subscription(false), status: "past_due" },
+    { created: now - 60 },
+  );
+  const kept = await order(nour.tenantId, nourOrderId);
+  assert.equal(kept.renewal_enabled, false);
+  assert.equal(kept.billing_status, "active");
+
+  // After a rename, notices point at the workspace's current subdomain.
+  await db.system((tx) =>
+    tx.query("UPDATE tenants SET slug='nour-strength' WHERE id=$1", [
+      nour.tenantId,
+    ]),
+  );
+  await stripeEvent("invoice.payment_failed", {
+    ...invoice(o, "in_nour_failed", 8400, "sub_nour", "pi_nour_failed"),
+    status: "open",
+    amount_paid: 0,
+  });
+  const notice = (await notices(nour.tenantId)).find((n) =>
+    n.dedupe_key.endsWith(":payment-failed:in_nour_failed"),
+  );
+  assert.ok(notice);
+  assert.match(notice!.body, /https:\/\/nour-strength\.trainsyou\.example/);
+  assert.doesNotMatch(notice!.body, /https:\/\/nour\.trainsyou/);
+});
+
+test("Stripe mode and the registrar environment must match before anything is bought", async () => {
+  // Registration is rate limited (ten a window): an existing workspace.
+  const owner = omar;
+  const savedKey = process.env.STRIPE_SECRET_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_live_fixture_only";
+  try {
+    const view = await request("/web-address", { cookie: owner.cookie });
+    assert.equal(view.json().purchases.enabled, false);
+    resetRegistrarBudget();
+    const refused = await inRegistrar(() =>
+      request("/web-address/orders", {
+        method: "POST",
+        cookie: owner.cookie,
+        payload: { domain: "omar-fit.com", priceMinor: 8400, accepted: true },
+      }),
+    );
+    assert.equal(refused.statusCode, 409);
+    const ops = await request("/admin/web-addresses", { cookie: admin.cookie });
+    assert.match(ops.json().modeProblem, /live Stripe payment/);
+  } finally {
+    if (savedKey === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = savedKey;
+  }
+  // A Checkout session Stripe creates in live mode is refused and expired.
+  stripe.sessionLivemode = true;
+  const expiredBefore = stripe.count("checkout.expire");
+  let live;
+  try {
+    resetRegistrarBudget();
+    live = await inRegistrar(() =>
+      request("/web-address/orders", {
+        method: "POST",
+        cookie: owner.cookie,
+        payload: { domain: "omar-fit.com", priceMinor: 8400, accepted: true },
+      }),
+    );
+  } finally {
+    stripe.sessionLivemode = false;
+  }
+  assert.equal(live.statusCode, 409);
+  assert.equal(stripe.count("checkout.expire"), expiredBefore + 1);
+  // A live payment reaching the worker buys nothing in the test environment.
+  const o = await buy(owner, "omar-fit.com", 8400, { livemode: true });
+  const row = await step(owner.tenantId, o.id);
+  assert.equal(row.status, "paid");
+  assert.match(row.attention, /live Stripe payment/);
+  assert.equal(row.next_attempt_at, null);
+  assert.equal(sentFor("domains.create", "omar-fit.com"), 0);
+  // Nothing was registered: the operator can refund it.
+  const refunded = await request(`/admin/web-addresses/${o.id}/refund`, {
+    method: "POST",
+    cookie: admin.cookie,
+    payload: { reason: "Paid in the wrong Stripe mode; refund it" },
+  });
+  assert.equal(refunded.statusCode, 200, refunded.body);
+  assert.equal(refunded.json().status, "failed");
+});
+
+test("ledger: money for a closed order is owed back; a lost dispute is a loss", async () => {
+  const failed = await order(sara.tenantId, saraOrder.id);
+  await stripeEvent(
+    "invoice.paid",
+    invoice(failed, "in_sara_late", 8400, saraOrder.sub, "pi_sara_late"),
+  );
+  assert.match(
+    (await order(sara.tenantId, saraOrder.id)).attention,
+    /closed order/,
+  );
+  await stripeEvent("refund.created", {
+    id: "re_sara_late",
+    object: "refund",
+    amount: 8400,
+    status: "succeeded",
+    payment_intent: "pi_sara_late",
+    metadata: metadata(failed),
+  });
+  const sara_lines = await journals(sara.tenantId);
+  const lines = (key: string) =>
+    sara_lines
+      .filter((l) => l.source_key === key)
+      .map((l) => [l.account, l.amount]);
+  assert.deepEqual(lines("web-address-invoice:in_sara_late"), [
+    ["web_address_receivable", 8400],
+    ["web_address_refund_liability", -8400],
+  ]);
+  assert.deepEqual(lines("web-address-refund:re_sara_late"), [
+    ["web_address_receivable", -8400],
+    ["web_address_refund_liability", 8400],
+  ]);
+
+  const short = laylaOrder.id.slice(0, 8);
+  await stripeEvent("charge.dispute.closed", {
+    id: "dp_layla_first",
+    object: "dispute",
+    amount: 8400,
+    currency: "aed",
+    status: "lost",
+    charge: "ch_pi_first_" + short,
+    payment_intent: "pi_first_" + short,
+  });
+  assert.deepEqual(
+    (await journals(layla.tenantId))
+      .filter((l) => l.source_key === "web-address-dispute:dp_layla_first")
+      .map((l) => [l.account, l.amount]),
+    [
+      ["web_address_dispute_loss", 8400],
+      ["web_address_receivable", -8400],
+    ],
+  );
+  assert.match(
+    (await order(layla.tenantId, laylaOrder.id)).attention,
+    /dispute closed \(lost\)/,
+  );
+});
+
+test("early-access names are refused; searches stay within the registrar call budget", async () => {
+  mock.earlyAccess.set("fresh-coach.com", "120.00");
+  resetRegistrarBudget();
+  const found = await inRegistrar(() =>
+    request("/web-address/search?q=fresh-coach", { cookie: omar.cookie }),
+  );
+  assert.equal(found.statusCode, 200, found.body);
+  const com = found
+    .json()
+    .results.find((r: any) => r.domain === "fresh-coach.com");
+  assert.equal(com.available, false);
+  assert.equal(com.priceMinor, null);
+  resetRegistrarBudget();
+  const refused = await inRegistrar(() =>
+    request("/web-address/orders", {
+      method: "POST",
+      cookie: omar.cookie,
+      payload: { domain: "fresh-coach.com", priceMinor: 8400, accepted: true },
+    }),
+  );
+  assert.equal(refused.statusCode, 409);
+  assert.equal(refused.json().code, "DOMAIN_UNAVAILABLE");
+  mock.earlyAccess.delete("fresh-coach.com");
+
+  // Searches from the API may use a share of Namecheap's per-account limit.
+  resetRegistrarBudget();
+  const registrar = deps.registrar!;
+  const calls = () =>
+    mock.commands("domains.check").length +
+    mock.commands("users.getPricing").length;
+  const start = calls();
+  let busy = false;
+  for (let i = 0; i < 12 && !busy; i++)
+    try {
+      await searchDomains("budget-" + i, { registrar });
+    } catch (error: any) {
+      if (error.code !== "REGISTRAR_BUSY") throw error;
+      busy = true;
+    }
+  assert.ok(busy, "refused once the share is used");
+  assert.ok(calls() - start <= 8, `${calls() - start} registrar calls`);
+  // A repeated search is answered from the short cache without a call.
+  const used = calls();
+  await searchDomains("budget-0", { registrar });
+  assert.equal(calls(), used);
+  resetRegistrarBudget();
 });

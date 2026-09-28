@@ -21,6 +21,8 @@ ALTER TABLE domain_orders
  ADD COLUMN attempts integer NOT NULL DEFAULT 0 CHECK(attempts>=0),
  ADD COLUMN next_attempt_at timestamptz,
  ADD COLUMN lease_until timestamptz,
+ -- The run holding the lease; only that run releases it.
+ ADD COLUMN lease_token uuid,
  ADD COLUMN progress jsonb NOT NULL DEFAULT '[]' CHECK(jsonb_typeof(progress)='array'),
  ADD COLUMN notices jsonb NOT NULL DEFAULT '{}' CHECK(jsonb_typeof(notices)='object'),
  ADD COLUMN live_at timestamptz;
@@ -65,8 +67,9 @@ BEGIN
     (OLD.status='owned' AND NEW.status IN ('dns','expired')) OR
     (OLD.status='dns' AND NEW.status IN ('owned','active','expired')) OR
     (OLD.status='active' AND NEW.status IN ('expired','dns')) OR
-    -- A renewal paid late, inside the registrar's grace period, provisions again.
-    (OLD.status='expired' AND NEW.status='dns')) THEN
+    -- A renewal paid late, inside the registrar's grace period, provisions
+    -- again from the DNS records (the registrar may have parked the name).
+    (OLD.status='expired' AND NEW.status IN ('owned','dns'))) THEN
   RAISE EXCEPTION 'automatic domain order cannot move from % to %', OLD.status, NEW.status;
  END IF;
  RETURN NEW;

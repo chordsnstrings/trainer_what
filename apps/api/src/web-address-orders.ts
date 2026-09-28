@@ -7,8 +7,10 @@
  * write is recorded under a stable intent before it is sent; an outcome that
  * is not a confirmed success is reconciled with the registrar (getList /
  * getInfo) before another attempt (the database refuses a second attempt
- * while one is open); journals are immutable and use their own accounts, never
- * the trainer's payable balance or commission.
+ * while one is open), and an attempt that may still be in flight is left to
+ * settle first; journals are immutable and use their own accounts, never the
+ * trainer's payable balance or commission. Only the run holding an order's
+ * lease (identified by its token) works on it or releases it.
  */
 import { randomUUID } from "node:crypto";
 import { resolve4 as systemResolve4 } from "node:dns/promises";
@@ -23,6 +25,7 @@ import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import { integrationRequest } from "../../../packages/providers/src/integrations.ts";
 import {
   RegistrarError,
+  paymentModeProblem,
   registrantFromConfig,
   registrarFromConfig,
   type HostRecord,
@@ -43,12 +46,12 @@ export type WebAddressStripe = {
   checkout: {
     sessions: {
       create: (params: any, options?: any) => Promise<any>;
-      retrieve: (id: string) => Promise<any>;
+      retrieve: (id: string, params?: any) => Promise<any>;
       expire: (id: string, params?: any, options?: any) => Promise<any>;
     };
   };
   subscriptions: {
-    retrieve: (id: string) => Promise<any>;
+    retrieve: (id: string, params?: any) => Promise<any>;
     update: (id: string, params: any, options?: any) => Promise<any>;
     cancel: (id: string, params?: any, options?: any) => Promise<any>;
   };
@@ -56,6 +59,7 @@ export type WebAddressStripe = {
     create: (params: any, options?: any) => Promise<any>;
     list: (params: any) => Promise<any>;
   };
+  invoices?: { retrieve: (id: string, params?: any) => Promise<any> };
   paymentIntents?: { retrieve: (id: string) => Promise<any> };
   invoicePayments?: { list: (params: any) => Promise<any> };
 };
@@ -66,11 +70,19 @@ export type WebAddressDeps = {
   /** HTTPS request to the domain, which also makes the edge issue its certificate. */
   httpsCheck?: (hostname: string) => Promise<void>;
   targetIpv4?: () => Promise<string>;
+  /**
+   * How long a registrar request without a final answer is left alone before
+   * it is reconciled (default SETTLE_MS). Tests of lost answers set 0.
+   */
+  settleMs?: number;
 };
 
 export const WEB_ADDRESS_ACCOUNTS = {
   receivable: "web_address_receivable",
   revenue: "web_address_revenue",
+  /** Money received for no open order: owed back to the trainer. */
+  refundLiability: "web_address_refund_liability",
+  disputeLoss: "web_address_dispute_loss",
   registrarCost: "registrar_cost",
   registrarPrepaid: "registrar_prepaid",
 } as const;
@@ -78,9 +90,26 @@ export const WEB_ADDRESS_ACCOUNTS = {
 export const RENEWAL_LEAD_DAYS = 30;
 /** Grace notices before expiry when a renewal is not paid. */
 export const GRACE_NOTICE_DAYS = [14, 7, 3, 1] as const;
+/**
+ * After expiry the subscription is kept this long while Stripe still retries
+ * an open renewal invoice (inside the registrar's grace period for the
+ * offered endings), so a late payment renews the domain.
+ */
+export const LAPSE_HOLD_DAYS = 20;
+/**
+ * A registrar request is answered or abandoned within 45 seconds; one without
+ * a final answer is reconciled only after this long, so a request that may
+ * still be running is never mistaken for one that did nothing.
+ */
+export const SETTLE_MS = 3 * 60000;
 const DAY = 86400000;
 const MAX_PURCHASE_ATTEMPTS = 3;
 const MAX_RENEWAL_ATTEMPTS = 5;
+const CHECKOUT_ATTENTION_VISITS = 6;
+const ALIGN_ATTENTION_FAILURES = 3;
+const ALIGN_ATTENTION =
+  "The yearly charge could not be moved to 30 days before expiry; check the Stripe subscription.";
+const LEASE_MINUTES = 10;
 
 const workerActor = (tenantId: string) =>
   elevated("worker", { tenantId, role: "owner" });
@@ -101,6 +130,29 @@ export function purchasesEnabled() {
 }
 const backoffSeconds = (attempt: number) =>
   Math.min(1800, 60 * 2 ** Math.min(Math.max(attempt, 0), 5));
+const settleMs = (deps: WebAddressDeps) => deps.settleMs ?? SETTLE_MS;
+/** An attempt without a final answer that may still be running at the registrar. */
+function settling(op: Order, deps: WebAddressDeps) {
+  return (
+    ["sent", "unknown"].includes(op.status) &&
+    Date.now() - Date.parse(op.created_at) < settleMs(deps)
+  );
+}
+/** True when the registrar's expiry is more than a day past the base one. */
+function movedPast(expiresAt: string | undefined, base: unknown) {
+  const before = Date.parse(String(base ?? ""));
+  return (
+    !!expiresAt &&
+    Number.isFinite(before) &&
+    Date.parse(expiresAt) > before + DAY
+  );
+}
+const livemodeOf = (e: any, object: any): boolean | null =>
+  typeof e?.livemode === "boolean"
+    ? e.livemode
+    : typeof object?.livemode === "boolean"
+      ? object.livemode
+      : null;
 
 type Order = Record<string, any>;
 async function progress(tx: Tx, orderId: string, step: string, note?: string) {
@@ -132,12 +184,13 @@ async function setOrder(
   );
   return row as Order;
 }
+// The lease columns are not here: only claim() and the end of the claiming
+// run change them.
 const ORDER_COLUMNS = new Set([
   "status",
   "attention",
   "attempts",
   "next_attempt_at",
-  "lease_until",
   "expires_at",
   "renewal_status",
   "renewal_invoice_id",
@@ -169,16 +222,33 @@ async function mergeEvidence(tx: Tx, orderId: string, evidence: object) {
     [orderId, JSON.stringify(evidence)],
   );
 }
+async function readOrder(db: Database, tenantId: string, orderId: string) {
+  const [row] = await db.tenant(workerActor(tenantId), (tx) =>
+    tx.query("SELECT * FROM domain_orders WHERE id=$1", [orderId]),
+  );
+  return row as Order | undefined;
+}
 function ownerOf(order: Order): string | null {
   return typeof order.evidence?.orderedBy === "string"
     ? order.evidence.orderedBy
     : null;
 }
-function fallbackAddress(order: Order) {
+/**
+ * The workspace's platform subdomain as it is now (never the slug captured
+ * when the order was placed: after a rename, that name may belong to another
+ * workspace), or null when subdomains are off or the workspace is not served.
+ */
+export async function fallbackAddress(db: Database, tenantId: string) {
   const root = platformRoot();
-  const slug = order.evidence?.slug;
-  return root && typeof slug === "string" && subdomainEligible(slug)
-    ? "https://" + subdomainHost(slug, root)
+  if (!root) return null;
+  const [tenant] = await db.system((tx) =>
+    tx.query<{ slug: string }>(
+      "SELECT slug FROM tenants WHERE id=$1 AND published=true AND lifecycle_state IN ('active','suspended')",
+      [tenantId],
+    ),
+  );
+  return tenant && subdomainEligible(tenant.slug)
+    ? "https://" + subdomainHost(tenant.slug, root)
     : null;
 }
 async function notifyOwner(
@@ -213,6 +283,7 @@ async function notifyOwner(
 
 // ---- Ledger -------------------------------------------------------------------
 
+/** Journals a payment once; null when this invoice was already journaled. */
 async function postPayment(
   tx: Tx,
   tenantId: string,
@@ -232,7 +303,14 @@ async function postPayment(
     "Trainer web address payment (" + order.hostname + ")",
     [
       { account: WEB_ADDRESS_ACCOUNTS.receivable, amount: invoice.amountMinor },
-      { account: WEB_ADDRESS_ACCOUNTS.revenue, amount: -invoice.amountMinor },
+      {
+        // Money for no open order is owed back, not earned.
+        account:
+          kind === "unmatched"
+            ? WEB_ADDRESS_ACCOUNTS.refundLiability
+            : WEB_ADDRESS_ACCOUNTS.revenue,
+        amount: -invoice.amountMinor,
+      },
     ],
     {
       orderId: order.id,
@@ -245,19 +323,44 @@ async function postPayment(
     },
   );
 }
+/** The kind of the journaled payment a refund or dispute belongs to. */
+async function paymentKind(
+  tx: Tx,
+  paymentIntentId?: string,
+  chargeId?: string,
+) {
+  const [row] = await tx.query(
+    "SELECT data->>'kind' AS kind FROM journals WHERE source_key LIKE 'web-address-invoice:%' AND ((data->>'paymentIntentId')=$1 OR (data->>'chargeId')=$2) ORDER BY created_at LIMIT 1",
+    [paymentIntentId ?? "", chargeId ?? ""],
+  );
+  return (row?.kind as string | undefined) ?? null;
+}
 async function postRefund(
   tx: Tx,
   tenantId: string,
   order: Order,
-  refund: { id: string; amountMinor: number; paymentIntentId?: string },
+  refund: {
+    id: string;
+    amountMinor: number;
+    paymentIntentId?: string;
+    chargeId?: string;
+  },
 ) {
+  const unmatched =
+    (await paymentKind(tx, refund.paymentIntentId, refund.chargeId)) ===
+    "unmatched";
   return journal(
     tx,
     callbackActor(tenantId),
     "web-address-refund:" + refund.id,
     "Trainer web address refund (" + order.hostname + ")",
     [
-      { account: WEB_ADDRESS_ACCOUNTS.revenue, amount: refund.amountMinor },
+      {
+        account: unmatched
+          ? WEB_ADDRESS_ACCOUNTS.refundLiability
+          : WEB_ADDRESS_ACCOUNTS.revenue,
+        amount: refund.amountMinor,
+      },
       { account: WEB_ADDRESS_ACCOUNTS.receivable, amount: -refund.amountMinor },
     ],
     {
@@ -266,6 +369,7 @@ async function postRefund(
       refundId: refund.id,
       refundAmountMinor: refund.amountMinor,
       paymentIntentId: refund.paymentIntentId ?? null,
+      ofUnmatchedPayment: unmatched,
     },
   );
 }
@@ -423,6 +527,7 @@ export async function processWebAddressStripeEvent(
   if (!reference) return false;
   const { tenantId } = reference;
   const a = callbackActor(tenantId);
+  const livemode = livemodeOf(e, object);
   const findOrder = async (tx: Tx) => {
     if (reference.orderId) {
       const [row] = await tx.query(
@@ -530,26 +635,32 @@ export async function processWebAddressStripeEvent(
           String(object.currency).toLowerCase() !== "aed" ||
           amount !== Number(order.quote?.priceMinor)
         ) {
-          await postPayment(tx, tenantId, order, invoice, "unmatched");
-          await update(tx, order.id, {
-            ...links,
-            attention:
-              "The first payment does not match the quoted price; review and refund in Stripe.",
-          });
+          if (await postPayment(tx, tenantId, order, invoice, "unmatched"))
+            await update(tx, order.id, {
+              ...links,
+              attention:
+                "The first payment does not match the quoted price; review and refund in Stripe.",
+            });
           return;
         }
-        await postPayment(tx, tenantId, order, invoice, "registration");
+        // An invoice journaled before (a replay of an older delivery)
+        // changes nothing.
+        if (!(await postPayment(tx, tenantId, order, invoice, "registration")))
+          return;
         await update(tx, order.id, {
           ...links,
           status: "paid",
           first_invoice_id: object.id,
           billing_status: "active",
           attempts: 0,
+          // A checkout-sweep flag ("payment not confirmed") no longer applies.
+          attention: null,
           next_attempt_at: new Date(),
         });
         await mergeEvidence(tx, order.id, {
           firstPaymentIntentId: ids.paymentIntentId ?? null,
           firstChargeId: ids.chargeId ?? null,
+          firstPaymentLivemode: livemode,
         });
         await progress(tx, order.id, "paid");
         await event(tx, a, "web_address.paid", order.id, {
@@ -562,7 +673,10 @@ export async function processWebAddressStripeEvent(
           order.status,
         )
       ) {
-        await postPayment(tx, tenantId, order, invoice, "renewal");
+        // A replayed or late older invoice was journaled when it first
+        // arrived: it must not reopen a renewal (or move the expiry back).
+        if (!(await postPayment(tx, tenantId, order, invoice, "renewal")))
+          return;
         if (
           order.renewal_status === "paid" ||
           order.renewal_status === "renewing"
@@ -582,20 +696,27 @@ export async function processWebAddressStripeEvent(
           attempts: 0,
           next_attempt_at: new Date(),
         });
+        // The expiry this payment extends: a registrar expiry beyond it
+        // later proves the renewal happened (also when done by hand).
+        await mergeEvidence(tx, order.id, {
+          renewalBaseExpiry: iso(order.expires_at),
+          renewalLivemode: livemode,
+          renewalAttempts: 0,
+        });
         await progress(tx, order.id, "renewal_paid");
         await event(tx, a, "web_address.renewal_paid", order.id, {
           amountMinor: amount,
         });
         return;
       }
-      // Money for an order that was cancelled or failed: record it and ask
-      // an operator to refund.
-      await postPayment(tx, tenantId, order, invoice, "unmatched");
-      await update(tx, order.id, {
-        ...links,
-        attention:
-          "A payment arrived for a closed order; refund it in Stripe and reconcile.",
-      });
+      // Money for an order that was cancelled or failed: record it as owed
+      // back and ask an operator to refund.
+      if (await postPayment(tx, tenantId, order, invoice, "unmatched"))
+        await update(tx, order.id, {
+          ...links,
+          attention:
+            "A payment arrived for a closed order; refund it in Stripe and reconcile.",
+        });
     });
     await registerStripeObjects(db, tenantId, [
       [subscriptionId, "web_address_subscription"],
@@ -607,6 +728,7 @@ export async function processWebAddressStripeEvent(
   }
 
   if (e.type === "invoice.payment_failed") {
+    const fallback = await fallbackAddress(db, tenantId);
     await db.tenant(a, async (tx) => {
       const order = await findOrder(tx);
       if (!order || order.status === "checkout" || !order.first_invoice_id)
@@ -616,7 +738,6 @@ export async function processWebAddressStripeEvent(
       const expires = order.expires_at
         ? new Date(order.expires_at).toISOString().slice(0, 10)
         : "its expiry date";
-      const fallback = fallbackAddress(order);
       await notifyOwner(tx, tenantId, order, {
         templateKey: "web-address-renewal-failed",
         dedupe: "payment-failed:" + object.id,
@@ -631,18 +752,33 @@ export async function processWebAddressStripeEvent(
     await db.tenant(a, async (tx) => {
       const order = await findOrder(tx);
       if (!order) return;
+      const created = Number(e.created) || 0;
+      const lastEvent = Number(order.evidence?.subscriptionEventAt ?? 0);
+      // Stripe does not deliver in order: an older state never overwrites a newer one.
+      if (created && created < lastEvent) return;
       const ended =
         e.type === "customer.subscription.deleted" ||
         ["canceled", "incomplete_expired"].includes(object.status);
+      const lastSwitch = Number(order.evidence?.renewalSwitchedAt ?? 0);
+      const cancelling =
+        object.cancel_at_period_end === true || !!object.cancel_at;
+      const renewal = ended
+        ? { renewal_enabled: false }
+        : // The trainer's own switch is newer than this event: keep it.
+          (!created || created > lastSwitch) &&
+            ["owned", "dns", "active"].includes(order.status) &&
+            order.billing_status !== "canceled"
+          ? { renewal_enabled: !cancelling }
+          : {};
       await update(tx, order.id, {
         billing_status: String(object.status ?? "").slice(0, 40) || null,
-        ...(ended || object.cancel_at_period_end === true
-          ? { renewal_enabled: false }
-          : {}),
+        ...renewal,
         ...(!order.stripe_subscription_id && object.id
           ? { stripe_subscription_id: object.id }
           : {}),
       });
+      if (created)
+        await mergeEvidence(tx, order.id, { subscriptionEventAt: created });
     });
     return true;
   }
@@ -666,6 +802,9 @@ export async function processWebAddressStripeEvent(
             id: refund.id,
             amountMinor: Number(refund.amount),
             paymentIntentId: idOf(refund.payment_intent),
+            chargeId:
+              idOf(refund.charge) ??
+              (object.object === "charge" ? object.id : undefined),
           });
     });
     return true;
@@ -675,10 +814,35 @@ export async function processWebAddressStripeEvent(
     await db.tenant(a, async (tx) => {
       const order = await findOrder(tx);
       if (!order) return;
+      const amount = Number(object.amount);
+      // A lost dispute takes the payment back: the loss is the platform's.
+      if (
+        e.type === "charge.dispute.closed" &&
+        object.status === "lost" &&
+        Number.isSafeInteger(amount) &&
+        amount > 0
+      )
+        await journal(
+          tx,
+          a,
+          "web-address-dispute:" + object.id,
+          "Trainer web address dispute lost (" + order.hostname + ")",
+          [
+            { account: WEB_ADDRESS_ACCOUNTS.disputeLoss, amount },
+            { account: WEB_ADDRESS_ACCOUNTS.receivable, amount: -amount },
+          ],
+          {
+            orderId: order.id,
+            hostname: order.hostname,
+            disputeId: object.id,
+            chargeId: idOf(object.charge) ?? null,
+            amountMinor: amount,
+          },
+        );
       await update(tx, order.id, {
         attention:
           e.type === "charge.dispute.closed"
-            ? `A card dispute closed (${String(object.status ?? "").slice(0, 30)}); review the ledger.`
+            ? `A card dispute closed (${String(object.status ?? "").slice(0, 30)}); review the domain and the subscription.`
             : "The trainer's bank opened a card dispute for this domain payment.",
       });
     });
@@ -695,45 +859,137 @@ function optionalStripe(): WebAddressStripe | undefined {
   }
 }
 
+/**
+ * Applies the subscription's latest paid invoice when its event never
+ * arrived (a lost webhook). Uses Stripe's own objects only; the invoice
+ * handler ignores an invoice that was already applied. True when the order
+ * changed.
+ */
+async function reconcileLatestInvoice(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  const subscriptionId = order.stripe_subscription_id;
+  if (!subscriptionId) return false;
+  const stripe = stripeOf(deps);
+  let invoice: any;
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    invoice = subscription?.latest_invoice;
+    if (typeof invoice === "string")
+      invoice = stripe.invoices
+        ? await stripe.invoices.retrieve(invoice)
+        : null;
+  } catch {
+    return false;
+  }
+  if (
+    !invoice?.id ||
+    invoice.status !== "paid" ||
+    invoice.id === order.first_invoice_id ||
+    invoice.id === order.renewal_invoice_id
+  )
+    return false;
+  const before = await readOrder(db, tenantId, order.id);
+  await processWebAddressStripeEvent(
+    db,
+    {
+      id: "reconcile:" + invoice.id,
+      type: "invoice.paid",
+      livemode: invoice.livemode,
+      created: invoice.created,
+      data: { object: invoice },
+    },
+    deps,
+  );
+  const after = await readOrder(db, tenantId, order.id);
+  return (
+    before?.status !== after?.status ||
+    before?.renewal_invoice_id !== after?.renewal_invoice_id ||
+    before?.first_invoice_id !== after?.first_invoice_id
+  );
+}
+
 // ---- Worker ---------------------------------------------------------------------
 
-async function claim(db: Database, tenantId: string, orderId: string) {
+type Claimed = { order: Order; token: string };
+/**
+ * Leases a due order (or, with `force`, any order not leased by another run).
+ * The token identifies this run: only it releases the lease.
+ */
+async function claim(
+  db: Database,
+  tenantId: string,
+  orderId: string,
+  force = false,
+): Promise<Claimed | undefined> {
+  const token = randomUUID();
   const [order] = await db.tenant(workerActor(tenantId), (tx) =>
     tx.query(
-      "UPDATE domain_orders SET lease_until=now()+interval '10 minutes' WHERE id=$1 AND mode='automatic' AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) RETURNING *",
-      [orderId],
+      `UPDATE domain_orders SET lease_until=now()+interval '${LEASE_MINUTES} minutes',lease_token=$2 WHERE id=$1 AND mode='automatic' AND ($3::boolean OR next_attempt_at<=now()) AND (lease_until IS NULL OR lease_until<now()) RETURNING *`,
+      [orderId, token, force],
     ),
   );
-  return order as Order | undefined;
+  return order ? { order: order as Order, token } : undefined;
 }
+async function releaseLease(
+  db: Database,
+  tenantId: string,
+  orderId: string,
+  token: string,
+) {
+  await db.tenant(workerActor(tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET lease_until=NULL,lease_token=NULL WHERE id=$1 AND lease_token=$2",
+      [orderId, token],
+    ),
+  );
+}
+/** Updates the order at the end of a step (the lease is released by the claiming run). */
 async function release(
   db: Database,
   tenantId: string,
   orderId: string,
   fields: Record<string, unknown> = {},
 ) {
-  await db.tenant(workerActor(tenantId), (tx) =>
-    update(tx, orderId, { ...fields, lease_until: null }),
-  );
+  if (!Object.keys(fields).length) return;
+  await db.tenant(workerActor(tenantId), (tx) => update(tx, orderId, fields));
 }
 async function retryLater(
   db: Database,
   tenantId: string,
   order: Order,
   note: string,
-  options: { attention?: string | null; attempts?: number } = {},
+  options: { attention?: string | null; attempts?: number; at?: number } = {},
 ) {
   const attempts = options.attempts ?? Number(order.attempts ?? 0) + 1;
   await db.tenant(workerActor(tenantId), async (tx) => {
     await update(tx, order.id, {
       attempts,
-      lease_until: null,
-      next_attempt_at: new Date(Date.now() + backoffSeconds(attempts) * 1000),
+      next_attempt_at: new Date(
+        options.at ?? Date.now() + backoffSeconds(attempts) * 1000,
+      ),
       ...(options.attention !== undefined
         ? { attention: options.attention }
         : {}),
     });
     await mergeEvidence(tx, order.id, { lastNote: note.slice(0, 300) });
+  });
+}
+/** Looks again once an attempt that may still be running has settled. */
+function afterSettling(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  op: Order,
+  deps: WebAddressDeps,
+) {
+  return release(db, tenantId, order.id, {
+    next_attempt_at: new Date(
+      Date.parse(op.created_at) + settleMs(deps) + 5000,
+    ),
   });
 }
 const latestOperation = (tx: Tx, orderId: string, kind: string) =>
@@ -756,6 +1012,47 @@ async function finishOperation(
   );
   return row as Order;
 }
+/**
+ * Records an operation found done at the registrar without (another) request
+ * from this run: the open attempt is confirmed, or a confirmed record is
+ * added (as evidence of a registration or renewal made another way).
+ */
+async function confirmOperation(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  input: {
+    kind: "register" | "renew";
+    open?: Order;
+    intentKey: string;
+    request: object;
+    outcome: object;
+  },
+) {
+  const wa = workerActor(tenantId);
+  if (input.open)
+    return db.tenant(wa, (tx) =>
+      finishOperation(tx, input.open!.id, "confirmed", input.outcome),
+    );
+  const id = randomUUID();
+  return db.tenant(wa, async (tx) => {
+    await tx.query(
+      "INSERT INTO registrar_operations(id,tenant_id,order_id,kind,intent_key,registrar,hostname,request,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [
+        id,
+        tenantId,
+        order.id,
+        input.kind,
+        input.intentKey,
+        order.registrar,
+        order.hostname,
+        JSON.stringify({ ...input.request, sent: false }),
+        wa.userId,
+      ],
+    );
+    return finishOperation(tx, id, "confirmed", input.outcome);
+  });
+}
 const failureOutcome = (error: unknown) =>
   error instanceof RegistrarError
     ? {
@@ -766,6 +1063,27 @@ const failureOutcome = (error: unknown) =>
         },
       }
     : { status: "unknown", outcome: { error: "Unexpected failure" } };
+/** Stops (without buying or renewing) when the payment and registrar environments differ. */
+async function modeStop(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  livemode: unknown,
+  registrar: Registrar,
+  what: string,
+) {
+  const problem =
+    paymentModeProblem(livemode as boolean | null, registrar.sandbox) ??
+    (registrar.sandbox !== (order.quote?.registrarSandbox === true)
+      ? "The registrar environment changed after this order was quoted."
+      : null);
+  if (!problem) return false;
+  await release(db, tenantId, order.id, {
+    next_attempt_at: null,
+    attention: `${problem} Nothing was ${what}; fix the settings and retry, or refund.`,
+  });
+  return true;
+}
 
 async function purchase(
   db: Database,
@@ -780,6 +1098,17 @@ async function purchase(
       attempts: Number(order.attempts ?? 0),
     });
   const registrar = registrarOf(deps);
+  if (
+    await modeStop(
+      db,
+      tenantId,
+      order,
+      order.evidence?.firstPaymentLivemode,
+      registrar,
+      "bought",
+    )
+  )
+    return;
   const registrant = registrantFromConfig(runtimeConfig());
   const wa = workerActor(tenantId);
   // The retry budget (reset by an operator's retry) and the intent number
@@ -843,7 +1172,9 @@ async function purchase(
     );
     // Reconcile with the registrar before anything else happens.
     return release(db, tenantId, order.id, {
-      next_attempt_at: new Date(Date.now() + 30000),
+      next_attempt_at: new Date(
+        Date.now() + (failed.status === "unknown" ? settleMs(deps) : 30000),
+      ),
     });
   }
   if (!result.registered) {
@@ -881,14 +1212,16 @@ async function completeRegistration(
   operation: Order,
   deps: WebAddressDeps,
   cost: { usd?: string; estimated: boolean },
+  known?: { expiresAt?: string },
 ) {
   const registrar = registrarOf(deps);
-  let expiresAt: string | undefined;
-  try {
-    expiresAt = (await registrar.info(order.hostname)).expiresAt;
-  } catch {
-    /* A one-year registration: the expiry is confirmed at renewal time. */
-  }
+  let expiresAt = known?.expiresAt;
+  if (!expiresAt)
+    try {
+      expiresAt = (await registrar.info(order.hostname)).expiresAt;
+    } catch {
+      /* A one-year registration: the expiry is confirmed at renewal time. */
+    }
   const wa = workerActor(tenantId);
   await db.tenant(wa, async (tx) => {
     const [current] = await tx.query(
@@ -901,13 +1234,13 @@ async function completeRegistration(
       expires_at: expiresAt ?? new Date(Date.now() + 365 * DAY).toISOString(),
       attention: null,
       attempts: 0,
-      lease_until: null,
       next_attempt_at: new Date(),
     });
     await mergeEvidence(tx, order.id, {
       registeredAt: new Date().toISOString(),
       registrarOperationId: operation.id,
       registrarReference: operation.outcome?.domainId ?? null,
+      unavailableSeen: 0,
     });
     await progress(tx, order.id, "registered");
     if (cost.usd)
@@ -923,6 +1256,21 @@ async function completeRegistration(
       registrar: registrar.id,
     });
   });
+}
+/** Whether the name is in the platform's registrar account (getList, then getInfo); undefined when the registrar cannot be asked. */
+async function inOurAccount(registrar: Registrar, hostname: string) {
+  const listed = await registrar.list(hostname);
+  if (listed.length)
+    return { via: "getList", expiresAt: listed[0].expiresAt ?? null };
+  try {
+    // getInfo answers only for a domain in this account; the list may lag.
+    const info = await registrar.info(hostname);
+    return { via: "getInfo", expiresAt: info.expiresAt ?? null };
+  } catch (error) {
+    if (error instanceof RegistrarError && error.outcome === "definitive")
+      return null;
+    throw error;
+  }
 }
 async function reconcilePurchase(
   db: Database,
@@ -941,12 +1289,15 @@ async function reconcilePurchase(
       usd: operation.cost_usd ?? order.quote?.registerUsd,
       estimated: operation.cost_usd == null,
     });
+  // A request that may still be running is left to finish first.
+  if (settling(operation, deps))
+    return afterSettling(db, tenantId, order, operation, deps);
   // sent, failed or unknown: ask the registrar whether the name is ours.
   const registrar = registrarOf(deps);
-  let listed;
+  let ours;
   try {
-    listed = await registrar.list(order.hostname);
-  } catch (error) {
+    ours = await inOurAccount(registrar, order.hostname);
+  } catch {
     return retryLater(db, tenantId, order, "Reconciliation pending", {
       attention:
         Number(order.attempts ?? 0) >= 6
@@ -954,12 +1305,12 @@ async function reconcilePurchase(
           : undefined,
     });
   }
-  if (listed.length) {
+  if (ours) {
     const confirmed = await db.tenant(wa, (tx) =>
       finishOperation(tx, operation.id, "confirmed", {
         reconciledAt: new Date().toISOString(),
-        via: "getList",
-        expiresAt: listed[0].expiresAt ?? null,
+        via: ours.via,
+        expiresAt: ours.expiresAt,
       }),
     );
     return completeRegistration(db, tenantId, order, confirmed, deps, {
@@ -967,19 +1318,34 @@ async function reconcilePurchase(
       estimated: true,
     });
   }
-  await db.tenant(wa, (tx) =>
-    finishOperation(tx, operation.id, "absent", {
-      reconciledAt: new Date().toISOString(),
-      via: "getList",
-    }),
-  );
   let availability;
   try {
     [availability] = await registrar.check([order.hostname]);
   } catch {
     return retryLater(db, tenantId, order, "Availability check pending");
   }
-  if (!availability?.available || availability.premium)
+  if (
+    !availability?.available ||
+    availability.premium ||
+    availability.earlyAccessFeeUsd
+  ) {
+    // Not ours and not available: someone else took it, or the registrar
+    // has not shown our registration yet. Look once more before refunding.
+    const seen = Number(order.evidence?.unavailableSeen ?? 0) + 1;
+    if (seen < 2) {
+      await db.tenant(wa, (tx) =>
+        mergeEvidence(tx, order.id, { unavailableSeen: seen }),
+      );
+      return release(db, tenantId, order.id, {
+        next_attempt_at: new Date(Date.now() + 5 * 60000),
+      });
+    }
+    await db.tenant(wa, (tx) =>
+      finishOperation(tx, operation.id, "absent", {
+        reconciledAt: new Date().toISOString(),
+        via: "getList+getInfo",
+      }),
+    );
     return failOrder(
       db,
       tenantId,
@@ -987,6 +1353,14 @@ async function reconcilePurchase(
       "The name was registered by someone else before the purchase completed.",
       deps,
     );
+  }
+  await db.tenant(wa, async (tx) => {
+    await finishOperation(tx, operation.id, "absent", {
+      reconciledAt: new Date().toISOString(),
+      via: "getList+getInfo",
+    });
+    await mergeEvidence(tx, order.id, { unavailableSeen: 0 });
+  });
   const attempts = Number(order.evidence?.purchaseAttempts ?? 1);
   if (attempts >= MAX_PURCHASE_ATTEMPTS)
     return release(db, tenantId, order.id, {
@@ -1096,7 +1470,6 @@ async function writeHosts(
       status: "dns",
       attempts: 0,
       attention: null,
-      lease_until: null,
       next_attempt_at: new Date(Date.now() + 30000),
     });
     await mergeEvidence(tx, order.id, {
@@ -1176,7 +1549,6 @@ async function verifyAndActivate(
         live_at: current.live_at ?? new Date(),
         attention: null,
         attempts: 0,
-        lease_until: null,
         next_attempt_at: new Date(),
       });
       await mergeEvidence(tx, order.id, {
@@ -1203,41 +1575,117 @@ async function verifyAndActivate(
   });
 }
 
+/**
+ * Moves the yearly charge to 30 days before expiry (a trial until then,
+ * without proration). If that date has already passed without it, the
+ * renewal is charged now instead (a new billing cycle from today), so it is
+ * paid well before expiry. "failed" is retried on a short backoff.
+ */
 async function alignBilling(
   db: Database,
   tenantId: string,
   order: Order,
   deps: WebAddressDeps,
-) {
-  if (!order.stripe_subscription_id || order.billing_aligned_at) return;
+): Promise<"done" | "failed" | "skip"> {
+  if (!order.stripe_subscription_id || order.billing_aligned_at) return "skip";
+  if (
+    !order.renewal_enabled ||
+    ["canceled", "incomplete_expired", "unpaid"].includes(order.billing_status)
+  )
+    return "skip";
   const expires = Date.parse(order.expires_at);
-  if (!Number.isFinite(expires)) return;
+  if (!Number.isFinite(expires)) return "skip";
   const anchor = Math.floor((expires - RENEWAL_LEAD_DAYS * DAY) / 1000);
+  const late = anchor * 1000 <= Date.now() + 3600000;
   const wa = workerActor(tenantId);
-  if (anchor * 1000 <= Date.now() + 3600000) {
-    await db.tenant(wa, (tx) =>
-      update(tx, order.id, { billing_aligned_at: new Date() }),
-    );
-    return;
-  }
   try {
-    // Stripe's documented way to move a billing date: a trial until the new
-    // date, without proration. The next invoice then comes 30 days before
-    // the domain expires, and every yearly renewal keeps that lead.
-    await stripeOf(deps).subscriptions.update(
-      order.stripe_subscription_id,
-      { trial_end: anchor, proration_behavior: "none" },
-      { idempotencyKey: `web-address-align:${order.id}:${anchor}` },
-    );
+    if (late)
+      await stripeOf(deps).subscriptions.update(
+        order.stripe_subscription_id,
+        { billing_cycle_anchor: "now", proration_behavior: "none" },
+        {
+          idempotencyKey: `web-address-charge:${order.id}:${new Date(expires).toISOString().slice(0, 10)}`,
+        },
+      );
+    else
+      await stripeOf(deps).subscriptions.update(
+        order.stripe_subscription_id,
+        { trial_end: anchor, proration_behavior: "none" },
+        { idempotencyKey: `web-address-align:${order.id}:${anchor}` },
+      );
   } catch {
-    return; // Retried on the next visit; activation does not wait for it.
+    const failures = Number(order.evidence?.alignFailures ?? 0) + 1;
+    await db.tenant(wa, async (tx) => {
+      await mergeEvidence(tx, order.id, { alignFailures: failures });
+      if (failures >= ALIGN_ATTENTION_FAILURES)
+        await update(tx, order.id, { attention: ALIGN_ATTENTION });
+    });
+    return "failed";
   }
   await db.tenant(wa, async (tx) => {
-    await update(tx, order.id, { billing_aligned_at: new Date() });
+    await update(tx, order.id, {
+      billing_aligned_at: new Date(),
+      ...(order.attention === ALIGN_ATTENTION ? { attention: null } : {}),
+    });
     await mergeEvidence(tx, order.id, {
-      nextRenewalChargeAt: new Date(anchor * 1000).toISOString(),
+      nextRenewalChargeAt: new Date(
+        late ? Date.now() : anchor * 1000,
+      ).toISOString(),
+      alignFailures: 0,
+      ...(late ? { renewalChargedEarly: true } : {}),
     });
   });
+  return "done";
+}
+/**
+ * Whether the registrar already shows the expiry past the one this renewal
+ * extends (renewed by an earlier lost request or by hand): then it is
+ * recorded as confirmed and completed without sending a renewal.
+ * "renewed", "not_renewed", or "unknown" (the registrar could not be asked).
+ */
+async function renewedAtRegistrar(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+  open?: Order,
+) {
+  const registrar = registrarOf(deps);
+  let info;
+  try {
+    info = await registrar.info(order.hostname);
+  } catch {
+    return { state: "unknown" as const };
+  }
+  const base = order.evidence?.renewalBaseExpiry ?? iso(order.expires_at);
+  if (!movedPast(info.expiresAt, base))
+    return { state: "not_renewed" as const, info };
+  const count = await db.tenant(workerActor(tenantId), (tx) =>
+    tx.query(
+      "SELECT count(*)::int AS n FROM registrar_operations WHERE order_id=$1 AND kind='renew'",
+      [order.id],
+    ),
+  );
+  const confirmed = await confirmOperation(db, tenantId, order, {
+    kind: "renew",
+    open,
+    intentKey: `renew:${order.id}:${order.renewal_invoice_id ?? "manual"}:found:${Number(count[0].n) + 1}`,
+    request: {
+      years: 1,
+      previousExpiry: base,
+      invoiceId: order.renewal_invoice_id ?? null,
+    },
+    outcome: {
+      reconciledAt: new Date().toISOString(),
+      via: "getInfo",
+      expiresAt: info.expiresAt,
+    },
+  });
+  await completeRenewal(db, tenantId, order, confirmed, info.expiresAt, {
+    usd: order.quote?.renewUsd,
+    estimated: true,
+  });
+  return { state: "renewed" as const, info };
 }
 async function renew(
   db: Database,
@@ -1247,6 +1695,17 @@ async function renew(
 ) {
   const wa = workerActor(tenantId);
   const registrar = registrarOf(deps);
+  if (
+    await modeStop(
+      db,
+      tenantId,
+      order,
+      order.evidence?.renewalLivemode,
+      registrar,
+      "renewed",
+    )
+  )
+    return;
   const intent = `renew:${order.id}:${order.renewal_invoice_id}`;
   // Every registrar renewal attempt for this paid invoice, newest first.
   const previous = (await db.tenant(wa, (tx) =>
@@ -1255,7 +1714,6 @@ async function renew(
       [order.id, order.renewal_invoice_id],
     ),
   )) as Order[];
-  const existing = previous[0];
   const done = previous.find((op) =>
     ["succeeded", "confirmed"].includes(op.status),
   );
@@ -1264,49 +1722,34 @@ async function renew(
       usd: done.cost_usd ?? order.quote?.renewUsd,
       estimated: done.cost_usd == null,
     });
-  const previousExpiry = order.expires_at
-    ? new Date(order.expires_at).toISOString()
-    : null;
-  if (existing && ["sent", "failed", "unknown"].includes(existing.status)) {
-    // Reconcile: the renewal happened if the expiry moved past the one recorded.
-    let info;
-    try {
-      info = await registrar.info(order.hostname);
-    } catch {
-      return retryLater(db, tenantId, order, "Renewal reconciliation pending");
-    }
-    const before = Date.parse(existing.request?.previousExpiry ?? "");
-    if (
-      info.expiresAt &&
-      Number.isFinite(before) &&
-      Date.parse(info.expiresAt) > before + DAY
-    ) {
-      const confirmed = await db.tenant(wa, (tx) =>
-        finishOperation(tx, existing.id, "confirmed", {
-          reconciledAt: new Date().toISOString(),
-          via: "getInfo",
-          expiresAt: info.expiresAt,
-        }),
-      );
-      return completeRenewal(db, tenantId, order, confirmed, info.expiresAt, {
-        usd: order.quote?.renewUsd,
-        estimated: true,
-      });
-    }
+  const open = ["sent", "failed", "unknown"].includes(previous[0]?.status)
+    ? previous[0]
+    : undefined;
+  // A request that may still be running (another run, or one whose answer
+  // is late) is never reconciled or repeated yet.
+  if (open && settling(open, deps))
+    return afterSettling(db, tenantId, order, open, deps);
+  // Before every renewal request, and to reconcile an open one: the renewal
+  // happened if the registrar's expiry moved past the one this invoice extends.
+  const found = await renewedAtRegistrar(db, tenantId, order, deps, open);
+  if (found.state === "renewed") return;
+  if (found.state === "unknown")
+    return retryLater(db, tenantId, order, "Renewal check pending");
+  const base = order.evidence?.renewalBaseExpiry ?? iso(order.expires_at);
+  if (open)
     await db.tenant(wa, (tx) =>
-      finishOperation(tx, existing.id, "absent", {
+      finishOperation(tx, open.id, "absent", {
         reconciledAt: new Date().toISOString(),
         via: "getInfo",
       }),
     );
-  }
   const attempts = Number(order.evidence?.renewalAttempts ?? 0) + 1;
   if (attempts > MAX_RENEWAL_ATTEMPTS)
     return release(db, tenantId, order.id, {
       next_attempt_at: new Date(Date.now() + 6 * 3600000),
       renewal_status: "failed",
       attention:
-        "The paid renewal did not complete at the registrar after 5 attempts; renew manually and reconcile.",
+        "The paid renewal did not complete at the registrar after 5 attempts. Renew at the registrar, then use Record registrar state (or Retry).",
     });
   const operationId = randomUUID();
   const key = previous.length ? `${intent}:${previous.length + 1}` : intent;
@@ -1322,7 +1765,7 @@ async function renew(
         order.hostname,
         JSON.stringify({
           years: 1,
-          previousExpiry,
+          previousExpiry: base,
           invoiceId: order.renewal_invoice_id,
         }),
         wa.userId,
@@ -1346,6 +1789,9 @@ async function renew(
     );
     return retryLater(db, tenantId, order, "Renewal pending reconciliation", {
       attempts,
+      ...(failed.status === "unknown"
+        ? { at: Date.now() + settleMs(deps) + 5000 }
+        : {}),
     });
   }
   let expiresAt = result.expiresAt;
@@ -1383,7 +1829,7 @@ async function completeRenewal(
 ) {
   const wa = workerActor(tenantId);
   const fallback = (Date.parse(order.expires_at) || Date.now()) + 365 * DAY;
-  const expiry = expiresAt ?? new Date(fallback).toISOString();
+  const reported = expiresAt ?? new Date(fallback).toISOString();
   await db.tenant(wa, async (tx) => {
     const [current] = await tx.query(
       "SELECT * FROM domain_orders WHERE id=$1 FOR UPDATE",
@@ -1393,18 +1839,22 @@ async function completeRenewal(
       !current ||
       (current.renewal_status === "renewed" &&
         current.renewal_invoice_id === order.renewal_invoice_id &&
-        Date.parse(current.expires_at) >= Date.parse(expiry))
+        Date.parse(current.expires_at) >= Date.parse(reported))
     )
       return;
+    // The recorded expiry never moves backwards.
+    const expiry = new Date(
+      Math.max(Date.parse(reported), Date.parse(current.expires_at) || 0),
+    ).toISOString();
     await update(tx, order.id, {
       expires_at: expiry,
       renewal_status: "renewed",
       attention: null,
       attempts: 0,
-      lease_until: null,
       notices: {},
-      // A domain that lapsed before the late renewal is provisioned again.
-      ...(current.status === "expired" ? { status: "dns" } : {}),
+      // A domain that lapsed before the late renewal is provisioned again
+      // from its DNS records (the registrar may have parked it).
+      ...(current.status === "expired" ? { status: "owned" } : {}),
       next_attempt_at: new Date(),
     });
     await mergeEvidence(tx, order.id, { renewalAttempts: 0 });
@@ -1427,6 +1877,108 @@ async function completeRenewal(
     });
   });
 }
+/**
+ * Cancels the yearly subscription once (stable idempotency key). A failure
+ * is retried by the worker and flagged for an operator after three tries.
+ */
+export async function cancelSubscription(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  if (!order.stripe_subscription_id || order.billing_status === "canceled")
+    return true;
+  const wa = workerActor(tenantId);
+  const stripe = stripeOf(deps);
+  let cancelled = false;
+  try {
+    await stripe.subscriptions.cancel(
+      order.stripe_subscription_id,
+      {},
+      { idempotencyKey: "web-address-cancel:" + order.id },
+    );
+    cancelled = true;
+  } catch {
+    try {
+      const current = await stripe.subscriptions.retrieve(
+        order.stripe_subscription_id,
+      );
+      cancelled = ["canceled", "incomplete_expired"].includes(current?.status);
+    } catch {
+      cancelled = false;
+    }
+  }
+  if (cancelled) {
+    await db.tenant(wa, async (tx) => {
+      await update(tx, order.id, {
+        billing_status: "canceled",
+        renewal_enabled: false,
+      });
+      await mergeEvidence(tx, order.id, {
+        cancelPending: false,
+        cancelAttempts: 0,
+      });
+    });
+    return true;
+  }
+  const tries = Number(order.evidence?.cancelAttempts ?? 0) + 1;
+  await db.tenant(wa, async (tx) => {
+    await update(tx, order.id, {
+      next_attempt_at: new Date(Date.now() + backoffSeconds(tries) * 1000),
+      ...(tries >= 3
+        ? {
+            attention:
+              "The yearly Stripe subscription could not be cancelled; cancel it in Stripe so the trainer is not charged again.",
+          }
+        : {}),
+    });
+    await mergeEvidence(tx, order.id, {
+      cancelPending: true,
+      cancelAttempts: tries,
+    });
+  });
+  return false;
+}
+/**
+ * When the subscription must stay after expiry: Stripe still retries the
+ * renewal invoice (past_due), or the next charge falls just after expiry.
+ * Returns when to look again, or null to cancel now.
+ */
+async function lapseHold(order: Order, deps: WebAddressDeps) {
+  if (
+    !order.renewal_enabled ||
+    !order.stripe_subscription_id ||
+    order.billing_status === "canceled"
+  )
+    return null;
+  const expires = Date.parse(order.expires_at);
+  const until = expires + LAPSE_HOLD_DAYS * DAY;
+  if (!Number.isFinite(expires) || Date.now() >= until) return null;
+  let subscription;
+  try {
+    subscription = await stripeOf(deps).subscriptions.retrieve(
+      order.stripe_subscription_id,
+    );
+  } catch {
+    return Date.now() + 3600000;
+  }
+  const periodEnd =
+    Number(
+      subscription?.current_period_end ??
+        subscription?.items?.data?.[0]?.current_period_end,
+    ) * 1000;
+  if (subscription?.status === "past_due")
+    return Math.min(until, Date.now() + 12 * 3600000);
+  if (
+    ["active", "trialing"].includes(subscription?.status) &&
+    Number.isFinite(periodEnd) &&
+    periodEnd <= expires + 3 * DAY &&
+    periodEnd > Date.now() - DAY
+  )
+    return Math.min(until, Math.max(periodEnd + 3600000, Date.now() + 3600000));
+  return null;
+}
 async function lapse(
   db: Database,
   tenantId: string,
@@ -1434,7 +1986,8 @@ async function lapse(
   deps: WebAddressDeps,
 ) {
   const wa = workerActor(tenantId);
-  const fallback = fallbackAddress(order);
+  const fallback = await fallbackAddress(db, tenantId);
+  const hold = await lapseHold(order, deps);
   await db.system(async (tx) => {
     const lapsed = await tx.tenant(wa, async (tx) => {
       const [current] = await tx.query(
@@ -1445,8 +1998,7 @@ async function lapse(
         return false;
       await update(tx, order.id, {
         status: "expired",
-        lease_until: null,
-        next_attempt_at: null,
+        next_attempt_at: hold ? new Date(hold) : null,
         renewal_status: null,
       });
       await progress(tx, order.id, "lapsed");
@@ -1455,7 +2007,7 @@ async function lapse(
         templateKey: "web-address-lapsed",
         dedupe: "lapsed:" + String(current.expires_at).slice(0, 10),
         title: "Your domain has expired",
-        body: `${order.hostname} was not renewed and no longer shows your website.${fallback ? ` Your website and member sign-in stay available at ${fallback}.` : ""} You can buy a domain again from Web address.`,
+        body: `${order.hostname} was not renewed and no longer shows your website.${fallback ? ` Your website and member sign-in stay available at ${fallback}.` : ""}${hold ? " If the renewal payment Stripe is still retrying goes through in the next days, the domain is renewed and comes back automatically." : " You can buy a domain again from Web address."}`,
       });
       return true;
     });
@@ -1465,21 +2017,24 @@ async function lapse(
         [tenantId, [order.hostname, "www." + order.hostname]],
       );
   });
-  if (order.stripe_subscription_id && order.billing_status !== "canceled")
-    try {
-      await stripeOf(deps).subscriptions.cancel(
-        order.stripe_subscription_id,
-        {},
-        { idempotencyKey: "web-address-cancel:" + order.id },
-      );
-    } catch {
-      await db.tenant(wa, (tx) =>
-        update(tx, order.id, {
-          attention:
-            "The domain lapsed but its Stripe subscription could not be cancelled; cancel it in Stripe.",
-        }),
-      );
-    }
+  if (!hold) await cancelSubscription(db, tenantId, order, deps);
+}
+/** An expired order: a late payment renews it; otherwise the subscription ends after its hold. */
+async function settleLapsed(
+  db: Database,
+  tenantId: string,
+  order: Order,
+  deps: WebAddressDeps,
+) {
+  if (await reconcileLatestInvoice(db, tenantId, order, deps))
+    return release(db, tenantId, order.id, { next_attempt_at: new Date() });
+  const hold = await lapseHold(order, deps);
+  if (hold)
+    return release(db, tenantId, order.id, {
+      next_attempt_at: new Date(hold),
+    });
+  if (await cancelSubscription(db, tenantId, order, deps))
+    await release(db, tenantId, order.id, { next_attempt_at: null });
 }
 async function maintainActive(
   db: Database,
@@ -1487,19 +2042,39 @@ async function maintainActive(
   order: Order,
   deps: WebAddressDeps,
 ) {
-  if (!order.billing_aligned_at && order.stripe_subscription_id)
-    await alignBilling(db, tenantId, order, deps);
   if (order.renewal_status === "paid" || order.renewal_status === "renewing")
     return renew(db, tenantId, order, deps);
+  if (order.renewal_status === "failed") {
+    // Renewed by hand at the registrar: record it instead of failing on.
+    const found = await renewedAtRegistrar(db, tenantId, order, deps);
+    if (found.state === "renewed") return;
+  }
+  let alignRetryAt = Infinity;
+  if (!order.billing_aligned_at && order.stripe_subscription_id) {
+    const aligned = await alignBilling(db, tenantId, order, deps);
+    if (aligned === "failed")
+      alignRetryAt =
+        Date.now() +
+        backoffSeconds(Number(order.evidence?.alignFailures ?? 0) + 1) * 1000;
+    if (aligned !== "skip")
+      order = (await readOrder(db, tenantId, order.id)) ?? order;
+  }
   const expires = Date.parse(order.expires_at);
   const wa = workerActor(tenantId);
   if (!Number.isFinite(expires))
     return release(db, tenantId, order.id, { next_attempt_at: null });
+  // Within the renewal window: a paid renewal invoice whose event was lost.
+  if (
+    expires - Date.now() <= RENEWAL_LEAD_DAYS * DAY &&
+    order.renewal_status !== "failed" &&
+    (await reconcileLatestInvoice(db, tenantId, order, deps))
+  )
+    return release(db, tenantId, order.id, { next_attempt_at: new Date() });
   if (expires <= Date.now()) {
     if (order.renewal_status === "failed")
       return retryLater(db, tenantId, order, "Paid renewal still failing", {
         attention:
-          "The domain expired while a paid renewal is failing at the registrar; renew manually.",
+          "The domain expired while a paid renewal is failing at the registrar; renew at the registrar and use Record registrar state.",
       });
     return lapse(db, tenantId, order, deps);
   }
@@ -1509,10 +2084,20 @@ async function maintainActive(
   const sent = order.notices ?? {};
   const pending = due.length ? due.at(-1)! : null;
   if (pending !== null && !sent[`${period}:${pending}`]) {
-    const fallback = fallbackAddress(order);
+    const fallback = await fallbackAddress(db, tenantId);
+    const switchUntil = Date.parse(order.evidence?.nextRenewalChargeAt ?? "");
+    // Renewal can be turned back on only while the subscription still runs
+    // (until the date of the yearly charge).
+    const canTurnBackOn =
+      !["canceled", "incomplete_expired"].includes(order.billing_status) &&
+      Number.isFinite(switchUntil) &&
+      switchUntil > Date.now();
+    const pastDue = ["past_due", "unpaid"].includes(order.billing_status);
     const body = !order.renewal_enabled
-      ? `Renewal is turned off for ${order.hostname}. It stops working on ${period}${fallback ? `; your website stays available at ${fallback}` : ""}. Turn renewal back on in Web address to keep it.`
-      : `The yearly renewal for ${order.hostname} is not paid yet. Update your card before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.`;
+      ? `Renewal is turned off for ${order.hostname}, so it stops working on ${period}${fallback ? `; your website stays available at ${fallback}` : ""}.${canTurnBackOn ? ` You can turn renewal back on in Web address until ${new Date(switchUntil).toISOString().slice(0, 10)}.` : " To keep this domain, contact platform support."}`
+      : pastDue
+        ? `The yearly renewal payment for ${order.hostname} failed. Update your card in Stripe before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.`
+        : `The yearly renewal for ${order.hostname} has not been charged yet. We charge your card before ${period}; make sure it is up to date.`;
     await db.tenant(wa, async (tx) => {
       await notifyOwner(tx, tenantId, order, {
         templateKey: "web-address-renewal-reminder",
@@ -1525,14 +2110,29 @@ async function maintainActive(
           ...sent,
           [`${period}:${pending}`]: new Date().toISOString(),
         },
+        // Enabled, not failing, and still not charged two weeks before
+        // expiry: the billing date is wrong somewhere.
+        ...(order.renewal_enabled && !pastDue && !order.attention
+          ? {
+              attention:
+                "The yearly renewal has not been charged although the domain expires within 14 days; check the Stripe subscription.",
+            }
+          : {}),
       });
     });
   }
-  // Next visit: the next grace notice, or expiry.
+  // Next visit: alignment retry, the day after the renewal charge (to catch
+  // a lost payment event), the next grace notice, or expiry.
+  const checkAfterCharge = expires - (RENEWAL_LEAD_DAYS - 1) * DAY;
   const nextNotice = GRACE_NOTICE_DAYS.filter((days) => days < daysLeft)
     .map((days) => expires - days * DAY)
     .filter((at) => at > Date.now());
-  const next = Math.min(expires, ...nextNotice);
+  const next = Math.min(
+    expires,
+    alignRetryAt,
+    ...nextNotice,
+    ...(checkAfterCharge > Date.now() ? [checkAfterCharge] : []),
+  );
   await release(db, tenantId, order.id, {
     next_attempt_at: new Date(Math.max(next, Date.now() + 60000)),
   });
@@ -1597,7 +2197,6 @@ export async function failOrder(
         return;
       await update(tx, order.id, {
         status: "failed",
-        lease_until: null,
         next_attempt_at: null,
         attention:
           paymentIntent || current.status === "checkout"
@@ -1625,27 +2224,28 @@ export async function failOrder(
       });
     });
   });
-  if (order.stripe_subscription_id)
-    try {
-      await stripe.subscriptions.cancel(
-        order.stripe_subscription_id,
-        {},
-        { idempotencyKey: "web-address-cancel:" + order.id },
-      );
-    } catch {
-      /* The subscription is cancelled by the operator's reconciliation. */
-    }
+  // A subscription left running would charge the trainer again next year.
+  const current = await readOrder(db, tenantId, order.id);
+  if (current) await cancelSubscription(db, tenantId, current, deps);
 }
 
-/** One step for one order; the order is leased while it runs. */
+/**
+ * One step for one order; the order is leased while it runs and only this
+ * run releases the lease. `force` runs an order that is not due yet (an
+ * operator's reconcile), never one another run holds.
+ */
 export async function processWebAddressOrder(
   db: Database,
   tenantId: string,
   orderId: string,
   deps: WebAddressDeps = {},
+  options: { force?: boolean } = {},
 ) {
-  const order = await claim(db, tenantId, orderId);
-  if (!order) return false;
+  const claimed = await claim(db, tenantId, orderId, options.force === true);
+  if (!claimed) return false;
+  const { order, token } = claimed;
+  const renewalDue =
+    order.renewal_status === "paid" || order.renewal_status === "renewing";
   try {
     switch (order.status) {
       case "paid":
@@ -1655,27 +2255,28 @@ export async function processWebAddressOrder(
         await reconcilePurchase(db, tenantId, order, deps);
         break;
       case "owned":
-        await writeHosts(db, tenantId, order, deps);
+        if (renewalDue) await renew(db, tenantId, order, deps);
+        else await writeHosts(db, tenantId, order, deps);
         break;
       case "dns":
-        await verifyAndActivate(db, tenantId, order, deps);
+        if (renewalDue) await renew(db, tenantId, order, deps);
+        else await verifyAndActivate(db, tenantId, order, deps);
         break;
       case "active":
         await maintainActive(db, tenantId, order, deps);
         break;
       case "expired":
-        if (
-          order.renewal_status === "paid" ||
-          order.renewal_status === "renewing"
-        )
-          await renew(db, tenantId, order, deps);
-        else await release(db, tenantId, order.id, { next_attempt_at: null });
+        if (renewalDue) await renew(db, tenantId, order, deps);
+        else await settleLapsed(db, tenantId, order, deps);
         break;
       case "checkout":
         await sweepCheckout(db, tenantId, order, deps);
         break;
       default:
-        await release(db, tenantId, order.id, { next_attempt_at: null });
+        if (order.evidence?.cancelPending === true) {
+          if (await cancelSubscription(db, tenantId, order, deps))
+            await release(db, tenantId, order.id, { next_attempt_at: null });
+        } else await release(db, tenantId, order.id, { next_attempt_at: null });
     }
   } catch (error) {
     await retryLater(db, tenantId, order, "Step failed", {
@@ -1689,18 +2290,16 @@ export async function processWebAddressOrder(
           : undefined,
     }).catch(() => {});
   } finally {
-    await db
-      .tenant(workerActor(tenantId), (tx) =>
-        tx.query(
-          "UPDATE domain_orders SET lease_until=NULL WHERE id=$1 AND lease_until IS NOT NULL",
-          [orderId],
-        ),
-      )
-      .catch(() => {});
+    await releaseLease(db, tenantId, orderId, token).catch(() => {});
   }
   return true;
 }
-/** A checkout never paid: expire it at Stripe (after checking it) and cancel the order. */
+/**
+ * A checkout still open after its window: expire it at Stripe (after
+ * checking it) and cancel the order. A completed checkout whose payment
+ * event never arrived is reconciled from Stripe's own objects, and flagged
+ * if it stays unresolved.
+ */
 async function sweepCheckout(
   db: Database,
   tenantId: string,
@@ -1713,11 +2312,36 @@ async function sweepCheckout(
     const session = await stripe.checkout.sessions.retrieve(
       order.checkout_session_id,
     );
-    if (session?.status === "complete")
-      // Paid: the invoice event moves the order; look again later.
-      return release(db, tenantId, order.id, {
-        next_attempt_at: new Date(Date.now() + 10 * 60000),
+    if (session?.status === "complete") {
+      await processWebAddressStripeEvent(
+        db,
+        {
+          id: "reconcile:" + session.id,
+          type: "checkout.session.completed",
+          livemode: session.livemode,
+          data: { object: session },
+        },
+        deps,
+      );
+      const linked = (await readOrder(db, tenantId, order.id)) ?? order;
+      await reconcileLatestInvoice(db, tenantId, linked, deps);
+      const current = await readOrder(db, tenantId, order.id);
+      if (current?.status !== "checkout") return;
+      const visits = Number(order.evidence?.checkoutChecks ?? 0) + 1;
+      await db.tenant(wa, async (tx) => {
+        await update(tx, order.id, {
+          next_attempt_at: new Date(Date.now() + 10 * 60000),
+          ...(visits >= CHECKOUT_ATTENTION_VISITS && !current.attention
+            ? {
+                attention:
+                  "Checkout completed at Stripe but the first payment is not confirmed; check the subscription's first invoice.",
+              }
+            : {}),
+        });
+        await mergeEvidence(tx, order.id, { checkoutChecks: visits });
       });
+      return;
+    }
     if (session?.status === "open")
       await stripe.checkout.sessions.expire(order.checkout_session_id);
   }
@@ -1729,11 +2353,130 @@ async function sweepCheckout(
     if (current?.status !== "checkout") return;
     await update(tx, order.id, {
       status: "cancelled",
-      lease_until: null,
       next_attempt_at: null,
     });
     await progress(tx, order.id, "cancelled", "Checkout not completed");
   });
+}
+
+/**
+ * Operator fallback: records a registration or renewal that was made at the
+ * registrar by other means. The registrar is the evidence: the domain must
+ * be in the platform's account (getInfo), and a renewal must show an expiry
+ * past the recorded one. Nothing is bought or renewed here.
+ */
+export async function recordRegistrarState(
+  db: Database,
+  tenantId: string,
+  orderId: string,
+  deps: WebAddressDeps,
+): Promise<
+  | { recorded: "registration" | "renewal"; expiresAt: string | null }
+  | { recorded: false; reason: string }
+> {
+  const claimed = await claim(db, tenantId, orderId, true);
+  if (!claimed)
+    return {
+      recorded: false,
+      reason: "The worker is on this order right now; try again in a minute.",
+    };
+  const { order, token } = claimed;
+  try {
+    const registrar = registrarOf(deps);
+    let info;
+    try {
+      info = await registrar.info(order.hostname);
+    } catch (error) {
+      return {
+        recorded: false,
+        reason:
+          error instanceof RegistrarError && error.outcome === "definitive"
+            ? "The registrar does not show this domain in the platform's account."
+            : "The registrar could not be asked; try again.",
+      };
+    }
+    const wa = workerActor(tenantId);
+    if (["paid", "purchasing"].includes(order.status)) {
+      const latest = await db.tenant(wa, (tx) =>
+        latestOperation(tx, order.id, "register"),
+      );
+      const [count] = await db.tenant(wa, (tx) =>
+        tx.query(
+          "SELECT count(*)::int AS n FROM registrar_operations WHERE order_id=$1 AND kind='register'",
+          [order.id],
+        ),
+      );
+      const operation = ["succeeded", "confirmed"].includes(latest?.status)
+        ? latest!
+        : await confirmOperation(db, tenantId, order, {
+            kind: "register",
+            open: ["sent", "failed", "unknown"].includes(latest?.status)
+              ? latest
+              : undefined,
+            intentKey: `register:${order.id}:${Number(count.n) + 1}`,
+            request: { years: 1, recordedByOperator: true },
+            outcome: {
+              reconciledAt: new Date().toISOString(),
+              via: "operator+getInfo",
+              expiresAt: info.expiresAt ?? null,
+            },
+          });
+      if (order.status === "paid")
+        await db.tenant(wa, (tx) =>
+          update(tx, order.id, { status: "purchasing" }),
+        );
+      await completeRegistration(
+        db,
+        tenantId,
+        { ...order, status: "purchasing" },
+        operation,
+        deps,
+        { usd: order.quote?.registerUsd, estimated: true },
+        { expiresAt: info.expiresAt },
+      );
+      return { recorded: "registration", expiresAt: info.expiresAt ?? null };
+    }
+    if (["owned", "dns", "active", "expired"].includes(order.status)) {
+      const pending = ["paid", "renewing", "failed"].includes(
+        order.renewal_status,
+      );
+      const current = pending
+        ? order
+        : // No paid invoice: extends the recorded expiry.
+          {
+            ...order,
+            renewal_invoice_id: null,
+            evidence: {
+              ...order.evidence,
+              renewalBaseExpiry: iso(order.expires_at),
+            },
+          };
+      const open = pending
+        ? await db.tenant(wa, (tx) => latestOperation(tx, order.id, "renew"))
+        : undefined;
+      const found = await renewedAtRegistrar(
+        db,
+        tenantId,
+        current,
+        deps,
+        open && ["sent", "failed", "unknown"].includes(open.status)
+          ? open
+          : undefined,
+      );
+      if (found.state === "renewed")
+        return { recorded: "renewal", expiresAt: found.info.expiresAt ?? null };
+      return {
+        recorded: false,
+        reason:
+          found.state === "unknown"
+            ? "The registrar could not be asked; try again."
+            : "The registrar shows no expiry later than the one recorded.",
+      };
+    }
+    return { recorded: false, reason: "This order is closed." };
+  } finally {
+    await releaseLease(db, tenantId, orderId, token).catch(() => {});
+  }
 }
 
 /** Worker entry: due orders of every active or suspended workspace. */

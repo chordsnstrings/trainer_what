@@ -1202,15 +1202,38 @@ export async function testIntegration(
       // Read-only: the account balance. Works before purchases are enabled so
       // the API access and the IP whitelist can be proven first.
       const registrar = (fields.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+      const {
+        NamecheapRegistrar,
+        namecheapSettings,
+        RegistrarError,
+        paymentModeProblem,
+        registrarSandboxSetting,
+        stripeKeyMode,
+      } = await import("./registrar.ts");
+      // Stripe's mode must match the registrar environment: purchases are
+      // refused otherwise, and this check says so.
+      const stripeMode = stripeKeyMode(config);
+      const modeProblem = stripeMode
+        ? paymentModeProblem(
+            stripeMode === "live",
+            registrarSandboxSetting({ ...config, ...fields }),
+          )
+        : null;
+      const modeNote = modeProblem
+        ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
+        : "";
       if (registrar !== "namecheap")
         return {
           status: "validated",
           message:
-            "The generic registrar uses the Custom domains API URL and key; its account is read on the first search. No domain was bought.",
+            "The generic registrar uses the Custom domains API URL and key; its account is read on the first search. No domain was bought." +
+            modeNote,
           checkedAt,
+          details: {
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
+          },
         };
-      const { NamecheapRegistrar, namecheapSettings, RegistrarError } =
-        await import("./registrar.ts");
       const settings = namecheapSettings(fields);
       try {
         const balance = await new NamecheapRegistrar(settings).balance();
@@ -1220,12 +1243,15 @@ export async function testIntegration(
             "Namecheap API access verified from the whitelisted address. No domain was bought." +
             (Number(balance.available) < 20
               ? " The available balance is low: purchases and renewals are paid from it."
-              : ""),
+              : "") +
+            modeNote,
           checkedAt,
           details: {
             environment: settings.sandbox ? "sandbox" : "production",
             currency: balance.currency,
             availableBalance: balance.available,
+            paymentMode: stripeMode ?? "unknown",
+            modeMismatch: !!modeProblem,
           },
         };
       } catch (error) {

@@ -16,8 +16,12 @@ import {
 import { requireCommerce, stripeClient } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
+  paymentModeProblem,
   registrarFromConfig,
+  registrarSandboxSetting,
   RegistrarError,
+  stripeKeyMode,
+  type Availability,
   type Registrar,
   type TldPrice,
 } from "../../../packages/providers/src/registrar.ts";
@@ -40,9 +44,12 @@ import { platformRoot } from "./host-routing.ts";
 import type { HostContext } from "./host-routing.ts";
 import { normalizeDomain } from "./integrations-completion.ts";
 import {
+  cancelSubscription,
   failOrder,
   processWebAddressOrder,
   purchasesEnabled,
+  recordRegistrarState,
+  SETTLE_MS,
   type WebAddressDeps,
   type WebAddressStripe,
 } from "./web-address-orders.ts";
@@ -136,6 +143,65 @@ async function slugChangesThisYear(tx: Tx) {
   return Number(row?.n ?? 0);
 }
 
+// ---- Registrar call budget -------------------------------------------------------
+
+/**
+ * Namecheap limits API calls per account (published as 20 a minute, 700 an
+ * hour and 8000 a day). Searches and quotes from this API process may use
+ * at most these shares, so trainers searching can never starve the worker's
+ * purchases, renewals and reconciliation. Per process: the platform runs
+ * one API process.
+ */
+export const INTERACTIVE_REGISTRAR_BUDGET = { minute: 8, hour: 300, day: 3500 };
+const interactiveCalls: number[] = [];
+function takeRegistrarCalls(count: number) {
+  const now = Date.now();
+  while (interactiveCalls.length && interactiveCalls[0] <= now - 86400000)
+    interactiveCalls.shift();
+  const within = (ms: number) =>
+    interactiveCalls.filter((at) => at > now - ms).length;
+  if (
+    within(60000) + count > INTERACTIVE_REGISTRAR_BUDGET.minute ||
+    within(3600000) + count > INTERACTIVE_REGISTRAR_BUDGET.hour ||
+    interactiveCalls.length + count > INTERACTIVE_REGISTRAR_BUDGET.day
+  )
+    throw fail(
+      503,
+      "REGISTRAR_BUSY",
+      "Domain search is busy right now. Please try again in a minute.",
+    );
+  for (let i = 0; i < count; i++) interactiveCalls.push(now);
+}
+/** Availability answers reused for a minute (the order always asks again). */
+const checkCache = new Map<string, { at: number; result: Availability[] }>();
+const CHECK_TTL_MS = 60000;
+async function checkNames(registrar: Registrar, names: string[]) {
+  const key = `${registrar.id}:${registrar.sandbox}:${names.join(",")}`;
+  const hit = checkCache.get(key);
+  if (hit && Date.now() - hit.at < CHECK_TTL_MS) return hit.result;
+  takeRegistrarCalls(1);
+  const result = await registrar.check(names);
+  if (checkCache.size > 500) checkCache.clear();
+  checkCache.set(key, { at: Date.now(), result });
+  return result;
+}
+/** Forget the call budget and cached answers (tests). */
+export function resetRegistrarBudget() {
+  interactiveCalls.length = 0;
+  checkCache.clear();
+}
+/**
+ * Why purchases cannot run with the configured payment and registrar
+ * environments (Stripe live keys with the Namecheap test environment, or the
+ * reverse), or null. Unknown key formats are checked on the Checkout session.
+ */
+export function configuredModeProblem() {
+  const mode = stripeKeyMode();
+  return mode
+    ? paymentModeProblem(mode === "live", registrarSandboxSetting())
+    : null;
+}
+
 // ---- Search and prices ---------------------------------------------------------
 
 const priceCache = new Map<string, { at: number; price: TldPrice }>();
@@ -144,6 +210,7 @@ async function tldPrice(registrar: Registrar, tld: string) {
   const key = `${registrar.id}:${registrar.sandbox}:${tld}`;
   const hit = priceCache.get(key);
   if (hit && Date.now() - hit.at < PRICE_TTL_MS) return hit.price;
+  takeRegistrarCalls(1);
   const price = await registrar.pricing(tld);
   priceCache.set(key, { at: Date.now(), price });
   return price;
@@ -151,6 +218,7 @@ async function tldPrice(registrar: Registrar, tld: string) {
 /** Forget cached registrar prices (tests; a settings change takes effect within an hour otherwise). */
 export function clearWebAddressPriceCache() {
   priceCache.clear();
+  resetRegistrarBudget();
 }
 function pricing() {
   const config = runtimeConfig();
@@ -199,7 +267,7 @@ export async function searchDomains(
   const registrar = deps.registrar ?? registrarFromConfig();
   let availability;
   try {
-    availability = await registrar.check(candidates);
+    availability = await checkNames(registrar, candidates);
   } catch (error) {
     throw registrarUnavailable(error);
   }
@@ -208,7 +276,9 @@ export async function searchDomains(
     const found = availability.find((item) => item.domain === name);
     const tld = splitRegistrableDomain(name, settings.tlds)?.[1];
     let priceMinor: number | null = null;
-    if (found?.available && !found.premium && tld)
+    const offered =
+      !!found?.available && !found.premium && !found.earlyAccessFeeUsd;
+    if (offered && tld)
       try {
         const price = await tldPrice(registrar, tld);
         priceMinor = yearlyPriceMinor({
@@ -217,13 +287,14 @@ export async function searchDomains(
           usdToAed: settings.usdToAed,
           marginAed: settings.marginAed,
         });
-      } catch {
+      } catch (error) {
+        if ((error as any)?.code === "REGISTRAR_BUSY") throw error;
         priceMinor = null;
       }
     out.push({
       domain: name,
-      available: !!found?.available && !found.premium && priceMinor !== null,
-      premium: !!found?.premium,
+      available: offered && priceMinor !== null,
+      premium: !!found?.premium || !!found?.earlyAccessFeeUsd,
       priceMinor,
       currency: "AED",
       renewsYearly: true,
@@ -247,13 +318,18 @@ async function quote(registrar: Registrar, domain: string) {
   if (!split)
     throw fail(400, "DOMAIN_NAME", "This domain ending is not offered.");
   let availability, price;
+  takeRegistrarCalls(2);
   try {
     [availability] = await registrar.check([domain]);
     price = await registrar.pricing(split[1]);
   } catch (error) {
     throw registrarUnavailable(error);
   }
-  if (!availability?.available || availability.premium)
+  if (
+    !availability?.available ||
+    availability.premium ||
+    availability.earlyAccessFeeUsd
+  )
     throw fail(
       409,
       "DOMAIN_UNAVAILABLE",
@@ -348,10 +424,19 @@ async function operatorOrders(db: Database, operator: Identity, id?: string) {
         ...order,
         tenant_name: tenant.name,
         tenant_slug: tenant.slug,
+        // A request sent moments ago may still be running: it is shown as
+        // in flight, not as an item to reconcile.
         needsReconciliation: (order.operations ?? []).some(
           (op: any) =>
-            ["sent", "failed", "unknown"].includes(op.status) &&
-            op.kind !== "set_hosts",
+            op.kind !== "set_hosts" &&
+            (["failed", "unknown"].includes(op.status) ||
+              (op.status === "sent" &&
+                Date.now() - Date.parse(op.created_at) >= SETTLE_MS)),
+        ),
+        inFlight: (order.operations ?? []).some(
+          (op: any) =>
+            op.status === "sent" &&
+            Date.now() - Date.parse(op.created_at) < SETTLE_MS,
         ),
       })),
     );
@@ -419,7 +504,7 @@ export function registerWebAddresses(
         .filter((r: any) => Date.parse(r.redirect_until) > Date.now())
         .map((r: any) => ({ slug: r.slug, until: r.redirect_until })),
       purchases: {
-        enabled: purchasesEnabled(),
+        enabled: purchasesEnabled() && !configuredModeProblem(),
         currency: "AED",
         endings: allowedTlds(config.WEB_ADDRESS_TLDS),
         testEnvironment:
@@ -528,7 +613,7 @@ export function registerWebAddresses(
 
   app.get(
     "/api/v1/web-address/search",
-    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } },
     async (req) => {
       owner(req);
       if (!purchasesEnabled())
@@ -566,6 +651,17 @@ export function registerWebAddresses(
       assertNotPlatformName(domain);
       const client = commerce();
       const registrar = deps.registrar ?? registrarFromConfig();
+      // Real money never buys in a test environment, a test payment never
+      // buys a real domain.
+      const keyMode = stripeKeyMode();
+      const mismatch =
+        keyMode && paymentModeProblem(keyMode === "live", registrar.sandbox);
+      if (mismatch)
+        throw fail(
+          409,
+          "WEB_ADDRESS_DISABLED",
+          "Buying a domain is not available yet.",
+        );
       const fresh = await quote(registrar, domain);
       if (fresh.priceMinor !== b.priceMinor)
         throw Object.assign(
@@ -696,6 +792,27 @@ export function registerWebAddresses(
       tenantId: order.tenant_id,
       role: "owner",
     });
+    // The session's own mode is the final word on which money this is.
+    if (
+      paymentModeProblem(
+        typeof session.livemode === "boolean" ? session.livemode : null,
+        order.quote?.registrarSandbox === true,
+      )
+    ) {
+      await client.checkout.sessions.expire(session.id).catch(() => {});
+      await db.tenant(scope, async (tx) => {
+        await tx.query(
+          "UPDATE domain_orders SET status='cancelled',next_attempt_at=NULL,checkout_session_id=coalesce(checkout_session_id,$2),version=version+1,updated_at=now() WHERE id=$1 AND status='checkout'",
+          [order.id, session.id],
+        );
+        await event(tx, scope, "web_address.mode_mismatch", order.id);
+      });
+      throw fail(
+        409,
+        "WEB_ADDRESS_DISABLED",
+        "Buying a domain is not available yet.",
+      );
+    }
     await db.tenant(scope, (tx) =>
       tx.query(
         "UPDATE domain_orders SET checkout_session_id=coalesce(checkout_session_id,$2),evidence=evidence||$3::jsonb,updated_at=now() WHERE id=$1 AND status='checkout'",
@@ -795,7 +912,7 @@ export function registerWebAddresses(
       throw fail(
         409,
         "RENEWAL_ENDED",
-        "The yearly subscription has ended; renewal cannot be turned back on.",
+        "The yearly subscription has ended, so renewal cannot be turned back on here. Contact platform support to keep this domain.",
       );
     await stripe().subscriptions.update(
       order.stripe_subscription_id,
@@ -806,8 +923,9 @@ export function registerWebAddresses(
     );
     return db.tenant(a, async (tx) => {
       const [row] = await tx.query(
-        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-        [id, b.enabled],
+        // The switch time lets an older Stripe event never undo this choice.
+        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+        [id, b.enabled, Math.floor(Date.now() / 1000)],
       );
       await event(
         tx,
@@ -827,8 +945,9 @@ export function registerWebAddresses(
     return {
       root: platformRoot(),
       registrar: config.WEB_ADDRESS_REGISTRAR || "namecheap",
-      testEnvironment: config.NAMECHEAP_SANDBOX?.trim() !== "false",
+      testEnvironment: registrarSandboxSetting(config),
       purchasesEnabled: purchasesEnabled(),
+      modeProblem: configuredModeProblem(),
       orders,
       attention: orders.filter((o) => o.attention || o.needsReconciliation)
         .length,
@@ -854,19 +973,32 @@ export function registerWebAddresses(
     return { operator, order, scope, reason: body.reason };
   }
   // Runs the next step now: a reconciliation for an open registrar attempt.
+  // Never while another run holds the order (its lease is left alone), and
+  // an attempt that may still be running is left to settle by that step.
   app.post("/api/v1/admin/web-addresses/:id/reconcile", async (req) => {
     const { order, scope, reason } = await operatorOrder(req);
-    await db.tenant(scope, async (tx) => {
-      await tx.query(
-        "UPDATE domain_orders SET next_attempt_at=now(),lease_until=NULL,updated_at=now() WHERE id=$1",
-        [order.id],
-      );
-      await event(tx, scope, "web_address.operator_reconcile", order.id, {
+    await db.tenant(scope, (tx) =>
+      event(tx, scope, "web_address.operator_reconcile", order.id, {
         reason,
-      });
-    });
-    await processWebAddressOrder(db, order.tenant_id, order.id, deps);
-    return (await operatorOrders(db, identity(req), order.id))[0];
+      }),
+    );
+    const ran = await processWebAddressOrder(
+      db,
+      order.tenant_id,
+      order.id,
+      deps,
+      { force: true },
+    );
+    return {
+      ...(await operatorOrders(db, identity(req), order.id))[0],
+      ran,
+      ...(ran
+        ? {}
+        : {
+            message:
+              "The worker is on this order right now; look again in a minute.",
+          }),
+    };
   });
   // Clears the attention flag and starts the current step again.
   app.post("/api/v1/admin/web-addresses/:id/retry", async (req) => {
@@ -875,7 +1007,9 @@ export function registerWebAddresses(
       throw fail(409, "ORDER_STATE", "This order is closed.");
     await db.tenant(scope, async (tx) => {
       await tx.query(
-        "UPDATE domain_orders SET attention=NULL,attempts=0,evidence=evidence||'{\"purchaseAttempts\":0,\"renewalAttempts\":0}'::jsonb,next_attempt_at=now(),lease_until=NULL,renewal_status=CASE WHEN renewal_status='failed' THEN 'paid' ELSE renewal_status END,version=version+1,updated_at=now() WHERE id=$1",
+        // The lease stays: a running step finishes first. A failed renewal
+        // is checked against the registrar's expiry before any new request.
+        'UPDATE domain_orders SET attention=NULL,attempts=0,evidence=evidence||\'{"purchaseAttempts":0,"renewalAttempts":0,"alignFailures":0,"checkoutChecks":0,"cancelAttempts":0}\'::jsonb,next_attempt_at=now(),renewal_status=CASE WHEN renewal_status=\'failed\' THEN \'paid\' ELSE renewal_status END,version=version+1,updated_at=now() WHERE id=$1',
         [order.id],
       );
       await event(tx, scope, "web_address.operator_retry", order.id, {
@@ -884,6 +1018,48 @@ export function registerWebAddresses(
     });
     return (await operatorOrders(db, identity(req), order.id))[0];
   });
+  // Records a registration or renewal made at the registrar by hand (the
+  // registrar's getInfo is the evidence; nothing is bought or renewed).
+  app.post("/api/v1/admin/web-addresses/:id/record", async (req) => {
+    const { order, scope, reason } = await operatorOrder(req);
+    const result = await recordRegistrarState(
+      db,
+      order.tenant_id,
+      order.id,
+      deps,
+    );
+    if (!result.recorded) throw fail(409, "NOT_RECORDED", result.reason);
+    await db.tenant(scope, (tx) =>
+      event(tx, scope, "web_address.operator_recorded", order.id, {
+        reason,
+        recorded: result.recorded,
+        expiresAt: result.expiresAt,
+      }),
+    );
+    return (await operatorOrders(db, identity(req), order.id))[0];
+  });
+  // Ends the trainer's yearly subscription (no further charges); the domain
+  // stays until its expiry and then lapses to the subdomain.
+  app.post(
+    "/api/v1/admin/web-addresses/:id/cancel-subscription",
+    async (req) => {
+      const { order, scope, reason } = await operatorOrder(req);
+      if (!order.stripe_subscription_id || order.billing_status === "canceled")
+        throw fail(409, "ORDER_STATE", "There is no running subscription.");
+      await db.tenant(scope, (tx) =>
+        event(tx, scope, "web_address.operator_cancel_subscription", order.id, {
+          reason,
+        }),
+      );
+      if (!(await cancelSubscription(db, order.tenant_id, order, deps)))
+        throw fail(
+          502,
+          "STRIPE_UNAVAILABLE",
+          "Stripe did not confirm the cancellation; it is retried automatically.",
+        );
+      return (await operatorOrders(db, identity(req), order.id))[0];
+    },
+  );
   // Refunds and closes an order whose domain was never registered.
   app.post("/api/v1/admin/web-addresses/:id/refund", async (req) => {
     const { order, scope, reason } = await operatorOrder(req);

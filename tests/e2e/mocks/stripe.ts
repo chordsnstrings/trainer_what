@@ -517,6 +517,7 @@ export class StripeMock {
     const session = {
       id,
       object: "checkout.session",
+      livemode: false,
       mode: f.mode,
       status: "open",
       payment_status: "unpaid",
@@ -666,6 +667,7 @@ export class StripeMock {
     const invoice = {
       id: randomId("in"),
       object: "invoice",
+      livemode: false,
       status: paid ? "paid" : "open",
       amount_paid: paid ? amount : 0,
       amount_due: amount,
@@ -753,6 +755,7 @@ export class StripeMock {
       const sub = {
         id: randomId("sub"),
         object: "subscription",
+        livemode: false,
         status: trialDays ? "trialing" : "active",
         customer: customer.id,
         cancel_at_period_end: false,

@@ -114,9 +114,20 @@ Nothing below has been done. Deployment stays separately assigned.
 7. **Stripe**: nothing new to create. Checkout uses inline yearly AED prices, and the existing
    webhook endpoint already receives the events (`checkout.session.*`, `customer.subscription.*`,
    `invoice.paid`, `invoice.payment_failed`, refunds, disputes). `COMMERCE_APPROVED` must be true.
-8. **Rehearse** with the Namecheap test environment and Stripe test mode: buy a test name, watch
-   it reach Live, turn renewal off, then switch the Namecheap test environment off only when the
-   owner approves live purchases.
+8. **Rehearse**, then go live. The Stripe mode and the registrar environment must match: with
+   live Stripe keys (`sk_live_…`) and the Namecheap test environment on, or test keys with it
+   off, the trainer panel hides purchases, `POST /web-address/orders` is refused, a Checkout
+   session Stripe creates in the other mode is expired and refused, the worker buys or renews
+   nothing for a payment whose `livemode` differs, and the connection check and operator view
+   say so. A server with a single live Stripe key therefore cannot rehearse against the
+   Namecheap test environment. Either rehearse on a staging copy with Stripe test keys and the
+   Namecheap test environment, or rehearse on the live server with live keys, the test
+   environment switched off and one cheap real name bought by the owner (then turn its renewal
+   off). Switch to live purchases only when the owner approves.
+9. **Owner decisions still open** (nothing is decided in code): who is the registrant (step 5);
+   whether trainers should see the registrar cost of their domain (they do not: the trainer's
+   statement and ledger export leave it out, operators see it); and the accounting policy for
+   yearly domain revenue (recognised in full when paid, see "Left out").
 
 ## What was built, per audience
 
@@ -131,12 +142,16 @@ Nothing below has been done. Deployment stays separately assigned.
   the audit events. The previous name keeps redirecting for 90 days (the old subdomain with a
   307 to the new host, `/coach/<old>` and `/join-coach/<old>` with a 307 on the platform) and
   nobody else can take it meanwhile; the workspace may take it back. Reserved names (`www`,
-  `app`, `api`, `admin`, `mail`, `smtp`, `ns1`, `billing`, `support`, `stripe`, `trainsyou`, …; the
-  full list is `RESERVED_SLUGS` in `packages/domain/src/web-address.ts`), a trailing hyphen and
+  `app`, `api`, `admin`, `mail`, `smtp`, `ns1`, `billing`, `support`, `stripe`, `trainsyou`, and
+  the names clients probe on their own under the wildcard A record: `autodiscover`,
+  `autoconfig`, `lyncdiscover`, `sip`, `msoid`, `enterpriseenrollment`, `wpad`, `isatap`,
+  `mta-sts`, control panels and role mailboxes …; the full list is `RESERVED_SLUGS` in
+  `packages/domain/src/web-address.ts`), a trailing hyphen and
   a double hyphen (`xn--`) are refused at signup and at a change. Existing workspaces whose slug
   is now reserved keep `/coach/<slug>` and get no subdomain until they change it.
 - **Own domain.** Search a name (or a full domain under an offered ending); each result shows
-  availability and one yearly price in AED. Premium names are not offered. Choosing one shows
+  availability and one yearly price in AED. Premium names and names in an early-access phase
+  (Namecheap `EapFee`) are not offered. Choosing one shows
   the price again with an explicit "I agree to pay AED … per year, renewed automatically"; paying
   opens Stripe Checkout (subscription, the trainer is the customer). If the registrar price
   changed since the search, the order is refused with the new price and must be confirmed again.
@@ -150,7 +165,9 @@ Nothing below has been done. Deployment stays separately assigned.
 - **Renewal switch**: turning renewal off sets the Stripe subscription to end at the period end
   (which is 30 days before the domain expires, so no renewal is charged); the domain keeps
   working until it expires and the site then falls back to the subdomain. It can be turned back
-  on while the subscription has not ended.
+  on until that date (the date of the yearly charge). After it, the subscription has ended:
+  the reminders say so and point to platform support instead of offering the switch. A Stripe
+  event older than the trainer's last switch never changes it.
 - A domain the trainer already owns is still connected with the existing manual flow, shown
   below the new panel.
 
@@ -171,9 +188,16 @@ keeps working. No follower screen changed.
   attempt awaiting reconciliation; sorted with those first.
 - **Manual fallbacks**, each with a recorded reason (10 to 500 characters) and an audit event:
   *Reconcile now* (runs the order's next step immediately; for an open purchase that is the
-  getList reconciliation), *Retry step* (clears the attention flag and the retry budget; a new
-  attempt always gets a new intent key), *Refund and close* (only for a paid order whose domain
-  was not registered, refused while a registrar attempt is unreconciled). The manual domain
+  getList/getInfo reconciliation, for a failed renewal the getInfo check. It never takes over
+  an order another run is working on: the answer then says so, `ran: false`), *Retry step*
+  (clears the attention flag and the retry budgets; a new attempt always gets a new intent key,
+  and a renewal first reads the registrar's expiry), *Record registrar state* (records a
+  registration or renewal made at Namecheap by hand; the evidence is `domains.getInfo`: the name
+  must be in the platform's account, and a renewal must show a later expiry than recorded;
+  nothing is bought or renewed), *Cancel subscription* (ends the trainer's yearly Stripe
+  subscription; the domain stays until expiry) and *Refund and close* (only for a paid order
+  whose domain was not registered, refused while a registrar attempt is unreconciled). The
+  operator view also shows a Stripe/registrar mode mismatch. The manual domain
   routes (quote, ownership evidence, activation, renewal evidence) keep working for manual
   orders only; automatic orders never appear in or match them.
 
@@ -232,23 +256,50 @@ activated) → `expired` (lapse). Also `cancelled` (checkout expired or cancelle
 links immutable and forbids deleting automatic orders; a renewal paid late provisions again
 (`expired` → `dns`).
 
+- **Lease.** A worker step claims the order with a lease (10 minutes) and a random token; only
+  the run holding that token releases it, and no route clears it. The operator's Reconcile runs
+  a step only when no other run holds the order.
+- **Settling.** A purchase or renewal request without a final answer (`sent`, or `unknown`
+  after a timeout) is reconciled only three minutes after it was recorded (the request timeout
+  is 45 seconds), so a request that may still be running at the registrar is never taken for
+  one that did nothing.
 - **Stable intent and reconciliation.** Before each registrar purchase, renewal or DNS write the
   worker inserts a `registrar_operations` row (`register:<order>:<n>`, `renew:<order>:<invoice>`
   and `…:<n>` for further attempts, `hosts:<order>:<n>`); intent keys are unique and never
   reused. Outcomes: `succeeded`, `failed` (the registrar refused), `unknown` (no usable answer),
   then `confirmed`/`absent` after reconciliation. A trigger refuses a new purchase or renewal
   attempt of the same order while one is `sent`, `failed` or `unknown`, and seals finished rows.
-  A purchase that is not a confirmed success is reconciled with `domains.getList`: listed →
-  confirmed, registration completes, no second purchase; not listed → absent, then
-  `domains.check`: taken or premium → the order fails and is refunded; still available → retry
-  with backoff, at most three attempts, then operator attention. A renewal is reconciled with
-  `domains.getInfo`: an expiry more than a day past the one recorded with the attempt confirms
-  it; otherwise it is retried (five attempts, then attention). DNS writes replace the whole set,
-  so they are simply sent again.
+  A purchase that is not a confirmed success is reconciled with `domains.getList`, then
+  `domains.getInfo` (which answers only for a domain in the platform's account, so a listing
+  lag cannot hide it): found → confirmed, registration completes, no second purchase; not found
+  → `domains.check`: still available → absent, retry with backoff, at most three attempts, then
+  operator attention; taken, premium or early-access → looked at once more five minutes later,
+  and only if it is still not ours is the order failed and refunded. Every renewal request,
+  including the first, is preceded by `domains.getInfo`: an expiry more than a day past the one
+  recorded when the invoice was paid (`renewalBaseExpiry`) means it is already renewed (by a lost
+  earlier request or by hand), which is recorded as confirmed without another request;
+  otherwise an open attempt becomes absent and a new one is sent (five attempts, then
+  attention). A failed renewal (`renewal_status=failed`) is checked the same way on every visit
+  and by Reconcile. DNS writes replace the whole set, so they are simply sent again.
+- **Payment and registrar environment.** The worker buys only when the paying invoice's
+  `livemode` matches the registrar environment (live payment and live registrar, or test and
+  test) and the environment is the one quoted; otherwise the order waits with attention and
+  can be refunded. The same check stops renewals.
 - **Billing date.** After registration the worker moves the subscription's next charge to 30
   days before expiry (`trial_end` with `proration_behavior=none`, idempotency key
   `web-address-align:<order>:<anchor>`). Each paid renewal invoice renews for one year, which
-  keeps the 30-day lead.
+  keeps the 30-day lead. A failed alignment is retried on its own short backoff (not at the
+  first grace notice) and flagged after three failures. If that date passes without
+  alignment, the renewal is charged at once instead (`billing_cycle_anchor=now`,
+  `proration_behavior=none`, key `web-address-charge:<order>:<expiry date>`), so it is paid
+  well before expiry; the following charges keep that shorter lead. Two weeks before expiry an
+  enabled renewal that is neither paid nor failing is flagged for an operator.
+- **Lost payment events.** A completed Checkout whose events never arrived is applied from
+  Stripe's own objects (the session, then the subscription's latest invoice) by the checkout
+  sweep, and flagged after six visits (an hour) if the invoice is still unpaid. Within 30 days of
+  expiry, and after a lapse, the subscription's latest paid invoice is applied the same way when
+  its event was lost. Such synthetic events go through the same handler, which ignores an
+  invoice already journaled.
 - **Price.** `yearlyPriceMinor`: the higher of Namecheap's one-year registration and renewal
   price (each including the ICANN fee Namecheap adds), times the configured rate, rounded up to
   whole dirhams, plus the margin; the same price every year. With the test double's prices a `.com`
@@ -257,12 +308,21 @@ links immutable and forbids deleting automatic orders; a renewal paid late provi
   renewal (the registrar cost journal shows it); changing a running subscription's price is not
   built.
 - **Lapse.** At expiry without a paid renewal: `expired`, both mappings inactive (the subdomain
-  keeps serving), the trainer is notified with the subdomain address, and the Stripe
-  subscription is cancelled (`web-address-cancel:<order>`). The old manual expiry sweep now
-  handles manual orders only.
+  keeps serving), the trainer is notified with the workspace's current subdomain address. The
+  Stripe subscription is cancelled (`web-address-cancel:<order>`) at once when renewal is off or
+  nothing is pending; while Stripe still retries the renewal invoice (`past_due`), or the next
+  charge falls within three days after expiry, it is kept for up to 20 days
+  (`LAPSE_HOLD_DAYS`, inside the registrar grace period of the offered endings), so a late
+  payment renews the domain (`expired` → `owned`: the complete host set is written again, since
+  the registrar may have parked the name). A failed cancel is retried by the worker and flagged
+  after three tries. The old manual expiry sweep handles manual orders only.
+- **Stale events.** An `invoice.paid` whose invoice is already journaled (a replay, or an older
+  invoice delivered late) changes nothing, and a renewal never moves the recorded expiry
+  backwards. `customer.subscription.*` events older than the last one applied are ignored.
 - **Refund.** A definitive purchase failure first looks for an earlier refund of the first
   payment (`refunds.list`), then creates one with the key `web-address-refund:<order>`, cancels
-  the subscription and notifies the trainer. A refund whose outcome is unknown sets attention.
+  the subscription (retried if Stripe fails) and notifies the trainer. A refund whose outcome is
+  unknown sets attention.
 
 ### Stripe events and ledger
 
@@ -275,13 +335,16 @@ workspace):
 
 | Source key | Lines |
 | --- | --- |
-| `web-address-invoice:<invoice>` | `web_address_receivable` +amount, `web_address_revenue` −amount |
-| `web-address-refund:<refund>` | `web_address_revenue` +amount, `web_address_receivable` −amount |
-| `web-address-registrar:<operation>` | `registrar_cost` +AED, `registrar_prepaid` −AED (USD × rate, rounded up; `estimated` when the registrar did not report a charge) |
+| `web-address-invoice:<invoice>` | `web_address_receivable` +amount, `web_address_revenue` −amount; for a payment matching no open order (`kind=unmatched`) `web_address_refund_liability` −amount instead |
+| `web-address-refund:<refund>` | `web_address_revenue` +amount (or `web_address_refund_liability` for a refund of an unmatched payment), `web_address_receivable` −amount |
+| `web-address-dispute:<dispute>` | a lost dispute: `web_address_dispute_loss` +amount, `web_address_receivable` −amount (won or open disputes post nothing and flag the order) |
+| `web-address-registrar:<operation>` | `registrar_cost` +AED, `registrar_prepaid` −AED (USD × rate, rounded up; `estimated` when the registrar did not report a charge, and for renewals or registrations recorded from `getInfo`) |
 
 None of them touches `trainer_payable`, `stripe_receivable` or commission, so month close,
-settlement, statements' payable bridge and payouts are unaffected; the trainer's statement adds
-`webAddresses: {paymentsMinor, refundsMinor, registrarCostMinor}`. Reconciling these receipts
+settlement, statements' payable bridge and payouts are unaffected. The trainer's statement adds
+`webAddresses: {paymentsMinor, refundsMinor}`; the operator's statement of the same workspace
+also has `registrarCostMinor` and the registrar cost entries, which the trainer's statement and
+ledger export (`/finance/export`) leave out because they would show the platform's margin. Reconciling these receipts
 with Stripe payouts to the company bank is outside the per-workspace settlement flow (a
 platform-level reconciliation, not built).
 
@@ -295,6 +358,7 @@ answered with an error) or `unknown` (network, timeout, non-200, unreadable body
   `users.getPricing` (`YourPrice` plus Namecheap's misspelled `YourAdditonalCost`),
   `domains.create` (the same contact for Registrant, Tech, Admin and AuxBilling;
   `AddFreeWhoisguard=yes`, `WGEnabled=yes`; Namecheap's own DNS so `setHosts` applies),
+  `domains.check` also reads `EapFee` (a non-zero or unreadable fee refuses the name),
   `domains.getList`, `domains.getInfo`, `domains.dns.setHosts` (every record numbered in one
   call: Namecheap replaces all records), `domains.dns.getHosts`, `domains.renew`,
   `users.getBalances`. `api.sandbox.namecheap.com` unless "test environment" is explicitly off.
@@ -304,7 +368,15 @@ answered with an error) or `unknown` (network, timeout, non-200, unreadable body
   register, renew}`, `POST v1/domains` `{domain, years, registrant, privacy:true}` (409 =
   unavailable), `GET v1/domains?search=`, `GET v1/domains/<domain>`, `PUT`/`GET
   v1/domains/<domain>/records`, `POST v1/domains/<domain>/renew` `{years}`, `GET v1/account` →
-  `{balanceUsd}`. The e2e registrar double implements it.
+  `{balanceUsd}`. The e2e registrar double implements it. It has no test environment, so it
+  counts as live (it is test only in the local mock-provider sandbox), and Stripe test keys
+  refuse purchases with it.
+- **Call budget.** Namecheap limits API calls per account (published as 20 a minute, 700 an
+  hour and 8000 a day; to be confirmed against its current terms). Searches and quotes from the
+  API process may use at most 8 a minute, 300 an hour and 3500 a day (`REGISTRAR_BUSY`, 503,
+  beyond that), availability answers are cached for a minute, and one owner may search 6 times
+  a minute, so trainers searching cannot starve the worker's purchases, renewals and
+  reconciliation. The budget is per API process (the platform runs one).
 
 ### Notification templates (registered in `message-templates.ts`)
 
@@ -319,21 +391,25 @@ category, so the built-in text is always kept).
 | `GET /api/v1/web-address` | Owner | Subdomain, slug, change allowance, redirects, purchase availability, automatic orders |
 | `POST /api/v1/web-address/slug` | Owner, fresh MFA | `{slug, currentSlug}`; 400 `RESERVED_SLUG`/`INVALID_SLUG`, 409 `SLUG_TAKEN`/`SLUG_CHANGED`, 429 `SLUG_CHANGE_LIMIT` |
 | `GET /api/v1/public/slug-redirect/:slug` | Platform web | The current slug of a previous one during its redirect; 404 otherwise and on coach hosts |
-| `GET /api/v1/web-address/search?q=` | Owner | Availability and yearly AED price; 20/min |
-| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, priceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with `priceMinor`), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`; 429 more than 3 open checkouts |
+| `GET /api/v1/web-address/search?q=` | Owner | Availability and yearly AED price; 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
+| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, priceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with `priceMinor`), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
 | `POST /api/v1/web-address/orders/:id/checkout` | Owner | Returns to the same open Checkout (idempotent replay) |
 | `GET /api/v1/web-address/orders/:id` | Owner | Progress |
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
 | `POST /api/v1/web-address/orders/:id/renewal` | Owner, fresh MFA | `{enabled}` → Stripe `cancel_at_period_end` |
 | `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view |
-| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks |
+| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order) |
+| `POST /api/v1/admin/web-addresses/:id/record` | Super admin, fresh MFA | `{reason}`; records a registration or renewal made at the registrar by hand; 409 `NOT_RECORDED` with the reason |
+| `POST /api/v1/admin/web-addresses/:id/cancel-subscription` | Super admin, fresh MFA | `{reason}`; ends the yearly subscription; 502 when Stripe does not confirm (retried automatically) |
 
 ## Migration 066 (`packages/db/migrations/066_web_addresses.sql`)
 
 - `domain_orders`: `mode` (`manual` default), registrar, Stripe links, billing and renewal
-  state, attention, attempts, `next_attempt_at`, lease, trainer-visible `progress`, notice
+  state, attention, attempts, `next_attempt_at`, lease (`lease_until`, `lease_token`),
+  trainer-visible `progress`, notice
   ledger, `live_at`; the status check now depends on the mode; the one-open-order-per-hostname
-  index also frees `failed` orders; the guard trigger above. Only columns with defaults are
+  index also frees `failed` orders; the guard trigger above (a late renewal moves `expired` →
+  `owned` or `dns`). Only nullable columns or columns with defaults are
   added, so the previous release keeps working between migrate and restart.
 - `registrar_operations`: tenant-scoped (RLS forced, owner-only restrictive policy, like
   `domain_orders`); `SELECT, INSERT, UPDATE` for `trainer_app`; the guard trigger above.
@@ -356,7 +432,9 @@ category, so the built-in text is always kept).
   `host-routing.ts` (subdomain branch, `platformRoot`, `coachHostTenant`),
   `host-operations.ts` (TLS ask set), `integrations-completion.ts` (manual-only filters, domain
   names under the root refused, OAuth relay accepts subdomains), `stripe-events.ts` (handler
-  first), `finance-statements.ts`, `message-templates.ts`, `privacy-hooks.ts` (a failed order is
+  first), `finance-statements.ts` (registrar cost only in the operator's statement),
+  `finance-completion.ts` (operator statement option), the ledger export in `app.ts` (leaves
+  out registrar cost entries), `message-templates.ts`, `privacy-hooks.ts` (a failed order is
   no provider blocker), `apps/worker/src/index.ts` (a 30-second background task),
   `packages/db/src/scope.ts` (usedBy), `packages/providers/src/{configuration,index,sandbox}.ts`,
   `apps/web/proxy.ts`, `apps/web/host-proxy.ts`, `apps/web/app/[[...path]]/page.tsx`,
@@ -365,7 +443,123 @@ category, so the built-in text is always kept).
   `scripts/verify-runtime-access.mjs`, `tests/e2e/mocks/{http.ts,registrar.ts,stripe.ts}`,
   `docs/E2E_MOCK_PROVIDERS.md`. `workspace.tsx` is unchanged.
 
+## Review fixes (second pass, 28 September 2026)
+
+The review listed thirteen findings; the text of the last one reached this pass cut off after
+"The reserved list leaves out names that matter under an A", so it was read as the wildcard A
+record case. Each finding, what changed and what was declined:
+
+1. **Double renewal when Reconcile is pressed during a running renewal (major): fixed.** Orders
+   carry a lease token; only the claiming run releases its lease (the old `finally` cleared any
+   lease), and no route clears a lease any more: Reconcile runs a step only when nobody holds
+   the order (`ran: false` otherwise) and Retry only makes it due. A `sent` or `unknown` purchase
+   or renewal is reconciled only after a three-minute settle window, so even a run that
+   outlived its lease cannot mark an in-flight request absent. The operator view shows such a
+   request as in flight instead of as work to reconcile. Test: a gated transport holds
+   `domains.renew` while Reconcile is pressed and while a forced run takes an expired lease;
+   one registrar renewal, one year added, the recorded expiry matches. With the settle guard or
+   the pre-renewal check removed the test fails (checked, then restored).
+2. **Manual renewal fallback led to a second renewal; no way to record it (major): fixed.**
+   `invoice.paid` stores the expiry the payment extends; every renewal request, including the
+   first and one after Retry, is preceded by `domains.getInfo`, and an expiry more than a day
+   past it is recorded as confirmed without a request. Reconcile runs that check for a failed
+   renewal. New operator actions: *Record registrar state* (registration or renewal made by
+   hand, evidence from `getInfo`) and *Cancel subscription*. Test: five refused renewals, a
+   renewal by hand, then Reconcile (and, next year, Retry): no further `domains.renew`; a
+   goodwill renewal without payment is recorded, a second press is refused; a registration made
+   by hand is recorded from the registrar.
+3. **A transient Stripe error while aligning billing could make the domain lapse uncharged
+   (major): fixed.** Alignment retries on its own short backoff and flags after three failures;
+   if the charge date has passed without it, the renewal is charged at once
+   (`billing_cycle_anchor=now`). At expiry the subscription is kept up to 20 days while Stripe
+   still retries a renewal invoice or the next charge falls just after expiry, so a late payment
+   renews the domain. Deviation from the suggested fix: the mapping is still deactivated at
+   expiry (the registrar parks an expired name anyway, and the trainer is told the subdomain);
+   what is held back is the cancellation. Grace notices now say "update your card" only when a
+   payment failed. Tests: `subscriptions.update` fails once (retried within minutes, then
+   aligned); a passed charge date charges now; the real-SDK test keeps a `past_due`
+   subscription through the hold and cancels it afterwards.
+4. **A lost `invoice.paid` after Checkout left the trainer charged with nothing bought (major):
+   fixed.** The checkout sweep applies the completed session and the subscription's latest
+   invoice from Stripe through the same handler, and flags the order after six visits. The same
+   reconciliation runs in the renewal window and after a lapse. Test: session complete, no
+   events; flagged while the invoice is open, then paid and journaled once.
+5. **Namecheap test environment and Stripe mode not tied (major): fixed.** Orders are refused
+   when the Stripe key mode and the registrar environment differ, a live-mode Checkout session
+   for a test registrar is expired and refused, and the worker buys or renews only when the
+   paying invoice's `livemode` matches (stored on the order) and the environment equals the
+   quoted one. The connection check and the operator view show a mismatch; the trainer panel
+   hides purchases. The generic registrar counts as live. The rehearsal advice was wrong and is
+   rewritten (Go live, step 8). Tests for all four places.
+6. **A replayed older `invoice.paid` moved the expiry backwards (major): fixed.** An invoice
+   already journaled changes no state, and a renewal never lowers the recorded expiry. Test:
+   last year's invoice replayed after two renewals.
+7. **A failed subscription cancel after a refund was ignored (minor): fixed.** Cancels are
+   retried by the worker with the same idempotency key (and confirmed by reading the
+   subscription), flagged after three tries. Test: a cancel failing once.
+8. **Refunding a name that may be ours (minor): fixed.** Reconciliation asks `getInfo` after
+   `getList`; a name that is not ours and not available is looked at once more before the
+   refund. Names with a Namecheap early-access fee are refused in search and quote. Tests:
+   a registration missing from `getList` is confirmed by `getInfo`; the taken-name refund waits
+   one cycle; `EapFee` parsing and refusal.
+9. **Turning renewal off could not be undone although the notices said so (minor): partly
+   fixed.** The notices now say until when renewal can be turned back on, and point to support
+   after that date. Subscription events set the switch both ways, and an event older than the
+   trainer's last switch (or than the last event applied) is ignored. Test with out-of-order
+   events. *Declined:* re-enabling after the subscription ended; it needs a new yearly
+   subscription (a new Checkout) on an order whose subscription link is immutable, a larger
+   change that should follow an owner decision on whether it is wanted.
+10. **Ledger incomplete (minor): partly fixed.** Payments for a closed order go to
+    `web_address_refund_liability` (and their refunds out of it); a lost dispute is recorded
+    in `web_address_dispute_loss`; the trainer's statement and ledger export leave out the
+    registrar cost (operators still see it), pending the owner's answer. Tests for each.
+    *Declined, with reasons:* Stripe processing fees per domain charge (the platform records
+    Stripe fees only through its settlement import, which is per trainer payable; web address
+    receipts need a platform-level settlement that does not exist yet), the clearing entry for
+    `web_address_receivable` at payout and a funding entry for `registrar_prepaid` (both are
+    platform-level, outside any workspace; not built), and deferring yearly revenue (an
+    accounting policy for the owner to choose).
+11. **Notices used the slug captured at order time (minor): fixed.** Failure, lapse and
+    reminder notices read the workspace's current slug. Test after a rename.
+12. **No account-wide limit on Namecheap calls from searches (minor): fixed.** A per-process
+    budget for searches and quotes (8 a minute, 300 an hour, 3500 a day), a one-minute
+    availability cache and 6 searches a minute per owner. Test: searches stop at the budget; a
+    repeated search makes no call.
+13. **Reserved names under a wildcard A record (minor, text cut off): fixed as read.** Added the
+    names clients probe on their own (`autodiscover`, `autoconfig`, `lyncdiscover`, `sip`,
+    `msoid`, `enterpriseenrollment`, `enterpriseregistration`, `wpad`, `isatap`, `mta-sts`),
+    control panels, role mailboxes and further infrastructure names. Tests at signup and in the
+    rules.
+
+Migration 066 changed in this pass (still unmerged and never applied anywhere): `lease_token`,
+and `expired` → `owned` after a late renewal.
+
 ## Checks actually run (local, 28 September 2026, in this worktree)
+
+Second pass (review fixes), after the last code change:
+
+- `npx tsc --noEmit`: exit 0. Prettier run on the changed files that were Prettier-clean
+  before (not `app.ts` or `tests/e2e/mocks/stripe.ts`, which were not clean at the base).
+- PGlite: `web-address-orders` 19, `web-address-stripe` 1, `web-address-registrar` 8,
+  `web-address-subdomains` 6, `web-address-web` 5, with `logical-css`, `governance-step-up`,
+  `finance-completion` and `platform`: 101 tests, 101 passed. Before the final small edits
+  (operator in-flight flag, formatting) also `messaging-templates`, `host-routing`,
+  `integrations-completion`, `infra-ops-tls`, `infra-ops-api`, `platform-settings`,
+  `provider-configuration`, `fix-ledger`, `e2e-harness-mocks`, `e2e-harness-sandbox` and
+  `isolation-elevation`: 157 tests in that batch, all passed.
+- `/opt/tools/pg-sandbox.sh 56141 <worktree>` after the last code change:
+  `{"runtimeAccess":"verified","migrations":55,…,"tenantScopeFixed":true}`, then 12 files (the
+  five web address files, `finance-completion`, `fix-ledger`, `isolation-elevation`,
+  `governance-step-up`, `host-routing`, `integrations-completion`, `infra-ops-tls`): 101 tests,
+  0 failed, `PG_SELECTED_FAILED_FILES=0`.
+- `python3 -m unittest discover -s tests -p 'test_*deployment.py'`: 114 tests OK, 2 skipped (no
+  Caddy binary here). `host.py` did not change in this pass.
+- Mutation check (not committed): with the settle guard and the pre-renewal `getInfo` removed,
+  the in-flight and by-hand renewal tests failed; restored, they pass.
+- Not run in this pass either: `next build`, the e2e harness, a browser or 390 px check, the
+  full suite, anything on Docker, the live server, real DNS, Namecheap or Stripe.
+
+First pass:
 
 - `npx tsc --noEmit`: exit 0 after the last code change. `npx prettier --check` clean for the
   new files and for `configuration.ts` and `discovery-server.ts`; `app.ts` and
@@ -427,9 +621,15 @@ category, so the built-in text is always kept).
 - **Operator list cost.** The operator view and the worker visit workspaces one scoped
   transaction each (as other worker tasks do); for thousands of workspaces a cross-workspace
   index of due orders would be needed.
-- **Refund of a mismatched first payment** (an amount that does not match the quote) is
-  flagged for the operator, who refunds in Stripe; the automatic refund covers definitive
-  purchase failures only.
+- **Refund of a mismatched first payment** (an amount that does not match the quote) or of a
+  payment for a closed order is flagged for the operator, who refunds in Stripe; the money is
+  held as a refund liability meanwhile. The automatic refund covers definitive purchase
+  failures only.
+- **Turning renewal back on after the subscription ended** (see review finding 9).
+- **Stripe fees, disputes' fees, receivable clearing, registrar balance funding, revenue
+  deferral** (see review finding 10).
+- **Registrar call budget across processes.** The search budget is per API process; a second
+  API process would need a shared (database) budget.
 - **Platform-level reconciliation** of web address receipts with Stripe payouts, and closing a
   workspace with an active domain (the registrar is listed as a provider blocker as before;
   cancelling its subscription at closure is not automated).

@@ -512,6 +512,7 @@ type OperatorData = {
   registrar: string;
   testEnvironment: boolean;
   purchasesEnabled: boolean;
+  modeProblem?: string | null;
   attention: number;
   orders: OperatorOrder[];
 };
@@ -533,8 +534,11 @@ export function WebAddressOperations({
     setBusy(true);
     setMessage("");
     void api(`/admin/web-addresses/${order.id}/${action}`, "POST", { reason })
-      .then(refresh)
-      .then(() => setMessage("Done"))
+      .then(async (result) => {
+        await refresh();
+        return result;
+      })
+      .then((result) => setMessage(result?.message ?? "Done"))
       .catch((e) => setMessage(e.message))
       .finally(() => setBusy(false));
   };
@@ -553,6 +557,12 @@ export function WebAddressOperations({
           {" · "}Purchases {data.purchasesEnabled ? "on" : "off"}
           {" · "}
           <strong>{data.attention}</strong> need attention
+        </p>
+      )}
+      {data?.modeProblem && (
+        <p className="badge red">
+          Purchases are refused: {data.modeProblem} Match the Stripe keys and
+          the registrar test environment in Settings.
         </p>
       )}
       {data?.orders.length === 0 && (
@@ -582,6 +592,12 @@ export function WebAddressOperations({
           {(order.attention || order.needsReconciliation) && (
             <p className="badge red">
               {order.attention ?? "A registrar attempt awaits reconciliation."}
+            </p>
+          )}
+          {order.inFlight && (
+            <p className="muted">
+              A registrar request is running; it is reconciled automatically if
+              no answer arrives.
             </p>
           )}
           {!!order.operations?.length && (
@@ -624,6 +640,21 @@ export function WebAddressOperations({
                 Refund and close
               </button>
             )}
+            {!["checkout", "cancelled", "failed"].includes(order.status) && (
+              <button name="action" value="record" disabled={busy}>
+                Record registrar state
+              </button>
+            )}
+            {order.stripe_subscription_id &&
+              order.billing_status !== "canceled" && (
+                <button
+                  name="action"
+                  value="cancel-subscription"
+                  disabled={busy}
+                >
+                  Cancel subscription
+                </button>
+              )}
           </div>
         </form>
       ))}

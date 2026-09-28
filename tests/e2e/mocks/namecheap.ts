@@ -65,6 +65,10 @@ export class NamecheapMock {
   /** Names registered by someone else. */
   readonly taken = new Set<string>();
   readonly premium = new Map<string, string>();
+  /** Early-access (EAP) fees in USD by name, reported by domains.check. */
+  readonly earlyAccess = new Map<string, string>();
+  /** Registered names that domains.getList does not show yet (listing lag). */
+  readonly unlisted = new Set<string>();
   prices: Record<string, { register: string; renew: string }> = {
     com: { register: "10.28", renew: "15.88" },
     net: { register: "11.98", renew: "16.98" },
@@ -242,7 +246,7 @@ export class NamecheapMock {
               PremiumRestorePrice: "0",
               PremiumTransferPrice: "0",
               IcannFee: "0",
-              EapFee: "0.0",
+              EapFee: this.earlyAccess.get(name) ?? "0.0",
             })} />`;
           })
           .join("\n    ");
@@ -357,7 +361,8 @@ export class NamecheapMock {
       case "domains.getList": {
         const term = (params.get("SearchTerm") ?? "").toLowerCase();
         const rows = [...this.registrations.values()].filter(
-          (r) => !term || r.domain.includes(term),
+          (r) =>
+            (!term || r.domain.includes(term)) && !this.unlisted.has(r.domain),
         );
         return `<DomainGetListResult>${rows
           .map(

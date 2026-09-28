@@ -2014,7 +2014,9 @@ export async function buildApp(
       );
     const rows = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id ORDER BY j.created_at,l.account",
+        // The platform's registrar cost for the trainer's domain is not the
+        // trainer's ledger (docs/features/web-addresses.md).
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
       ),
     );
     reply

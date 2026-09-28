@@ -62,7 +62,16 @@ export async function allocateCost(tx: Tx, a: Actor, raw: unknown) {
   });
   return r;
 }
-export async function financialStatement(tx: Tx, period: string) {
+/**
+ * `platformView` (operators) includes the platform's registrar cost for the
+ * trainer's domains; the trainer's own statement leaves it out, since it
+ * would show the platform's margin (docs/features/web-addresses.md).
+ */
+export async function financialStatement(
+  tx: Tx,
+  period: string,
+  options: { platformView?: boolean } = {},
+) {
   const end = monthCutoff(period),
     [year, month] = period.split("-").map(Number);
   const start = new Date(Date.UTC(year, month - 1, 1) - 4 * 3600000);
@@ -99,7 +108,11 @@ export async function financialStatement(tx: Tx, period: string) {
     otherPayableMovementMinor: 0,
     closingPayableMinor: Number(opening.amount),
   };
-  const webAddresses = {
+  const webAddresses: {
+    paymentsMinor: number;
+    refundsMinor: number;
+    registrarCostMinor?: number;
+  } = {
     paymentsMinor: 0,
     refundsMinor: 0,
     registrarCostMinor: 0,
@@ -139,7 +152,7 @@ export async function financialStatement(tx: Tx, period: string) {
       else if (entry.source_key.startsWith("web-address-refund:"))
         webAddresses.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
       else if (entry.source_key.startsWith("web-address-registrar:"))
-        webAddresses.registrarCostMinor += (entry.lines as any[])
+        webAddresses.registrarCostMinor! += (entry.lines as any[])
           .filter((l) => l.account === "registrar_cost")
           .reduce((n, l) => n + Number(l.amountMinor), 0);
       totals.otherPayableMovementMinor -= payable;
@@ -166,8 +179,18 @@ export async function financialStatement(tx: Tx, period: string) {
     start: start.toISOString(),
     end: end.toISOString(),
     totals,
-    webAddresses,
-    entries,
+    webAddresses: options.platformView
+      ? webAddresses
+      : {
+          paymentsMinor: webAddresses.paymentsMinor,
+          refundsMinor: webAddresses.refundsMinor,
+        },
+    entries: options.platformView
+      ? entries
+      : entries.filter(
+          (entry: any) =>
+            !entry.source_key.startsWith("web-address-registrar:"),
+        ),
     allocations,
     usage,
     close: close ?? null,

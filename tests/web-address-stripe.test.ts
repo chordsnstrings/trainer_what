@@ -221,9 +221,13 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
   assert.equal(sub.items.data[0].current_period_end, sub.trial_end);
   // The renewal invoice at that date renews the domain for a year.
   const expiry = Date.parse(aligned.expires_at);
+  // (The alignment's own subscription.updated event is delivered 25 ms
+  // later and may land after the renewal's invoice.paid.)
+  const paidBefore = delivered.filter((d) => d.type === "invoice.paid").length;
   await stripeMock.renew(result.subscription.id);
-  assert.equal(delivered.at(-1)!.type, "invoice.paid");
-  assert.equal(delivered.at(-1)!.status, 200);
+  const paid = delivered.filter((d) => d.type === "invoice.paid");
+  assert.equal(paid.length, paidBefore + 1);
+  assert.equal(paid.at(-1)!.status, 200);
   assert.equal((await read()).renewal_status, "paid");
   const renewed = await step();
   assert.equal(renewed.renewal_status, "renewed");
@@ -232,14 +236,31 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
   const failed = await stripeMock.renew(result.subscription.id, { fail: true });
   assert.ok(failed.deliveries.every((d: any) => d.status === 200));
   assert.equal((await read()).billing_status, "past_due");
-  // Lapse cancels the subscription at Stripe.
+  // At expiry the domain lapses, but while Stripe still retries the renewal
+  // invoice (past_due) the subscription is kept, so a late payment renews it.
   await db.tenant(worker, (tx) =>
     tx.query(
       "UPDATE domain_orders SET expires_at=now()-interval '1 minute' WHERE id=$1",
       [orderId],
     ),
   );
-  assert.equal((await step()).status, "expired");
+  const lapsed = await step();
+  assert.equal(lapsed.status, "expired");
+  assert.ok(lapsed.next_attempt_at, "looked at again during the hold");
+  assert.equal(
+    stripeMock.subscriptions.get(result.subscription.id)!.status,
+    "past_due",
+  );
+  // After the hold the subscription is cancelled at Stripe.
+  await db.tenant(worker, (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=now()-interval '21 days' WHERE id=$1",
+      [orderId],
+    ),
+  );
+  const ended = await step();
+  assert.equal(ended.status, "expired");
+  assert.equal(ended.billing_status, "canceled");
   assert.equal(
     stripeMock.subscriptions.get(result.subscription.id)!.status,
     "canceled",

@@ -133,6 +133,16 @@ test("root domain, labels and reserved names", () => {
     "mail",
     "trainsyou",
     "stripe",
+    // Names clients probe on their own under a wildcard A record.
+    "autodiscover",
+    "autoconfig",
+    "wpad",
+    "isatap",
+    "mta-sts",
+    "lyncdiscover",
+    "enterpriseenrollment",
+    "cpanel",
+    "webmaster",
   ])
     assert.equal(slugProblem(reserved), "reserved", reserved);
   assert.equal(slugProblem("coach-"), "hyphen");

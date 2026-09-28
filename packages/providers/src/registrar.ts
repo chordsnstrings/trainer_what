@@ -13,7 +13,7 @@ import {
 } from "./configuration.ts";
 import { integrationRequest } from "./integrations.ts";
 import { ProviderUnavailable } from "./index.ts";
-import { sandboxOverride } from "./sandbox.ts";
+import { providerSandbox, sandboxOverride } from "./sandbox.ts";
 
 export type RegistrarId = "namecheap" | "generic";
 export type Availability = {
@@ -22,6 +22,11 @@ export type Availability = {
   premium: boolean;
   /** Premium names carry their own price; the automatic flow refuses them. */
   premiumRegisterUsd?: string;
+  /**
+   * A new ending's early-access phase adds a fee on top of the price
+   * (Namecheap's EapFee); the automatic flow refuses such names too.
+   */
+  earlyAccessFeeUsd?: string;
 };
 export type TldPrice = {
   tld: string;
@@ -378,14 +383,23 @@ export class NamecheapRegistrar implements Registrar {
     const result = await this.command("domains.check", {
       DomainList: domains.join(","),
     });
-    return xmlChildren(result, "DomainCheckResult").map((item) => ({
-      domain: (item.attributes.Domain ?? "").toLowerCase(),
-      available: truthy(item.attributes.Available),
-      premium: truthy(item.attributes.IsPremiumName),
-      premiumRegisterUsd: truthy(item.attributes.IsPremiumName)
-        ? money(item.attributes.PremiumRegistrationPrice)
-        : undefined,
-    }));
+    return xmlChildren(result, "DomainCheckResult").map((item) => {
+      const eap = money(item.attributes.EapFee);
+      return {
+        domain: (item.attributes.Domain ?? "").toLowerCase(),
+        available: truthy(item.attributes.Available),
+        premium: truthy(item.attributes.IsPremiumName),
+        premiumRegisterUsd: truthy(item.attributes.IsPremiumName)
+          ? money(item.attributes.PremiumRegistrationPrice)
+          : undefined,
+        // Anything but a readable zero is treated as a fee (refused).
+        earlyAccessFeeUsd:
+          item.attributes.EapFee === undefined ||
+          (eap !== undefined && Number(eap) === 0)
+            ? undefined
+            : (eap ?? "unknown"),
+      };
+    });
   }
   async pricing(tld: string): Promise<TldPrice> {
     const result = await this.command("users.getPricing", {
@@ -551,14 +565,16 @@ export class NamecheapRegistrar implements Registrar {
  */
 export class GenericRegistrar implements Registrar {
   readonly id = "generic" as const;
-  readonly sandbox = false;
+  /** The generic API has no test environment: it is live except in the local mock-provider sandbox. */
+  readonly sandbox: boolean;
   private readonly transport?: RegistrarTransport;
   constructor(
     private readonly base: string,
     private readonly key: string,
-    options: { transport?: RegistrarTransport } = {},
+    options: { transport?: RegistrarTransport; sandbox?: boolean } = {},
   ) {
     this.transport = testTransport(options.transport);
+    this.sandbox = options.sandbox === true;
   }
   private async call(
     method: string,
@@ -798,6 +814,7 @@ export function registrarFromConfig(
       return new GenericRegistrar(
         config.DOMAIN_API_URL.trim(),
         config.DOMAIN_API_KEY.trim(),
+        { sandbox: providerSandbox() === "mock" },
       );
     }
     if (choice !== "namecheap")
@@ -811,4 +828,46 @@ export function registrarFromConfig(
         : "The domain registrar is not configured",
     );
   }
+}
+
+// ---- Payment and registrar environments ------------------------------------
+
+/**
+ * Whether the configured registrar connection is a test environment, from
+ * settings alone (no connection is made): Namecheap unless its test
+ * environment is explicitly off; the generic registrar only in the local
+ * mock-provider sandbox.
+ */
+export function registrarSandboxSetting(
+  config: RuntimeConfig = runtimeConfig(),
+) {
+  const choice = (config.WEB_ADDRESS_REGISTRAR || "namecheap").trim();
+  if (choice === "generic") return providerSandbox() === "mock";
+  return config.NAMECHEAP_SANDBOX?.trim() !== "false";
+}
+/** Stripe's mode from the secret key prefix, or null when it cannot be told. */
+export function stripeKeyMode(
+  config: RuntimeConfig = runtimeConfig(),
+): "live" | "test" | null {
+  const key = config.STRIPE_SECRET_KEY?.trim() ?? "";
+  if (/^(sk|rk)_live_/.test(key)) return "live";
+  if (/^(sk|rk)_test_/.test(key)) return "test";
+  return null;
+}
+/**
+ * Why a payment in this Stripe mode must not buy or renew at this registrar
+ * environment, or null when they match. Real money never buys in a test
+ * environment, and a test payment never buys a real domain.
+ */
+export function paymentModeProblem(
+  livemode: boolean | null | undefined,
+  registrarSandbox: boolean,
+) {
+  if (typeof livemode !== "boolean")
+    return "The Stripe mode of this payment is unknown.";
+  if (livemode && registrarSandbox)
+    return "A live Stripe payment would only buy in the registrar's test environment.";
+  if (!livemode && !registrarSandbox)
+    return "A Stripe test payment would buy a real domain.";
+  return null;
 }
