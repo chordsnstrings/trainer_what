@@ -263,12 +263,12 @@ test("application settings reject blanks, drop the unused legal version and read
     ),
   );
   current = await application();
-  assert.equal(current.values.APP_NAME, "Trainer Brain");
+  assert.equal(current.values.APP_NAME, "trainsyou");
   assert.equal(current.values.LEGAL_APPROVED, "false");
   assert.equal(current.values.SUPPORT_EMAIL, "");
   assert.equal(Object.hasOwn(current.values, "LEGAL_VERSION"), false);
   const runtime = await loadRuntimeSettings(db);
-  assert.equal(runtime.APP_NAME, "Trainer Brain");
+  assert.equal(runtime.APP_NAME, "trainsyou");
   assert.equal(runtime.LEGAL_APPROVED, "false");
   assert.equal(Object.hasOwn(runtime, "LEGAL_VERSION"), false);
   // The settings form resubmits every displayed value.
@@ -278,7 +278,7 @@ test("application settings reject blanks, drop the unused legal version and read
     values: current.values,
   });
   assert.equal(resaved.statusCode, 200, resaved.body);
-  assert.equal(resaved.json().values.APP_NAME, "Trainer Brain");
+  assert.equal(resaved.json().values.APP_NAME, "trainsyou");
 });
 
 test("an edited email integration defers account email until retested, then delivers once without keeping the link", async () => {

@@ -33,7 +33,7 @@
   align-items: center;
   gap: 8px 16px;
   padding-block: 8px;
-  border-block-end: 1px solid #e1e6df;
+  border-block-end: 1px solid var(--line);
 }
 .web-address-results li > :first-child {
   flex: 1 1 160px;
@@ -71,7 +71,7 @@
   display: grid;
   gap: 8px;
   padding-block: 12px;
-  border-block-start: 1px solid #e1e6df;
+  border-block-start: 1px solid var(--line);
 }
 .web-address-operator p {
   overflow-wrap: anywhere;

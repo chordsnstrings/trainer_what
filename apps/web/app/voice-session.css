@@ -43,14 +43,14 @@
   inline-size: 100%;
 }
 .voice-pain {
-  background: #b42318;
-  border-color: #b42318;
-  color: #fff;
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--on-status);
   font-weight: 700;
 }
 .voice-pain:focus-visible,
 .voice-commands .button:focus-visible {
-  outline: 3px solid #1d4ed8;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 .voice-reps {
@@ -90,7 +90,7 @@
 }
 .voice-issue {
   display: block;
-  color: #b42318;
+  color: var(--error);
 }
 .voice-preview ol,
 .voice-outcomes {

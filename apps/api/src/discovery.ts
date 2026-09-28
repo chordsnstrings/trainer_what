@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import {
   APP_ICON_FILES,
+  DEFAULT_PLATFORM_NAME,
   DIRECTORY_LANGUAGES,
   DIRECTORY_PAGE_SIZE,
   DIRECTORY_PATH,
@@ -238,7 +239,7 @@ export async function searchDirectory(
       specialties: DIRECTORY_SPECIALTIES,
       languages: DIRECTORY_LANGUAGES,
     },
-    platformName: runtimeConfig().APP_NAME || "Trainer Brain",
+    platformName: runtimeConfig().APP_NAME || DEFAULT_PLATFORM_NAME,
   };
 }
 

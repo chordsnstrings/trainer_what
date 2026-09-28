@@ -200,6 +200,7 @@ export function AcquisitionConsent({
     <>
       {permission.granted && slot && <ExperimentCopy key={slot} slot={slot} />}
       <aside
+        className="acquisition-consent"
         aria-label="Optional analytics preferences"
         style={{
           position: "fixed",

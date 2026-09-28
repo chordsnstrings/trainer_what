@@ -1,5 +1,5 @@
 .nutrition {
-  --meal-accent: #294d39;
+  --meal-accent: var(--green);
 }
 .nutrition-card {
   margin-bottom: 22px;
@@ -61,10 +61,10 @@
 }
 .nutrition-coverage button {
   padding: 16px;
-  border: 1px solid #d9e1d9;
+  border: 1px solid var(--line);
   border-radius: 10px;
   text-align: start;
-  background: #fafcf9;
+  background: var(--white);
   text-transform: capitalize;
 }
 .nutrition-coverage span {
@@ -72,7 +72,7 @@
   padding-inline-end: 12px;
 }
 .nutrition-option {
-  border: 1px solid #dce3da;
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 18px;
   margin: 18px 0;
@@ -100,7 +100,7 @@
   align-items: center;
 }
 .nutrition-day-total {
-  background: #f0f4ee;
+  background: var(--mint);
   padding: 16px;
   border-radius: 10px;
   margin: 18px 0;
@@ -114,10 +114,10 @@
 }
 .nutrition-days button {
   padding: 12px 3px;
-  border: 1px solid #dce3da;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: white;
-  color: #334039;
+  background: var(--white);
+  color: var(--ink);
   font-size: 0.8rem;
 }
 .nutrition-days button span {
@@ -127,7 +127,7 @@
 }
 .nutrition-days button.selected {
   background: var(--meal-accent);
-  color: white;
+  color: var(--on-green);
   border-color: var(--meal-accent);
 }
 .nutrition-meals {
@@ -137,7 +137,7 @@
 }
 .nutrition-meal {
   padding: 22px;
-  border: 1px solid #dce3da;
+  border: 1px solid var(--line);
   border-radius: 12px;
   min-width: 0;
 }
@@ -164,7 +164,7 @@
   align-items: center;
   gap: 14px;
   padding: 16px 0;
-  border-bottom: 1px solid #e5e7e3;
+  border-bottom: 1px solid var(--line);
 }
 .nutrition-grocery input {
   width: 18px;
@@ -178,7 +178,7 @@
 .nutrition-grocery small {
   display: block;
   margin-top: 5px;
-  color: #69746a;
+  color: var(--muted);
 }
 .nutrition-grocery b {
   white-space: nowrap;

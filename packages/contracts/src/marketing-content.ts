@@ -450,12 +450,15 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     group: "product",
     navLabel: "Home",
     title: "AI personal trainer platform for UAE coaches",
+    // Headline, audience and product explanation from the trainsyou copy bank
+    // (docs/features/brand.md); the specifics that follow are what the
+    // platform does today.
     description:
-      "Train an AI on your own coaching method. {APP_NAME} coaches your followers day by day under your brand, in AED, and sends you what it is unsure about.",
-    h1: "Your coaching brain, trained into an AI that coaches every follower like you would.",
-    eyebrow: "FOR COACHES WITH A METHOD OF THEIR OWN",
+      "Your coaching. Beyond your hours. Teach your own AI how you coach and build a paid coaching offering around your methods, priced in AED.",
+    h1: "Your coaching. Beyond your hours.",
+    eyebrow: "FOR PERSONAL TRAINERS",
     intro:
-      "Teach {APP_NAME} your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. You set the price in AED.",
+      "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.",
     primaryKeyword: "AI personal trainer platform",
     sections: [
       {

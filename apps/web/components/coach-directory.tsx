@@ -205,7 +205,7 @@ function DirectoryFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="public directory-page">
+    <div className="public directory-page platform-ui">
       <MarketingHeader
         appName={platformName}
         initials={appInitials(platformName)}

@@ -2,7 +2,8 @@
    only, so the Arabic-ready right-to-left layout mirrors (tests/
    logical-css.test.ts). */
 .mk {
-  background: var(--paper);
+  /* White is the brand canvas; paper marks panels and bands. */
+  background: var(--canvas);
   min-block-size: 100vh;
 }
 .mk-skip {
@@ -10,7 +11,7 @@
   inset-inline-start: 16px;
   inset-block-start: -60px;
   background: var(--green);
-  color: white;
+  color: var(--on-green);
   padding: 10px 14px;
   border-radius: 6px;
   z-index: 60;
@@ -30,7 +31,7 @@
   max-inline-size: 1440px;
   margin-inline: auto;
   padding: 18px 48px;
-  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  background: color-mix(in srgb, var(--canvas) 94%, transparent);
   backdrop-filter: blur(8px);
   border-block-end: 1px solid var(--line);
 }
@@ -60,7 +61,7 @@
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #4e5a55;
+  color: var(--ink);
   padding-block: 8px;
   cursor: default;
 }
@@ -83,9 +84,9 @@ a.mk-nav-top {
   list-style: none;
   margin: 0;
   padding: 10px;
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   box-shadow: 0 16px 40px #20302a14;
   opacity: 0;
   pointer-events: none;
@@ -119,7 +120,7 @@ a.mk-nav-top {
 }
 .mk-signin {
   font-size: 13px;
-  color: #4e5a55;
+  color: var(--ink);
 }
 .mk-mobile-menu {
   display: none;
@@ -128,7 +129,7 @@ a.mk-nav-top {
 .mk-mobile-menu > summary {
   list-style: none;
   cursor: pointer;
-  border: 1px solid #d5dcd5;
+  border: 1px solid var(--field-border);
   border-radius: 6px;
   padding: 9px 14px;
   font-size: 13px;
@@ -140,7 +141,7 @@ a.mk-nav-top {
   position: absolute;
   inset-inline: 0;
   inset-block-start: 100%;
-  background: var(--paper);
+  background: var(--canvas);
   border-block-end: 1px solid var(--line);
   padding: 16px 16px 24px;
   display: grid;
@@ -181,7 +182,7 @@ a.mk-nav-top {
 .mk-breadcrumbs li + li::before {
   content: "/";
   margin-inline-end: 6px;
-  color: #b3bbb4;
+  color: var(--muted);
 }
 .mk-breadcrumbs a:hover {
   color: var(--green);
@@ -206,7 +207,7 @@ a.mk-nav-top {
   font-size: 18px;
   line-height: 1.7;
   max-inline-size: 780px;
-  color: #2f3b3a;
+  color: var(--ink);
 }
 .mk-section {
   padding-block: 40px 8px;
@@ -222,7 +223,7 @@ a.mk-nav-top {
   font-size: 16px;
   line-height: 1.75;
   max-inline-size: 760px;
-  color: #34403e;
+  color: var(--ink);
 }
 .mk-list,
 .mk-list-plain {
@@ -242,7 +243,7 @@ a.mk-nav-top {
 .mk-list svg {
   flex-shrink: 0;
   margin-block-start: 3px;
-  color: #4f8a5b;
+  color: var(--ink);
 }
 .mk-list-plain li {
   padding-inline-start: 14px;
@@ -255,7 +256,7 @@ a.mk-nav-top {
   margin-block: 8px 12px;
 }
 .mk-card {
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 24px;
@@ -270,7 +271,7 @@ a.mk-nav-top {
 }
 .mk-card p {
   margin: 0;
-  color: #4a5654;
+  color: var(--muted);
 }
 .mk-steps {
   list-style: none;
@@ -283,7 +284,7 @@ a.mk-nav-top {
 .mk-steps li {
   display: flex;
   gap: 14px;
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 22px;
@@ -294,13 +295,13 @@ a.mk-nav-top {
 }
 .mk-steps p {
   margin: 0;
-  color: #4a5654;
+  color: var(--muted);
 }
 .mk-step-number {
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
   font-size: 13px;
   font-weight: 700;
-  color: #7a9463;
+  color: var(--muted);
   padding-block-start: 2px;
 }
 .mk-table-wrap {
@@ -308,7 +309,7 @@ a.mk-nav-top {
   margin-block: 8px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: white;
+  background: var(--white);
 }
 .mk-table {
   inline-size: 100%;
@@ -331,7 +332,7 @@ a.mk-nav-top {
 }
 .mk-table th {
   font-weight: 600;
-  background: #f7f8f4;
+  background: var(--mint);
 }
 .mk-sources {
   color: var(--muted);
@@ -355,7 +356,7 @@ a.mk-nav-top {
 }
 .mk-faq p {
   margin-block: 0 18px;
-  color: #3e4a48;
+  color: var(--ink);
   line-height: 1.7;
 }
 .mk-related {
@@ -373,11 +374,11 @@ a.mk-nav-top {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid #d5dcd5;
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 13px;
-  background: white;
+  background: var(--white);
 }
 .mk-related a:hover {
   border-color: var(--green);
@@ -399,7 +400,7 @@ a.mk-nav-top {
   flex-direction: column;
   gap: 8px;
   block-size: 100%;
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 20px;
@@ -446,14 +447,14 @@ a.mk-nav-top {
 }
 .mk-checklist li {
   counter-increment: step;
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 16px;
 }
 .mk-checklist li strong::before {
   content: counter(step) ". ";
-  color: #7a9463;
+  color: var(--muted);
 }
 .mk-checklist .badge {
   margin-inline-start: 8px;
@@ -496,12 +497,12 @@ a.mk-nav-top {
 .mk-field select,
 .mk-address input {
   inline-size: 100%;
-  border: 1px solid #d5dcd5;
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   padding: 11px 12px;
   font: inherit;
   font-size: 15px;
-  background: white;
+  background: var(--white);
 }
 .mk-result {
   background: var(--mint);
@@ -510,7 +511,7 @@ a.mk-nav-top {
   min-inline-size: 0;
 }
 .mk-result-figure {
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
   font-size: clamp(38px, 5vw, 58px);
   font-weight: 620;
   letter-spacing: -0.05em;
@@ -538,7 +539,7 @@ a.mk-nav-top {
   justify-content: space-between;
   gap: 12px;
   padding-block: 9px;
-  border-block-end: 1px solid #d7e3d5;
+  border-block-end: 1px solid var(--line);
   font-size: 14px;
 }
 .mk-funnel dd {
@@ -581,7 +582,7 @@ a.mk-nav-top {
   gap: 8px;
   margin-block-start: 18px;
   padding-block-start: 16px;
-  border-block-start: 1px solid #d7e3d5;
+  border-block-start: 1px solid var(--line);
 }
 .mk-address label {
   font-size: 13px;
@@ -653,7 +654,7 @@ a.mk-nav-top {
 .mk-hero-sub {
   font-size: 17px;
   line-height: 1.75;
-  color: #4f5b58;
+  color: var(--muted);
   max-inline-size: 620px;
 }
 .mk-hero .button-row {
@@ -668,7 +669,7 @@ a.mk-nav-top {
   margin: 26px 0 0;
   padding: 0;
   font-size: 12px;
-  color: #6f7a70;
+  color: var(--muted);
 }
 .mk-hero-notes li {
   display: flex;
@@ -676,8 +677,8 @@ a.mk-nav-top {
   gap: 6px;
 }
 .mk-hero-art {
-  background: #e8eddd;
-  border-radius: 14px;
+  background: var(--mint);
+  border-radius: var(--radius);
   padding: 40px;
   min-inline-size: 0;
 }
@@ -687,8 +688,8 @@ a.mk-nav-top {
 }
 .mk-flow-msg,
 .mk-flow-brain {
-  background: #fffffff2;
-  border-radius: 12px;
+  background: var(--white);
+  border-radius: var(--radius);
   padding: 20px 22px;
   box-shadow: 0 18px 44px #60744d14;
 }
@@ -710,14 +711,14 @@ a.mk-nav-top {
 .mk-meter {
   block-size: 6px;
   border-radius: 999px;
-  background: #e2e9d8;
+  background: var(--line);
   margin-block-start: 14px;
   overflow: hidden;
 }
 .mk-meter > span {
   display: block;
   block-size: 100%;
-  background: #7ea45c;
+  background: var(--green);
 }
 .mk-flow-lanes {
   display: flex;
@@ -731,16 +732,16 @@ a.mk-nav-top {
   border-radius: 999px;
   padding: 7px 12px;
   font-size: 12px;
-  background: white;
-  color: #4a5654;
+  background: var(--white);
+  color: var(--muted);
 }
 .mk-lane-auto {
-  background: #dfefb5;
-  color: #2f4a2c;
+  background: var(--lime);
+  color: var(--on-lime);
 }
 .mk-lane-safety {
-  background: #faf0e2;
-  color: #7d5520;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 .mk-band {
   max-inline-size: 1312px;
@@ -749,7 +750,7 @@ a.mk-nav-top {
 }
 .mk-band-sand,
 .mk-band-mint {
-  border-radius: 18px;
+  border-radius: 0;
   margin-block: 24px;
 }
 .mk-band-sand {
@@ -760,7 +761,7 @@ a.mk-nav-top {
 }
 .mk-entity {
   border-block: 1px solid var(--line);
-  background: white;
+  background: var(--mint);
 }
 .mk-entity .mk-band {
   padding-block: 16px 36px;
@@ -774,12 +775,12 @@ a.mk-nav-top {
 .mk-anchors > div {
   display: grid;
   gap: 6px;
-  background: white;
-  border-radius: 12px;
+  background: var(--white);
+  border-radius: var(--radius);
   padding: 20px;
 }
 .mk-anchors strong {
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
   font-size: clamp(22px, 2.4vw, 30px);
   letter-spacing: -0.04em;
   color: var(--green);
@@ -790,16 +791,16 @@ a.mk-nav-top {
 }
 .mk-closing {
   text-align: center;
-  background: var(--green);
-  color: white;
+  background: var(--band-ink);
+  color: var(--on-band);
   padding: 80px 24px;
   margin-block-start: 48px;
 }
 .mk-closing .eyebrow {
-  color: #c8d8b8;
+  color: var(--ty-line);
 }
 .mk-closing h2 {
-  color: white;
+  color: var(--on-band);
   font-size: clamp(28px, 3.6vw, 46px);
   letter-spacing: -0.05em;
   font-weight: 540;
@@ -810,10 +811,10 @@ a.mk-nav-top {
 .mk-closing .button {
   background: var(--lime);
   border-color: var(--lime);
-  color: var(--green);
+  color: var(--on-lime);
 }
 .mk-closing .text-link {
-  color: #e8f2d9;
+  color: var(--on-band);
 }
 
 /* Footer */
@@ -934,12 +935,12 @@ a.mk-nav-top {
 .mk-early-form input,
 .mk-early-form select {
   inline-size: 100%;
-  border: 1px solid #d5dcd5;
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   padding: 11px 12px;
   font: inherit;
   font-size: 15px;
-  background: white;
+  background: var(--white);
 }
 .mk-early-context {
   background: var(--mint);
@@ -973,9 +974,9 @@ a.mk-nav-top {
 
 /* Showcase: capability matrix, replaced tools, screens, included strip */
 .badge.red {
-  background: #fbe9e7;
-  color: #9a3a2c;
-  border-color: #f2d3cd;
+  background: var(--error-bg);
+  color: var(--error);
+  border-color: var(--error-line);
 }
 .mk-matrix-index {
   display: flex;
@@ -987,7 +988,7 @@ a.mk-nav-top {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 6px 12px;
-  background: white;
+  background: var(--white);
   color: var(--ink);
   text-decoration: none;
   font-size: 13px;
@@ -998,7 +999,7 @@ a.mk-nav-top {
   gap: 18px;
 }
 .mk-matrix-group {
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 20px;
@@ -1057,9 +1058,9 @@ a.mk-nav-top {
   color: var(--ink);
 }
 .mk-device {
-  background: white;
+  background: var(--white);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: var(--radius);
   padding: 18px 14px;
   box-shadow: 0 18px 40px rgba(32, 43, 44, 0.08);
   display: grid;
@@ -1070,7 +1071,7 @@ a.mk-nav-top {
   overflow: hidden;
 }
 .mk-screen-title {
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
   font-weight: 700;
   font-size: 15px;
   margin: 0;
@@ -1088,7 +1089,7 @@ a.mk-nav-top {
   display: grid;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px;
 }
 .mk-queue-item.done {
@@ -1109,13 +1110,13 @@ a.mk-nav-top {
   gap: 4px;
   border-radius: 8px;
   background: var(--green);
-  color: white;
+  color: var(--on-green);
   padding: 6px 10px;
   font-weight: 600;
   font-size: 11px;
 }
 .mk-fake-button.ghost {
-  background: white;
+  background: var(--white);
   color: var(--green);
   border: 1px solid var(--line);
 }
@@ -1123,8 +1124,8 @@ a.mk-nav-top {
   padding-block: 9px;
 }
 .mk-fake-button.danger {
-  background: #faf0e2;
-  color: #7d5520;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 .mk-plan {
   list-style: none;
@@ -1152,18 +1153,19 @@ a.mk-nav-top {
 }
 .mk-sets tr.current td {
   background: var(--lime);
+  color: var(--on-lime);
 }
 .mk-timer {
   display: flex;
   align-items: center;
   gap: 8px;
   background: var(--mint);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px;
 }
 .mk-timer strong {
   font-size: 22px;
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
 }
 .mk-statement {
   margin: 0;
@@ -1191,13 +1193,13 @@ a.mk-nav-top {
   font-weight: 700;
 }
 .mk-band-ink {
-  background: var(--green);
-  color: white;
-  border-radius: 18px;
+  background: var(--band-ink);
+  color: var(--on-band);
+  border-radius: 0;
   margin-block: 24px;
 }
 .mk-band-ink h2 {
-  color: white;
+  color: var(--on-band);
 }
 .mk-included {
   list-style: none;
@@ -1210,14 +1212,14 @@ a.mk-nav-top {
 .mk-included a {
   display: grid;
   gap: 4px;
-  color: white;
+  color: var(--on-band);
   text-decoration: none;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 16px;
 }
 .mk-included strong {
-  font-family: "Manrope", Arial, sans-serif;
+  font-family: var(--ty-font-display);
   font-size: 34px;
   line-height: 1;
   color: var(--lime);

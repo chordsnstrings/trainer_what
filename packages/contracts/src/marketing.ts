@@ -8,10 +8,20 @@ import {
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
 } from "./marketing-content.ts";
+import {
+  BRAND_ASSETS,
+  BRAND_COPY,
+  BRAND_NAME,
+  usesBrandIdentity,
+} from "./brand.ts";
 export { MARKETING_SOURCES, SETUP_CHECKLIST };
 
-/** Fallback when the platform name cannot be read (the settings default). */
-export const DEFAULT_PLATFORM_NAME = "Trainer Brain";
+/**
+ * The platform name when the Super admin has not set APP_NAME (the settings
+ * default, and the fallback when the name cannot be read). A configured
+ * APP_NAME overrides it everywhere.
+ */
+export const DEFAULT_PLATFORM_NAME = BRAND_NAME;
 
 export type MarketingFaq = { q: string; a: string };
 export type MarketingCard = { title: string; body: string; label?: string };
@@ -300,15 +310,26 @@ export type MarketingContext = {
   /** The follower model in use, for the assumption tokens in copy. */
   followerModel?: AssumptionFigures;
 };
-/** The social preview image of a page (app/og/route.tsx renders it). */
-export function marketingImage(origin: string, path: string) {
-  return (
-    new URL(origin).origin + "/og?path=" + encodeURIComponent(normalizeMarketingPath(path))
-  );
+/**
+ * The social preview image of a page: the supplied trainsyou share card for
+ * the brand's home page, otherwise app/og/route.tsx renders the page's own.
+ */
+export function marketingImage(origin: string, path: string, appName?: string) {
+  const base = new URL(origin).origin;
+  const normalized = normalizeMarketingPath(path);
+  if (normalized === "/" && usesBrandIdentity(appName))
+    return base + BRAND_ASSETS.shareImage;
+  return base + "/og?path=" + encodeURIComponent(normalized);
 }
 export const MARKETING_IMAGE_SIZE = { width: 1200, height: 630 } as const;
-/** The platform logo: initials of the configured name (API-rendered PNG). */
+/** The generated logo: initials of the configured name (API-rendered PNG). */
 export const PLATFORM_LOGO_PATH = "/api/v1/public/platform/icon/512.png";
+/** The organisation logo: the trainsyou lockup, or the generated initials. */
+export function platformLogoPath(appName?: string) {
+  return usesBrandIdentity(appName)
+    ? BRAND_ASSETS.lockupInkPng
+    : PLATFORM_LOGO_PATH;
+}
 /** The canonical address of a platform path. */
 export function marketingCanonical(origin: string, path: string) {
   const base = new URL(origin).origin;
@@ -321,7 +342,7 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
   const description = brandText(page.description, ctx.appName, ctx.followerModel);
   const url = marketingCanonical(ctx.origin, page.path);
   const image = {
-    url: marketingImage(ctx.origin, page.path),
+    url: marketingImage(ctx.origin, page.path, ctx.appName),
     ...MARKETING_IMAGE_SIZE,
     alt: brandText(page.h1, ctx.appName, ctx.followerModel),
   };
@@ -361,7 +382,9 @@ export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
     "@id": orgId,
     name: ctx.appName,
     url: base + "/",
-    logo: base + PLATFORM_LOGO_PATH,
+    logo: base + platformLogoPath(ctx.appName),
+    // The brand line is shown in every marketing footer.
+    ...(usesBrandIdentity(ctx.appName) ? { slogan: BRAND_COPY.line } : {}),
     description: t(ENTITY_SENTENCE),
     areaServed: { "@type": "Country", name: "United Arab Emirates" },
     ...(ctx.supportEmail
@@ -396,7 +419,7 @@ export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
       publisher: { "@id": orgId },
     },
   ];
-  const image = marketingImage(ctx.origin, page.path);
+  const image = marketingImage(ctx.origin, page.path, ctx.appName);
   const primary = page.jsonLd.find((k) => k !== "FAQPage") ?? "WebPage";
   const webPage: Record<string, unknown> = {
     "@type": primary === "HowTo" || primary === "WebApplication" ? "WebPage" : primary,
@@ -481,6 +504,16 @@ export function jsonLdScript(value: unknown): string {
     .replace(separators, (c) => "\\u" + c.charCodeAt(0).toString(16));
 }
 
+/** The approved brand lines, when the platform carries the trainsyou brand. */
+function brandSummary(appName: string): string[] {
+  if (!usesBrandIdentity(appName)) return [];
+  return [
+    `${BRAND_COPY.descriptor}. ${BRAND_COPY.audience}. ${BRAND_COPY.line}`,
+    "",
+    BRAND_COPY.introduction,
+    "",
+  ];
+}
 /** llms.txt (llmstxt.org): H1, summary blockquote, then H2 link lists. */
 export function llmsTxt(ctx: MarketingContext): string {
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
@@ -495,6 +528,7 @@ export function llmsTxt(ctx: MarketingContext): string {
     "",
     `> ${t(ENTITY_SENTENCE)}`,
     "",
+    ...brandSummary(ctx.appName),
     ...NOT_STATEMENTS.map((s) => `- ${s}`),
     "- Earnings and follower figures on this site are estimates with shown assumptions and cited sources, never promises.",
     "",
@@ -559,6 +593,7 @@ export function llmsFullTxt(ctx: MarketingContext): string {
     "",
     `> ${t(ENTITY_SENTENCE)}`,
     "",
+    ...brandSummary(ctx.appName),
   ];
   for (const page of INDEXABLE_MARKETING_PAGES) {
     if (page.renderer === "workspace") continue;

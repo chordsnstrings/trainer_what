@@ -60,7 +60,7 @@
   line-height: 1.5;
 }
 .acct-danger {
-  border-color: #f0d5cb;
+  border-color: var(--error-line);
 }
 .acct-once input {
   font-family: monospace;

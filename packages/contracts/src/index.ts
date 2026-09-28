@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { brandDesignSchema } from "./branding.ts";
 export * from "./branding.ts";
+export * from "./brand.ts";
 export * from "./discovery.ts";
 export * from "./marketing.ts";
 export const signupSchema = z

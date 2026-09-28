@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { strictSecurity } from "../../../packages/providers/src/configuration.ts";
+import {
+  runtimeConfig,
+  strictSecurity,
+} from "../../../packages/providers/src/configuration.ts";
+import { DEFAULT_PLATFORM_NAME } from "@trainer/contracts";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { type Actor, type Database, type Tx } from "@trainer/db";
@@ -191,7 +195,8 @@ export function registerPasskeys(
         );
       });
       const options = await generateRegistrationOptions({
-        rpName: "Trainer Brain",
+        // Shown by the device during passkey setup: the platform name.
+        rpName: runtimeConfig().APP_NAME || DEFAULT_PLATFORM_NAME,
         rpID: new URL(host.origin).hostname,
         userName: a.email,
         userDisplayName: a.name ?? a.email,

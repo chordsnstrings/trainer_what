@@ -15,7 +15,7 @@
 .host-level {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #e1e6df;
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding-block: 4px;
   padding-inline: 8px;
@@ -23,24 +23,24 @@
   font-weight: 550;
   line-height: 1.2;
   text-transform: capitalize;
-  background: #f6f8f4;
-  color: #59675e;
+  background: var(--white);
+  color: var(--muted);
   white-space: nowrap;
 }
 .host-level-ok {
-  background: #edf5e9;
-  border-color: #d8e8d0;
-  color: #376249;
+  background: var(--mint);
+  border-color: var(--line);
+  color: var(--muted);
 }
 .host-level-warning {
-  background: #faf0e2;
-  border-color: #efe0c8;
-  color: #906325;
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
+  color: var(--warning);
 }
 .host-level-critical {
-  background: #fff0eb;
-  border-color: #f0d5cb;
-  color: #924f3f;
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
 }
 .host-metrics,
 .host-containers,

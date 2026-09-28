@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { INDEXABLE_MARKETING_PAGES } from "./marketing.ts";
+import {
+  BRAND_ASSETS,
+  BRAND_COLORS,
+  BRAND_COPY,
+  BRAND_NAME,
+  usesBrandIdentity,
+} from "./brand.ts";
 
 /**
  * Public discovery vocabulary and route policy shared by the API (sitemaps,
@@ -311,22 +318,50 @@ export function appInitials(name: string): string {
   return (letters.length ? letters.slice(0, 2).join("") : "•").toUpperCase();
 }
 
+/** The platform's install colours: the trainsyou paper and ink. */
 export const PLATFORM_THEME = {
-  background: "#f7f8f4",
-  theme: "#254d42",
+  background: BRAND_COLORS.paper,
+  theme: BRAND_COLORS.ink,
 } as const;
 
 /** Where the API serves the platform's generated icons (initials of the name). */
 export const PLATFORM_ICON_BASE = "/api/v1/public/platform/icon/";
 /**
+ * The platform's icons: the supplied trainsyou icons when the platform name
+ * is the brand, otherwise PNGs the API draws from the configured name's
+ * initials, so a renamed platform never shows another name's logo.
+ */
+export function platformIcons(appName: string = BRAND_NAME) {
+  if (usesBrandIdentity(appName))
+    return {
+      icon192: BRAND_ASSETS.icon192 as string,
+      icon512: BRAND_ASSETS.icon512 as string,
+      // The relay mark sits inside the maskable safe zone of an opaque Pace
+      // square, so one file serves both purposes.
+      maskable512: BRAND_ASSETS.icon512 as string,
+      apple180: BRAND_ASSETS.appleTouchIcon as string,
+      favicon: BRAND_ASSETS.faviconIco as string,
+      faviconSvg: BRAND_ASSETS.faviconSvg as string | null,
+    };
+  return {
+    icon192: PLATFORM_ICON_BASE + "192.png",
+    icon512: PLATFORM_ICON_BASE + "512.png",
+    maskable512: PLATFORM_ICON_BASE + "maskable-512.png",
+    apple180: PLATFORM_ICON_BASE + "180.png",
+    favicon: PLATFORM_ICON_BASE + "192.png",
+    faviconSvg: null as string | null,
+  };
+}
+/**
  * The platform install manifest, served by apps/web/app/manifest.ts at
  * /manifest.webmanifest and by the API to anonymous visitors. The name is
- * the configured APP_NAME and the icons are drawn from its initials.
+ * the configured APP_NAME (trainsyou when unset); see platformIcons.
  */
-export function platformManifest(appName = "Trainer Brain") {
-  const name = appName.trim() || "Trainer Brain";
-  const icon = (file: string, sizes: string, purpose: "any" | "maskable") => ({
-    src: PLATFORM_ICON_BASE + file,
+export function platformManifest(appName: string = BRAND_NAME) {
+  const name = appName.trim() || BRAND_NAME;
+  const icons = platformIcons(name);
+  const icon = (src: string, sizes: string, purpose: "any" | "maskable") => ({
+    src,
     sizes,
     type: "image/png",
     purpose,
@@ -334,15 +369,16 @@ export function platformManifest(appName = "Trainer Brain") {
   return {
     name,
     short_name: shortAppName(name, 15),
+    ...(usesBrandIdentity(name) ? { description: BRAND_COPY.descriptor } : {}),
     start_url: "/app",
     scope: "/",
     display: "standalone",
     background_color: PLATFORM_THEME.background,
     theme_color: PLATFORM_THEME.theme,
     icons: [
-      icon("192.png", "192x192", "any"),
-      icon("512.png", "512x512", "any"),
-      icon("maskable-512.png", "512x512", "maskable"),
+      icon(icons.icon192, "192x192", "any"),
+      icon(icons.icon512, "512x512", "any"),
+      icon(icons.maskable512, "512x512", "maskable"),
     ],
   };
 }

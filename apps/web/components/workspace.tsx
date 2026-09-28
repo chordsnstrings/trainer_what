@@ -49,6 +49,7 @@ import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
 import { HostOperations } from "./host-operations";
 import { MarketingFooter, MarketingHeader, claimCta } from "./marketing/frame";
+import { PlatformLogo } from "./brand-logo";
 import {
   FollowerEstimate,
   ShareYourLink,
@@ -87,11 +88,13 @@ import {
   ClientHomeSections,
 } from "./trainer-design";
 import {
+  BRAND_COPY,
   DEFAULT_PLATFORM_NAME,
   appInitials,
   isMarketingPath,
   resolveBrandDesign,
   setSchema,
+  usesBrandIdentity,
 } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
 import { WorkspaceGovernance } from "./workspace-governance";
@@ -717,7 +720,9 @@ export default function Workspace({
   if (loading || !state)
     return (
       <main className="loading-screen">
-        <div className="brand-mark">b.</div>
+        {/* Neutral: a member app may carry its trainer's brand, which is
+            not known until the workspace has loaded. */}
+        <div className="loading-indicator" aria-hidden="true" />
         <p>Opening your workspace…</p>
       </main>
     );
@@ -786,10 +791,15 @@ export default function Workspace({
     onSaved: load,
     more,
   };
+  // Subscribers see their trainer's Design Studio brand; trainers, their
+  // team and operators work in the platform's own identity (light and dark).
   const Shell = subscriber ? TrainerTheme : PlainShell;
-  const platformName = state.platform?.name || "Trainer Brain";
+  const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
   return (
-    <Shell className="workspace" theme={state.tenant.theme}>
+    <Shell
+      className={subscriber ? "workspace" : "workspace platform-ui"}
+      theme={state.tenant.theme}
+    >
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && (
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
@@ -803,10 +813,7 @@ export default function Workspace({
               compact
             />
           ) : (
-            <>
-              <span className="brand-mark">b.</span>
-              <span>{platformName}</span>
-            </>
+            <PlatformLogo name={platformName} />
           )}
         </Link>
         <button
@@ -1228,8 +1235,10 @@ export default function Workspace({
         </div>
         <footer className="workspace-footer">
           <span>
-            {subscriber ? state.tenant.name : platformName} · Your coaching,
-            amplified.
+            {subscriber ? state.tenant.name : platformName} ·{" "}
+            {!subscriber && usesBrandIdentity(platformName)
+              ? BRAND_COPY.line
+              : "Your coaching, amplified."}
           </span>
           {state.platform?.supportEmail && (
             <a href={`mailto:${state.platform.supportEmail}`}>
@@ -4466,7 +4475,10 @@ function Public({
   const coach = path.startsWith("/coach/");
   const Shell = coach ? TrainerTheme : PlainShell;
   return (
-    <Shell className="public" theme={store?.trainer?.theme}>
+    <Shell
+      className={coach ? "public" : "public platform-ui"}
+      theme={store?.trainer?.theme}
+    >
       {!coach && (
         <MarketingHeader
           appName={platform.name}
