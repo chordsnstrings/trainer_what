@@ -586,6 +586,8 @@ export class StripeMock {
       },
       line_items: f.line_items,
       payment_intent_data: f.payment_intent_data ?? null,
+      // Text shown on Stripe's page (web address checkouts: both prices).
+      custom_text: f.custom_text ?? null,
     };
     this.sessions.set(id, session);
     return { status: 200, body: this.publicSession(session) };

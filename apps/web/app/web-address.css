@@ -120,3 +120,26 @@
   outline: 2px solid var(--focus, currentColor);
   outline-offset: 4px;
 }
+/* First-year and renewal price side by side, with the renewal note below. */
+.web-address-prices-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+.web-address-price {
+  white-space: nowrap;
+}
+.web-address-renewal-note {
+  flex-basis: 100%;
+  font-size: 0.9em;
+  color: var(--muted);
+}
+.web-address-renewal-note.much {
+  color: inherit;
+  font-weight: 600;
+  background: var(--warning-bg);
+  border-inline-start: 3px solid var(--warning);
+  padding-block: 4px;
+  padding-inline: 8px;
+}

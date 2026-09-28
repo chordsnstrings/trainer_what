@@ -47,10 +47,37 @@ type EndingRow = {
   renewalPriceMinor?: number;
   firstYearMarginMinor?: number;
   renewalMarginMinor?: number;
+  firstYear?: YearMargin;
+  renewal?: YearMargin;
+};
+/** One year's price and what it leaves (operators only). */
+type YearMargin = {
+  priceMinor: number;
+  costMinor: number;
+  grossMarginMinor: number;
+  cardFeeMinor: number;
+  /** Stripe Billing's fee (absent from a server before it was counted). */
+  billingFeeMinor?: number;
+  conversionFeeMinor: number;
+  netMarginMinor: number;
+  raisedForMargin: boolean;
+};
+type PriceRuleView = {
+  stepCents: number;
+  endingCents: number;
+  capCents: number;
+  minMarginCents?: number;
+  cardFeeBp?: number;
+  internationalFeeBp?: number;
+  fixedFeeCents?: number;
+  billingFeeBp?: number;
+  conversionFeeBp?: number;
+  usdBalance?: boolean;
 };
 type PriceData = {
   registrar: string;
   testEnvironment: boolean;
+  rule?: PriceRuleView;
   endings: EndingRow[];
   refreshed?: Array<{ tld: string; refreshed: boolean; error?: string }>;
 };
@@ -62,10 +89,58 @@ const ENDING_STATE: Record<EndingRow["state"], string> = {
 };
 const usd = (minor?: number) =>
   typeof minor === "number" ? formatMoney(minor, "USD") : "";
+const percent = (bp?: number) =>
+  typeof bp === "number" ? `${(bp / 100).toFixed(2).replace(/\.?0+$/, "")}%` : "";
+/** The rule in one sentence, so operators can check the table's figures. */
+function ruleSummary(rule: PriceRuleView) {
+  return (
+    `Cost rounded up to ${usd(rule.stepCents)}, plus ${usd(rule.endingCents)}; ` +
+    `moved up a step until at least ${usd(rule.minMarginCents ?? 0)} is left after Stripe's estimated fees ` +
+    `(${percent(rule.cardFeeBp)} card + ${percent(rule.internationalFeeBp)} international + ${usd(rule.fixedFeeCents ?? 0)}` +
+    (rule.billingFeeBp
+      ? ` + ${percent(rule.billingFeeBp)} Stripe Billing`
+      : "") +
+    (rule.usdBalance
+      ? "; no conversion fee: the Stripe account holds USD"
+      : ` + ${percent(rule.conversionFeeBp)} currency conversion`) +
+    `); hidden over ${usd(rule.capCents)}.`
+  );
+}
+/** One year's cells: price, Stripe's fees, and the net margin. */
+function YearCells({ year }: { year?: YearMargin }) {
+  if (!year)
+    return (
+      <>
+        <td />
+        <td />
+        <td />
+      </>
+    );
+  return (
+    <>
+      <td>
+        {usd(year.priceMinor)}
+        {year.raisedForMargin ? " (raised for margin)" : ""}
+      </td>
+      <td>
+        {usd(year.cardFeeMinor)}
+        {year.billingFeeMinor ? ` + ${usd(year.billingFeeMinor)} Billing` : ""}
+        {year.conversionFeeMinor
+          ? ` + ${usd(year.conversionFeeMinor)} conversion`
+          : ""}
+      </td>
+      <td>
+        {usd(year.netMarginMinor)}{" "}
+        <span className="muted">(before fees {usd(year.grossMarginMinor)})</span>
+      </td>
+    </>
+  );
+}
 /**
  * Registrar prices per ending, the trainer's two prices under the current
- * rule and the margin left before Stripe's fees, with a refresh that asks the
- * registrar again (within the interactive call budget).
+ * rule, Stripe's estimated fees and the net margin left for each year, with
+ * a refresh that asks the registrar again (within the interactive call
+ * budget).
  */
 export function RegistrarPrices({
   initial = null,
@@ -86,10 +161,15 @@ export function RegistrarPrices({
       <h3>Registrar prices per ending</h3>
       <Status value={message} />
       <p className="muted small-label">
-        Margin is the trainer&apos;s price less the registrar&apos;s cost,
-        before Stripe&apos;s fees and any currency conversion. Endings with a
-        thin margin may lose money once those are taken.
+        Net margin is the trainer&apos;s price less the registrar&apos;s cost
+        and Stripe&apos;s estimated fees (card, international card, fixed fee,
+        Stripe Billing and currency conversion), per year. A price is raised one
+        step when the net margin would fall below the minimum. Fee estimates and
+        the minimum are in Settings, Web addresses and registrar.
       </p>
+      {data?.rule && (
+        <p className="muted small-label">{ruleSummary(data.rule)}</p>
+      )}
       {data && (
         <div className="table-wrap">
           <table>
@@ -98,8 +178,12 @@ export function RegistrarPrices({
                 <th>Ending</th>
                 <th>State</th>
                 <th>Registrar cost (USD, first year / renewal)</th>
-                <th>Trainer pays</th>
-                <th>Margin before Stripe fees</th>
+                <th>First year: trainer pays</th>
+                <th>First year: Stripe fees</th>
+                <th>First year: net margin</th>
+                <th>Renewal: trainer pays</th>
+                <th>Renewal: Stripe fees</th>
+                <th>Renewal: net margin</th>
                 <th>Priced</th>
               </tr>
             </thead>
@@ -119,16 +203,8 @@ export function RegistrarPrices({
                       ? `${row.registerUsd} / ${row.renewUsd}`
                       : ""}
                   </td>
-                  <td>
-                    {row.firstYearPriceMinor !== undefined
-                      ? `${usd(row.firstYearPriceMinor)} / ${usd(row.renewalPriceMinor)}`
-                      : ""}
-                  </td>
-                  <td>
-                    {row.firstYearMarginMinor !== undefined
-                      ? `${usd(row.firstYearMarginMinor)} / ${usd(row.renewalMarginMinor)}`
-                      : ""}
-                  </td>
+                  <YearCells year={row.firstYear} />
+                  <YearCells year={row.renewal} />
                   <td>{row.fetchedAt ? day(row.fetchedAt) : ""}</td>
                 </tr>
               ))}

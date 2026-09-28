@@ -6,13 +6,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  renewalIncrease,
+  renewalPriceNote,
+} from "../../../packages/domain/src/web-address.ts";
 
 /**
  * Trainer web address (subdomain, slug change, domain search and purchase).
  * Trainer screens show only the first-year and yearly renewal price, in US
- * dollars (owner decision, 28 September 2026; orders placed before then keep
- * their AED price); they never name the registrar or show its cost (the
- * operator view is web-address-operations.tsx).
+ * dollars, side by side, with a note whenever the renewal costs more than
+ * the first year (owner decisions, 28 September 2026; orders placed before
+ * then keep their AED price); they never name the registrar or show its cost
+ * (the operator view is web-address-operations.tsx).
  */
 export async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -370,7 +375,9 @@ export function ServeModeChoice({
           checked={value === "site"}
           onChange={() => onChange("site")}
         />{" "}
-        Show my site on this domain
+        {/* One text element: .check-field is a flex row, and loose text
+            around the host would become separate narrow columns. */}
+        <span>Show my site on this domain</span>
       </label>
       <label className="check-field">
         <input
@@ -380,7 +387,10 @@ export function ServeModeChoice({
           checked={value === "forward"}
           onChange={() => onChange("forward")}
         />{" "}
-        Forward to my <span className="ltr-data">{subdomainHost}</span> address
+        <span>
+          Forward to my <span className="ltr-data">{subdomainHost}</span>{" "}
+          address
+        </span>
       </label>
       <p className="muted small-label">
         Forwarding keeps the page path, so links to any page still work.
@@ -486,9 +496,12 @@ export function DomainSearch({
     <Panel title="Your own domain">
       <p>
         Search a name: we check it on these endings and list the ones you can
-        have, with the first-year and yearly renewal price in US dollars, paid
-        by card. Some endings may not be available for every name. We register
-        the domain, set it up and renew it every year. Endings checked:{" "}
+        have, with the first-year price and the yearly renewal price in US
+        dollars, paid by card. Both are the full price you pay. Some endings
+        cost much more to renew than for the first year: compare both before
+        choosing. Some endings may not be available for every name. We
+        register the domain, set it up and renew it every year. Endings
+        checked:{" "}
         <span className="ltr-data">
           {endings.map((e) => "." + e).join(" ")}
         </span>
@@ -555,12 +568,10 @@ export function DomainSearch({
                 {result.premium && (
                   <span className="badge amber">Premium name</span>
                 )}
-                <span>
-                  <Prices
-                    firstYear={result.firstYearPriceMinor}
-                    renewal={result.renewalPriceMinor}
-                  />
-                </span>
+                <Prices
+                  firstYear={result.firstYearPriceMinor}
+                  renewal={result.renewalPriceMinor}
+                />
                 <button
                   type="button"
                   className="button"
@@ -606,10 +617,14 @@ export function DomainSearch({
             <strong>{formatMoney(chosen.firstYearPriceMinor)}</strong>, charged
             now, then <strong>{formatMoney(chosen.renewalPriceMinor)}</strong>{" "}
             every year until you turn renewal off. The price includes
-            registration, private owner details (WHOIS privacy), DNS and the
-            security certificate. The platform registers and holds the domain
-            for your website.
+            registration, private owner details (WHOIS privacy), DNS, the
+            security certificate and our service. The platform registers and
+            holds the domain for your website.
           </p>
+          <RenewalNote
+            firstYear={chosen.firstYearPriceMinor}
+            renewal={chosen.renewalPriceMinor}
+          />
           <ServeModeChoice
             value={serveMode}
             subdomainHost={subdomainHost}
@@ -640,8 +655,12 @@ export function DomainSearch({
   );
 }
 
-/** The only prices a trainer sees: the first year and the yearly renewal. */
-function Prices({
+/**
+ * The only prices a trainer sees, side by side: the first year and the
+ * yearly renewal from the second year, both the full price paid, with the
+ * renewal note when the renewal costs more.
+ */
+export function Prices({
   firstYear,
   renewal,
   currency = "USD",
@@ -651,10 +670,45 @@ function Prices({
   currency?: string;
 }) {
   return (
-    <>
-      First year {formatMoney(firstYear, currency)} · renews at{" "}
-      {formatMoney(renewal, currency)} per year
-    </>
+    <span className="web-address-prices-pair">
+      <span className="web-address-price">
+        <span className="small-label">First year</span>{" "}
+        <strong>{formatMoney(firstYear, currency)}</strong>
+      </span>{" "}
+      <span className="web-address-price">
+        <span className="small-label">Renewal, every year after</span>{" "}
+        <strong>{formatMoney(renewal, currency)}</strong>
+      </span>
+      <RenewalNote firstYear={firstYear} renewal={renewal} currency={currency} />
+    </span>
+  );
+}
+/**
+ * "Note: the renewal is USD 5.00 more a year than the first year." whenever
+ * the renewal costs more than the first year (owner decision, 28 September
+ * 2026: trainers must know before paying), highlighted when it is much
+ * higher (at least twice the first year or USD 20 more); or nothing.
+ */
+export function RenewalNote({
+  firstYear,
+  renewal,
+  currency = "USD",
+}: {
+  firstYear: number;
+  renewal: number;
+  currency?: string;
+}) {
+  const note = renewalPriceNote(firstYear, renewal, currency);
+  if (!note) return null;
+  return (
+    <span
+      className={
+        "web-address-renewal-note" +
+        (renewalIncrease(firstYear, renewal)?.much ? " much" : "")
+      }
+    >
+      {note}
+    </span>
   );
 }
 

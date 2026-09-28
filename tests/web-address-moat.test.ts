@@ -141,10 +141,28 @@ test("trainer screens show only the first-year and renewal price, never the regi
   assert.doesNotMatch(html, /registrar|cost price|margin|11\.48|18\.68/i);
   assert.doesNotMatch(html, DNS_HOST);
   // Trainers see and pay in USD (owner decision, 28 September 2026).
-  assert.match(html, /First year USD\s19\.99 · renews at\s+USD\s24\.99 per year/);
+  assert.match(
+    html,
+    /First year<\/span> <strong>USD\s19\.99<\/strong>.*Renewal, every year after<\/span> <strong>USD\s24\.99<\/strong>/s,
+  );
+  // The renewal is dearer than the first year: the note says so.
+  assert.match(
+    html,
+    /Note: the renewal is USD 5\.00 more a year than the first year\./,
+  );
   // The forwarding choice names only the trainer's own platform address.
   assert.match(html, /Show my site on this domain/);
   assert.match(html, /Forward to my <span[^>]*>layla\.trainsyou\.com<\/span> address/);
+  // Each label's text is one element beside its radio: .check-field is a
+  // flex row, so loose text around the host became three narrow columns.
+  assert.match(
+    html,
+    /<label class="check-field"><input [^>]*value="site"[^>]*\/> <span>Show my site on this domain<\/span><\/label>/,
+  );
+  assert.match(
+    html,
+    /<label class="check-field"><input [^>]*value="forward"[^>]*\/> <span>Forward to my <span class="ltr-data">layla\.trainsyou\.com<\/span> address<\/span><\/label>/,
+  );
   // The trainer's web address component never names a DNS host.
   assert.doesNotMatch(read("apps/web/components/web-address.tsx"), DNS_HOST);
 });
