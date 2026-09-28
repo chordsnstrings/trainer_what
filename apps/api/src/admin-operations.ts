@@ -340,7 +340,8 @@ export async function businessAnalytics(db: Database, a: Actor) {
   return db.tenant(a, async (tx) => ({
     leads,
     members: await tx.query(
-      "SELECT status,count(*)::int AS members,coalesce(sum(price_minor),0)::text AS recurring_minor FROM subscriptions GROUP BY status ORDER BY status",
+      // An upfront programme is one payment, not recurring revenue.
+      "SELECT status,count(*)::int AS members,coalesce(sum(price_minor) FILTER(WHERE coalesce(data->>'billing','monthly')<>'upfront'),0)::text AS recurring_minor,coalesce(sum(price_minor) FILTER(WHERE data->>'billing'='upfront'),0)::text AS upfront_minor FROM subscriptions GROUP BY status ORDER BY status",
     ),
     cohorts: await (async () => {
       const status = new Map(

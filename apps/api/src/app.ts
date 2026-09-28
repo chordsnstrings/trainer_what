@@ -16,6 +16,14 @@ import {
 } from "./source-review-notifications.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
+import {
+  assertComparableOffer,
+  createVoiceAddOnPrice,
+  offerBilling,
+  registerOfferVoiceAddOn,
+} from "./programme-billing.ts";
+import { registerVoiceAddOn } from "./voice-addon.ts";
+import { registerProgrammeToday } from "./programme-today.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
@@ -602,6 +610,11 @@ export async function buildApp(
   registerIntegrationCompletion(app, db);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
+  registerVoiceAddOn(app, db, {
+    commerce: commerceProvider,
+    stripe: stripeProvider,
+  });
+  registerProgrammeToday(app, db);
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
   registerAffiliates(app, db, identity);
@@ -1706,6 +1719,7 @@ export async function buildApp(
             "NUTRITION_PRICE",
             "Workout + nutrition must cost more than its workout-only offer.",
           );
+        assertComparableOffer(b, base.data);
       }
       const r = await putRecord(
         tx,
@@ -1743,15 +1757,28 @@ export async function buildApp(
       },
       { idempotencyKey: `product:${product.id}` },
     );
+    // Monthly offers renew every month; an upfront programme is one payment.
+    const upfront = offerBilling(product.data) === "upfront";
     const price = await stripe.prices.create(
       {
         product: remote.id,
         currency: "aed",
         unit_amount: product.data.priceMinor,
-        recurring: { interval: "month" },
+        ...(upfront ? {} : { recurring: { interval: "month" as const } }),
+        metadata: {
+          tenant_id: a.tenantId,
+          product_id: product.id,
+          billing: upfront ? "upfront" : "monthly",
+        },
       },
       { idempotencyKey: `price:${product.id}:v${product.version}` },
     );
+    const voice = product.data.voiceAddOnMinor
+      ? await createVoiceAddOnPrice(stripe, a.tenantId, product, {
+          priceMinor: product.data.voiceAddOnMinor,
+          version: product.version,
+        })
+      : null;
     await db.tenant(a, (tx) =>
       tx.query(
         "UPDATE records SET status='published',data=data||$2::jsonb WHERE id=$1",
@@ -1760,12 +1787,14 @@ export async function buildApp(
           JSON.stringify({
             stripeProductId: remote.id,
             stripePriceId: price.id,
+            ...(voice ?? {}),
           }),
         ],
       ),
     );
     return { ok: true };
   });
+  registerOfferVoiceAddOn(app, db, owner, commerceProvider);
   registerSubscriptionCheckout(app, db, requireNutritionReady);
   app.post("/api/v1/membership/change-plan", async (req) => {
     const a = identity(req),
@@ -1793,6 +1822,13 @@ export async function buildApp(
       const product = await findRecord(tx, b.productId, "product");
       if (product.status !== "published" || !product.data.stripePriceId)
         throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not active.");
+      // An upfront programme is bought as its own payment, never a plan change.
+      if (offerBilling(product.data) !== "monthly")
+        throw fail(
+          409,
+          "UPFRONT_PLAN",
+          "An upfront programme is bought separately once your current access ends.",
+        );
       if (product.data.tier === "workout_nutrition")
         await requireNutritionReady(tx);
       if (subscription.data.productId === product.id)

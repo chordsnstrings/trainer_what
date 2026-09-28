@@ -7,6 +7,7 @@ import { processCoachingFollowups } from "../../api/src/coaching-followups.ts";
 import { expireChatAttachments } from "../../api/src/chat-attachments.ts";
 import { scheduleNutrition } from "../../api/src/nutrition-schedule.ts";
 import { sweepComplimentaryAccess } from "../../api/src/complimentary-access.ts";
+import { sweepProgrammes } from "../../api/src/programme-today.ts";
 import { scheduleSafetyEscalations } from "../../api/src/safety-policy.ts";
 import {
   claimJob,
@@ -22,6 +23,7 @@ export type TenantSchedulers = {
   finance: Step;
   notifications: Step;
   complimentaryAccess: Step;
+  programmes: Step;
   lifecycleMessages: Step;
   retentionAlerts: Step;
   coachingFollowups: Step;
@@ -32,6 +34,7 @@ export const defaultSchedulers: TenantSchedulers = {
   finance: (db, id) => scheduleFinance(db, id),
   notifications: (db, id) => scheduleNotifications(db, id),
   complimentaryAccess: (db, id) => sweepComplimentaryAccess(db, id),
+  programmes: (db, id) => sweepProgrammes(db, id),
   lifecycleMessages: (db, id) => scheduleLifecycleMessages(db, id),
   retentionAlerts: (db, id) => scheduleRetentionAlerts(db, id),
   coachingFollowups: (db, id) => processCoachingFollowups(db, id),
@@ -45,6 +48,7 @@ const failures: Record<keyof TenantSchedulers, string> = {
   finance: "Finance scheduling failed",
   notifications: "Notification scheduling failed",
   complimentaryAccess: "Complimentary access expiry failed",
+  programmes: "Programme end-of-programme sweep failed",
   lifecycleMessages: "Lifecycle message scheduling failed",
   retentionAlerts: "Retention alert scheduling failed",
   coachingFollowups: "Scheduled coaching follow-up delivery failed",

@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { money } from "@trainer/domain";
+import { offerTermsText } from "./programme-offers";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/onboarding" + path, {
     method: body ? "PUT" : "GET",
@@ -402,7 +402,7 @@ export function Onboarding({
                     <p>{p.description}</p>
                   </div>
                   <span>
-                    {money(p.priceMinor)} / month · {p.status}
+                    {offerTermsText(p).price} · {p.status}
                   </span>
                 </div>
               ))}

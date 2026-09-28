@@ -67,6 +67,9 @@ import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
+import { ProgrammeToday, ProgrammeTimeline } from "./programme-today";
+import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
+import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
   TrainerDesign,
   TrainerTheme,
@@ -240,6 +243,7 @@ const nav = [
 const subNav = [
   ["Today", "/app", LayoutDashboard],
   ["My program", "/app/program", Layers],
+  ["Programme timeline", "/app/timeline", Layers],
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
   ["Coach chat", "/app/chat", MessageCircle],
@@ -1162,6 +1166,8 @@ export default function Workspace() {
               <TrainerAnalytics />
               {state.user.role === "owner" && <RetentionPanel />}
             </>
+          ) : path === "/app/timeline" ? (
+            <ProgrammeTimeline />
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
@@ -1301,6 +1307,7 @@ function Overview({ state, records }: ViewProps) {
       />
       {sub && (
         <>
+          <ProgrammeToday />
           <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
           <ClientHomeSections theme={state.tenant.theme} />
         </>
@@ -3216,7 +3223,12 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                 ? "Your current plan"
                 : "Choose your coaching membership"}
             </h2>
-            {membership ? (
+            {membership?.data?.billing === "upfront" ? (
+              <UpfrontMembership
+                membership={membership}
+                offers={records("product")}
+              />
+            ) : membership ? (
               <>
                 <div className="membership-price">
                   {money(membership.price_minor)}
@@ -3300,10 +3312,7 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                     <div>
                       <h3>{p.data.name}</h3>
                       <p>{p.data.description}</p>
-                      {p.data.premiumVoice === true && (
-                        <p>Premium guided voice included</p>
-                      )}
-                      <strong>{money(p.data.priceMinor)} / month</strong>
+                      <OfferTerms data={p.data} />
                     </div>
                     <Button
                       disabled={busy}
@@ -3320,12 +3329,15 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                         })
                       }
                     >
-                      Join this plan
+                      {p.data.billing === "upfront"
+                        ? "Buy this programme"
+                        : "Join this plan"}
                     </Button>
                   </div>
                 ))
             )}
           </Card>
+          <VoiceAddOnCard />
           <Card>
             <h2>Checkout status</h2>
             <p className="muted">
@@ -3468,69 +3480,11 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
             <div className="two-columns">
               <Card>
                 <h2>A clear offer</h2>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    void action(
-                      () =>
-                        api("/products", "POST", {
-                          name: f.get("name"),
-                          description: f.get("description"),
-                          priceMinor: Math.round(Number(f.get("price")) * 100),
-                          tier: f.get("tier"),
-                          premiumVoice: f.get("premiumVoice") === "on",
-                          ...(f.get("baseProductId")
-                            ? { baseProductId: f.get("baseProductId") }
-                            : {}),
-                        }),
-                      "Offer saved",
-                    );
-                  }}
-                >
-                  <Field label="Plan name">
-                    <input name="name" required />
-                  </Field>
-                  <Field label="Subscription tier">
-                    <select name="tier">
-                      <option value="workout">Workout only</option>
-                      <option value="workout_nutrition">
-                        Workout + nutrition
-                      </option>
-                    </select>
-                  </Field>
-                  <label>
-                    <input type="checkbox" name="premiumVoice" />
-                    Include premium guided voice in this offer
-                  </label>
-                  <Field label="Comparable workout offer (required for the combined tier)">
-                    <select name="baseProductId">
-                      <option value="">Choose for combined tier</option>
-                      {records("product")
-                        .filter((p) => (p.data.tier ?? "workout") === "workout")
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.data.name} · {money(p.data.priceMinor)}
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                  <Field label="What is included">
-                    <textarea name="description" rows={3} />
-                  </Field>
-                  <Field label="Monthly price (AED)">
-                    <input
-                      name="price"
-                      type="number"
-                      min={1}
-                      step={0.01}
-                      required
-                    />
-                  </Field>
-                  <Button type="submit" disabled={busy}>
-                    Create offer
-                  </Button>
-                </form>
+                <OfferForm
+                  products={records("product")}
+                  busy={busy}
+                  action={action}
+                />
               </Card>
               <div className="card-stack">
                 {records("product").map((p) => (
@@ -3542,14 +3496,9 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                         ? "Workout + nutrition"
                         : "Workout only"}
                     </p>
-                    {p.data.premiumVoice === true && (
-                      <p>Premium guided voice included</p>
-                    )}
-                    <div className="membership-price">
-                      {money(p.data.priceMinor)}
-                      <span>/ month</span>
-                    </div>
+                    <OfferTerms data={p.data} />
                     <p>{p.data.description}</p>
+                    <OfferVoicePrice product={p} busy={busy} action={action} />
                     {p.status !== "published" && (
                       <Button
                         secondary
@@ -4732,7 +4681,7 @@ function Public({
                 <Card key={p.id}>
                   <h2>{p.data.name}</h2>
                   <p>{p.data.description}</p>
-                  <strong>{money(p.data.priceMinor)} / month</strong>
+                  <OfferTerms data={p.data} />
                   <p>
                     <Link
                       className="button"

@@ -11,6 +11,12 @@ import { requireCommerce, stripeClient } from "@trainer/providers";
 import { z } from "zod";
 import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import {
+  offerBilling,
+  processProgrammeCheckoutEvent,
+  upfrontAdmission,
+} from "./programme-billing.ts";
+import { effectiveProgrammeDays } from "../../../packages/domain/src/programme.ts";
 const uuid = z.string().uuid();
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
@@ -36,9 +42,16 @@ async function checkoutLock(tx: Tx, a: Pick<Actor, "tenantId" | "userId">) {
     a.tenantId + ":checkout:" + a.userId,
   ]);
 }
+/**
+ * Membership intents only: a voice add-on purchase is its own checkout
+ * (voice-addon.ts), and a paid upfront programme is settled once its payment
+ * is posted (its access lives on the membership row, not the intent).
+ */
+const MEMBERSHIP_INTENT =
+  "coalesce(data->>'purpose','membership')<>'voice_addon' AND NOT (status='completed' AND coalesce(data->>'billing','')='upfront')";
 async function unresolvedCheckout(tx: Tx, a: Actor) {
   const [r] = await tx.query(
-    "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1 FOR UPDATE",
+    `SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') AND ${MEMBERSHIP_INTENT} ORDER BY created_at,id LIMIT 1 FOR UPDATE`,
     [a.userId],
   );
   return r;
@@ -83,7 +96,14 @@ export async function settleCheckoutSubscription(
   }
 }
 /** Entry is restricted to signed webhook payloads or authenticated provider reads. */
-export async function processMembershipCheckoutEvent(db: Database, e: any) {
+export async function processMembershipCheckoutEvent(
+  db: Database,
+  e: any,
+  deps: { stripe?: ReturnType<typeof stripeClient> } = {},
+) {
+  // An upfront programme is a one-time payment checkout (programme-billing.ts).
+  if (e.data?.object?.mode === "payment")
+    return processProgrammeCheckoutEvent(db, e, deps);
   if (
     ![
       "checkout.session.completed",
@@ -94,6 +114,7 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
     return false;
   const remote = e.data?.object;
   if (remote?.mode !== "subscription") return false;
+  if (remote.metadata?.purpose === "voice_addon") return false;
   const intentId = remote.metadata?.intent_id ?? remote.client_reference_id;
   if (!uuid.safeParse(intentId).success)
     throw fail(
@@ -226,7 +247,8 @@ export async function processMembershipCheckoutEvent(db: Database, e: any) {
 }
 function assertCheckoutOwnership(remote: any, r: any) {
   if (
-    remote.mode !== "subscription" ||
+    remote.mode !==
+      (r.data.billing === "upfront" ? "payment" : "subscription") ||
     remote.client_reference_id !== r.id ||
     remote.metadata?.intent_id !== r.id ||
     remote.metadata?.tenant_id !== r.tenant_id ||
@@ -281,15 +303,20 @@ async function reconcileIntent(
     );
   assertCheckoutOwnership(remote, r);
   if (remote.status === "expired" || remote.status === "complete") {
-    await processMembershipCheckoutEvent(db, {
-      type:
-        remote.status === "expired"
-          ? "checkout.session.expired"
-          : "checkout.session.completed",
-      id: `reconcile-checkout:${remote.id}:${remote.status}`,
-      data: { object: remote },
-    });
-    if (remote.status === "complete") {
+    await processMembershipCheckoutEvent(
+      db,
+      {
+        type:
+          remote.status === "expired"
+            ? "checkout.session.expired"
+            : "checkout.session.completed",
+        id: `reconcile-checkout:${remote.id}:${remote.status}`,
+        data: { object: remote },
+      },
+      { stripe },
+    );
+    // An upfront programme has no provider subscription to project.
+    if (remote.status === "complete" && remote.mode === "subscription") {
       const sid =
         typeof remote.subscription === "string"
           ? remote.subscription
@@ -372,7 +399,7 @@ export async function reconcileMembershipCheckout(
     });
   const [r] = await db.tenant(a, (tx) =>
     tx.query(
-      "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') ORDER BY created_at,id LIMIT 1",
+      `SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') AND ${MEMBERSHIP_INTENT} ORDER BY created_at,id LIMIT 1`,
       [a.userId],
     ),
   );
@@ -430,7 +457,10 @@ export async function createMembershipCheckout(
             "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
             [a.userId],
           );
-          if (s && !terminalSubscription(s.status))
+          // An upfront programme that ended (or is in its renewal window, for
+          // another upfront programme) does not block the next purchase.
+          const admission = upfrontAdmission(s);
+          if (s && !terminalSubscription(s.status) && admission === "held")
             throw fail(
               "ALREADY_SUBSCRIBED",
               "Manage or reconcile the existing subscription before buying another membership",
@@ -468,14 +498,24 @@ export async function createMembershipCheckout(
           );
           if (!product?.data.stripePriceId)
             throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
+          const billing = offerBilling(product.data);
+          if (admission === "renew_upfront" && billing !== "upfront")
+            throw fail(
+              "ALREADY_SUBSCRIBED",
+              "A monthly membership can start once your current programme ends",
+            );
           if (product.data.tier === "workout_nutrition")
             await options.nutritionReady(tx);
-          const offerTerms = await checkoutOfferTerms(
+          const terms = await checkoutOfferTerms(
             tx,
             a,
             product,
             input.promotionCode,
           );
+          // A free trial belongs to a recurring membership, never to a
+          // one-time programme payment.
+          const offerTerms =
+            billing === "upfront" ? { ...terms, trialDays: 0 } : terms;
           const intent = await putRecord(
             tx,
             a,
@@ -486,6 +526,16 @@ export async function createMembershipCheckout(
               priceId: product.data.stripePriceId,
               email: member.email,
               expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
+              billing,
+              ...(billing === "upfront"
+                ? {
+                    purpose: "programme",
+                    amountMinor: product.data.priceMinor,
+                    programmeDays: effectiveProgrammeDays(
+                      product.data.programmeDays,
+                    ),
+                  }
+                : {}),
             },
             { ownerId: a.userId, status: "creating" },
           );
@@ -521,24 +571,41 @@ export async function createMembershipCheckout(
         intent_id: intent.id,
         product_id: intent.data.productId,
       };
+      const discounts = intent.data.offerTerms?.couponId
+        ? [{ coupon: intent.data.offerTerms.couponId }]
+        : undefined;
+      const programme = { ...metadata, purpose: "programme" };
       const remote = await stripe.checkout.sessions.create(
-        {
-          mode: "subscription",
-          customer_email: intent.data.email,
-          client_reference_id: intent.id,
-          line_items: [{ price: intent.data.priceId, quantity: 1 }],
-          expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
-          metadata,
-          discounts: intent.data.offerTerms?.couponId
-            ? [{ coupon: intent.data.offerTerms.couponId }]
-            : undefined,
-          subscription_data: {
-            trial_period_days: intent.data.offerTerms?.trialDays || undefined,
-            metadata,
-          },
-          success_url: options.origin + "/app/membership?checkout=complete",
-          cancel_url: options.origin + "/app/membership",
-        },
+        intent.data.billing === "upfront"
+          ? {
+              // One payment for the whole programme (a one-time price).
+              mode: "payment",
+              customer_email: intent.data.email,
+              client_reference_id: intent.id,
+              line_items: [{ price: intent.data.priceId, quantity: 1 }],
+              expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
+              metadata: programme,
+              discounts,
+              payment_intent_data: { metadata: programme },
+              success_url: options.origin + "/app/membership?checkout=complete",
+              cancel_url: options.origin + "/app/membership",
+            }
+          : {
+              mode: "subscription",
+              customer_email: intent.data.email,
+              client_reference_id: intent.id,
+              line_items: [{ price: intent.data.priceId, quantity: 1 }],
+              expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
+              metadata,
+              discounts,
+              subscription_data: {
+                trial_period_days:
+                  intent.data.offerTerms?.trialDays || undefined,
+                metadata,
+              },
+              success_url: options.origin + "/app/membership?checkout=complete",
+              cancel_url: options.origin + "/app/membership",
+            },
         { idempotencyKey: "checkout:" + intent.id },
       );
       assertCheckoutOwnership(remote, intent);

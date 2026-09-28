@@ -135,7 +135,7 @@ async function noTrainingHold(tx: Tx, userId: string) {
 }
 async function paidMembers(tx: Tx) {
   const rows = await tx.query(
-    "SELECT s.user_id FROM subscriptions s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id WHERE m.role='subscriber' AND ((s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now())) OR (s.status='past_due' AND s.data->>'graceUntil' IS NOT NULL AND (s.data->>'graceUntil')::timestamptz>now())) AND EXISTS(SELECT 1 FROM journals j WHERE j.data->>'userId'=s.user_id::text AND j.source_key LIKE 'stripe-invoice:%' AND (j.data->>'grossMinor')::numeric>0) ORDER BY s.user_id LIMIT 25",
+    "SELECT s.user_id FROM subscriptions s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id WHERE m.role='subscriber' AND ((s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now())) OR (s.status='past_due' AND s.data->>'graceUntil' IS NOT NULL AND (s.data->>'graceUntil')::timestamptz>now())) AND EXISTS(SELECT 1 FROM journals j WHERE j.data->>'userId'=s.user_id::text AND (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND coalesce(j.data->>'purpose','')<>'voice_addon' AND (j.data->>'grossMinor')::numeric>0) ORDER BY s.user_id LIMIT 25",
   );
   let count = 0;
   // Stop at the largest supported milestone. No estimated lifetime value or
@@ -371,7 +371,7 @@ async function current(
   if (s.trigger === "intake") {
     const paid = await currentPaidSubscription(tx, userId);
     const [charge] = await tx.query(
-      "SELECT id FROM journals WHERE id=$1 AND source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$2 AND (data->>'grossMinor')::numeric>0",
+      "SELECT id FROM journals WHERE id=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND coalesce(data->>'purpose','')<>'voice_addon' AND data->>'userId'=$2 AND (data->>'grossMinor')::numeric>0",
       [s.chargeId, userId],
     );
     return (
@@ -507,7 +507,7 @@ async function current(
     const r = await record(tx, s.id, "refund", userId);
     if (!r || r.status !== s.status) return false;
     const [charge] = await tx.query(
-      "SELECT id FROM journals WHERE id=$1 AND source_key LIKE 'stripe-invoice:%' AND data->>'userId'=$2",
+      "SELECT id FROM journals WHERE id=$1 AND (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND data->>'userId'=$2",
       [r.data.journalId, userId],
     );
     if (!charge) return false;
@@ -672,7 +672,7 @@ export async function scheduleLifecycleMessages(
         );
 
       const paid = await tx.query(
-        "SELECT s.id,s.user_id,j.id charge_id,j.created_at FROM subscriptions s JOIN LATERAL (SELECT id,created_at FROM journals WHERE source_key LIKE 'stripe-invoice:%' AND data->>'userId'=s.user_id::text AND (data->>'grossMinor')::numeric>0 ORDER BY created_at,id LIMIT 1) j ON true WHERE j.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=s.user_id AND r.status='complete') ORDER BY j.created_at LIMIT $2",
+        "SELECT s.id,s.user_id,j.id charge_id,j.created_at FROM subscriptions s JOIN LATERAL (SELECT id,created_at FROM journals WHERE (source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%') AND coalesce(data->>'purpose','')<>'voice_addon' AND data->>'userId'=s.user_id::text AND (data->>'grossMinor')::numeric>0 ORDER BY created_at,id LIMIT 1) j ON true WHERE j.created_at>=$1 AND NOT EXISTS(SELECT 1 FROM records r WHERE r.kind='intake' AND r.owner_user_id=s.user_id AND r.status='complete') ORDER BY j.created_at LIMIT $2",
         [since, LIMIT],
       );
       for (const p of paid) {

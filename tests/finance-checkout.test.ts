@@ -590,10 +590,11 @@ test("app exposes checkout reconciliation and persists premium voice on the exis
       description: "Fixture voice offer",
       priceMinor: 18000,
       tier: "workout",
-      premiumVoice: true,
+      voiceAddOnMinor: 4900,
     });
     assert.equal(created.statusCode, 200, created.body);
-    assert.equal(created.json().data.premiumVoice, true);
+    assert.equal(created.json().data.voiceAddOnMinor, 4900);
+    assert.equal(created.json().data.billing, "monthly");
     assert.deepEqual(created.json().data.modules, ["training"]);
     assert.equal(created.json().status, "draft");
   } finally {

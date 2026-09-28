@@ -11,6 +11,7 @@ import {
 import { ProviderUnavailable, stripeClient } from "@trainer/providers";
 import { tokenHash } from "./auth.ts";
 import { changeRenewal, subscriptionHasAccess } from "./finance-billing.ts";
+import { stopVoiceAddOnForExit } from "./voice-addon.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
 import { disableUserIntegrations } from "./integrations-completion.ts";
 import { requireRecentMfa } from "./security.ts";
@@ -40,6 +41,15 @@ type StripeProvider = () => ReturnType<typeof stripeClient>;
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const renewable = ["active", "trialing", "past_due", "incomplete"];
+/** A premium voice add-on that would take another payment. */
+const voiceAddOnRenews = (s: any) => {
+  const v = s?.data?.voiceAddOn;
+  return (
+    !!v?.providerId &&
+    ["active", "trialing", "past_due"].includes(v.status) &&
+    v.cancelAtPeriodEnd !== true
+  );
+};
 const optionalText = (max: number) =>
   z
     .string()
@@ -168,6 +178,8 @@ export async function exitPreview(
             ? "already_cancelled"
             : "none") as "renewal_cancelled" | "already_cancelled" | "none",
         blockers,
+        /** The premium voice add-on stops renewing when the membership ends. */
+        voiceAddOnRenewing: voiceAddOnRenews(s),
         openDeletionRequests: openPrivacy,
       };
     },
@@ -217,21 +229,32 @@ export async function endFollowerMembership(
     throw fail(403, "FOLLOWERS_ONLY", "Only the follower can leave.");
   const preview = await exitPreview(db, actor, input.followerId);
   if (preview.blockers.length) throw blocked(preview.blockers);
-  if (preview.action === "renewal_cancelled") {
-    // The existing cancellation flow: renewal stops at the end of the paid
-    // period with a stable intent, and an uncertain outcome is held for
-    // reconciliation instead of being retried.
-    let stripe: ReturnType<typeof stripeClient>;
+  const payments = (what: string) => {
     try {
-      stripe = input.stripe?.() ?? stripeClient();
+      return input.stripe?.() ?? stripeClient();
     } catch (error) {
       if (error instanceof ProviderUnavailable)
         throw new ProviderUnavailable(
           "stripe",
-          "Payments are unavailable, so the membership renewal cannot be cancelled yet. Nothing was changed.",
+          `Payments are unavailable, so ${what} cannot be cancelled yet. Nothing was changed.`,
         );
       throw error;
     }
+  };
+  // A premium voice add-on is its own provider subscription: it stops
+  // renewing before the membership ends (an upfront programme has no renewal
+  // to cancel, so this is the only instruction for it). The worker ends it at
+  // once after the exit, because it then has no membership.
+  const voiceAddOn = preview.voiceAddOnRenewing
+    ? await stopVoiceAddOnForExit(db, actor, input.followerId, () =>
+        payments("the premium voice add-on"),
+      )
+    : "none";
+  if (preview.action === "renewal_cancelled") {
+    // The existing cancellation flow: renewal stops at the end of the paid
+    // period with a stable intent, and an uncertain outcome is held for
+    // reconciliation instead of being retried.
+    const stripe = payments("the membership renewal");
     await changeRenewal(
       db,
       {
@@ -292,6 +315,12 @@ export async function endFollowerMembership(
           "RENEWAL_ACTIVE",
           "The membership renewal is active again. Review it and try again.",
         );
+      if (voiceAddOnRenews(s))
+        throw fail(
+          409,
+          "VOICE_ADDON_ACTIVE",
+          "Premium voice was switched back on. Review it and try again.",
+        );
       // A checkout, payment or booking started after the preview must not
       // survive for someone who is no longer a member: check again under the
       // workspace lock (checkout creation takes it and locks the membership
@@ -331,7 +360,12 @@ export async function endFollowerMembership(
         actor,
         input.kind === "left" ? "membership.left" : "membership.removed",
         input.followerId,
-        { exitId, subscription: preview.action, reasonGiven: !!reason },
+        {
+          exitId,
+          subscription: preview.action,
+          voiceAddOn,
+          reasonGiven: !!reason,
+        },
       );
       if (input.kind === "left")
         await notifyCoachingTeam(scoped, actor, {
@@ -377,9 +411,10 @@ export async function endFollowerMembership(
       "DELETE FROM oidc_sign_in_requests WHERE user_id=$1 AND tenant_id=$2",
       [input.followerId, input.tenantId],
     );
-    const until = accessUntil
-      ? ` Renewal is cancelled; no further payments will be taken.`
-      : "";
+    const until =
+      accessUntil || voiceAddOn === "ends"
+        ? ` Renewal is cancelled; no further payments will be taken.`
+        : "";
     await addAccountNotice(
       tx,
       input.followerId,
@@ -424,6 +459,7 @@ export async function endFollowerMembership(
     return {
       exitId,
       subscriptionAction: preview.action,
+      voiceAddOn,
       accessUntil,
       next,
     };

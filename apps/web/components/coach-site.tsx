@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Field } from "./field";
+import { offerTermsText } from "./programme-offers";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
@@ -975,9 +976,9 @@ export function CoachWebsite({
                   <h2>{p.data.name}</h2>
                   <p>{p.data.description}</p>
                   <p className="site-price">
-                    AED {(p.data.priceMinor / 100).toFixed(2)}{" "}
-                    <small>/ month</small>
+                    <span dir="ltr">{offerTermsText(p.data).price}</span>
                   </p>
+                  <p>{offerTermsText(p.data).length}</p>
                   {p.data.trialDays > 0 && (
                     <p>
                       {p.data.trialDays}-day trial for eligible new members.

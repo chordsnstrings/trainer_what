@@ -99,6 +99,13 @@ export async function financialStatement(tx: Tx, period: string) {
     otherPayableMovementMinor: 0,
     closingPayableMinor: Number(opening.amount),
   };
+  // Gross by what the member bought (informational; the bridge uses totals).
+  const revenue = {
+    membershipMinor: 0,
+    programmeMinor: 0,
+    voiceAddOnMinor: 0,
+    sessionsMinor: 0,
+  };
   for (const entry of entries) {
     const payable = (entry.lines as any[])
       .filter((l) => l.account === "trainer_payable")
@@ -106,10 +113,19 @@ export async function financialStatement(tx: Tx, period: string) {
     totals.closingPayableMinor -= payable;
     if (
       entry.source_key.startsWith("stripe-invoice:") ||
+      entry.source_key.startsWith("stripe-programme:") ||
       entry.source_key.startsWith("booking-charge:")
     ) {
-      totals.grossMinor += Number(entry.data.grossMinor ?? 0);
+      const gross = Number(entry.data.grossMinor ?? 0);
+      totals.grossMinor += gross;
       totals.commissionMinor += Number(entry.data.commissionMinor ?? 0);
+      if (entry.source_key.startsWith("booking-charge:"))
+        revenue.sessionsMinor += gross;
+      else if (entry.source_key.startsWith("stripe-programme:"))
+        revenue.programmeMinor += gross;
+      else if (entry.data.purpose === "voice_addon")
+        revenue.voiceAddOnMinor += gross;
+      else revenue.membershipMinor += gross;
     } else if (
       entry.source_key.startsWith("stripe-refund:") ||
       entry.source_key.startsWith("booking-refund:")
@@ -149,6 +165,7 @@ export async function financialStatement(tx: Tx, period: string) {
     start: start.toISOString(),
     end: end.toISOString(),
     totals,
+    revenue,
     entries,
     allocations,
     usage,

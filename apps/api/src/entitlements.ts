@@ -5,6 +5,7 @@ import {
   type RuntimeConfig,
 } from "../../../packages/providers/src/configuration.ts";
 import { subscriptionHasAccess } from "./finance-billing.ts";
+import { voiceAddOnEntitled, voiceIncluded } from "./voice-addon.ts";
 
 /**
  * The one shared answer to "may this member use coaching now?". Paid access
@@ -22,7 +23,12 @@ export type MemberAccess = {
   active: boolean;
   sources: AccessSource[];
   modules: string[];
+  /**
+   * Paid access with premium voice: an active voice add-on on the membership
+   * (voice-addon.ts), or an older offer that included voice in its price.
+   */
   premiumVoice: boolean;
+  voiceSource: "add_on" | "included" | null;
   subscription?: any;
   grant?: any;
 };
@@ -81,6 +87,13 @@ export async function memberAccess(
   if (grant)
     for (const m of tierModules(grant.tier))
       if (m !== "nutrition" || complimentaryNutritionApproved()) modules.add(m);
+  const voiceSource = !paid
+    ? null
+    : voiceIncluded(paid.data)
+      ? ("included" as const)
+      : voiceAddOnEntitled(paid.data?.voiceAddOn)
+        ? ("add_on" as const)
+        : null;
   return {
     active: !!paid || !!grant,
     sources: [
@@ -88,10 +101,8 @@ export async function memberAccess(
       ...(grant ? (["complimentary"] as const) : []),
     ],
     modules: [...modules],
-    premiumVoice:
-      !!paid &&
-      (paid.data?.modules?.includes("voice") === true ||
-        paid.data?.premiumVoice === true),
+    premiumVoice: voiceSource !== null,
+    voiceSource,
     subscription: paid,
     grant,
   };

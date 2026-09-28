@@ -472,7 +472,7 @@ export const recordPublishAcquisition = (db: Database, tenantId: string) =>
 
 // Member money reaches a workspace as a subscription invoice or a paid session.
 const paidJournal =
-  "(source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'booking-charge:%') AND (data->>'grossMinor')::numeric>0";
+  "(source_key LIKE 'stripe-invoice:%' OR source_key LIKE 'stripe-programme:%' OR source_key LIKE 'booking-charge:%') AND (data->>'grossMinor')::numeric>0";
 /**
  * Run after a verified positive subscription invoice or a confirmed paid
  * session booking commits. Reads ledger evidence again.
