@@ -20,6 +20,8 @@ export type StepResult = {
   title: string;
   status: StepStatus;
   durationMs: number;
+  /** When the step began (ISO), so model calls and service logs can be matched to it. */
+  startedAt?: string;
   detail?: string;
   error?: string;
 };
@@ -179,6 +181,7 @@ export class Reporter {
         title,
         status: "pass",
         durationMs: Date.now() - started,
+        startedAt: new Date(started).toISOString(),
         ...(detail ? { detail } : {}),
       });
       this.log(`  pass  [${audience}] ${feature} — ${title}`);
@@ -192,6 +195,7 @@ export class Reporter {
         title,
         status: "fail",
         durationMs: Date.now() - started,
+        startedAt: new Date(started).toISOString(),
         error: message.slice(0, 4000),
       });
       this.log(`  FAIL  [${audience}] ${feature} — ${title}: ${(error as Error)?.message?.slice(0, 400)}`);
@@ -228,6 +232,7 @@ export class Reporter {
         title: `setup: ${title}`,
         status: "fail",
         durationMs: Date.now() - started,
+        startedAt: new Date(started).toISOString(),
         error: message.slice(0, 4000),
       });
       this.log(`  FAIL  [${audience}] ${feature} — setup: ${title}: ${(error as Error)?.message?.slice(0, 400)}`);

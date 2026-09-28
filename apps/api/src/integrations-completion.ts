@@ -566,6 +566,10 @@ export async function processIntegrationJobs(db: Database) {
   }
 }
 
+/** Export-file import sources (POST /wearables/import) and the history length shown. */
+export const FILE_IMPORT_SOURCES = ["apple_health", "manual_import"];
+export const IMPORT_HISTORY_LIMIT = 50;
+
 export function registerIntegrationCompletion(
   app: FastifyInstance,
   db: Database,
@@ -587,6 +591,14 @@ export function registerIntegrationCompletion(
       imports: await tx.query(
         "SELECT data->>'source' AS source,count(*)::integer AS batches,sum(coalesce((data->>'count')::integer,0))::integer AS observations,min(created_at) AS first_import,max(updated_at) AS latest_import FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' GROUP BY data->>'source'",
         [a.userId],
+      ),
+      // The member's own export-file import batches, newest first, so one
+      // batch can be deleted (DELETE /wearables/:id). The bounded bootstrap
+      // does not carry wearable records; this is the list that names them.
+      // Provider sync and HealthKit days have their own revoke/delete controls.
+      importHistory: await tx.query(
+        "SELECT id,data->>'source' AS source,coalesce((data->>'count')::integer,0) AS observations,created_at AS imported_at FROM records WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'source'=ANY($2::text[]) ORDER BY created_at DESC,id DESC LIMIT $3",
+        [a.userId, FILE_IMPORT_SOURCES, IMPORT_HISTORY_LIMIT],
       ),
     }));
   });

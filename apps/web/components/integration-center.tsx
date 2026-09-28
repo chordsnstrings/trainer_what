@@ -395,9 +395,36 @@ function HealthConnections({
         ) : (
           <p className="muted">No active imported observations.</p>
         )}
+        {(data.importHistory ?? []).map((batch: any) => (
+          <div className="list-row" key={batch.id}>
+            <div>
+              <strong>
+                {batch.source === "apple_health"
+                  ? "Apple Health export"
+                  : "Manual import"}
+              </strong>
+              <p>
+                {batch.observations} observations · Imported{" "}
+                {new Date(batch.imported_at).toLocaleString()}
+              </p>
+            </div>
+            <button
+              disabled={action.busy}
+              onClick={() =>
+                void action.run(
+                  () => api(`/wearables/${batch.id}`, "DELETE"),
+                  "Import deleted",
+                )
+              }
+            >
+              Delete import
+            </button>
+          </div>
+        ))}
         <p className="muted">
-          Revoking stops further use. Request an export or deletion from your
-          privacy settings.
+          Revoking stops further use. Deleting an import removes its
+          observations. Request an export or full deletion from your privacy
+          settings.
         </p>
       </Panel>
     </>

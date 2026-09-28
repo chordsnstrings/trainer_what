@@ -25,6 +25,8 @@ export type ModelCall = {
   at: string;
   /** Parsed JSON answer that was returned (undefined when none). */
   answer?: unknown;
+  /** This run's value behind each placeholder of the canonical request ({{uuid:1}} -> id). */
+  placeholders: Record<string, string>;
 };
 export type ScriptedAnswer = {
   kind?: PromptKind;
@@ -114,6 +116,7 @@ export class ModelMock {
       source: "none",
       status: 200,
       at: new Date().toISOString(),
+      placeholders: Object.fromEntries(normalized.map.reverse),
     };
     this.calls.push(call);
     if (body?.model !== this.modelName) {

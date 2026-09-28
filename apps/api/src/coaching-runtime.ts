@@ -26,6 +26,7 @@ import {
   selectCoachAction,
 } from "../../../packages/providers/src/coaching.ts";
 import { modelAccounting } from "./model-accounting.ts";
+import { ModelOutputInvalid } from "@trainer/providers";
 import { lockTraining, assertTrainingOpen } from "./coaching-completion.ts";
 import { hasMemberAccess } from "./entitlements.ts";
 import { currentClientTwin } from "./client-twin.ts";
@@ -940,6 +941,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       passed: boolean;
       actionId: string | null;
       gate: string;
+      error?: string;
       retrieval?: Awaited<ReturnType<typeof selectCoachAction>>["retrieval"];
     }> = [];
     for (const scenario of material.scenarios) {
@@ -963,17 +965,33 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         });
         continue;
       }
-      const result = await selectCoachAction(
-        {
-          tenantId: a.tenantId,
-          request: c.prompt,
-          facts: c.facts,
-          actions: eligible,
-          examples: material.examples,
-          rules: material.rules,
-        },
-        modelAccounting(db, a, "coaching_evaluation"),
-      );
+      let result: Awaited<ReturnType<typeof selectCoachAction>>;
+      try {
+        result = await selectCoachAction(
+          {
+            tenantId: a.tenantId,
+            request: c.prompt,
+            facts: c.facts,
+            actions: eligible,
+            examples: material.examples,
+            rules: material.rules,
+          },
+          modelAccounting(db, a, "coaching_evaluation"),
+        );
+      } catch (error) {
+        // An invalid answer is a failed scenario, not an aborted run; the
+        // calls already made are kept. Configuration and network failures
+        // still stop the evaluation.
+        if (!(error instanceof ModelOutputInvalid)) throw error;
+        outcomes.push({
+          scenarioId: scenario.id,
+          passed: false,
+          actionId: null,
+          gate: "model_output",
+          error: "invalid_model_answer",
+        });
+        continue;
+      }
       const action = eligible.find((r) => r.id === result.selection.actionId),
         accepted = groundedSelection(result.selection, action)
           ? action!.id
@@ -1125,17 +1143,47 @@ export async function tryQualifiedCoaching(
     return { material, runtime, facts, eligible, factsDigest: hash(facts) };
   });
   if (!initial) return undefined;
-  const generated = await selectCoachAction(
-    {
-      tenantId: a.tenantId,
-      request,
-      facts: initial.facts,
-      actions: initial.eligible,
-      examples: initial.material.examples,
-      rules: initial.material.rules,
-    },
-    modelAccounting(db, a, "coaching"),
-  );
+  let generated: Awaited<ReturnType<typeof selectCoachAction>>;
+  try {
+    generated = await selectCoachAction(
+      {
+        tenantId: a.tenantId,
+        request,
+        facts: initial.facts,
+        actions: initial.eligible,
+        examples: initial.material.examples,
+        rules: initial.material.rules,
+      },
+      modelAccounting(db, a, "coaching"),
+    );
+  } catch (error) {
+    if (!(error instanceof ModelOutputInvalid)) throw error;
+    // The answer was withheld: the question goes to the trainer as a review
+    // item and the member never sees the model's malformed output.
+    return db.tenant(a, async (tx) => {
+      const item = await putPrivateRecord(
+        tx,
+        a,
+        "exception",
+        {
+          category: "human_review",
+          subscriberId: a.userId,
+          description: request,
+          cause: "model_output_invalid",
+          runtimeReleaseId: initial.runtime.id,
+        },
+        { ownerId: a.userId, status: "open" },
+      );
+      await event(tx, a, "coaching.review_required", item.id, {
+        cause: "model_output_invalid",
+      });
+      return {
+        pendingReview: true,
+        message:
+          "Your digital coach has prepared a response for your trainer to review.",
+      };
+    });
+  }
   return db.tenant(a, async (tx) => {
     await lockRuntime(tx, a);
     await assertTrainingOpen(tx, a.userId);

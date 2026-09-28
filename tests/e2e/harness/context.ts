@@ -57,6 +57,13 @@ export type E2EContext = {
   verifyEmail: (client: Client) => Promise<void>;
   waitUntil: <T>(what: string, probe: () => Promise<T | undefined | null | false>, timeoutMs?: number) => Promise<T>;
   advanceClock: (what: string, sql: string, params?: unknown[]) => Promise<number>;
+  /**
+   * Stands in for one pass of a worker scheduler whose interval is longer
+   * than a run (the Brain plan scheduler visits a workspace every 10 minutes):
+   * inserts the job that pass would queue, with its own intent key and data,
+   * so the real worker claims and runs it. Recorded under `clockShifts`.
+   */
+  schedulerTick: (what: string, job: { tenantId: string; kind: string; intentKey: string; data: Record<string, unknown> }) => Promise<boolean>;
   sqlRead: <T = any>(sql: string, params?: unknown[]) => Promise<T[]>;
   /**
    * Runs a host-only operator script (npm run operator:role, readiness, ...)
@@ -162,6 +169,18 @@ export function createContext(input: {
       ctx.clockShifts.push({ at: new Date().toISOString(), what, rows });
       input.log(`  clock  ${what} (${rows} rows)`);
       return rows;
+    },
+    async schedulerTick(what, job) {
+      const id = (await import("node:crypto")).randomUUID();
+      const { rowCount } = await pool.query(
+        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,$3,$4,$5) ON CONFLICT(intent_key) DO NOTHING",
+        [id, job.tenantId, job.kind, job.intentKey, JSON.stringify(job.data)],
+      );
+      // The scheduler's own pass may already have queued the same intent.
+      const note = rowCount ? "" : " (already queued by the scheduler itself; nothing inserted)";
+      ctx.clockShifts.push({ at: new Date().toISOString(), what: "scheduler tick: " + what + note, rows: rowCount ?? 0 });
+      input.log(`  clock  scheduler tick: ${what}${note}`);
+      return !!rowCount;
     },
     async sqlRead(sql, params = []) {
       if (!/^\s*select\b/i.test(sql)) throw new Error("sqlRead is read-only");

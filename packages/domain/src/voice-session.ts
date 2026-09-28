@@ -4,7 +4,9 @@
 // validates scripts, the worker re-validates them before paying for audio and
 // the web runner reads them.
 import { z } from "zod";
-import { safetySignal, screeningText } from "./index.ts";
+import { cueIssues, MARKUP, phraseIssues, type PhraseIssue } from "./text-screen.ts";
+// The free-wording checks live in text-screen.ts (shared with Brain plans).
+export { cueIssues, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 
 export const VOICE_SCRIPT_VERSION = "voice-session-script-v1";
 export const VOICE_SUGGESTION_PROMPT_VERSION = "voice-session-suggestions-v1";
@@ -68,109 +70,6 @@ export type SessionScript = {
   /** The trainer's adjustment rules in force when the script was built. */
   rules: VoiceAdjustmentRules;
 };
-
-// ---------------------------------------------------------------------------
-// Free-wording checks. Numbers belong to code: a trainer phrase or a Brain
-// suggestion may not contain digits or number words, medical or treatment
-// language, red-flag terms, unsafe technique, links, or instructions to change
-// the prescription.
-// ---------------------------------------------------------------------------
-const B = "(?:^|[^\\p{L}\\p{N}])",
-  E = "(?![\\p{L}\\p{N}])";
-const word = (alternatives: string, flags = "iu") =>
-  new RegExp(B + "(?:" + alternatives + ")" + E, flags);
-const NUMBER_ALTS =
-  "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|half|double|triple|twice|" +
-  "صفر|واحده?|اثنين|اثنان|ثنتين|ثلاث|ثلاثه|اربع|اربعه|خمس|خمسه|ست|سته|سبع|سبعه|ثمان|ثماني|ثمانيه|تسع|تسعه|عشر|عشره|عشرين|ثلاثين|اربعين|خمسين|ستين|مئه|ميه|نصف|ضعف";
-const NUMBER_WORDS = word(NUMBER_ALTS);
-const MEDICAL = word(
-  "diagnos\\p{L}*|medicines?|medications?|medical|prescri(?:be|bed|bes|ption|ptions)|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|rehab\\p{L}*|therap\\p{L}*|treat(?:s|ed|ing|ment|ments)?|cures?|heal(?:s|ed|ing)?|doctors?|physio\\p{L}*|symptoms?|diseases?|injections?|ice\\s+it|push\\s+through|work\\s+through\\s+(?:it|the\\s+\\p{L}+)|no\\s+pain\\s*,?\\s*no\\s+gain|" +
-    // Telling someone to ignore or train through a symptom.
-    "ignore\\s+(?:it|that|this|(?:the|your|any)\\s+\\p{L}+|\\p{L}*(?:pain|ache|dizz\\p{L}*|hurt\\p{L}*))|through\\s+the\\s+(?:burn|pain|discomfort|ache)|shake\\s+it\\s+off|tough\\s+it\\s+out|keep\\s+going\\s+(?:if|even|when|though|through|anyway|regardless)|(?:if|even\\s+if|when)\\s[^.!?;]{0,60}(?:just\\s+)?(?:keep|carry)\\s+(?:going|on)|clicks?|clicking|pops|popping|popped|numb\\p{L}*|tingl\\p{L}*|twinges?|swell\\p{L}*|swollen|" +
-    "دواء|ادويه|علاج|طبيب|دكتور|تشخيص|مسكن|مسكنات|حبوب|مكملات",
-);
-const PRESCRIPTION_CHANGE = word(
-  "(?:extra|additional|another|bonus|more)\\s+(?:sets?|reps?|rounds?|weight|load)|(?:add|increase|decrease|reduce|drop|lower|raise|double|change)\\s+(?:the\\s+|your\\s+)?(?:weight|load|reps?|sets?|kilos?|kilograms?|rest)|heavier|lighter|less\\s+weight|go\\s+up|max(?:imum)?\\s+out|to\\s+failure|skip\\s+(?:the\\s+)?rest|" +
-    // Training to failure or beyond the plan, and dropping the warm-up.
-    "until\\s+(?:you\\s+)?(?:can'?t|cannot|fail\\p{L}*|drop)|as\\s+many\\s+as\\s+(?:you\\s+)?(?:can|possible)|amrap|(?:a\\s+)?few\\s+(?:more|extra)|squeeze\\s+out|skip\\s+(?:the\\s+|your\\s+)?(?:warm\\s*-?\\s*ups?|cool\\s*-?\\s*downs?|stretch\\p{L}*)|go\\s+straight\\s+in|no\\s+(?:need\\s+(?:for|to)\\s+)?(?:a\\s+)?warm\\s*-?\\s*up|" +
-    "زيد|زود|نقص|قلل|اثقل|اخف",
-);
-// Technique instructions that are unsafe as a spoken default. "Don't round
-// your back" is a good cue, so a negated instruction is removed first.
-const UNSAFE_ALTS =
-  "hold\\s+(?:your|the)\\s+breath|strain\\s+(?:hard|harder|as\\s+hard)|bear\\s+down|round\\s+(?:your|the)\\s+(?:back|spine)|yank\\p{L}*|jerk\\p{L}*|bounce\\p{L}*|swing\\s+(?:it|the\\s+\\p{L}+)\\s+up|cheat\\p{L}*|lock\\s+(?:out\\s+)?your\\s+(?:knees|elbows)|as\\s+heavy\\s+as\\s+(?:you\\s+)?(?:can|possible)|ego\\s+lift\\p{L}*|use\\s+momentum";
-const UNSAFE_TECHNIQUE = word(UNSAFE_ALTS);
-const NEGATED_UNSAFE = new RegExp(
-  B + "(?:don'?t|do\\s+not|never|avoid|no|without)\\s+(?:\\p{L}+\\s+){0,2}?(?:" + UNSAFE_ALTS + ")" + E,
-  "giu",
-);
-const unsafeTechnique = (folded: string) =>
-  UNSAFE_TECHNIQUE.test(folded.replace(NEGATED_UNSAFE, " "));
-const LINK = /https?:\/\/|www\.|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/iu;
-const MARKUP = /[<>{}[\]\\`|#*_~^]|[\u0000-\u001f\u007f]/u;
-export type PhraseIssue =
-  | "empty"
-  | "too_long"
-  | "number"
-  | "medical"
-  | "red_flag"
-  | "prescription_change"
-  | "unsafe_technique"
-  | "link"
-  | "unsupported_characters";
-
-/** Checks one free-worded spoken line (a trainer phrase or a Brain suggestion). */
-export function phraseIssues(text: string, maxLength = 200): PhraseIssue[] {
-  const value = String(text ?? "").trim();
-  if (!value) return ["empty"];
-  const folded = screeningText(value);
-  const issues: PhraseIssue[] = [];
-  if (value.length > maxLength) issues.push("too_long");
-  if (/\p{Nd}/u.test(value) || NUMBER_WORDS.test(folded)) issues.push("number");
-  if (MEDICAL.test(folded)) issues.push("medical");
-  if (safetySignal(value)) issues.push("red_flag");
-  if (PRESCRIPTION_CHANGE.test(folded)) issues.push("prescription_change");
-  if (unsafeTechnique(folded)) issues.push("unsafe_technique");
-  if (LINK.test(value)) issues.push("link");
-  if (MARKUP.test(value)) issues.push("unsupported_characters");
-  return issues;
-}
-const SMALL = "\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten";
-// A number that sets load, reps, sets or rounds ("5 extra sets", "two more").
-const PRESCRIBED_NUMBER = word(
-  "(?:\\d+(?:[.,]\\d+)?|" +
-    NUMBER_ALTS +
-    ")\\s*(?:x\\s*)?(?:(?:more|extra|additional)\\s+)?(?:kg|kgs|kilos?|kilograms?|lbs?|pounds?|reps?|repetitions?|sets?|rounds?|times|laps?|more|extra)|(?:sets?|reps?|rounds?)\\s+of\\s+(?:\\d|" +
-    NUMBER_ALTS +
-    ")",
-);
-// Tempo and timing are part of the trainer's cue ("three seconds down", "3-1-1").
-const TEMPO_OR_TIME = word(
-  "(?:" + SMALL + ")(?:\\s*(?:-|to)\\s*(?:" + SMALL + "))?\\s*(?:seconds?|secs?|counts?|beats?)|(?:a\\s+)?count\\s+(?:of\\s+)?(?:" + SMALL + ")|\\d(?:\\s*-\\s*\\d){2,3}",
-  "giu",
-);
-/**
- * The trainer's exercise cue from the plan. It is spoken verbatim, so it gets
- * the same red-flag, medical, prescription and technique checks as any spoken
- * line; numbers are allowed only as tempo or timing ("three seconds down",
- * "3-1-1"), never next to load, reps, sets or rounds.
- */
-export function cueIssues(text: string): PhraseIssue[] {
-  const value = String(text ?? "").trim();
-  if (!value) return ["empty"];
-  const folded = screeningText(value);
-  const issues: PhraseIssue[] = [];
-  if (value.length > 400) issues.push("too_long");
-  if (PRESCRIBED_NUMBER.test(folded) || PRESCRIPTION_CHANGE.test(folded))
-    issues.push("prescription_change");
-  else if (/\p{Nd}/u.test(folded.replace(TEMPO_OR_TIME, " "))) issues.push("number");
-  if (MEDICAL.test(folded)) issues.push("medical");
-  if (safetySignal(value)) issues.push("red_flag");
-  if (unsafeTechnique(folded)) issues.push("unsafe_technique");
-  if (LINK.test(value)) issues.push("link");
-  if (MARKUP.test(value)) issues.push("unsupported_characters");
-  return issues;
-}
 
 // ---------------------------------------------------------------------------
 // The trainer's voice-session style (versioned Brain material).

@@ -14,12 +14,14 @@
  * Everything is torn down at the end unless --keep is given.
  *
  * Options:
- *   --suites=super-admin,trainer,follower,public-join,completion,extended,browser (default: all)
+ *   --suites=super-admin,trainer,follower,public-join,completion,browser,core,extended (default: all)
  *   --rebuild | --skip-build     force or skip `next build`
  *   --keep                       leave the stack running until Ctrl-C
  *   --model-capture=FILE         append every model request/answer (JSONL)
  *   --model-replay=FILE          answer model requests from reviewed JSONL
  *   --model-fallback=rules|fail  when no replay answer exists (default rules)
+ *   --model-outcomes=FILE        per model call, what the app did with the answer
+ *                                (events and records read back before teardown; JSONL)
  *   --pg-port=N                  PostgreSQL port (default: a free port)
  *   --features=FILE              feature inventory JSON to check names against
  *   --report=FILE                report path (default tests/e2e/report.json)
@@ -60,7 +62,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
  * when scenarios are added. Skipped steps (for example no local Chromium) do
  * not count, so such a run needs an explicit, lower --min-steps.
  */
-const FULL_RUN_MIN_STEPS = 399;
+const FULL_RUN_MIN_STEPS = 430;
 const args = Object.fromEntries(
   process.argv.slice(2).map((arg) => {
     const [key, ...value] = arg.replace(/^--/, "").split("=");
@@ -405,6 +407,8 @@ try {
       PUBLIC_APP_URL: publicUrl,
       INTERNAL_PROXY_SECRET: secrets.INTERNAL_PROXY_SECRET,
       API_INTERNAL_URL: `http://127.0.0.1:${apiPort}`,
+      // Automatic <slug>.<root> subdomains (compose.yaml passes it to web too).
+      PLATFORM_ROOT_DOMAIN: mocks.environment.PLATFORM_ROOT_DOMAIN,
     }),
   );
   // Caddy's on-demand TLS "ask": the edge calls the API directly (never through web).
@@ -458,6 +462,7 @@ try {
     root,
     edge,
     apiPort,
+    modelOutcomesPath: args["model-outcomes"] ? String(args["model-outcomes"]) : undefined,
   });
   const reportPath = args.report ? String(args.report) : join(root, "tests/e2e/report.json");
   report.run = {
@@ -468,6 +473,7 @@ try {
     artifacts,
     modelCapture: capture,
     modelReplay: args["model-replay"] ?? null,
+    modelOutcomes: args["model-outcomes"] ?? null,
     mockRequests: mocks.requestLog(),
   };
   writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");

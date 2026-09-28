@@ -17,11 +17,30 @@ import { FoodMock } from "./food.ts";
 import { DnsMock } from "./dns.ts";
 import { OidcMock } from "./oidc.ts";
 import { S3Mock } from "./s3.ts";
+import { NamecheapMock } from "./namecheap.ts";
 
 /** Loopback address of the harness edge for simulated coach domains (port 443). */
 export const COACH_DOMAIN_EDGE_ADDRESS = "127.77.0.1";
+/**
+ * PLATFORM_ROOT_DOMAIN of the run: every published workspace is served at
+ * <slug>.<root> through the coach-domain edge (docs/features/web-addresses.md).
+ */
+export const PLATFORM_ROOT_DOMAIN = "coaches.sandbox-platform.example";
 /** Coach domains the throwaway CA issues a certificate for (the edge still asks the API first). */
-export const COACH_DOMAIN_NAMES = ["layla-strength-coaching.example", "unmapped-coach.example"];
+export const COACH_DOMAIN_NAMES = [
+  "layla-strength-coaching.example",
+  "unmapped-coach.example",
+  // Automatic subdomains: a published workspace, and a name no workspace has.
+  `layla-strength.${PLATFORM_ROOT_DOMAIN}`,
+  `no-such-coach.${PLATFORM_ROOT_DOMAIN}`,
+];
+/**
+ * Public IPv4 values the web address settings require (the settings refuse
+ * private addresses). Nothing ever connects to them: the Namecheap double only
+ * compares the whitelisted client address, and records written there are not
+ * published to the DNS double, so a bought domain never resolves in the run.
+ */
+export const WEB_ADDRESS_SANDBOX_IPV4 = { client: "198.51.101.10", target: "198.51.101.20" };
 
 const token = (prefix: string, bytes = 18) => prefix + randomBytes(bytes).toString("hex");
 
@@ -65,6 +84,7 @@ export async function startMocks(
     zeppSecret: token("zepp_secret_"),
     voice: token("xi_mock_"),
     registrar: token("reg_mock_"),
+    namecheapKey: token("nc_mock_"),
   };
   const modelName = "mock-coach-1";
   const stripe = new StripeMock(material, secrets.stripeSecret, secrets.stripeWebhook);
@@ -84,7 +104,14 @@ export async function startMocks(
   const google = new OidcMock(material, "google");
   const apple = new OidcMock(material, "apple");
   const s3 = new S3Mock(material);
-  const all = [stripe, email, lean, model, push, whoop, zepp, voice, registrar, food, google, apple, s3];
+  // Namecheap XML API double for automatic domain purchases and renewals.
+  const namecheap = new NamecheapMock(material, {
+    apiUser: "sandboxplatform",
+    apiKey: secrets.namecheapKey,
+    username: "sandboxplatform",
+    clientIp: WEB_ADDRESS_SANDBOX_IPV4.client,
+  });
+  const all = [stripe, email, lean, model, push, whoop, zepp, voice, registrar, food, google, apple, s3, namecheap];
   await Promise.all(all.map((m) => m.start()));
   const dns = new DnsMock();
   await dns.start();
@@ -214,6 +241,31 @@ export async function startMocks(
     },
     google_signin: google.settings(),
     apple_signin: apple.settings(),
+    web_addresses: {
+      values: {
+        WEB_ADDRESS_REGISTRAR: "namecheap",
+        NAMECHEAP_API_USER: "sandboxplatform",
+        NAMECHEAP_USERNAME: "sandboxplatform",
+        NAMECHEAP_CLIENT_IP: WEB_ADDRESS_SANDBOX_IPV4.client,
+        NAMECHEAP_SANDBOX: "true",
+        WEB_ADDRESS_REGISTRANT_FIRST_NAME: "Sandbox",
+        WEB_ADDRESS_REGISTRANT_LAST_NAME: "Operator",
+        WEB_ADDRESS_REGISTRANT_ORGANIZATION: "Sandbox Platform Company LLC",
+        WEB_ADDRESS_REGISTRANT_ADDRESS: "1 Sandbox Street",
+        WEB_ADDRESS_REGISTRANT_CITY: "Dubai",
+        WEB_ADDRESS_REGISTRANT_STATE: "Dubai",
+        WEB_ADDRESS_REGISTRANT_POSTAL_CODE: "00000",
+        WEB_ADDRESS_REGISTRANT_COUNTRY: "AE",
+        WEB_ADDRESS_REGISTRANT_PHONE: "+971.500000000",
+        WEB_ADDRESS_REGISTRANT_EMAIL: "domains@sandbox.example",
+        WEB_ADDRESS_MARGIN_AED: "25",
+        WEB_ADDRESS_USD_TO_AED: "3.6725",
+        WEB_ADDRESS_TLDS: "com,net,org,co",
+        WEB_ADDRESS_TARGET_IPV4: WEB_ADDRESS_SANDBOX_IPV4.target,
+        WEB_ADDRESS_PURCHASES_ENABLED: "true",
+      },
+      secrets: { NAMECHEAP_API_KEY: secrets.namecheapKey },
+    },
   };
   /** Sandbox-only environment for API and worker processes. */
   const environment = {
@@ -224,6 +276,8 @@ export async function startMocks(
     GOOGLE_OIDC_ISSUER: google.issuer,
     APPLE_OIDC_ISSUER: apple.issuer,
     DOMAIN_DNS_SERVER: dns.server,
+    NAMECHEAP_API_BASE_URL: namecheap.url,
+    PLATFORM_ROOT_DOMAIN,
     NODE_EXTRA_CA_CERTS: tls.caFile,
   };
   return {
@@ -240,6 +294,7 @@ export async function startMocks(
     zepp,
     voice,
     registrar,
+    namecheap,
     food,
     google,
     apple,
