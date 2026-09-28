@@ -195,7 +195,12 @@ async function hostOperations(ctx: E2EContext) {
   await r.step(A, "Platform's own web address", "a new platform name is checked (format, DNS, coach-domain clash, passkeys) and the move procedure is listed", async () => {
     mocks.dns.set("platform-move.example", "A", [COACH_DOMAIN_EDGE_ADDRESS]);
     const good = await admin.post("/api/v1/admin/infrastructure/platform-address/check", { url: "https://platform-move.example" });
-    assert.equal(good.valid, true, JSON.stringify(good.checks));
+    assert.equal(good.checks.find((c: any) => c.key === "format")?.ok, true, JSON.stringify(good.checks));
+    // The sandbox controller has no metadata service, so its report names no public
+    // IPv4: DNS cannot pass without one (the real controller would refuse the move).
+    assert.equal(good.serverIpv4, null);
+    assert.equal(good.valid, false);
+    assert.match(good.checks.find((c: any) => c.key === "dns")?.message ?? "", /public IPv4 address is not reported yet/);
     assert.ok(good.procedure.length >= 4);
     const clash = ctx.edge.domainAddress
       ? await admin.post("/api/v1/admin/infrastructure/platform-address/check", { url: "https://layla-strength-coaching.example" })
@@ -205,6 +210,6 @@ async function hostOperations(ctx: E2EContext) {
     assert.equal(bad.valid, false);
     const unresolved = await admin.post("/api/v1/admin/infrastructure/platform-address/check", { url: "https://no-records.example" });
     assert.equal(unresolved.checks.find((c: any) => c.key === "dns")?.ok, false);
-    return "the move itself is host work (edit runtime.env, re-apply) and is not performed here";
+    return "DNS passes only against the server IPv4 in a verified controller report; the move itself runs in the host controller and is not performed here";
   });
 }

@@ -143,3 +143,56 @@
   padding: 0;
   min-width: 0;
 }
+/* Platform address change: DNS answers, progress, warnings and provider settings. */
+.host-address-result,
+.host-address-progress {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px;
+  min-width: 0;
+}
+.host-address-progress {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.host-address-progress .card-heading {
+  flex-wrap: wrap;
+}
+.host-dns {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  max-inline-size: 100%;
+}
+.host-dns caption {
+  text-align: start;
+  font-size: 12px;
+  color: var(--muted);
+  padding-block-end: 6px;
+}
+.host-dns th,
+.host-dns td {
+  text-align: start;
+  padding-block: 6px;
+  padding-inline: 0 14px;
+  border-block-end: 1px solid var(--line);
+  vertical-align: top;
+}
+.host-provider-updates,
+.host-warnings {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.host-provider-updates code {
+  font-size: 12px;
+}
+.host-ops .checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-block: 10px;
+}

@@ -66,6 +66,14 @@ test("a report written by the Python controller is verified and understood by th
   assert.equal(health.edge?.onDemandTls, true);
   assert.equal(health.edge?.onDemandConfigured, true);
   assert.equal(health.edge?.pendingReapply, false);
+  // The address block the controller reports (migration 068) parses too.
+  assert.deepEqual(health.address, {
+    publicIpv4: "1.1.1.1",
+    rootDomain: null,
+    redirectFrom: [],
+    changeInProgress: false,
+    lastChange: null,
+  });
   const backups = await readBackupStatus(db);
   assert.equal(backups.state, "healthy");
   assert.equal(backups.stale, false);
@@ -108,20 +116,43 @@ test("controller SQL for actions and reports runs against the real schema", asyn
       [admin],
     ),
   );
-  const intents = (["pause_deploys", "backup_now"] as const).map((action) => ({
+  const intents = (
+    [
+      "pause_deploys",
+      "backup_now",
+      "change_platform_address",
+      "change_platform_address",
+    ] as const
+  ).map((action, index) => ({
     id: randomUUID(),
     requestId: randomUUID(),
     action,
     target: null,
     requestedBy: admin,
-    issuedAtMs,
-    expiresAtMs: issuedAtMs + 1800000,
+    // Created in order, so the controller reads them in this order.
+    issuedAtMs: issuedAtMs + index,
+    expiresAtMs: issuedAtMs + index + 1800000,
     reason: "Synthetic contract request for " + action,
+    // Signed parameters travel through the real column and PENDING_SQL.
+    parameters:
+      action === "change_platform_address"
+        ? JSON.stringify({ url: "https://trainsyou.test", rootDomain: null })
+        : null,
   }));
-  for (const [index, intent] of intents.entries())
+  for (const [index, intent] of intents.entries()) {
+    // The second request is forged: signed with a different key. The fourth
+    // has its stored parameters changed after signing.
+    const signature =
+      index === 1
+        ? signHostAction(intent, hostOperationsKey("x".repeat(40))!)
+        : signHostAction(intent, key);
+    const stored =
+      index === 3
+        ? JSON.stringify({ url: "https://evil.test", rootDomain: null })
+        : intent.parameters;
     await db.system((tx) =>
       tx.query(
-        "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature,parameters,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()+make_interval(secs=>$11))",
         [
           intent.id,
           intent.requestId,
@@ -131,16 +162,24 @@ test("controller SQL for actions and reports runs against the real schema", asyn
           intent.requestedBy,
           intent.issuedAtMs,
           intent.expiresAtMs,
-          // The second request is forged: signed with a different key.
-          index === 0
-            ? signHostAction(intent, key)
-            : signHostAction(intent, hostOperationsKey("x".repeat(40))!),
+          signature,
+          stored,
+          index,
         ],
       ),
     );
+    // Only one address change may be open; the tampered one is inserted after
+    // the first has been handled (see below).
+    if (index === 2) break;
+  }
   const first = (rows: any[]) => Object.values(rows[0])[0];
   const pendingRows = first(await db.system((tx) => tx.query(pending)));
-  assert.equal((pendingRows as any[]).length, 2);
+  assert.equal((pendingRows as any[]).length, 3);
+  assert.equal(
+    (pendingRows as any[])[2].parameters,
+    intents[2].parameters,
+    "PENDING_SQL returns the signed parameters text unchanged",
+  );
   assert.deepEqual(first(await db.system((tx) => tx.query(running))), []);
   const handled = python(
     "handle",
@@ -150,7 +189,7 @@ test("controller SQL for actions and reports runs against the real schema", asyn
   const plan = JSON.parse(handled.stdout);
   assert.deepEqual(
     plan.map((p: any) => p.verdict),
-    ["ok", "rejected", "report"],
+    ["ok", "rejected", "ok", "report"],
   );
   for (const item of plan)
     for (const group of item.statements)
@@ -189,9 +228,45 @@ test("controller SQL for actions and reports runs against the real schema", asyn
       ["infrastructure.host_action.rejected", intents[1].id, admin],
       ["infrastructure.host_action.running", intents[0].id, admin],
       ["infrastructure.host_action.succeeded", intents[0].id, admin],
+      ["infrastructure.host_action.running", intents[2].id, admin],
+      ["infrastructure.host_action.succeeded", intents[2].id, admin],
     ].sort(),
   );
   assert.equal(audits[0].data.executor, "host-controller");
+  // Parameters changed after signing are refused by the controller.
+  const tampered = intents[3];
+  await db.system((tx) =>
+    tx.query(
+      "INSERT INTO host_action_requests(id,request_id,action,target,reason,requested_by,issued_at_ms,expires_at_ms,signature,parameters) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+      [
+        tampered.id,
+        tampered.requestId,
+        tampered.action,
+        tampered.target,
+        tampered.reason,
+        tampered.requestedBy,
+        tampered.issuedAtMs,
+        tampered.expiresAtMs,
+        signHostAction(tampered, key),
+        JSON.stringify({ url: "https://evil.test", rootDomain: null }),
+      ],
+    ),
+  );
+  const again = python(
+    "handle",
+    JSON.stringify({
+      rows: first(await db.system((tx) => tx.query(pending))),
+      nowMs: Date.now(),
+    }),
+  );
+  assert.equal(again.status, 0, again.stderr);
+  assert.deepEqual(
+    JSON.parse(again.stdout).map((p: any) => [p.id, p.verdict]),
+    [
+      [tampered.id, "rejected"],
+      [null, "report"],
+    ],
+  );
   const health = await readHostHealth(db);
   assert.equal(health.controller.state, "measured");
   assert.equal(health.backups.state, "unreported");

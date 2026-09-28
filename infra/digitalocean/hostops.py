@@ -12,17 +12,23 @@ as the migration administrator, exactly like the runtime-role step.
 
 Command line (as root on the server, from a deployed release):
   python3 hostops.py status | list | backup | restore-check [--backup NAME] [--keep] | reapply
+                     | purge-runtime-backups
 """
 import base64
 import datetime
 import fcntl
 import hashlib
 import hmac
+import http.client
+import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
+import socket
+import ssl
+import stat
 import subprocess
 import sys
 import threading
@@ -38,7 +44,10 @@ HOST_KEY_LABEL = b"gymmembership-host-operations-v1"
 BACKUP_ENCRYPTION_LABEL = b"gymmembership-backup-encryption-v1"
 BACKUP_MAC_LABEL = b"gymmembership-backup-mac-v1"
 ACTIONS = frozenset({"restart_service", "rollback_release", "restore_release", "reapply_release",
-                     "pause_deploys", "resume_deploys", "backup_now", "verify_backup"})
+                     "pause_deploys", "resume_deploys", "backup_now", "verify_backup",
+                     "change_platform_address", "clear_address_redirects"})
+# The only action that carries signed parameters (the new address).
+PARAMETER_ACTIONS = frozenset({"change_platform_address"})
 SERVICES = ("api", "web", "worker")
 STATUSES = frozenset({"pending", "running", "succeeded", "failed", "rejected", "expired", "canceled"})
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -50,7 +59,7 @@ FORMAT = "pg_dump-custom+openssl-aes-256-cbc-pbkdf2-sha256+hmac-sha256"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 MAX_ACTIONS_PER_CYCLE = 5
 # At most one of these runs per cycle, and that cycle does not also deploy.
-LONG_ACTIONS = frozenset({"backup_now", "verify_backup"})
+LONG_ACTIONS = frozenset({"backup_now", "verify_backup", "change_platform_address"})
 ACTION_MAX_LIFETIME_MS = 3600 * 1000
 CLOCK_SKEW_MS = 5 * 60 * 1000
 BACKUP_TIMEOUT_SECONDS = 1200
@@ -69,6 +78,13 @@ DOCKER_ROOT = Path("/var/lib/docker")
 DEFAULT_INTERVAL_HOURS, DEFAULT_KEEP = 24, 7
 S3_KEYS = ("BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_REGION",
            "BACKUP_S3_ACCESS_KEY_ID", "BACKUP_S3_SECRET_ACCESS_KEY")
+
+
+class ActionFailed(DeploymentError):
+    """A failed action with a longer operator message and structured details for its result."""
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details or {}
 
 
 def log(message):
@@ -124,9 +140,16 @@ def sign(key, *fields):
 
 
 def action_canonical(row):
-    return ["gymmembership-host-action-v1", row["id"], row["request_id"], row["action"], row.get("target") or "-",
-            row["requested_by"], str(row["issued_at_ms"]), str(row["expires_at_ms"]),
-            hashlib.sha256(row["reason"].encode()).hexdigest()]
+    """Signed fields (apps/api/src/host-operations.ts hostActionCanonical).
+
+    Requests without parameters keep the original v1 form, so requests signed
+    before parameters existed still verify; parameters add their SHA-256 under v2.
+    """
+    fields = [row["id"], row["request_id"], row["action"], row.get("target") or "-", row["requested_by"],
+              str(row["issued_at_ms"]), str(row["expires_at_ms"]), hashlib.sha256(row["reason"].encode()).hexdigest()]
+    if row.get("parameters") is None:
+        return ["gymmembership-host-action-v1"] + fields
+    return ["gymmembership-host-action-v2"] + fields + [hashlib.sha256(row["parameters"].encode()).hexdigest()]
 
 
 def verify_request(row, key, now_ms):
@@ -139,6 +162,10 @@ def verify_request(row, key, now_ms):
         target = row.get("target")
         if (row["action"] == "restart_service") != (target is not None) or (target is not None and target not in SERVICES):
             return "rejected", "The action target is not allowed"
+        parameters = row.get("parameters")
+        if ((row["action"] in PARAMETER_ACTIONS) != (parameters is not None)
+                or (parameters is not None and (not isinstance(parameters, str) or len(parameters.encode()) > 2048))):
+            return "rejected", "The action parameters are not allowed"
         issued, expires = row.get("issued_at_ms"), row.get("expires_at_ms")
         if (not isinstance(issued, int) or not isinstance(expires, int) or isinstance(issued, bool)
                 or isinstance(expires, bool) or not issued < expires <= issued + ACTION_MAX_LIFETIME_MS):
@@ -260,6 +287,10 @@ def execute(h, values, row):
         paused = action == "pause_deploys"
         h.set_deploy_pause(paused, "operator", row["id"])
         return {"message": "Automatic deploys are " + ("paused." if paused else "resumed."), "details": {"paused": paused}}
+    if action == "change_platform_address":
+        return change_platform_address(h, values, row)
+    if action == "clear_address_redirects":
+        return clear_address_redirects(h)
     if action in LONG_ACTIONS and cycle_limit(h) is None:
         raise DeploymentError("Too little of this controller cycle was left; request it again")
     if action == "backup_now":
@@ -274,9 +305,12 @@ def execute(h, values, row):
     raise DeploymentError("The action is not on the host allowlist")
 
 
+# to_jsonb(q)->>'parameters' reads the column added by migration 068 without
+# failing on a schema that predates it.
 PENDING_SQL = ("SELECT coalesce(json_agg(r ORDER BY r.created_at),'[]'::json) FROM (SELECT id,request_id,action,target,"
-               "reason,requested_by,issued_at_ms,expires_at_ms,signature,created_at FROM host_action_requests "
-               "WHERE status='pending' ORDER BY created_at LIMIT " + str(MAX_ACTIONS_PER_CYCLE) + ") r;")
+               "reason,requested_by,issued_at_ms,expires_at_ms,signature,created_at,to_jsonb(q)->>'parameters' AS parameters "
+               "FROM host_action_requests q WHERE status='pending' ORDER BY created_at LIMIT "
+               + str(MAX_ACTIONS_PER_CYCLE) + ") r;")
 RUNNING_SQL = "SELECT coalesce(json_agg(id),'[]'::json) FROM host_action_requests WHERE status='running';"
 
 
@@ -323,7 +357,10 @@ def process_actions(h, values, key, now_ms=None, cycle=None):
             break
         is_long = row["action"] in LONG_ACTIONS
         if is_long and cycle.get("long"):
-            log("one backup or restore check per cycle; " + row["action"] + " waits for the next cycle")
+            log("one long action per cycle; " + row["action"] + " waits for the next cycle")
+            continue
+        if row["action"] == "change_platform_address" and remaining is not None and remaining < ADDRESS_CHANGE_MIN_SECONDS:
+            log("an address change needs most of a cycle; it waits for the next one")
             continue
         if not transition(h, key, row_id, "pending", "running"):
             continue  # canceled meanwhile
@@ -331,12 +368,604 @@ def process_actions(h, values, key, now_ms=None, cycle=None):
             cycle["long"] = True
         try:
             outcome, status = execute(h, values, row), "succeeded"
+        except ActionFailed as error:
+            outcome, status = {"message": str(error)[:1000], "details": error.details}, "failed"
         except Exception as error:
             outcome, status = {"message": safe_message(error)}, "failed"
         log(row["action"] + " " + status)
         transition(h, key, row_id, "running", status, outcome)
         handled.append((row_id, status))
     return handled
+
+
+# ---- Platform address change -------------------------------------------------
+
+# host.MOVED: former platform names that the edge keeps as permanent redirects.
+ADDRESS_STATE = "platform-address.json"
+RUNTIME_BACKUPS = "runtime-env-backups"
+RUNTIME_BACKUP_NAME = re.compile(r"runtime\.env\.[0-9]{8}T[0-9]{6}Z\.[0-9a-f]{8}")
+RUNTIME_BACKUPS_KEPT = 10
+MAX_MOVED = 8
+# Time budget of an address change (the unit stops a cycle after 1800 s). One
+# re-apply is compose up --wait-timeout 180 plus container recreation, then two
+# readiness waits (local, then the public address) of up to 8 s per attempt.
+READY_ATTEMPT_SECONDS = 8
+REAPPLY_FIXED_SECONDS = 240
+# About five minutes per readiness wait at the new name: enough for an ACME order.
+SWITCH_READY_ATTEMPTS = 40
+# The fewest readiness attempts a restore gets in the same cycle in the worst case;
+# it gets the host.wait_ready default (60) when the cycle has time for it.
+RESTORE_MIN_READY_ATTEMPTS = 10
+DNS_CHECK_SECONDS = 120
+CERTIFICATE_CHECK_SECONDS = 30
+
+
+def reapply_seconds(attempts):
+    """Worst case of one re-apply with ``attempts`` per readiness wait."""
+    return REAPPLY_FIXED_SECONDS + 2 * attempts * READY_ATTEMPT_SECONDS
+
+
+# An address change starts only with this much of the cycle left: the DNS check,
+# the switch, the certificate check and, on failure, a restore with at least
+# RESTORE_MIN_READY_ATTEMPTS, plus the cycle margin, all fit (1610 s).
+ADDRESS_CHANGE_MIN_SECONDS = (DNS_CHECK_SECONDS + reapply_seconds(SWITCH_READY_ATTEMPTS) + CERTIFICATE_CHECK_SECONDS
+                              + reapply_seconds(RESTORE_MIN_READY_ATTEMPTS) + CYCLE_MARGIN_SECONDS)
+RESTORE_ATTEMPTS = 3
+DNS_PROBE_PREFIX = "gm-address-check-"
+# Public DNS-over-HTTPS resolvers (JSON API): a second opinion for AAAA records and
+# the answer reported when the server's own resolver has none.
+PUBLIC_DNS = ("https://cloudflare-dns.com/dns-query", "https://dns.google/resolve")
+RECORD_TYPES = {"A": (1, ipaddress.IPv4Address), "AAAA": (28, ipaddress.IPv6Address)}
+CERTIFICATE_MIN_SECONDS = 86400
+
+
+def ready_attempts(h, wanted):
+    """Readiness attempts per wait so a re-apply ends before systemd stops the cycle."""
+    remaining = h.cycle_remaining()
+    if remaining is None:
+        return wanted
+    fit = int((remaining - CYCLE_MARGIN_SECONDS - REAPPLY_FIXED_SECONDS) // (2 * READY_ATTEMPT_SECONDS))
+    return max(1, min(wanted, fit))
+
+
+def address_parameters(h, text):
+    """(origin, root domain or None) from a verified request's parameters."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        raise ActionFailed("The address parameters are unreadable. Nothing was changed.") from None
+    if not isinstance(data, dict) or set(data) - {"url", "rootDomain"} or not isinstance(data.get("url"), str):
+        raise ActionFailed("The address parameters are malformed. Nothing was changed.")
+    url, root = data["url"], data.get("rootDomain")
+    host = urlsplit(url).hostname if url.startswith("https://") else None
+    if not host or h.valid_root(host) != host or url != "https://" + host:
+        raise ActionFailed("The new address must be an HTTPS origin with a DNS name, such as https://trainsyou.com. "
+                           "Nothing was changed.")
+    if root is not None and (not isinstance(root, str) or h.valid_root(root) != root):
+        raise ActionFailed("The root domain must be a plain DNS name, such as trainsyou.com. Nothing was changed.")
+    return url, root
+
+
+def address_state(h):
+    try:
+        data = json.loads((h.ROOT / ADDRESS_STATE).read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_address_state(h, state):
+    atomic_json(h.ROOT / ADDRESS_STATE, state)
+
+
+def server_ipv4(h):
+    """This server's public IPv4, as the controller last read it from the metadata service."""
+    try:
+        address = ipaddress.IPv4Address(json.loads((h.ROOT / "endpoint.json").read_text()).get("ip"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return str(address) if address.is_global else None
+
+
+def system_addresses(name, family):
+    """Addresses the server's own resolver returns for ``name`` (AF_INET or AF_INET6)."""
+    try:
+        found = socket.getaddrinfo(name, 443, family, socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return []
+    addresses = set()
+    for item in found:
+        try:
+            address = ipaddress.ip_address(str(item[4][0]).split("%", 1)[0])
+        except ValueError:
+            continue
+        if address.version == 6 and address.ipv4_mapped:
+            continue  # a mapped IPv4 answer, not an AAAA record
+        addresses.add(str(address))
+    return sorted(addresses)
+
+
+def system_ipv4(name):
+    return system_addresses(name, socket.AF_INET)
+
+
+def system_ipv6(name):
+    return system_addresses(name, socket.AF_INET6)
+
+
+def public_dns(name, record):
+    """A or AAAA records from a public DNS-over-HTTPS resolver; None when none answered."""
+    number, parse = RECORD_TYPES[record]
+    for base in PUBLIC_DNS:
+        request = urllib.request.Request(base + "?name=" + quote(name, safe=".-") + "&type=" + record,
+                                         headers={"Accept": "application/dns-json",
+                                                  "User-Agent": "GymMembership-address-check"})
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=10) as response:
+                data = json.loads(response.read(65536))
+        except (OSError, ValueError, DeploymentError):
+            continue
+        if not isinstance(data, dict) or data.get("Status") not in (0, 3):
+            continue
+        found = set()
+        for answer in data.get("Answer") or []:
+            if isinstance(answer, dict) and answer.get("type") == number:
+                try:
+                    found.add(str(parse(answer.get("data"))))
+                except ValueError:
+                    continue
+        return sorted(found)
+    return None
+
+
+def public_ipv4(name):
+    return public_dns(name, "A")
+
+
+def public_ipv6(name):
+    return public_dns(name, "AAAA")
+
+
+def check_address_name(name, server):
+    """One name's DNS as the controller sees it.
+
+    Only the server's own resolver decides the A records: readiness, the
+    certificate check and the redirect check after the switch all resolve the name
+    through it, so a name only public DNS knows (the server still caches a negative
+    answer) is refused; public DNS is then only reported. This server has no IPv6
+    address (the droplet is created without one), so any AAAA record, from the
+    system resolver or, when it has none, public DNS, points elsewhere and is
+    refused: certificate authorities validate over IPv6 first.
+    """
+    found = system_ipv4(name)
+    public = None if found else public_ipv4(name)
+    ipv6, ipv6_source = system_ipv6(name), "system resolver"
+    if not ipv6:
+        answer = public_ipv6(name)
+        if answer:
+            ipv6, ipv6_source = answer, "public DNS over HTTPS"
+    check = {"name": name, "addresses": found[:8], "source": "system resolver", "ipv6": ipv6[:8],
+             "ok": bool(found) and set(found) == {server} and not ipv6}
+    if public:
+        check["publicAddresses"] = public[:8]
+    if ipv6:
+        check["ipv6Source"] = ipv6_source
+    return check
+
+
+def verify_address_dns(h, host, root):
+    """Refuse unless the new name (and a random name under the root) resolve only to this server."""
+    server = server_ipv4(h)
+    if not server:
+        raise ActionFailed("This server's public IPv4 address is unknown, so DNS cannot be checked. "
+                           "Nothing was changed.", {"changed": False})
+    names = [host] + ([DNS_PROBE_PREFIX + secrets.token_hex(4) + "." + root] if root else [])
+    checks = [check_address_name(name, server) for name in names]
+    failed = [c for c in checks if not c["ok"]]
+    if failed:
+        def describe(c):
+            one = c["name"] == host
+            subject = c["name"] if one else "names under " + root + " (" + c["name"] + ")"
+            parts = []
+            if c["addresses"]:
+                parts.append(("resolves to " if one else "resolve to ") + ", ".join(c["addresses"]))
+            elif c.get("publicAddresses"):
+                parts.append(("does" if one else "do") + " not resolve on this server yet (public DNS shows "
+                             + ", ".join(c["publicAddresses"]) + "; retry after the record's TTL)")
+            else:
+                parts.append(("does" if one else "do") + " not resolve")
+            if c["ipv6"]:
+                parts.append(("has" if one else "have") + " AAAA (IPv6) records " + ", ".join(c["ipv6"])
+                             + " (" + c["ipv6Source"] + ")")
+            return subject + " " + " and ".join(parts)
+        parts = [describe(c) for c in failed]
+        ipv6 = any(c["ipv6"] for c in failed)
+        raise ActionFailed("DNS is not ready: " + "; ".join(parts) + ". Every A record must point only to this server, "
+                           + server + (", including a wildcard record *." + root if root else "")
+                           + (", and every AAAA record must be removed: this server has no IPv6 address" if ipv6 else "")
+                           + ". Nothing was changed.", {"serverIpv4": server, "dns": checks, "changed": False})
+    return server, checks
+
+
+def private_write(path, data):
+    """Atomically replace ``path`` with ``data`` (bytes) as a mode 600 file."""
+    temporary = path.with_name(path.name + "." + secrets.token_hex(6) + ".next")
+    try:
+        with open(temporary, "xb", opener=private) as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        pass
+
+
+def runtime_file(h):
+    path = h.ROOT / "runtime.env"
+    mode = path.lstat().st_mode
+    if not stat.S_ISREG(mode) or mode & 0o077:
+        raise ActionFailed("The runtime settings must be a private regular file. Nothing was changed.")
+    return path, path.read_bytes()
+
+
+def updated_runtime(text, updates):
+    """runtime.env text with ``updates`` set; every other line stays byte for byte, in order.
+
+    A value of None removes every line of that key.
+    """
+    trailing = text.endswith("\n")
+    lines = (text[:-1] if trailing else text).split("\n") if text else []
+    seen = set()
+    kept = []
+    for line in lines:
+        key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else None
+        if key in updates:
+            seen.add(key)
+            if updates[key] is None:
+                continue
+            line = key + "=" + updates[key]
+        kept.append(line)
+    kept += [key + "=" + value for key, value in updates.items() if key not in seen and value is not None]
+    return "\n".join(kept) + ("\n" if kept and (trailing or not text) else "")
+
+
+def runtime_pairs(text):
+    """Parsed runtime.env text, as host.runtime_values reads it (the last line of a key wins)."""
+    return dict(line.split("=", 1) for line in text.splitlines() if line and not line.startswith("#") and "=" in line)
+
+
+def backup_runtime(h, data, request_id):
+    """Keep a private copy of runtime.env before it changes; the newest copies are kept."""
+    directory = h.ROOT / RUNTIME_BACKUPS
+    directory.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    name = "runtime.env." + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "." + request_id.replace("-", "")[:8]
+    private_write(directory / name, data)
+    copies = sorted(p for p in directory.iterdir() if RUNTIME_BACKUP_NAME.fullmatch(p.name) and not p.is_symlink())
+    for old in copies[:-RUNTIME_BACKUPS_KEPT]:
+        if old.name != name:
+            old.unlink(missing_ok=True)
+    return name
+
+
+def progress(h, key, row_id, message):
+    """Best effort: show the current step of a running request on the admin page (signed)."""
+    if key is None or not isinstance(row_id, str) or not UUID.fullmatch(row_id):
+        return
+    text = json.dumps({"message": message[:1000], "details": {"progress": True}}, sort_keys=True, separators=(",", ":"))
+    try:
+        psql(h, "UPDATE host_action_requests SET result=" + text_sql(text) + ",result_signature='"
+             + sign(key, "gymmembership-host-result-v1", row_id, "running", text) + "' WHERE id='" + row_id
+             + "' AND status='running';")
+    except Exception as error:
+        warn("progress was not recorded: " + safe_message(error))
+
+
+def certificate_check(host):
+    """The certificate the new name serves must verify and stay valid for at least a day."""
+    context = ssl.create_default_context()
+    with socket.create_connection((host, 443), timeout=15) as raw, context.wrap_socket(raw, server_hostname=host) as tls:
+        certificate = tls.getpeercert()
+    expires = ssl.cert_time_to_seconds(certificate["notAfter"])
+    if expires - time.time() < CERTIFICATE_MIN_SECONDS:
+        raise DeploymentError("The certificate for " + host + " expires within a day")
+    issuer = {key: value for part in certificate.get("issuer", ()) for key, value in part}
+    return {"host": host, "notAfter": iso(expires),
+            "issuer": str(issuer.get("organizationName") or issuer.get("commonName") or "")[:100]}
+
+
+def redirect_check(name, origin, attempts=3):
+    """Whether the former name answers with a permanent redirect to the new address."""
+    for attempt in range(attempts):
+        connection = http.client.HTTPSConnection(name, 443, timeout=10, context=ssl.create_default_context())
+        try:
+            connection.request("GET", "/api/v1/ready", headers={"User-Agent": "GymMembership-address-check"})
+            response = connection.getresponse()
+            if response.status == 308 and response.getheader("Location") == origin + "/api/v1/ready":
+                return True
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
+        if attempt + 1 < attempts:
+            time.sleep(3)
+    return False
+
+
+def change_summary(pending):
+    return {key: pending.get(key) for key in ("requestId", "from", "to", "rootDomain")}
+
+
+def restored_runtime(current, previous, pending):
+    """runtime.env text with only the values the address change wrote put back.
+
+    PUBLIC_APP_URL and PLATFORM_ROOT_DOMAIN return to their previous values (or are
+    removed when they were absent) only while they still hold what the change wrote.
+    Every other line, and any value an operator changed since, stays as it is now.
+    """
+    wrote = {"PUBLIC_APP_URL": pending.get("to")}
+    if pending.get("rootDomain"):
+        wrote["PLATFORM_ROOT_DOMAIN"] = pending["rootDomain"]
+    now, before = runtime_pairs(current), runtime_pairs(previous)
+    updates = {key: before.get(key) for key, value in wrote.items()
+               if isinstance(value, str) and now.get(key) == value}
+    return updated_runtime(current, updates) if updates else current
+
+
+def restore_address(h):
+    """Put back the address settings and redirects saved before an unfinished address change.
+
+    Called when the new address fails, when a later cycle finds a change that was
+    interrupted (systemd stopped the cycle, or the server restarted) and by the
+    console ``reapply``. Returns the restored origin, or None when no change is
+    unfinished. After RESTORE_ATTEMPTS failed re-applies it stops retrying and
+    records the failure.
+    """
+    state = address_state(h)
+    pending = state.get("inProgress")
+    if not isinstance(pending, dict):
+        return None
+    backup = str(pending.get("backup") or "")
+    if not RUNTIME_BACKUP_NAME.fullmatch(backup):
+        raise DeploymentError("The saved runtime settings of the unfinished address change are missing")
+    previous = (h.ROOT / RUNTIME_BACKUPS / backup).read_bytes()
+    path = h.ROOT / "runtime.env"
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = None
+    restored = previous if current is None else restored_runtime(current.decode(), previous.decode(),
+                                                                  pending).encode()
+    if restored != current:
+        private_write(path, restored)
+    moved = pending.get("redirectFrom")
+    state["redirectFrom"] = [n for n in moved if isinstance(n, str)] if isinstance(moved, list) else []
+    pending["restoreAttempts"] = int(pending.get("restoreAttempts") or 0) + 1
+    save_address_state(h, state)
+    try:
+        h.ensure_runtime()
+        h.reapply_release(ready_attempts=ready_attempts(h, 60))
+    except Exception:
+        if pending["restoreAttempts"] >= RESTORE_ATTEMPTS:
+            state["inProgress"] = None
+            state["lastChange"] = {**change_summary(pending), "status": "restore_failed", "at": iso()}
+            save_address_state(h, state)
+        raise
+    state["inProgress"] = None
+    state["lastChange"] = {**change_summary(pending), "status": "rolled_back", "at": iso()}
+    save_address_state(h, state)
+    return pending.get("from")
+
+
+def settle_address_change(h):
+    """Finish an address change that an earlier cycle left unfinished.
+
+    Returns None when there is none, else (request status, result). When the
+    switch had already passed readiness at the new name (over verified HTTPS),
+    only the certificate check is repeated and a pass keeps the new address;
+    otherwise, or when that check fails, the previous address is restored.
+    Raises when the restore fails (it is retried on later cycles).
+    """
+    pending = address_state(h).get("inProgress")
+    if not isinstance(pending, dict):
+        return None
+    origin, current = str(pending.get("to") or ""), str(pending.get("from") or "")
+    reason = "the controller stopped before the new address passed readiness"
+    if pending.get("switched"):
+        try:
+            certificate = certificate_check(urlsplit(origin).hostname)
+        except Exception as error:
+            reason = "the certificate check failed on the next cycle: " + safe_message(error)
+        else:
+            state = address_state(h)
+            state.update({"inProgress": None,
+                          "lastChange": {**change_summary(pending), "status": "succeeded", "at": iso()}})
+            save_address_state(h, state)
+            return "succeeded", {
+                "message": "The platform now serves " + origin + " with a valid certificate (checked after the "
+                           "controller restarted). Everyone signs in again at the new address.",
+                "details": {"from": current, "to": origin, "rootDomain": pending.get("rootDomain"), "changed": True,
+                            "certificate": certificate, "backup": pending.get("backup")}}
+    restore_address(h)
+    return "failed", {
+        "message": "The switch to " + origin + " did not finish (" + reason + "). The previous address " + current
+                   + " and its settings were restored and are serving again.",
+        "details": {"from": current, "to": origin, "changed": False, "restored": True, "backup": pending.get("backup")}}
+
+
+def settle_and_record(h, key):
+    """settle_address_change, then record the outcome on the request that started it."""
+    pending = address_state(h).get("inProgress")
+    if not isinstance(pending, dict):
+        return None
+    row_id = pending.get("requestId")
+    try:
+        outcome = settle_address_change(h)
+    except Exception as error:
+        outcome = ("failed", {
+            "message": "The switch to " + str(pending.get("to")) + " did not finish, and restoring "
+                       + str(pending.get("from")) + " failed (" + safe_message(error) + "). The controller retries "
+                       "on the next cycles; from the DigitalOcean console run hostops.py reapply.",
+            "details": {"from": pending.get("from"), "to": pending.get("to"), "changed": False, "restored": False,
+                        "backup": pending.get("backup")}})
+        record(h, key, row_id, outcome)
+        raise
+    record(h, key, row_id, outcome)
+    return outcome
+
+
+def record(h, key, row_id, outcome):
+    """Best effort: finish a request left running by an interrupted cycle with its real outcome."""
+    if key is None or not isinstance(row_id, str) or not UUID.fullmatch(row_id):
+        return
+    try:
+        transition(h, key, row_id, "running", outcome[0], outcome[1])
+    except Exception as error:
+        warn("the address change result was not recorded: " + safe_message(error))
+
+
+def change_platform_address(h, values, row):
+    """Verify DNS, switch runtime.env and the edge to the new address, and restore everything on failure."""
+    key = host_key(values)
+    origin, root = address_parameters(h, row.get("parameters"))
+    current = values.get("PUBLIC_APP_URL", "")
+    if origin == current and (root is None or root == h.edge_root(values)):
+        raise ActionFailed("Nothing to change: " + origin + " is already the platform address"
+                           + (" with that root domain." if root else "."), {"changed": False})
+    sha = h.serving_release(h.read_state())
+    if not sha:
+        raise ActionFailed("No release is deployed on this server. Nothing was changed.", {"changed": False})
+    state = address_state(h)
+    if state.get("inProgress"):
+        raise ActionFailed("An earlier address change has not been restored yet. Nothing was changed; check the host.",
+                           {"changed": False})
+    host = urlsplit(origin).hostname
+    server, dns = verify_address_dns(h, host, root)
+    progress(h, key, row["id"], "DNS points to this server (" + server + "). Writing the new runtime settings and "
+             "recreating the services; the platform may be unreachable for a few minutes.")
+    path, before = runtime_file(h)
+    backup = backup_runtime(h, before, row["id"])
+    previous_moved = list(h.edge_moved())
+    old_host = urlsplit(current).hostname
+    moved = previous_moved + ([old_host] if origin != current and old_host and h.valid_root(old_host) == old_host else [])
+    moved = [name for name in dict.fromkeys(moved) if name != host][-MAX_MOVED:]
+    updates = {"PUBLIC_APP_URL": origin, **({"PLATFORM_ROOT_DOMAIN": root} if root else {})}
+    pending = {"requestId": row["id"], "from": current, "to": origin, "rootDomain": root, "backup": backup,
+               "redirectFrom": previous_moved, "startedAt": iso()}
+    save_address_state(h, {**state, "version": 1, "inProgress": pending, "redirectFrom": moved})
+    try:
+        private_write(path, updated_runtime(before.decode(), updates).encode())
+        h.ensure_runtime()
+        # Readiness waits are shortened so a failed switch still leaves time to restore.
+        h.reapply_release(ready_attempts=ready_attempts(h, SWITCH_READY_ATTEMPTS))
+        # Readiness passed over verified HTTPS at the new name: if the cycle stops now,
+        # the next one repeats only the certificate check instead of rolling back.
+        switched = address_state(h)
+        switched["inProgress"] = {**pending, "switched": True}
+        save_address_state(h, switched)
+        progress(h, key, row["id"], origin + " answers and is ready. Checking its certificate.")
+        certificate = certificate_check(host)
+    except Exception as error:
+        reason = safe_message(error)
+        progress(h, key, row["id"], "The new address failed (" + reason + "). Restoring " + current + ".")
+        try:
+            restore_address(h)
+        except Exception as restore_error:
+            raise ActionFailed(
+                "The switch to " + origin + " failed (" + reason + "), and restoring " + current + " also failed ("
+                + safe_message(restore_error) + "). runtime.env holds the previous address again. From the "
+                "DigitalOcean console run: python3 /opt/gymmembership/releases/" + sha
+                + "/infra/digitalocean/hostops.py reapply",
+                {"from": current, "to": origin, "changed": False, "restored": False, "backup": backup,
+                 "dns": dns}) from None
+        raise ActionFailed("The switch to " + origin + " failed (" + reason + "). The previous address " + current
+                           + " and its settings were restored and are serving again.",
+                           {"from": current, "to": origin, "changed": False, "restored": True, "backup": backup,
+                            "dns": dns}) from None
+    state = address_state(h)
+    state.update({"inProgress": None, "lastChange": {**change_summary(pending), "status": "succeeded", "at": iso()}})
+    save_address_state(h, state)
+    redirect = None
+    if old_host in moved:
+        redirect = "verified" if redirect_check(old_host, origin) else "not verified yet"
+    if origin == current:
+        message = ("PLATFORM_ROOT_DOMAIN is now " + str(root) + "; " + origin
+                   + " serves with a valid certificate. Workspace addresses use the new root domain.")
+    else:
+        message = "The platform now serves " + origin + " with a valid certificate"
+        if old_host in moved:
+            message += "; " + current + " permanently redirects to it until the old-address redirects are removed"
+        message += ". Everyone signs in again at the new address."
+    return {"message": message,
+            "details": {"from": current, "to": origin, "rootDomain": root, "changed": True, "serverIpv4": server,
+                        "dns": dns, "certificate": certificate, "redirectFrom": moved,
+                        "oldAddressRedirect": redirect, "release": sha, "backup": backup}}
+
+
+def purge_runtime_backups(h):
+    """Delete the saved copies of runtime.env (they hold every secret as it was then).
+
+    Run after rotating secrets. Refused while an address change is unfinished,
+    because restoring it needs its copy.
+    """
+    if address_state(h).get("inProgress"):
+        raise DeploymentError("An address change is unfinished and needs its saved copy; run reapply first")
+    directory = h.ROOT / RUNTIME_BACKUPS
+    removed = 0
+    if directory.is_dir():
+        for path in directory.iterdir():
+            if RUNTIME_BACKUP_NAME.fullmatch(path.name) and not path.is_symlink():
+                path.unlink()
+                removed += 1
+    return removed
+
+
+def clear_address_redirects(h):
+    """Stop serving former platform names; the edge then answers only the current address."""
+    state = address_state(h)
+    if state.get("inProgress"):
+        raise ActionFailed("An address change has not been restored yet; try again after the next cycle.")
+    previous = list(h.edge_moved())
+    if not previous:
+        return {"message": "There were no old-address redirects to remove.", "details": {"removed": []}}
+    save_address_state(h, {**state, "redirectFrom": []})
+    try:
+        sha = h.reapply_release()
+    except Exception as error:
+        save_address_state(h, {**address_state(h), "redirectFrom": previous})
+        try:
+            h.reapply_release()
+        except Exception as again:
+            warn("restoring the old-address redirects failed: " + safe_message(again))
+        raise ActionFailed("Removing the old-address redirects failed (" + safe_message(error)
+                           + "); they were put back.", {"removed": []}) from None
+    return {"message": "Removed the redirects from " + ", ".join(previous) + ". Those names no longer answer.",
+            "details": {"removed": previous, "release": sha}}
+
+
+def address_report(h, values):
+    """The server's public IPv4, the root domain, redirects and the last address change."""
+    state = address_state(h)
+    last = state.get("lastChange") if isinstance(state.get("lastChange"), dict) else None
+    status = last.get("status") if last else None
+    return {"publicIpv4": server_ipv4(h),
+            "rootDomain": h.edge_root(values) if hasattr(h, "edge_root") else None,
+            "redirectFrom": [name[:253] for name in h.edge_moved()] if hasattr(h, "edge_moved") else [],
+            "changeInProgress": bool(state.get("inProgress")),
+            "lastChange": {"from": str(last.get("from") or "")[:300], "to": str(last.get("to") or "")[:300],
+                           "at": str(last.get("at") or "")[:40],
+                           "status": status if status in ("succeeded", "rolled_back", "restore_failed") else "unknown"}
+            if last else None}
 
 
 # ---- Backups ---------------------------------------------------------------
@@ -989,8 +1618,10 @@ def edge_state(h, values, endpoint, sha):
     served edge can lag behind; that shows as ``pendingReapply``.
     """
     ask = h.edge_ask(values)
-    # A controller older than workspace subdomains has no edge_root.
+    # A controller older than workspace subdomains has no edge_root, and one older
+    # than address changes has no edge_moved (former names kept as redirects).
     root = h.edge_root(values) if hasattr(h, "edge_root") else None
+    moved = h.edge_moved() if hasattr(h, "edge_moved") else ()
     try:
         served = (h.ROOT / "Caddyfile").read_text()
     except OSError:
@@ -998,6 +1629,8 @@ def edge_state(h, values, endpoint, sha):
     try:
         if not endpoint or not sha:
             expected = None
+        elif moved:
+            expected = h.edge_config(endpoint, sha, ask, root, moved)
         elif root:
             expected = h.edge_config(endpoint, sha, ask, root)
         else:
@@ -1026,7 +1659,7 @@ def build_report(h, values):
                        "paused": bool(control.get("paused")),
                        "pausedAt": paused_at if isinstance(paused_at, int) else None,
                        "pausedReason": reason if reason in ("operator", "rollback", "unreadable") else None},
-            "backups": backup_summary(h, values)}
+            "backups": backup_summary(h, values), "address": address_report(h, values)}
 
 
 def write_report(h, key, report):
@@ -1055,8 +1688,9 @@ def ready(h):
 def before_deploy(h):
     """Operator actions run first so a pause or rollback applies to this cycle's deployment.
 
-    Returns True when a long action (a backup or a restore check) ran; the cycle then
-    skips its deployment so the two together stay within the unit's time limit.
+    Returns True when a long action (a backup, a restore check, an address change or
+    undoing an interrupted one) ran; the cycle then skips its deployment so the two
+    together stay within the unit's time limit.
     """
     cycle = {}
     try:
@@ -1070,6 +1704,20 @@ def before_deploy(h):
         drop_leftover_scratch(h)
     except Exception as error:
         warn("leftover restore-check databases were not checked: " + safe_message(error))
+    try:
+        # A platform address change stopped part-way (systemd ended the cycle or the
+        # server restarted): finish it or put the previous address back before
+        # anything else, and record the outcome on its request. Re-applying takes
+        # time, so this cycle then counts as a long one.
+        if address_state(h).get("inProgress"):
+            cycle["long"] = True
+            outcome = settle_and_record(h, key)
+            if outcome:
+                log("an unfinished platform address change was " + ("completed" if outcome[0] == "succeeded" else
+                                                                      "undone; the previous address serves again"))
+            values = h.runtime_values() or values
+    except Exception as error:
+        warn("an unfinished platform address change could not be undone: " + safe_message(error))
     try:
         process_actions(h, values, key, cycle=cycle)
     except Exception as error:
@@ -1126,11 +1774,24 @@ def cli(argv):
             # Console recovery when the admin page is unreachable, for example after a
             # platform address change whose readiness check failed: re-read runtime.env
             # (as a timer cycle does first) and recreate the serving release with it.
+            # An unfinished address change is settled first, exactly as the next cycle
+            # would (kept when it had passed readiness and its certificate checks out,
+            # otherwise its two address values are put back while every other line of
+            # runtime.env stays as it is now), and cleared, so no later cycle reverts
+            # what this applies.
+            outcome = settle_and_record(h, host_key(values))
+            if outcome:
+                print(outcome[1]["message"])
+                if outcome[0] == "failed":
+                    return 0  # the restore re-applied the release already
             h.ensure_runtime()
             sha = h.reapply_release()
             print("Recreated release " + sha[:12] + " for " + h.endpoint_url())
+        elif command == "purge-runtime-backups":
+            print("Removed " + str(purge_runtime_backups(h)) + " saved copies of runtime.env")
         else:
-            raise DeploymentError("Commands: status, list, backup, restore-check [--backup NAME] [--keep], reapply")
+            raise DeploymentError("Commands: status, list, backup, restore-check [--backup NAME] [--keep], reapply, "
+                                  "purge-runtime-backups")
     return 0
 
 
