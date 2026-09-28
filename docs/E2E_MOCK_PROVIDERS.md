@@ -43,7 +43,8 @@ provider, never uses a cloud resource and must never run on a server.
 
 Options: `--suites=super-admin,trainer,follower,public-join,completion,browser,core,extended`, `--keep` (leave the stack up),
 `--pg-port=N`, `--rebuild`/`--skip-build`, `--features=<inventory.json>` (checks feature names and
-adds per-audience coverage), `--report=<file>`, `--min-steps=N`, and the model options below.
+adds per-audience coverage), `--report=<file>`, `--min-steps=N`, and the model options below
+(`--model-capture`, `--model-replay`, `--model-fallback`, `--model-outcomes`).
 A run of every suite fails when fewer than `FULL_RUN_MIN_STEPS` (in `scripts/e2e/run.mjs`) steps
 passed or failed, so a broken setup cannot shorten the run and still report success; setup that
 later steps need goes through `reporter.prepare()` (a failure is a failed step) and a missing
@@ -164,7 +165,17 @@ Review workflow:
 3. Run again with `--model-replay=reviewed.jsonl` (add `--model-fallback=fail` to be sure every
    model call was reviewed). The mock maps placeholders back to the new run's IDs.
 4. Judge the app's final output in the report and the API responses: what reached the client, what
-   was withheld by validation, and the recorded cost.
+   was withheld by validation, and the recorded cost. `--model-outcomes=FILE` gathers that evidence
+   per model call (`tests/e2e/harness/model-outcomes.ts`), read back before teardown: the call
+   (hash, kind, answer source, this run's value behind each placeholder), its usage row (linked by
+   the provider request id the double returns), the harness step running at the time, the API
+   request that was open when the model was called with the answer the person got, the next API
+   answers, and the events, records and side-table rows (meal captures, voice style suggestions,
+   recipes, foods) the workspace wrote until its next model call (two minutes at most), plus the
+   request's input records by placeholder. It assigns no verdict; rows are their final state at the
+   end of the run, so a later review or erasure shows through. With the option on, the harness
+   client keeps every API exchange in memory (answers truncated to 4000 characters). Every step
+   carries `startedAt` and the report lists `phases` with their start and end.
 
 `tests/e2e/reviewed/model-answers.jsonl` holds the reviewer's answers for the digital-coach squat
 question and the meal-photo estimate (`npm run e2e -- --model-replay=tests/e2e/reviewed/model-answers.jsonl`).

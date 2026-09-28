@@ -8,6 +8,8 @@ Eleven completion and hardening packages are merged on `integrate/round2` and pu
 
 Stage 2026-09-28c (branch `core/e2e-ai`, unmerged): the e2e harness gained a 30-step core suite for Brain plans, programmes, the voice-led session, web addresses and the marketing site; the failing connections step was fixed in the application (`importHistory` on the connections endpoint); a Brain plan prompt defect (starting-load references never sent to the model) was fixed (`brain-plan-v2`). Full harness: 430 passed, 0 failed on two runs. Details and remaining work in `docs/COMPLETION_STAGES.md` stage 2026-09-28c.
 
+Stage 2026-09-28d (same branch, harness tooling only): `--model-outcomes=FILE` records per model call what the app did with the answer. Reviewed and adversarial answer files were replayed through full runs plus staged runs that reach later kinds; the reviewed compile answers change every later request, so most reviewed answers are reached only when the compile answers come from the capture. Application findings (not fixed): plan title, summary and cues are not screened, so a qualified automatic plan delivered injected text and a link to a member; draft rule compilation accepts invented methods and medical advice for the trainer to confirm; a malformed coach-action answer shows the member raw schema errors. Details in `docs/COMPLETION_STAGES.md` stage 2026-09-28d.
+
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what

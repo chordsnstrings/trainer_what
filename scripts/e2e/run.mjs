@@ -20,6 +20,8 @@
  *   --model-capture=FILE         append every model request/answer (JSONL)
  *   --model-replay=FILE          answer model requests from reviewed JSONL
  *   --model-fallback=rules|fail  when no replay answer exists (default rules)
+ *   --model-outcomes=FILE        per model call, what the app did with the answer
+ *                                (events and records read back before teardown; JSONL)
  *   --pg-port=N                  PostgreSQL port (default: a free port)
  *   --features=FILE              feature inventory JSON to check names against
  *   --report=FILE                report path (default tests/e2e/report.json)
@@ -460,6 +462,7 @@ try {
     root,
     edge,
     apiPort,
+    modelOutcomesPath: args["model-outcomes"] ? String(args["model-outcomes"]) : undefined,
   });
   const reportPath = args.report ? String(args.report) : join(root, "tests/e2e/report.json");
   report.run = {
@@ -470,6 +473,7 @@ try {
     artifacts,
     modelCapture: capture,
     modelReplay: args["model-replay"] ?? null,
+    modelOutcomes: args["model-outcomes"] ?? null,
     mockRequests: mocks.requestLog(),
   };
   writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");

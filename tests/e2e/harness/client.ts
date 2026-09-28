@@ -112,6 +112,12 @@ export class Client {
   connectTo?: string;
   /** Automatic fresh-authenticator step-ups performed because the server asked (MFA_STEP_UP). */
   static automaticStepUps: Array<{ who: string; path: string }> = [];
+  /**
+   * Every API exchange with its time and (truncated) answer, kept only when the
+   * run writes model outcomes (--model-outcomes), so a model call can be
+   * matched to the request that caused it and to what the person was shown.
+   */
+  static exchanges: Array<{ who: string; method: string; path: string; status: number; startedAt: string; endedAt: string; body: string }> | null = null;
   constructor(
     public base: string,
     public label: string,
@@ -145,6 +151,7 @@ export class Client {
         headers["content-type"] ??= "application/json";
       }
     }
+    const startedAt = new Date().toISOString();
     let response: globalThis.Response;
     for (let attempt = 0; ; attempt++) {
       response = this.connectTo
@@ -184,6 +191,15 @@ export class Client {
       try {
         parsed = text ? JSON.parse(text) : undefined;
       } catch {}
+    Client.exchanges?.push({
+      who: this.label,
+      method,
+      path: path.split("?")[0],
+      status: response.status,
+      startedAt,
+      endedAt: new Date().toISOString(),
+      body: text.slice(0, 4000),
+    });
     return { status: response.status, body: parsed, text, headers: response.headers };
   }
   /**

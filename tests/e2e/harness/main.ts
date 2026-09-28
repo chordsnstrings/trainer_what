@@ -6,6 +6,7 @@ import type { MockSuite } from "../mocks/index.ts";
 import { createContext } from "./context.ts";
 import { Reporter } from "./report.ts";
 import { Client } from "./client.ts";
+import { writeModelOutcomes } from "./model-outcomes.ts";
 import { setupPlatform, superAdminScenarios } from "../scenarios/super-admin.e2e.ts";
 import { setupTrainers, trainerScenarios } from "../scenarios/trainer.e2e.ts";
 import { setupFollowers, followerScenarios } from "../scenarios/follower.e2e.ts";
@@ -33,12 +34,18 @@ export async function runHarness(input: {
   root?: string;
   edge?: { domainAddress: string | null; domainError: string | null; asks: Array<{ at: string; name: string; status: number | string }> };
   apiPort?: number;
+  /** Write per-request model outcomes (JSONL) read back from the database before teardown. */
+  modelOutcomesPath?: string;
 }) {
   const reporter = new Reporter(input.log);
+  if (input.modelOutcomesPath) Client.exchanges = [];
   const ctx = createContext({ ...input, reporter });
   const suites = new Set(input.suites ?? SUITES);
+  const phases: Array<{ name: string; startedAt: string; endedAt?: string }> = [];
   const phase = async (name: string, fn: () => Promise<void>) => {
     input.log(`— ${name}`);
+    const entry: (typeof phases)[number] = { name, startedAt: new Date().toISOString() };
+    phases.push(entry);
     try {
       await fn();
     } catch (error) {
@@ -53,6 +60,8 @@ export async function runHarness(input: {
         error: String((error as Error)?.stack ?? error).slice(0, 4000),
       });
       input.log(`  FAIL  phase ${name}: ${(error as Error)?.message}`);
+    } finally {
+      entry.endedAt = new Date().toISOString();
     }
   };
   try {
@@ -79,6 +88,13 @@ export async function runHarness(input: {
     // Runs last: it erases a member, closes a workspace and reconnects a provider.
     if (suites.has("extended")) await phase("extended coverage", () => extendedScenarios(ctx));
   } finally {
+    if (input.modelOutcomesPath)
+      try {
+        const written = await writeModelOutcomes(input.modelOutcomesPath, input.mocks.model.calls, reporter.results, Client.exchanges ?? [], ctx.sqlRead);
+        input.log(`model outcomes: ${written} calls written to ${input.modelOutcomesPath}`);
+      } catch (error) {
+        input.log(`model outcomes could not be written: ${(error as Error)?.message}`);
+      }
     await ctx.close();
   }
   const report = reporter.summary(input.featuresPath) as ReturnType<Reporter["summary"]> & {
@@ -88,6 +104,7 @@ export async function runHarness(input: {
     model?: unknown;
   };
   report.clockShifts = ctx.clockShifts;
+  (report as any).phases = phases;
   (report as any).rateLimitWaits = Client.rateLimitWaits;
   (report as any).automaticStepUps = Client.automaticStepUps;
   (report as any).edge = { coachDomains: ctx.edge.domainAddress ? "available" : ctx.edge.domainError, asks: ctx.edge.asks };
