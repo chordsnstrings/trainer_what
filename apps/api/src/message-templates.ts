@@ -529,7 +529,7 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "A bought domain now serves the coaching website",
     {
       title: "Your website is live on your own domain",
-      body: "https://laylastrength.com now shows your coaching website and member app sign-in. Your domain renews every year at USD 24.99; the next renewal is before 2027-09-28. Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+      body: "https://laylastrength.com now shows your coaching website and member app sign-in. Your domain renews every year at USD 24.99; the next renewal is before 2027-09-28. Note: the renewal is USD 5.00 more a year than the first year.",
       href: "/trainer/domains",
     },
   ),
@@ -551,7 +551,7 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "The yearly domain renewal payment failed",
     {
       title: "Your domain renewal payment failed",
-      body: "We could not charge the yearly renewal of USD 24.99 for laylastrength.com. Update your card in Stripe before 2027-09-28; Stripe retries the payment automatically. If it is not paid, laylastrength.com stops working and your website stays available at https://layla.trainsyou.com.",
+      body: "We could not charge the yearly renewal of USD 24.99 for laylastrength.com. Update your card in Stripe before 2027-09-28; Stripe retries the payment automatically. If it is not paid, laylastrength.com stops working and your website stays available at https://layla.trainsyou.com. Note: the renewal is USD 5.00 more a year than the first year.",
       href: "/trainer/domains",
     },
   ),
@@ -562,7 +562,7 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "The yearly domain renewal is charged in two weeks",
     {
       title: "Your domain renews soon",
-      body: "On 2027-08-29 we charge USD 24.99 to your card for another year of laylastrength.com, renewed automatically. Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99). You can turn renewal off in Web address before that date.",
+      body: "On 2027-08-29 we charge USD 24.99 to your card for another year of laylastrength.com, renewed automatically. Note: the renewal is USD 5.00 more a year than the first year. You can turn renewal off in Web address before that date.",
       href: "/trainer/domains",
     },
   ),
@@ -573,7 +573,7 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "A domain expires soon without a paid renewal",
     {
       title: "Your domain expires in 7 days",
-      body: "The yearly renewal of USD 24.99 for laylastrength.com has not been charged yet. We charge your card before 2027-09-28; make sure it is up to date. Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+      body: "The yearly renewal of USD 24.99 for laylastrength.com has not been charged yet. We charge your card before 2027-09-28; make sure it is up to date. Note: the renewal is USD 5.00 more a year than the first year.",
       href: "/trainer/domains",
     },
   ),

@@ -292,6 +292,7 @@ export async function startMocks(
         WEB_ADDRESS_STRIPE_PERCENT: "2.9",
         WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT: "1.0",
         WEB_ADDRESS_STRIPE_FIXED_USD: "0.28",
+        WEB_ADDRESS_STRIPE_BILLING_PERCENT: "0.7",
         WEB_ADDRESS_STRIPE_CONVERSION_PERCENT: "1.0",
         WEB_ADDRESS_STRIPE_USD_BALANCE: "false",
         WEB_ADDRESS_TLDS: "com,fit,fitness,coach,training,club,pro,app,me",

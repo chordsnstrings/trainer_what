@@ -375,7 +375,9 @@ export function ServeModeChoice({
           checked={value === "site"}
           onChange={() => onChange("site")}
         />{" "}
-        Show my site on this domain
+        {/* One text element: .check-field is a flex row, and loose text
+            around the host would become separate narrow columns. */}
+        <span>Show my site on this domain</span>
       </label>
       <label className="check-field">
         <input
@@ -385,7 +387,10 @@ export function ServeModeChoice({
           checked={value === "forward"}
           onChange={() => onChange("forward")}
         />{" "}
-        Forward to my <span className="ltr-data">{subdomainHost}</span> address
+        <span>
+          Forward to my <span className="ltr-data">{subdomainHost}</span>{" "}
+          address
+        </span>
       </label>
       <p className="muted small-label">
         Forwarding keeps the page path, so links to any page still work.
@@ -679,9 +684,10 @@ export function Prices({
   );
 }
 /**
- * "Note: the yearly renewal is much higher than the first year …" whenever
+ * "Note: the renewal is USD 5.00 more a year than the first year." whenever
  * the renewal costs more than the first year (owner decision, 28 September
- * 2026: trainers must know before paying), or nothing.
+ * 2026: trainers must know before paying), highlighted when it is much
+ * higher (at least twice the first year or USD 20 more); or nothing.
  */
 export function RenewalNote({
   firstYear,

@@ -1031,7 +1031,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending; if that leaves less than the minimum margin (USD 4.00) after the registrar's cost and Stripe's estimated fees (card percentage, the international card extra, the fixed fee and, unless the Stripe account holds a USD balance, the currency conversion fee), it moves up one price step at a time until it does: with the defaults a USD 11.48 cost is USD 19.99, a USD 18.68 cost is USD 24.99 and a USD 14.90 cost is USD 24.99 (19.99 would leave USD 3.83). A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending; if that leaves less than the minimum margin (USD 4.00) after the registrar's cost and Stripe's estimated fees (card percentage, the international card extra, the fixed fee, Stripe Billing's fee on the subscription charge and, unless the Stripe account holds a USD balance, the currency conversion fee), it moves up one price step at a time until it does: with the defaults a USD 11.48 cost is USD 19.99, a USD 18.68 cost is USD 24.99 and a USD 14.90 cost is USD 24.99 (19.99 would leave USD 3.69). A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -1151,7 +1151,7 @@ INTEGRATION_CATALOG.push({
     }),
     field("WEB_ADDRESS_PRICE_ENDING_USD", "Price ending (USD)", "number", {
       defaultValue: "4.99",
-      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 14.73 is 19.99 (from 14.74 the minimum margin below moves it to 24.99).",
+      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 14.59 is 19.99 (from 14.60 the minimum margin below moves it to 24.99).",
     }),
     field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
       defaultValue: "100.00",
@@ -1191,6 +1191,15 @@ INTEGRATION_CATALOG.push({
       {
         defaultValue: "0.28",
         help: "Stripe's AED 1.00 per charge in US dollars (1 / 3.6725 = 0.2723, rounded up). 0 to 10.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_BILLING_PERCENT",
+      "Stripe Billing fee (%)",
+      "number",
+      {
+        defaultValue: "0.7",
+        help: "Every domain charge is a Stripe subscription invoice (the first year and each yearly renewal), and Stripe Billing's pay-as-you-go pricing takes 0.7% of that volume (stripe.com/ae/billing/pricing). 0 to 15, at most two decimals; set 0 only on a Billing plan without a volume fee.",
       },
     ),
     field(
@@ -1543,6 +1552,7 @@ export function validateIntegrationValues(
       if (
         (key === "WEB_ADDRESS_STRIPE_PERCENT" ||
           key === "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_BILLING_PERCENT" ||
           key === "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT") &&
         !(
           /^\d{1,2}(\.\d{1,2})?$/.test(text) &&

@@ -447,7 +447,47 @@ function renewalPriceText(order: Order, word: "of" | "at" = "of") {
     : "";
 }
 /**
- * The renewal note (" Note: the yearly renewal is …") while the domain has
+ * `ms` moved by whole calendar years (UTC), a 29 February becoming the
+ * 28th in other years, as Stripe moves a yearly billing date.
+ */
+function shiftYears(ms: number, years: number) {
+  const date = new Date(ms);
+  const year = date.getUTCFullYear() + years;
+  const lastDay = new Date(
+    Date.UTC(year, date.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  return Date.UTC(
+    year,
+    date.getUTCMonth(),
+    Math.min(date.getUTCDate(), lastDay),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+    date.getUTCSeconds(),
+    date.getUTCMilliseconds(),
+  );
+}
+/**
+ * When the yearly charge for the current registration period falls (or
+ * fell), in milliseconds: the date recorded when billing was aligned (30
+ * days before the first expiry, or the day it was charged early), moved by
+ * whole years into the year before the current expiry. Stripe charges on
+ * that date every year while each renewal moves the expiry a year on, so a
+ * date recorded in an earlier year is never used as it is. Null while
+ * billing is not aligned (no date recorded) or without an expiry.
+ */
+export function renewalChargeAt(order: Order): number | null {
+  const expires = Date.parse(order.expires_at);
+  const recorded = Date.parse(order.evidence?.nextRenewalChargeAt ?? "");
+  if (!Number.isFinite(expires) || !Number.isFinite(recorded)) return null;
+  const periodStart = shiftYears(expires, -1);
+  let years = 0;
+  // At most a few years apart in practice; bounded all the same.
+  while (shiftYears(recorded, years) <= periodStart && years < 100) years++;
+  while (shiftYears(recorded, years) > expires && years > -100) years--;
+  return shiftYears(recorded, years);
+}
+/**
+ * The renewal note (" Note: the renewal is …") while the domain has
  * not been renewed yet and its renewal costs more than the first year, for
  * trainer notices; "" otherwise.
  */
@@ -1092,7 +1132,7 @@ export async function processWebAddressStripeEvent(
         templateKey: "web-address-renewal-failed",
         dedupe: "payment-failed:" + object.id,
         title: "Your domain renewal payment failed",
-        body: `We could not charge the yearly renewal${renewalPriceText(order)} for ${order.hostname}. Update your card in Stripe before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.`,
+        body: `We could not charge the yearly renewal${renewalPriceText(order)} for ${order.hostname}. Update your card in Stripe before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.${firstRenewalNote(order)}`,
       });
     });
     return true;
@@ -3353,7 +3393,15 @@ async function completeRenewal(
       ...(current.status === "expired" ? { status: "owned" } : {}),
       next_attempt_at: new Date(),
     });
-    await mergeEvidence(tx, order.id, { renewalAttempts: 0 });
+    // The yearly charge recorded at alignment moves on with the expiry, so
+    // the next period's notices and the order card name next year's date.
+    const nextCharge = renewalChargeAt({ ...current, expires_at: expiry });
+    await mergeEvidence(tx, order.id, {
+      renewalAttempts: 0,
+      ...(nextCharge !== null
+        ? { nextRenewalChargeAt: new Date(nextCharge).toISOString() }
+        : {}),
+    });
     await progress(tx, order.id, "renewed", expiry.slice(0, 10));
     if (cost.usd)
       await postRegistrarCost(
@@ -3708,10 +3756,9 @@ async function sendUpcomingRenewalNotice(
   const key = `${period}:upcoming`;
   const sent = order.notices ?? {};
   if (sent[key]) return null;
-  const recorded = Date.parse(order.evidence?.nextRenewalChargeAt ?? "");
-  const chargeAt = Number.isFinite(recorded)
-    ? recorded
-    : expires - RENEWAL_LEAD_DAYS * DAY;
+  // This period's charge: the aligned billing date in this year (never an
+  // earlier year's), or 30 days before expiry while not aligned yet.
+  const chargeAt = renewalChargeAt(order) ?? expires - RENEWAL_LEAD_DAYS * DAY;
   const dueAt = chargeAt - UPCOMING_RENEWAL_NOTICE_DAYS * DAY;
   if (Date.now() < dueAt) return dueAt;
   // A charge already past (or a lost event) is for the grace notices.
@@ -3747,7 +3794,7 @@ async function sendGraceNotice(db: Database, tenantId: string, order: Order) {
   const pending = due.length ? due.at(-1)! : null;
   if (pending !== null && !sent[`${period}:${pending}`]) {
     const fallback = await fallbackAddress(db, tenantId);
-    const switchUntil = Date.parse(order.evidence?.nextRenewalChargeAt ?? "");
+    const switchUntil = renewalChargeAt(order) ?? NaN;
     // Renewal can be turned back on only while the subscription still runs
     // (until the date of the yearly charge).
     const canTurnBackOn =

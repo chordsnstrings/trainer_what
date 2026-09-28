@@ -130,14 +130,14 @@ test("a taken name shows as taken; the available endings are listed with both US
   );
   assert.match(html, /aria-label="Choose athena\.fit"/);
   assert.match(html, /Available on other endings/);
-  // Both prices side by side, and a strong note: USD 30 more to renew.
+  // Both prices side by side, and a strong note: three times the first year.
   assert.match(
     html,
     /athena\.fit<\/span>.*First year<\/span> <strong>USD\s14\.99<\/strong>.*Renewal, every year after<\/span> <strong>USD\s44\.99<\/strong>/s,
   );
   assert.match(
     html,
-    /class="web-address-renewal-note much">Note: the yearly renewal is much higher than the first year: USD 44\.99 a year from the second year, USD 30\.00 more than the first year&#x27;s USD 14\.99\.</,
+    /class="web-address-renewal-note much">Note: the renewal is much higher: 3 times the first year, USD 30\.00 more a year\.</,
   );
   // No note for the premium name whose renewal equals its first year.
   assert.equal((html.match(/web-address-renewal-note/g) ?? []).length, 1);
@@ -241,7 +241,7 @@ test("the agreement tick belongs to one name at its two prices; nothing carries 
     assert.notEqual(agreementKey(other), agreementKey(com));
   }
   // The confirmation repeats both prices and, when the renewal is dearer,
-  // the note (a strong one for USD 55.00 more).
+  // the note (a strong one for 6.5 times the first year).
   const dear = render(
     {
       ...com,
@@ -253,7 +253,22 @@ test("the agreement tick belongs to one name at its two prices; nothing carries 
   );
   assert.match(
     dear,
-    /aria-label="Confirm athena\.fitness".*class="web-address-renewal-note much">Note: the yearly renewal is much higher than the first year: USD 64\.99 a year from the second year, USD 55\.00 more than the first year&#x27;s USD 9\.99\./s,
+    /aria-label="Confirm athena\.fitness".*class="web-address-renewal-note much">Note: the renewal is much higher: 6\.5 times the first year, USD 55\.00 more a year\./s,
+  );
+  // A renewal 50% dearer (19.99 → 29.99) keeps the plain, muted note, so
+  // the steep endings stand out.
+  const half = render(
+    {
+      ...com,
+      domain: "athena.app",
+      firstYearPriceMinor: 1999,
+      renewalPriceMinor: 2999,
+    },
+    null,
+  );
+  assert.match(
+    half,
+    /class="web-address-renewal-note">Note: the renewal is USD 10\.00 more a year than the first year\.</,
   );
   // The confirmation can take focus (Choose moves there on a phone).
   assert.match(ticked, /<form tabindex="-1" aria-label="Confirm athena\.com"/i);
@@ -368,6 +383,7 @@ test("the operator view shows attention, registrar calls and the manual fallback
           cardFeeBp: 290,
           internationalFeeBp: 100,
           fixedFeeCents: 28,
+          billingFeeBp: 70,
           conversionFeeBp: 100,
           usdBalance: false,
         },
@@ -388,8 +404,9 @@ test("the operator view shows attention, registrar calls and the manual fallback
               costMinor: 1148,
               grossMarginMinor: 851,
               cardFeeMinor: 106,
+              billingFeeMinor: 14,
               conversionFeeMinor: 20,
-              netMarginMinor: 725,
+              netMarginMinor: 711,
               raisedForMargin: false,
             },
             renewal: {
@@ -397,8 +414,9 @@ test("the operator view shows attention, registrar calls and the manual fallback
               costMinor: 1868,
               grossMarginMinor: 631,
               cardFeeMinor: 126,
+              billingFeeMinor: 18,
               conversionFeeMinor: 25,
-              netMarginMinor: 480,
+              netMarginMinor: 462,
               raisedForMargin: false,
             },
           },
@@ -418,8 +436,9 @@ test("the operator view shows attention, registrar calls and the manual fallback
               costMinor: 3916,
               grossMarginMinor: 1083,
               cardFeeMinor: 223,
+              billingFeeMinor: 35,
               conversionFeeMinor: 50,
-              netMarginMinor: 810,
+              netMarginMinor: 775,
               raisedForMargin: true,
             },
           },
@@ -431,7 +450,7 @@ test("the operator view shows attention, registrar calls and the manual fallback
             registerUsd: "12.1800",
             renewUsd: "96.1800",
             firstYearPriceMinor: 1999,
-            renewalPriceMinor: 10499,
+            renewalPriceMinor: 10999,
             firstYearMarginMinor: 781,
             renewalMarginMinor: 881,
           },
@@ -456,16 +475,16 @@ test("the operator view shows attention, registrar calls and the manual fallback
   );
   assert.match(
     html,
-    /<td>USD\s19\.99<\/td><td>USD\s1\.06 \+ USD\s0\.20 conversion<\/td><td>USD\s7\.25 <span class="muted">\(before fees USD\s8\.51\)<\/span><\/td>/,
+    /<td>USD\s19\.99<\/td><td>USD\s1\.06 \+ USD\s0\.14 Billing \+ USD\s0\.20 conversion<\/td><td>USD\s7\.11 <span class="muted">\(before fees USD\s8\.51\)<\/span><\/td>/,
   );
   assert.match(
     html,
-    /<td>USD\s24\.99<\/td><td>USD\s1\.26 \+ USD\s0\.25 conversion<\/td><td>USD\s4\.80 <span class="muted">\(before fees USD\s6\.31\)<\/span><\/td>/,
+    /<td>USD\s24\.99<\/td><td>USD\s1\.26 \+ USD\s0\.18 Billing \+ USD\s0\.25 conversion<\/td><td>USD\s4\.62 <span class="muted">\(before fees USD\s6\.31\)<\/span><\/td>/,
   );
   assert.match(html, /USD\s49\.99 \(raised for margin\)/);
   assert.match(
     html,
-    /moved up a step until at least USD\s4\.00 is left after Stripe&#x27;s estimated fees \(2\.9% card \+ 1% international \+ USD\s0\.28 \+ 1% currency conversion\)/,
+    /moved up a step until at least USD\s4\.00 is left after Stripe&#x27;s estimated fees \(2\.9% card \+ 1% international \+ USD\s0\.28 \+ 0\.7% Stripe Billing \+ 1% currency conversion\)/,
   );
   assert.match(html, /Refresh prices now/);
   assert.match(html, /charged USD 46\.18 for the renewal/);

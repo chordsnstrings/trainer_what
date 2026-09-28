@@ -456,7 +456,8 @@ export function domainSearchPlan(
  * the step, plus the ending, separately for the first year and for the
  * renewal; then, if what the platform keeps after the registrar's cost and
  * Stripe's estimated fees (card percentage, international card extra, fixed
- * fee and currency conversion) is below the minimum margin, the price moves
+ * fee, Stripe Billing's fee on subscription charges and currency
+ * conversion) is below the minimum margin, the price moves
  * up one step at a time (19.99 → 24.99 → 29.99 …, always the same ending)
  * until it is not. A name whose first-year or renewal price is over the cap
  * is not offered. All amounts are whole US cents and percentages whole
@@ -485,6 +486,12 @@ export type PriceRule = {
   /** 28: Stripe's fixed AED 1.00 per charge, in US cents (1 / 3.6725, rounded up). */
   fixedFeeCents: number;
   /**
+   * 70: Stripe Billing's pay-as-you-go 0.7% of Billing volume. Every domain
+   * charge is a subscription invoice (the first year at Checkout and each
+   * yearly renewal), so it applies to both years.
+   */
+  billingFeeBp: number;
+  /**
    * 100: Stripe's 1% currency conversion fee: trainers pay in USD and the
    * account settles in AED.
    */
@@ -503,6 +510,7 @@ export const DEFAULT_PRICE_RULE: Readonly<PriceRule> = Object.freeze({
   cardFeeBp: 290,
   internationalFeeBp: 100,
   fixedFeeCents: 28,
+  billingFeeBp: 70,
   conversionFeeBp: 100,
   usdBalance: false,
 });
@@ -510,7 +518,8 @@ export const DEFAULT_PRICE_RULE: Readonly<PriceRule> = Object.freeze({
  * The rule stored with an order's quote, complete: orders quoted before the
  * minimum margin (28 September 2026, stage 2026-09-28s) stored only the
  * step, ending and cap; for them no fee and no minimum margin apply, so
- * their price checks keep working exactly as they were quoted.
+ * their price checks keep working exactly as they were quoted. A rule
+ * stored without Stripe Billing's fee counts none.
  */
 export function storedPriceRule(value: unknown): PriceRule {
   const rule = (value && typeof value === "object" ? value : {}) as Record<
@@ -527,6 +536,7 @@ export function storedPriceRule(value: unknown): PriceRule {
     cardFeeBp: whole("cardFeeBp", 0),
     internationalFeeBp: whole("internationalFeeBp", 0),
     fixedFeeCents: whole("fixedFeeCents", 0),
+    billingFeeBp: whole("billingFeeBp", 0),
     conversionFeeBp: whole("conversionFeeBp", 0),
     usdBalance: rule.usdBalance === true,
   };
@@ -588,6 +598,7 @@ function assertRule(
     !whole(rule.minMarginCents, 0, 100000) ||
     !whole(rule.cardFeeBp, 0, MAX_FEE_BP) ||
     !whole(rule.internationalFeeBp, 0, MAX_FEE_BP) ||
+    !whole(rule.billingFeeBp, 0, MAX_FEE_BP) ||
     !whole(rule.conversionFeeBp, 0, MAX_FEE_BP) ||
     !whole(rule.fixedFeeCents, 0, 1000)
   )
@@ -616,8 +627,9 @@ export function markupPriceCents(
 /**
  * Stripe's estimated fees on one charge of `priceCents` (US cents, each
  * percentage rounded up to a whole cent): the card fee (card percentage,
- * international extra and the fixed fee) and the currency conversion fee,
- * which is zero when the account holds a USD balance.
+ * international extra and the fixed fee), Stripe Billing's fee (a rule
+ * stored without it counts none) and the currency conversion fee, which is
+ * zero when the account holds a USD balance.
  */
 export function stripeFeeEstimate(
   priceCents: number,
@@ -628,16 +640,19 @@ export function stripeFeeEstimate(
     | "fixedFeeCents"
     | "conversionFeeBp"
     | "usdBalance"
-  >,
+  > &
+    Partial<Pick<PriceRule, "billingFeeBp">>,
 ) {
   const percent = (bp: number) => Math.ceil((priceCents * bp) / 10000);
   const cardCents =
     percent(rule.cardFeeBp + rule.internationalFeeBp) + rule.fixedFeeCents;
+  const billingCents = percent(rule.billingFeeBp ?? 0);
   const conversionCents = rule.usdBalance ? 0 : percent(rule.conversionFeeBp);
   return {
     cardCents,
+    billingCents,
     conversionCents,
-    totalCents: cardCents + conversionCents,
+    totalCents: cardCents + billingCents + conversionCents,
   };
 }
 /**
@@ -645,7 +660,7 @@ export function stripeFeeEstimate(
  * `costCents`, with what it leaves: the owner's rounding, then one step up
  * at a time while the margin after the registrar's cost and Stripe's
  * estimated fees is below the minimum (with the owner's defaults: cost
- * 14.90 → 19.99 would keep 3.83, so 24.99; 11.48 → 19.99 keeps 7.25).
+ * 14.90 → 19.99 would keep 3.69, so 24.99; 11.48 → 19.99 keeps 7.11).
  * `raisedSteps` counts the steps added for the margin.
  */
 export function domainPrice(
@@ -659,12 +674,13 @@ export function domainPrice(
   let steps = 0;
   if (net(base) < rule.minMarginCents) {
     // Each step keeps at least step × (1 − percentages) more (the
-    // percentages are at most 45% together); start just below the smallest
+    // percentages are at most 60% together); start just below the smallest
     // step count that can suffice, then walk up to the first that does.
     const kept =
       1 -
       (rule.cardFeeBp +
         rule.internationalFeeBp +
+        rule.billingFeeBp +
         (rule.usdBalance ? 0 : rule.conversionFeeBp)) /
         10000;
     const needed =
@@ -679,6 +695,7 @@ export function domainPrice(
     priceCents,
     costCents,
     cardFeeCents: fees.cardCents,
+    billingFeeCents: fees.billingCents,
     conversionFeeCents: fees.conversionCents,
     feesCents: fees.totalCents,
     marginCents: priceCents - costCents - fees.totalCents,
@@ -733,21 +750,23 @@ export function domainPriceDetails(
 /**
  * How much dearer the renewal is than the first year, for the note trainers
  * see beside the two prices (owner decision, 28 September 2026: they must
- * know before paying). "much" when the renewal is at least 50% or USD 10
- * above the first year.
+ * know before paying). "much" when the renewal is at least twice the first
+ * year or at least USD 20 above it, so the steepest endings stand out (a
+ * renewal 50% dearer, 19.99 → 29.99, keeps the plain note).
  */
 export function renewalIncrease(firstYearMinor: number, renewalMinor: number) {
   const moreMinor = renewalMinor - firstYearMinor;
   if (!(moreMinor > 0)) return null;
   return {
     moreMinor,
-    much: moreMinor >= 1000 || moreMinor * 2 >= firstYearMinor,
+    much: moreMinor >= 2000 || moreMinor >= firstYearMinor,
   };
 }
 /**
  * The sentence trainers see wherever the two prices are shown when the
  * renewal costs more than the first year (search, checkout confirmation,
- * Stripe Checkout, the order card and renewal reminders), or null.
+ * Stripe Checkout, the order card and renewal reminders), or null. Short
+ * and relative: both prices are always shown next to it.
  */
 export function renewalPriceNote(
   firstYearMinor: number,
@@ -756,10 +775,12 @@ export function renewalPriceNote(
 ) {
   const increase = renewalIncrease(firstYearMinor, renewalMinor);
   if (!increase) return null;
-  const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
-  return increase.much
-    ? `Note: the yearly renewal is much higher than the first year: ${money(renewalMinor)} a year from the second year, ${money(increase.moreMinor)} more than the first year's ${money(firstYearMinor)}.`
-    : `Note: the yearly renewal (${money(renewalMinor)}) is ${money(increase.moreMinor)} more than the first year (${money(firstYearMinor)}).`;
+  const more = `${currency} ${(increase.moreMinor / 100).toFixed(2)}`;
+  if (!increase.much)
+    return `Note: the renewal is ${more} more a year than the first year.`;
+  // One decimal, never "2.0": 9.99 → 64.99 is 6.5 times.
+  const times = String(Math.round((renewalMinor / firstYearMinor) * 10) / 10);
+  return `Note: the renewal is much higher: ${times} times the first year, ${more} more a year.`;
 }
 /**
  * The price rule from Super admin settings (USD and percentage text; blank
@@ -773,6 +794,7 @@ export function priceRuleFromSettings(settings: {
   cardPercent?: string | null;
   internationalPercent?: string | null;
   fixedFee?: string | null;
+  billingPercent?: string | null;
   conversionPercent?: string | null;
   usdBalance?: string | null;
 }): PriceRule {
@@ -791,6 +813,10 @@ export function priceRuleFromSettings(settings: {
       DEFAULT_PRICE_RULE.internationalFeeBp,
     ),
     fixedFeeCents: read(settings.fixedFee, DEFAULT_PRICE_RULE.fixedFeeCents),
+    billingFeeBp: percent(
+      settings.billingPercent,
+      DEFAULT_PRICE_RULE.billingFeeBp,
+    ),
     conversionFeeBp: percent(
       settings.conversionPercent,
       DEFAULT_PRICE_RULE.conversionFeeBp,

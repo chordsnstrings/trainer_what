@@ -56,6 +56,8 @@ type YearMargin = {
   costMinor: number;
   grossMarginMinor: number;
   cardFeeMinor: number;
+  /** Stripe Billing's fee (absent from a server before it was counted). */
+  billingFeeMinor?: number;
   conversionFeeMinor: number;
   netMarginMinor: number;
   raisedForMargin: boolean;
@@ -68,6 +70,7 @@ type PriceRuleView = {
   cardFeeBp?: number;
   internationalFeeBp?: number;
   fixedFeeCents?: number;
+  billingFeeBp?: number;
   conversionFeeBp?: number;
   usdBalance?: boolean;
 };
@@ -94,6 +97,9 @@ function ruleSummary(rule: PriceRuleView) {
     `Cost rounded up to ${usd(rule.stepCents)}, plus ${usd(rule.endingCents)}; ` +
     `moved up a step until at least ${usd(rule.minMarginCents ?? 0)} is left after Stripe's estimated fees ` +
     `(${percent(rule.cardFeeBp)} card + ${percent(rule.internationalFeeBp)} international + ${usd(rule.fixedFeeCents ?? 0)}` +
+    (rule.billingFeeBp
+      ? ` + ${percent(rule.billingFeeBp)} Stripe Billing`
+      : "") +
     (rule.usdBalance
       ? "; no conversion fee: the Stripe account holds USD"
       : ` + ${percent(rule.conversionFeeBp)} currency conversion`) +
@@ -118,6 +124,7 @@ function YearCells({ year }: { year?: YearMargin }) {
       </td>
       <td>
         {usd(year.cardFeeMinor)}
+        {year.billingFeeMinor ? ` + ${usd(year.billingFeeMinor)} Billing` : ""}
         {year.conversionFeeMinor
           ? ` + ${usd(year.conversionFeeMinor)} conversion`
           : ""}
@@ -155,10 +162,10 @@ export function RegistrarPrices({
       <Status value={message} />
       <p className="muted small-label">
         Net margin is the trainer&apos;s price less the registrar&apos;s cost
-        and Stripe&apos;s estimated fees (card, international card, fixed fee
-        and currency conversion), per year. A price is raised one step when
-        the net margin would fall below the minimum. Fee estimates and the
-        minimum are in Settings, Web addresses and registrar.
+        and Stripe&apos;s estimated fees (card, international card, fixed fee,
+        Stripe Billing and currency conversion), per year. A price is raised one
+        step when the net margin would fall below the minimum. Fee estimates and
+        the minimum are in Settings, Web addresses and registrar.
       </p>
       {data?.rule && (
         <p className="muted small-label">{ruleSummary(data.rule)}</p>

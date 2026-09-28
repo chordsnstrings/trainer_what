@@ -73,6 +73,7 @@ import {
   processWebAddressOrder,
   purchasesEnabled,
   recordRegistrarState,
+  renewalChargeAt,
   SETTLE_MS,
   type WebAddressDeps,
   type WebAddressStripe,
@@ -291,6 +292,7 @@ function pricing(): {
       cardPercent: config.WEB_ADDRESS_STRIPE_PERCENT,
       internationalPercent: config.WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT,
       fixedFee: config.WEB_ADDRESS_STRIPE_FIXED_USD,
+      billingPercent: config.WEB_ADDRESS_STRIPE_BILLING_PERCENT,
       conversionPercent: config.WEB_ADDRESS_STRIPE_CONVERSION_PERCENT,
       usdBalance: config.WEB_ADDRESS_STRIPE_USD_BALANCE,
     });
@@ -620,8 +622,8 @@ function operatorRegistrar(deps: { registrar?: Registrar }) {
  * Every ending trainers can buy, as the cache holds it now: the registrar's
  * one-year costs, the trainer's two prices by the current rule, whether the
  * cap hides it, and for each year the margin before Stripe's fees, Stripe's
- * estimated card and conversion fees, the net margin after them and whether
- * the minimum margin moved the price up. Operators only.
+ * estimated card, Billing and conversion fees, the net margin after them
+ * and whether the minimum margin moved the price up. Operators only.
  */
 async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
   const settings = pricing();
@@ -644,6 +646,7 @@ async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
       // What is left after the registrar's cost, before Stripe's fees.
       grossMarginMinor: detail.priceCents - detail.costCents,
       cardFeeMinor: detail.cardFeeCents,
+      billingFeeMinor: detail.billingFeeCents,
       conversionFeeMinor: detail.conversionFeeCents,
       // What is left after the registrar's cost and Stripe's estimated fees.
       netMarginMinor: detail.marginCents,
@@ -690,6 +693,8 @@ export function trainerOrderView(order: Record<string, any>) {
   // priced in (USD; orders placed before 28 September 2026 in AED): never
   // the registrar, its cost or the price rule kept in the quote.
   const prices = orderPrices(order);
+  // This period's yearly charge, never an earlier year's recorded date.
+  const chargeAt = renewalChargeAt(order);
   return {
     id: order.id,
     hostname: order.hostname,
@@ -703,7 +708,8 @@ export function trainerOrderView(order: Record<string, any>) {
     renewalEnabled: order.renewal_enabled,
     renewalStatus: order.renewal_status,
     billingStatus: order.billing_status,
-    nextRenewalChargeAt: order.evidence?.nextRenewalChargeAt ?? null,
+    nextRenewalChargeAt:
+      chargeAt === null ? null : new Date(chargeAt).toISOString(),
     // "site" shows the website on the domain; "forward" sends visitors to
     // the workspace subdomain. Never which DNS host serves it.
     serveMode: order.serve_mode === "forward" ? "forward" : "site",

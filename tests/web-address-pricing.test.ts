@@ -126,12 +126,13 @@ test("first-year and renewal prices, the USD 100 cap and premium names", () => {
   assert.equal(withinPriceCap(10001), false);
   assert.equal(withinPriceCap(Number.NaN), false);
   // 95.00 → 99.99 would leave less than nothing after Stripe's fees, so it
-  // moves up to 104.99 and is hidden by the cap; 90.00 → 94.99 would keep
-  // USD 0.05, so it moves to 99.99, which keeps the margin and is offered.
+  // moves up (104.99 would keep 3.82, so 109.99) and is hidden by the cap;
+  // 90.00 → 94.99 would keep less than nothing too, so it moves to 99.99,
+  // which keeps 4.11 and is offered.
   assert.deepEqual(
     trainerDomainPrices({ registerUsd: "95.00", renewUsd: "12.00" }),
     {
-      firstYearCents: 10499,
+      firstYearCents: 10999,
       renewalCents: 1999,
       offered: false,
     },
@@ -182,6 +183,7 @@ test("operator settings for the rule, with the owner's defaults", () => {
     cardFeeBp: 290,
     internationalFeeBp: 100,
     fixedFeeCents: 28,
+    billingFeeBp: 70,
     conversionFeeBp: 100,
     usdBalance: false,
   });
@@ -194,6 +196,7 @@ test("operator settings for the rule, with the owner's defaults", () => {
       cardPercent: "3.25",
       internationalPercent: "0",
       fixedFee: "0.30",
+      billingPercent: "0.5",
       conversionPercent: "2",
       usdBalance: "true",
     }),
@@ -205,6 +208,7 @@ test("operator settings for the rule, with the owner's defaults", () => {
       cardFeeBp: 325,
       internationalFeeBp: 0,
       fixedFeeCents: 30,
+      billingFeeBp: 50,
       conversionFeeBp: 200,
       usdBalance: true,
     },
@@ -229,6 +233,8 @@ test("operator settings for the rule, with the owner's defaults", () => {
     { cardPercent: "2.999" },
     { internationalPercent: "abc" },
     { conversionPercent: "16" },
+    { billingPercent: "0.705" },
+    { billingPercent: "15.5" },
     { fixedFee: "10.01" },
   ])
     assert.throws(
@@ -383,36 +389,40 @@ test("orders quoted in AED keep their own rate for the registrar cost", () => {
 
 test("minimum margin of USD 4 after Stripe's estimated fees: the owner's cases", () => {
   const rule = DEFAULT_PRICE_RULE;
-  // 14.90 → the rounding gives 19.99, which would keep 19.99 − 14.90 − 1.26
-  // (0.78 card + 0.28 fixed + 0.20 conversion) = 3.83: one step up, 24.99.
+  // 14.90 → the rounding gives 19.99, which would keep 19.99 − 14.90 − 1.40
+  // (0.78 card + 0.28 fixed + 0.14 Stripe Billing + 0.20 conversion) = 3.69:
+  // one step up, 24.99.
   assert.deepEqual(domainPrice(1490, rule), {
     priceCents: 2499,
     costCents: 1490,
     cardFeeCents: 126,
+    billingFeeCents: 18,
     conversionFeeCents: 25,
-    feesCents: 151,
-    marginCents: 858,
+    feesCents: 169,
+    marginCents: 840,
     raisedSteps: 1,
   });
-  assert.equal(19_99 - 14_90 - stripeFeeEstimate(1999, rule).totalCents, 383);
-  // 11.48 → 19.99 keeps 7.25.
+  assert.equal(19_99 - 14_90 - stripeFeeEstimate(1999, rule).totalCents, 369);
+  // 11.48 → 19.99 keeps 7.11.
   assert.deepEqual(domainPrice(1148, rule), {
     priceCents: 1999,
     costCents: 1148,
     cardFeeCents: 106,
+    billingFeeCents: 14,
     conversionFeeCents: 20,
-    feesCents: 126,
-    marginCents: 725,
+    feesCents: 140,
+    marginCents: 711,
     raisedSteps: 0,
   });
-  // Renewal 18.68 → 24.99 keeps 24.99 − 18.68 − 1.51 = 4.80: unchanged.
+  // Renewal 18.68 → 24.99 keeps 24.99 − 18.68 − 1.69 = 4.62: unchanged.
   assert.deepEqual(domainPrice(1868, rule), {
     priceCents: 2499,
     costCents: 1868,
     cardFeeCents: 126,
+    billingFeeCents: 18,
     conversionFeeCents: 25,
-    feesCents: 151,
-    marginCents: 480,
+    feesCents: 169,
+    marginCents: 462,
     raisedSteps: 0,
   });
   // .com at Namecheap (28 September 2026): 19.99 / 24.99 as before.
@@ -420,21 +430,38 @@ test("minimum margin of USD 4 after Stripe's estimated fees: the owner's cases",
     trainerDomainPrices({ registerUsd: "11.48", renewUsd: "18.68" }),
     { firstYearCents: 1999, renewalCents: 2499, offered: true },
   );
-  // The boundary: 14.73 keeps exactly 4.00 at 19.99; one cent more does not.
-  assert.equal(domainPrice(1473, rule).priceCents, 1999);
-  assert.equal(domainPrice(1473, rule).marginCents, 400);
-  assert.equal(domainPrice(1474, rule).priceCents, 2499);
-  // With a USD balance there is no conversion fee: 14.74 stays at 19.99
-  // (19.99 − 14.74 − 1.06 = 4.19), 14.90 too (4.03), 14.94 (3.99) does not.
+  // The boundary: 14.59 keeps exactly 4.00 at 19.99; one cent more does
+  // not. Without Stripe Billing's 0.7% (0.14 at 19.99) it was 14.73, which
+  // really kept only 3.86.
+  assert.equal(domainPrice(1459, rule).priceCents, 1999);
+  assert.equal(domainPrice(1459, rule).marginCents, 400);
+  assert.equal(domainPrice(1460, rule).priceCents, 2499);
+  assert.equal(domainPrice(1473, rule).priceCents, 2499);
+  assert.equal(
+    domainPrice(1473, { ...rule, billingFeeBp: 0 }).priceCents,
+    1999,
+  );
+  // Renewal at 24.99: up to 19.30 (4.00 left), from 19.31 29.99.
+  assert.equal(domainPrice(1930, rule).priceCents, 2499);
+  assert.equal(domainPrice(1930, rule).marginCents, 400);
+  assert.equal(domainPrice(1931, rule).priceCents, 2999);
+  // With a USD balance there is no conversion fee: 14.79 stays at 19.99
+  // (19.99 − 14.79 − 1.20 = 4.00); 14.80 and 14.90 (3.89) do not.
   const usd = { ...rule, usdBalance: true };
   assert.equal(stripeFeeEstimate(1999, usd).conversionCents, 0);
   assert.equal(domainPrice(1474, usd).priceCents, 1999);
-  assert.equal(domainPrice(1490, usd).priceCents, 1999);
-  assert.equal(domainPrice(1490, usd).marginCents, 403);
-  assert.equal(domainPrice(1494, usd).priceCents, 2499);
+  assert.equal(domainPrice(1479, usd).priceCents, 1999);
+  assert.equal(domainPrice(1479, usd).marginCents, 400);
+  assert.equal(domainPrice(1480, usd).priceCents, 2499);
+  assert.equal(domainPrice(1490, usd).priceCents, 2499);
   // The price always keeps the minimum, always ends in .99, and is the
   // lowest step that does (checked against a plain step-by-step walk).
-  for (const r of [rule, usd, { ...rule, minMarginCents: 1500 }])
+  for (const r of [
+    rule,
+    usd,
+    { ...rule, minMarginCents: 1500 },
+    { ...rule, billingFeeBp: 0 },
+  ])
     for (let cost = 1; cost <= 20000; cost += 13) {
       const got = domainPrice(cost, r);
       assert.ok(got.marginCents >= r.minMarginCents, `cost ${cost}`);
@@ -465,6 +492,7 @@ test("minimum margin of USD 4 after Stripe's estimated fees: the owner's cases",
     cardFeeBp: 0,
     internationalFeeBp: 0,
     fixedFeeCents: 0,
+    billingFeeBp: 0,
     conversionFeeBp: 0,
     usdBalance: false,
   });
@@ -472,18 +500,27 @@ test("minimum margin of USD 4 after Stripe's estimated fees: the owner's cases",
     assert.equal(domainPrice(cost, plain).priceCents, markupPriceCents(cost));
   assert.deepEqual(storedPriceRule(DEFAULT_PRICE_RULE), DEFAULT_PRICE_RULE);
   assert.deepEqual(storedPriceRule(null).minMarginCents, 0);
+  // A rule stored before Stripe Billing's fee was counted keeps none.
+  const { billingFeeBp: _, ...withoutBilling } = DEFAULT_PRICE_RULE;
+  assert.equal(storedPriceRule(withoutBilling).billingFeeBp, 0);
+  assert.equal(
+    domainPrice(1473, storedPriceRule(withoutBilling)).priceCents,
+    1999,
+  );
 });
 
 test("Stripe fee estimate: each percentage rounded up to a whole cent", () => {
   assert.deepEqual(stripeFeeEstimate(1999, DEFAULT_PRICE_RULE), {
     cardCents: 106,
+    billingCents: 14,
     conversionCents: 20,
-    totalCents: 126,
+    totalCents: 140,
   });
   assert.deepEqual(stripeFeeEstimate(10000, DEFAULT_PRICE_RULE), {
     cardCents: 418,
+    billingCents: 70,
     conversionCents: 100,
-    totalCents: 518,
+    totalCents: 588,
   });
   assert.equal(percentBasisPoints("2.9"), 290);
   assert.equal(percentBasisPoints("1"), 100);
@@ -500,7 +537,8 @@ test("operators see each year's fees and net margin", () => {
   assert.equal(details.firstYear.priceCents, 2499);
   assert.equal(details.firstYear.raisedSteps, 1);
   assert.equal(details.renewal.priceCents, 2499);
-  assert.equal(details.renewal.marginCents, 480);
+  assert.equal(details.renewal.marginCents, 462);
+  assert.equal(details.renewal.billingFeeCents, 18);
   assert.equal(details.offered, true);
 });
 
@@ -512,17 +550,30 @@ test("the renewal note: shown whenever the renewal costs more, stronger when muc
     much: false,
   });
   assert.deepEqual(renewalIncrease(999, 5499), { moreMinor: 4500, much: true });
-  // USD 10 more, or half the first year more, is "much".
-  assert.equal(renewalIncrease(4999, 5999)!.much, true);
-  assert.equal(renewalIncrease(1000, 1500)!.much, true);
-  assert.equal(renewalIncrease(4999, 5998)!.much, false);
+  // Twice the first year, or USD 20 more, is "much"; 50% more (19.99 →
+  // 29.99, .app and .me) is not, so the steepest endings stand out.
+  assert.equal(renewalIncrease(1999, 2999)!.much, false);
+  assert.equal(renewalIncrease(1499, 3499)!.much, true);
+  assert.equal(renewalIncrease(1500, 3000)!.much, true);
+  assert.equal(renewalIncrease(1500, 2999)!.much, false);
+  assert.equal(renewalIncrease(4999, 6999)!.much, true);
+  assert.equal(renewalIncrease(4999, 6998)!.much, false);
   assert.equal(renewalPriceNote(2499, 2499), null);
+  // Short and relative: both prices are always shown beside it.
   assert.equal(
     renewalPriceNote(1999, 2499),
-    "Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+    "Note: the renewal is USD 5.00 more a year than the first year.",
   );
   assert.equal(
-    renewalPriceNote(999, 5499),
-    "Note: the yearly renewal is much higher than the first year: USD 54.99 a year from the second year, USD 45.00 more than the first year's USD 9.99.",
+    renewalPriceNote(999, 6499),
+    "Note: the renewal is much higher: 6.5 times the first year, USD 55.00 more a year.",
+  );
+  assert.equal(
+    renewalPriceNote(1500, 3000),
+    "Note: the renewal is much higher: 2 times the first year, USD 15.00 more a year.",
+  );
+  assert.equal(
+    renewalPriceNote(4999, 6999),
+    "Note: the renewal is much higher: 1.4 times the first year, USD 20.00 more a year.",
   );
 });

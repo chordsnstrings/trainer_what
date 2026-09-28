@@ -281,7 +281,7 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     // Both prices again on Stripe's page, with the note that the renewal is dearer.
     assert.equal(
       paid.session.custom_text?.submit?.message,
-      "First year USD 19.99 today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web address. Note: the yearly renewal (USD 24.99) is USD 5.00 more than the first year (USD 19.99).",
+      "First year USD 19.99 today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web address. Note: the renewal is USD 5.00 more a year than the first year.",
     );
     purchase = { orderId: created.orderId, domain: found.domain, subscriptionId: paid.subscription.id };
     const view = await t.request("GET", `/api/v1/web-address/orders/${created.orderId}`);
