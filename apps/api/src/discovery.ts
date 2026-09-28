@@ -9,7 +9,7 @@ import {
   DIRECTORY_PAGE_SIZE,
   DIRECTORY_PATH,
   DIRECTORY_SPECIALTIES,
-  PUBLIC_MARKETING_PATHS,
+  INDEXABLE_MARKETING_PAGES,
   SITEMAP_COACHES_PER_FILE,
   appInitials,
   brandContrast,
@@ -148,8 +148,8 @@ export async function sitemapEntries(
     if (page >= pages) throw missing();
     const entries: SitemapEntry[] = [];
     if (page === 0) {
-      for (const path of PUBLIC_MARKETING_PATHS)
-        entries.push(entry(origin + path));
+      for (const page of INDEXABLE_MARKETING_PAGES)
+        entries.push(entry(origin + page.path, page.lastUpdated));
       if (directoryOpen()) entries.push(entry(origin + DIRECTORY_PATH));
     }
     const rows = await tx.query<SiteRow>(

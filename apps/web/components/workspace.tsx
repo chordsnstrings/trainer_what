@@ -46,7 +46,12 @@ import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
 import { HostOperations } from "./host-operations";
-import { MarketingPage } from "./marketing-pages";
+import { MarketingFooter, MarketingHeader, claimCta } from "./marketing/frame";
+import {
+  FollowerEstimate,
+  ShareYourLink,
+  TrainerGrowth,
+} from "./trainer-growth";
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
@@ -76,7 +81,13 @@ import {
   CoachStory,
   ClientHomeSections,
 } from "./trainer-design";
-import { resolveBrandDesign, setSchema } from "@trainer/contracts";
+import {
+  DEFAULT_PLATFORM_NAME,
+  appInitials,
+  isMarketingPath,
+  resolveBrandDesign,
+  setSchema,
+} from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
 import { WorkspaceGovernance } from "./workspace-governance";
 import { BusinessMetrics } from "./business-metrics";
@@ -149,7 +160,7 @@ import {
   Palette,
   Camera,
 } from "lucide-react";
-import { money, projectedCommission } from "@trainer/domain";
+import { money } from "@trainer/domain";
 type Row = {
   id: string;
   kind: string;
@@ -218,6 +229,7 @@ function LoadMore({
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
   ["Setup", "/trainer/onboarding/account", CheckCircle],
+  ["Followers & growth", "/trainer/growth", Users],
   ["My Brain", "/trainer/brain", Brain],
   ["Subscribers", "/trainer/subscribers", Users],
   ["Programs", "/trainer/programs", Layers],
@@ -480,7 +492,22 @@ function PlainShell({
   return <div className={className}>{children}</div>;
 }
 
-export default function Workspace() {
+/** Platform identity the server passes down for the public pages. */
+export type WorkspacePlatform = {
+  name: string;
+  initials: string;
+  registrationOpen: boolean;
+};
+const defaultPlatform: WorkspacePlatform = {
+  name: DEFAULT_PLATFORM_NAME,
+  initials: appInitials(DEFAULT_PLATFORM_NAME),
+  registrationOpen: true,
+};
+export default function Workspace({
+  platform = defaultPlatform,
+}: {
+  platform?: WorkspacePlatform;
+}) {
   const path = usePathname(),
     router = useRouter();
   const [state, setState] = useState<State | null>(null),
@@ -502,18 +529,8 @@ export default function Workspace() {
     [state, extra],
   );
   const publicPath =
-    path === "/" ||
-    [
-      "/how-it-works",
-      "/demo",
-      "/pricing",
-      "/faq",
-      "/terms",
-      "/privacy",
-      "/ai-disclosure",
-      "/login",
-      "/signup",
-    ].includes(path) ||
+    isMarketingPath(path) ||
+    ["/login", "/signup"].includes(path) ||
     path === "/forgot-password" ||
     path === "/magic-link" ||
     path.startsWith("/magic-link/") ||
@@ -633,6 +650,7 @@ export default function Workspace() {
     return (
       <Public
         path={path}
+        platform={platform}
         onAuthenticated={async () => {
           await load();
           const s = await api("/bootstrap").catch(async (e) => {
@@ -713,6 +731,7 @@ export default function Workspace() {
                 "Photos & galleries",
                 "Website",
                 "Team",
+                "Followers & growth",
               ].includes(item[0]),
           )
         : nav;
@@ -975,6 +994,17 @@ export default function Workspace() {
             )
           ) : path === "/admin/affiliates" ? (
             <Affiliates />
+          ) : path === "/trainer/growth" ? (
+            state.user.role === "owner" ? (
+              <TrainerGrowth
+                slug={state.tenant.slug}
+                published={!!state.tenant.published}
+              />
+            ) : (
+              <div className="notice">
+                Followers and growth is available to the workspace owner.
+              </div>
+            )
           ) : path === "/trainer/affiliates" ? (
             <Affiliates trainer />
           ) : path === "/admin/infrastructure/observer" ? (
@@ -1305,6 +1335,19 @@ function Overview({ state, records }: ViewProps) {
           <ClientHomeSections theme={state.tenant.theme} />
         </>
       )}
+      {state.user.role === "owner" && (
+        <section className="card" aria-labelledby="growth-nudge-h">
+          <h2 id="growth-nudge-h">What could your followers be worth?</h2>
+          <p>
+            Estimate how many followers could become paying subscribers when
+            you share your link, from published benchmarks and your own
+            numbers. An estimate, never a promise.
+          </p>
+          <Link className="button secondary" href="/trainer/growth">
+            Followers and growth <ArrowUpRight size={14} />
+          </Link>
+        </section>
+      )}
       <div className="stats-grid">
         {(sub
           ? [
@@ -1526,6 +1569,14 @@ function OnboardingView(props: ViewProps) {
     <Finance {...props} path="/trainer/products" />
   ) : step === "payout" ? (
     <PayoutView {...props} />
+  ) : step === "share" ? (
+    <>
+      <ShareYourLink
+        slug={props.state.tenant.slug}
+        published={!!props.state.tenant.published}
+      />
+      <FollowerEstimate compact />
+    </>
   ) : null;
   return (
     <Onboarding
@@ -4410,15 +4461,16 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
 
 function Public({
   path,
+  platform,
   onAuthenticated,
 }: {
   path: string;
+  platform: WorkspacePlatform;
   onAuthenticated: () => Promise<void>;
 }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [count, setCount] = useState(100),
-    [price, setPrice] = useState(199),
+    [slugHint, setSlugHint] = useState(""),
     [store, setStore] = useState<any>(null);
   const enroll = path.startsWith("/join-coach/");
   const join = path.startsWith("/join/"),
@@ -4437,10 +4489,25 @@ function Public({
         .then(setStore)
         .catch((e) => setError(e.message));
   }, [path]);
-  const fees = projectedCommission(count, price * 100);
-  const Shell = path.startsWith("/coach/") ? TrainerTheme : PlainShell;
+  useEffect(() => {
+    // A name typed in the address preview arrives as ?slug=.
+    if (path !== "/signup") return;
+    const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
+    if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
+  }, [path]);
+  const coach = path.startsWith("/coach/");
+  const Shell = coach ? TrainerTheme : PlainShell;
   return (
     <Shell className="public" theme={store?.trainer?.theme}>
+      {!coach && (
+        <MarketingHeader
+          appName={platform.name}
+          initials={platform.initials}
+          cta={claimCta(platform.registrationOpen)}
+          path={path}
+        />
+      )}
+      {coach && (
       <header className="public-header">
         <Link href="/" className="wordmark">
           {path.startsWith("/coach/") && store ? (
@@ -4450,19 +4517,10 @@ function Public({
               compact
             />
           ) : (
-            <>
-              <span className="brand-mark">b.</span>
-              <span>
-                trainer<span className="wordmark-light">brain</span>
-              </span>
-            </>
+            <span>{platform.name}</span>
           )}
         </Link>
         <nav>
-          <Link href="/how-it-works">How it works</Link>
-          <Link href="/demo">Demo</Link>
-          <Link href="/pricing">The economics</Link>
-          <Link href="/coaches">Find a coach</Link>
           <Link href="/login">Sign in</Link>
         </nav>
         <Link
@@ -4477,6 +4535,7 @@ function Public({
           <ArrowUpRight size={16} />
         </Link>
       </header>
+      )}
       {path === "/sign-in/verify" ? (
         <SocialSignInVerify />
       ) : path.startsWith("/verify-email-change/") ? (
@@ -4620,9 +4679,11 @@ function Public({
                   <div className="input-affix">
                     <span>/coach/</span>
                     <input
+                      key={slugHint}
                       name="slug"
                       pattern="[a-z][a-z0-9-]{2,39}"
                       placeholder="your-name"
+                      defaultValue={slugHint}
                       required
                     />
                   </div>
@@ -4703,7 +4764,7 @@ function Public({
             <p className="muted">
               {signup
                 ? "Already have a coaching space?"
-                : "New to Trainer Brain?"}{" "}
+                : `New to ${platform.name}?`}{" "}
               <Link href={signup ? "/login" : "/signup"}>
                 {signup ? "Sign in" : "Get started"}
               </Link>
@@ -4748,226 +4809,23 @@ function Public({
             <p>{error || "Loading coaching page…"}</p>
           )}
         </main>
-      ) : ["/how-it-works", "/demo", "/pricing", "/faq"].includes(path) ? (
-        <MarketingPage path={path} />
       ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
         <PublishedLegal
           documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
         />
-      ) : (
-        <>
-          <section className="hero">
-            <div className="hero-copy">
-              <p className="eyebrow">
-                <span className="tiny-line" />
-                FOR COACHES WITH A METHOD OF THEIR OWN
-              </p>
-              <h1>
-                Put your
-                <br />
-                coaching mind
-                <br />
-                <em>online.</em>
-              </h1>
-              <p className="hero-description">
-                Your programs. Your judgment. Your brand.
-                <br />
-                Build a digital coaching practice around the experience only you
-                can bring.
-              </p>
-              <div className="button-row">
-                <Link className="button large" href="/signup">
-                  Build my coaching Brain <ArrowUpRight size={18} />
-                </Link>
-                <a className="text-link" href="#how">
-                  See how it works <ArrowRight size={17} />
-                </a>
-              </div>
-              <div className="hero-notes">
-                <span>
-                  <Check size={14} />
-                  Your method stays yours
-                </span>
-                <span>
-                  <Check size={14} />
-                  You stay in control
-                </span>
-              </div>
-            </div>
-            <div className="hero-art">
-              <div className="art-label">THE VALUE IS IN YOUR JUDGMENT.</div>
-              <div className="orb orb-one" />
-              <div className="orb orb-two" />
-              <div className="floating-rule">
-                <div className="card-heading">
-                  <span className="small-label">
-                    A COACHING RULE, MADE CLEAR
-                  </span>
-                  <span className="rule-dot" />
-                </div>
-                <h3>
-                  Good technique
-                  <br />
-                  before more weight.
-                </h3>
-                <div className="rule-condition">
-                  <span>WHEN</span>
-                  <p>A beginner is still finding consistency.</p>
-                </div>
-                <div className="rule-condition">
-                  <span>MY APPROACH</span>
-                  <p>
-                    Build confidence in the movement.
-                    <br />
-                    Then progress the load.
-                  </p>
-                </div>
-                <div className="rule-bottom">
-                  <CheckCircle size={16} />
-                  Illustrative trainer-confirmed rule
-                </div>
-              </div>
-              <div className="art-bottom">
-                <span>YOUR EXPERIENCE</span>
-                <ArrowRight size={20} />
-                <span>A TEACHABLE METHOD</span>
-              </div>
-            </div>
-          </section>
-          <div className="principle-strip">
-            <span>THE COACH IS THE PRODUCT.</span>
-            <span>Technology should make that clearer.</span>
-            <ArrowUpRight size={23} />
+      ) : null}
+      {coach ? (
+        <footer className="public-footer">
+          <span>{platform.name}</span>
+          <div>
+            <Link href="/terms">Terms</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/ai-disclosure">Digital coaching</Link>
           </div>
-          <section className="public-section" id="how">
-            <div className="section-intro">
-              <p className="eyebrow">FROM EXPERIENCE TO EVERYDAY COACHING</p>
-              <h2>
-                Teach it. Shape it.
-                <br />
-                Make it yours.
-              </h2>
-            </div>
-            <div className="three-columns">
-              {[
-                [
-                  "01",
-                  "Teach your method",
-                  "Talk through real decisions. Add your own material. Turn the why behind your coaching into clear, reviewable rules.",
-                ],
-                [
-                  "02",
-                  "Keep your judgment",
-                  "Test scenarios, correct assumptions and decide what can run automatically. Your Brain earns your confidence.",
-                ],
-                [
-                  "03",
-                  "Build your business",
-                  "Publish your brand, create your membership and coach through a clear program, workout log and personal conversation.",
-                ],
-              ].map(([n, title, body]) => (
-                <div className="step-card" key={n}>
-                  <span className="step-number">{n}</span>
-                  <h3>{title}</h3>
-                  <p>{body}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="economics public-section" id="economics">
-            <div>
-              <p className="eyebrow">GROW WITH ROOM TO GROW</p>
-              <h2>
-                A share that gets
-                <br />
-                lighter as you scale.
-              </h2>
-              <p className="muted lead">
-                Transparent marginal commission. Each new band applies to the
-                subscribers in that band.
-              </p>
-              <div className="fee-bands">
-                <span>
-                  1–100 <strong>25%</strong>
-                </span>
-                <span>
-                  101–300 <strong>20%</strong>
-                </span>
-                <span>
-                  301–1,000 <strong>15%</strong>
-                </span>
-                <span>
-                  1,001+ <strong>10%</strong>
-                </span>
-              </div>
-            </div>
-            <Card className="calculator">
-              <div className="card-heading">
-                <h3>Imagine your coaching business</h3>
-                <Badge>Illustration</Badge>
-              </div>
-              <Field label={`Paying subscribers: ${count}`}>
-                <input
-                  type="range"
-                  min={1}
-                  max={1500}
-                  value={count}
-                  onChange={(e) => setCount(Number(e.target.value))}
-                />
-              </Field>
-              <Field label="Monthly membership (AED)">
-                <input
-                  type="number"
-                  min={1}
-                  max={10000}
-                  value={price}
-                  onChange={(e) =>
-                    setPrice(
-                      Math.max(1, Math.min(10000, Number(e.target.value))),
-                    )
-                  }
-                />
-              </Field>
-              <div className="readiness-row">
-                <span>Subscription revenue</span>
-                <strong>{money(count * price * 100)}</strong>
-              </div>
-              <div className="readiness-row">
-                <span>Platform commission</span>
-                <strong>{money(fees)}</strong>
-              </div>
-              <div className="calculator-total">
-                <span>Before other costs and tax</span>
-                <strong>{money(count * price * 100 - fees)}</strong>
-              </div>
-              <p className="muted fine-print">
-                Illustrative arithmetic, not an earnings promise. Payment
-                processing, AI, voice, bank fees, refunds and applicable tax are
-                additional.
-              </p>
-            </Card>
-          </section>
-          <section className="closing public-section">
-            <p className="eyebrow">YOU ALREADY HAVE THE EXPERIENCE.</p>
-            <h2>
-              Give it somewhere
-              <br />
-              new to go.
-            </h2>
-            <Link className="button large" href="/signup">
-              Build my coaching Brain <ArrowUpRight size={18} />
-            </Link>
-          </section>
-        </>
+        </footer>
+      ) : (
+        <MarketingFooter appName={platform.name} initials={platform.initials} />
       )}
-      <footer className="public-footer">
-        <span>Trainer Brain · Built around your judgment.</span>
-        <div>
-          <Link href="/terms">Terms</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/ai-disclosure">Digital coaching</Link>
-        </div>
-      </footer>
     </Shell>
   );
 }

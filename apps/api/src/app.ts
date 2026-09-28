@@ -41,6 +41,7 @@ import {
 } from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import { registerDiscovery } from "./discovery.ts";
+import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -306,7 +307,11 @@ export async function buildApp(
     db?: Database;
     testing?: boolean;
     /** Nonproduction fixtures only: replaces the Stripe client; commerce approval gates still apply. */
-    providers?: { stripe?: () => ReturnType<typeof stripeClient> };
+    providers?: {
+      stripe?: () => ReturnType<typeof stripeClient>;
+      /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
+      instagram?: InstagramTransport;
+    };
   } = {},
 ) {
   const stripeProvider = () => options.providers?.stripe?.() ?? stripeClient();
@@ -629,6 +634,9 @@ export async function buildApp(
   });
   registerCoachSite(app, db);
   registerDiscovery(app, db);
+  registerMarketing(app, db, {
+    instagramTransport: options.providers?.instagram,
+  });
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);

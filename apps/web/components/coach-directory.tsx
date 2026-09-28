@@ -1,6 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { DIRECTORY_PAGE_SIZE, appInitials } from "@trainer/contracts";
+import {
+  DEFAULT_PLATFORM_NAME,
+  DIRECTORY_PAGE_SIZE,
+  appInitials,
+} from "@trainer/contracts";
+import { MarketingFooter, MarketingHeader } from "./marketing/frame";
 
 type Option = { id: string; label: string };
 export type DirectoryCoach = {
@@ -201,28 +206,19 @@ function DirectoryFrame({
 }) {
   return (
     <div className="public directory-page">
-      <header className="public-header">
-        <Link href="/" className="wordmark" aria-label={platformName + " home"}>
-          <span className="brand-mark">b.</span>
-          <span>
-            trainer<span className="wordmark-light">brain</span>
-          </span>
-        </Link>
-        <nav aria-label="Platform">
-          <Link href="/how-it-works">How it works</Link>
-          <Link href="/pricing">The economics</Link>
-          <Link href="/login">Sign in</Link>
-        </nav>
-        <Link className="button" href="/signup">
-          List your coaching
-        </Link>
-      </header>
-      <main className="directory">{children}</main>
-      <footer className="directory-footer">
-        <Link href="/terms">Terms</Link>
-        <Link href="/privacy">Privacy</Link>
-        <Link href="/ai-disclosure">Digital coaching</Link>
-      </footer>
+      <MarketingHeader
+        appName={platformName}
+        initials={appInitials(platformName)}
+        cta={{ label: "List your coaching", href: "/get-started" }}
+        path="/coaches"
+      />
+      <main className="directory" id="main">
+        {children}
+      </main>
+      <MarketingFooter
+        appName={platformName}
+        initials={appInitials(platformName)}
+      />
     </div>
   );
 }
@@ -233,7 +229,7 @@ function DirectoryFrame({
  * ending on a missing page.
  */
 export function CoachDirectoryClosed({
-  platformName = "Trainer Brain",
+  platformName = DEFAULT_PLATFORM_NAME,
 }: {
   platformName?: string;
 }) {

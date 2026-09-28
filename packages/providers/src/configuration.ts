@@ -151,6 +151,17 @@ export function integrationCapability(
       approved: configured && config.DOMAIN_OPERATIONS_ENABLED === "true",
     };
   }
+  if (id === "instagram") {
+    const configured = has(
+      "INSTAGRAM_APP_ID",
+      "INSTAGRAM_APP_SECRET",
+      "INSTAGRAM_REDIRECT_URI",
+    );
+    return {
+      configured,
+      approved: configured && config.INSTAGRAM_APP_REVIEW_APPROVED === "true",
+    };
+  }
   return undefined;
 }
 
@@ -173,8 +184,14 @@ export type IntegrationDefinition = {
     | "intelligence"
     | "communications"
     | "health"
-    | "branding";
+    | "branding"
+    | "marketing";
   implemented: boolean;
+  /**
+   * Operator controls rather than a provider connection: always enabled, no
+   * connection test, cannot be disconnected (like the application settings).
+   */
+  controls?: boolean;
   fields: IntegrationField[];
   setupNotes?: string;
 };
@@ -191,6 +208,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     name: "Application settings",
     category: "platform",
     implemented: true,
+    controls: true,
     description: "Platform identity, reviewed policies and feature controls.",
     setupNotes:
       "These controls record an operator decision. They do not establish legal approval or provider eligibility by themselves. Legal document versions come from the published documents registry, not from this page. Infrastructure secrets stay outside this page.",
@@ -278,6 +296,115 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
           defaultValue: "true",
           help: "Lists only published coaches who opted in from their website settings. Turning this off hides /coaches and its sitemap entry; coaches keep their choice.",
         },
+      ),
+    ],
+  },
+  {
+    id: "marketing",
+    name: "Marketing estimates",
+    category: "marketing",
+    implemented: true,
+    controls: true,
+    description:
+      "Assumptions behind the public follower calculator, and public company details.",
+    setupNotes:
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value. An inconsistent set (a low above its high) is ignored and the cited defaults apply.",
+    fields: [
+      field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
+        defaultValue: "2026-09-28",
+        help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
+      }),
+      field("FOLLOWER_REACH_UP_TO_5K_LOW", "Story reach, up to 5,000 followers: low (%)", "number", {
+        defaultValue: "9.55",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_5K_HIGH", "Story reach, up to 5,000 followers: high (%)", "number", {
+        defaultValue: "10.4",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_10K_LOW", "Story reach, 5,001 to 10,000 followers: low (%)", "number", {
+        defaultValue: "3.5",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_10K_HIGH", "Story reach, 5,001 to 10,000 followers: high (%)", "number", {
+        defaultValue: "4.2",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_50K_LOW", "Story reach, 10,001 to 50,000 followers: low (%)", "number", {
+        defaultValue: "1.35",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_50K_HIGH", "Story reach, 10,001 to 50,000 followers: high (%)", "number", {
+        defaultValue: "2",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_100K_LOW", "Story reach, 50,001 to 100,000 followers: low (%)", "number", {
+        defaultValue: "0.55",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_UP_TO_100K_HIGH", "Story reach, 50,001 to 100,000 followers: high (%)", "number", {
+        defaultValue: "0.65",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_REACH_ABOVE_100K_LOW", "Story reach, above 100,000 followers: low (%)", "number", {
+        defaultValue: "0.5",
+        help: "Share of followers who see a Story. Default: Socialinsider Stories benchmarks (image).",
+      }),
+      field("FOLLOWER_REACH_ABOVE_100K_HIGH", "Story reach, above 100,000 followers: high (%)", "number", {
+        defaultValue: "0.65",
+        help: "Default: Socialinsider Stories benchmarks (video).",
+      }),
+      field("FOLLOWER_LINK_CLICK_LOW", "Link-sticker click-through: low (%)", "number", {
+        defaultValue: "1",
+        help: "Share of Story viewers who open the link. No industry benchmark exists; creators report 1-5%.",
+      }),
+      field("FOLLOWER_LINK_CLICK_HIGH", "Link-sticker click-through: high (%)", "number", {
+        defaultValue: "5",
+      }),
+      field("FOLLOWER_PURCHASE_LOW", "Visit to paid subscriber: low (%)", "number", {
+        defaultValue: "1.51",
+        help: "Default: Dynamic Yield e-commerce conversion, APAC.",
+      }),
+      field("FOLLOWER_PURCHASE_HIGH", "Visit to paid subscriber: high (%)", "number", {
+        defaultValue: "5.39",
+        help: "Default: Dynamic Yield e-commerce conversion, beauty and personal care.",
+      }),
+      field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
+        defaultValue: "0.48",
+        help: "A trainer's own engagement rate is compared with this to scale reach. Default: Socialinsider 2025.",
+      }),
+      field("FOLLOWER_ENGAGEMENT_FACTOR_MAX", "Largest engagement scaling (times)", "number", {
+        defaultValue: "2",
+        help: "Reach is scaled by at most this factor up, and its inverse down. 1 to 10.",
+      }),
+      field("COMPANY_DETAILS", "Public company details", "text", {
+        help: "Registered name, licence and address shown on /about. Leave blank until confirmed; nothing is shown then.",
+      }),
+    ],
+  },
+  {
+    id: "instagram",
+    name: "Instagram (follower estimates)",
+    category: "marketing",
+    implemented: true,
+    description:
+      "Lets trainers connect an Instagram professional account to fill the follower calculator with their follower count and recent engagement.",
+    setupNotes:
+      "Uses the Instagram API with Instagram Login (professional accounts only, instagram_business_basic). Set the redirect URI in your Meta app to /api/v1/trainer/instagram/callback on the public application address. Access is read once and not stored. Stays off until Meta app review is recorded as approved.",
+    fields: [
+      field("INSTAGRAM_APP_ID", "Instagram app ID", "text", { required: true }),
+      field("INSTAGRAM_APP_SECRET", "Instagram app secret", "secret", {
+        required: true,
+      }),
+      field("INSTAGRAM_REDIRECT_URI", "Redirect URI", "url", {
+        required: true,
+        help: "https://<your application address>/api/v1/trainer/instagram/callback",
+      }),
+      field(
+        "INSTAGRAM_APP_REVIEW_APPROVED",
+        "Meta app review approved for instagram_business_basic",
+        "boolean",
+        { defaultValue: "false" },
       ),
     ],
   },
@@ -789,6 +916,18 @@ export function validateIntegrationValues(
           `${entry.label} has an unsupported selection`,
         );
       if (
+        /^FOLLOWER_(REACH_|LINK_CLICK_|PURCHASE_|ENGAGEMENT_BENCHMARK)/.test(
+          key,
+        ) &&
+        Number(text) > 100
+      )
+        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+      if (
+        key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
+        (Number(text) < 1 || Number(text) > 10)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 1 to 10`);
+      if (
         (key === "SUPPORT_EMAIL" || key === "EMAIL_FROM") &&
         !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
       )
@@ -981,6 +1120,7 @@ export async function testIntegration(
       zepp: "ZEPP_CONTRACT_VERIFIED",
       voice: "VOICE_CONTRACT_VERIFIED",
       domains: "DOMAIN_OPERATIONS_ENABLED",
+      instagram: "INSTAGRAM_APP_REVIEW_APPROVED",
     };
     if (contractFlags[id] && config[contractFlags[id]] !== "true")
       return {
@@ -1022,7 +1162,13 @@ export async function testIntegration(
         checkedAt,
       };
     }
-    if (id === "whoop" || id === "zepp" || id === "voice" || id === "domains") {
+    if (
+      id === "whoop" ||
+      id === "zepp" ||
+      id === "voice" ||
+      id === "domains" ||
+      id === "instagram"
+    ) {
       if (
         id === "zepp" &&
         fields.ZEPP_ADAPTER_CONTRACT !== "canonical-observations-v1"

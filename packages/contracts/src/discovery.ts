@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INDEXABLE_MARKETING_PAGES } from "./marketing.ts";
 
 /**
  * Public discovery vocabulary and route policy shared by the API (sitemaps,
@@ -8,17 +9,13 @@ import { z } from "zod";
 export const DIRECTORY_PATH = "/coaches";
 export const DIRECTORY_PAGE_SIZE = 24;
 
-/** Platform marketing pages that search engines may index. */
-export const PUBLIC_MARKETING_PATHS = [
-  "/",
-  "/how-it-works",
-  "/demo",
-  "/pricing",
-  "/faq",
-  "/terms",
-  "/privacy",
-  "/ai-disclosure",
-] as const;
+/**
+ * Platform marketing pages that search engines may index, derived from the
+ * marketing registry (packages/contracts/src/marketing.ts) so the sitemap,
+ * robots metadata and pages never drift apart.
+ */
+export const PUBLIC_MARKETING_PATHS: readonly string[] =
+  INDEXABLE_MARKETING_PAGES.map((page) => page.path);
 
 /**
  * First path segments of private app and authentication routes. They are

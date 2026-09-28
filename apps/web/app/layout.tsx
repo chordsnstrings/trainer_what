@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { AcquisitionConsent } from "../components/acquisition";
 import { documentLanguage } from "../components/public-website";
+import { publicPlatform } from "../components/marketing/platform";
+import { MARKETING_PAGES } from "@trainer/contracts";
+
+const MARKETING_SITE_PATHS = MARKETING_PAGES.filter(
+  (page) => page.renderer !== "workspace",
+).map((page) => page.path);
 import "./globals.css";
 import "./nutrition.css";
 import "./platform-settings.css";
@@ -13,7 +19,17 @@ import "./governance.css";
 import "./coach-directory.css";
 import "./host-operations.css";
 import "./provider-sandbox.css";
-export const metadata: Metadata = {
+import "./marketing.css";
+export async function generateMetadata(): Promise<Metadata> {
+  // The platform name comes from the Super admin settings (APP_NAME).
+  const { name } = await publicPlatform();
+  return {
+    ...metadata,
+    title: { default: name, template: "%s | " + name },
+    applicationName: name,
+  };
+}
+const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   // Real PNG sizes for install surfaces; iOS ignores SVG home-screen icons.
   icons: {
@@ -23,9 +39,8 @@ export const metadata: Metadata = {
     ],
     apple: { url: "/icons/apple-touch-icon.png", sizes: "180x180" },
   },
-  title: "Trainer Brain — Your coaching, amplified",
   description:
-    "Build a digital coaching practice around your own methods, judgment and brand.",
+    "Build an AI trainer from your own coaching method and sell personalised, day-by-day coaching to your followers, priced in AED.",
 };
 export const viewport: Viewport = { themeColor: "#254d42" };
 export default async function Layout({
@@ -43,7 +58,7 @@ export default async function Layout({
     <html lang={lang} dir={dir}>
       <body>
         {children}
-        <AcquisitionConsent />
+        <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
       </body>
     </html>
   );
