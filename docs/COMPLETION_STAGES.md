@@ -6,6 +6,30 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-28 — completion packages, hardening and end-to-end harness (integrate/round2, unmerged)
+
+Owner request (27 Sep, evening): complete every partial and not-built feature, test the rest with mock data, use Claude to check AI responses, make it production ready. Built as eleven packages, each in an isolated worktree with an adversarial review and a fix round, then merged by the coordinator on `integrate/round2` and pushed to `claude/repository-overview-osejlw` (PR #3). Nothing was deployed; `main` and the live server are unchanged.
+
+| Package | Delivered | Record |
+| --- | --- | --- |
+| Accounts | Name/email change with verification, change-password screen, operator-assisted recovery, leave a trainer / owner removal, Apple and Google sign-in (OIDC), single session creator | `docs/features/accounts.md` |
+| Joining | Invitation emails, pending invitations with cancel, join alerts, complimentary access through one entitlement function, second-coach joining | `docs/features/joining.md` |
+| Governance | Workspace suspension, account locks on every sign-in path, executive metrics with CSV, operator alert engine, central fresh-authenticator guard for operator routes | `docs/features/governance.md` |
+| Messaging | Published templates drive delivery (11 more keys registered at merge), safety policy tightens escalation only, inquiry alerts, leads, conversion milestones | `docs/features/messaging.md` |
+| Discovery | robots.txt/sitemaps, opt-in coach directory, trainer-branded install for members | `docs/features/discovery.md` |
+| HealthKit sync | Server API: device pairing, batch upload, deletion (native iOS app not built) | `docs/features/healthkit.md` |
+| Infrastructure | Encrypted scheduled backups with restore check and optional S3 copy, host metrics, signed admin host actions, on-demand TLS for coach domains; backup and host alerts wired at merge | `docs/features/infra-ops.md` |
+| End-to-end harness | Mock Stripe, Lean, email, model (capture/replay), push, WHOOP, Zepp, voice, registrar, DNS, S3, OIDC; production-mode local stack; 399 steps passed on two identical runs | `docs/features/e2e-harness.md` |
+| Isolation | Membership-verified tenant scopes, SQL guard against role/setting changes, definer helpers replacing follower elevation, workspace-bound service tables (migration 061) | `docs/features/isolation.md` |
+| Bounded bootstrap | First-page bootstrap with cursors and paged endpoints | `docs/features/bounded-bootstrap.md` |
+| Right-to-left | Direction from member/site language, logical CSS with a lint test, RTL browser check | `docs/features/rtl-layout.md` |
+
+Merge fixes by the coordinator: account locks inside `openSignInSession`; safety-review escalation keeps running for suspended workspaces; complimentary access closes when a membership ends; new account routes are noindex; verifier de-duplicated.
+
+Checks actually run on the merged head `b4ac2b5`: TypeScript passed; full PGlite suite 746 tests, 745 pass, 0 fail, 1 skipped. Per-package PostgreSQL restricted-role runs passed in each worktree (isolation ran the whole suite on PostgreSQL: 678 pass, 0 fail, 1 cancelled then fixed and rerun). Not yet run on the merged head: whole PostgreSQL suite, `next build`, browser check, deployment tests, e2e harness. Not done: Claude-authored model answers and judging (capture/replay), native HealthKit app, legal text, live provider qualification.
+
+Owner concept clarified on 28 Sep (see PROJECT_MEMORY): the Trainer Brain generates and adapts each subscriber's plan and escalates only when not confident; programme length is set by the trainer; voice is an add-on that runs the session. Those three packages are being built next.
+
 ## Stage register
 
 Each implemented stage records concrete behavior, changed paths, actual checks and its remaining qualification. Only the coordinating agent stages and commits files. Completed stages are pushed before moving on; provider-dependent functionality stays gated until its real contract and account are qualified.

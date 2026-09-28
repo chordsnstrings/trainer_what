@@ -2,6 +2,10 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
+## Latest (28 September 2026)
+
+Eleven completion and hardening packages are merged on `integrate/round2` and pushed to `claude/repository-overview-osejlw` (PR #3, not merged to `main`; the live server is unchanged). See `docs/COMPLETION_STAGES.md` stage 2026-09-28 and `docs/features/*.md`. The owner clarified the product concept on 28 September (recorded in `docs/PROJECT_MEMORY.md`): the Trainer Brain generates and adapts plans and escalates only when not confident; trainer-set programme length; voice add-on that runs the session. Those packages are in progress. Merging to `main` deploys automatically, so ask the owner first.
+
 ## Start here
 
 - Repository: https://github.com/chordsnstrings/trainer_what
