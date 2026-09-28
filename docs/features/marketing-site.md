@@ -386,6 +386,134 @@ Checks run (this pass):
   PGlite and PostgreSQL tests, not submitted in the browser (the local
   deployment has registration open).
 
+## Light site, relay hero and shorter copy (28 September 2026, `core/marketing-light`)
+
+Owner feedback on the live site: dark green on a dark-mode device, not
+professional enough, too many words, and the first page does not show what
+the product does (the trainer teaches trainsyou, which then trains that
+trainer's subscribers). Theme changes are in [brand.md](brand.md) "Light
+public pages": every public platform page is always light.
+
+### Home structure
+
+1. **Hero** (`section.mk-hero`, grid 5fr/7fr, fits a 1440×900 first screen
+   with the header): eyebrow, H1 `BRAND_COPY.homeHeadline` "Teach your AI.
+   It trains your subscribers." with `h1Highlight` "trains" marked in Pace,
+   the 21-word `lede`, the primary action (`button large mk-cta`: "Teach
+   your AI", or "Join early access" while registration is closed), "See how
+   it works", and "You set the price in AED · No technical skills needed".
+2. **The relay** (`components/marketing/hero-flow.tsx`, a server
+   component): a `figure` labelled "How trainsyou works" with three steps
+   in an `ol`: 01 You teach (Methods, Rules, Programmes, a sample rule),
+   02 trainsyou learns your coaching (the relay mark on a Pace tile, or the
+   initials for a renamed platform; "Confident: applies your rule"), 03 Your
+   subscribers train ("In your app, under your name", today's session, next
+   week's progression and "Voice-led session" with the same availability
+   chip as /features/voice-coach). A dashed loop returns from 02 to 01: "Not
+   sure? It asks you first. Pain and red flags always come to you." Tagged
+   "Illustration with sample data"; no headings, metrics, counts, revenue or
+   hard-coded domain. Wires mirror right to left (`scale: var(--inline-sign)
+   1`); the lockup and the mark never mirror. Below 861 px the steps stack
+   with ink connectors and the loop becomes a pill. Motion is CSS only,
+   plays once, ends at 4.3 s and runs only under
+   `prefers-reduced-motion: no-preference`; every base style is the final
+   picture, and the decorative dot rests hidden.
+3. **What your subscribers get** (white): four ink icons on paper squares
+   (Daily plan, Guided workouts, Progress they can see, Nutrition with the
+   /features/nutrition chip) and "All features".
+4. **You stay in charge** (paper): the decision flow card (subscriber
+   message, the 2.5 kg rule and confidence meter, the three lanes), tagged
+   as sample data; "See four decisions in the demo".
+5. **Your site. Your price.** (white): the coaching address from
+   `coachAddressTemplate` (a browser-bar mock with `yourname` while
+   registration is closed, the live `AddressPreview` while open), the band
+   pills computed from the ledger's `BANDS` (25% · 1–100, 20% · 101–300,
+   15% · 301–1,000, 10% · 1,001+) and "Marginal bands: each band keeps its
+   own rate."; "Pricing in detail".
+6. **What are your followers worth?** (paper): the compact follower
+   calculator unchanged in its own `.mk-home-calc` block (only its container
+   is styled); "Open the full calculator".
+7. **Questions trainers ask**: six FAQs (the first answers "How does
+   trainsyou work?" with the answer-first introduction), the same list as
+   the FAQPage JSON-LD.
+8. **Closing** (every marketing page): a contained Pace panel, H2 the brand
+   line (or "Ready to teach your AI?" for a renamed platform), "Guided setup.
+   Nothing goes live until you publish.", the ink button and a link ("See
+   how it works" on / and /follower-calculator, otherwise "What are my
+   followers worth?").
+
+Measured on the production build: the hero ends at 693 px at 1440×900; at
+390×844 the H1 ends at 253 px and the primary action at 462 px; `main` has
+370 visible words (the calculator excluded) and 6 H2s including the
+closing.
+
+### Where the home content went (moved, not deleted)
+
+| Former home block | Now |
+| --- | --- |
+| "What is trainsyou?" | Already the /about introduction (`ENTITY_SENTENCE`, still in llms.txt and the Organization JSON-LD); the "not" statements are /about's "What we are and are not" |
+| "Your income stops when your hours do." with the three price anchors and sources | /pricing "An hour sells only once" with its three sources and the anchor cards |
+| "Everything included" counts | /features, as a paper strip |
+| Eight subscriber cards | /features "What your subscribers get" |
+| "Inside the product" screens, feature tiles | Already on /features |
+| "Teach it. It coaches. You earn." steps | Replaced by the relay; /how-it-works has the eight steps |
+| Trainer Brain cards (Confident, Not sure, Safety) and "You stay in control" bullets | /trainer-brain "How it decides" and "You stay in control" |
+| The privacy and export bullet | Already on /security-and-privacy |
+| Worked example | Stays on /pricing |
+| The longer technical-skills FAQ | /faq (shared `TECH_FAQ`, shortened) |
+
+Every moved passage keeps its `sources`, so llms-full.txt carries it under
+its new page. `lastUpdated` stays 2026-09-28 on / and the receiving pages
+(the sitemap `lastmod`).
+
+### Copy limits
+
+Applied now to / and the header pages (/how-it-works, /trainer-brain,
+/features, /pricing, /about, /get-started), each with a `lede` (25 words or
+fewer) shown in the hero, the introduction following it as a summary.
+Other pages follow when next edited; /methodology and the calculator copy
+belong to the calculator package.
+
+| Element | Limit |
+| --- | --- |
+| H1 | 8 words or fewer, one idea, no colon subtitle |
+| Eyebrow | 4 words or fewer |
+| Lede | 25 words or fewer |
+| Introduction | 35-65 words (tested), aim for 35-50 |
+| H2 | 6 words or fewer (guides 9, questions allowed) |
+| Section body | 2 paragraphs or fewer, 35 words each (guides 60) |
+| Sentences | 20 words or fewer; at most one colon or semicolon |
+| Cards and steps | Title 4 words, body 18 words |
+| Bullets | 12 words, 5 per list |
+| FAQ answers | 45 words; the first sentence answers |
+| Hub tiles | One line, 12 words |
+
+Voice: second person, active, UAE/UK spelling. Not used: seamless,
+revolutionary, cutting-edge, unlock, empower, game-changing. Two text-only
+sections in a row at most. Known exceptions kept on purpose: the home
+introduction (locked by the brand test and reused as FAQ 1, 55 words), the
+shared safety FAQ (one 27-word sentence) and the /about introduction (the
+entity sentence).
+
+### Checks for this package
+
+- `tests/marketing-site.test.ts`: the home test (one H1 whose text is the
+  registry `h1`, the highlight inside it, the lede length, the relay's text,
+  tag and absence of headings, the voice and nutrition chips on and off,
+  the address from `/coach/{slug}` and `{slug}.<root>` templates open and
+  closed, no `yourname.trainsyou.com` literal, the band pills equal to
+  `BANDS`, the H2 list, six FAQs equal to the FAQPage JSON-LD, the
+  calculator line byte-identical); a copy-limits test for the header pages
+  and the moved-content map; the counts and screens checks moved to
+  /features. The 350-word floor is unchanged.
+- `scripts/brand-check.mjs`: the home page at 1440×900 (hero bottom,
+  visible words, H2 count, one H1), 390×844 (H1 and primary action on the
+  first screen, stacked steps), reduced motion (no animation, everything
+  visible), motion allowed (plays once, ends by 4.5 s, at rest after 5 s),
+  right to left at 1440 (steps mirrored, wires towards the next step,
+  lockup and mark not mirrored) and every public route at 390 with
+  `?lang=ar` (no overflow).
+
 ## Not done / next
 
 - Stage record: this package ran in parallel with others, so it does not edit

@@ -6,6 +6,11 @@
 //   /methodology. Earnings and follower figures are estimate ranges.
 // - Never name the domain registrar or the payout provider.
 // - {APP_NAME} is replaced with the configured platform name.
+// - Copy limits (docs/features/marketing-site.md "Copy limits"): H1 at most 8
+//   words, eyebrow 4, hero lede 25, H2 6, card titles 4 and bodies 18,
+//   bullets 12 (5 per list), FAQ answers 45. Long detail belongs on a deeper
+//   page, not on the home page.
+import { BRAND_COPY } from "./brand.ts";
 import type {
   MarketingCard,
   MarketingFaq,
@@ -440,8 +445,23 @@ const PRICE_FAQ: MarketingFaq = {
 };
 const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
-  a: "Your Trainer Brain is taught by you: your confirmed rules, coaching cases, examples and corrections, tested against held-out scenarios and published as versions you can roll back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
+const TECH_FAQ: MarketingFaq = {
+  q: "Do I need technical skills?",
+  a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
+};
+const INSTAGRAM_FAQ: MarketingFaq = {
+  q: "How do my Instagram followers become subscribers?",
+  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay by card in AED. The follower calculator estimates a realistic range from cited benchmarks; it is an estimate, not a promise.",
+};
+/**
+ * The home page's answer-first introduction (35-65 words, opening with the
+ * copy bank's "Teach your own AI how you coach"). The hero shows the short
+ * lede; this answers the first home FAQ and leads the page in llms-full.txt.
+ */
+const HOME_INTRO =
+  "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.";
 
 export const MARKETING_CONTENT: MarketingPage[] = [
   {
@@ -450,124 +470,53 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     group: "product",
     navLabel: "Home",
     title: "AI personal trainer platform for UAE coaches",
-    // Headline, audience and product explanation from the trainsyou copy bank
-    // (docs/features/brand.md); the specifics that follow are what the
-    // platform does today.
+    // 28 September 2026 refresh: the H1 says what happens (the trainer
+    // teaches, the platform trains their subscribers); the brand line leads
+    // the description and closes every page. Removed home blocks now live
+    // on deeper pages (docs/features/marketing-site.md "Where the home
+    // content went").
     description:
-      "Your coaching. Beyond your hours. Teach your own AI how you coach and build a paid coaching offering around your methods, priced in AED.",
-    h1: "Your coaching. Beyond your hours.",
+      "Your coaching. Beyond your hours. Teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
+    h1: BRAND_COPY.homeHeadline,
+    h1Highlight: "trains",
     eyebrow: "FOR PERSONAL TRAINERS",
-    intro:
-      "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.",
+    lede: "Share your methods, rules and programmes. {APP_NAME} coaches each subscriber day by day, your way, and asks you when it’s unsure.",
+    intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
       {
-        id: "what-is",
-        heading: "What is {APP_NAME}?",
-        body: [
-          "{APP_NAME} is a UAE platform that lets each personal trainer build a bespoke AI trainer, their Trainer Brain, from their own rules, cases and examples. It then sells personalised, day-by-day coaching to the trainer’s followers under the trainer’s own brand, priced in AED.",
-          "It is not a generic workout generator, not a medical service, and it does not replace you: anything the Brain is unsure about, and every safety issue, comes to you.",
-        ],
-      },
-      {
-        id: "hours",
-        heading: "Your income stops when your hours do.",
-        body: [
-          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, and experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month. Either way, an hour can be sold only once.",
-          "A Trainer Brain lets your method coach many people at the same time, at a monthly price far more followers can afford, while you keep the sessions and clients only you can serve.",
-        ],
-        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
-        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
-      },
-      {
-        id: "steps",
-        heading: "Teach it. It coaches. You earn.",
-        steps: [
-          {
-            title: "Teach it",
-            body: "Answer a guided coaching interview, write or confirm rules, add cases and examples, and import your own documents. Test the Brain on held-out scenarios before anything goes live.",
-          },
-          {
-            title: "It coaches",
-            body: "Each subscriber gets a personalised, dated plan built from their own input. The Brain adapts it as they log workouts, and hands you anything it is not confident about.",
-          },
-          {
-            title: "You earn",
-            body: "Subscribers pay you in AED through your own branded website and app. You set the price; payouts arrive monthly in your UAE bank account.",
-          },
-        ],
-      },
-      {
-        id: "brain",
-        heading: "The Trainer Brain: your judgment, working when you’re not.",
-        body: [
-          "Every decision starts from something you taught. When the Brain is confident, it applies the change and records why. When it is not, it drafts a suggestion and sends it to you. Pain, medical issues and red flags never stay with the AI.",
-        ],
-        cards: [
-          {
-            title: "Confident",
-            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
-            label: "Applied automatically",
-          },
-          {
-            title: "Not sure",
-            body: "Outside what you taught, or below your confidence threshold: a draft comes to you to approve or correct. Your correction becomes teaching.",
-            label: "Handed to you",
-          },
-          {
-            title: "Safety",
-            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
-            label: "Always to you",
-          },
-        ],
-      },
-      {
         id: "subscribers",
         heading: "What your subscribers get",
-        cards: [
-          { title: "A plan for every day", body: "A personalised, dated plan built from their goals, schedule, experience and equipment." },
-          { title: "Guided workouts", body: "Exercise cues, set logging and rest timers; it keeps working offline in the gym." },
-          { title: "Adapts as they train", body: "Progressions, missed sessions and swaps follow your rules automatically." },
-          { title: "Your voice, optionally", body: "An add-on where a voice in your own verified voice runs the session." },
-          { title: "Nutrition, optionally", body: "Meal plans, recipes, grocery lists, a food diary, meal photos and barcode scanning." },
-          { title: "You, when it matters", body: "Chat with you, a clearly labelled digital coach, and paid one-to-one sessions." },
-          { title: "Progress they can see", body: "Completed sessions, best loads and their coaching context in one place." },
-          { title: "Your brand throughout", body: "Your website, your address, your colours and an installable app with your icon." },
+        body: ["A plan for every day, built your way, that adapts as they train."],
+      },
+      {
+        id: "control",
+        heading: "You stay in charge",
+        body: [
+          "It acts on what you taught. Anything unsure comes to you; pain and red flags always do.",
         ],
       },
       {
         id: "economics",
-        heading: "You set the price. We take a transparent share.",
+        heading: "Your site. Your price.",
         body: [
-          "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate.",
-          "AI usage is passed through at cost and listed line by line on your statement, with payment processing and any optional services you choose. Payouts are monthly to your UAE bank account.",
+          "Your own coaching site and app, under your name. You set the price in AED.",
+          "Our share starts at 25% and falls in bands as you grow. AI usage is passed on at cost.",
         ],
       },
       {
-        id: "control",
-        heading: "You stay in control",
-        bullets: [
-          "Your rules are inspectable and every release can be rolled back.",
-          "You choose which routine changes run automatically.",
-          "You can take over any subscriber or conversation at any time.",
-          "Safety routing is enforced in code and cannot be switched off.",
-          "Subscribers always see when guidance comes from the digital coach.",
-          "Your teaching is private to your workspace, and your data can be exported.",
-        ],
+        id: "followers",
+        heading: "What are your followers worth?",
+        body: ["A quick range from published benchmarks. An estimate, not a promise."],
       },
     ],
     faqs: [
+      { q: "How does {APP_NAME} work?", a: HOME_INTRO },
       REPLACE_FAQ,
       SAFETY_FAQ,
       PRICE_FAQ,
-      {
-        q: "Do I need technical skills?",
-        a: "No. Setup is a guided checklist: you answer interview questions, confirm rules in plain language, write test scenarios, set your offer and add your bank account. The website, app, payments and payouts are set up for you.",
-      },
-      {
-        q: "How do my Instagram followers become subscribers?",
-        a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay by card in AED. The follower calculator estimates a realistic range from cited benchmarks; it is an estimate, not a promise.",
-      },
+      TECH_FAQ,
+      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
     lastUpdated: UPDATED,
@@ -584,22 +533,23 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "Eight steps from your address to monthly payouts: teach your Trainer Brain, test it, publish your offer, share your link and let it coach every day.",
     h1: "How {APP_NAME} turns your method into personalised coaching",
     eyebrow: "HOW IT WORKS",
+    lede: "Teach it your method, test it, then publish. It coaches every subscriber day by day and hands you what it’s unsure about.",
     intro:
-      "You teach a Trainer Brain your rules, cases and examples, test it on scenarios it has never seen, and publish an offer at your own price. It then plans and adapts each subscriber’s training day by day, hands you what it is unsure about, and learns from your corrections.",
+      "You teach a Trainer Brain your rules, cases and examples. You test it on scenarios it has never seen, then publish an offer at your own price. It plans each subscriber’s training day by day and adapts it. It hands you what it is unsure about and learns from your corrections.",
     primaryKeyword: "how does an AI personal trainer work",
     sections: [
       {
         id: "steps",
-        heading: "Eight steps from your method to monthly payouts",
+        heading: "Eight steps, start to finish",
         steps: [
-          { title: "Claim your address and brand", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
-          { title: "Teach your Brain", body: "Answer a guided coaching interview, confirm rules in plain language, add coaching cases and examples, and import your own documents with a private redaction review." },
-          { title: "Test it", body: "Write at least 20 held-out scenarios with the answer you expect. The Brain is evaluated against them before a version can be published." },
-          { title: "Create your offer", body: "Set your price in AED, the programme length, monthly or upfront billing, trials and promotions, and an optional nutrition tier or voice add-on." },
-          { title: "Publish and share your link", body: "Review a preview of exactly what subscribers see, launch, then share your tagged link in your bio and Stories." },
-          { title: "It plans and adapts daily", body: "Each subscriber gets a dated plan from their own input. Confident changes are applied automatically; anything uncertain is handed to you." },
+          { title: "Claim your address", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
+          { title: "Teach your Brain", body: "Answer a guided interview, confirm rules in plain language, add cases and examples, and import your documents." },
+          { title: "Test it", body: "Write at least 20 held-out scenarios with your expected answers. Each version is evaluated on them before publishing." },
+          { title: "Create your offer", body: "Set your AED price, programme length and billing, trials, and an optional nutrition tier or voice add-on." },
+          { title: "Publish and share", body: "Check the subscriber preview, launch, then share your tagged link in your bio and Stories." },
+          { title: "It coaches daily", body: "Each subscriber gets a dated plan from their input. Confident changes apply automatically; uncertain ones come to you." },
           { title: "You correct, it learns", body: "Approve or correct what comes to you. Corrections and subscriber outcomes become teaching for the next evaluated release." },
-          { title: "Get paid monthly", body: "Subscribers pay by card in AED. Your statement shows gross revenue, commission and itemised costs, and payouts go to your UAE bank account." },
+          { title: "Get paid monthly", body: "Subscribers pay by card in AED. Your statement itemises commission and costs; payouts go to your UAE bank." },
         ],
       },
       {
@@ -620,7 +570,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "control",
         heading: "Control stays visible",
         body: [
-          "You can inspect every rule and its source, roll back a release, take over any conversation and write programmes yourself. Subscribers see when guidance is digital.",
+          "Inspect every rule and its source, roll back a release, take over any conversation or write programmes yourself. Subscribers always see when guidance is digital.",
         ],
       },
     ],
@@ -650,35 +600,54 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Trainer Brain: an AI built from your judgment",
     description:
       "Teach an AI your coaching rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
-    h1: "The Trainer Brain: an AI trainer built from your judgment",
+    h1: "An AI trainer built from your judgment",
     eyebrow: "TRAINER BRAIN",
+    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident and asks you when it isn’t.",
     intro:
-      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples that plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, acts on its own only when confident, and learns from your corrections.",
+      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, and acts alone only when confident. It learns from your corrections.",
     primaryKeyword: "AI trained on my coaching method",
     sections: [
       {
         id: "what",
         heading: "What it is",
         body: [
-          "A bespoke AI trainer trained on your rules, cases and corrections, not a generic workout generator. Every plan and change traces back to something you taught, and every published version can be rolled back.",
+          "A bespoke AI trainer built from your rules, cases and corrections, not a generic workout generator. Every change traces back to something you taught, and every version can be rolled back.",
         ],
       },
       {
         id: "teach",
         heading: "What you teach it",
         bullets: [
-          "A guided coaching interview: what you recommend, why, the alternatives and the conditions that change your answer.",
-          "Rules in plain language that you confirm, edit or reject, each citing its source.",
+          "A guided interview: what you recommend, why, and what changes it.",
+          "Plain-language rules you confirm, edit or reject, each with its source.",
           "Coaching cases and worked examples of real decisions.",
-          "Your own documents, with a private review of the extracted text before anything is used.",
+          "Your own documents, privately reviewed before anything is used.",
           "Held-out test scenarios: at least 20 situations with the answer you expect.",
         ],
       },
       {
+        // The three paths moved here from the home page (28 September 2026).
         id: "decides",
         heading: "How it decides",
         body: [
-          "For each subscriber it combines your published rules with their goals, schedule, experience, equipment and logged training. When its confidence meets your threshold, it applies the change and records the reason. When it doesn’t, it hands the decision to you with a draft.",
+          "It combines your published rules with each subscriber’s goals, schedule, equipment and logged training. Then it takes one of three paths.",
+        ],
+        cards: [
+          {
+            title: "Confident",
+            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
+            label: "Applied automatically",
+          },
+          {
+            title: "Not sure",
+            body: "Outside what you taught or below your threshold, a draft comes to you. Your correction becomes teaching.",
+            label: "Handed to you",
+          },
+          {
+            title: "Safety",
+            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
+            label: "Always to you",
+          },
         ],
       },
       {
@@ -695,10 +664,22 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "never",
         heading: "What it never does",
         bullets: [
-          "Keep pain, medical issues or red flags to itself: they pause the workout and come to you, enforced in code.",
+          "Keep pain or red flags to itself; they always come to you.",
           "Pretend to be you: subscribers see a clearly labelled digital coach.",
           "Give medical or clinical advice.",
-          "Use your teaching for another trainer: your Brain is private to your workspace.",
+          "Use your teaching for another trainer’s subscribers.",
+        ],
+      },
+      {
+        // Moved from the home page (28 September 2026).
+        id: "control",
+        heading: "You stay in control",
+        bullets: [
+          "Your rules are inspectable and every release can be rolled back.",
+          "You choose which routine changes run automatically.",
+          "You can take over any subscriber or conversation at any time.",
+          "Safety routing is enforced in code and cannot be switched off.",
+          "Subscribers always see when guidance comes from the digital coach.",
         ],
       },
     ],
@@ -791,10 +772,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Personal trainer software features",
     description:
       "Every capability in {APP_NAME}: the Trainer Brain, plans, a branded app and website, nutrition, voice, bookings, chat, payments, payouts and safety.",
-    h1: "Everything you need to run an AI coaching business under your own name",
+    h1: "Everything you need, under your own name",
     eyebrow: "FEATURES",
+    lede: "Your AI, a branded app and website, nutrition, bookings, payments and safety rules, in one workspace.",
     intro:
-      "{APP_NAME} combines a Trainer Brain that plans and adapts training, a subscriber app and website under your brand, optional nutrition and voice, bookings, chat, progress tracking, AED payments with monthly payouts, and safety rules enforced in code.",
+      "{APP_NAME} combines a Trainer Brain that plans and adapts training with a subscriber app and website under your brand. It adds optional nutrition and voice, bookings, chat and progress tracking. Payments are in AED, and safety rules are enforced in code.",
     primaryKeyword: "personal trainer software features",
     sections: [
       {
@@ -805,6 +787,21 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           { title: "Subscriber experience", body: "Day-by-day plans, guided workouts, nutrition, voice, chat, bookings and progress." },
           { title: "Your business", body: "Website and address, offers and billing, promotions, statements, payouts and team roles." },
           { title: "Trust", body: "Safety routing in code, AI disclosure, privacy controls, workspace isolation and security." },
+        ],
+      },
+      {
+        // Moved from the home page (28 September 2026).
+        id: "subscribers",
+        heading: "What your subscribers get",
+        cards: [
+          { title: "A plan every day", body: "A personalised, dated plan built from their goals, schedule, experience and equipment." },
+          { title: "Guided workouts", body: "Exercise cues, set logging and rest timers; it keeps working offline in the gym." },
+          { title: "Adapts as they train", body: "Progressions, missed sessions and swaps follow your rules automatically." },
+          { title: "Your voice, optionally", body: "An add-on where a voice in your own verified voice runs the session." },
+          { title: "Nutrition, optionally", body: "Meal plans, recipes, grocery lists, a food diary, meal photos and barcode scanning." },
+          { title: "You, when it matters", body: "Chat with you, a clearly labelled digital coach, and paid one-to-one sessions." },
+          { title: "Progress they can see", body: "Completed sessions, best loads and their coaching context in one place." },
+          { title: "Your brand throughout", body: "Your website, your address, your colours and an installable app with your icon." },
         ],
       },
     ],
@@ -1582,10 +1579,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Online coaching platform fees and commission",
     description:
       "You set your price in AED. {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue; AI usage is passed through at cost.",
-    h1: "You set the price. We take a transparent share.",
+    h1: "Your price, our transparent share",
     eyebrow: "PRICING",
+    lede: "You set your price in AED. Our commission starts at 25% and falls in bands as you grow.",
     intro:
-      "You choose your subscription price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue that falls as you grow: 25%, 20%, 15% and 10% in marginal bands. AI usage is passed through at cost and itemised.",
+      "You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. AI usage is passed through at cost and itemised.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
@@ -1594,8 +1592,20 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Subscribers pay you monthly or upfront, by card, in AED.",
           "Commission applies to subscription revenue by band.",
-          "Your statement shows every cost, and payouts arrive monthly in your UAE bank account.",
+          "Your statement shows every cost; payouts arrive monthly in your UAE bank.",
         ],
+      },
+      {
+        // Moved from the home page (28 September 2026) with its sources; the
+        // page renders the three price anchors after it.
+        id: "hours",
+        heading: "An hour sells only once",
+        body: [
+          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
+          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        ],
+        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
+        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "bands",
@@ -1642,11 +1652,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       PRICE_FAQ,
       {
         q: "What will I pay?",
-        a: "Commission on subscription revenue by band, payment processing, AI usage at cost, and any optional services you choose, such as the voice add-on or your own domain. Every item appears on your monthly statement.",
+        a: "Commission on subscription revenue by band, payment processing and AI usage at cost. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
       },
       {
         q: "Why is AI usage passed through?",
-        a: "So you only pay for what your subscribers actually use, at cost, and can see it line by line instead of paying a hidden margin.",
+        a: "So you pay only for what your subscribers use, at cost. You see it line by line instead of paying a hidden margin.",
       },
       {
         q: "How is commission counted when I have different prices?",
@@ -1928,6 +1938,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         a: "No. A subscriber can stop renewal at the end of the period. A refund is a separate request that your policy decides.",
       },
       SAFETY_FAQ,
+      TECH_FAQ,
       {
         q: "Does it work offline?",
         a: "Yes. A workout opened online can be saved for the gym; logged sets sync when the connection returns.",
@@ -1957,6 +1968,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "{APP_NAME} makes personal training affordable to more people by scaling real trainers’ judgment through a Trainer Brain each trainer controls.",
     h1: "About {APP_NAME}",
     eyebrow: "ABOUT",
+    lede: "We help personal trainers coach more people with an AI they teach, under their own name.",
+    // The entity sentence (ENTITY_SENTENCE), which the home page's former
+    // "What is {APP_NAME}?" block carried; it stays in llms.txt and JSON-LD.
     intro:
       "{APP_NAME} is a UAE platform that lets each personal trainer build a bespoke AI trainer, their Trainer Brain, from their own rules, cases and examples. It then sells personalised, day-by-day coaching to the trainer’s followers under the trainer’s own brand, priced in AED.",
     primaryKeyword: "{APP_NAME}",
@@ -1965,17 +1979,33 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "mission",
         heading: "Our mission",
         body: [
-          "Make personal training affordable to far more people by scaling real trainers’ judgment, not by replacing trainers with a generic app.",
+          "Make personal training affordable to more people by scaling real trainers’ judgment, not by replacing them with a generic app.",
+        ],
+      },
+      {
+        id: "what",
+        heading: "What we build",
+        body: [
+          "One workspace runs a trainer’s whole coaching business. It holds the Trainer Brain, a plan per subscriber, a branded website and app, bookings and AED payments.",
+          "Safety routing for pain, medical issues and red flags is enforced in code, outside the AI.",
         ],
       },
       {
         id: "is-not",
-        heading: "What we are, and what we are not",
+        heading: "What we are and are not",
         bullets: [
-          "We are a platform for trainers: the brand, the method and the relationship stay theirs.",
-          "We are not a generic workout generator.",
-          "We are not a medical service.",
-          "We do not replace the trainer: uncertain decisions and every safety issue go to them.",
+          "A platform for trainers: the brand, method and relationship stay theirs.",
+          "Not a generic workout generator.",
+          "Not a medical service.",
+          "Not a replacement: uncertain and safety decisions go to the trainer.",
+        ],
+      },
+      {
+        id: "who",
+        heading: "Who it is for",
+        body: [
+          "Personal trainers in the UAE with their own method and an audience that follows them. They want to coach more people without selling more hours.",
+          "Subscribers get that trainer’s method every day at a price far more people can afford.",
         ],
       },
       {
@@ -1986,35 +2016,21 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         ],
       },
       {
-        id: "what",
-        heading: "What we build",
-        body: [
-          "One workspace for a trainer’s whole coaching business: the Trainer Brain they teach, a personalised plan for every subscriber, a branded website and app, optional nutrition and voice, bookings, chat, progress tracking, payments in AED and monthly payouts. Safety routing for pain, medical issues and red flags is enforced in code, outside the AI."
-        ]
-      },
-      {
-        id: "who",
-        heading: "Who it is for",
-        body: [
-          "Personal trainers and coaches in the UAE who have a method of their own and an audience that follows them, and who want to coach more people without selling more hours. Subscribers get that trainer’s method every day at a price far more people can afford."
-        ]
-      },
-      {
         id: "honesty",
         heading: "How we talk about results",
         bullets: [
-          "Earnings and follower figures are estimate ranges with their assumptions shown, never promises.",
+          "Earnings and follower figures are labelled estimates, never promises.",
           "Every market figure cites its source on the methodology page.",
           "We publish no testimonials, logos, ratings or customer counts we cannot show.",
-          "Digital guidance is always labelled as digital."
-        ]
+          "Digital guidance is always labelled as digital.",
+        ],
       },
       {
         id: "where",
         heading: "Where we work",
         body: [
-          "{APP_NAME} is built for the UAE: prices and payouts in AED, English first with an Arabic-ready, right-to-left layout."
-        ]
+          "{APP_NAME} is built for the UAE: prices and payouts in AED, English first with an Arabic-ready, right-to-left layout.",
+        ],
       },
     ],
     faqs: [
@@ -2025,6 +2041,14 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       {
         q: "Does {APP_NAME} own my method?",
         a: "No. Your Brain is private to your workspace and is never used for another trainer."
+      },
+      {
+        q: "Is {APP_NAME} a medical service?",
+        a: "No. It is coaching, not medical advice. Pain, medical issues and red flags always go to the trainer, enforced in code outside the AI.",
+      },
+      {
+        q: "Whose brand do subscribers see?",
+        a: "The trainer’s. Subscribers join the trainer’s coaching through the trainer’s own website and app, with the trainer’s name, colours and prices.",
       },
     ],
     related: ["/methodology", "/security-and-privacy", "/how-it-works"],
@@ -2115,8 +2139,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "What you need to start: your identity, your method, an offer and a UAE bank account for payouts, then a guided setup checklist from address to launch.",
     h1: "Start your coaching business in {APP_NAME}",
     eyebrow: "GET STARTED",
+    lede: "A guided checklist takes you from your address to launch. Start teaching before every business detail is ready.",
     intro:
-      "To start, you need your coaching method, a clear offer and a UAE bank account for payouts. A guided checklist takes you from claiming your address to teaching your Brain, testing it, setting your price and launching, and you can begin teaching before every business detail is ready.",
+      "To start, you need your coaching method, a clear offer and a UAE bank account for payouts. A guided checklist takes you from your address to teaching your Brain, testing it and setting your price. You can begin teaching before every business detail is ready.",
     primaryKeyword: "how to start online personal training UAE",
     sections: [
       {
@@ -2125,7 +2150,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Your identity and a short description of your coaching business.",
           "Your method: how you coach, and the limits you keep.",
-          "An offer: who it is for, the price in AED, the programme length and billing.",
+          "An offer: who it’s for, your AED price, length and billing.",
           "A UAE bank account (IBAN) for monthly payouts.",
           "Photos or a logo for your brand, if you have them.",
         ],
@@ -2160,7 +2185,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "time",
         heading: "How long it takes",
         body: [
-          "It depends on how much of your method you teach before launch. Most of the work is yours to shape: the coaching interview, confirming rules and writing at least 20 test scenarios. The checklist shows exactly what is left, and business details can follow while you teach."
+          "It depends on how much of your method you teach before launch. Most of the work is the interview, confirming rules and writing at least 20 test scenarios. The checklist shows what is left.",
         ]
       },
     ],
@@ -2168,7 +2193,15 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       { q: "Can I bring my existing clients?", a: "Yes. Invite subscribers you already coach with an invite link; each joins your workspace with their own account." },
       {
         q: "Do I need technical skills?",
-        a: "No. The website, app, payments and payouts are set up for you; you answer questions, confirm rules in plain language and set your offer."
+        a: "No. The website, app, payments and payouts are set up for you. You answer questions, confirm rules in plain language and set your offer."
+      },
+      {
+        q: "Can I see it before subscribers do?",
+        a: "Yes. The subscriber preview shows exactly what subscribers will see, and nothing goes live until you publish.",
+      },
+      {
+        q: "Do I need a minimum number of followers?",
+        a: "No minimum is required. The follower calculator gives an estimate range for your audience, not a promise.",
       },
       {
         q: "Can I start before I have a trade licence ready?",

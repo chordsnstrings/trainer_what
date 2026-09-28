@@ -14,6 +14,15 @@ sign-up pages, the coach directory, and the trainer, team and Super admin
 workspace. Trainers' own coaching websites and member apps keep their Design
 Studio branding and never show the trainsyou logo.
 
+**Since 28 September 2026 (branch `core/marketing-light`) the public
+platform pages are always light.** The owner found the live site dark green
+on a dark-mode device ("the marketing site should be white with the light
+green accent"). The marketing site, the coach directory and the platform
+sign-in, sign-up and recovery pages now show the white canvas, paper bands,
+ink text, the ink lockup and Pace accents in every device colour scheme.
+Only the trainer, team and Super admin workspace still follows the device
+into dark mode. Details under "Light public pages" below.
+
 ## One rule: the name decides the logo
 
 `packages/contracts/src/brand.ts` holds the name, domain, approved copy
@@ -64,11 +73,13 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
 - **Header and footer** (`components/marketing/frame.tsx`, shared by the
   marketing pages, the directory and the sign-in pages): `PlatformLogo`
   (`components/brand-logo.tsx`) renders both lockups; CSS shows the ink one
-  on light surfaces and the white one when `prefers-color-scheme: dark`
-  applies inside `.platform-ui`. The lockup is 41 px high, 162 px wide (the
-  digital minimum is 160 px). The footer adds the brand line and the
-  descriptor. There is no in-app theme toggle today; a future one can reuse
-  the same classes.
+  on light surfaces and the white one only when `prefers-color-scheme:
+  dark` applies inside the workspace (`.workspace.platform-ui`). Public
+  pages always show the ink lockup. The lockup is 41 px high, 162 px wide
+  (the digital minimum is 160 px). The footer adds the brand line and the
+  descriptor. The header's call to action is the Pace `button mk-cta`.
+  There is no in-app theme toggle today; a future one can reuse the same
+  classes.
 - **Workspace** (`components/workspace.tsx`): trainers, their team and
   operators get the lockup in the sidebar and `.platform-ui`; subscribers
   keep `TrainerTheme` with their coach's identity. The loading screen, which
@@ -78,7 +89,10 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   `platformManifest(name)` (contracts `discovery.ts`) serve the trainsyou
   icons, theme colour ink and background paper, and the descriptor as the
   manifest description. The root layout's `themeColor` is paper in light
-  and ink in dark (two `theme-color` metas with media queries). Coach
+  and ink in dark (two `theme-color` metas with media queries), which the
+  workspace keeps; the public platform pages replace it with one white
+  `theme-color` and `color-scheme: light` (`generateViewport` in
+  `app/[[...path]]/page.tsx`, `isPublicPlatformRoute`). Coach
   websites keep their own icons, manifest and colour; a signed-in member
   app (`components/member-app-install.tsx`) sets every `theme-color` meta
   to the trainer's colour and drops the media queries, so dark mode shows
@@ -111,7 +125,7 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
 The supplied palette is declared as `--ty-*` and the existing variables map
 onto it, so every existing rule follows the brand:
 
-| Variable | Light | Dark (`.platform-ui`, `prefers-color-scheme: dark`) |
+| Variable | Light | Dark (workspace only: `.workspace.platform-ui`, `prefers-color-scheme: dark`) |
 | --- | --- | --- |
 | `--canvas` (marketing page) | white `#FFFFFF` | ink `#171917` |
 | `--paper` (app background) | paper `#F3F4F0` | ink `#171917` |
@@ -125,8 +139,8 @@ onto it, so every existing rule follows the brand:
 | `--lime` / `--on-lime` | Pace `#D5F24A` / ink | the same |
 | `--success`, `--warning`, `--error` | `#226044`, `#805400`, `#AD3535` | `#7FCB9F`, `#E0B25C`, `#F08A80` |
 | `--*-bg`, `--*-line` | status tints (`color-mix`) | recomputed in dark |
-| `--band-ink` / `--on-band` | ink / paper | `#262A26` / paper |
-| `--focus` | ink (on ink bands: `--on-band`) | paper |
+| `--band-ink` / `--on-band` | ink / paper (no longer painted by any platform stylesheet) | `#262A26` / paper |
+| `--focus` | ink | paper |
 | `--radius` | 8 px panels (controls 6 px) | |
 
 - About 380 hard-coded colours (the previous green palette) in
@@ -136,10 +150,12 @@ onto it, so every existing rule follows the brand:
   Light grey text that failed AA (for example `#9aa199` on white) is now the
   muted token.
 - Pace is a background accent with ink text (the done step, the exception
-  count, the current row, the automatic lane) and a figure colour on the
-  ink band; it is never text on a light surface. A test enforces it.
-- The marketing site uses the white canvas with paper panels; bands are
-  square editorial frames.
+  count, the current row, the automatic lane, and on the marketing site the
+  primary action, the H1 highlight, the relay's core tile and dot and the
+  closing panel); it is never text on any surface. A test enforces it (the
+  only allowed exception is the trainer-themed `.coach-monogram`).
+- The marketing site uses the white canvas with paper bands and panels. It
+  has no ink bands.
 - `.trainer-theme` maps the tokens it did not have before (`--field-border`,
   `--on-green`, `--on-lime`, `--focus`, `--canvas`, `--green-hover`,
   `--client-bubble`) onto its own Design Studio variables and keeps the
@@ -156,23 +172,37 @@ onto it, so every existing rule follows the brand:
   sizes use Inter. Headings are weight 500. The previous "DM Sans" and
   "Manrope" names (never loaded) are gone. Trainer surfaces keep their font
   stacks.
-- Focus rings: `:focus-visible` draws `--focus`; the ink bands
-  (`.mk-closing`, `.mk-band-ink`) set it to `--on-band`, since the page's
-  ink ring would vanish on an ink band. A test resolves the ring against
-  the band in light and dark and fails for any new `--band-ink` background
-  without it.
+- Focus rings: `:focus-visible` draws `--focus` (ink on public pages). The
+  former ink bands (`.mk-closing`, `.mk-band-ink`) and their `--on-band`
+  ring are gone; the closing panel is Pace and keeps the ink ring (14:1).
+  A test fails for any `--band-ink` background in a platform stylesheet and
+  resolves the closing panel's ring against Pace.
 - Logical properties only (`tests/logical-css.test.ts` passes); the lockup
   is Latin artwork and does not mirror in right-to-left layouts.
 
 ## Copy
 
-- Home page: eyebrow "FOR PERSONAL TRAINERS", H1 "Your coaching. Beyond
-  your hours.", an introduction that opens with "Teach your own AI how you
-  coach" and ends with the copy bank's paid-offering sentence, followed by
-  what the product does today; meta description led by the brand line.
+- Home page (28 September 2026): eyebrow "FOR PERSONAL TRAINERS", H1
+  `BRAND_COPY.homeHeadline` "Teach your AI. It trains your subscribers."
+  with "trains" marked in Pace by the renderer, a 21-word lede, and the
+  answer-first introduction (unchanged: it opens with "Teach your own AI how
+  you coach" and ends with the copy bank's paid-offering sentence) as the
+  answer to the first FAQ, "How does trainsyou work?". The meta description
+  still starts with the brand line.
+- The brand line "Your coaching. Beyond your hours." is the heading of the
+  closing panel on every marketing page (a renamed platform shows "Ready to
+  teach your AI?"), and stays in the footer, the Organization JSON-LD
+  `slogan`, the meta description and llms.txt. Owner fallback, a single
+  swap if the owner prefers the line as the H1: H1 `BRAND_COPY.line`, lede
+  "Teach your AI. It trains your subscribers. trainsyou coaches each
+  subscriber day by day, your way, and asks you when it's unsure.", no
+  highlight.
 - Primary call to action "Teach your AI" (sign-up and the guided setup);
-  "Join early access" while registration is closed. Hero secondary action
-  "Explore the platform" (to How it works).
+  "Join early access" while registration is closed. It is the Pace button
+  (`button mk-cta`: Pace fill, ink text, 1 px ink edge; hover mixes 15% ink
+  into Pace, about 10:1). Hero secondary action "See how it works" (an ink
+  text link to How it works); `BRAND_COPY.secondaryAction` is kept but no
+  longer shown.
 - `llms.txt` and `llms-full.txt` add the descriptor, audience, line and the
   one-sentence introduction under the entity summary (brand only).
 - Root layout description: the line and the product explanation.
@@ -282,6 +312,57 @@ build's Google Fonts download.
   and dark. A trainer's own address is not visited by the browser check.
 - Not run: the full repository suite, the full PostgreSQL suite, the Python
   deployment tests (no infrastructure file changed) and the e2e harness.
+
+## Light public pages (28 September 2026, branch `core/marketing-light`)
+
+Cause of the dark site: the brand work mapped every `.platform-ui` surface
+(the marketing root `public mk platform-ui`, the directory and the sign-in
+pages as well as the workspace) to the dark palette under
+`prefers-color-scheme: dark`, gave the document an ink background and the
+white logo, and set the browser colour to ink; in light mode the home page
+still had two ink bands (`.mk-band-ink`, the "everything included" strip,
+and `.mk-closing` on every page).
+
+Changes:
+
+- `globals.css`: the dark token block, the document background and the
+  logo swap now select `.workspace.platform-ui` only (token values
+  unchanged). `.public.platform-ui` declares `color-scheme: light`, and
+  `:root:has(.public.platform-ui)` has a white background and
+  `color-scheme: light`. The analytics panel follows: light on public
+  pages, dark only with the workspace. No class literal in a component
+  changed (`workspace platform-ui`, `public platform-ui`,
+  `public mk platform-ui`, `directory-page platform-ui`).
+- `app/[[...path]]/page.tsx` `generateViewport`: on the platform address a
+  marketing page, `/coaches` or a public sign-in, sign-up, recovery or
+  joining page returns `themeColor: #FFFFFF` and `colorScheme: "light"`
+  (one meta each); the workspace keeps the layout's paper and ink pair and
+  coach addresses keep the trainer's colour.
+- `marketing.css`: tokens `--mk-canvas` (white), `--mk-band` (paper),
+  `--mk-line`, `--mk-shadow` (neutral) on `.mk`, the header and the footer;
+  the tinted green shadows are gone; `.mk-band-ink` and the band ring are
+  deleted; the closing is a contained Pace panel with an ink button
+  (white text, 17.7:1) and the ink ring; the "everything included" strip
+  (now on /features) is paper with ink figures.
+
+Checks added: `tests/brand.test.ts` (the dark rules select only the
+workspace, `.public.platform-ui` is light, one white theme-color for public
+routes, no `--band-ink` background in any platform stylesheet, the closing
+panel is Pace with ink text and a 3:1 ring, the Pace button's ink edge and
+hover, the brand line inside `.mk-closing` on `/` and `/pricing`, "Ready to
+teach your AI?" for a renamed platform); `scripts/brand-check.mjs` (for 11
+public routes × light/dark × 390/1440: `html`, `body` and the page root
+white, the ink lockup, one `#FFFFFF` theme-color and a `light`
+color-scheme meta, no visible surface darker than luminance 0.2 except a
+button; the workspace keeps the white lockup in dark; plus the home passes
+in `marketing-site.md`).
+
+Checks actually run for this change: `docs/COMPLETION_STAGES.md` stage
+2026-09-28l.
+
+Open owner decisions: (1) the new home H1 versus the fallback above;
+(2) sign-in pages and `/coaches` are always light too (the default here);
+(3) the workspace keeps device dark mode.
 
 ## Deployment notes (deployment is separately assigned)
 

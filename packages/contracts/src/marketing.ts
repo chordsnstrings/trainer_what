@@ -87,7 +87,18 @@ export type MarketingPage = {
   title: string;
   description: string;
   h1: string;
+  /**
+   * A substring of the H1 the renderer marks with the Pace highlight. The
+   * H1 itself stays plain text for metadata, JSON-LD and llms files.
+   */
+  h1Highlight?: string;
   eyebrow: string;
+  /**
+   * A short hero line (25 words or fewer) shown under the H1 instead of the
+   * introduction. The introduction then appears further down the page (the
+   * home page answers its first FAQ with it) and in llms-full.txt.
+   */
+  lede?: string;
   /** Answer-first introduction (about 40-60 words) under the H1. */
   intro: string;
   /** Keyword hypothesis to validate after launch; no volume is claimed. */

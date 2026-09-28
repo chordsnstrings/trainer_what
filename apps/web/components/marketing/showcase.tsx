@@ -46,13 +46,11 @@ export function FeatureMatrix({
 }) {
   return (
     <section className="mk-section" id="all-capabilities" aria-labelledby="all-capabilities-h">
-      <h2 id="all-capabilities-h">
-        Every capability: {CAPABILITY_COUNT} in {FEATURE_MATRIX.length} areas
-      </h2>
+      <h2 id="all-capabilities-h">All {CAPABILITY_COUNT} capabilities</h2>
       <p className="mk-body">
-        One workspace runs the whole coaching business. Items marked “Available
-        soon” depend on an outside provider that is not yet switched on for
-        this platform; everything else is part of every workspace.
+        One workspace runs the whole coaching business, in{" "}
+        {FEATURE_MATRIX.length} areas. “Available soon” marks items waiting for
+        an outside provider; everything else is in every workspace.
       </p>
       <nav className="mk-matrix-index" aria-label="Capability areas">
         {FEATURE_MATRIX.map((group) => (
@@ -103,7 +101,7 @@ export function FeatureMatrix({
 export function Replaces({ t }: { t: (s: string) => string }) {
   return (
     <section className="mk-section" id="replaces" aria-labelledby="replaces-h">
-      <h2 id="replaces-h">One workspace instead of {REPLACES.length} separate tools</h2>
+      <h2 id="replaces-h">The {REPLACES.length} tools it replaces</h2>
       <p className="mk-body">
         Many trainers stitch a business together from separate subscriptions.
         Here is what each one becomes inside {t("{APP_NAME}")}.
@@ -150,9 +148,8 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
     <section className="mk-section" id="screens" aria-labelledby="screens-h">
       <h2 id="screens-h">Inside the product</h2>
       <p className="mk-body">
-        Illustrations of four screens with sample data: what you review, what
-        your subscriber sees today, the workout logger and your monthly
-        statement.
+        Four screens, drawn with sample data: your review queue, your
+        subscriber’s day, the workout logger and your statement.
       </p>
       <div className="mk-screens">
         <figure className="mk-screen">
@@ -314,7 +311,10 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
   );
 }
 
-/** Home: the scale of the product, counted from the registry. */
+/**
+ * /features: the scale of the product, counted from the registry, as a
+ * paper strip with ink figures (moved from the home page, 28 September 2026).
+ */
 export function IncludedStrip({ t }: { t: (s: string) => string }) {
   const features = MARKETING_PAGES.filter((p) => p.kind === "feature").length,
     specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty").length;
@@ -326,20 +326,18 @@ export function IncludedStrip({ t }: { t: (s: string) => string }) {
     [specialties, "specialties, each with its own page", "/for-trainers"],
   ];
   return (
-    <div className="mk-band mk-band-ink">
-      <section className="mk-section" aria-labelledby="included-h">
-        <h2 id="included-h">{t("Everything included in {APP_NAME}")}</h2>
-        <ul className="mk-included">
-          {stats.map(([n, label, href]) => (
-            <li key={label}>
-              <Link href={href}>
-                <strong>{n}</strong>
-                <span>{label}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
+    <section className="mk-section mk-included-strip" aria-labelledby="included-h">
+      <h2 id="included-h">{t("Everything included in {APP_NAME}")}</h2>
+      <ul className="mk-included">
+        {stats.map(([n, label, href]) => (
+          <li key={label}>
+            <Link href={href}>
+              <strong>{n}</strong>
+              <span>{label}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

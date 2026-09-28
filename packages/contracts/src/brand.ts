@@ -20,6 +20,11 @@ export const BRAND_COPY = {
     "trainsyou helps personal trainers teach their own AI, keep control of how it coaches and build a paid offering around access to their expertise.",
   primaryAction: "Teach your AI",
   secondaryAction: "Explore the platform",
+  /**
+   * The home page H1 (28 September 2026 refresh): the relay in seven words.
+   * The brand line closes every marketing page instead.
+   */
+  homeHeadline: "Teach your AI. It trains your subscribers.",
 } as const;
 
 /** The palette (sRGB) from digital/design-tokens.css. */

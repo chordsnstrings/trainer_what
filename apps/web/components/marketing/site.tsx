@@ -3,12 +3,16 @@
 // JSON-LD and llms-full.txt agree. Interactive parts are small client islands.
 import Link from "next/link";
 import {
+  Apple,
   ArrowRight,
+  CalendarDays,
   Check,
   CheckCircle,
   CircleAlert,
-  ShieldCheck,
+  Dumbbell,
+  TrendingUp,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -23,10 +27,11 @@ import {
   marketingJsonLd,
   marketingPage,
   sourceById,
-  type AvailabilityKey,
+  usesBrandIdentity,
   type MarketingPage,
   type MarketingSection,
 } from "@trainer/contracts";
+import { BANDS } from "@trainer/domain";
 import {
   aedWhole as aed,
   displayRange,
@@ -42,6 +47,8 @@ import {
   EarningsCalculator,
   FollowerCalculator,
 } from "./islands";
+import { availabilityChip, Chip } from "./chip";
+import { HeroFlow } from "./hero-flow";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -49,6 +56,7 @@ import {
   ProductScreens,
   Replaces,
 } from "./showcase";
+export { availabilityChip };
 
 type Ctx = { page: MarketingPage; platform: PublicPlatform; origin: string };
 const dateLabel = (iso: string) =>
@@ -70,23 +78,6 @@ function secondaryCta(page: MarketingPage): Cta {
   return page.path === "/follower-calculator"
     ? { label: "Estimate my earnings", href: "/earnings-calculator" }
     : { label: "Estimate what your followers are worth", href: "/follower-calculator" };
-}
-
-/** "Available soon" when a required provider is off at runtime. */
-export function availabilityChip(
-  page: MarketingPage,
-  availability: Record<AvailabilityKey, boolean>,
-): { label: string; soon: boolean } | null {
-  if (!page.offering) return null;
-  const soon = (page.availability ?? []).some((key) => !availability[key]);
-  return soon
-    ? { label: "Available soon", soon: true }
-    : { label: page.offering, soon: false };
-}
-function Chip({ chip }: { chip: { label: string; soon: boolean } | null }) {
-  return chip ? (
-    <span className={"badge " + (chip.soon ? "amber" : "green")}>{chip.label}</span>
-  ) : null;
 }
 
 function SourceNote({ ids }: { ids?: string[] }) {
@@ -194,11 +185,19 @@ export function Section({
   );
 }
 
-function Faqs({ page, t }: { page: MarketingPage; t: (s: string) => string }) {
+function Faqs({
+  page,
+  t,
+  heading = "Frequently asked questions",
+}: {
+  page: MarketingPage;
+  t: (s: string) => string;
+  heading?: string;
+}) {
   if (!page.faqs.length) return null;
   return (
     <section className="mk-section mk-faqs" id="faq" aria-labelledby="faq-h">
-      <h2 id="faq-h">Frequently asked questions</h2>
+      <h2 id="faq-h">{heading}</h2>
       {page.faqs.map((f) => (
         <details key={f.q} className="mk-faq">
           <summary>{t(f.q)}</summary>
@@ -255,21 +254,71 @@ function Breadcrumbs({ page, t }: { page: MarketingPage; t: (s: string) => strin
   );
 }
 
-function Closing({ cta, t }: { cta: Cta; t: (s: string) => string }) {
+/**
+ * The closing panel on every marketing page: a contained Pace panel with ink
+ * text and an ink button. The brand line is its heading on the trainsyou
+ * platform; a renamed platform asks the call to action instead.
+ */
+function Closing({
+  cta,
+  platform,
+  secondary,
+}: {
+  cta: Cta;
+  platform: PublicPlatform;
+  secondary: Cta;
+}) {
   return (
-    <section className="mk-closing">
-      <p className="eyebrow">YOU ALREADY HAVE THE EXPERIENCE</p>
-      <h2>{t("Give your method somewhere new to go.")}</h2>
-      <div className="button-row">
-        <Link className="button large" href={cta.href}>
-          {cta.label} <ArrowRight size={17} aria-hidden="true" />
-        </Link>
-        <Link className="text-link" href="/follower-calculator">
-          What are my followers worth? <ArrowRight size={15} aria-hidden="true" />
-        </Link>
-      </div>
-    </section>
+    <div className="mk-closing-wrap">
+      <section className="mk-closing" aria-labelledby="mk-closing-h">
+        <h2 id="mk-closing-h">
+          {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
+        </h2>
+        <p>Guided setup. Nothing goes live until you publish.</p>
+        <div className="button-row">
+          <Link className="button large" href={cta.href}>
+            {cta.label} <ArrowRight size={17} aria-hidden="true" />
+          </Link>
+          <Link className="text-link" href={secondary.href}>
+            {secondary.label} <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
+    </div>
   );
+}
+const HOW_IT_WORKS: Cta = { label: "See how it works", href: "/how-it-works" };
+/** The closing panel's second link: the follower estimate, or how it works. */
+function closingLink(path: string): Cta {
+  return path === "/" || path === "/follower-calculator"
+    ? HOW_IT_WORKS
+    : { label: "What are my followers worth?", href: "/follower-calculator" };
+}
+
+/** The Pace highlight on part of a heading; the text itself is unchanged. */
+function Highlighted({ text, mark }: { text: string; mark?: string }) {
+  const at = mark ? text.indexOf(mark) : -1;
+  if (!mark || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="mk-mark">{mark}</mark>
+      {text.slice(at + mark.length)}
+    </>
+  );
+}
+
+/** The commission bands as short labels, from the ledger's own bands. */
+export function bandPills(): string[] {
+  const n = (v: number) => v.toLocaleString("en-GB");
+  let from = 1;
+  return BANDS.map((band) => {
+    const range = Number.isFinite(band.count)
+      ? `${n(from)}–${n(from + band.count - 1)}`
+      : `${n(from)}+`;
+    from += band.count;
+    return `${band.bps / 100}% · ${range}`;
+  });
 }
 
 /** A grid of child pages (hubs and the home feature grid). */
@@ -600,22 +649,8 @@ function CustomBlock({ page, platform, t }: Ctx & { t: (s: string) => string }) 
         </>
       );
     case "/features":
-      return (
-        <>
-          <ProductScreens t={t} />
-          <FeatureMatrix platform={platform} t={t} />
-          <Replaces t={t} />
-          <section className="mk-section" aria-labelledby="all-features-h">
-            <h2 id="all-features-h">Feature guides</h2>
-            <PageTiles
-              pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
-              platform={platform}
-              t={t}
-              withChips
-            />
-          </section>
-        </>
-      );
+      // The home page's "everything included" counts, as a paper strip.
+      return <IncludedStrip t={t} />;
     case "/for-trainers":
     case "/guides":
       return <PageTiles pages={childrenOf(page.path)} platform={platform} t={t} />;
@@ -641,16 +676,55 @@ function DirectoryBlock({ place }: { place: string }) {
     </aside>
   );
 }
+/** Published price anchors for one-to-one and online coaching (cited). */
+function PriceAnchors() {
+  return (
+    <div className="mk-anchors">
+      <div>
+        <strong>AED 70–350</strong>
+        <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
+      </div>
+      <div>
+        <strong>AED 200–700+</strong>
+        <span>per session, basic to premium (Embody Fitness, 2025)</span>
+      </div>
+      <div>
+        <strong>AED 400–2,000</strong>
+        <span>a month for online coaching (369MMAFIT, 2026)</span>
+      </div>
+    </div>
+  );
+}
 /** Blocks placed after a section, by section id. */
 function AfterSection({
   page,
   section,
   platform,
+  t,
 }: {
   page: MarketingPage;
   section: MarketingSection;
   platform: PublicPlatform;
+  t: (s: string) => string;
 }) {
+  if (page.path === "/pricing" && section.id === "hours") return <PriceAnchors />;
+  if (page.path === "/features" && section.id === "subscribers")
+    return (
+      <>
+        <ProductScreens t={t} />
+        <FeatureMatrix platform={platform} t={t} />
+        <Replaces t={t} />
+        <section className="mk-section" aria-labelledby="all-features-h">
+          <h2 id="all-features-h">Feature guides</h2>
+          <PageTiles
+            pages={[marketingPage("/trainer-brain")!, ...childrenOf("/features")]}
+            platform={platform}
+            t={t}
+            withChips
+          />
+        </section>
+      </>
+    );
   if (page.path === "/get-started" && section.id === "checklist")
     return (
       <ol className="mk-checklist">
@@ -693,18 +767,20 @@ function StandardPage({ page, platform, origin }: Ctx) {
           <p className="eyebrow">{t(page.eyebrow)}</p>
           <h1>{t(page.h1)}</h1>
           {chip && <Chip chip={chip} />}
-          <p className="mk-answer">{t(page.intro)}</p>
+          {/* A short lede in the hero; the answer-first introduction follows. */}
+          <p className={page.lede ? "mk-lede" : "mk-answer"}>{t(page.lede ?? page.intro)}</p>
           <div className="button-row">
-            <Link className="button large" href={cta.href}>
+            <Link className="button large mk-cta" href={cta.href}>
               {cta.label} <ArrowRight size={17} aria-hidden="true" />
             </Link>
             {!page.path.endsWith("-calculator") && (
-              <Link className="text-link" href={second.href}>
+              <Link className="text-link mk-link" href={second.href}>
                 {second.label} <ArrowRight size={15} aria-hidden="true" />
               </Link>
             )}
           </div>
         </header>
+        {page.lede && <p className="mk-summary">{t(page.intro)}</p>}
         <CustomBlock page={page} platform={platform} origin={origin} t={t} />
         {page.sections.map((section) =>
           demo && section.id === "scenarios" ? (
@@ -722,7 +798,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
           ) : (
             <div key={section.id}>
               <Section section={section} t={t} />
-              <AfterSection page={page} section={section} platform={platform} />
+              <AfterSection page={page} section={section} platform={platform} t={t} />
             </div>
           ),
         )}
@@ -752,29 +828,164 @@ function StandardPage({ page, platform, origin }: Ctx) {
           Last updated <time dateTime={page.lastUpdated}>{dateLabel(page.lastUpdated)}</time>
         </p>
       </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }
 
+/**
+ * A home band: the registry heading and body, a visual and a link. Bands
+ * alternate white and paper; "split" puts the text beside the visual on
+ * wide screens.
+ */
 function HomeSection({
   page,
   id,
   t,
-  children,
+  tone,
+  split = false,
+  visual,
+  link,
   className = "",
 }: {
   page: MarketingPage;
   id: string;
   t: (s: string) => string;
-  children?: ReactNode;
+  tone: "white" | "paper";
+  split?: boolean;
+  visual?: ReactNode;
+  link?: Cta;
   className?: string;
 }) {
   const section = page.sections.find((s) => s.id === id)!;
+  const more = link && (
+    <p className="mk-home-more">
+      <Link className="text-link mk-link" href={link.href}>
+        {link.label} <ArrowRight size={15} aria-hidden="true" />
+      </Link>
+    </p>
+  );
   return (
-    <div className={"mk-band " + className}>
-      <Section section={section} t={t} />
-      {children}
+    <section
+      className={`mk-home-band mk-home-${tone} ${className}`.trim()}
+      id={id}
+      aria-labelledby={id + "-h"}
+    >
+      <div className={"mk-home-inner" + (split ? " mk-home-split" : "")}>
+        <div className="mk-home-text">
+          <h2 id={id + "-h"}>{t(section.heading)}</h2>
+          {section.body?.map((p) => (
+            <p key={p} className="mk-home-body">
+              {t(p)}
+            </p>
+          ))}
+          {split && more}
+        </div>
+        {visual && <div className="mk-home-visual">{visual}</div>}
+        {!split && more}
+      </div>
+    </section>
+  );
+}
+
+/** What subscribers get: four ink icons on paper squares. */
+function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
+  // The same registry entry and chip as the nutrition item on /features.
+  const nutrition = availabilityChip(
+    marketingPage("/features/nutrition"),
+    platform.availability,
+  );
+  const tiles: Array<[LucideIcon, string, ReturnType<typeof availabilityChip>]> = [
+    [CalendarDays, "Daily plan", null],
+    [Dumbbell, "Guided workouts", null],
+    [TrendingUp, "Progress they can see", null],
+    [Apple, "Nutrition", nutrition],
+  ];
+  return (
+    <ul className="mk-icon-tiles">
+      {tiles.map(([Icon, label, chip]) => (
+        <li key={label}>
+          <span className="mk-icon-square" aria-hidden="true">
+            <Icon size={22} />
+          </span>
+          <span className="mk-icon-label">{label}</span>
+          <Chip chip={chip} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The trainer stays in charge: the decision flow (sample data). */
+function ControlFlow() {
+  return (
+    <div className="mk-flow-card">
+      <p className="mk-relay-tag">Illustration with sample data</p>
+      <div className="mk-flow" aria-hidden="true">
+        <div className="mk-flow-msg">
+          <span className="small-label">SUBSCRIBER</span>
+          <p>“Week three done. Squats felt easy.”</p>
+        </div>
+        <div className="mk-flow-brain">
+          <span className="small-label">YOUR TRAINER BRAIN</span>
+          <p>
+            <strong>Your rule:</strong> two easy sessions at 3+ reps in reserve →
+            add 2.5 kg.
+          </p>
+          <div className="mk-meter">
+            <span style={{ inlineSize: "86%" }} />
+          </div>
+          <small>Confidence above your threshold</small>
+        </div>
+        <div className="mk-flow-lanes">
+          <span className="mk-lane mk-lane-auto">
+            <CheckCircle size={14} /> Applied automatically
+          </span>
+          <span className="mk-lane">
+            <UserRound size={14} /> Unsure → to you
+          </span>
+          <span className="mk-lane mk-lane-safety">
+            <CircleAlert size={14} /> Pain → paused, to you
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Your site and your price: the coaching address from the platform's
+ * template (never a hard-coded domain) and the commission bands.
+ */
+function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
+  const address = platform.coachAddressTemplate
+    .replace("{slug}", "yourname")
+    .replace(/^https?:\/\//, "");
+  return (
+    <div className="mk-econ">
+      {platform.registrationOpen ? (
+        <AddressPreview template={platform.coachAddressTemplate} />
+      ) : (
+        <div className="mk-browser">
+          <span className="mk-browser-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="mk-browser-address ltr-data">{address}</span>
+        </div>
+      )}
+      <ul className="mk-band-pills" aria-label="Commission bands">
+        {bandPills().map((pill) => {
+          const [rate, range] = pill.split(" · ");
+          return (
+            <li key={pill}>
+              <strong>{rate}</strong> · {range}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="fine-print muted">Marginal bands: each band keeps its own rate.</p>
     </div>
   );
 }
@@ -782,144 +993,75 @@ function HomeSection({
 function Home({ page, platform }: Ctx) {
   const t = (s: string) => brandText(s, platform.name, platform.followerModel);
   const cta = primaryCta(page, platform);
-  const features = [
-    marketingPage("/trainer-brain")!,
-    ...childrenOf("/features"),
-  ];
+  // The follower estimate keeps its own block (the calculator is owned by
+  // the calculator package; only its container is styled here).
+  const calculator = (
+    <div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>
+  );
   return (
     <>
-      <section className="mk-hero">
+      <section className="mk-hero" aria-labelledby="mk-hero-h">
         <div className="mk-hero-copy">
-          <p className="eyebrow">
-            <span className="tiny-line" />
-            {t(page.eyebrow)}
-          </p>
-          <h1>{t(page.h1)}</h1>
-          <p className="mk-hero-sub">{t(page.intro)}</p>
+          <p className="eyebrow">{t(page.eyebrow)}</p>
+          <h1 id="mk-hero-h">
+            <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
+          </h1>
+          {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
           <div className="button-row">
-            <Link className="button large" href={cta.href}>
+            <Link className="button large mk-cta" href={cta.href}>
               {cta.label} <ArrowRight size={18} aria-hidden="true" />
             </Link>
-            <Link className="text-link" href="/how-it-works">
-              {BRAND_COPY.secondaryAction}{" "}
-              <ArrowRight size={16} aria-hidden="true" />
+            <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
+              {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>
-          <ul className="mk-hero-notes">
-            <li>
-              <Check size={14} aria-hidden="true" /> You set the price in AED
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Pain and red flags always go to you
-            </li>
-            <li>
-              <Check size={14} aria-hidden="true" /> Monthly payouts to a UAE bank
-            </li>
-          </ul>
+          <p className="mk-hero-micro">
+            You set the price in AED · No technical skills needed
+          </p>
         </div>
-        <div className="mk-hero-art" aria-hidden="true">
-          <div className="mk-flow">
-            <div className="mk-flow-msg">
-              <span className="small-label">SUBSCRIBER</span>
-              <p>“Week three done. Squats felt easy.”</p>
-            </div>
-            <div className="mk-flow-brain">
-              <span className="small-label">YOUR TRAINER BRAIN</span>
-              <p>
-                <strong>Your rule:</strong> two easy sessions at 3+ reps in
-                reserve → add 2.5 kg.
-              </p>
-              <div className="mk-meter">
-                <span style={{ inlineSize: "86%" }} />
-              </div>
-              <small>Confidence above your threshold</small>
-            </div>
-            <div className="mk-flow-lanes">
-              <span className="mk-lane mk-lane-auto">
-                <CheckCircle size={14} /> Applied automatically
-              </span>
-              <span className="mk-lane">
-                <UserRound size={14} /> Unsure → to you
-              </span>
-              <span className="mk-lane mk-lane-safety">
-                <CircleAlert size={14} /> Pain → paused, to you
-              </span>
-            </div>
-          </div>
-        </div>
+        <HeroFlow platform={platform} t={t} />
       </section>
-      <div className="mk-entity">
-        <HomeSection page={page} id="what-is" t={t} />
-      </div>
-      <IncludedStrip t={t} />
-      <HomeSection page={page} id="hours" t={t} className="mk-band-sand">
-        <div className="mk-anchors">
-          <div>
-            <strong>AED 70–350</strong>
-            <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
-          </div>
-          <div>
-            <strong>AED 200–700+</strong>
-            <span>per session, basic to premium (Embody Fitness, 2025)</span>
-          </div>
-          <div>
-            <strong>AED 400–2,000</strong>
-            <span>a month for online coaching (369MMAFIT, 2026)</span>
-          </div>
+      <HomeSection
+        page={page}
+        id="subscribers"
+        t={t}
+        tone="white"
+        visual={<SubscriberTiles platform={platform} />}
+        link={{ label: "All features", href: "/features" }}
+      />
+      <HomeSection
+        page={page}
+        id="control"
+        t={t}
+        tone="paper"
+        split
+        visual={<ControlFlow />}
+        link={{ label: "See four decisions in the demo", href: "/demo" }}
+      />
+      <HomeSection
+        page={page}
+        id="economics"
+        t={t}
+        tone="white"
+        split
+        visual={<EconomicsVisual platform={platform} />}
+        link={{ label: "Pricing in detail", href: "/pricing" }}
+      />
+      <HomeSection
+        page={page}
+        id="followers"
+        t={t}
+        tone="paper"
+        className="mk-home-followers"
+        visual={calculator}
+        link={{ label: "Open the full calculator", href: "/follower-calculator" }}
+      />
+      <div className="mk-home-band mk-home-white">
+        <div className="mk-home-inner">
+          <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
-      </HomeSection>
-      <HomeSection page={page} id="steps" t={t} />
-      <HomeSection page={page} id="brain" t={t} className="mk-band-mint">
-        <p>
-          <Link className="text-link" href="/demo">
-            See four decisions in the demo <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="subscribers" t={t} />
-      <div className="mk-band">
-        <ProductScreens t={t} />
       </div>
-      <div className="mk-band" id="followers">
-        <section className="mk-section" aria-labelledby="followers-h">
-          <h2 id="followers-h">What could your followers be worth?</h2>
-          <p className="mk-body">
-            A quick estimate from published Instagram and conversion benchmarks.
-            Change the numbers to yours.
-          </p>
-          <FollowerCalculator model={platform.followerModel} compact headingLevel={3} />
-          <p>
-            <Link className="text-link" href="/follower-calculator">
-              Open the full follower calculator <ArrowRight size={15} aria-hidden="true" />
-            </Link>
-          </p>
-        </section>
-      </div>
-      <HomeSection page={page} id="economics" t={t} className="mk-band-sand">
-        <WorkedExample />
-        <p>
-          <Link className="text-link" href="/pricing">
-            Pricing in detail <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </p>
-      </HomeSection>
-      <HomeSection page={page} id="control" t={t}>
-        <p>
-          <Link className="text-link" href="/security-and-privacy">
-            <ShieldCheck size={15} aria-hidden="true" /> Security and privacy
-          </Link>
-        </p>
-      </HomeSection>
-      <div className="mk-band">
-        <section className="mk-section" aria-labelledby="features-h">
-          <h2 id="features-h">One platform, every part of the business</h2>
-          <PageTiles pages={features} platform={platform} t={t} withChips />
-        </section>
-      </div>
-      <div className="mk-band">
-        <Faqs page={page} t={t} />
-      </div>
-      <Closing cta={cta} t={t} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
     </>
   );
 }

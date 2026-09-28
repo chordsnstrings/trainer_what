@@ -87,7 +87,7 @@ export function MarketingHeader({
         <Link className="mk-signin" href="/login">
           Sign in
         </Link>
-        <Link className="button" href={cta.href}>
+        <Link className="button mk-cta" href={cta.href}>
           {cta.label}
         </Link>
       </div>
@@ -113,7 +113,7 @@ export function MarketingHeader({
             </div>
           ))}
           <Link href="/login">Sign in</Link>
-          <Link className="button" href={cta.href}>
+          <Link className="button mk-cta" href={cta.href}>
             {cta.label}
           </Link>
         </div>

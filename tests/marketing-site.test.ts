@@ -38,7 +38,7 @@ import {
   robotsPolicy,
   type MarketingPage,
 } from "@trainer/contracts";
-import { projectedCommission, safetySignal } from "@trainer/domain";
+import { BANDS, projectedCommission, safetySignal } from "@trainer/domain";
 import { SAFETY_FLOOR } from "../packages/domain/src/safety-policy.ts";
 import {
   DEFAULT_FOLLOWER_MODEL,
@@ -54,7 +54,7 @@ import {
   type EarningsInputs,
 } from "../packages/domain/src/marketing-calculators.ts";
 import { baseRegistry } from "../apps/api/src/onboarding.ts";
-import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
+import { MarketingSite, bandPills } from "../apps/web/components/marketing/site.tsx";
 import {
   EarningsCalculator,
   FollowerCalculator,
@@ -437,9 +437,10 @@ test("the product at full size: a complete capability matrix, screens and counts
   // Generic categories only: never a competitor's name.
   for (const r of REPLACES) assert.match(r.tool, /^(A|An|Programme) /);
   const features = decode(render(marketingPage("/features")!));
-  assert.match(features, new RegExp(`Every capability: ${CAPABILITY_COUNT} in ${FEATURE_MATRIX.length} areas`));
+  assert.match(features, new RegExp(`All ${CAPABILITY_COUNT} capabilities`));
+  assert.match(features, new RegExp(`in ${FEATURE_MATRIX.length} areas`));
   for (const name of names.slice(0, 5)) assert.ok(features.includes(name), name);
-  assert.match(features, /One workspace instead of 7 separate tools/);
+  assert.match(features, new RegExp(`The ${REPLACES.length} tools it replaces`));
   for (const screen of ["Your review queue.", "Your subscriber’s day.", "The workout logger.", "Your statement."])
     assert.ok(features.includes(screen), screen);
   assert.match(features, /Illustrations with sample data/);
@@ -448,10 +449,150 @@ test("the product at full size: a complete capability matrix, screens and counts
   assert.match(off, /Sessions in your own voice.*?Available soon/);
   const on = decode(render(marketingPage("/features")!, { ...platform, availability: { ...platform.availability, voice: true } }));
   assert.match(on, /Sessions in your own voice.*?Add-on/);
+  // The counts and the subscriber cards moved from the home page to /features.
+  assert.match(features, new RegExp(`Everything included in ${APP}`));
+  assert.ok(features.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
+  assert.ok(features.includes("What your subscribers get"));
   const home = decode(render(marketingPage("/")!));
-  assert.match(home, new RegExp(`Everything included in ${APP}`));
-  assert.ok(home.includes(`${CAPABILITY_COUNT} capabilities in one workspace`));
-  assert.ok(home.includes("Your review queue."));
+  assert.doesNotMatch(home, /Everything included in/);
+  assert.ok(!home.includes("Your review queue."));
+});
+
+test("home: one H1 that says what happens, a short hero, the relay and five sections", async () => {
+  const page = marketingPage("/")!;
+  const html = render(page);
+  const text = decode(html);
+  assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1);
+  // The H1 is the registry string; the renderer only marks the highlight.
+  const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)![1];
+  assert.equal(h1.replace(/<[^>]+>/g, ""), brandText(page.h1, APP));
+  assert.ok(page.h1Highlight && page.h1.includes(page.h1Highlight));
+  assert.match(h1, new RegExp(`<mark class="mk-mark">${page.h1Highlight}</mark>`));
+  assert.ok(page.lede, "the home page has a lede");
+  assert.ok(brandText(page.lede!, APP).split(/\s+/).length <= 25);
+  assert.ok(text.includes(brandText(page.lede!, APP)));
+  assert.match(text, /You set the price in AED · No technical skills needed/);
+  assert.doesNotMatch(text, /payouts to a UAE bank/i, "payouts are off; the hero does not promise them");
+  // The relay: real text, labelled as an illustration, no H1 or headings.
+  const relay = html.match(/<figure class="mk-relay"[\s\S]*?<\/figure>/)![0];
+  assert.match(relay, /It asks you first/);
+  assert.match(relay, /Illustration with sample data/);
+  assert.doesNotMatch(relay, /<h[1-6][\s>]/);
+  assert.match(relay, /aria-labelledby="mk-relay-cap"/);
+  assert.match(decode(relay), new RegExp(`${APP} learns your coaching`));
+  // The voice row and the nutrition tile follow the /features chips.
+  const voiceOff = decode(render(page, { ...platform, availability: { ...platform.availability, voice: false } }));
+  assert.match(voiceOff, /Voice-led session\s+Available soon/);
+  const voiceOn = decode(render(page, { ...platform, availability: { ...platform.availability, voice: true } }));
+  assert.match(voiceOn, /Voice-led session\s+Add-on/);
+  assert.match(voiceOff, /Nutrition\s+Available soon/);
+  const nutritionOn = decode(render(page, { ...platform, availability: { ...platform.availability, nutrition: true } }));
+  assert.match(nutritionOn, /Nutrition\s+Optional tier/);
+  // The address comes from the platform's template, never a literal.
+  const closed = { ...platform, registrationOpen: false };
+  for (const template of ["https://trainsyou.example/coach/{slug}", "https://{slug}.trainsyou.example"]) {
+    const shown = decode(render(page, { ...closed, coachAddressTemplate: template }));
+    assert.ok(shown.includes(template.replace("{slug}", "yourname").replace("https://", "")), template);
+    const open = decode(render(page, { ...platform, coachAddressTemplate: template }));
+    assert.ok(open.includes(template.replace("{slug}", "your-name")), template);
+  }
+  for (const file of ["site.tsx", "hero-flow.tsx", "chip.tsx", "showcase.tsx", "frame.tsx"]) {
+    const source = await readFile(new URL("../apps/web/components/marketing/" + file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /yourname\.trainsyou\.com/, file);
+  }
+  // The band pills are the ledger's own marginal bands.
+  const pills = [...html.matchAll(/<ul class="mk-band-pills"[^>]*>([\s\S]*?)<\/ul>/g)][0][1]
+    .split("</li>")
+    .map((li) => decode(li).trim())
+    .filter(Boolean);
+  assert.deepEqual(pills, ["25% · 1–100", "20% · 101–300", "15% · 301–1,000", "10% · 1,001+"]);
+  assert.deepEqual(pills, bandPills());
+  let from = 1;
+  BANDS.forEach((band, i) => {
+    assert.ok(pills[i].startsWith(`${band.bps / 100}% · ${from.toLocaleString("en-GB")}`));
+    from += band.count;
+  });
+  // At most six H2s (five sections and the FAQ) plus the closing heading.
+  const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => decode(m[1]).trim());
+  assert.ok(h2s.length - 1 <= 6, h2s.join(" | "));
+  assert.deepEqual(h2s, [
+    "What your subscribers get",
+    "You stay in charge",
+    "Your site. Your price.",
+    "What are your followers worth?",
+    "Questions trainers ask",
+    "Your coaching. Beyond your hours.",
+  ]);
+  // Six FAQs; the JSON-LD carries exactly the rendered ones, and the first
+  // answers with the answer-first introduction.
+  const details = [...html.matchAll(/<details class="mk-faq"><summary>([\s\S]*?)<\/summary><p>([\s\S]*?)<\/p><\/details>/g)];
+  assert.equal(details.length, 6);
+  const faq = (marketingJsonLd(page, ctx)["@graph"] as any[]).find((n) => n["@type"] === "FAQPage");
+  assert.equal(faq.mainEntity.length, 6);
+  faq.mainEntity.forEach((q: any, i: number) => {
+    assert.equal(q.name, decode(details[i][1]).trim());
+    assert.equal(q.acceptedAnswer.text, decode(details[i][2]).trim());
+  });
+  assert.equal(faq.mainEntity[0].name, `How does ${APP} work?`);
+  assert.equal(faq.mainEntity[0].acceptedAnswer.text, brandText(page.intro, APP));
+  // The follower calculator keeps its own block; only its container is styled.
+  const site = await readFile(new URL("../apps/web/components/marketing/site.tsx", import.meta.url), "utf8");
+  assert.ok(
+    site.includes(
+      '<div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>',
+    ),
+  );
+  assert.match(html, /<div class="mk-home-calc"><section class="mk-calculator card"/);
+});
+
+// Copy limits for the home page and the pages in the header navigation
+// (docs/features/marketing-site.md "Copy limits"). The shared FAQ constants
+// and the answer-first introductions keep their own tests.
+test("copy limits: short headings, ledes, cards, bullets and answers on the header pages", () => {
+  const words = (s: string) => brandText(s, APP).split(/\s+/).filter(Boolean).length;
+  for (const path of ["/", "/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+    const page = marketingPage(path)!;
+    assert.ok(words(page.h1) <= 8, `${path} H1: ${page.h1}`);
+    assert.doesNotMatch(page.h1, /:/, `${path} H1 has no colon subtitle`);
+    assert.ok(words(page.eyebrow) <= 4, `${path} eyebrow`);
+    assert.ok(page.lede && words(page.lede) <= 25, `${path} lede`);
+    for (const section of page.sections) {
+      assert.ok(words(section.heading) <= 6, `${path} H2: ${section.heading}`);
+      assert.ok((section.body ?? []).length <= 2, `${path} ${section.id} paragraphs`);
+      for (const p of section.body ?? []) assert.ok(words(p) <= 35, `${path} ${section.id}: ${p}`);
+      for (const card of [...(section.cards ?? []), ...(section.steps ?? [])]) {
+        assert.ok(words(card.title) <= 4, `${path} card title: ${card.title}`);
+        assert.ok(words(card.body) <= 18, `${path} card: ${card.body}`);
+      }
+      assert.ok((section.bullets ?? []).length <= 5, `${path} ${section.id} bullets`);
+      for (const b of section.bullets ?? []) assert.ok(words(b) <= 12, `${path} bullet: ${b}`);
+    }
+    for (const f of page.faqs)
+      if (f.a !== page.intro) assert.ok(words(f.a) <= 45, `${path} FAQ: ${f.q}`);
+    for (const banned of ["seamless", "revolutionary", "cutting-edge", "unlock", "empower", "game-changing"])
+      assert.doesNotMatch(allText(page), new RegExp(banned, "i"), `${path}: ${banned}`);
+  }
+  // Moved, not deleted: the home page's former blocks live on deeper pages
+  // with their sources, so llms-full.txt still carries them.
+  const pricing = marketingPage("/pricing")!;
+  const hours = pricing.sections.find((s) => s.id === "hours")!;
+  assert.deepEqual(hours.sources, ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"]);
+  assert.match(decode(render(pricing)), /AED 70–350.*AED 200–700\+.*AED 400–2,000/);
+  const brain = marketingPage("/trainer-brain")!;
+  assert.deepEqual(brain.sections.find((s) => s.id === "decides")!.cards!.map((c) => c.title), ["Confident", "Not sure", "Safety"]);
+  assert.ok(brain.sections.some((s) => s.id === "control"));
+  assert.equal(marketingPage("/features")!.sections.find((s) => s.id === "subscribers")!.cards!.length, 8);
+  assert.ok(marketingPage("/faq")!.faqs.some((f) => f.q === "Do I need technical skills?"));
+  const full = llmsFullTxt(ctx);
+  assert.ok(full.includes("### An hour sells only once"));
+  assert.ok(full.includes('Source: Hey Trainer, "Personal trainer cost in Dubai"'));
+  assert.ok(full.includes(brandText(marketingPage("/")!.intro, APP)));
+  // Every page carries the brand-line closing panel and one H1.
+  for (const p of site) {
+    const html = render(p);
+    assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1, p.path);
+    assert.match(html, /<section class="mk-closing"/, p.path);
+  }
 });
 
 test("registration closed: early access captures the visitor's details and numbers instead of a dead end", () => {
