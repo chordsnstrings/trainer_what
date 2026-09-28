@@ -116,6 +116,11 @@ export async function runHarness(input: {
     pushes: input.mocks.push.deliveries.length,
     leanPayments: input.mocks.lean.payments.size,
     voiceSyntheses: input.mocks.voice.syntheses.length,
+    cartesia: {
+      clones: input.mocks.cartesia.clones.length,
+      syntheses: input.mocks.cartesia.syntheses.length,
+      deleted: input.mocks.cartesia.deleted.length,
+    },
   };
   report.model = {
     calls: input.mocks.model.calls.length,

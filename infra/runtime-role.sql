@@ -90,3 +90,6 @@ GRANT EXECUTE ON FUNCTION healthkit_device_for_token(text),integration_oauth_rel
 -- Voice-led sessions (065): voice_session_styles, voice_sessions and
 -- voice_session_clips are tenant tables reached only through SET LOCAL ROLE
 -- trainer_app (grants in the migration); the service role gets no direct grant.
+-- Trainer voice clones (069): trainer_voice_clones, trainer_voice_samples and
+-- voice_provider_deletions are owner-only tenant tables reached the same way;
+-- trainer_app may not DELETE provider deletion rows (they outlive closure).

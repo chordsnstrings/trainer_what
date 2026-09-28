@@ -21,6 +21,13 @@ import {
   eraseHealthKitData,
   closeHealthKitData,
 } from "./healthkit-sync.ts";
+import {
+  closeWorkspaceVoiceClones,
+  eraseTrainerVoiceClones,
+  exportTrainerVoiceClones,
+  retireTrainerVoiceClones,
+  voiceCloneProviderInUse,
+} from "./voice-clones.ts";
 async function exists(tx: Tx, table: string) {
   return !!(
     await tx.query("SELECT to_regclass($1) name", ["public." + table])
@@ -62,6 +69,8 @@ export async function withdrawIntegrations(
     );
   }
   if (kind === "voice" && (await exists(tx, "trainer_voices"))) {
+    // Clones made in the app are deleted and queued for provider deletion.
+    await retireTrainerVoiceClones(tx, userId, "consent_withdrawn");
     await tx.query(
       "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
       [userId],
@@ -72,7 +81,7 @@ export async function withdrawIntegrations(
         [userId],
       );
     await tx.query(
-      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,version=version+1 WHERE user_id=$1",
+      "UPDATE trainer_voices SET status='revoked',sample=NULL,provider_voice_id=NULL,clone_id=NULL,version=version+1 WHERE user_id=$1",
       [userId],
     );
   }
@@ -112,8 +121,15 @@ export const privacyHooks: PrivacyHooks = {
       ),
     ].concat(
       voices.length ? ["Voice provider"] : [],
+      // Deleted by the worker through voice_provider_deletions; listed so the
+      // follow-up confirms it.
+      (await voiceCloneProviderInUse(tx, userId)) ? ["Cartesia (voice clones)"] : [],
       domains.length ? ["Domain registrar"] : [],
     );
+  },
+  async transferAdditional(tx, previousOwnerId) {
+    if (await exists(tx, "trainer_voices"))
+      await withdrawIntegrations(tx, previousOwnerId, "voice");
   },
   async exportAdditional(tx, userId) {
     return {
@@ -133,10 +149,12 @@ export const privacyHooks: PrivacyHooks = {
       voice: await rows(
         tx,
         "trainer_voices",
-        "id,status,consent_version,evidence,sample_type,created_at",
+        "id,status,provider,consent_version,evidence,sample_type,created_at",
         "user_id=$1",
         [userId],
       ),
+      // Clones and recordings made in the app: metadata only, never audio.
+      voiceClones: await exportTrainerVoiceClones(tx, userId),
       guidedAudio: await rows(
         tx,
         "guided_audio",
@@ -207,6 +225,8 @@ export const privacyHooks: PrivacyHooks = {
       );
     }
     if (await exists(tx, "trainer_voices")) {
+      // Clones are queued for deletion at the provider, then removed here.
+      await eraseTrainerVoiceClones(tx, userId);
       await tx.query(
         "DELETE FROM guided_audio WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
         [userId],
@@ -231,6 +251,9 @@ export const privacyHooks: PrivacyHooks = {
     await closeChatAttachments(tx);
     await closeWorkspaceComplimentaryAccess(tx);
     if (await exists(tx, "healthkit_devices")) await closeHealthKitData(tx);
+    // Every clone is queued for provider deletion (the queue stays after
+    // closure) before the clones and recordings are removed.
+    await closeWorkspaceVoiceClones(tx);
     for (const table of [
       "voice_session_clips",
       "voice_sessions",

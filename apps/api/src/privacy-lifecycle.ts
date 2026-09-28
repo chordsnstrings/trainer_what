@@ -30,6 +30,8 @@ export type PrivacyHooks = {
   ) => Promise<Record<string, unknown>>;
   eraseAdditional?: (tx: Tx, userId: string) => Promise<void>;
   closeAdditional?: (tx: Tx) => Promise<void>;
+  /** After an ownership transfer, in the new owner's scope. */
+  transferAdditional?: (tx: Tx, previousOwnerId: string) => Promise<void>;
 };
 // These kinds document money movement or retention. Keep their structured
 // references while removing optional personal prose from mutable refunds.
@@ -801,12 +803,16 @@ export function registerPrivacyLifecycle(
         [a.tenantId, [a.userId, r.requested_by]],
       );
       // The membership update above made this member the owner.
-      await tx.tenant(asOwner(a), (tx) =>
-        event(tx, asOwner(a), "workspace.ownership_transferred", r.id, {
+      await tx.tenant(asOwner(a), async (tx) => {
+        // The previous owner's voice (and clones) stop and are deleted: members
+        // never hear a former owner (docs/features/trainer-voice.md).
+        if (hooks.transferAdditional)
+          await hooks.transferAdditional(tx, r.requested_by);
+        await event(tx, asOwner(a), "workspace.ownership_transferred", r.id, {
           previousOwner: r.requested_by,
           newOwner: a.userId,
-        }),
-      );
+        });
+      });
       reply.clearCookie("session", { path: "/" });
       return { status: "completed", signInRequired: true };
     });

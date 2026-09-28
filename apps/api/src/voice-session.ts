@@ -139,6 +139,8 @@ export type VoiceGate = {
   playbackConsent: boolean;
   transcriptionConsent: boolean;
   speechToText: boolean;
+  /** Who transcribes spoken replies, shown with the member's consent. */
+  speechProvider: { name: string; zeroRetention: boolean } | null;
   held: boolean;
   budget: { spentUsd: number; capUsd: number; reached: boolean } | null;
 };
@@ -147,14 +149,22 @@ type GuidedVoice = {
   version: number;
   provider_voice_id: string | null;
   consented: boolean;
+  /** The provider holding the voice (migration 069), its model and language. */
+  provider: string;
+  model: string | null;
+  language: string | null;
 };
+const GUIDED_VOICE =
+  "SELECT id,version,provider_voice_id,consented,provider,model,language FROM guided_voice()";
 async function voiceGate(tx: Tx, a: Actor) {
   const access = await memberAccess(tx, a.userId);
-  const [voice] = await tx.query<GuidedVoice>(
-    "SELECT id,version,provider_voice_id,consented FROM guided_voice()",
-  );
+  const [row] = await tx.query<GuidedVoice>(GUIDED_VOICE);
   const pricing = voicePricing(),
     speech = speechPricing();
+  // A voice held by another provider than the configured one (an operator
+  // switched provider) cannot be spoken: the session is text-guided.
+  const mismatch = !!row && !!pricing && row.provider !== pricing.provider;
+  const voice = mismatch ? undefined : row;
   const playback = await latestConsent(tx, a.userId, "voice_playback"),
     transcription = await latestConsent(tx, a.userId, "voice_transcription");
   const [held] = await tx.query(
@@ -171,7 +181,8 @@ async function voiceGate(tx: Tx, a: Actor) {
   if (held?.held) codes.push("TRAINING_HELD");
   if (!access.premiumVoice) codes.push("VOICE_MEMBERSHIP");
   if (!pricing) codes.push("VOICE_CONTRACT");
-  if (!voice?.consented) codes.push("VOICE_NOT_VERIFIED");
+  if (mismatch) codes.push("VOICE_UNAVAILABLE");
+  else if (!voice?.consented) codes.push("VOICE_NOT_VERIFIED");
   if (pricing && spent >= pricing.cap) codes.push("VOICE_BUDGET");
   if (!playback) codes.push("PLAYBACK_CONSENT");
   const gate: VoiceGate = {
@@ -183,6 +194,12 @@ async function voiceGate(tx: Tx, a: Actor) {
     playbackConsent: playback,
     transcriptionConsent: transcription,
     speechToText: !!speech && !!pricing && access.premiumVoice,
+    speechProvider: speech
+      ? {
+          name: speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs",
+          zeroRetention: speech.provider === "elevenlabs" && speech.zeroRetention,
+        }
+      : null,
     held: held?.held === true,
     budget: pricing
       ? {
@@ -294,21 +311,37 @@ async function sessionForWorkout(tx: Tx, a: Actor, workout: any, bind: boolean) 
   return { session, stale: false };
 }
 const clipFingerprint = (
-  voice: { id: string; version: number },
+  voice: {
+    id: string;
+    version: number;
+    provider?: string | null;
+    model?: string | null;
+  },
   pricing: { model: string; priceVersion: string },
   text: string,
 ) =>
   hash(
-    [voice.id, voice.version, pricing.model, pricing.priceVersion, text].join(
-      "\n",
-    ),
+    [
+      voice.id,
+      voice.version,
+      voice.model ?? pricing.model,
+      pricing.priceVersion,
+      // Unchanged for ElevenLabs voices made before the provider was recorded.
+      ...(voice.provider && voice.provider !== "elevenlabs" ? [voice.provider] : []),
+      text,
+    ].join("\n"),
   );
 async function queueSessionClips(
   tx: Tx,
   a: Actor,
   sessionId: string,
   script: SessionScript,
-  voice: { id: string; version: number },
+  voice: {
+    id: string;
+    version: number;
+    provider?: string | null;
+    model?: string | null;
+  },
   pricing: { model: string; priceVersion: string },
 ) {
   await tx.query("DELETE FROM voice_session_clips WHERE session_id=$1", [
@@ -818,7 +851,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         throw fail(409, "VOICE_UNAVAILABLE", REASONS.VOICE_UNAVAILABLE);
       const { gate } = await voiceGate(tx, a);
       const blocking = gate.reasons.find((r) =>
-        ["MEMBERSHIP_REQUIRED", "TRAINING_HELD", "VOICE_MEMBERSHIP", "VOICE_NOT_VERIFIED", "PLAYBACK_CONSENT", "VOICE_CONTRACT"].includes(r.code),
+        ["MEMBERSHIP_REQUIRED", "TRAINING_HELD", "VOICE_MEMBERSHIP", "VOICE_NOT_VERIFIED", "VOICE_UNAVAILABLE", "PLAYBACK_CONSENT", "VOICE_CONTRACT"].includes(r.code),
       );
       if (blocking) throw fail(409, blocking.code, blocking.message);
       const [voice] = await tx.query(
@@ -913,9 +946,15 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         const cost = (billableMs / 3600000) * speech.pricePerHour;
         if (Number(spent.total) + cost > pricing.cap)
           throw fail(429, "VOICE_BUDGET", REASONS.VOICE_BUDGET);
+        // Replies are recognised in the member's language (English or Arabic).
+        const [preference] = await tx.query(
+          "SELECT data->>'language' AS language FROM notification_preferences WHERE user_id=$1",
+          [a.userId],
+        );
+        const language: "en" | "ar" = preference?.language === "ar" ? "ar" : "en";
         const usageId = randomUUID();
         await tx.query(
-          "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.transcription','elevenlabs',$4,'reserved',$5,$6,$7)",
+          "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.transcription',$8,$4,'reserved',$5,$6,$7)",
           [
             usageId,
             a.tenantId,
@@ -932,20 +971,26 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
               estimated: true,
             }),
             session.id,
+            speech.provider,
           ],
         );
-        return { session, usageId, billableMs };
+        return { session, usageId, billableMs, language };
       });
       let transcript: string;
       try {
-        const result = await transcribeSpeech(audio, b.type, async () => {
-          await db.tenant(a, (tx) =>
-            tx.query(
-              "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
-              [reservation.usageId],
-            ),
-          );
-        });
+        const result = await transcribeSpeech(
+          audio,
+          b.type,
+          async () => {
+            await db.tenant(a, (tx) =>
+              tx.query(
+                "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
+                [reservation.usageId],
+              ),
+            );
+          },
+          { language: reservation.language },
+        );
         transcript = result.text.trim();
         // The provider's own timing (end of the last word) is kept for
         // reconciliation. Usage rows are write-once after the send, so it goes
@@ -963,7 +1008,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
               const extraMs = providerSeconds * 1000 - reservation.billableMs;
               if (extraMs > 0)
                 await tx.query(
-                  "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.transcription','elevenlabs',$4,'unknown',$5,$6,$7)",
+                  "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.transcription',$8,$4,'unknown',$5,$6,$7)",
                   [
                     randomUUID(),
                     a.tenantId,
@@ -979,6 +1024,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
                       estimated: true,
                     }),
                     reservation.session.id,
+                    speech.provider,
                   ],
                 );
             })
@@ -1303,10 +1349,10 @@ export async function processVoiceSessionAudio(
     if (budget <= 0 || capped) break;
     const valid = await db.tenant(actor, async (tx) => {
       const [voice] = await tx.query<GuidedVoice>(
-        "SELECT id,version,provider_voice_id,consented FROM guided_voice() WHERE id=$1 AND version=$2",
+        GUIDED_VOICE + " WHERE id=$1 AND version=$2",
         [session.voice_id, session.voice_version],
       );
-      if (!voice?.consented || !voice.provider_voice_id) {
+      if (!voice?.consented || !voice.provider_voice_id || voice.provider !== pricing.provider) {
         await stopSessionAudio(tx, session.id, "revoked", "VOICE_UNAVAILABLE");
         return null;
       }
@@ -1390,12 +1436,12 @@ export async function processVoiceSessionAudio(
         if (Number(spent.total) + estimate > pricing.cap) return { capped: true as const };
         const usageId = randomUUID();
         await tx.query(
-          "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.session','elevenlabs',$4,'reserved',$5,$6,$7)",
+          "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.session',$8,$4,'reserved',$5,$6,$7)",
           [
             usageId,
             tenantId,
             clip.user_id,
-            pricing.model,
+            valid.voice.model ?? pricing.model,
             pricing.priceVersion,
             JSON.stringify({
               basis: "characters",
@@ -1405,6 +1451,7 @@ export async function processVoiceSessionAudio(
               estimated: true,
             }),
             clip.id,
+            pricing.provider,
           ],
         );
         const [claimed] = await tx.query(
@@ -1446,6 +1493,7 @@ export async function processVoiceSessionAudio(
               );
             });
           },
+          valid.voice,
         );
         await db.tenant(actor, async (tx) => {
           const [voice] = await tx.query(

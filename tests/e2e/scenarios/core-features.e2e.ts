@@ -14,6 +14,9 @@
  *   suggestions, a script prepared ahead with audio made by the worker, spoken
  *   replies through the speech-to-text double, and pain stopping the session
  *   and opening a training hold.
+ * - Trainer voice clones (docs/features/trainer-voice.md, voice-clone.e2e.ts):
+ *   the Cartesia double, a Quick clone previewed, activated, spoken in a
+ *   session and deleted.
  * - Web addresses (docs/features/web-addresses.md): the automatic subdomain
  *   through the coach-domain edge, domain search, purchase and yearly renewal
  *   through the Namecheap double, never naming the registrar to the trainer.
@@ -32,6 +35,7 @@ import type { E2EContext, TrainerSeed } from "../harness/context.ts";
 import { PASSWORD } from "../harness/data.ts";
 import { PLATFORM_ROOT_DOMAIN, WEB_ADDRESS_SANDBOX_IPV4 } from "../mocks/index.ts";
 import { estimateFollowerConversion } from "../../../packages/domain/src/marketing-calculators.ts";
+import { trainerVoiceCloneScenarios } from "./voice-clone.e2e.ts";
 
 const A = "Super admin" as const;
 const T = "Trainers" as const;
@@ -85,6 +89,8 @@ export async function coreFeatureScenarios(ctx: E2EContext) {
   if (member) {
     await weeklyAdaptation(ctx, layla, member);
     await voiceSession(ctx, layla, member);
+    // Cartesia Quick clone -> preview -> activate -> session audio -> delete.
+    await trainerVoiceCloneScenarios(ctx, layla, member);
   }
   // Supervised again, so the scheduler's own later passes in this run send
   // other members' plans to the trainer rather than delivering them.
