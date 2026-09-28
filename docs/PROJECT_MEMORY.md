@@ -31,7 +31,7 @@ Updated: 27 September 2026. This is durable project context for future build ses
 
 ## Current state
 
-- **Live deployment.** Unchanged: `main` at `eb7b678` runs on GymMembership; registration closed; placeholder legal documents; synthetic test accounts. Evidence: `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`.
+- **Live deployment.** `main` at `5bcd8de` (PR #3) runs on GymMembership at https://trainsyou.com since 28 Sep 10:02 UTC (old sslip address and `www` redirect); registration closed; placeholder legal documents; synthetic test accounts. Earlier evidence: `docs/VERIFICATION_2026-09-27_LIVE_DEPLOYMENT.md`; this deploy: `docs/COMPLETION_STAGES.md` stage 2026-09-28i.
 - **Branch work (unmerged, PR #3).** Eleven completion and hardening packages merged on `integrate/round2` and pushed to `claude/repository-overview-osejlw`: see `docs/COMPLETION_STAGES.md` stage 2026-09-28 and `docs/features/`. Migrations 054–062. Full PGlite suite on `b4ac2b5`: 745 pass, 0 fail, 1 skipped.
 - **Also merged (stage 2026-09-28b).** Brain-generated plans with confidence escalation and learning, trainer-set programme length, voice add-on and day-by-day view, voice-led sessions, automatic subdomains and autonomous domains, and the multi-page marketing site (migrations 063–066). Full PGlite suite on `5d405e0`: 895 pass, 0 fail, 1 skipped.
 - **Also merged (stage 2026-09-28f).** trainsyou identity on platform surfaces and the Super admin platform address change (migrations 067–068). On the merged head: full PGlite suite 915 tests, 914 pass, 0 fail, 1 skipped; Python deployment tests OK; build and browser journey pass.
