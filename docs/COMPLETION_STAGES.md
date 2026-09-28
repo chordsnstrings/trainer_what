@@ -6,6 +6,12 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-28g — AI answer review merged; checks on the combined head (integrate/round2, unmerged)
+
+`core/e2e-ai` (stages 2026-09-28c–e: core harness suite, model-outcome replays, plan text screen and model-output hardening) is merged into `integrate/round2` at `0e0a485` with the brand and platform-address work. Checks actually run on `0e0a485`: TypeScript (root and web) passed; full PGlite suite 929 tests, 928 pass, 0 fail, 1 skipped; Python deployment tests OK (3 skipped); `/opt/tools/pg-sandbox.sh` with brain-plans, coaching-runtime, fix-coaching, source-review-notifications, e2e-harness-import-history, integrations-completion, healthkit-sync, voice-session and platform-address: `PG_SELECTED_FAILED_FILES=0`; full e2e harness under Node 24.19 (`/opt/node24`, the CI version) with its production build: 430 passed, 0 failed, 0 skipped. `tests/fix-db.test.ts` on PostgreSQL under Node 24.19 three times: no V8 crash, 0 failed files. The browser journey against this machine's reused embedded database timed out waiting for the onboarding identity save; it is being rerun on an empty database (CI always starts empty) and its result is recorded in the next entry.
+
+Owner direction recorded in `docs/PROJECT_MEMORY.md`: Cartesia trainer voice clones (Quick by default, Pro optional and off), and optional timed, spoken workouts with music between cues and a subscriber-chosen generated music type, kept low cost. Cartesia work is in progress on `core/cartesia-voice`; the music design is being researched.
+
 ## Stage 2026-09-28f — trainsyou identity and platform address change (integrate/round2, unmerged)
 
 | Package | Delivered | Record |
