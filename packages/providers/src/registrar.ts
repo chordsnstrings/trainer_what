@@ -22,6 +22,12 @@ export type Availability = {
   available: boolean;
   premium: boolean;
   /**
+   * The registrar answered but could not check this name (Namecheap's
+   * per-name ErrorNo, or no row for it): neither available nor taken. The
+   * search shows it as not checked; checkout refuses it.
+   */
+  checkFailed?: boolean;
+  /**
    * Premium names carry their own one-year prices (without the ICANN fee,
    * which is `icannFeeUsd`). The automatic flow offers a premium name only
    * when both marked-up prices are within the price cap.
@@ -181,6 +187,32 @@ export class RegistrarError extends Error {
     this.name = "RegistrarError";
   }
 }
+/**
+ * `RegistrarError.code` of a pricing answer that says the ending is not
+ * sold through the API (the registrar answered readably with no one-year
+ * product for it, or refused the ending itself). `REQUIREMENTS`: sold, but
+ * only with registrant documents.
+ */
+export const NOT_SOLD = "NOT_SOLD";
+/**
+ * True only when a pricing error is the registrar's own answer that the
+ * ending cannot be bought through the API. Every other error, including a
+ * definitive refusal of the request itself (credentials, a client address
+ * that is not whitelisted, throttling, an unknown code), says nothing about
+ * the ending and must never be remembered as "not offered".
+ */
+export function endingNotSold(error: unknown) {
+  return (
+    error instanceof RegistrarError &&
+    error.outcome === "definitive" &&
+    (error.code === NOT_SOLD || error.code === "REQUIREMENTS")
+  );
+}
+/**
+ * Namecheap error numbers for an ending its API does not sell (2030280
+ * "TLD is not supported in API", "Tld for '<name>' is not found").
+ */
+const NAMECHEAP_UNSUPPORTED_TLD = new Set(["2030280"]);
 
 export interface Registrar {
   readonly id: RegistrarId;
@@ -551,13 +583,13 @@ export class NamecheapRegistrar implements Registrar {
       for (const item of xmlChildren(result, "DomainCheckResult")) {
         const eap = money(item.attributes.EapFee);
         const premium = truthy(item.attributes.IsPremiumName);
+        // A name Namecheap could not check (ErrorNo other than 0) is never
+        // offered, and is not reported as taken either.
+        const checkFailed = (item.attributes.ErrorNo ?? "0").trim() !== "0";
         out.push({
           domain: (item.attributes.Domain ?? "").toLowerCase(),
-          // A name Namecheap could not check (ErrorNo other than 0) is
-          // never offered.
-          available:
-            truthy(item.attributes.Available) &&
-            (item.attributes.ErrorNo ?? "0").trim() === "0",
+          available: truthy(item.attributes.Available) && !checkFailed,
+          ...(checkFailed ? { checkFailed: true } : {}),
           premium,
           premiumRegisterUsd: premium
             ? money(item.attributes.PremiumRegistrationPrice)
@@ -586,10 +618,24 @@ export class NamecheapRegistrar implements Registrar {
         "definitive",
         "REQUIREMENTS",
       );
-    const result = await this.command("users.getPricing", {
-      ProductType: "DOMAIN",
-      ProductName: tld.toUpperCase(),
-    });
+    let result: XmlElement;
+    try {
+      result = await this.command("users.getPricing", {
+        ProductType: "DOMAIN",
+        ProductName: tld.toUpperCase(),
+      });
+    } catch (error) {
+      // Only Namecheap's "this ending is not supported" is an answer about
+      // the ending; a refused request (credentials, client address,
+      // throttling) says nothing about it.
+      if (
+        error instanceof RegistrarError &&
+        error.outcome === "definitive" &&
+        NAMECHEAP_UNSUPPORTED_TLD.has(error.code ?? "")
+      )
+        throw new RegistrarError(error.message, "definitive", NOT_SOLD);
+      throw error;
+    }
     const types = xmlChildren(
       xmlChild(result, "UserGetPricingResult"),
       "ProductType",
@@ -624,10 +670,13 @@ export class NamecheapRegistrar implements Registrar {
     };
     const registerUsd = price("register"),
       renewUsd = price("renew");
+    // A readable answer without a one-year product: the API does not sell
+    // this ending (live for .ae on 28 September 2026).
     if (!registerUsd || !renewUsd)
       throw new RegistrarError(
         `Namecheap has no one-year price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }
@@ -855,15 +904,38 @@ export class GenericRegistrar implements Registrar {
       );
     return data;
   }
-  /** POST v1/domains/check {domains} → {results}, up to 50 names a call. */
+  /**
+   * POST v1/domains/check {domains} → {results}, up to 50 names a call. A
+   * registrar built to the earlier contract (GET v1/domains/check?domain=,
+   * one name a call) answers the POST with 404 or 405: its names are then
+   * checked one by one. An answer without `results` is unreadable, never
+   * "every name taken".
+   */
   async check(domains: string[]) {
     const out: Availability[] = [];
     for (let i = 0; i < domains.length; i += CHECK_BATCH) {
       const chunk = domains.slice(i, i + CHECK_BATCH);
-      const data = await this.call("POST", "v1/domains/check", {
-        domains: chunk,
-      });
-      const rows: any[] = Array.isArray(data?.results) ? data.results : [];
+      let data: any;
+      try {
+        data = await this.call("POST", "v1/domains/check", {
+          domains: chunk,
+        });
+      } catch (error) {
+        if (
+          error instanceof RegistrarError &&
+          (error.code === "404" || error.code === "405")
+        ) {
+          for (const domain of chunk) out.push(await this.checkOne(domain));
+          continue;
+        }
+        throw error;
+      }
+      if (!Array.isArray(data?.results))
+        throw new RegistrarError(
+          "The registrar answer was not readable",
+          "unknown",
+        );
+      const rows: any[] = data.results;
       for (const domain of chunk) {
         const row = rows.find(
           (r) => String(r?.domain ?? "").toLowerCase() === domain,
@@ -872,6 +944,7 @@ export class GenericRegistrar implements Registrar {
         out.push({
           domain,
           available: row?.available === true,
+          ...(row ? {} : { checkFailed: true }),
           premium,
           premiumRegisterUsd: premium
             ? money(String(row?.premiumRegisterUsd ?? ""))
@@ -884,17 +957,47 @@ export class GenericRegistrar implements Registrar {
     }
     return out;
   }
+  /** The earlier one-name contract: GET v1/domains/check?domain= → {available, premium}. */
+  private async checkOne(domain: string): Promise<Availability> {
+    const data = await this.call(
+      "GET",
+      "v1/domains/check?domain=" + encodeURIComponent(domain),
+    );
+    if (typeof data?.available !== "boolean")
+      return { domain, available: false, premium: false, checkFailed: true };
+    const premium = data.premium === true;
+    return {
+      domain,
+      available: data.available === true,
+      premium,
+      premiumRegisterUsd: premium
+        ? money(String(data?.premiumRegisterUsd ?? ""))
+        : undefined,
+      premiumRenewUsd: premium
+        ? money(String(data?.premiumRenewUsd ?? ""))
+        : undefined,
+    };
+  }
+  /**
+   * GET v1/pricing/<tld> → {currency:"USD", register, renew}; 404 (or an
+   * answer without a one-year USD price) means the ending is not sold.
+   */
   async pricing(tld: string) {
     const data = await this.call(
       "GET",
       "v1/pricing/" + encodeURIComponent(tld),
+      undefined,
+      true,
     );
+    if (data === null)
+      throw new RegistrarError(`.${tld} is not sold`, "definitive", NOT_SOLD);
     const registerUsd = money(String(data?.register ?? "")),
       renewUsd = money(String(data?.renew ?? ""));
     if (!registerUsd || !renewUsd || (data?.currency ?? "USD") !== "USD")
       throw new RegistrarError(
         `No one-year USD price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }
@@ -1198,7 +1301,13 @@ export class OneOhOneRegistrar implements Registrar {
         out.push(
           row && !invalid.has(name)
             ? this.item(row)
-            : { domain: name, available: false, premium: false },
+            : {
+                domain: name,
+                available: false,
+                premium: false,
+                // No row at all: 101domain did not check this name.
+                ...(row || invalid.has(name) ? {} : { checkFailed: true }),
+              },
         );
       }
     }
@@ -1208,7 +1317,17 @@ export class OneOhOneRegistrar implements Registrar {
     const answer = await this.call(
       "GET",
       "/v1/tlds/" + encodeURIComponent(tld.replace(/^\./, "")),
+      undefined,
+      { allow404: true },
     );
+    // An ending 101domain does not know is not sold; any other refusal says
+    // nothing about the ending (credentials, scopes, throttling).
+    if (answer === null)
+      throw new RegistrarError(
+        `101domain does not sell .${tld}`,
+        "definitive",
+        NOT_SOLD,
+      );
     const data = answer?.data ?? {};
     // Endings that need documents (a trade licence, a trademark) cannot be
     // bought automatically for a trainer. 101domain answers has_requirements
@@ -1232,6 +1351,7 @@ export class OneOhOneRegistrar implements Registrar {
       throw new RegistrarError(
         `101domain has no one-year USD price for .${tld}`,
         "definitive",
+        NOT_SOLD,
       );
     return { tld, registerUsd, renewUsd };
   }

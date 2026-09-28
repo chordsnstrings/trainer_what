@@ -400,8 +400,14 @@ answered with an error) or `unknown` (network, timeout, non-200, unreadable body
   `users.getBalances`. `api.sandbox.namecheap.com` unless "test environment" is explicitly off.
   A small XML reader refuses DOCTYPE/entity declarations.
 - **Generic JSON registrar** (bearer `DOMAIN_API_KEY` at `DOMAIN_API_URL`, from the Custom
-  domains settings): `GET v1/domains/check?domain=`, `GET v1/pricing/<tld>` → `{currency:"USD",
-  register, renew}`, `POST v1/domains` `{domain, years, registrant, privacy:true}` (409 =
+  domains settings): `POST v1/domains/check` `{domains: [...]}` (1 to 50 names) →
+  `{results: [{domain, available, premium, premiumRegisterUsd?, premiumRenewUsd?}]}` (a name
+  missing from `results` counts as not checked; a 200 answer without `results` is unreadable,
+  never "all taken"); a registrar built to the earlier one-name contract, `GET
+  v1/domains/check?domain=` → `{available, premium}`, answers the POST with 404 or 405 and is
+  then asked name by name. `GET v1/pricing/<tld>` → `{currency:"USD", register, renew}` (404 or
+  no one-year USD price: the ending is not sold; 401/403/429/5xx say nothing about the
+  ending), `POST v1/domains` `{domain, years, registrant, privacy:true, premiumPriceUsd?}` (409 =
   unavailable), `GET v1/domains?search=`, `GET v1/domains/<domain>`, `PUT`/`GET
   v1/domains/<domain>/records`, `POST v1/domains/<domain>/renew` `{years}`, `GET v1/account` →
   `{balanceUsd}`. The e2e registrar double implements it. It has no test environment, so it
@@ -433,8 +439,10 @@ category, so the built-in text is always kept).
 | `GET /api/v1/web-address/orders/:id` | Owner | Progress and the two prices (never the registrar, its cost, the rate or the margin) |
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
 | `POST /api/v1/web-address/orders/:id/renewal` | Owner, fresh MFA | `{enabled}` → Stripe `cancel_at_period_end` |
-| `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view |
-| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order) |
+| `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view (orders with `attention`, `needsReconciliation` and `costAlert`) |
+| `GET /api/v1/admin/web-addresses/prices` | Super admin, fresh MFA | Every allowed ending: state, registrar costs, trainer prices, margin before Stripe fees |
+| `POST /api/v1/admin/web-addresses/prices/refresh` | Super admin, fresh MFA | `{reason}`; asks the registrar again within the call budget; audited |
+| `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order; retry also accepts a held purchase's new registrar cost and clears a cost alert) |
 | `POST /api/v1/admin/web-addresses/:id/record` | Super admin, fresh MFA | `{reason}`; records a registration or renewal made at the registrar by hand; 409 `NOT_RECORDED` with the reason |
 | `POST /api/v1/admin/web-addresses/:id/cancel-subscription` | Super admin, fresh MFA | `{reason}`; ends the yearly subscription; 502 when Stripe does not confirm (retried automatically) |
 
@@ -1013,16 +1021,38 @@ lapse, reconciliation and DNS on DigitalOcean.
 
 ### Suggestions
 
-- **Input.** A name (`athena`) or a full domain (`athena.com`, `Athena.IO`, also with
-  `https://`, `www.` or a path, which are dropped); anything else is a 400 `DOMAIN_SEARCH`. No
-  variations of the name are generated.
+- **Input.** A name (`athena`) or a full domain (`athena.com`, `Athena.IO`). Cleaned the same
+  way with or without an ending: a scheme, a leading `@` (an Instagram handle), `www.`, a path,
+  a `:port` and a trailing dot are dropped; spaces and underscores become hyphens
+  (`layla strength` and `layla strength.com` → `layla-strength.com`). A double hyphen is refused
+  only in the third and fourth place (reserved for `xn--` names). A deeper name
+  (`shop.athena.com`, `coach.athena.com`, `athena.com.evil`) is refused unless its last two
+  labels are an allowed two-part ending (`co.uk`), so a subdomain never becomes the label and
+  nothing is priced for it. Anything else is a 400 `DOMAIN_SEARCH`: "Use English letters,
+  digits and hyphens: a name such as laylastrength, or a full domain such as
+  laylastrength.com. Accented and Arabic letters are not supported yet." No variations of the
+  name are generated.
 - **Endings.** `WEB_ADDRESS_TLDS`, in order, operator-editable (at most 20; default
   `com,fit,fitness,coach,training,ae,club,pro,app,me`; the old default `com,net,org,co` is read
-  as the new default). A typed ending is checked first even when it is not in the list; a typed
-  name without an ending is the name on the first suggested ending (`.com` by default).
+  as the new default). Only these endings and the operator's `WEB_ADDRESS_EXTRA_TLDS` ("Other
+  endings sold when a trainer types them", empty by default, at most 20) can be bought, in the
+  search and at checkout. A typed ending outside both lists is answered `not_offered` without
+  asking the registrar (no price call, no stored row), so an adult, protest or local-presence
+  ending is never priced or bought for the platform company; an allowed typed ending is checked
+  first. A typed name without an ending is the name on the first suggested ending (`.com` by
+  default). (Review round 1: the owner decided the default suggestions; letting any typed ending
+  be bought was not decided, so the allow-list stays with operators.)
+- **Protected brand names.** The platform's brand (`trainsyou`, the platform root's own label,
+  and the operator's `WEB_ADDRESS_PROTECTED_LABELS`) is never sold on any ending, hyphens
+  ignored, and a protected name of five or more letters is also refused inside a longer label
+  (`trains-you.app`, `trainsyou-login.com`, `mytrainsyou.fit`): the search answers `not_offered`
+  with no results and no registrar request, and checkout refuses it. A site on
+  `trainsyou.app` held by the platform company would look official.
 - **Answer.** `requested: {domain, status}` with status `available`, `taken`, `not_offered`
   (the registrar does not sell the ending, the price is over the cap, a premium price cannot be
-  used, or an early-access fee) or `unknown`; `results`: only available names within the cap,
+  used, or an early-access fee) or `unknown` (not priced or not checked right now, including a
+  name the registrar answered with an error of its own, Namecheap's per-name `ErrorNo`, which is
+  never shown as taken); `results`: only available names within the cap,
   the typed name first, then the endings in order; `incomplete` when some ending could not be
   priced or checked right now (the screen says so); `priceCapMinor`. The platform's own domain
   is simply not offered.
@@ -1050,8 +1080,27 @@ lapse, reconciliation and DNS on DigitalOcean.
   environment and ending with the USD register and renew cost, or `not_offered` with the reason,
   and `fetched_at`. Fresh for 24 hours; a stale price up to 7 days old is still shown when the
   call budget is used up; an order always asks the registrar again (and stores the answer).
-- The worker refreshes the suggested endings' prices, at most four a run (missing first, then
-  the oldest), only while purchases are enabled and the registrar settings are complete.
+- **Only a not-sold answer is stored as not offered** (review round 1): the registrar's
+  readable answer without a one-year product (Namecheap `.ae`), Namecheap error 2030280, a
+  generic or 101domain 404 for the ending, or an ending needing registrant documents
+  (`RegistrarError.code` `NOT_SOLD` or `REQUIREMENTS`, `endingNotSold()`). A refused request
+  (Namecheap 1011150 client address not whitelisted, 1011102 key or API access, 500000 or any
+  other code; generic or 101domain 401/403/429/5xx) stores nothing and leaves the last good
+  price; a search then falls back to it or says it is incomplete, and a search whose
+  availability request is refused answers 503 `REGISTRAR_UNAVAILABLE` instead of "nothing can
+  be bought". A `not_offered` row is trusted for one hour (searches and the worker ask again
+  after that), a price for 24 hours.
+- The worker refreshes the prices of every ending that can be bought (suggested first, then the
+  other allowed endings), at most four a run (missing first, then the oldest), only while
+  purchases are enabled and the registrar settings are complete.
+- **Operators** (Super admin → Integration operations → Web addresses, "Registrar prices per
+  ending"; `GET /api/v1/admin/web-addresses/prices`) see every allowed ending with its state
+  (offered, hidden over the cap, not sold by the registrar's API with the reason, not priced
+  yet), the registrar's one-year costs, the trainer's two prices under the current rule, the
+  margin before Stripe's fees and when it was priced. "Refresh prices now"
+  (`POST /api/v1/admin/web-addresses/prices/refresh`, `{reason}`, audited in
+  `admin_operations_audit`) asks the registrar again for each allowed ending within the
+  interactive call budget and reports any ending it could not refresh.
 - A search prices missing endings only while the API process's registrar budget (8 a minute,
   300 an hour, 3,500 a day) still leaves room for its availability request; otherwise the
   answer is marked incomplete. Right after start-up the first search may therefore be
@@ -1084,6 +1133,41 @@ lapse, reconciliation and DNS on DigitalOcean.
 - **Stripe settlement.** Charging in USD means Stripe converts to the account's settlement
   currency and charges its conversion fee, unless the account holds a USD balance. Owner note,
   not changed in code.
+- **Stripe permissions.** Most checkouts (a first year cheaper than the renewal, for example
+  .com at 19.99 then 24.99) create a once-only coupon, so a restricted Stripe key needs write
+  access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices,
+  Payment Intents and Charges (also in the web addresses setup notes in Super admin). Without
+  Coupons write, checkout answers 502 `CHECKOUT_UNRESOLVED`. The connection check does not test
+  coupon creation (it would write to the live account).
+
+### Purchase and renewal cost guard (review round 1)
+
+- **Before buying a regular name** the worker asks the registrar for the ending's price again.
+  If its registration cost under the order's own rule (`quote.priceRule`) is now above the
+  first-year price the trainer paid (a first-year promotion ended while the order waited for
+  purchases to be switched on, a registrar balance top-up or a retry), nothing is bought: the
+  order waits (`next_attempt_at` null) with an operator message naming the new and quoted cost,
+  and `evidence.priceHold`. **Retry** accepts buying at up to that cost (the platform absorbs
+  the difference; `evidence.acceptedCost`, recorded with the reason); **Refund and close**
+  refunds the trainer. A rise within the same USD 5 step keeps the owner's margin and is not
+  held. The ending no longer sold also holds the order. A price that cannot be read retries
+  later (flagged after six tries). Premium names are bought only at their checked premium
+  price, which the registrar enforces.
+- **After a registration or renewal** a registrar charge (`ChargedAmount`) whose price under the
+  rule is above what the trainer pays for that year (and above any accepted cost) is recorded
+  as `evidence.costAlert`, shown to operators as attention and counted in the operator view;
+  later steps never clear it, Retry acknowledges it, and the trainer never sees it. The domain
+  is renewed either way (the trainer paid).
+- **Sixty days before expiry** (a month before the renewal charge), once per period, the
+  ending's current renewal cost is compared with the renewal price the trainer pays; a rise
+  past it is recorded the same way ("now asks USD … for the next renewal"), so the owner can
+  act before the charge. Re-pricing a running Stripe subscription is not built.
+- **Margin note for the owner.** The rule's margin over cost is between USD 4.99 and 9.98 per
+  year. On charges near USD 100, Stripe's percentage and fixed fee plus currency conversion can
+  approach that, so an ending whose cost sits on a step boundary (for example exactly 95.00 →
+  99.99) may earn little or nothing after fees. The operator prices panel shows the margin
+  before fees per ending; changing the rule (a minimum margin, a percentage, or a lower cap) is
+  an owner decision.
 
 ### Migration 071 (`packages/db/migrations/071_domain_pricing_usd.sql`)
 
@@ -1098,6 +1182,11 @@ lapse, reconciliation and DNS on DigitalOcean.
   tenant actor reads it, the policy, the currency check and the balance check's account guard.
 - Only additions and a widened check, so the previous release keeps working between migrate and
   restart (it writes AED only).
+- **Rolling the code back is unsafe once a USD order exists** (review round 1): the previous
+  release compares a USD first invoice with an AED price (flagged, and journaled as AED under
+  the refund liability), sends an open USD checkout with no amount, and journals USD renewals as
+  AED. Before any rollback, switch purchases off (`WEB_ADDRESS_PURCHASES_ENABLED`) and confirm
+  no order has `quote.currency = 'USD'`; otherwise roll forward.
 
 ### Files (stage 2026-09-28o)
 

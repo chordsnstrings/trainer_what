@@ -10,6 +10,7 @@ import {
   DomainSearch,
   OrderCard,
   WebAddressCenter,
+  agreementKey,
   type WebAddressState,
 } from "../apps/web/components/web-address.tsx";
 import { WebAddressOperations } from "../apps/web/components/web-address-operations.tsx";
@@ -115,7 +116,19 @@ test("a taken name shows as taken; the available endings are listed with both US
     html,
     /athena\.com<\/span> <span class="badge red">Taken<\/span>/,
   );
-  assert.match(html, /athena\.com is taken\./);
+  assert.match(html, /This name is taken\./);
+  // The domain is written once, in its left-to-right span.
+  assert.equal(
+    (html.match(/athena\.com/g) ?? []).length,
+    2,
+    "badge row and summary",
+  );
+  // An announcement region that is always present, with a summary.
+  assert.match(
+    html,
+    /role="status" aria-live="polite">athena\.com is taken\. 2 names available\.</,
+  );
+  assert.match(html, /aria-label="Choose athena\.fit"/);
   assert.match(html, /Available on other endings/);
   assert.match(
     html,
@@ -140,11 +153,88 @@ test("a taken name shows as taken; the available endings are listed with both US
       },
     }),
   );
-  assert.match(none, /zeus\.com cannot be bought here\./);
+  assert.match(none, /This name cannot be bought here\./);
   assert.match(
     none,
     /No available name for this search up to USD\s100\.00 a year/,
   );
+  // A name that could not be checked: "Not checked", and no "try another
+  // name" while the answer is incomplete.
+  const unchecked = renderToStaticMarkup(
+    createElement(DomainSearch, {
+      busy: false,
+      testEnvironment: false,
+      endings: ["com"],
+      priceCapMinor: 10000,
+      subdomainHost: null,
+      onError: () => {},
+      initialAnswer: {
+        requested: { domain: "athena.com", status: "unknown" },
+        results: [],
+        incomplete: true,
+      },
+    }),
+  );
+  assert.match(unchecked, /<span class="badge amber">Not checked<\/span>/);
+  assert.match(unchecked, /This name could not be checked right now\./);
+  assert.doesNotMatch(
+    unchecked,
+    /No available name|Try another name|Not available/,
+  );
+  assert.equal(
+    (unchecked.match(/search again in a minute/gi) ?? []).length,
+    2,
+    "the visible note and the announcement",
+  );
+});
+
+test("the agreement tick belongs to one name at its two prices; nothing carries over", () => {
+  const com = {
+    domain: "athena.com",
+    premium: false,
+    firstYearPriceMinor: 1999,
+    renewalPriceMinor: 2499,
+  };
+  const render = (chosen: typeof com, agreedTo: string | null) =>
+    renderToStaticMarkup(
+      createElement(DomainSearch, {
+        busy: false,
+        testEnvironment: false,
+        endings: ["com", "fitness"],
+        priceCapMinor: 10000,
+        subdomainHost: null,
+        onError: () => {},
+        initialAnswer: {
+          requested: { domain: "athena.com", status: "available" },
+          results: [com],
+          incomplete: false,
+        },
+        initialChosen: chosen,
+        initialAgreedTo: agreedTo,
+      }),
+    );
+  const box = (html: string) => html.match(/<input type="checkbox"[^>]*>/)![0];
+  const ticked = render(com, agreementKey(com));
+  assert.match(box(ticked), /checked=""/);
+  assert.doesNotMatch(ticked, /<button disabled="">Pay with card/);
+  // Another name, or the same name at new prices (PRICE_CHANGED), starts
+  // unticked and cannot be paid until the trainer agrees again.
+  for (const other of [
+    {
+      ...com,
+      domain: "athena.fitness",
+      firstYearPriceMinor: 999,
+      renewalPriceMinor: 6499,
+    },
+    { ...com, renewalPriceMinor: 2999 },
+  ]) {
+    const html = render(other, agreementKey(com));
+    assert.doesNotMatch(box(html), /checked/);
+    assert.match(html, /<button disabled="">Pay with card/);
+    assert.notEqual(agreementKey(other), agreementKey(com));
+  }
+  // The confirmation can take focus (Choose moves there on a phone).
+  assert.match(ticked, /<form tabindex="-1" aria-label="Confirm athena\.com"/i);
 });
 
 test("an order placed before USD pricing keeps its AED price on its card", () => {
@@ -230,6 +320,8 @@ test("the operator view shows attention, registrar calls and the manual fallback
             status: "purchasing",
             attention: null,
             needsReconciliation: true,
+            costAlert:
+              "The registrar charged USD 46.18 for the renewal, more than the USD 24.99 the trainer pays.",
             operations: [
               {
                 id: "op1",
@@ -242,8 +334,55 @@ test("the operator view shows attention, registrar calls and the manual fallback
           },
         ],
       },
+      prices: {
+        registrar: "namecheap",
+        testEnvironment: true,
+        endings: [
+          {
+            tld: "com",
+            suggested: true,
+            state: "offered",
+            fetchedAt: "2026-09-28T10:00:00Z",
+            registerUsd: "11.4800",
+            renewUsd: "18.6800",
+            firstYearPriceMinor: 1999,
+            renewalPriceMinor: 2499,
+            firstYearMarginMinor: 851,
+            renewalMarginMinor: 631,
+          },
+          {
+            tld: "coach",
+            suggested: true,
+            state: "over_cap",
+            fetchedAt: "2026-09-28T10:00:00Z",
+            registerUsd: "12.1800",
+            renewUsd: "96.1800",
+            firstYearPriceMinor: 1999,
+            renewalPriceMinor: 10499,
+            firstYearMarginMinor: 781,
+            renewalMarginMinor: 881,
+          },
+          {
+            tld: "ae",
+            suggested: true,
+            state: "not_offered",
+            fetchedAt: "2026-09-28T10:00:00Z",
+            reason: "Namecheap has no one-year price for .ae",
+          },
+        ],
+      },
     }),
   );
+  // Operators see which suggested endings are hidden or not sold, and the
+  // margin left before Stripe's fees; they can ask for prices again.
+  assert.match(html, /Hidden: over the price cap/);
+  assert.match(
+    html,
+    /Not sold by the registrar&#x27;s API: Namecheap has no one-year price for \.ae/,
+  );
+  assert.match(html, /USD\s8\.51 \/ USD\s6\.31/);
+  assert.match(html, /Refresh prices now/);
+  assert.match(html, /charged USD 46\.18 for the renewal/);
   assert.match(html, /\*\.trainsyou\.com/);
   assert.match(html, /test environment/);
   assert.match(html, /A registrar attempt awaits reconciliation/);

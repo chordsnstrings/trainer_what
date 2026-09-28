@@ -258,6 +258,9 @@ export async function financialStatement(
     allocations,
     usage,
     close: close ?? null,
-    current: await financeSummary(tx),
+    // The trainer's statement never carries the registrar's cost.
+    current: await financeSummary(tx, {
+      platformView: options.platformView === true,
+    }),
   };
 }

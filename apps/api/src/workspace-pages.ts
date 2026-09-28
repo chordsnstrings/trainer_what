@@ -547,7 +547,12 @@ export const COLLECTIONS: Record<string, Collection> = {
   },
   journals: {
     roles: FINANCE,
-    page: simple("*", "journals", PAGE_SIZES.journals),
+    // The registrar's cost of a trainer's domain is the platform's own
+    // figure: never listed to the workspace (operators see it elsewhere).
+    page: simple("*", "journals", PAGE_SIZES.journals, () => ({
+      where: ["source_key NOT LIKE 'web-address-registrar:%'"],
+      params: [],
+    })),
   },
   payouts: {
     roles: FINANCE,

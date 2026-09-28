@@ -10,8 +10,10 @@ import {
   NAMECHEAP_EXTENDED_ATTRIBUTE_TLDS,
   NamecheapRegistrar,
   OneOhOneRegistrar,
+  NOT_SOLD,
   RegistrarError,
   canBuyPremium,
+  endingNotSold,
   namecheapHostFields,
   parseXml,
   premiumCostUsd,
@@ -550,4 +552,111 @@ test("Namecheap: batched checks, unsupported and document endings, premium purch
   // 101domain cannot pass a premium price on: its premium names are never offered.
   assert.equal(canBuyPremium(new OneOhOneRegistrar("k")), false);
   assert.equal(canBuyPremium(nc), true);
+});
+
+test("only the registrar's own not-sold answer marks an ending as not offered", async () => {
+  const mock = new NamecheapMock(tls, account);
+  await withMock(mock, async () => {
+    // A readable answer with no one-year product (.ae, live) and an
+    // ending needing registrant documents are "not sold".
+    const ae = await adapter().pricing("ae").catch((e) => e);
+    assert.equal(ae.code, NOT_SOLD);
+    assert.ok(endingNotSold(ae));
+    const us = await adapter().pricing("us").catch((e) => e);
+    assert.equal(us.code, "REQUIREMENTS");
+    assert.ok(endingNotSold(us));
+    // Namecheap's "TLD is not supported" error on the pricing call too.
+    mock.refuseNext("users.getPricing", "TLD is not supported in API", "2030280");
+    const unsupported = await adapter().pricing("com").catch((e) => e);
+    assert.equal(unsupported.code, NOT_SOLD);
+    // A refused request says nothing about the ending.
+    for (const [bad, number] of [
+      [adapter({ clientIp: "9.9.9.9" }), "1011150"],
+      [adapter({ apiKey: "nc-wrong-key-0000000000" }), "1011102"],
+    ] as const) {
+      const error = await bad.pricing("com").catch((e) => e);
+      assert.equal(error.code, number);
+      assert.equal(error.outcome, "definitive");
+      assert.equal(endingNotSold(error), false, number);
+    }
+    mock.refuseNext("users.getPricing", "Too many requests", "500000");
+    assert.equal(endingNotSold(await adapter().pricing("com").catch((e) => e)), false);
+    assert.equal(endingNotSold(new Error("network")), false);
+    // A name Namecheap could not check is flagged, not reported as taken.
+    mock.checkErrors.add("layla.com");
+    const [checked] = await adapter().check(["layla.com"]);
+    assert.deepEqual(
+      [checked.available, checked.checkFailed],
+      [false, true],
+    );
+  });
+});
+
+test("the generic JSON adapter: 404 prices are not sold, the earlier one-name check still works, an unreadable check is unknown", async () => {
+  const mock = new RegistrarMock(tls, "reg_fixture_key");
+  let mode: "batch" | "legacy" | "unreadable" = "legacy";
+  const sent: string[] = [];
+  const transport = async (url: string, init: RequestInit = {}) => {
+    const path = new URL(url).pathname;
+    sent.push(`${init.method ?? "GET"} ${path}`);
+    if (path === "/v1/domains/check" && init.method === "POST") {
+      if (mode === "legacy")
+        return new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+        });
+      if (mode === "unreadable")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    const result = await mock.server.inject({
+      method: init.method ?? "GET",
+      url,
+      headers: Object.fromEntries(new Headers(init.headers).entries()),
+      body: typeof init.body === "string" ? init.body : undefined,
+    });
+    return new Response(result.body, {
+      status: result.status,
+      headers: result.headers,
+    });
+  };
+  await withIntegrationFixtureTransport(transport, async () => {
+    const generic = new GenericRegistrar(
+      "https://registrar.example.test",
+      "reg_fixture_key",
+    );
+    const unsold = await generic.pricing("zzqq").catch((e) => e);
+    assert.equal(unsold.code, NOT_SOLD);
+    const badKey = await new GenericRegistrar(
+      "https://registrar.example.test",
+      "bad",
+    )
+      .pricing("com")
+      .catch((e) => e);
+    assert.equal(endingNotSold(badKey), false, "a 401 says nothing about the ending");
+    // A registrar built to the earlier contract answers the batch with 404:
+    // each name is checked on its own.
+    mock.registrations.set("taken.com", {
+      id: "reg_1",
+      domain: "taken.com",
+      priceMinor: 5500,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    } as any);
+    const legacy = await generic.check(["layla.com", "taken.com"]);
+    assert.deepEqual(
+      legacy.map((a) => [a.domain, a.available]),
+      [
+        ["layla.com", true],
+        ["taken.com", false],
+      ],
+    );
+    assert.deepEqual(sent.slice(-3), [
+      "POST /v1/domains/check",
+      "GET /v1/domains/check",
+      "GET /v1/domains/check",
+    ]);
+    // A 200 answer without results is unreadable, never "all taken".
+    mode = "unreadable";
+    const unreadable = await generic.check(["layla.com"]).catch((e) => e);
+    assert.ok(unreadable instanceof RegistrarError);
+    assert.equal(unreadable.outcome, "unknown");
+  });
 });

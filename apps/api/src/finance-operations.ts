@@ -337,7 +337,7 @@ export function financeOperations(
     return db.tenant(a, async (tx) => {
       await event(tx, a, "finance.workspace_inspected", a.tenantId);
       return {
-        summary: await financeSummary(tx),
+        summary: await financeSummary(tx, { platformView: true }),
         unresolvedUsage: await tx.query(
           "SELECT * FROM cost_events WHERE status IN ('reserved','unknown') ORDER BY created_at LIMIT 200",
         ),

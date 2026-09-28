@@ -55,6 +55,8 @@ The initial GymMembership controller takes private local SQL dumps before update
 
 Tag each container release. Roll web/API/worker back together to the previous compatible image; migrations are additive and should be rolled forward, not destructively reversed. Restore must preserve unique business intents and immutable journals. Replaying webhooks or jobs must not create new financial effects. Keep runtime and authenticator encryption keys available to the restore environment through the secret mechanism.
 
+Domain prices in USD (migration 071, stage 2026-09-28o): a release from before it must not serve once any automatic domain order has `quote.currency = 'USD'`. That code compares a USD first invoice with an AED price (flagged and journaled as AED), opens a USD checkout without an amount and journals USD renewals as AED. Before rolling back past it, switch `WEB_ADDRESS_PURCHASES_ENABLED` off and confirm no USD order exists (`SELECT count(*) FROM domain_orders WHERE quote->>'currency'='USD'` as the migration owner); otherwise roll forward (docs/features/web-addresses.md, "Migration 071").
+
 ## Current troubleshooting
 
 - `PROVIDER_UNAVAILABLE`: inspect the integration's configuration and approval state; no success is fabricated.

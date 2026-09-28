@@ -7,25 +7,43 @@
  * registrar again), fetch a missing ending on demand within the caller's
  * call budget, and the worker refreshes the suggested endings before they
  * expire, so a search normally costs one registrar call. An ending the
- * registrar does not sell through its API is cached as not offered, with the
- * operator-facing reason; trainers only ever see the marked-up price.
+ * registrar says it does not sell through its API is cached as not offered
+ * (for an hour), with the operator-facing reason; any other registrar error
+ * (credentials, a client address that is not whitelisted, throttling, an
+ * outage) caches nothing and leaves the last good price in place. Trainers
+ * only ever see the marked-up price.
  */
 import type { Database } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
   RegistrarError,
+  endingNotSold,
   registrarFromConfig,
   registrarPurchaseProblem,
   type Registrar,
 } from "../../../packages/providers/src/registrar.ts";
-import { suggestedTlds } from "../../../packages/domain/src/web-address.ts";
+import {
+  purchasableTlds,
+  suggestedTlds,
+} from "../../../packages/domain/src/web-address.ts";
 
 /** A cached price is fresh this long. */
 export const PRICE_TTL_MS = 24 * 3600000;
 /** The worker refreshes a suggested ending's price once it is this old. */
 export const PRICE_REFRESH_MS = 20 * 3600000;
+/**
+ * A "not offered" answer is trusted this long: the registrar may start
+ * selling the ending, and such an answer must never hide it for a day.
+ */
+export const NOT_OFFERED_TTL_MS = 3600000;
 /** A price this old is never shown, even while it cannot be refreshed. */
 export const PRICE_STALE_MS = 7 * 24 * 3600000;
+/** How long a cached answer stays fresh (searches) for its kind. */
+const freshFor = (price: EndingPrice) =>
+  price.kind === "price" ? PRICE_TTL_MS : NOT_OFFERED_TTL_MS;
+/** When the worker asks again for its kind. */
+const refreshAfter = (price: EndingPrice) =>
+  price.kind === "price" ? PRICE_REFRESH_MS : NOT_OFFERED_TTL_MS;
 
 export type EndingPrice =
   | {
@@ -98,9 +116,12 @@ async function store(db: Database, registrar: Registrar, price: EndingPrice) {
 
 /**
  * Asks the registrar for one ending's price now and caches the answer (when
- * a database is given). A definitive refusal (the ending is not sold through
- * the API) is cached as not offered; a registrar that cannot be reached or
- * answers unreadably caches nothing and throws its RegistrarError.
+ * a database is given). Only the registrar's own answer that the ending is
+ * not sold through its API (endingNotSold: no one-year product, an
+ * unsupported ending, or registrant documents needed) is cached as not
+ * offered. Every other error, definitive or not (a refused client address or
+ * key, throttling, an unreachable or unreadable registrar), caches nothing,
+ * leaves the stored price as it was and is thrown.
  */
 export async function fetchPrice(
   db: Database | undefined,
@@ -123,12 +144,13 @@ export async function fetchPrice(
         "unknown",
       );
   } catch (error) {
-    if (!(error instanceof RegistrarError) || error.outcome !== "definitive")
-      throw error;
+    if (!endingNotSold(error)) throw error;
     price = {
       tld,
       kind: "not_offered",
-      reason: error.message || "Not sold through the registrar's API",
+      reason:
+        (error as RegistrarError).message ||
+        "Not sold through the registrar's API",
       fetchedAt: Date.now(),
     };
   }
@@ -156,7 +178,7 @@ export async function pricesForSearch(
   const now = Date.now();
   for (const tld of tlds) {
     const hit = cached.get(tld);
-    if (hit && now - hit.fetchedAt < PRICE_TTL_MS) {
+    if (hit && now - hit.fetchedAt < freshFor(hit)) {
       out.set(tld, hit);
       continue;
     }
@@ -190,7 +212,7 @@ export async function refreshPrices(
   const due = tlds
     .filter((tld) => {
       const hit = cached.get(tld);
-      return !hit || Date.now() - hit.fetchedAt >= PRICE_REFRESH_MS;
+      return !hit || Date.now() - hit.fetchedAt >= refreshAfter(hit);
     })
     .sort(
       (a, b) =>
@@ -209,9 +231,49 @@ export async function refreshPrices(
 }
 
 /**
+ * An operator's "refresh prices now" (Super admin, web addresses): asks the
+ * registrar again for each ending while `take` allows another call, and
+ * says what happened to each. A refused request (a key or client address
+ * problem) is reported and changes nothing stored.
+ */
+export async function refreshPricesNow(
+  db: Database,
+  registrar: Registrar,
+  tlds: readonly string[],
+  take: () => boolean,
+) {
+  const out: Array<{ tld: string; refreshed: boolean; error?: string }> = [];
+  for (const tld of tlds) {
+    if (!take()) {
+      out.push({
+        tld,
+        refreshed: false,
+        error: "The registrar call budget is used up; try again in a minute.",
+      });
+      continue;
+    }
+    try {
+      await fetchPrice(db, registrar, tld);
+      out.push({ tld, refreshed: true });
+    } catch (error) {
+      out.push({
+        tld,
+        refreshed: false,
+        error:
+          error instanceof RegistrarError
+            ? error.message.slice(0, 200)
+            : "Unexpected failure",
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * The worker's price upkeep (every web address run, at most four registrar
- * calls): the suggested endings at the registrar chosen for new purchases,
- * only while purchases are switched on and that registrar can buy.
+ * calls): the endings trainers can buy (the suggested ones, then the other
+ * allowed ones) at the registrar chosen for new purchases, only while
+ * purchases are switched on and that registrar can buy.
  */
 export async function refreshSuggestedPrices(
   db: Database,
@@ -229,5 +291,12 @@ export async function refreshSuggestedPrices(
   } catch {
     return 0;
   }
-  return refreshPrices(db, registrar, suggestedTlds(config.WEB_ADDRESS_TLDS));
+  return refreshPrices(
+    db,
+    registrar,
+    purchasableTlds(
+      suggestedTlds(config.WEB_ADDRESS_TLDS),
+      config.WEB_ADDRESS_EXTRA_TLDS,
+    ),
+  );
 }

@@ -118,10 +118,30 @@ export async function recordCharge(
     },
   );
 }
-export async function financeSummary(tx: Tx) {
-  const accounts = await tx.query(
+/**
+ * Accounts only the platform's operators see: the registrar's cost of a
+ * trainer's domain (and its prepaid funding). A trainer's own screens never
+ * show them (owner decision: trainers never see the registrar or its cost).
+ */
+export const PLATFORM_ONLY_ACCOUNTS: ReadonlySet<string> = new Set([
+  "registrar_cost",
+  "registrar_prepaid",
+]);
+/**
+ * Balances of the current workspace. Without `platformView` (every
+ * trainer-facing answer) the platform-only accounts are left out of both
+ * the AED balances and the other currencies; operator routes pass it.
+ */
+export async function financeSummary(
+  tx: Tx,
+  options: { platformView?: boolean } = {},
+) {
+  const all = await tx.query(
     "SELECT l.account,j.currency,sum(l.amount_minor)::text AS amount FROM journal_lines l JOIN journals j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id GROUP BY l.account,j.currency",
   );
+  const accounts = options.platformView
+    ? all
+    : all.filter((x) => !PLATFORM_ONLY_ACCOUNTS.has(x.account));
   // AED is the ledger's currency; a trainer's own web address journals in
   // USD (migration 071) are kept apart and never mixed into these balances.
   const balance = Object.fromEntries(

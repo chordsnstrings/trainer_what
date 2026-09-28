@@ -251,7 +251,8 @@ const TLD = /^[a-z]{2,63}(?:\.[a-z]{2,63})?$/;
 /**
  * Endings suggested for a trainer's name, in this order (owner decision,
  * 28 September 2026). Operators change the list in Super admin
- * (WEB_ADDRESS_TLDS); the ending a trainer types is always checked too.
+ * (WEB_ADDRESS_TLDS). Only these endings, and the other endings an operator
+ * allows (WEB_ADDRESS_EXTRA_TLDS), can be bought.
  */
 export const DEFAULT_SUGGESTED_TLDS: readonly string[] = [
   "com",
@@ -267,6 +268,16 @@ export const DEFAULT_SUGGESTED_TLDS: readonly string[] = [
 ];
 /** At most this many suggested endings (with the typed name: one registrar check). */
 export const MAX_SUGGESTED_TLDS = 20;
+/** At most this many other endings an operator allows when typed. */
+export const MAX_EXTRA_TLDS = 20;
+/**
+ * A registrable label: letters, digits and hyphens, not at either end, and
+ * no "--" in the third and fourth place (reserved for encoded international
+ * names such as xn--). Other double hyphens are valid DNS labels.
+ */
+export function registrableLabel(label: string) {
+  return LABEL.test(label) && label.slice(2, 4) !== "--";
+}
 
 /**
  * A second-level name (the automatic flow never registers deeper names) as
@@ -281,17 +292,102 @@ export function splitRegistrableDomain(
   if (dot < 1) return null;
   const label = name.slice(0, dot),
     tld = name.slice(dot + 1);
-  if (!LABEL.test(label) || label.includes("--") || !TLD.test(tld)) return null;
+  if (!registrableLabel(label) || !TLD.test(tld)) return null;
   if (tlds && !tlds.includes(tld)) return null;
   return [label, tld];
 }
-/** Suggested endings from WEB_ADDRESS_TLDS ("com,fit,fitness"), in order. */
-export function suggestedTlds(value: string | undefined | null) {
-  const list = (value?.trim() ? value : DEFAULT_SUGGESTED_TLDS.join(","))
+function tldList(value: string | undefined | null, max: number) {
+  const list = (value ?? "")
     .split(",")
     .map((item) => item.trim().toLowerCase().replace(/^\./, ""))
     .filter((item) => TLD.test(item));
-  return [...new Set(list)].slice(0, MAX_SUGGESTED_TLDS);
+  return [...new Set(list)].slice(0, max);
+}
+/** Suggested endings from WEB_ADDRESS_TLDS ("com,fit,fitness"), in order. */
+export function suggestedTlds(value: string | undefined | null) {
+  return tldList(
+    value?.trim() ? value : DEFAULT_SUGGESTED_TLDS.join(","),
+    MAX_SUGGESTED_TLDS,
+  );
+}
+/**
+ * Every ending a trainer can buy: the suggested ones, then the other endings
+ * an operator allows when typed (WEB_ADDRESS_EXTRA_TLDS, empty by default).
+ * Anything else is "not offered" without a registrar call, so a typed
+ * ending the platform does not want to hold (an adult or protest ending, or
+ * one with local-presence rules) is never priced or bought.
+ */
+export function purchasableTlds(
+  suggested: readonly string[],
+  extra: string | undefined | null,
+) {
+  return [...new Set([...suggested, ...tldList(extra, MAX_EXTRA_TLDS)])];
+}
+
+/**
+ * The platform's own brand names, protected on every ending (a trainer
+ * site on trainsyou.app would look official). Operators add more in Super
+ * admin (WEB_ADDRESS_PROTECTED_LABELS); the platform root's own label is
+ * always protected.
+ */
+export const DEFAULT_PROTECTED_LABELS: readonly string[] = ["trainsyou"];
+/** Protected labels from the setting, the defaults and the platform root. */
+export function protectedLabels(
+  value: string | undefined | null,
+  root: string | null,
+) {
+  const listed = (value ?? "")
+    .split(",")
+    .map((item) =>
+      item
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ""),
+    )
+    .filter((item) => item.length >= 2);
+  // The root's registrable label: "trainsyou" for trainsyou.com and for
+  // app.trainsyou.com alike (never the "app" of a deeper root).
+  const labels = root ? root.toLowerCase().split(".").filter(Boolean) : [];
+  const own = (labels.length >= 2 ? labels[labels.length - 2] : "").replace(
+    /[^a-z0-9]/g,
+    "",
+  );
+  return [
+    ...new Set([...DEFAULT_PROTECTED_LABELS, ...listed, ...(own ? [own] : [])]),
+  ];
+}
+/**
+ * Whether a label is (or, for a protected name of five or more letters,
+ * contains) a protected brand name, hyphens ignored: trainsyou,
+ * trains-you, trainsyou-login and mytrainsyou are all refused.
+ */
+export function isProtectedLabel(
+  label: string,
+  protectedList: readonly string[],
+) {
+  const bare = label.toLowerCase().replace(/-/g, "");
+  return protectedList.some((name) =>
+    name.length >= 5 ? bare.includes(name) : bare === name,
+  );
+}
+
+/**
+ * What a trainer typed, cleaned up the same way with or without an ending:
+ * lower case, without a scheme, a leading @ (an Instagram handle), www., a
+ * path, a :port or a trailing dot; spaces and underscores become hyphens.
+ */
+export function cleanDomainQuery(query: string) {
+  return query
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .replace(/^@+/, "")
+    .replace(/^www\./, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/:\d*$/, "")
+    .replace(/\.$/, "")
+    .trim()
+    .replace(/[\s_]+/g, "-");
 }
 export type DomainSearchPlan = {
   /** The name part the trainer typed ("athena"). */
@@ -302,43 +398,51 @@ export type DomainSearchPlan = {
    */
   requested: string;
   /**
-   * Every name to check in one registrar call: the requested one first, then
-   * the name under each suggested ending in order, without repeats.
+   * Every name to check in one registrar call: the requested one first (only
+   * when its ending can be bought), then the name under each suggested
+   * ending in order, without repeats.
    */
   names: string[];
 };
 /**
  * What one trainer search checks: "athena" → athena.com (asked about), then
- * athena.fit, athena.fitness …; "athena.io" → athena.io first even when .io
- * is not suggested, then athena.com, athena.fit … Name variations
- * (athenafit.com) are not suggested (owner decision, 28 September 2026).
- * Null when the text is not a name or a second-level domain.
+ * athena.fit, athena.fitness …; "athena.fit" → athena.fit first, then
+ * athena.com …; "athena.io" → athena.io only when an operator allows .io
+ * (otherwise it is answered as not offered, with the suggestions). Name
+ * variations (athenafit.com) are not suggested (owner decision,
+ * 28 September 2026). Null when the text is not a name or a second-level
+ * domain: a deeper name ("shop.athena.com") is refused unless its last two
+ * labels are an allowed two-part ending (co.uk).
  */
 export function domainSearchPlan(
   query: string,
-  tlds: readonly string[],
+  suggested: readonly string[],
+  allowed: readonly string[] = suggested,
 ): DomainSearchPlan | null {
-  const text = query
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/[/?#].*$/, "")
-    .replace(/\.$/, "");
+  const text = cleanDomainQuery(query);
   if (!text || text.length > 80) return null;
   let label: string, requested: string;
   if (text.includes(".")) {
+    const dot = text.indexOf("."),
+      ending = text.slice(dot + 1);
+    // One-label endings are taken as typed; a two-label one only when it
+    // is an allowed ending (not a subdomain such as shop.athena.com).
+    if (ending.includes(".") && !allowed.includes(ending)) return null;
     const split = splitRegistrableDomain(text);
     if (!split) return null;
     [label] = split;
     requested = text;
   } else {
-    label = text.replace(/[\s_]+/g, "-");
-    if (!LABEL.test(label) || label.includes("--") || !tlds.length) return null;
-    requested = label + "." + tlds[0];
+    label = text;
+    if (!registrableLabel(label) || !suggested.length) return null;
+    requested = label + "." + suggested[0];
   }
+  const requestedAllowed = allowed.includes(requested.slice(label.length + 1));
   const names = [
-    ...new Set([requested, ...tlds.map((tld) => label + "." + tld)]),
+    ...new Set([
+      ...(requestedAllowed ? [requested] : []),
+      ...suggested.map((tld) => label + "." + tld),
+    ]),
   ];
   return { label, requested, names };
 }

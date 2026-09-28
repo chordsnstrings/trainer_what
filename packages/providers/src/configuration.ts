@@ -980,7 +980,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; registrar prices per ending are cached for 24 hours and refreshed for the chosen name at checkout. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -1110,8 +1110,24 @@ INTEGRATION_CATALOG.push({
       defaultValue: "com,fit,fitness,coach,training,ae,club,pro,app,me",
       // The earlier default (offered endings before 28 September 2026).
       supersededValues: ["com,net,org,co"],
-      help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first; the ending a trainer types is always checked too.",
+      help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first. Only these endings and the other allowed endings below can be bought.",
     }),
+    field(
+      "WEB_ADDRESS_EXTRA_TLDS",
+      "Other endings sold when a trainer types them",
+      "text",
+      {
+        help: "Optional, comma-separated, at most 20 (for example io,co). Never suggested; a trainer who types one of them can buy it within the price cap. Any ending not listed here or above is answered as not offered without asking the registrar.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_PROTECTED_LABELS",
+      "Protected brand names",
+      "text",
+      {
+        help: "Comma-separated names never sold on any ending, for example trainsyou,gymmembership. trainsyou and the platform domain's own name are always protected; a name of five or more letters is also refused inside a longer name (trainsyou-login).",
+      },
+    ),
     field(
       "WEB_ADDRESS_TARGET_IPV4",
       "Server IPv4 address for domain DNS",
@@ -1361,13 +1377,20 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(`${entry.label} must be an email address`);
       if (
-        key === "WEB_ADDRESS_TLDS" &&
+        (key === "WEB_ADDRESS_TLDS" || key === "WEB_ADDRESS_EXTRA_TLDS") &&
         !/^\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?(\s*,\s*\.?[a-z]{2,63}(\.[a-z]{2,63})?){0,19}\s*$/i.test(
           text,
         )
       )
         throw new ConfigurationError(
           `${entry.label} must be up to 20 comma-separated endings such as com,fit`,
+        );
+      if (
+        key === "WEB_ADDRESS_PROTECTED_LABELS" &&
+        !/^\s*[a-z0-9-]{2,63}(\s*,\s*[a-z0-9-]{2,63}){0,49}\s*$/i.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be up to 50 comma-separated names such as trainsyou`,
         );
       // Whole cents: at most two decimals, never rounded.
       const cents = /^\d{1,7}(\.\d{1,2})?$/.test(text)

@@ -8,10 +8,14 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_PRICE_RULE,
   DEFAULT_SUGGESTED_TLDS,
+  cleanDomainQuery,
   domainSearchPlan,
   exactUsdCents,
+  isProtectedLabel,
   markupPriceCents,
   priceRuleFromSettings,
+  protectedLabels,
+  purchasableTlds,
   splitRegistrableDomain,
   suggestedTlds,
   trainerDomainPrices,
@@ -209,13 +213,49 @@ test("search plans: the typed name first, then the suggested endings in order", 
     "athena.fitness",
   ]);
   assert.equal(fit.names.length, tlds.length);
-  // A typed ending outside the list is checked too, first.
+  // A typed ending outside the endings that can be bought is asked about
+  // (answered as not offered) but never checked; an operator-allowed one is
+  // checked first.
   const io = domainSearchPlan("https://www.athena.io/about", tlds)!;
   assert.equal(io.requested, "athena.io");
-  assert.deepEqual(io.names, ["athena.io", ...tlds.map((t) => "athena." + t)]);
+  assert.deepEqual(
+    io.names,
+    tlds.map((t) => "athena." + t),
+  );
+  const allowed = purchasableTlds(tlds, "io, .CO");
+  assert.deepEqual(allowed.slice(-2), ["io", "co"]);
+  assert.deepEqual(domainSearchPlan("athena.io", tlds, allowed)!.names, [
+    "athena.io",
+    ...tlds.map((t) => "athena." + t),
+  ]);
+  // Spaces and underscores become hyphens with or without an ending; an
+  // Instagram handle, a port and a double hyphen outside places 3-4 are fine.
   assert.equal(
     domainSearchPlan("layla strength", ["com", "fit"])!.requested,
     "layla-strength.com",
+  );
+  for (const [typed, requested] of [
+    ["layla strength.com", "layla-strength.com"],
+    ["athena_fit.com", "athena-fit.com"],
+    ["@athena", "athena.com"],
+    ["athena.com:443", "athena.com"],
+    ["http://athena.com:8080/x", "athena.com"],
+    ["layla--fit", "layla--fit.com"],
+  ])
+    assert.equal(domainSearchPlan(typed, tlds)?.requested, requested, typed);
+  assert.equal(cleanDomainQuery(" @Athena.COM. "), "athena.com");
+  // A deeper name is not a registrable name: no subdomain becomes a label
+  // and nothing is priced for it; an allowed two-part ending still works.
+  for (const deep of [
+    "shop.athena.com",
+    "coach.athena.com",
+    "athena.fit.com",
+    "athena.com.evil",
+  ])
+    assert.equal(domainSearchPlan(deep, tlds, allowed), null, deep);
+  assert.equal(
+    domainSearchPlan("layla.co.uk", ["com"], ["com", "co.uk"])!.requested,
+    "layla.co.uk",
   );
   // No name variations (athenafit.com) are made up.
   assert.ok(
@@ -229,7 +269,8 @@ test("search plans: the typed name first, then the suggested endings in order", 
     "-athena",
     "athena-",
     "xn--abc.com",
-    "ath ena.com",
+    "ab--cd",
+    "athéna",
     "a".repeat(81),
     ".com",
   ])
@@ -253,6 +294,28 @@ test("search plans: the typed name first, then the suggested endings in order", 
     ).length,
     20,
   );
+});
+
+test("the platform's brand is protected on every ending", () => {
+  const list = protectedLabels("gymmembership, Trains-You ,x", "trainsyou.com");
+  assert.deepEqual(list, ["trainsyou", "gymmembership"]);
+  assert.ok(protectedLabels("", "coachly.app").includes("coachly"));
+  // A deeper root protects its registrable label, not its first one.
+  const deeper = protectedLabels("", "app.coachly.com");
+  assert.ok(deeper.includes("coachly") && !deeper.includes("app"));
+  for (const label of [
+    "trainsyou",
+    "trains-you",
+    "trainsyou-login",
+    "mytrainsyou",
+    "gymmembership",
+  ])
+    assert.ok(isProtectedLabel(label, list), label);
+  for (const label of ["athena", "trains", "layla-strength", "you"])
+    assert.ok(!isProtectedLabel(label, list), label);
+  // A short protected name is matched only exactly.
+  assert.ok(isProtectedLabel("ty", ["ty"]));
+  assert.ok(!isProtectedLabel("tyson", ["ty"]));
 });
 
 test("orders quoted in AED keep their own rate for the registrar cost", () => {

@@ -1,5 +1,11 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 /**
  * Trainer web address (subdomain, slug change, domain search and purchase).
@@ -129,12 +135,48 @@ export type SearchAnswer = {
   incomplete: boolean;
   priceCapMinor?: number;
 };
-const REQUESTED_STATUS: Record<NameStatus, string> = {
-  available: "is available",
-  taken: "is taken",
-  not_offered: "cannot be bought here",
-  unknown: "could not be checked right now",
+/** The badge and the sentence for the name a trainer searched. */
+const REQUESTED_STATUS: Record<
+  NameStatus,
+  { badge: string; tone: string; sentence: string }
+> = {
+  available: { badge: "Available", tone: "green", sentence: "is available" },
+  taken: { badge: "Taken", tone: "red", sentence: "is taken" },
+  not_offered: {
+    badge: "Not available",
+    tone: "amber",
+    sentence: "cannot be bought here",
+  },
+  unknown: {
+    badge: "Not checked",
+    tone: "amber",
+    sentence: "could not be checked right now",
+  },
 };
+/**
+ * What a trainer agrees to: one name at its two prices. A tick given for one
+ * name or price never counts for another (another result, or new prices
+ * after PRICE_CHANGED).
+ */
+export const agreementKey = (result: {
+  domain: string;
+  firstYearPriceMinor: number;
+  renewalPriceMinor: number;
+}) =>
+  `${result.domain}:${result.firstYearPriceMinor}:${result.renewalPriceMinor}`;
+/** One sentence for screen readers after a search. */
+export function searchSummary(answer: SearchAnswer) {
+  const status = REQUESTED_STATUS[answer.requested.status];
+  const count = answer.results.length;
+  return (
+    `${answer.requested.domain} ${status.sentence}. ` +
+    (count
+      ? `${count} name${count === 1 ? "" : "s"} available.`
+      : answer.incomplete
+        ? "Some endings could not be checked; search again in a minute."
+        : "No other name available for this search.")
+  );
+}
 
 export function WebAddressCenter({
   manual,
@@ -363,6 +405,8 @@ export function DomainSearch({
   subdomainHost,
   onError,
   initialAnswer = null,
+  initialChosen = null,
+  initialAgreedTo = null,
 }: {
   busy: boolean;
   testEnvironment: boolean;
@@ -372,15 +416,29 @@ export function DomainSearch({
   onError: (message: string) => void;
   /** Test or server state shown before a search. */
   initialAnswer?: SearchAnswer | null;
+  initialChosen?: Result | null;
+  /** The agreement key already ticked (tests). */
+  initialAgreedTo?: string | null;
 }) {
   const [answer, setAnswer] = useState<SearchAnswer | null>(initialAnswer),
     [searching, setSearching] = useState(false),
-    [chosen, setChosen] = useState<Result | null>(null),
+    [chosen, setChosen] = useState<Result | null>(initialChosen),
+    // The name and prices the trainer ticked the agreement for.
+    [agreedTo, setAgreedTo] = useState<string | null>(initialAgreedTo),
     [paying, setPaying] = useState(false),
     [serveMode, setServeMode] = useState<ServeMode>("site");
+  const confirmRef = useRef<HTMLFormElement | null>(null);
+  // Choosing a name shows its confirmation below the list: move there, so
+  // on a phone the choice visibly does something.
+  useEffect(() => {
+    if (!chosen || !confirmRef.current) return;
+    confirmRef.current.scrollIntoView?.({ block: "nearest" });
+    confirmRef.current.focus({ preventScroll: true });
+  }, [chosen]);
   const search = async (q: string) => {
     setSearching(true);
     setChosen(null);
+    setAgreedTo(null);
     onError("");
     try {
       setAnswer(
@@ -422,13 +480,15 @@ export function DomainSearch({
     }
   };
   const requested = answer?.requested;
+  const requestedStatus = requested ? REQUESTED_STATUS[requested.status] : null;
+  const agreed = !!chosen && agreedTo === agreementKey(chosen);
   return (
     <Panel title="Your own domain">
       <p>
-        Search a name: we check it on every ending below and list the ones you
-        can have, with the first-year and yearly renewal price in US dollars,
-        paid by card. We register the domain, set it up and renew it every
-        year. Endings:{" "}
+        Search a name: we check it on these endings and list the ones you can
+        have, with the first-year and yearly renewal price in US dollars, paid
+        by card. Some endings may not be available for every name. We register
+        the domain, set it up and renew it every year. Endings checked:{" "}
         <span className="ltr-data">
           {endings.map((e) => "." + e).join(" ")}
         </span>
@@ -466,18 +526,18 @@ export function DomainSearch({
           {searching ? "Searching…" : "Search"}
         </button>
       </form>
-      {requested && requested.status !== "available" && (
-        <p className="web-address-requested" role="status">
+      {/* Always present, so screen readers announce every new answer. */}
+      <p className="web-address-live" role="status" aria-live="polite">
+        {searching ? "Searching…" : answer ? searchSummary(answer) : ""}
+      </p>
+      {requested && requestedStatus && requested.status !== "available" && (
+        <p className="web-address-requested">
           <span className="ltr-data">{requested.domain}</span>{" "}
-          <span
-            className={
-              "badge " + (requested.status === "taken" ? "red" : "amber")
-            }
-          >
-            {requested.status === "taken" ? "Taken" : "Not available"}
+          <span className={"badge " + requestedStatus.tone}>
+            {requestedStatus.badge}
           </span>{" "}
           <span className="muted">
-            {requested.domain} {REQUESTED_STATUS[requested.status]}.
+            This name {requestedStatus.sentence}.
           </span>
         </p>
       )}
@@ -505,6 +565,7 @@ export function DomainSearch({
                   type="button"
                   className="button"
                   disabled={paying}
+                  aria-label={"Choose " + result.domain}
                   onClick={() => setChosen(result)}
                 >
                   Choose
@@ -514,7 +575,7 @@ export function DomainSearch({
           </ul>
         </>
       )}
-      {answer && answer.results.length === 0 && (
+      {answer && answer.results.length === 0 && !answer.incomplete && (
         <p className="muted">
           No available name for this search
           {priceCapMinor ? ` up to ${formatMoney(priceCapMinor)} a year` : ""}.
@@ -529,10 +590,15 @@ export function DomainSearch({
       )}
       {chosen ? (
         <form
+          // A new name or new prices is a new agreement (nothing carries over).
+          key={agreementKey(chosen)}
+          ref={confirmRef}
+          tabIndex={-1}
+          aria-label={"Confirm " + chosen.domain}
           className="web-address-confirm"
           onSubmit={(event) => {
             event.preventDefault();
-            void pay(chosen);
+            if (agreed) void pay(chosen);
           }}
         >
           <p>
@@ -552,12 +618,20 @@ export function DomainSearch({
             onChange={setServeMode}
           />
           <label className="check-field">
-            <input type="checkbox" required /> I agree to pay{" "}
+            <input
+              type="checkbox"
+              required
+              checked={agreed}
+              onChange={(event) =>
+                setAgreedTo(event.target.checked ? agreementKey(chosen) : null)
+              }
+            />{" "}
+            I agree to pay{" "}
             {formatMoney(chosen.firstYearPriceMinor)} now and{" "}
             {formatMoney(chosen.renewalPriceMinor)} every year after, renewed
             automatically.
           </label>
-          <button disabled={paying}>
+          <button disabled={paying || !agreed}>
             {paying ? "Opening payment…" : "Pay with card"}
           </button>
         </form>

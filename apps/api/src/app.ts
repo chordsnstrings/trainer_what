@@ -2463,7 +2463,7 @@ export async function buildApp(
           return {
             ...(["admin", "finance"].includes(a.platformRole)
               ? {
-                  finance: await financeSummary(tx),
+                  finance: await financeSummary(tx, { platformView: true }),
                   costs: await tx.query(
                     "SELECT task,count(*)::int AS requests,sum(cost_usd) AS cost_usd FROM cost_events GROUP BY task",
                   ),

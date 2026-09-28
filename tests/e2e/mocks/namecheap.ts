@@ -83,6 +83,11 @@ export class NamecheapMock {
   readonly premium = new Map<string, string | { register: string; renew: string }>();
   /** Early-access (EAP) fees in USD by name, reported by domains.check. */
   readonly earlyAccess = new Map<string, string>();
+  /**
+   * Names domains.check answers with an error of their own (ErrorNo not 0):
+   * Namecheap could not check them, so they are neither available nor taken.
+   */
+  readonly checkErrors = new Set<string>();
   /** Registered names that domains.getList does not show yet (listing lag). */
   readonly unlisted = new Set<string>();
   /**
@@ -303,11 +308,13 @@ export class NamecheapMock {
         return names
           .map((name) => {
             const premium = this.premiumPrices(name);
+            const failed = this.checkErrors.has(name);
             return `<DomainCheckResult${attrs({
               Domain: name,
-              Available: !this.registrations.has(name) && !this.taken.has(name),
-              ErrorNo: 0,
-              Description: "",
+              Available:
+                !failed && !this.registrations.has(name) && !this.taken.has(name),
+              ErrorNo: failed ? 3031510 : 0,
+              Description: failed ? "Error response from provider" : "",
               IsPremiumName: !!premium,
               PremiumRegistrationPrice: premium?.register ?? "0",
               PremiumRenewalPrice: premium?.renew ?? "0",

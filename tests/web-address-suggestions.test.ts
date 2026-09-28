@@ -16,9 +16,12 @@ import { NamecheapRegistrar } from "../packages/providers/src/registrar.ts";
 import {
   resetRegistrarBudget,
   searchDomains,
+  spendRegistrarBudget,
 } from "../apps/api/src/web-addresses.ts";
 import {
+  NOT_OFFERED_TTL_MS,
   PRICE_TTL_MS,
+  fetchPrice,
   readPrices,
   refreshSuggestedPrices,
 } from "../apps/api/src/web-address-prices.ts";
@@ -136,10 +139,49 @@ test("a taken name: the other endings are offered in the configured order, one a
   );
 });
 
-test("the typed ending comes first even when it is not suggested; available names first", async () => {
+test("a typed ending is bought only when an operator allows it; the brand and deeper names are never priced", async () => {
   resetRegistrarBudget();
   mock.prices.io = { register: "34.98", renew: "44.98" };
-  const answer = await search("Athena.IO", { WEB_ADDRESS_TLDS: "com,fit" });
+  // Not suggested and not allowed: not offered, and the registrar is never
+  // asked about .io (no price call, no stored row).
+  const pricesBefore = pricingCalls();
+  const refused = await search("athena.io", { WEB_ADDRESS_TLDS: "com,fit" });
+  assert.deepEqual(refused.requested, {
+    domain: "athena.io",
+    status: "not_offered",
+  });
+  assert.deepEqual(
+    refused.results.map((r) => r.domain),
+    ["athena.fit"],
+  );
+  assert.equal(pricingCalls(), pricesBefore, "no price asked for .io");
+  assert.ok(
+    !mock
+      .commands("domains.check")
+      .at(-1)!
+      .params.DomainList.includes("athena.io"),
+  );
+  assert.equal((await readPrices(db, registrar, ["io", "zzqq"])).size, 0);
+  const odd = await search("athena.zzqq");
+  assert.equal(odd.requested.status, "not_offered");
+  assert.equal((await readPrices(db, registrar, ["zzqq"])).size, 0);
+  // A deeper name is refused as input (no suggestions for "shop"), with a
+  // message that says what is allowed; nothing is priced.
+  for (const deep of [
+    "shop.athena.com",
+    "coach.athena.com",
+    "athena.com.evil",
+  ]) {
+    const error = await search(deep).catch((e) => e);
+    assert.equal(error.code, "DOMAIN_SEARCH", deep);
+    assert.match(error.message, /English letters, digits and hyphens/);
+  }
+  assert.equal(pricingCalls(), pricesBefore);
+  // Allowed by the operator: checked first.
+  const answer = await search("Athena.IO", {
+    WEB_ADDRESS_TLDS: "com,fit",
+    WEB_ADDRESS_EXTRA_TLDS: "io",
+  });
   assert.deepEqual(answer.requested, {
     domain: "athena.io",
     status: "available",
@@ -178,14 +220,24 @@ test("the typed ending comes first even when it is not suggested; available name
     domain: "athena.ae",
     status: "not_offered",
   });
-  // The platform's own domain is never offered; its label is on other endings.
-  const own = await search("trainsyou");
-  assert.deepEqual(own.requested, {
-    domain: "trainsyou.com",
-    status: "not_offered",
-  });
-  assert.ok(!own.results.some((r) => r.domain === "trainsyou.com"));
-  assert.ok(own.results.some((r) => r.domain === "trainsyou.fit"));
+  // The platform's brand is never offered on any ending (it would look
+  // official), nor inside a longer name, nor a protected name an operator
+  // adds; the registrar is not asked.
+  const checksBefore = checkCalls();
+  for (const [q, domain] of [
+    ["trainsyou", "trainsyou.com"],
+    ["trainsyou.fit", "trainsyou.fit"],
+    ["trains-you.app", "trains-you.app"],
+    ["trainsyou-login", "trainsyou-login.com"],
+    ["gymmembership.me", "gymmembership.me"],
+  ]) {
+    const own = await search(q, {
+      WEB_ADDRESS_PROTECTED_LABELS: "gymmembership",
+    });
+    assert.deepEqual(own.requested, { domain, status: "not_offered" }, q);
+    assert.deepEqual(own.results, [], q);
+  }
+  assert.equal(checkCalls(), checksBefore, "no availability request");
   const under = await search("layla.trainsyou.com").catch((e) => e);
   assert.equal(
     under.code,
@@ -247,27 +299,128 @@ test("ending prices are cached for 24 hours in registrar_prices; a stale one is 
 
 test("with the call budget used up, stale prices are still shown and missing ones make the answer incomplete", async () => {
   resetRegistrarBudget();
-  // Use the interactive budget (8 registrar calls a minute).
-  for (let i = 0; i < 8; i++) await search("budget-" + i).catch(() => {});
+  await db.system(async (tx) => {
+    await tx.query("UPDATE registrar_prices SET fetched_at=now()");
+    await tx.query(
+      "UPDATE registrar_prices SET fetched_at=now()-interval '2 days' WHERE tld='fit'",
+    );
+  });
+  mock.prices.newend = { register: "5.00", renew: "5.00" };
+  // One call left of the interactive budget (8 a minute): the availability
+  // request keeps it, so nothing can be priced.
+  spendRegistrarBudget(7);
+  const prices = pricingCalls(),
+    checks = checkCalls();
+  const answer = await search("zeus", { WEB_ADDRESS_TLDS: "com,fit,newend" });
+  assert.equal(pricingCalls(), prices, "no price call fits");
+  assert.equal(checkCalls(), checks + 1, "the availability request is kept");
+  assert.equal(answer.incomplete, true, "the new ending could not be priced");
+  assert.deepEqual(
+    answer.results.map((r) => [r.domain, r.firstYearPriceMinor]),
+    [
+      ["zeus.com", 1999],
+      // Two days old, still shown (every checkout asks again).
+      ["zeus.fit", 1499],
+    ],
+  );
+  // With nothing left the search says it is busy instead of guessing.
+  spendRegistrarBudget(1);
+  const busy = await search("hera", { WEB_ADDRESS_TLDS: "com,fit" }).catch(
+    (e) => e,
+  );
+  assert.equal(busy.code, "REGISTRAR_BUSY");
+  assert.equal(busy.statusCode, 503);
+  resetRegistrarBudget();
+  delete mock.prices.newend;
+});
+
+test("a refused registrar request (client address, key, throttling) is never cached as not offered", async () => {
+  resetRegistrarBudget();
+  await run(async () => {
+    for (let i = 0; i < 3; i++) await refreshSuggestedPrices(db, { registrar });
+  });
+  // Every price a day old: due for the worker and stale for searches.
   await db.system((tx) =>
     tx.query(
-      "UPDATE registrar_prices SET fetched_at=now()-interval '2 days' WHERE tld='fit'",
+      "UPDATE registrar_prices SET fetched_at=now()-interval '21 hours' WHERE not_offered IS NULL",
     ),
   );
-  mock.prices.newend = { register: "5.00", renew: "5.00" };
-  const answer = await search("zeus", {
-    WEB_ADDRESS_TLDS: "com,fit,newend",
-  }).catch((e) => e);
-  if (answer.code === "REGISTRAR_BUSY") {
-    // The availability request itself did not fit: the search says so.
-    assert.equal(answer.statusCode, 503);
-  } else {
-    assert.equal(answer.incomplete, true, "the new ending could not be priced");
-    assert.ok(
-      answer.results.some((r: any) => r.domain === "zeus.fit"),
-      "a stale price is still shown",
-    );
+  const before = await readPrices(db, registrar, ["com", "fit", "me"]);
+  // The same account from an address Namecheap has not whitelisted
+  // (1011150), with a wrong key (1011102), and throttled (500000).
+  const wrongIp = new NamecheapRegistrar(
+    { ...account, clientIp: "9.9.9.9", sandbox: true },
+    { transport: mock.fetch },
+  );
+  const wrongKey = new NamecheapRegistrar(
+    { ...account, apiKey: "nc-wrong-key-0000000000", sandbox: true },
+    { transport: mock.fetch },
+  );
+  for (const bad of [wrongIp, wrongKey])
+    for (let i = 0; i < 3; i++)
+      assert.equal(
+        await run(() => refreshSuggestedPrices(db, { registrar: bad })),
+        0,
+      );
+  mock.refuseNext("users.getPricing", "Too many requests", "500000", 4);
+  assert.equal(await run(() => refreshSuggestedPrices(db, { registrar })), 0);
+  const direct = await fetchPrice(db, wrongIp, "com").catch((e) => e);
+  assert.equal(direct.code, "1011150", "thrown, not stored");
+  // Nothing stored changed: still prices, still a day old.
+  const after = await readPrices(db, registrar, ["com", "fit", "me"]);
+  for (const tld of ["com", "fit", "me"]) {
+    assert.equal(after.get(tld)?.kind, "price", tld);
+    assert.equal(after.get(tld)?.fetchedAt, before.get(tld)?.fetchedAt, tld);
   }
+  // The search during the outage (the same address problem) fails loudly
+  // instead of answering that nothing can be bought ...
+  const outage = await run(() =>
+    searchDomains("athena", { registrar: wrongIp, db }),
+  ).catch((e) => e);
+  assert.equal(outage.code, "REGISTRAR_UNAVAILABLE");
+  // ... and once the address is fixed every ending is offered again.
+  resetRegistrarBudget();
+  const fixed = await search("athena");
+  assert.equal(fixed.requested.status, "taken");
+  assert.ok(fixed.results.length >= 5, "the other endings are offered");
+  resetRegistrarBudget();
+});
+
+test("an ending the registrar does not sell is trusted as not offered for an hour only", async () => {
+  resetRegistrarBudget();
+  const ae = await fetchPrice(db, registrar, "ae");
+  assert.equal(ae.kind, "not_offered");
+  // Refreshed by the worker after an hour, not a day.
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE registrar_prices SET fetched_at=now()-make_interval(secs=>$1) WHERE tld='ae'",
+      [NOT_OFFERED_TTL_MS / 1000 + 60],
+    ),
+  );
+  mock.prices.ae = { register: "30.00", renew: "30.00" };
+  await run(async () => {
+    for (let i = 0; i < 3; i++) await refreshSuggestedPrices(db, { registrar });
+  });
+  assert.equal(
+    (await readPrices(db, registrar, ["ae"])).get("ae")?.kind,
+    "price",
+  );
+  delete mock.prices.ae;
+  await fetchPrice(db, registrar, "ae");
+  resetRegistrarBudget();
+});
+
+test("a name the registrar could not check is shown as not checked, never as taken", async () => {
+  resetRegistrarBudget();
+  mock.checkErrors.add("athena.fit");
+  mock.checkErrors.add("layla.com");
+  const answer = await search("athena");
+  assert.ok(!answer.results.some((r) => r.domain === "athena.fit"));
+  assert.equal(answer.incomplete, true);
+  const typed = await search("layla");
+  assert.deepEqual(typed.requested, { domain: "layla.com", status: "unknown" });
+  assert.equal(typed.incomplete, true);
+  mock.checkErrors.clear();
   resetRegistrarBudget();
 });
 
