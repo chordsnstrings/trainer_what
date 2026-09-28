@@ -100,6 +100,15 @@ async function checkMarketingSite({ page, base }) {
       await calculator.getByText("What raises your number").waitFor();
       const headline = calculator.locator(".mk-headline li").first();
       const active = await headline.innerText();
+      // The strong case keeps growing to month 12, and the levers show the
+      // gain in active subscribers (the headline), not only sign-ups.
+      if (!/^Up to \d[\d,]* active subscribers after 12 months, after 30% yearly cancellations, and still growing/.test(active.trim()))
+        throw new Error(`The active headline must read 'Up to N ... and still growing': ${active}`);
+      await calculator
+        .locator(".mk-levers")
+        .getByText(/active after 12 months/)
+        .first()
+        .waitFor();
       await calculator.getByLabel(/Members who cancel per year/).fill("60");
       await page.waitForFunction(
         ([el, prior]) => el.textContent !== prior,

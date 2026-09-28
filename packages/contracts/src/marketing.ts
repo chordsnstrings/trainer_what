@@ -206,6 +206,7 @@ export type AssumptionRates = {
   broadcastClickPct: number;
   bioClickPct: number;
   paidPct: number;
+  audienceRenewalPct: number;
 };
 export type AssumptionFigures = {
   scenarios: Record<AssumptionScenario, AssumptionRates>;
@@ -220,6 +221,7 @@ export const CITED_ASSUMPTIONS: AssumptionFigures = {
       broadcastClickPct: 1.27,
       bioClickPct: 1,
       paidPct: 0.72,
+      audienceRenewalPct: 0,
     },
     typical: {
       linkClickPct: 3,
@@ -227,13 +229,15 @@ export const CITED_ASSUMPTIONS: AssumptionFigures = {
       broadcastClickPct: 1.45,
       bioClickPct: 2,
       paidPct: 2.9,
+      audienceRenewalPct: 1.5,
     },
     strong: {
       linkClickPct: 5,
       dmOpenPct: 45,
       broadcastClickPct: 2.09,
       bioClickPct: 3,
-      paidPct: 10.7,
+      paidPct: 6.2,
+      audienceRenewalPct: 8,
     },
   },
   engagementBenchmarkPct: 0.48,
@@ -266,6 +270,8 @@ export function brandText(
     .replaceAll("{DM_SCENARIOS}", scenarioList(figures, "dmOpenPct"))
     .replaceAll("{BIO_SCENARIOS}", scenarioList(figures, "bioClickPct"))
     .replaceAll("{BROADCAST_SCENARIOS}", scenarioList(figures, "broadcastClickPct"))
+    .replaceAll("{RENEWAL_SCENARIOS}", scenarioList(figures, "audienceRenewalPct"))
+    .replaceAll("{RENEWAL_STRONG}", `${figure(strong.audienceRenewalPct)}%`)
     .replaceAll("{CLICK_STRONG}", `${figure(strong.linkClickPct)}%`)
     .replaceAll("{PAID_STRONG}", `${figure(strong.paidPct)}%`)
     .replaceAll(
@@ -589,7 +595,7 @@ export function llmsTxt(ctx: MarketingContext): string {
     "",
     ...brandSummary(ctx.appName),
     ...NOT_STATEMENTS.map((s) => `- ${s}`),
-    "- Earnings and follower figures on this site are estimates with shown assumptions and cited sources, never promises. The follower calculator's headline is a strong case for an engaged audience and weekly sharing, not a typical result; its cautious and typical scenarios are shown with it.",
+    "- Earnings and follower figures on this site are estimates with shown assumptions and cited sources, never promises. The follower calculator's headline is a strong case for an engaged, growing audience and weekly sharing, not a typical result; its cautious and typical scenarios are shown with it.",
     "",
     "## Product",
     ...group("product"),

@@ -11,7 +11,10 @@ import {
   type IntegrationDefinition,
   type IntegrationField,
 } from "../../../packages/providers/src/configuration.ts";
-import { followerSettingsNeedNote } from "../../../packages/domain/src/marketing-calculators.ts";
+import {
+  followerSettingsNeedNote,
+  followerSettingsProblem,
+} from "../../../packages/domain/src/marketing-calculators.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
   encryptionReady,
@@ -569,6 +572,18 @@ export function platformSettingsRoutes(
           if (next.encrypted_secrets[key]) changed.push(key);
           delete next.encrypted_secrets[key];
         }
+        // An inconsistent set would be ignored by the public pages (they fall
+        // back to the cited defaults), so it is refused rather than saved.
+        const followerProblem =
+          def.id === "marketing"
+            ? followerSettingsProblem(next.settings_values)
+            : null;
+        if (followerProblem)
+          throw fail(
+            400,
+            "SETTINGS_INVALID",
+            `The follower assumptions are inconsistent: ${followerProblem}. To lower a strong value below its typical one, lower typical and cautious too.`,
+          );
         // An assumption that no longer matches its cited source needs the
         // operator's reason, which /methodology shows next to it.
         if (

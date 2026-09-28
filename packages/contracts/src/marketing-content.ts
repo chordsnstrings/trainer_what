@@ -3,7 +3,9 @@
 //   docs/features/marketing-site.md). No invented testimonials, logos,
 //   customer counts, ratings, awards or statistics.
 // - Every market figure cites a MARKETING_SOURCES entry and appears on
-//   /methodology. Earnings and follower figures are estimate ranges.
+//   /methodology. Earnings figures are estimates; the follower calculator
+//   headlines a strong case (a best case, not typical) with cautious and
+//   typical scenarios, and every assumption shown.
 // - Never name the domain registrar or the payout provider.
 // - {APP_NAME} is replaced with the configured platform name.
 import type {
@@ -103,9 +105,9 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     published: "2025",
     retrieved: RETRIEVED,
     claim:
-      "Stories reach rate by follower tier (image / video): 1-5K 9.55% / 10.40%; 5-10K 3.50% / 4.20%; 10-50K 1.35% / 2.00%; 50-100K 0.55% / 0.65%; 100K-1M 0.50% / 0.65%. Reach rises from 6.3% for a one-frame Story to 20.5% by the sixth frame. 161,180 Stories, January-May 2024 and 2025.",
+      "Stories reach rate by follower tier (image / video): 1-5K 9.55% / 10.40%; 5-10K 3.50% / 4.20%; 10-50K 1.35% / 2.00%; 50-100K 0.55% / 0.65%; 100K-1M 0.50% / 0.65%. Reach rises from 6.3% for a one-frame Story to 20.5% by the sixth frame, across accounts of all sizes. 161,180 Stories, January-May 2024 and 2025.",
     usedFor:
-      "Story audience of the follower calculator: the image reach in the cautious scenario, the video reach (at least 5%) in the typical one, and the 20.5% six-frame reach for accounts up to 10,000 followers in the strong case. Reach is the share of followers who viewed at least one frame, so repeat Stories are treated as reaching the same people.",
+      "Story audience of the follower calculator: the image reach in the cautious scenario and the video reach (at least 5%) in the typical one. The strong case applies the 20.5% six-frame reach as a monthly audience up to 10,000 followers: our assumption, well above the measured 3.5-4.2% for 5,001-10,000 followers. Reach is the share of followers who viewed at least one frame, so repeat Stories in a month are treated as reaching the same people.",
   },
   {
     id: "socialinsider-engagement",
@@ -116,9 +118,9 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     published: "2025",
     retrieved: RETRIEVED,
     claim:
-      "Average Instagram engagement rate by followers (likes plus comments divided by followers) was 0.48% across 35 million posts from 447,613 pages in 2025, down 24% year on year. Median views and comments per Reel by follower tier give about 0.52%, 0.60%, 0.49%, 0.36% and 0.37% comments per view (our division of the published medians).",
+      "Average Instagram engagement rate by followers (likes plus comments divided by followers) was 0.48% across 35 million posts from 447,613 pages in 2025, down 24% year on year. Median views and comments per Reel by follower tier give about 0.52%, 0.60%, 0.49%, 0.36% and 0.37% comments per view (our division of the published medians). Yearly follower growth in 2025 by tier: 1-5K 22.00%, 5-10K 20.29%, 10-50K 17.20%, 50-100K 13.62%, 100K-1M 11.25%.",
     usedFor:
-      "Engagement benchmark the follower calculator compares your own rate against, and comments per Reel view for the keyword DM funnel.",
+      "Engagement benchmark the follower calculator compares your own rate against, comments per Reel view for the keyword DM funnel, and the typical scenario's new people each month (about 1.5%, near the measured growth of 1-1.7% a month).",
   },
   {
     id: "hypeauditor-2025",
@@ -131,7 +133,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     claim:
       "Nano-influencers (1K-10K followers) make up 76% of Instagram influencers and have the highest engagement rate, 2.19%.",
     usedFor:
-      "Context that smaller, engaged audiences are valuable, and why the strong case treats every account up to 10,000 followers alike.",
+      "Context that smaller, engaged audiences are valuable, why the strong case treats every account up to 10,000 followers alike, and why your engagement does not raise the strong Story share again. Influencer post engagement, not Story reach.",
   },
   {
     id: "creatorflow-link-sticker",
@@ -375,7 +377,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     claim:
       "Health & Fitness apps convert a median 2.9% of downloads to paid within 35 days; the upper quartile converts 6.2%. Over 115,000 apps.",
     usedFor:
-      "Visit to paid in the typical scenario (2.9%). An app install shows more intent than a Story tap, so it may overstate.",
+      "Visit to paid in the typical scenario (2.9%, the median) and the strong case (6.2%, the upper quartile). An app install shows more intent than a Story tap, so both may overstate.",
   },
   {
     id: "revenuecat-trends-2026",
@@ -386,9 +388,9 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     published: "19 March 2026, updated 22 April 2026",
     retrieved: RETRIEVED,
     claim:
-      "Apps with a hard paywall have a median day-35 conversion to paid of 10.7%, against 2.1% for freemium apps. Over 115,000 apps and USD 16 billion in revenue.",
+      "Apps with a hard paywall have a median day-35 trial-to-paid conversion of 10.7%, against 2.1% for freemium apps, across all app categories. Over 115,000 apps and USD 16 billion in revenue.",
     usedFor:
-      "Visit to paid in the strong case (10.7%): a trainer's page is a hard paywall, because subscribers pay before they get the plan.",
+      "Context only, not a rate the calculator uses: an all-category median that counts trial conversions and app installs, so it would overstate a Story visitor's chance of paying. The strong case uses the Health & Fitness upper quartile (6.2%) instead.",
   },
   {
     id: "revenuecat-renewals",
@@ -416,18 +418,6 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     usedFor: "Context for the cancellations you enter.",
   },
   {
-    id: "humiston-programmes",
-    publisher: "Ryan Humiston",
-    title: "Workout programmes",
-    url: "https://swoleaf.thinkific.com/",
-    evidence: "Creator example (owner-supplied)",
-    retrieved: RETRIEVED,
-    claim:
-      "The fitness creator's store sells workout programmes at USD 19.99 each. Our owner reports that he sells roughly 500-1,500 of these plans for a YouTube video with about 100,000 views, 0.5-1.5% of viewers. We found no public interview or data confirming the sales figure.",
-    usedFor:
-      "Calibrating the strong case: per link Story it turns about 0.54% of viewers into subscribers, the low end of this example, because AED 199 a month costs more than a one-off USD 20 plan.",
-  },
-  {
     id: "passion-creator-rates",
     publisher: "Passion.io",
     title: "Creator app revenue: calculate your course and subscription earnings",
@@ -438,7 +428,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     claim:
       "Course conversion rates of 0.1-1% (low), 1.5-5% (mid) and 6-10% (highly optimised) of an audience; 0.52-1.1% for higher-priced courses; its worked example uses 2%.",
     usedFor:
-      "The creator rule of thumb that about 1-3% of an engaged audience buys over time, used to check the strong case.",
+      "Comparison for the strong case: its 12-month sign-ups (about 2% of followers up to 10,000) sit in the mid band, well above the 0.52-1.1% for higher-priced courses, so it is a best case, not a typical result.",
   },
   {
     id: "stan-creator-economy",
@@ -451,7 +441,7 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     claim:
       "Average monthly sales per creator by follower count: under 1K USD 89; 1-10K USD 273; 10-100K USD 666; 100K+ USD 1,378. Data from over 80,000 creators.",
     usedFor:
-      "Larger accounts sell more in total but less per follower, so the strong case uses lower rates for larger accounts.",
+      "Comparison for the strong case: its monthly amount is far above these averages (for example, USD 273 a month for 1-10K followers). Larger accounts sell more in total but less per follower, so the strong case uses lower rates for larger accounts.",
   },
 ];
 
@@ -610,7 +600,7 @@ function specialty(
         id: "followers",
         heading: "What your followers could be worth",
         body: [
-          "The follower calculator below starts from an example price. Change it to your own. The headline is a strong case for an engaged audience, with cautious and typical results under How we estimate; it is an estimate from cited benchmarks, not a promise.",
+          "The follower calculator below starts from an example price. Change it to your own. The headline is a strong case for an engaged, growing audience, with cautious and typical results under How we estimate; it is an estimate from cited benchmarks and stated assumptions, not a promise.",
         ],
       },
     ],
@@ -799,7 +789,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "How do my Instagram followers become subscribers?",
-        a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay by card in AED. The follower calculator shows a strong case for an engaged audience, with cautious and typical results beside it; it is an estimate, not a promise.",
+        a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay by card in AED. The follower calculator shows a strong case for an engaged, growing audience, with cautious and typical results beside it; it is an estimate, not a promise.",
       },
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
@@ -1979,31 +1969,32 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     h1: "How many of your followers could become paying subscribers?",
     eyebrow: "FOLLOWER CALCULATOR",
     intro:
-      "Enter your followers, your price and how you share your link. The headline is the strong case, for an engaged audience and weekly sharing: new subscribers in your first month, active subscribers after 12 months of cancellations and what they pay each month. Cautious and typical results sit under How we estimate. It is an estimate from published benchmarks and creator examples, never a promise.",
+      "Enter your followers, your price and how you share your link. The headline is the strong case, for an engaged, growing audience and weekly sharing: new subscribers in your first month, active subscribers after 12 months of cancellations and what they pay each month. Cautious and typical results sit under How we estimate. It is an estimate, never a promise.",
     primaryKeyword: "Instagram followers to clients calculator",
     sections: [
       {
         id: "how",
         heading: "How we calculate",
         steps: [
-          { title: "People who see your Stories", body: "Followers × the share who see at least one of your Stories in a month. Cautious and typical use Socialinsider’s Story reach for your follower tier, measured on brand accounts (typical at least 5%). The strong case uses 20.5%, the reach of a six-frame Story sequence, up to 10,000 followers, then 8%, 6.5% and 5% for larger accounts. Your own average Story views replace these guesses when you enter them." },
-          { title: "Visits from link Stories", body: "Each viewer has a {CLICK_SCENARIOS} chance (cautious, typical, strong) of opening one link Story, the range creators report; no industry benchmark exists. The same people watch each Story, so over several Stories the chance that a viewer visits at least once is 1 − (1 − rate)^Stories: it rises quickly, then levels off." },
+          { title: "People who see your Stories", body: "Followers × the share who see at least one of your Stories in a month. Cautious and typical use Socialinsider’s Story reach for your follower tier, measured on brand accounts (typical at least 5%). The strong case assumes 20.5% up to 10,000 followers, the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience (our assumption; the measured reach for 5,001-10,000 followers is 3.5-4.2%), then 8%, 6.5% and 5% for larger accounts. Your own average Story views replace these guesses when you enter them." },
+          { title: "Visits from link Stories", body: "Each viewer has a {CLICK_SCENARIOS} chance (cautious, typical, strong) of opening one link Story, the range creators report; no industry benchmark exists. The same people watch each Story, so over several Stories in a month the chance that a viewer visits is 1 − (1 − rate)^Stories: it rises quickly, then levels off." },
+          { title: "New people each month", body: "Each month {RENEWAL_SCENARIOS} of each audience is new to your link (cautious, typical, strong): new followers, and people Instagram starts showing your content to. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured on brand accounts; strong is our assumption for a growing audience. So sign-ups keep coming after your first viewers have decided." },
           { title: "Reels with a comment keyword", body: "People comment your keyword and get your link by DM. Reel reach and comments per view come from Socialinsider, a comment call to action roughly doubles the usual comments (Metricool), and {DM_SCENARIOS} of commenters open the link (vendor claims). Reels reach people your Stories miss." },
           { title: "Bio link and broadcast channel", body: "Counted only when you enter them: {BIO_SCENARIOS} of monthly profile visitors open your bio link (a rule of thumb), and {BROADCAST_SCENARIOS} of broadcast members open each link message (email benchmarks stand in)." },
-          { title: "Subscribers", body: "People who visit × visit to paid of {PAID_SCENARIOS}: a luxury-retail purchase rate, the Health & Fitness app median and the median for apps where people pay before they start. No published benchmark exists for coaching subscriptions. Each person decides once, so repeat visits never add subscribers." },
+          { title: "Subscribers", body: "People who visit × visit to paid of {PAID_SCENARIOS}: a luxury-retail purchase rate, then the median and upper quartile of Health & Fitness app downloads that turn paid within 35 days. An app install shows more intent than a Story tap, so these may overstate, and no published benchmark exists for coaching subscriptions. Each person decides once, so repeat visits never add subscribers." },
           { title: "Cancellations", body: "The members who cancel per year that you enter, 30% unless you change it, become a monthly rate of 1 − (1 − yearly)^(1/12). Active subscribers after 12 months are after cancellations; sign-ups are before them." },
-          { title: "Your engagement", body: "If you enter or connect your engagement rate, Story reach and comments are scaled by your rate compared with the {ENGAGEMENT_AVG} average, within limits." },
+          { title: "Your engagement", body: "If you enter or connect your engagement rate, Story reach and comments are scaled by your rate compared with the {ENGAGEMENT_AVG} average, within limits. The strong case’s Story share already assumes an engaged audience, so your rate can lower it but does not raise it again." },
         ],
-        sources: ["socialinsider-stories", "creatorflow-link-sticker", "socialinsider-reels", "metricool-2026", "communipass-auto-dm", "hopp-bio-link", "mailerlite-benchmarks", "dynamicyield-conversion", "revenuecat-state-2026", "revenuecat-trends-2026", "socialinsider-engagement"],
+        sources: ["socialinsider-stories", "creatorflow-link-sticker", "socialinsider-reels", "metricool-2026", "communipass-auto-dm", "hopp-bio-link", "mailerlite-benchmarks", "dynamicyield-conversion", "revenuecat-state-2026", "socialinsider-engagement"],
       },
       {
         id: "strong-case",
         heading: "Why the headline shows the strong case",
         body: [
-          "The strong case is a best case for an engaged audience and weekly sharing. It is not a typical result and not a promise. Per link Story it turns {CLICK_STRONG} × {PAID_STRONG}, about {STRONG_PER_STORY} of the people who see it, into subscribers. That is the low end of a creator example our owner gave (roughly 0.5-1.5% of 100,000 YouTube viewers buying a USD 20 plan), because a monthly subscription at your price costs more.",
-          "Over a year, sign-ups for smaller accounts stay within the 1-3% of an engaged audience that creators say buys over time, and the share falls as accounts grow, as creator sales data show. Cautious and typical apply published averages from brand accounts, retail and apps, and you may get fewer subscribers than the cautious figure.",
+          "The strong case is a best case for an engaged, growing audience and weekly sharing. It is not a typical result and not a promise. Per link Story it turns {CLICK_STRONG} × {PAID_STRONG}, about {STRONG_PER_STORY} of the people who see it, into subscribers, and each month {RENEWAL_STRONG} of your audience is new to your link, so sign-ups keep coming and active subscribers are still growing at month 12.",
+          "Over a year it signs up about 2% of followers for accounts up to 10,000 followers, a smaller share for larger accounts. That is far above published creator averages: course benchmarks put 0.52-1.1% for higher-priced courses, and creators with 1,000-10,000 followers sell about USD 273 a month on average. Cautious and typical apply published averages from brand accounts, retail and apps, and you may get fewer subscribers than the cautious figure.",
         ],
-        sources: ["humiston-programmes", "passion-creator-rates", "revenuecat-trends-2026", "stan-creator-economy"],
+        sources: ["passion-creator-rates", "stan-creator-economy", "revenuecat-state-2026", "socialinsider-engagement"],
       },
       {
         id: "moves",
@@ -2011,7 +2002,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Put your page in your bio: your bio link reaches people your Stories miss, every day.",
           "Add a comment keyword to your Reels: Reels reach people who don’t watch your Stories.",
-          "Share link Stories weekly: the same viewers get another chance to tap, so they subscribe sooner, though the gain levels off.",
+          "Share link Stories weekly: more of your viewers get a chance to tap before they drift away, and new followers see your link too.",
           "Use more frames: Story reach rose from 6.3% for one frame to 20.5% by the sixth.",
           "Mix link Stories with ordinary ones: link stickers can reduce replies and shares.",
           "Make the offer clear: say who it is for, the price and what they get each day.",
@@ -2023,11 +2014,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       {
         q: "Is this a prediction of my results?",
-        a: "No. It applies published averages and creator examples to your inputs. The headline is a strong case; the cautious and typical results are under How we estimate, and you may get fewer subscribers than the cautious figure. Your content, audience, offer and price change the real number.",
+        a: "No. It applies published averages and our stated assumptions to your inputs. The headline is a strong case; the cautious and typical results are under How we estimate, and you may get fewer subscribers than the cautious figure. Your content, audience, offer and price change the real number.",
       },
       {
         q: "Why does the headline show the strong case?",
-        a: "Trainers who share their offer every week with an audience that trusts them can do far better than brand-account averages, as creator sales examples show. We label it a strong case, not a typical result, and show the cautious and typical results with it so you see the whole range.",
+        a: "It shows what an engaged, growing audience with weekly sharing could reach, using the top values found in the research and our stated assumptions. It is far above published creator averages, so we label it a strong case, not a typical result, and show the cautious and typical results with it so you see the whole range.",
       },
       {
         q: "Which of my numbers matter most?",
@@ -2251,7 +2242,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "honesty",
         heading: "How we talk about results",
         bullets: [
-          "Earnings and follower figures are estimate ranges with their assumptions shown, never promises.",
+          "Earnings figures are estimates with their assumptions shown. The follower calculator headlines a strong case (a best case, not a typical result) with cautious and typical scenarios and every assumption shown. Neither is a promise.",
           "Every market figure cites its source on the methodology page.",
           "We publish no testimonials, logos, ratings or customer counts we cannot show.",
           "Digital guidance is always labelled as digital."
@@ -2301,7 +2292,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Price guides are published price guides, not official statistics.",
           "Benchmarks are averages across many accounts and industries; yours will differ.",
-          "Estimates are shown as ranges, with their assumptions, and are never promises.",
+          "Estimates are shown with their assumptions and are never promises; the follower calculator’s headline is a strong case, labelled as not typical.",
           "We publish no customer counts, ratings or testimonials that we cannot show.",
         ],
       },
@@ -2309,21 +2300,25 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "follower-formula",
         heading: "How the follower estimate is calculated",
         body: [
-          "Three scenarios use the same arithmetic with different rates. Cautious and typical use published averages. Strong is a best case for an engaged audience and weekly sharing, calibrated to creator sales examples: not a typical result and not a promise. The calculator headlines the strong case and shows cautious and typical under How we estimate.",
-          "Not included: new followers, trials, discounts, refunds, failed payments, platform commission, payment processing and tax."
+          "Three scenarios use the same arithmetic with different rates. Cautious and typical use published averages. Strong is a best case for an engaged, growing audience and weekly sharing, from the top values found in the research and our stated assumptions: not a typical result and not a promise. The calculator headlines the strong case and shows cautious and typical under How we estimate.",
+          "Not included: trials, discounts, refunds, failed payments, platform commission, payment processing and tax. New followers count only through the new people each month."
         ],
         steps: [
           {
             title: "Story audience",
-            body: "S = followers × the Story share for your tier and scenario, scaled by your engagement against the {ENGAGEMENT_AVG} average when known, or your own average Story views. Tier boundaries never lower the result: an account gets at least what an account at the top of each smaller tier gets, so more followers never mean fewer viewers."
+            body: "S = followers × the Story share for your tier and scenario, scaled by your engagement against the {ENGAGEMENT_AVG} average when known (the strong share only down, never below the typical share at your engagement), or your own average Story views. Tier boundaries never lower the result: an account gets at least what an account at the top of each smaller tier gets, so more followers never mean fewer viewers."
           },
           {
             title: "Chance of a visit",
-            body: "With k link Stories a month, a viewer has visited by month T with probability 1 − (1 − click)^(k × T). Broadcast link messages work the same way for each member, and profile visitors open the bio link with probability 1 − (1 − bio click)^T."
+            body: "With k link Stories a month, a viewer who has not visited yet visits in a month with probability c = 1 − (1 − click)^k. Broadcast link messages work the same way for each member, and profile visitors open the bio link with probability bio click a month."
+          },
+          {
+            title: "New people each month",
+            body: "Each month a share r of every audience ({RENEWAL_SCENARIOS}: cautious, typical, strong) is replaced by people new to your link. The share who have not visited yet is f(1) = 1 and f(m + 1) = (1 − r)(1 − c) f(m) + r; visitors in month m = audience × c × f(m). With r = 0 the same people stay all year and visitors by month T are audience × (1 − (1 − c)^T)."
           },
           {
             title: "Keyword Reels",
-            body: "Per Reel viewer per Reel: comments per view × 2.03 (the extra comments a comment call to action brings) × the share who open the DM link. Over n Reels a month: 1 − (1 − that)^(n × T). Cautious counts Reel viewers inside the Story audience; typical and strong add them, because most Reels people see come from accounts they don’t follow."
+            body: "Per Reel viewer per Reel: comments per view × 2.03 (the extra comments a comment call to action brings) × the share who open the DM link. Typical and strong count each Reel’s commenters afresh, n Reels a month, because most Reels people see come from accounts they don’t follow. Cautious counts Reel viewers inside the Story audience, with 1 − (1 − that)^n a month. A Reel’s viewers and comment rate come from one tier; visitors by each month are the most any tier at or below yours gives."
           },
           {
             title: "Channels together",
@@ -2331,11 +2326,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           },
           {
             title: "Sign-ups",
-            body: "C(T) = visit to paid × the people who visited by month T. Each person decides once. New subscribers in month m = C(m) − C(m − 1); sign-ups over 12 months = C(12)."
+            body: "C(T) = visit to paid × the people who first visited by month T. Each person decides once. New subscribers in month m = C(m) − C(m − 1); sign-ups over 12 months = C(12)."
           },
           {
             title: "Active subscribers and monthly amount",
-            body: "A(m) = Σ new(i) × (1 − c)^(m − i), where c = 1 − (1 − yearly cancellations)^(1/12). The monthly amount at month 12 = active subscribers at month 12 (whole people) × your price, before platform commission."
+            body: "A(m) = A(m − 1) × (1 − churn) + new(m), where churn = 1 − (1 − yearly cancellations)^(1/12). The monthly amount at month 12 = active subscribers at month 12 in the whole people shown (none below one) × your price, before platform commission."
           }
         ]
       },
@@ -3026,9 +3021,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
   }),
   guide("instagram-followers-to-clients", "Followers to clients", {
     title: "Turning Instagram followers into paying clients",
-    description: "Why most followers never see a Story, what published benchmarks and creator sales examples suggest, and practical steps to turn followers into clients.",
+    description: "Why most followers never see a Story, what published benchmarks and creator sales data suggest, and practical steps to turn followers into clients.",
     "h1": "Turning Instagram followers into paying clients",
-    intro: "Only a share of your followers see any one Story, a few of them tap a link, and a few visitors buy. Published benchmarks put each step in single-digit percentages, while creator sales examples show what an engaged audience can do: creators say about 1-3% of it buys over time. Reaching more people, a clear offer and steady sharing matter more than follower count alone.",
+    intro: "Only a share of your followers see any one Story, a few of them tap a link, and a few visitors buy. Published benchmarks put each step in single-digit percentages. Reaching more people, a clear offer and steady sharing matter more than follower count alone.",
     keyword: "how to monetise fitness followers",
     sections: [
       {
@@ -3038,7 +3033,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Reach: Stories reached about 9.6-10.4% of followers for brand accounts with 1-5K followers and about 0.5-0.65% above 100K; a six-frame Story sequence reached 20.5%.",
           "Clicks: there is no industry benchmark for link stickers; the calculator uses {CLICK_SCENARIOS} of viewers per link Story (cautious, typical, strong), the range creators report.",
           "Purchase: the calculator uses {PAID_SCENARIOS} of visitors, from a luxury-retail purchase rate to subscription-app medians. No published benchmark exists for coaching subscriptions.",
-          "Creators: in one creator example, 0.5-1.5% of 100,000 YouTube viewers bought a USD 20 plan, and creators say about 1-3% of an engaged audience buys over time.",
+          "Creators: a creator platform’s course benchmarks put mid-range sales at 1.5-5% of an audience and 0.52-1.1% for higher-priced courses, and creators with 1,000-10,000 followers sell about USD 273 a month on average.",
           "Participation: most people in online communities watch without acting."
         ],
         sources: [
@@ -3046,9 +3041,8 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "creatorflow-link-sticker",
           "dynamicyield-conversion",
           "revenuecat-state-2026",
-          "revenuecat-trends-2026",
-          "humiston-programmes",
           "passion-creator-rates",
+          "stan-creator-economy",
           "nng-participation"
         ]
       },
@@ -3056,8 +3050,8 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "same-people",
         heading: "Why sharing the same link more often levels off",
         body: [
-          "Socialinsider measures Story reach as the share of followers who viewed at least one frame. The people who watch one Story are largely the people who watch the next, so ten link Stories do not reach ten times as many people. Each extra Story gives the same viewers another chance to tap, which helps at first and then levels off.",
-          "That is why the follower calculator treats repeat Stories as more chances for the same audience: they bring subscribers sooner, not in greater numbers. Reels with a comment keyword, your bio link and a broadcast channel reach people your Stories miss, and Instagram says most Reels people see come from accounts they don’t follow."
+          "Socialinsider measures Story reach as the share of followers who viewed at least one frame. The people who watch one Story are largely the people who watch the next, so ten link Stories do not reach ten times as many people. Each extra Story gives the same viewers another chance to tap, which helps at first and then levels off within a month.",
+          "Over months your audience changes: new followers arrive and others drift away. That is why the follower calculator treats repeat Stories in a month as more chances for the same audience, and adds a share of new people each month, so steady sharing keeps reaching people who have not seen your link. Reels with a comment keyword, your bio link and a broadcast channel reach people your Stories miss, and Instagram says most Reels people see come from accounts they don’t follow."
         ],
         sources: [
           "socialinsider-stories",
@@ -3068,7 +3062,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "examples",
         heading: "Three example accounts",
         body: [
-          "The table applies the calculator’s current assumptions to three example accounts at AED 199 a month, with 8 link Stories, 4 keyword Reels and 30% yearly cancellations. It shows the strong case, a best case for an engaged audience and weekly sharing, not a typical result or a prediction; the calculator shows the cautious and typical results too."
+          "The table applies the calculator’s current assumptions to three example accounts at AED 199 a month, with 8 link Stories, 4 keyword Reels and 30% yearly cancellations. It shows the strong case, a best case for an engaged, growing audience and weekly sharing, not a typical result or a prediction; the calculator shows the cautious and typical results too."
         ]
       },
       {
@@ -3118,7 +3112,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Engagement matters more than follower count",
         body: [
           "HypeAuditor reports that nano-influencers, accounts with 1,000 to 10,000 followers, make up 76% of Instagram influencers and have the highest engagement rate, 2.19%. Socialinsider’s average across 35 million posts in 2025 was 0.48%.",
-          "If you enter or connect your engagement rate, the calculator compares it with the {ENGAGEMENT_AVG} average it uses and scales your Story reach and comments up or down, within limits. A smaller, engaged audience that trusts you can matter more than a large, quiet one."
+          "If you enter or connect your engagement rate, the calculator compares it with the {ENGAGEMENT_AVG} average it uses and scales your Story reach and comments up or down, within limits; the strong case already assumes an engaged audience, so your rate can lower its Story reach but does not raise it again. A smaller, engaged audience that trusts you can matter more than a large, quiet one."
         ],
         sources: [
           "hypeauditor-2025",
@@ -3143,11 +3137,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Why do the calculator’s scenarios differ so much?",
-        a: "Because published averages come from brand accounts, retail and apps, while creators with an engaged audience sell far more. The headline is the strong case; the cautious and typical results use the averages. Your real number depends on your content, audience, offer and price."
+        a: "Because the cautious and typical results use published averages from brand accounts, retail and apps, while the strong case uses the top values found in the research and our assumptions for an engaged, growing audience. The headline is the strong case, a best case rather than a typical result. Your real number depends on your content, audience, offer and price."
       },
       {
         q: "Does sharing my link every day help?",
-        a: "Some. Each Story gives the same viewers another chance to tap, so they subscribe sooner, but the gain levels off and link stickers can reduce engagement. Reels with a comment keyword and your bio link reach new people."
+        a: "Some. Each Story gives the same viewers another chance to tap, so within a month the gain levels off, and link stickers can reduce engagement. Over months, regular sharing reaches the new people who join your audience. Reels with a comment keyword and your bio link reach new people."
       },
       {
         q: "Can I use my real Instagram numbers?",

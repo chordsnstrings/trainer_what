@@ -168,7 +168,7 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
     audience: "You",
     page: "/follower-calculator",
     items: [
-      { name: "Follower calculator", detail: "An estimate range from cited benchmarks, with every assumption shown." },
+      { name: "Follower calculator", detail: "A strong case (a best case, not typical) with cautious and typical scenarios, from cited benchmarks and stated assumptions, with every assumption shown." },
       { name: "Connect Instagram", detail: "Professional accounts fill the calculator with real numbers; access is not kept.", availability: ["instagram"] },
       { name: "Tagged share links", detail: "Links for your bio and Stories, so you see which ones bring visitors." },
       { name: "Consented visitor sources", detail: "Where visitors came from, only when they allowed analytics." },

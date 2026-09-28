@@ -296,7 +296,7 @@ const FOLLOWER_STORY_DEFAULTS: Record<string, string[]> = {
 const FOLLOWER_STORY_HELP: Record<string, string> = {
   CAUTIOUS: "Share of followers who see at least one Story a month. Default: Socialinsider Stories reach, image (brand accounts).",
   TYPICAL: "Default: Socialinsider Stories reach, video, at least 5% (IQFluence: Story views above 5-8% of followers are healthy).",
-  STRONG: "Default: 20.5% up to 10,000 followers (Socialinsider six-frame Story sequence), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
+  STRONG: "Default: 20.5% up to 10,000 followers (our assumption: the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience; the measured 5-10K tier reach is 3.5-4.2%), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
 };
 const FOLLOWER_RATE_FIELDS: Array<
   [key: string, label: string, defaults: [string, string, string], help: string]
@@ -305,7 +305,8 @@ const FOLLOWER_RATE_FIELDS: Array<
   ["DM_OPEN", "Keyword commenters who open the DM link", ["18", "30", "45"], "Vendor claims (CommuniPass, ChatAutoDM); no dataset."],
   ["BROADCAST_CLICK", "Broadcast members who open one link message", ["1.27", "1.45", "2.09"], "MailerLite email click medians (sports, health and fitness, all industries), used as a proxy."],
   ["BIO_CLICK", "Profile visitors who open the bio link in a month", ["1", "2", "3"], "Rule of thumb (Hopp by Wix: 1-3%)."],
-  ["PAID", "Visit to paid subscriber", ["0.72", "2.9", "10.7"], "Dynamic Yield luxury retail; RevenueCat Health & Fitness median; RevenueCat hard-paywall median. No published benchmark exists for coaching subscriptions."],
+  ["PAID", "Visit to paid subscriber", ["0.72", "2.9", "6.2"], "Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions."],
+  ["RENEWAL", "Share of each audience new to your link each month", ["0", "1.5", "8"], "0 to 50. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured (11-22% a year by tier); strong is our assumption for a growing audience. Keep strong at or above the monthly cancellations (2.9% at 30% a year) so more sharing never lowers month-12 subscribers."],
 ];
 function followerAssumptionFields(): IntegrationField[] {
   const fields: IntegrationField[] = [];
@@ -448,13 +449,13 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Assumptions behind the public follower calculator, and public company details.",
     setupNotes:
-      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a cautious value above its typical one, or a typical value above its strong one) is ignored and the cited defaults apply. The strong case is the calculator's headline: a best case for an engaged audience, calibrated to creator sales examples.",
+      "Every figure is shown with its source on /methodology and with each estimate. Change the assumptions version whenever you change a value, and give the reason and source: a value that differs from its cited default is marked on /methodology as adjusted by the operator, with your note. An inconsistent set (a cautious value above its typical one, or a typical value above its strong one) cannot be saved: to lower a strong value below its typical one, lower typical and cautious too. The strong case is the calculator's headline: a best case for an engaged, growing audience, not a typical result.",
     fields: [
       field("FOLLOWER_MODEL_VERSION", "Assumptions version", "text", {
-        defaultValue: "2026-09-28.3",
+        defaultValue: "2026-09-28.4",
         help: "Change this whenever you change an assumption; it is shown on /methodology and with every estimate.",
         // Earlier published versions read as the current default.
-        supersededValues: ["2026-09-28", "2026-09-28.2"],
+        supersededValues: ["2026-09-28", "2026-09-28.2", "2026-09-28.3"],
       }),
       field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
         help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
@@ -1314,6 +1315,8 @@ export function validateIntegrationValues(
         Number(text) > 100
       )
         throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+      if (/^FOLLOWER_RENEWAL_/.test(key) && Number(text) > 50)
+        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 50`);
       if (
         key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
         (Number(text) < 1 || Number(text) > 10)

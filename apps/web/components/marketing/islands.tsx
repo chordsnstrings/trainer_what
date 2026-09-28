@@ -217,8 +217,16 @@ export function FollowerCalculator({
   const tier = model.tiers[estimate.tierIndex];
   const adjusted = followerModelAdjustments(model).length > 0;
   const first = displayCount(strong.month1New),
-    active = displayCount(strong.activeMonth12);
+    active = displayCount(strong.activeMonth12),
+    signups = displayCount(strong.signups12);
   const cancelText = `${pct(used.yearlyCancelPct)} yearly cancellations`;
+  // "Weekly sharing" only when the inputs share weekly (4 or more a month).
+  const weekly =
+    used.linkStoriesPerMonth >= 4 ||
+    (used.keywordDms && used.ctaReelsPerMonth >= 4);
+  const growing = strong.activeByMonth[11] > strong.activeByMonth[10] + 1e-9;
+  const signupShare =
+    used.followers > 0 ? (strong.signups12 / used.followers) * 100 : 0;
   const context = {
     followers: used.followers,
     stories: used.linkStoriesPerMonth,
@@ -245,7 +253,7 @@ export function FollowerCalculator({
       case "moreStories":
         return {
           title: "4 more link Stories a month",
-          why: "The same viewers get another chance to tap, so they subscribe sooner, not in greater numbers.",
+          why: "More of your viewers get a chance to tap before they drift away, and they subscribe sooner.",
         };
       case "broadcast":
         return used.broadcastMembers
@@ -366,7 +374,9 @@ export function FollowerCalculator({
           <p className="eyebrow">ESTIMATE, NOT A PROMISE</p>
           <p className="mk-scenario">
             <span className="badge green">Strong case</span>{" "}
-            an engaged audience and weekly sharing
+            {weekly
+              ? "an engaged, growing audience and weekly sharing"
+              : "an engaged, growing audience"}
           </p>
           <p className="mk-result-figure">
             {first === null ? "Fewer than 1" : <>Up to {whole(first)}</>}
@@ -385,23 +395,34 @@ export function FollowerCalculator({
                 </>
               ) : (
                 <>
-                  About <strong>{whole(active)}</strong> active subscribers
+                  Up to <strong>{whole(active)}</strong>{" "}
+                  {active === 1 ? "active subscriber" : "active subscribers"}{" "}
                   after 12 months, after {cancelText}
+                  {growing && ", and still growing"}
                 </>
               )}
             </li>
             <li>
+              {strong.revenueMonth12Minor > 0 && "Up to "}
               <strong>{aed(strong.revenueMonth12Minor)}</strong> a month at
               your price, before platform commission
             </li>
             <li>
-              {countLabel(strong.signups12)} sign-ups over 12 months, before
-              cancellations
+              {signups === null ? (
+                <>Fewer than 1 sign-up over 12 months</>
+              ) : (
+                <>
+                  Up to {whole(signups)}{" "}
+                  {signups === 1 ? "sign-up" : "sign-ups"} over 12 months,
+                  before cancellations
+                </>
+              )}
             </li>
           </ul>
           <p className="fine-print">
-            A best case for an engaged audience, not a typical result. The
-            cautious and typical results are under How we estimate.
+            A best case for an engaged, growing audience, not a typical result
+            and not a promise. The cautious and typical results are under How
+            we estimate.
           </p>
           {addressTemplate && !compact && (
             <AddressPreview
@@ -435,7 +456,10 @@ export function FollowerCalculator({
                   <strong>{text.title}</strong>
                   <span>
                     {gainLabel(lever.month1New)} in your first month,{" "}
-                    {gainLabel(lever.signups12)} sign-ups over 12 months.
+                    {gainLabel(lever.activeMonth12)} active after 12 months
+                    {lever.revenueMonth12Minor > 0 &&
+                      ` (+${aed(lever.revenueMonth12Minor)} a month)`}
+                    .
                   </span>
                   <span className="muted">{text.why}</span>
                 </li>
@@ -495,24 +519,38 @@ export function FollowerCalculator({
               : `about ${FOLLOWER_SCENARIOS.map((s) => whole(Math.round(estimate.scenarios[s].storyViewers))).join(", ").replace(/, ([^,]*)$/, " and $1")} (cautious, typical, strong): ${scenarioPct("storyPct", "cautious")}, ${scenarioPct("storyPct", "typical")} and ${scenarioPct("storyPct", "strong")} of followers for your tier, and never fewer than an account at the top of a smaller tier`}
             {used.storyViews === null &&
               estimate.engagementFactor !== 1 &&
-              `, scaled ×${estimate.engagementFactor.toFixed(2)} by your engagement against the ${pct(model.engagementBenchmarkPct)} average`}
-            . Cautious and typical are measured on brand accounts; the strong
-            case uses the reach of a six-frame Story sequence up to 10,000
-            followers and vendor guidance above. [Measured; vendor guidance]
+              `, scaled ×${estimate.engagementFactor.toFixed(2)} by your engagement against the ${pct(model.engagementBenchmarkPct)} average${estimate.engagementFactor > 1 ? " (the strong case’s own share is not raised, as it already assumes an engaged audience)" : ""}`}
+            . Cautious is measured on brand accounts; typical is measured, or
+            the 5% vendor floor where higher; the strong case is our
+            assumption up to 10,000 followers (the reach of a six-frame Story
+            sequence, used as a monthly audience; measured reach for
+            5,001–10,000 followers is 3.5–4.2%) and vendor guidance above.
+            [Measured; vendor guidance; our assumption]
           </li>
           <li>
             Link-sticker click: {rateList("linkClickPct")} per viewer per link
             Story. Creators report 1–5%; no industry benchmark exists. The same
-            people watch each Story, so the chance of a visit is
-            1 − (1 − rate)^Stories, which levels off. [Creator reports]
+            people watch each Story, so a viewer’s chance of a visit in a month
+            is 1 − (1 − rate)^Stories. [Creator reports]
+          </li>
+          <li>
+            New people each month: {rateList("audienceRenewalPct")} of each
+            audience is new to your link every month (new followers, and people
+            Instagram starts showing your content to), so sign-ups keep coming
+            after your first viewers have decided. Cautious keeps the same
+            people all year; typical is about the follower growth measured on
+            brand accounts; strong is our assumption for a growing audience.
+            [Measured growth; our assumption]
           </li>
           {used.keywordDms && used.ctaReelsPerMonth > 0 && (
             <li>
               Keyword Reels: Reel reach and comments per view by tier, about
               twice the usual comments with a comment call to action, and{" "}
               {rateList("dmOpenPct")} of commenters open the DM link. Cautious
-              counts Reel viewers inside your Story audience. [Measured on brand
-              accounts; DM rates are vendor claims]
+              counts Reel viewers inside your Story audience; typical and strong
+              count each Reel’s commenters afresh, as most Reels people see come
+              from accounts they don’t follow. [Measured on brand accounts; DM
+              rates are vendor claims]
             </li>
           )}
           {used.profileVisitsPerMonth !== null && (
@@ -529,10 +567,11 @@ export function FollowerCalculator({
           )}
           <li>
             Visit to paid subscriber: {rateList("paidPct")} of the people who
-            visit: a luxury-retail purchase rate, the Health &amp; Fitness app
-            median and the median for apps where people pay before they start.
-            No published benchmark exists for coaching subscriptions. [Measured;
-            used as a proxy]
+            visit: a luxury-retail purchase rate, then the median and upper
+            quartile of Health &amp; Fitness app downloads that turn paid
+            within 35 days. An app install shows more intent than a Story tap,
+            so these may overstate, and no published benchmark exists for
+            coaching subscriptions. [Measured; used as a proxy]
           </li>
           <li>
             Cancellations: {pct(used.yearlyCancelPct)} a year, about{" "}
@@ -545,14 +584,17 @@ export function FollowerCalculator({
             Strong case: per link Story, {pct(rates.strong.linkClickPct)} tap
             and {pct(rates.strong.paidPct)} of them pay, about{" "}
             {pct(Math.round(rates.strong.linkClickPct * rates.strong.paidPct) / 100)}{" "}
-            of viewers. That is the low end of a creator example (roughly
-            0.5–1.5% of 100,000 YouTube viewers buying a USD 20 plan) and in
-            line with creators’ rule of thumb that 1–3% of an engaged audience
-            buys over time. [Creator example, owner-supplied; rule of thumb]
+            of viewers each time
+            {used.followers > 0 &&
+              `; over 12 months about ${pct(Math.round(signupShare * 100) / 100)} of your followers sign up`}
+            . That is far above published creator averages (Stan: creators with
+            1,000–10,000 followers sell about USD 273 a month), so treat it as
+            a best case, not a typical result. [Our assumption; vendor data]
           </li>
           <li>
-            New followers, trials, discounts, refunds, failed payments and
-            platform commission are not included.
+            Trials, discounts, refunds, failed payments and platform commission
+            are not included; new followers count only through the new people
+            each month.
           </li>
           {adjusted && (
             <li>
@@ -563,8 +605,8 @@ export function FollowerCalculator({
           )}
         </ul>
         <p className="fine-print">
-          Estimates apply published averages and creator examples to your
-          inputs. They are not a prediction or promise of results, and you may
+          Estimates apply published averages and our stated assumptions to
+          your inputs. They are not a prediction or promise of results, and you may
           get fewer subscribers than the cautious figure; your content,
           audience, offer and price change the real number.{" "}
           <Link href="/methodology">Sources and methodology</Link>

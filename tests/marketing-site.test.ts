@@ -500,17 +500,21 @@ test("follower calculator: the headline is the strong case; cautious and typical
   // Defaults: 7,000 followers, AED 199, 8 link Stories, 4 keyword Reels, 30% a year.
   assert.match(html, /value="7000"/);
   assert.match(text, /ESTIMATE, NOT A PROMISE/);
-  assert.match(text, /Strong case an engaged audience and weekly sharing/);
+  assert.match(text, /Strong case an engaged, growing audience and weekly sharing/);
   assert.match(text, new RegExp(`Up to ${displayCount(strong.month1New)} new paying subscribers in your first month`));
-  assert.match(text, new RegExp(`About ${displayCount(strong.activeMonth12)} active subscribers after 12 months, after 30% yearly cancellations`));
-  assert.ok(text.includes(`${aedText(strong.revenueMonth12Minor)} a month at your price, before platform commission`), text);
-  assert.match(text, /A best case for an engaged audience, not a typical result/);
+  // One best-case qualifier on every headline line; the strong case is still
+  // growing at month 12 (the owner's direction).
+  assert.match(text, new RegExp(`Up to ${displayCount(strong.activeMonth12)} active subscribers after 12 months, after 30% yearly cancellations, and still growing`));
+  assert.ok(text.includes(`Up to ${aedText(strong.revenueMonth12Minor)} a month at your price, before platform commission`), text);
+  assert.ok(text.includes(`Up to ${displayCount(strong.signups12)} sign-ups over 12 months, before cancellations`), text);
+  assert.doesNotMatch(text, /About \d+ active/);
+  assert.match(text, /A best case for an engaged, growing audience, not a typical result and not a promise/);
   // The headline figure is the strong case, not the typical one.
   const figure = html.match(/class="mk-result-figure">([^<]*(?:<!-- -->)?[^<]*)</)![1].replace(/<!-- -->/g, "");
   assert.equal(figure, `Up to ${displayCount(strong.month1New)}`);
   // Cautious and typical appear only in the How we estimate table.
   const details = text.slice(text.indexOf("How we estimate"));
-  assert.match(details, /How we estimate \(assumptions version 2026-09-28\.3\)/);
+  assert.match(details, /How we estimate \(assumptions version 2026-09-28\.4\)/);
   const row = (name: string, r: typeof strong) =>
     `${name} ${r.month1New < 1 ? "fewer than 1" : displayCount(r.month1New)} ${displayCount(r.activeMonth12) ?? "fewer than 1"} ${displayCount(r.signups12) ?? "fewer than 1"} ${aedText(r.revenueMonth12Minor)}`;
   assert.ok(details.includes(row("Cautious", cautious)), details);
@@ -519,11 +523,19 @@ test("follower calculator: the headline is the strong case; cautious and typical
   assert.ok(!text.slice(0, text.indexOf("How we estimate")).includes("Typical"));
   // Levers: strong-case gains, worded for the trainer.
   assert.match(text, /What raises your number/);
-  assert.match(text, /Bio link to your page, per 1,000 profile visits a month \+3\.2 in your first month/);
+  // Each lever shows its gain in the headline figure (active at month 12).
+  assert.ok(
+    text.includes(`Bio link to your page, per 1,000 profile visits a month +1.9 in your first month, +17 active after 12 months (+${aedText(338_300)} a month).`),
+    text,
+  );
   assert.match(text, /Your bio link reaches people your Stories miss/);
   assert.match(text, /4 more Reels a month with a comment keyword/);
   assert.match(text, /4 more link Stories a month/);
-  assert.match(text, /subscribe sooner, not in greater numbers/);
+  assert.match(text, /get a chance to tap before they drift away, and they subscribe sooner/);
+  assert.match(text, /New people each month: 0%, 1\.5% and 8% of each audience is new to your link every month/);
+  assert.match(text, /the strong case is our assumption up to 10,000 followers/);
+  assert.match(text, /far above published creator averages/);
+  assert.doesNotMatch(text, /Humiston|1–3% of an engaged audience|pay before they start/);
   assert.match(text, /A broadcast channel with 300 members and 4 link messages a month/);
   assert.match(text, /The strong case assumes about 1,435 people see your Stories each month/);
   // Labelled inputs, including cancellations and the optional channels.
@@ -563,11 +575,26 @@ test("follower calculator: the headline is the strong case; cautious and typical
     ),
   );
   assert.match(tiny, /Fewer than 1 new paying subscriber in your first month/);
+  // "Fewer than 1" active subscriber is valued at nothing, not at the price.
+  assert.match(tiny, /Fewer than 1 active subscriber after 12 months/);
+  assert.match(tiny, /AED 0 a month at your price/);
+  assert.doesNotMatch(tiny, /Up to AED 0/);
+  // "Weekly sharing" only when the inputs share weekly.
+  const quiet = decode(
+    renderToStaticMarkup(
+      createElement(FollowerCalculator, {
+        model: DEFAULT_FOLLOWER_MODEL,
+        initial: { linkStoriesPerMonth: 2, ctaReelsPerMonth: 0 },
+      }),
+    ),
+  );
+  assert.match(quiet, /Strong case an engaged, growing audience Up to/);
+  assert.doesNotMatch(quiet, /weekly sharing/);
 });
 
 test("the guide's example accounts and the methodology worked example use the model", () => {
   const guide = decode(render(marketingPage("/guides/instagram-followers-to-clients")!));
-  assert.match(guide, /Strong case, a best case for an engaged audience and not a typical result/);
+  assert.match(guide, /Strong case, a best case for an engaged, growing audience and not a typical result/);
   const seven = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS).scenarios.strong;
   assert.ok(
     guide.includes(`7,000 ${displayCount(seven.month1New)} ${displayCount(seven.activeMonth12)} ${displayCount(seven.signups12)} ${aedText(seven.revenueMonth12Minor)}`),
@@ -575,17 +602,37 @@ test("the guide's example accounts and the methodology worked example use the mo
   );
   const methodology = decode(render(marketingPage("/methodology")!));
   assert.match(methodology, /How the strong case is calibrated/);
-  assert.match(methodology, /The strong case is a best case for an engaged audience and weekly sharing\. It is not a typical result and not a promise\./);
-  assert.match(methodology, /Ryan Humiston sells roughly 500-1,500 of his USD 19\.99 workout plans/);
-  assert.match(methodology, /\[Creator example, owner-supplied\]/);
+  assert.match(methodology, /The strong case is a best case for an engaged, growing audience and weekly sharing\. It is not a typical result and not a promise\./);
+  // No named creator or unverified sales figure is presented as a source; the
+  // founder's example is labelled unverified and compared per view only.
+  const full = llmsFullTxt(ctx);
+  for (const [name, page] of [["methodology", methodology], ["guide", guide], ["llms-full.txt", full]] as const) {
+    assert.doesNotMatch(page, /Humiston|swoleaf|bought a USD 20 plan|creators say about 1-3%/, name);
+    assert.doesNotMatch(page, /sell far more|can do far better|pay before they start/, name);
+  }
+  assert.match(methodology, /an unverified example with no public source, so it is not used as evidence\. Per view, the strong case’s 0\.31% is below it/);
+  assert.match(methodology, /\[Unverified founder example\]/);
+  // The calibration states what the comparison sources actually say.
+  assert.match(methodology, /0\.1-1% of an audience \(low\), 1\.5-5% \(mid\) and 0\.52-1\.1% for higher-priced courses/);
+  assert.match(methodology, new RegExp(`about USD 273 a month on average, against ${aedText(seven.revenueMonth12Minor)} a month in the strong case`));
+  assert.match(methodology, /Strong: our assumption, the six-frame 20\.5% used as a monthly audience, against a measured reach of 3\.5-4\.2% for this tier/);
+  assert.match(methodology, /an app install shows more intent than a Story tap, so these may overstate/);
   assert.match(methodology, /Owner assumption\./);
-  assert.match(methodology, /Strong case 52\.?\d* |Strong case 53 /);
+  assert.ok(
+    methodology.includes(`Strong case ${displayCount(seven.month1New)} ${displayCount(seven.activeMonth12)} ${displayCount(seven.signups12)} ${aedText(seven.revenueMonth12Minor)}`),
+    "worked example row",
+  );
   // Every source carries its label.
   for (const source of MARKETING_SOURCES)
     assert.ok(methodology.includes(`${source.evidence} ${source.publisher}`), source.id);
-  for (const label of ["Measured, brand accounts", "Vendor claim, no dataset", "Rule of thumb", "Creator example (owner-supplied)", "Measured; used as a proxy"])
+  for (const label of ["Measured, brand accounts", "Vendor claim, no dataset", "Rule of thumb", "Measured; used as a proxy"])
     assert.ok(MARKETING_SOURCES.some((s) => s.evidence === label), label);
+  assert.ok(!MARKETING_SOURCES.some((s) => /creator example|owner-supplied/i.test(s.evidence)));
   assert.match(methodology, /version 2026-09-28\.3\): three scenarios instead of one range/);
+  assert.match(methodology, /version 2026-09-28\.4\): each audience now gains new people every month/);
+  // No page calls the follower result an estimate range any more.
+  for (const path of ["/about", "/features", "/methodology"])
+    assert.doesNotMatch(decode(render(marketingPage(path)!)), /estimate ranges?\b|shown as ranges/, path);
 });
 
 test("earnings calculator: marginal bands match the ledger's projection; upfront and tier mix", () => {
@@ -635,8 +682,8 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.match(follower, /ESTIMATE, NOT A PROMISE/);
   assert.match(follower, /not a prediction or promise of results/);
   assert.match(follower, /you may get fewer subscribers than the cautious figure/);
-  assert.match(follower, /A best case for an engaged audience, not a typical result/);
-  assert.match(follower, /How we estimate \(assumptions version 2026-09-28\.3\)/);
+  assert.match(follower, /A best case for an engaged, growing audience, not a typical result/);
+  assert.match(follower, /How we estimate \(assumptions version 2026-09-28\.4\)/);
   assert.match(follower, /No published benchmark exists for coaching subscriptions/i);
   assert.match(follower, /no industry benchmark exists/);
   const earnings = decode(renderToStaticMarkup(createElement(EarningsCalculator, {})));
@@ -646,7 +693,7 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.match(pricing, /An arithmetic example, not a forecast or promise/);
   const methodology = decode(render(marketingPage("/methodology")!));
   for (const source of MARKETING_SOURCES) assert.ok(methodology.includes(source.publisher), source.id);
-  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.3\)/);
+  assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.4\)/);
   assert.match(methodology, /not a typical result and not a promise/);
   assert.doesNotMatch(methodology, /Adjusted by the operator/);
   assert.equal(slugFromName("Layla Strength!"), "layla-strength");
@@ -659,10 +706,11 @@ test("the assumptions shown are the assumptions used: settings change the pages,
   const text = (p: PublicPlatform, path: string) => decode(render(marketingPage(path)!, p));
   const cited = text(platform, "/follower-calculator");
   assert.match(cited, /1%, 3% and 5% chance \(cautious, typical, strong\) of opening one link Story/);
-  assert.match(cited, /visit to paid of 0\.72%, 2\.9% and 10\.7%/);
+  assert.match(cited, /visit to paid of 0\.72%, 2\.9% and 6\.2%/);
+  assert.match(cited, /Each month 0%, 1\.5% and 8% of each audience is new to your link/);
   assert.match(cited, /18%, 30% and 45% of commenters open the link/);
   assert.match(cited, /compared with the 0\.48% average/);
-  assert.match(cited, /turns 5% × 10\.7%, about 0\.54% of the people who see it, into subscribers/);
+  assert.match(cited, /turns 5% × 6\.2%, about 0\.31% of the people who see it, into subscribers, and each month 8% of your audience is new to your link/);
   assert.doesNotMatch(cited, /\{[A-Z_]+\}/);
   const model = followerModelFromSettings({
     [k.version]: "2026-11-01",
@@ -692,7 +740,7 @@ test("the assumptions shown are the assumptions used: settings change the pages,
   // Methodology marks edited values instead of crediting the source for them.
   const methodology = text(edited, "/methodology");
   assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Creatorflow , IQFluence \)/);
-  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Dynamic Yield , RevenueCat , RevenueCat \)/);
+  assert.match(methodology, /Adjusted by the operator version 2026-11-01; differs from the cited source \( Dynamic Yield , RevenueCat \)/);
   assert.match(methodology, /Operator trial data, October 2026/);
   // No unresolved token anywhere in the registry output.
   for (const p of site)

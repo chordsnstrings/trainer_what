@@ -319,9 +319,9 @@ function FollowerExamples({ platform }: { platform: PublicPlatform }) {
     <div className="mk-table-wrap">
       <table className="mk-table">
         <caption>
-          Strong case, a best case for an engaged audience and not a typical
-          result: AED 199 a month, 8 link Stories and 4 keyword Reels a month,
-          30% yearly cancellations (assumptions version{" "}
+          Strong case, a best case for an engaged, growing audience and not a
+          typical result: AED 199 a month, 8 link Stories and 4 keyword Reels
+          a month, 30% yearly cancellations (assumptions version{" "}
           {platform.followerModel.version})
         </caption>
         <thead>
@@ -429,12 +429,17 @@ const RATE_ROWS: Array<{
   {
     key: "paidPct",
     label: "Visit to paid subscriber",
-    basis: "Luxury retail; Health & Fitness app median; hard-paywall app median (measured; used as a proxy). No published benchmark exists for coaching subscriptions",
+    basis: "Luxury retail; Health & Fitness app downloads that turn paid within 35 days, median and upper quartile (measured; used as a proxy: an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions",
     sources: [
       ["dynamicyield-conversion", "Dynamic Yield"],
       ["revenuecat-state-2026", "RevenueCat"],
-      ["revenuecat-trends-2026", "RevenueCat"],
     ],
+  },
+  {
+    key: "audienceRenewalPct",
+    label: "New people each month: share of each audience new to your link",
+    basis: "Cautious: the same people all year. Typical: about the yearly follower growth Socialinsider measured on brand accounts, 11-22% by tier, about 1-1.7% a month (measured; our rounding). Strong: our assumption for a growing audience, new followers plus people Instagram starts showing your content to; above the default monthly cancellations (2.9%), so more sharing never lowers month-12 subscribers",
+    sources: [["socialinsider-engagement", "Socialinsider"]],
   },
 ];
 
@@ -478,6 +483,10 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
   };
   const strong = m.scenarios.strong;
   const perStory = Math.round(strong.linkClickPct * strong.paidPct) / 100;
+  const signupShare =
+    Math.round(
+      (worked.scenarios.strong.signups12 / DEFAULT_FOLLOWER_INPUTS.followers) * 1000,
+    ) / 10;
   return (
     <>
       <section className="mk-section" id="follower-assumptions" aria-labelledby="fa-h">
@@ -485,8 +494,8 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
         <p className="mk-body">
           The calculator runs three scenarios with the same arithmetic. Cautious
           and typical use published averages. The strong case is a best case
-          for an engaged audience and weekly sharing, calibrated to creator
-          sales examples. It is not a typical result and not a promise, and you
+          for an engaged, growing audience and weekly sharing, from the top
+          values found in the research and our stated assumptions. It is not a typical result and not a promise, and you
           may get fewer subscribers than the cautious figure. The calculator
           headline shows the strong case and the other two sit under How we
           estimate.
@@ -521,10 +530,10 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                   <td>{tier.storyPct.strong}%</td>
                   <td>
                     {i === 0
-                      ? "Socialinsider image and video reach (measured, brand accounts); strong: a six-frame Story sequence reached 20.5% (measured, brand accounts). "
+                      ? "Cautious and typical: Socialinsider image and video reach (measured, brand accounts). Strong: our assumption, the 20.5% a six-frame Story sequence reached (measured on brand accounts of all sizes) used as a monthly audience. "
                       : i === 1
-                        ? "Image reach; video reach, at least 5% (vendor claim); strong: the six-frame 20.5%, as HypeAuditor finds accounts of 1,000-10,000 followers engage most (vendor data). "
-                        : "Image reach; at least 5%; strong: the IQFluence 5-8% band, lower for larger accounts (vendor claim, no dataset). "}
+                        ? "Cautious: image reach, 3.5% (measured, brand accounts). Typical: the 5% vendor floor, above the measured 4.2% video reach (vendor claim). Strong: our assumption, the six-frame 20.5% used as a monthly audience, against a measured reach of 3.5-4.2% for this tier; HypeAuditor finds accounts of 1,000-10,000 followers engage most (vendor data). "
+                        : "Image reach (measured); at least 5% (vendor claim); strong: the IQFluence 5-8% band, lower for larger accounts (vendor claim, no dataset). "}
                     <Source
                       fields={FOLLOWER_SCENARIOS.map((s) => `tiers.${i}.storyPct.${s}`)}
                       links={
@@ -639,8 +648,8 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                 <td>How channels overlap</td>
                 <td>
                   Cautious: Reels reach the same people as Stories. Typical and
-                  strong: Reels add new people. Stories and broadcast are
-                  nested in every scenario
+                  strong: each Reel reaches new people. Stories and broadcast
+                  are nested in every scenario
                 </td>
                 <td>
                   Our assumption, from a platform statement.{" "}
@@ -648,7 +657,11 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                 </td>
               </tr>
               <tr>
-                <td>Average engagement (scales Story reach and comments)</td>
+                <td>
+                  Average engagement (scales Story reach and comments; the strong
+                  Story share only down, as it already assumes an engaged
+                  audience)
+                </td>
                 <td>
                   {m.engagementBenchmarkPct}%, scaling at most ×{m.engagementFactorMax}
                 </td>
@@ -684,8 +697,8 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
       <section className="mk-section" id="strong-case" aria-labelledby="sc-h">
         <h2 id="sc-h">How the strong case is calibrated</h2>
         <p className="mk-body">
-          The strong case is a best case for an engaged audience and weekly
-          sharing. It is not a typical result and not a promise.
+          The strong case is a best case for an engaged, growing audience and
+          weekly sharing. It is not a typical result and not a promise.
         </p>
         <ul className="mk-list">
           <li>
@@ -693,32 +706,48 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
             <span>
               Per link Story, {strong.linkClickPct}% of viewers tap and{" "}
               {strong.paidPct}% of them pay: about {perStory}% of the people
-              who see it. That is the low end of a creator example our owner
-              gave: Ryan Humiston sells roughly 500-1,500 of his USD 19.99
-              workout plans for a YouTube video with about 100,000 views,
-              0.5-1.5% of viewers. A monthly subscription costs more than a
-              one-off plan, so we take the low end. We found no public source
-              for the sales figure. [Creator example, owner-supplied]
+              who see it each time. Each month {strong.audienceRenewalPct}% of
+              the audience is new to your link, so sign-ups keep coming and
+              active subscribers are still growing at month 12. [Our
+              assumption; measured proxies]
             </span>
           </li>
           <li>
             <Check size={16} aria-hidden="true" />
             <span>
-              Over a year, smaller accounts sign up within the 1-3% of an
-              engaged audience that creators say buys over time (a vendor’s
-              course benchmarks put the middle at 1.5-5% and use 2% in their
-              example). The share falls as accounts grow, as creator sales by
-              follower count show. [Rule of thumb; vendor data]
+              Over 12 months the worked example below signs up about{" "}
+              {signupShare}% of its followers, far above published creator
+              averages. Passion.io’s course benchmarks put conversion at
+              0.1-1% of an audience (low), 1.5-5% (mid) and 0.52-1.1% for
+              higher-priced courses, and Stan’s creators with 1,000-10,000
+              followers sell about USD 273 a month on average, against{" "}
+              {aed(worked.scenarios.strong.revenueMonth12Minor)} a month in the
+              strong case. [Rule of thumb; vendor data]
             </span>
           </li>
           <li>
             <Check size={16} aria-hidden="true" />
             <span>
-              The strong rates are the top values found in the research: the
-              reach of a six-frame Story sequence, {strong.linkClickPct}% link
-              clicks, {strong.dmOpenPct}% of keyword commenters opening the DM
-              link and {strong.paidPct}% visit to paid, the median for apps
-              where people pay before they start. [Measured; vendor claims]
+              Our founder’s reading of creator sales, a fitness creator selling
+              a USD 20 plan to roughly 0.5-1.5% of one video’s viewers, is an
+              unverified example with no public source, so it is not used as
+              evidence. Per view, the strong case’s {perStory}% is below it; the
+              12-month figure adds repeat chances for the same viewers and the
+              new people each month. [Unverified founder example]
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              The strong rates are the top values found in the research:{" "}
+              {strong.linkClickPct}% link clicks (creator reports),{" "}
+              {strong.dmOpenPct}% of keyword commenters opening the DM link
+              (vendor claims) and {strong.paidPct}% visit to paid, the upper
+              quartile of Health &amp; Fitness apps (measured; an app install
+              shows more intent than a Story tap, so it may overstate). The
+              Story audience up to 10,000 followers and the new people each
+              month are our assumptions. [Measured; vendor claims; our
+              assumption]
             </span>
           </li>
         </ul>
@@ -757,9 +786,9 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
           </table>
         </div>
         <p className="fine-print muted">
-          Before platform commission, payment processing and tax. New
-          followers, trials, discounts, refunds and failed payments are not
-          included.
+          Before platform commission, payment processing and tax. Trials,
+          discounts, refunds and failed payments are not included; new
+          followers count only through the new people each month.
         </p>
       </section>
       <section className="mk-section" id="sources" aria-labelledby="src-h">
@@ -767,8 +796,8 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
         <p className="mk-body">
           Each source is labelled by how much weight it can bear: measured
           (a dataset with a stated sample), used as a proxy, vendor data or
-          claim, rule of thumb, creator example, platform statement, official
-          figure, price guide or press report.
+          claim, rule of thumb, platform statement, official figure, price
+          guide or press report.
         </p>
         <ol className="mk-source-list">
           {MARKETING_SOURCES.map((s) => (
@@ -822,6 +851,23 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
               Story views can replace the reach guess; and tier boundaries no
               longer lower an estimate (5,001 followers used to give fewer
               subscribers than 5,000).
+            </span>
+          </li>
+          <li>
+            <Check size={16} aria-hidden="true" />
+            <span>
+              28 September 2026 (version 2026-09-28.4): each audience now gains
+              new people every month (typical about measured follower growth,
+              strong our assumption), so sign-ups keep coming and more sharing
+              never lowers the strong case’s month-12 subscribers; strong visit
+              to paid is 6.2%, the Health &amp; Fitness upper quartile, instead
+              of 10.7%, an all-category median for apps that charge before
+              use; engagement no longer raises the strong Story share, which
+              already assumes an engaged audience; keyword Reels count each
+              Reel’s commenters afresh in the typical and strong cases; the
+              monthly amount uses the whole number of subscribers shown; and an
+              unverified creator sales figure is no longer presented as a
+              source.
             </span>
           </li>
           {adjusted.size > 0 && (
@@ -1172,8 +1218,8 @@ function Home({ page, platform }: Ctx) {
           <h2 id="followers-h">What could your followers be worth?</h2>
           <p className="mk-body">
             A quick estimate from published Instagram and conversion benchmarks
-            and creator sales examples. The headline is a strong case for an
-            engaged audience; change the numbers to yours.
+            and our stated assumptions. The headline is a strong case for an
+            engaged, growing audience; change the numbers to yours.
           </p>
           <FollowerCalculator model={platform.followerModel} compact headingLevel={3} />
           <p>
