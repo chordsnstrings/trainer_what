@@ -36,7 +36,8 @@ export type TldPrice = {
 export type Registrant = {
   firstName: string;
   lastName: string;
-  organization?: string;
+  /** The platform company: required, the registrant is never a trainer. */
+  organization: string;
   address1: string;
   city: string;
   stateProvince: string;
@@ -772,7 +773,9 @@ export function registrantFromConfig(config: RuntimeConfig): Registrant {
   const registrant = {
     firstName: value("FIRST_NAME"),
     lastName: value("LAST_NAME"),
-    organization: value("ORGANIZATION") || undefined,
+    // The platform company is always the registrant (owner decision,
+    // 28 September 2026): never a trainer.
+    organization: value("ORGANIZATION"),
     address1: value("ADDRESS"),
     city: value("CITY"),
     stateProvince: value("STATE"),
@@ -784,6 +787,7 @@ export function registrantFromConfig(config: RuntimeConfig): Registrant {
   if (
     !registrant.firstName ||
     !registrant.lastName ||
+    !registrant.organization ||
     !registrant.address1 ||
     !registrant.city ||
     !registrant.stateProvince ||
@@ -793,7 +797,7 @@ export function registrantFromConfig(config: RuntimeConfig): Registrant {
     !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(registrant.email)
   )
     throw new ConfigurationError(
-      "The registrant contact is incomplete; complete it in Super admin settings.",
+      "The registrant contact (the platform company) is incomplete; complete it in Super admin settings.",
     );
   return registrant;
 }

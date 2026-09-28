@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
-import { WebAddressCenter, WebAddressOperations } from "./web-address";
+import { WebAddressCenter } from "./web-address";
+import { WebAddressOperations } from "./web-address-operations";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -779,8 +780,7 @@ function DomainCenter() {
           )}
           {order.status === "requested" && (
             <p>
-              A platform operator will obtain an exact registrar quote for your
-              approval.
+              The platform team will send you an exact price for your approval.
             </p>
           )}
           {order.status === "quoted" && (
@@ -855,7 +855,9 @@ function DomainCenter() {
                     api(`/domains/${order.id}/cancel`, "POST", {
                       revision: order.version,
                     }),
-                  "Domain disconnected; registrar registration remains yours",
+                  order.alreadyOwned
+                    ? "Domain disconnected; your own registration is not affected"
+                    : "Domain disconnected",
                 )
               }
             >

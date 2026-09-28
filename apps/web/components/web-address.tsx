@@ -1,8 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-/** Trainer web address (subdomain, slug change, domain purchase) and the operator view. */
-async function api(path: string, method = "GET", body?: unknown) {
+/**
+ * Trainer web address (subdomain, slug change, domain purchase). Trainer
+ * screens show only the first-year and yearly renewal price in AED; they never
+ * name the registrar or show its cost (the operator view is
+ * web-address-operations.tsx).
+ */
+export async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
     method,
     credentials: "same-origin",
@@ -14,17 +19,21 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!response.ok)
     throw Object.assign(
       new Error(data.message ?? "The request could not be completed."),
-      { code: data.code, priceMinor: data.priceMinor },
+      {
+        code: data.code,
+        firstYearPriceMinor: data.firstYearPriceMinor,
+        renewalPriceMinor: data.renewalPriceMinor,
+      },
     );
   return data;
 }
-const aed = (minor: number) =>
+export const aed = (minor: number) =>
   new Intl.NumberFormat("en-AE", {
     style: "currency",
     currency: "AED",
     maximumFractionDigits: 2,
   }).format(minor / 100);
-const day = (value?: string | null) =>
+export const day = (value?: string | null) =>
   value ? new Date(value).toISOString().slice(0, 10) : "";
 const IN_PROGRESS = ["checkout", "paid", "purchasing", "owned", "dns"];
 const STEPS: Array<[string, string]> = [
@@ -43,7 +52,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
     </section>
   );
 }
-function Status({ value }: { value: string }) {
+export function Status({ value }: { value: string }) {
   return value ? (
     <p role="status" className="notice">
       {value}
@@ -56,7 +65,9 @@ export type WebAddressOrder = {
   hostname: string;
   status: string;
   statusLabel: string;
-  priceMinor: number;
+  /** Charged now (the first year) and at every yearly renewal, in fils. */
+  firstYearPriceMinor: number;
+  renewalPriceMinor: number;
   expiresAt?: string | null;
   liveAt?: string | null;
   renewalEnabled: boolean;
@@ -90,7 +101,8 @@ type Result = {
   domain: string;
   available: boolean;
   premium: boolean;
-  priceMinor: number | null;
+  firstYearPriceMinor: number | null;
+  renewalPriceMinor: number | null;
 };
 
 export function WebAddressCenter({
@@ -276,16 +288,23 @@ function DomainSearch({
     try {
       const data = await api("/web-address/orders", "POST", {
         domain: result.domain,
-        priceMinor: result.priceMinor,
+        firstYearPriceMinor: result.firstYearPriceMinor,
+        renewalPriceMinor: result.renewalPriceMinor,
         accepted: true,
       });
       window.location.assign(data.url);
     } catch (e: any) {
-      if (e?.code === "PRICE_CHANGED" && Number.isInteger(e.priceMinor)) {
-        setChosen({ ...result, priceMinor: e.priceMinor });
-        onError(
-          "The price changed. Check the new yearly price and confirm again.",
-        );
+      if (
+        e?.code === "PRICE_CHANGED" &&
+        Number.isInteger(e.firstYearPriceMinor) &&
+        Number.isInteger(e.renewalPriceMinor)
+      ) {
+        setChosen({
+          ...result,
+          firstYearPriceMinor: e.firstYearPriceMinor,
+          renewalPriceMinor: e.renewalPriceMinor,
+        });
+        onError("The price changed. Check the new prices and confirm again.");
       } else onError(e instanceof Error ? e.message : "Checkout failed.");
       setPaying(false);
     }
@@ -293,8 +312,9 @@ function DomainSearch({
   return (
     <Panel title="Your own domain">
       <p>
-        Search a name, see the yearly price and pay by card. We register the
-        domain, set it up and renew it every year. Endings:{" "}
+        Search a name, see the first-year and yearly renewal price and pay by
+        card. We register the domain, set it up and renew it every year.
+        Endings:{" "}
         <span className="ltr-data">
           {endings.map((e) => "." + e).join(" ")}
         </span>
@@ -332,9 +352,16 @@ function DomainSearch({
           {results.map((result) => (
             <li key={result.domain}>
               <span className="ltr-data">{result.domain}</span>
-              {result.available && result.priceMinor ? (
+              {result.available &&
+              result.firstYearPriceMinor &&
+              result.renewalPriceMinor ? (
                 <>
-                  <span>{aed(result.priceMinor)} per year</span>
+                  <span>
+                    <Prices
+                      firstYear={result.firstYearPriceMinor}
+                      renewal={result.renewalPriceMinor}
+                    />
+                  </span>
                   <button
                     type="button"
                     className="button"
@@ -353,7 +380,7 @@ function DomainSearch({
           ))}
         </ul>
       )}
-      {chosen?.priceMinor ? (
+      {chosen?.firstYearPriceMinor && chosen.renewalPriceMinor ? (
         <form
           className="web-address-confirm"
           onSubmit={(event) => {
@@ -362,14 +389,18 @@ function DomainSearch({
           }}
         >
           <p>
-            <strong className="ltr-data">{chosen.domain}</strong> costs{" "}
-            <strong>{aed(chosen.priceMinor)}</strong> now and every year until
-            you turn renewal off. The price includes registration, private owner
-            details (WHOIS privacy), DNS and the security certificate.
+            <strong className="ltr-data">{chosen.domain}</strong>: first year{" "}
+            <strong>{aed(chosen.firstYearPriceMinor)}</strong>, charged now,
+            then <strong>{aed(chosen.renewalPriceMinor)}</strong> every year
+            until you turn renewal off. The price includes registration, private
+            owner details (WHOIS privacy), DNS and the security certificate. The
+            platform registers and holds the domain for your website.
           </p>
           <label className="check-field">
             <input type="checkbox" required /> I agree to pay{" "}
-            {aed(chosen.priceMinor)} per year, renewed automatically.
+            {aed(chosen.firstYearPriceMinor)} now and{" "}
+            {aed(chosen.renewalPriceMinor)} every year after, renewed
+            automatically.
           </label>
           <button disabled={paying}>
             {paying ? "Opening payment…" : "Pay with card"}
@@ -377,6 +408,21 @@ function DomainSearch({
         </form>
       ) : null}
     </Panel>
+  );
+}
+
+/** The only prices a trainer sees: the first year and the yearly renewal. */
+function Prices({
+  firstYear,
+  renewal,
+}: {
+  firstYear: number;
+  renewal: number;
+}) {
+  return (
+    <>
+      First year {aed(firstYear)} · renews at {aed(renewal)} per year
+    </>
   );
 }
 
@@ -405,7 +451,10 @@ export function OrderCard({
         >
           {order.statusLabel}
         </span>{" "}
-        {aed(order.priceMinor)} per year
+        <Prices
+          firstYear={order.firstYearPriceMinor}
+          renewal={order.renewalPriceMinor}
+        />
       </p>
       {!["cancelled", "checkout"].includes(order.status) && (
         <ol className="web-address-steps">
@@ -501,163 +550,5 @@ export function OrderCard({
           </button>
         )}
     </Panel>
-  );
-}
-
-type OperatorOrder = Record<string, any> & {
-  operations?: Array<Record<string, any>>;
-};
-type OperatorData = {
-  root: string | null;
-  registrar: string;
-  testEnvironment: boolean;
-  purchasesEnabled: boolean;
-  modeProblem?: string | null;
-  attention: number;
-  orders: OperatorOrder[];
-};
-export function WebAddressOperations({
-  initial = null,
-}: {
-  initial?: OperatorData | null;
-}) {
-  const [data, setData] = useState<OperatorData | null>(initial),
-    [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => {
-    setData(await api("/admin/web-addresses"));
-  }, []);
-  useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
-  }, [refresh]);
-  const act = (order: OperatorOrder, action: string, reason: string) => {
-    setBusy(true);
-    setMessage("");
-    void api(`/admin/web-addresses/${order.id}/${action}`, "POST", { reason })
-      .then(async (result) => {
-        await refresh();
-        return result;
-      })
-      .then((result) => setMessage(result?.message ?? "Done"))
-      .catch((e) => setMessage(e.message))
-      .finally(() => setBusy(false));
-  };
-  return (
-    <section className="card web-address-panel">
-      <h2>Web addresses</h2>
-      <Status value={message} />
-      {data && (
-        <p className="muted">
-          Subdomains:{" "}
-          <span className="ltr-data">
-            {data.root ? "*." + data.root : "off"}
-          </span>
-          {" · "}Registrar: {data.registrar}
-          {data.testEnvironment ? " (test environment)" : ""}
-          {" · "}Purchases {data.purchasesEnabled ? "on" : "off"}
-          {" · "}
-          <strong>{data.attention}</strong> need attention
-        </p>
-      )}
-      {data?.modeProblem && (
-        <p className="badge red">
-          Purchases are refused: {data.modeProblem} Match the Stripe keys and
-          the registrar test environment in Settings.
-        </p>
-      )}
-      {data?.orders.length === 0 && (
-        <p className="muted">No automatic domain orders yet.</p>
-      )}
-      {data?.orders.map((order) => (
-        <form
-          key={order.id}
-          className="web-address-operator"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const submitter = (event.nativeEvent as SubmitEvent)
-              .submitter as HTMLButtonElement | null;
-            const reason = String(
-              new FormData(event.currentTarget).get("reason") ?? "",
-            );
-            if (submitter?.value) act(order, submitter.value, reason);
-          }}
-        >
-          <p>
-            <strong className="ltr-data">{order.hostname}</strong> ·{" "}
-            {order.tenant_name} · {order.status}
-            {order.renewal_status ? ` · renewal ${order.renewal_status}` : ""}
-            {order.billing_status ? ` · billing ${order.billing_status}` : ""}
-            {order.expires_at ? ` · until ${day(order.expires_at)}` : ""}
-          </p>
-          {(order.attention || order.needsReconciliation) && (
-            <p className="badge red">
-              {order.attention ?? "A registrar attempt awaits reconciliation."}
-            </p>
-          )}
-          {order.inFlight && (
-            <p className="muted">
-              A registrar request is running; it is reconciled automatically if
-              no answer arrives.
-            </p>
-          )}
-          {!!order.operations?.length && (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Registrar call</th>
-                    <th>Status</th>
-                    <th>Cost (USD)</th>
-                    <th>When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.operations.map((op) => (
-                    <tr key={op.id}>
-                      <td className="ltr-data">{op.intent_key}</td>
-                      <td>{op.status}</td>
-                      <td>{op.cost_usd ?? ""}</td>
-                      <td>{day(op.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <label>
-            Reason (recorded)
-            <input name="reason" required minLength={10} maxLength={500} />
-          </label>
-          <div className="button-row">
-            <button name="action" value="reconcile" disabled={busy}>
-              Reconcile now
-            </button>
-            <button name="action" value="retry" disabled={busy}>
-              Retry step
-            </button>
-            {["paid", "purchasing"].includes(order.status) && (
-              <button name="action" value="refund" disabled={busy}>
-                Refund and close
-              </button>
-            )}
-            {!["checkout", "cancelled", "failed"].includes(order.status) && (
-              <button name="action" value="record" disabled={busy}>
-                Record registrar state
-              </button>
-            )}
-            {order.stripe_subscription_id &&
-              order.billing_status !== "canceled" && (
-                <button
-                  name="action"
-                  value="cancel-subscription"
-                  disabled={busy}
-                >
-                  Cancel subscription
-                </button>
-              )}
-          </div>
-        </form>
-      ))}
-    </section>
   );
 }

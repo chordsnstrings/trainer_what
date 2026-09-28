@@ -41,6 +41,7 @@ const settings: Record<string, string> = {
   WEB_ADDRESS_USD_TO_AED: "3.6725",
   WEB_ADDRESS_REGISTRANT_FIRST_NAME: "Platform",
   WEB_ADDRESS_REGISTRANT_LAST_NAME: "Owner",
+  WEB_ADDRESS_REGISTRANT_ORGANIZATION: "TrainsYou FZ-LLC",
   WEB_ADDRESS_REGISTRANT_ADDRESS: "1 Fixture Street",
   WEB_ADDRESS_REGISTRANT_CITY: "Dubai",
   WEB_ADDRESS_REGISTRANT_STATE: "Dubai",
@@ -162,7 +163,12 @@ test("yearly Checkout, signed payment events, registration, billing date alignme
     method: "POST",
     url: "/api/v1/web-address/orders",
     headers: { host: "localhost:8443", origin, cookie },
-    payload: { domain: "layla.com", priceMinor: 8400, accepted: true },
+    payload: {
+      domain: "layla.com",
+      firstYearPriceMinor: 8400,
+      renewalPriceMinor: 8400,
+      accepted: true,
+    },
   });
   assert.equal(created.statusCode, 200, created.body);
   const { orderId, url } = created.json();

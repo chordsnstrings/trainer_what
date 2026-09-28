@@ -145,6 +145,7 @@ export function integrationCapability(
     const contact = [
       "WEB_ADDRESS_REGISTRANT_FIRST_NAME",
       "WEB_ADDRESS_REGISTRANT_LAST_NAME",
+      "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
       "WEB_ADDRESS_REGISTRANT_ADDRESS",
       "WEB_ADDRESS_REGISTRANT_CITY",
       "WEB_ADDRESS_REGISTRANT_STATE",
@@ -669,7 +670,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. The registrant contact is the legal owner of every domain bought here: the owner must confirm who that is. WHOIS privacy is always requested. Prices shown to trainers are the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price in AED, which is the registrar's one-year price (the higher of registration and renewal) at the fixed USD to AED rate, rounded up to whole dirhams, plus the yearly margin. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -709,8 +710,12 @@ INTEGRATION_CATALOG.push({
     }),
     field(
       "WEB_ADDRESS_REGISTRANT_ORGANIZATION",
-      "Registrant organization",
+      "Registrant organization (the platform company)",
       "text",
+      {
+        required: true,
+        help: "The platform company always holds the domains it buys for trainers.",
+      },
     ),
     field(
       "WEB_ADDRESS_REGISTRANT_ADDRESS",

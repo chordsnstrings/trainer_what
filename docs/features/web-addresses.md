@@ -98,15 +98,16 @@ Nothing below has been done. Deployment stays separately assigned.
    Keep enough funds for expected registrations plus every renewal due in the next 30 days (the
    connection check warns under USD 20). An empty balance does not lose money: the purchase is
    retried three times, reconciled each time, then waits for an operator.
-5. **Registrant decision (required)**: domains are registered with the contact entered in
-   settings, with free WHOIS privacy. If that is the platform company, the platform legally owns
-   every trainer's domain and must offer transfers on request (not automated here); if trainers
-   should own theirs, the flow needs their own contact details and ICANN email verification
-   (not built). The owner must decide and confirm the registrant contact before enabling
-   purchases.
+5. **Registrant: the platform company (owner decision, 28 September 2026)**: every domain is
+   registered with the platform company's contact entered in settings (organization required),
+   always with WHOIS privacy. The platform holds trainers' custom domains as a business moat:
+   trainers are never the registrant, and there is no self-service transfer out or authorisation
+   code for them. An exceptional request is handled manually by an operator at the registrar.
+   See "Owner decision: the platform holds custom domains" below.
 6. **Super admin → Settings → Web addresses and registrar**: registrar Namecheap; API user,
    API key (stored encrypted), account username, whitelisted client IPv4; keep "Use the Namecheap
-   test environment" on for the rehearsal; registrant contact; yearly margin in AED (default 25);
+   test environment" on for the rehearsal; registrant contact of the platform company
+   (organization required); yearly margin in AED (default 25);
    USD→AED rate (default 3.6725, the AED peg); offered endings (default `com,net,org,co`);
    optionally the server IPv4 for domain DNS. Run **Test connection** (it reads the balance only),
    then switch **Enable automatic purchases and renewals** on and test again: the settings only
@@ -124,10 +125,9 @@ Nothing below has been done. Deployment stays separately assigned.
    Namecheap test environment, or rehearse on the live server with live keys, the test
    environment switched off and one cheap real name bought by the owner (then turn its renewal
    off). Switch to live purchases only when the owner approves.
-9. **Owner decisions still open** (nothing is decided in code): who is the registrant (step 5);
-   whether trainers should see the registrar cost of their domain (they do not: the trainer's
-   statement and ledger export leave it out, operators see it); and the accounting policy for
-   yearly domain revenue (recognised in full when paid, see "Left out").
+9. **Owner decision still open**: the accounting policy for yearly domain revenue (recognised in
+   full when paid, see "Left out"). Decided on 28 September 2026: the registrant is the platform
+   company (step 5), and trainers never see the registrar's name or cost.
 
 ## What was built, per audience
 
@@ -150,11 +150,13 @@ Nothing below has been done. Deployment stays separately assigned.
   a double hyphen (`xn--`) are refused at signup and at a change. Existing workspaces whose slug
   is now reserved keep `/coach/<slug>` and get no subdomain until they change it.
 - **Own domain.** Search a name (or a full domain under an offered ending); each result shows
-  availability and one yearly price in AED. Premium names and names in an early-access phase
+  availability, the first-year price and the yearly renewal price in AED (the same amount
+  today, see "Owner decision"). Premium names and names in an early-access phase
   (Namecheap `EapFee`) are not offered. Choosing one shows
-  the price again with an explicit "I agree to pay AED … per year, renewed automatically"; paying
-  opens Stripe Checkout (subscription, the trainer is the customer). If the registrar price
-  changed since the search, the order is refused with the new price and must be confirmed again.
+  both prices again with an explicit "I agree to pay AED … now and AED … every year after,
+  renewed automatically"; paying opens Stripe Checkout (subscription, the trainer is the
+  customer). If the price changed since the search, the order is refused with the new prices and
+  must be confirmed again.
 - **Live progress** on the same page (refreshed every 5 s while in progress): Paid →
   Registered → DNS set up → Security certificate → Live, with the next yearly charge date and
   the registration end date. A step waiting for the platform shows "The platform team is
@@ -391,10 +393,10 @@ category, so the built-in text is always kept).
 | `GET /api/v1/web-address` | Owner | Subdomain, slug, change allowance, redirects, purchase availability, automatic orders |
 | `POST /api/v1/web-address/slug` | Owner, fresh MFA | `{slug, currentSlug}`; 400 `RESERVED_SLUG`/`INVALID_SLUG`, 409 `SLUG_TAKEN`/`SLUG_CHANGED`, 429 `SLUG_CHANGE_LIMIT` |
 | `GET /api/v1/public/slug-redirect/:slug` | Platform web | The current slug of a previous one during its redirect; 404 otherwise and on coach hosts |
-| `GET /api/v1/web-address/search?q=` | Owner | Availability and yearly AED price; 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
-| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, priceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with `priceMinor`), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
+| `GET /api/v1/web-address/search?q=` | Owner | Availability, `firstYearPriceMinor` and `renewalPriceMinor` (AED); 6/min; 503 `REGISTRAR_BUSY` beyond the account budget |
+| `POST /api/v1/web-address/orders` | Owner, fresh MFA | `{domain, firstYearPriceMinor, renewalPriceMinor, accepted:true}` → `{orderId, url}`; 409 `PRICE_CHANGED` (with both prices), `DOMAIN_UNAVAILABLE`, `DOMAIN_IN_USE`, `WEB_ADDRESS_DISABLED` (also for a Stripe/registrar mode mismatch); 429 more than 3 open checkouts |
 | `POST /api/v1/web-address/orders/:id/checkout` | Owner | Returns to the same open Checkout (idempotent replay) |
-| `GET /api/v1/web-address/orders/:id` | Owner | Progress |
+| `GET /api/v1/web-address/orders/:id` | Owner | Progress and the two prices (never the registrar, its cost, the rate or the margin) |
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
 | `POST /api/v1/web-address/orders/:id/renewal` | Owner, fresh MFA | `{enabled}` → Stripe `cancel_at_period_end` |
 | `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view |
@@ -423,12 +425,14 @@ category, so the built-in text is always kept).
 - **New:** `packages/db/migrations/066_web_addresses.sql`, `packages/domain/src/web-address.ts`,
   `packages/providers/src/registrar.ts`, `apps/api/src/web-addresses.ts`,
   `apps/api/src/web-address-orders.ts`, `apps/web/components/web-address.tsx`,
+  `apps/web/components/web-address-operations.tsx` (operator view, split out on 28 September),
   `apps/web/app/web-address.css`, `tests/e2e/mocks/namecheap.ts`,
   `tests/web-address-registrar.test.ts`, `tests/web-address-subdomains.test.ts`,
   `tests/web-address-orders.test.ts`, `tests/web-address-stripe.test.ts`,
-  `tests/web-address-web.test.ts`, `tests/test_web_address_deployment.py`, this document.
+  `tests/web-address-web.test.ts`, `tests/web-address-moat.test.ts`,
+  `tests/test_web_address_deployment.py`, this document.
 - **Changed:** `apps/api/src/app.ts` (reserved-slug check at signup, registration, `location`
-  and `priceMinor` in two error answers, a test seam for the web address doubles),
+  and the new prices (`firstYearPriceMinor`, `renewalPriceMinor`) in two error answers, a test seam for the web address doubles),
   `host-routing.ts` (subdomain branch, `platformRoot`, `coachHostTenant`),
   `host-operations.ts` (TLS ask set), `integrations-completion.ts` (manual-only filters, domain
   names under the root refused, OAuth relay accepts subdomains), `stripe-events.ts` (handler
@@ -512,7 +516,8 @@ record case. Each finding, what changed and what was declined:
 10. **Ledger incomplete (minor): partly fixed.** Payments for a closed order go to
     `web_address_refund_liability` (and their refunds out of it); a lost dispute is recorded
     in `web_address_dispute_loss`; the trainer's statement and ledger export leave out the
-    registrar cost (operators still see it), pending the owner's answer. Tests for each.
+    registrar cost (operators still see it), as the owner decided on 28 September 2026. Tests
+    for each.
     *Declined, with reasons:* Stripe processing fees per domain charge (the platform records
     Stripe fees only through its settlement import, which is per trainer payable; web address
     receipts need a platform-level settlement that does not exist yet), the clearing entry for
@@ -533,6 +538,51 @@ record case. Each finding, what changed and what was declined:
 
 Migration 066 changed in this pass (still unmerged and never applied anywhere): `lease_token`,
 and `expired` → `owned` after a late renewal.
+
+## Owner decision: the platform holds custom domains (28 September 2026)
+
+The owner decided that the platform holds trainers' custom domains as a business moat. Applied:
+
+- **Registrant.** Always the platform company, with WHOIS privacy (`AddFreeWhoisguard`/
+  `WGEnabled` at Namecheap, `privacy: true` on the generic API). The registrant comes only from
+  Super admin settings; the organization field is now required (settings readiness and
+  `registrantFromConfig`, which refuses a contact without it). No trainer route accepts or
+  returns a registrant, and there is no route or adapter method for a transfer out or an
+  authorisation (EPP) code. The settings page notes the decision.
+- **What trainers and subscribers see.** Never the registrar's name or cost. The trainer screen
+  (`apps/web/components/web-address.tsx`) shows only the first-year price and the yearly renewal
+  price in AED ("First year AED 84.00 · renews at AED 84.00 per year"), and the agreement names
+  both. Search results and order status carry `firstYearPriceMinor` and `renewalPriceMinor`
+  only; `PRICE_CHANGED` carries both. The stored quote keeps the registrar, its USD price, the
+  rate and the margin for operators. The Checkout subscription charges one yearly price (the
+  higher of the registrar's registration and renewal price, converted, plus the margin), so the
+  two amounts are equal today; they are separate fields so a different first-year price can
+  come later without changing the screens or the agreement.
+- **Stripe wording.** Product name `Custom web address — yearly`, subscription description
+  `Custom web address — yearly: <domain>` (these appear on Checkout, invoices and receipts). No
+  statement descriptor is set, so the platform account's own descriptor applies.
+- **Older manual domain flow.** Trainer answers of `/api/v1/domains*` are now a trainer view
+  (status, exact price quote, verification token): the registrar and payment references and the
+  quote's provider reference stay with operators. Its copy no longer says "registrar quote" or
+  that the registration "remains yours" (that is said only for a domain the trainer already
+  owned).
+- **Operator view** moved to `apps/web/components/web-address-operations.tsx`, the only web file
+  allowed to name the registrar (it now shows "Registrar: Namecheap"). Super admin settings and
+  the operator screens still name it.
+- **Guard.** `tests/web-address-moat.test.ts` fails if "namecheap" (any case) appears in any
+  `apps/web` file outside that operator-only allowlist, in the message templates or the trainer
+  notice copy, or in the Stripe text built by the web address code; if search or order status
+  answers carry a registrar name or a cost, rate, margin or registrar field (the manual flow's
+  trainer view too); if the registrant can be saved without the platform company; or if a
+  transfer or auth-code route appears. `web-address-orders` also checks the real Checkout
+  parameters, the trainer's `GET /web-address` and order answers over HTTP, and every notice
+  sent in its scenarios.
+
+Checks run for this change (local, 28 September 2026, in this worktree): `npx tsc --noEmit`
+exit 0; `node --import tsx --test tests/web-address-*.test.ts tests/messaging-templates.test.ts`
+51 tests, 51 passed (including the 6 new moat tests and 1 new notice test); also
+`logical-css`, `healthkit-ui`, `integrations-completion`, `platform-settings`, `fix-settings`
+and `settings-runtime`: 47 tests, 47 passed (after Prettier on the changed files). Not run: the full suite, `next build`, e2e, a browser.
 
 ## Checks actually run (local, 28 September 2026, in this worktree)
 
@@ -612,8 +662,9 @@ First pass:
 - **390 px and browser check.** The panel uses wrapping flex rows, `min-inline-size: 0` and
   `overflow-wrap` with logical properties only (the RTL lint passes), but it was not rendered in
   a browser at 390 px.
-- **Registrant per trainer, transfers out, auth codes.** Not built; depends on the owner's
-  registrant decision.
+- **Registrant per trainer, transfers out, auth codes.** Not offered, by the owner's decision of
+  28 September 2026 (the platform holds the domains); an exceptional request is handled by an
+  operator by hand at the registrar. The guard test fails if a route for either appears.
 - **Wildcard certificate via DNS validation** for more than about 50 new subdomains a week (see
   above).
 - **Price changes of a running subscription.** A higher registrar renewal price is absorbed

@@ -563,9 +563,15 @@ export async function buildApp(
       ...(e.code === "HOST_MOVED" && typeof e.location === "string"
         ? { location: e.location }
         : {}),
-      // A domain price that changed since it was shown carries the new price.
-      ...(e.code === "PRICE_CHANGED" && Number.isSafeInteger(e.priceMinor)
-        ? { priceMinor: e.priceMinor }
+      // A domain price that changed since it was shown carries the new
+      // first-year and renewal prices (never the registrar's cost).
+      ...(e.code === "PRICE_CHANGED" &&
+      Number.isSafeInteger(e.firstYearPriceMinor) &&
+      Number.isSafeInteger(e.renewalPriceMinor)
+        ? {
+            firstYearPriceMinor: e.firstYearPriceMinor,
+            renewalPriceMinor: e.renewalPriceMinor,
+          }
         : {}),
     });
   });

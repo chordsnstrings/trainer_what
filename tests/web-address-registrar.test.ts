@@ -261,6 +261,7 @@ test("the Super admin connection check reads the balance only and reports the en
     NAMECHEAP_SANDBOX: "true",
     WEB_ADDRESS_REGISTRANT_FIRST_NAME: "Platform",
     WEB_ADDRESS_REGISTRANT_LAST_NAME: "Owner",
+    WEB_ADDRESS_REGISTRANT_ORGANIZATION: "TrainsYou FZ-LLC",
     WEB_ADDRESS_REGISTRANT_ADDRESS: "1 Fixture Street",
     WEB_ADDRESS_REGISTRANT_CITY: "Dubai",
     WEB_ADDRESS_REGISTRANT_STATE: "Dubai",

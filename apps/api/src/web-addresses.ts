@@ -237,11 +237,33 @@ function assertNotPlatformName(domain: string) {
       "Addresses under the platform domain are given automatically.",
     );
 }
+/**
+ * What a trainer sees and agrees to: the first-year price and the yearly
+ * renewal price in AED fils. The registrar's name and cost never reach a
+ * trainer (owner decision, 28 September 2026). The Checkout subscription
+ * charges one yearly price, so both are the same amount today; they are
+ * separate fields so the screens and the agreement always name both.
+ */
+export function trainerPrices(yearlyMinor: number | null) {
+  return {
+    firstYearPriceMinor: yearlyMinor,
+    renewalPriceMinor: yearlyMinor,
+  };
+}
+/** Neutral Stripe wording for a trainer's yearly domain (never the registrar). */
+export const WEB_ADDRESS_STRIPE_LABEL = "Custom web address — yearly";
+export function webAddressStripeText(hostname: string) {
+  return {
+    productName: WEB_ADDRESS_STRIPE_LABEL,
+    description: `${WEB_ADDRESS_STRIPE_LABEL}: ${hostname}`,
+  };
+}
 export type SearchResult = {
   domain: string;
   available: boolean;
   premium: boolean;
-  priceMinor: number | null;
+  firstYearPriceMinor: number | null;
+  renewalPriceMinor: number | null;
   currency: "AED";
   renewsYearly: true;
 };
@@ -295,7 +317,7 @@ export async function searchDomains(
       domain: name,
       available: offered && priceMinor !== null,
       premium: !!found?.premium || !!found?.earlyAccessFeeUsd,
-      priceMinor,
+      ...trainerPrices(priceMinor),
       currency: "AED",
       renewsYearly: true,
     });
@@ -339,13 +361,16 @@ async function quote(registrar: Registrar, domain: string) {
     at: Date.now(),
     price,
   });
+  const priceMinor = yearlyPriceMinor({
+    registerUsd: price.registerUsd,
+    renewUsd: price.renewUsd,
+    usdToAed: settings.usdToAed,
+    marginAed: settings.marginAed,
+  });
+  // Stored on the order for operators; trainers see only the two prices.
   return {
-    priceMinor: yearlyPriceMinor({
-      registerUsd: price.registerUsd,
-      renewUsd: price.renewUsd,
-      usdToAed: settings.usdToAed,
-      marginAed: settings.marginAed,
-    }),
+    priceMinor,
+    ...trainerPrices(priceMinor),
     currency: "AED",
     registerUsd: price.registerUsd,
     renewUsd: price.renewUsd,
@@ -376,7 +401,14 @@ export function trainerOrderView(order: Record<string, any>) {
     hostname: order.hostname,
     status: order.status,
     statusLabel: TRAINER_STEPS[order.status] ?? order.status,
-    priceMinor: Number(order.quote?.priceMinor ?? 0),
+    // Only the first-year and renewal price: never the registrar, its cost,
+    // the exchange rate or the margin kept in the quote.
+    firstYearPriceMinor: Number(
+      order.quote?.firstYearPriceMinor ?? order.quote?.priceMinor ?? 0,
+    ),
+    renewalPriceMinor: Number(
+      order.quote?.renewalPriceMinor ?? order.quote?.priceMinor ?? 0,
+    ),
     currency: "AED",
     expiresAt: order.expires_at,
     liveAt: order.live_at,
@@ -507,9 +539,7 @@ export function registerWebAddresses(
         enabled: purchasesEnabled() && !configuredModeProblem(),
         currency: "AED",
         endings: allowedTlds(config.WEB_ADDRESS_TLDS),
-        testEnvironment:
-          (config.WEB_ADDRESS_REGISTRAR || "namecheap") === "namecheap" &&
-          config.NAMECHEAP_SANDBOX?.trim() !== "false",
+        testEnvironment: registrarSandboxSetting(config),
       },
       orders: orders.map(trainerOrderView),
     };
@@ -642,7 +672,8 @@ export function registerWebAddresses(
       const b = z
         .object({
           domain: z.string().max(253),
-          priceMinor: z.number().int().positive().max(10000000),
+          firstYearPriceMinor: z.number().int().positive().max(10000000),
+          renewalPriceMinor: z.number().int().positive().max(10000000),
           accepted: z.literal(true),
         })
         .strict()
@@ -663,14 +694,20 @@ export function registerWebAddresses(
           "Buying a domain is not available yet.",
         );
       const fresh = await quote(registrar, domain);
-      if (fresh.priceMinor !== b.priceMinor)
+      if (
+        fresh.firstYearPriceMinor !== b.firstYearPriceMinor ||
+        fresh.renewalPriceMinor !== b.renewalPriceMinor
+      )
         throw Object.assign(
           fail(
             409,
             "PRICE_CHANGED",
-            "The price changed. Review the new yearly price before paying.",
+            "The price changed. Review the new first-year and renewal price before paying.",
           ),
-          { priceMinor: fresh.priceMinor },
+          {
+            firstYearPriceMinor: fresh.firstYearPriceMinor,
+            renewalPriceMinor: fresh.renewalPriceMinor,
+          },
         );
       const orderId = randomUUID();
       const at = Date.now();
@@ -743,6 +780,9 @@ export function registerWebAddresses(
     order: Record<string, any>,
   ) {
     const c = order.evidence.checkout;
+    // Neutral wording on Checkout, invoices and receipts; no statement
+    // descriptor is set, so the platform account's own descriptor applies.
+    const text = webAddressStripeText(order.hostname);
     const metadata = {
       purpose: "web_address",
       tenant_id: order.tenant_id,
@@ -764,7 +804,7 @@ export function registerWebAddresses(
               currency: "aed",
               unit_amount: Number(order.quote.priceMinor),
               recurring: { interval: "year" },
-              product_data: { name: "Web address " + order.hostname },
+              product_data: { name: text.productName },
             },
           },
         ],
@@ -772,7 +812,7 @@ export function registerWebAddresses(
         metadata,
         subscription_data: {
           metadata,
-          description: "Yearly registration of " + order.hostname,
+          description: text.description,
         },
         success_url: `${c.origin}/trainer/domains?order=${order.id}`,
         cancel_url: `${c.origin}/trainer/domains?order=${order.id}&checkout=cancelled`,

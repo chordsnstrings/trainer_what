@@ -9,9 +9,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   OrderCard,
   WebAddressCenter,
-  WebAddressOperations,
   type WebAddressState,
 } from "../apps/web/components/web-address.tsx";
+import { WebAddressOperations } from "../apps/web/components/web-address-operations.tsx";
 
 const state: WebAddressState = {
   slug: "layla",
@@ -33,7 +33,8 @@ const state: WebAddressState = {
       hostname: "laylastrength.com",
       status: "dns",
       statusLabel: "Waiting for DNS and the security certificate",
-      priceMinor: 8400,
+      firstYearPriceMinor: 8400,
+      renewalPriceMinor: 8400,
       expiresAt: "2027-09-28T00:00:00.000Z",
       liveAt: null,
       renewalEnabled: true,
@@ -152,6 +153,7 @@ test("the operator view shows attention, registrar calls and the manual fallback
   assert.match(html, /\*\.trainsyou\.com/);
   assert.match(html, /test environment/);
   assert.match(html, /A registrar attempt awaits reconciliation/);
+  assert.match(html, /Registrar: Namecheap/, "operators see the registrar");
   assert.match(html, /register:o2:1/);
   for (const action of ["Reconcile now", "Retry step", "Refund and close"])
     assert.match(html, new RegExp(action));

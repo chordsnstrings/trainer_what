@@ -382,7 +382,12 @@ async function buy(
     request("/web-address/orders", {
       method: "POST",
       cookie: owner.cookie,
-      payload: { domain, priceMinor: price, accepted: true },
+      payload: {
+        domain,
+        firstYearPriceMinor: price,
+        renewalPriceMinor: price,
+        accepted: true,
+      },
     }),
   );
   assert.equal(created.statusCode, 200, created.body);
@@ -470,10 +475,17 @@ test("search shows availability and the yearly AED price; a changed price is ref
   // .com: renewal 15.88 + 0.18 USD is the higher price → 58.98 AED → 59 + 25 margin.
   // .net is taken.
   assert.deepEqual(
-    found.json().results.map((r: any) => [r.domain, r.available, r.priceMinor]),
+    found
+      .json()
+      .results.map((r: any) => [
+        r.domain,
+        r.available,
+        r.firstYearPriceMinor,
+        r.renewalPriceMinor,
+      ]),
     [
-      ["layla.com", true, 8400],
-      ["layla.net", false, null],
+      ["layla.com", true, 8400, 8400],
+      ["layla.net", false, null, null],
     ],
   );
   const underRoot = await inRegistrar(() =>
@@ -484,13 +496,26 @@ test("search shows availability and the yearly AED price; a changed price is ref
     request("/web-address/orders", {
       method: "POST",
       cookie: layla.cookie,
-      payload: { domain: "layla.com", priceMinor: 7000, accepted: true },
+      payload: {
+        domain: "layla.com",
+        firstYearPriceMinor: 7000,
+        renewalPriceMinor: 7000,
+        accepted: true,
+      },
     }),
   );
   assert.equal(changed.statusCode, 409);
   assert.deepEqual(
-    { code: changed.json().code, priceMinor: changed.json().priceMinor },
-    { code: "PRICE_CHANGED", priceMinor: 8400 },
+    {
+      code: changed.json().code,
+      firstYearPriceMinor: changed.json().firstYearPriceMinor,
+      renewalPriceMinor: changed.json().renewalPriceMinor,
+    },
+    {
+      code: "PRICE_CHANGED",
+      firstYearPriceMinor: 8400,
+      renewalPriceMinor: 8400,
+    },
   );
   assert.equal(
     stripe.count("checkout.create"),
@@ -508,6 +533,25 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
   });
   assert.equal(checkout.params.line_items[0].price_data.currency, "aed");
   assert.equal(checkout.params.metadata.purpose, "web_address");
+  // Neutral Stripe wording: never the registrar (owner decision, 28 Sep 2026).
+  assert.equal(
+    checkout.params.line_items[0].price_data.product_data.name,
+    "Custom web address — yearly",
+  );
+  assert.equal(
+    checkout.params.subscription_data.description,
+    "Custom web address — yearly: layla.com",
+  );
+  // The trainer's answers carry no registrar name or cost.
+  for (const path of ["/web-address", `/web-address/orders/${laylaOrder.id}`]) {
+    const r = await request(path, { cookie: layla.cookie });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.doesNotMatch(
+      r.body,
+      /namecheap|registrar|registerUsd|renewUsd|usdToAed|marginAed|cost/i,
+      path,
+    );
+  }
   let o = await order(layla.tenantId, laylaOrder.id);
   assert.equal(o.status, "paid");
   assert.equal(o.stripe_subscription_id, laylaOrder.sub);
@@ -783,7 +827,12 @@ test("a name taken before purchase ends in a refund and a notice; the subscripti
     request("/web-address/orders", {
       method: "POST",
       cookie: sara.cookie,
-      payload: { domain: "sara-fit.com", priceMinor: 8400, accepted: true },
+      payload: {
+        domain: "sara-fit.com",
+        firstYearPriceMinor: 8400,
+        renewalPriceMinor: 8400,
+        accepted: true,
+      },
     }),
   );
   assert.equal(again.statusCode, 200, again.body);
@@ -1305,6 +1354,7 @@ test("a registration made by hand is recorded from the registrar", async () => {
     registrant: {
       firstName: "Platform",
       lastName: "Owner",
+      organization: "TrainsYou FZ-LLC",
       address1: "1 Fixture Street",
       city: "Dubai",
       stateProvince: "Dubai",
@@ -1366,7 +1416,12 @@ test("a completed checkout whose payment event was lost is reconciled from Strip
     request("/web-address/orders", {
       method: "POST",
       cookie: nour.cookie,
-      payload: { domain: "nour-coach.com", priceMinor: 8400, accepted: true },
+      payload: {
+        domain: "nour-coach.com",
+        firstYearPriceMinor: 8400,
+        renewalPriceMinor: 8400,
+        accepted: true,
+      },
     }),
   );
   assert.equal(created.statusCode, 200, created.body);
@@ -1524,7 +1579,12 @@ test("Stripe mode and the registrar environment must match before anything is bo
       request("/web-address/orders", {
         method: "POST",
         cookie: owner.cookie,
-        payload: { domain: "omar-fit.com", priceMinor: 8400, accepted: true },
+        payload: {
+          domain: "omar-fit.com",
+          firstYearPriceMinor: 8400,
+          renewalPriceMinor: 8400,
+          accepted: true,
+        },
       }),
     );
     assert.equal(refused.statusCode, 409);
@@ -1544,7 +1604,12 @@ test("Stripe mode and the registrar environment must match before anything is bo
       request("/web-address/orders", {
         method: "POST",
         cookie: owner.cookie,
-        payload: { domain: "omar-fit.com", priceMinor: 8400, accepted: true },
+        payload: {
+          domain: "omar-fit.com",
+          firstYearPriceMinor: 8400,
+          renewalPriceMinor: 8400,
+          accepted: true,
+        },
       }),
     );
   } finally {
@@ -1637,13 +1702,18 @@ test("early-access names are refused; searches stay within the registrar call bu
     .json()
     .results.find((r: any) => r.domain === "fresh-coach.com");
   assert.equal(com.available, false);
-  assert.equal(com.priceMinor, null);
+  assert.equal(com.firstYearPriceMinor, null);
   resetRegistrarBudget();
   const refused = await inRegistrar(() =>
     request("/web-address/orders", {
       method: "POST",
       cookie: omar.cookie,
-      payload: { domain: "fresh-coach.com", priceMinor: 8400, accepted: true },
+      payload: {
+        domain: "fresh-coach.com",
+        firstYearPriceMinor: 8400,
+        renewalPriceMinor: 8400,
+        accepted: true,
+      },
     }),
   );
   assert.equal(refused.statusCode, 409);
@@ -1672,4 +1742,18 @@ test("early-access names are refused; searches stay within the registrar call bu
   await searchDomains("budget-0", { registrar });
   assert.equal(calls(), used);
   resetRegistrarBudget();
+});
+
+test("no web address notice sent to a trainer names the registrar or its cost", async () => {
+  let seen = 0;
+  for (const who of [layla, omar, sara])
+    for (const notice of await notices(who.tenantId)) {
+      seen++;
+      assert.doesNotMatch(
+        notice.title + " " + notice.body,
+        /namecheap|registrar|usd|cost/i,
+        notice.dedupe_key,
+      );
+    }
+  assert.ok(seen >= 3, "the scenario sent notices");
 });

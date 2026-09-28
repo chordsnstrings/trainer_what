@@ -1411,6 +1411,35 @@ async function dnsProof(
     clearTimeout(timer);
   }
 }
+/**
+ * A manual domain order as its trainer sees it: the status, the exact price
+ * quote and the verification token. Operator evidence (registrar and payment
+ * references, the quote's provider reference) never reaches a trainer.
+ */
+export function trainerDomainView(row: Record<string, any>) {
+  const q = row.quote;
+  return {
+    id: row.id,
+    hostname: row.hostname,
+    status: row.status,
+    token: row.token,
+    version: row.version,
+    alreadyOwned: row.evidence?.alreadyOwned === true,
+    quote: q
+      ? {
+          amountMinor: q.amountMinor,
+          renewalMinor: q.renewalMinor,
+          currency: q.currency,
+          termMonths: q.termMonths,
+          expiresAt: q.expiresAt,
+        }
+      : null,
+    verified_at: row.verified_at ?? null,
+    expires_at: row.expires_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 function registerDomainRoutes(
   app: FastifyInstance,
   db: Database,
@@ -1418,11 +1447,12 @@ function registerDomainRoutes(
 ) {
   app.get("/api/v1/domains", async (req) => {
     const a = owner(req);
-    return db.tenant(a, (tx) =>
+    const rows = await db.tenant(a, (tx) =>
       tx.query(
         "SELECT * FROM domain_orders WHERE mode='manual' ORDER BY created_at DESC",
       ),
     );
+    return rows.map(trainerDomainView);
   });
   app.post("/api/v1/domains", async (req) => {
     const a = owner(req);
@@ -1453,7 +1483,7 @@ function registerDomainRoutes(
           "This domain already has an active connection request.",
         );
       await event(tx, a, "domain.requested", row.id, { hostname });
-      return row;
+      return trainerDomainView(row);
     });
   });
   app.post("/api/v1/domains/:id/approve", async (req) => {
@@ -1496,7 +1526,7 @@ function registerDomainRoutes(
         amountMinor: b.amountMinor,
         currency: b.currency,
       });
-      return updated;
+      return trainerDomainView(updated);
     });
   });
   app.post("/api/v1/domains/:id/verify", async (req) => {
@@ -1519,7 +1549,7 @@ function registerDomainRoutes(
       );
       if (!r) throw conflict();
       await event(tx, a, "domain.ownership_verified", row.id);
-      return r;
+      return trainerDomainView(r);
     });
   });
   app.post("/api/v1/domains/:id/cancel", async (req) => {
@@ -1536,7 +1566,7 @@ function registerDomainRoutes(
         [r.hostname, a.tenantId],
       );
       await event(tx, a, "domain.disconnected", r.id);
-      return r;
+      return trainerDomainView(r);
     });
   });
   app.get("/api/v1/admin/integrations/domains", async (req) => {
