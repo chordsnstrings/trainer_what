@@ -244,9 +244,18 @@ export async function processStripeEvent(
         ? subscriptionId !== current.provider_id
         : current?.data?.billing === "upfront")
     );
-    const currentTerminal = ["canceled", "incomplete_expired"].includes(
-      current?.status,
-    );
+    // An upfront programme whose paid access is over is history even before
+    // the worker sweep closes it: a new membership may replace it at once. A
+    // terminal event of an older membership is still only history.
+    const upfrontEnded =
+      current?.data?.billing === "upfront" &&
+      !current.provider_id &&
+      !!current.period_end &&
+      new Date(current.period_end).getTime() <= Date.now() &&
+      !["canceled", "incomplete_expired", "unpaid"].includes(object.status);
+    const currentTerminal =
+      ["canceled", "incomplete_expired"].includes(current?.status) ||
+      upfrontEnded;
 
     // Entitlements come from a signed event's actual price mapped to our immutable offer.
     // Caller-controlled metadata never grants a module; unknown price changes fail closed.
@@ -307,6 +316,12 @@ export async function processStripeEvent(
           object.created ??
           eventTime,
       ) || Math.floor(Date.now() / 1000);
+    const lengthChanged =
+      !!current?.data &&
+      Object.prototype.hasOwnProperty.call(current.data, "programmeDays") &&
+      productAccess.programmeDays !== undefined &&
+      (productAccess.programmeDays ?? null) !==
+        (current.data.programmeDays ?? null);
     const programme =
       !current ||
       (currentTerminal &&
@@ -314,14 +329,32 @@ export async function processStripeEvent(
         ? {
             programmeStartsAt: new Date(startSeconds * 1000).toISOString(),
             upfront: null,
+            ...(current?.data?.upfront
+              ? {
+                  programmeHistory: [
+                    ...(Array.isArray(current.data.programmeHistory)
+                      ? current.data.programmeHistory
+                      : []),
+                    current.data.upfront,
+                  ].slice(-10),
+                }
+              : {}),
           }
-        : current.data?.programmeStartsAt
-          ? {}
-          : {
-              programmeStartsAt:
-                current.data?.firstPaidAt ??
-                new Date(startSeconds * 1000).toISOString(),
-            };
+        : lengthChanged
+          ? // A plan change to a different block length starts a new block
+            // (Day 1) instead of renumbering the current one mid-way.
+            {
+              programmeStartsAt: new Date(
+                (eventTime || Math.floor(Date.now() / 1000)) * 1000,
+              ).toISOString(),
+            }
+          : current.data?.programmeStartsAt
+            ? {}
+            : {
+                programmeStartsAt:
+                  current.data?.firstPaidAt ??
+                  new Date(startSeconds * 1000).toISOString(),
+              };
     if (["invoice.paid", "invoice.payment_failed"].includes(e.type)) {
       const safeLink = (value: unknown) => {
         try {
@@ -684,6 +717,13 @@ async function applyRefund(
   // A fully refunded upfront programme no longer grants access.
   if (programmeCharge && final)
     await endRefundedProgramme(tx, a, memberId, original, refund.id);
+  // A fully refunded voice add-on charge ends premium voice now; the worker
+  // cancels the add-on subscription so it does not renew.
+  if (final && original.data.purpose === "voice_addon")
+    await tx.query(
+      "UPDATE subscriptions SET data=jsonb_set(data,'{voiceAddOn,endRequested}',to_jsonb($2::text)) WHERE user_id=$1 AND data->'voiceAddOn'->>'providerId'=$3 AND data->'voiceAddOn'->>'status' NOT IN ('canceled','incomplete_expired','unpaid')",
+      [memberId, "refunded:" + refund.id, original.data.subscriptionId ?? ""],
+    );
   await event(tx, a, "refund.succeeded", refund.id, {
     providerEventId: eventId,
   });

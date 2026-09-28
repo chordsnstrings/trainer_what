@@ -3224,7 +3224,10 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                 : "Choose your coaching membership"}
             </h2>
             {membership?.data?.billing === "upfront" ? (
-              <UpfrontMembership membership={membership} />
+              <UpfrontMembership
+                membership={membership}
+                offers={records("product")}
+              />
             ) : membership ? (
               <>
                 <div className="membership-price">

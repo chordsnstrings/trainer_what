@@ -46,10 +46,11 @@ export function assertComparableOffer(
   offer: { billing: OfferBilling; programmeDays: number | null },
   base: any,
 ) {
+  // The same length for monthly pairs too: a plan change between them then
+  // never changes the block length mid-block.
   if (
     offerBilling(base) !== offer.billing ||
-    (offer.billing === "upfront" &&
-      (base.programmeDays ?? null) !== offer.programmeDays)
+    (base.programmeDays ?? null) !== (offer.programmeDays ?? null)
   )
     throw fail(
       "OFFER_PAIR_BILLING",
@@ -167,7 +168,7 @@ export function registerOfferVoiceAddOn(
 /**
  * Whether a member's current row blocks a new membership purchase.
  * `renew_upfront`: an upfront programme in its last days (another upfront
- * programme may be bought; it starts now and keeps the unused days).
+ * programme may be bought; it is queued to start when the current one ends).
  * `ended`: an upfront programme whose access has ended.
  */
 export function upfrontAdmission(
@@ -179,6 +180,9 @@ export function upfrontAdmission(
   const end = s.period_end ? new Date(s.period_end).getTime() : 0;
   if (["canceled", "incomplete_expired"].includes(s.status) || end <= now)
     return "ended";
+  // One programme is queued at a time.
+  const next = s.data?.nextProgramme;
+  if (next && !(Date.parse(next.startsAt) <= now)) return "held";
   return end - now <= RENEWAL_WINDOW_DAYS * DAY ? "renew_upfront" : "held";
 }
 
@@ -386,30 +390,31 @@ export async function processProgrammeCheckoutEvent(
     const paidAt = new Date(
       (Number(e.created) || Math.floor(Date.now() / 1000)) * 1000,
     );
-    const [s] = await tx.query(
+    const [locked] = await tx.query(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
       [memberId],
     );
+    const s = await promoteQueuedProgramme(tx, a, locked);
     const sEnd = s?.period_end ? new Date(s.period_end).getTime() : 0;
     const liveUpfront =
       s?.data?.billing === "upfront" &&
       !["canceled", "incomplete_expired"].includes(s.status) &&
       sEnd > paidAt.getTime();
-    // A current monthly membership should have blocked this purchase. The
-    // money is still posted; access is not replaced and finance reviews it.
-    const conflict =
+    // A current monthly membership should have blocked this purchase, as
+    // should a second queued programme. The money is still posted; access is
+    // not replaced and finance reviews it.
+    const monthlyConflict =
       !!s &&
       s.data?.billing !== "upfront" &&
       !!s.provider_id &&
       !["canceled", "incomplete_expired"].includes(s.status) &&
       (!s.period_end || sEnd > paidAt.getTime());
-    const startsAt = paidAt;
-    // Unused days of a programme renewed early are kept after the new one.
-    const endsAt = new Date(
-      paidAt.getTime() +
-        days * DAY +
-        (liveUpfront ? sEnd - paidAt.getTime() : 0),
-    );
+    const queueConflict = liveUpfront && !!s.data?.nextProgramme;
+    const conflict = monthlyConflict || queueConflict;
+    // A programme renewed before the current one ends is queued: it starts
+    // when the current programme ends, so both keep their own Day 1..M.
+    const startsAt = liveUpfront ? new Date(sEnd) : paidAt;
+    const endsAt = new Date(startsAt.getTime() + days * DAY);
     const firstPaidAt: string | undefined =
       s?.data?.firstPaidAt ?? (amount > 0 ? paidAt.toISOString() : undefined);
     const window = {
@@ -421,11 +426,30 @@ export async function processProgrammeCheckoutEvent(
       paidAt: paidAt.toISOString(),
       startsAt: startsAt.toISOString(),
       endsAt: endsAt.toISOString(),
-      previousEndsAt: liveUpfront ? new Date(sEnd).toISOString() : null,
+      queuedAfter: liveUpfront ? new Date(sEnd).toISOString() : null,
       programmeDays: days,
       productId: product.id,
+      tier: product.data.tier ?? "workout",
+      modules: product.data.modules ?? ["training"],
+      premiumVoice: product.data.premiumVoice === true,
+      priceId: r.data.priceId,
+      listPriceMinor: r.data.amountMinor,
     };
-    if (!conflict) {
+    if (!conflict && liveUpfront)
+      // Access continues through the queued programme; the current window,
+      // offer and Day 1 stay until it starts (promoteQueuedProgramme).
+      await tx.query(
+        "UPDATE subscriptions SET period_end=$2,data=data||$3::jsonb WHERE id=$1",
+        [
+          s.id,
+          endsAt,
+          JSON.stringify({
+            nextProgramme: window,
+            ...(firstPaidAt && !s.data?.firstPaidAt ? { firstPaidAt } : {}),
+          }),
+        ],
+      );
+    else if (!conflict) {
       const keep = s
         ? Object.fromEntries(
             [
@@ -525,8 +549,9 @@ export async function processProgrammeCheckoutEvent(
         a,
         "reconciliation",
         {
-          reason:
-            "An upfront programme was paid while a monthly membership is current; review access and refund",
+          reason: queueConflict
+            ? "An upfront programme was paid while another is already queued; review access and refund"
+            : "An upfront programme was paid while a monthly membership is current; review access and refund",
           checkoutId: r.id,
           userId: memberId,
           chargeId: chargeId ?? null,
@@ -546,7 +571,9 @@ export async function processProgrammeCheckoutEvent(
       {
         memberId,
         programmeDays: days,
+        accessStartsAt: startsAt.toISOString(),
         accessEndsAt: endsAt.toISOString(),
+        queued: liveUpfront && !conflict,
         amountMinor: amount,
       },
     );
@@ -633,10 +660,63 @@ export async function reconcileProgrammeCheckout(
   );
 }
 
+/** The access fields of a programme window, as the membership row holds them. */
+const windowAccess = (w: any) => ({
+  upfront: w,
+  programmeStartsAt: w.startsAt,
+  programmeDays: w.programmeDays,
+  ...(w.productId ? { productId: w.productId } : {}),
+  ...(w.tier ? { tier: w.tier } : {}),
+  ...(Array.isArray(w.modules) ? { modules: w.modules } : {}),
+  ...(typeof w.premiumVoice === "boolean" ? { premiumVoice: w.premiumVoice } : {}),
+  ...(w.priceId ? { priceId: w.priceId } : {}),
+});
+const historyWith = (s: any, w: any) =>
+  [
+    ...(Array.isArray(s.data?.programmeHistory) ? s.data.programmeHistory : []),
+    ...(w ? [w] : []),
+  ].slice(-10);
+
 /**
- * A fully refunded upfront programme charge ends the access it paid for: to
- * the end of the programme it renewed (when that is still ahead), else now.
- * Runs in the provider callback's scope inside the refund projection.
+ * A queued programme becomes the current one once its start has passed:
+ * its window, offer, length and Day 1 replace the finished programme's, which
+ * moves to the history. Runs under the row lock the caller holds (the
+ * checkout projection, a refund, the worker sweep) and returns the row.
+ */
+export async function promoteQueuedProgramme(
+  tx: Tx,
+  a: Actor,
+  s: any,
+  now = Date.now(),
+) {
+  const next = s?.data?.billing === "upfront" ? s.data.nextProgramme : null;
+  if (!next || !(Date.parse(next.startsAt) <= now)) return s;
+  const [row] = await tx.query(
+    "UPDATE subscriptions SET price_minor=coalesce($3::bigint,price_minor),data=(data||$2::jsonb)-'nextProgramme' WHERE id=$1 RETURNING *",
+    [
+      s.id,
+      JSON.stringify({
+        ...windowAccess(next),
+        programmeHistory: historyWith(s, s.data.upfront),
+      }),
+      Number.isSafeInteger(next.listPriceMinor) ? next.listPriceMinor : null,
+    ],
+  );
+  await event(tx, a, "programme.started", next.intentId, {
+    memberId: s.user_id,
+    programmeDays: next.programmeDays,
+    startsAt: next.startsAt,
+    endsAt: next.endsAt,
+  });
+  return row;
+}
+
+/**
+ * A fully refunded upfront programme charge ends the access it paid for.
+ * The current programme ends now (a queued one then starts now); a queued
+ * programme is removed and access returns to the end of the current one; a
+ * programme already over changes nothing. Runs in the provider callback's
+ * scope inside the refund projection.
  */
 export async function endRefundedProgramme(
   tx: Tx,
@@ -645,73 +725,76 @@ export async function endRefundedProgramme(
   original: any,
   refundId: string,
 ) {
-  const [s] = await tx.query(
+  const [locked] = await tx.query(
     "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
     [memberId],
   );
-  const window = s?.data?.upfront;
-  if (
-    !s ||
-    s.data?.billing !== "upfront" ||
-    !window ||
-    window.intentId !== original.data.intentId
-  )
-    return;
+  const s = await promoteQueuedProgramme(tx, a, locked);
+  if (!s || s.data?.billing !== "upfront") return;
+  const intentId = original.data.intentId;
   const now = Date.now();
-  const previous = window.previousEndsAt
-    ? new Date(window.previousEndsAt).getTime()
-    : 0;
-  const end = new Date(Math.max(now, previous));
-  const refunded = {
-    ...window,
-    refundedAt: new Date(now).toISOString(),
-    refundId,
-  };
-  const history: any[] = Array.isArray(s.data.programmeHistory)
-    ? s.data.programmeHistory
-    : [];
-  const prior = previous > now ? history.at(-1) : undefined;
-  // An early renewal refunded in full returns the member to the programme it
-  // renewed, which keeps its own remaining days.
-  const [priorOffer] = prior?.productId
-    ? await tx.query(
-        "SELECT id,data FROM records WHERE id=$1 AND kind='product'",
-        [prior.productId],
-      )
-    : [];
-  const restored = prior
-    ? {
-        upfront: prior,
-        programmeHistory: [...history.slice(0, -1), refunded].slice(-10),
-        programmeStartsAt: prior.startsAt,
-        programmeDays: prior.programmeDays,
-        ...(priorOffer
-          ? {
-              productId: priorOffer.id,
-              tier: priorOffer.data.tier ?? "workout",
-              modules: priorOffer.data.modules ?? ["training"],
-              premiumVoice: priorOffer.data.premiumVoice === true,
-            }
-          : {}),
-      }
-    : { upfront: refunded };
-  await tx.query(
-    "UPDATE subscriptions SET status=$2,period_end=least(period_end,$3::timestamptz),data=data||$4::jsonb WHERE id=$1",
-    [
-      s.id,
-      previous > now ? "active" : "canceled",
-      end.toISOString(),
-      JSON.stringify({
-        ...restored,
-        ...(previous > now
-          ? {}
-          : { endedReason: "refunded", endedAt: new Date(now).toISOString() }),
-      }),
-    ],
-  );
-  await event(tx, a, "programme.refunded", original.data.intentId, {
+  const at = new Date(now).toISOString();
+  const current = s.data.upfront,
+    next = s.data.nextProgramme;
+  let accessEndsAt: string;
+  if (next?.intentId === intentId) {
+    // The queued programme is refunded before it started.
+    accessEndsAt = current?.endsAt ?? new Date(s.period_end).toISOString();
+    await tx.query(
+      "UPDATE subscriptions SET period_end=$2,data=(data-'nextProgramme')||$3::jsonb WHERE id=$1",
+      [
+        s.id,
+        accessEndsAt,
+        JSON.stringify({
+          programmeHistory: historyWith(s, {
+            ...next,
+            refundedAt: at,
+            refundId,
+          }),
+        }),
+      ],
+    );
+  } else if (current?.intentId === intentId) {
+    const refunded = { ...current, refundedAt: at, refundId };
+    if (next) {
+      // The queued programme starts now, for its full length.
+      const startsNow = {
+        ...next,
+        startsAt: at,
+        endsAt: new Date(now + effectiveProgrammeDays(next.programmeDays) * DAY).toISOString(),
+      };
+      accessEndsAt = startsNow.endsAt;
+      await tx.query(
+        "UPDATE subscriptions SET status='active',period_end=$2,price_minor=coalesce($4::bigint,price_minor),data=(data-'nextProgramme')||$3::jsonb WHERE id=$1",
+        [
+          s.id,
+          accessEndsAt,
+          JSON.stringify({
+            ...windowAccess(startsNow),
+            programmeHistory: historyWith(s, refunded),
+          }),
+          Number.isSafeInteger(next.listPriceMinor) ? next.listPriceMinor : null,
+        ],
+      );
+    } else {
+      accessEndsAt = at;
+      await tx.query(
+        "UPDATE subscriptions SET status='canceled',period_end=least(period_end,$2::timestamptz),data=data||$3::jsonb WHERE id=$1",
+        [
+          s.id,
+          at,
+          JSON.stringify({
+            upfront: refunded,
+            endedReason: "refunded",
+            endedAt: at,
+          }),
+        ],
+      );
+    }
+  } else return;
+  await event(tx, a, "programme.refunded", intentId, {
     memberId,
     refundId,
-    accessEndsAt: end.toISOString(),
+    accessEndsAt,
   });
 }

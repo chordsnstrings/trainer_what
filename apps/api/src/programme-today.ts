@@ -12,6 +12,7 @@ import {
   addDays,
   adherence,
   dateIn,
+  effectiveProgrammeWindow,
   endOfProgramme,
   programmePosition,
   programmeTimeline,
@@ -28,6 +29,7 @@ import { memberAccess } from "./entitlements.ts";
 import { subscriptionHasAccess } from "./finance-billing.ts";
 import { notifyUser } from "./notifications.ts";
 import { endOrphanedVoiceAddOns } from "./voice-addon.ts";
+import { promoteQueuedProgramme } from "./programme-billing.ts";
 
 /**
  * The subscriber's day-by-day view (docs/features/programme.md): where they
@@ -38,6 +40,10 @@ import { endOrphanedVoiceAddOns } from "./voice-addon.ts";
  */
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
+/** Monthly rows read per page by the block sweep. */
+const BLOCK_PAGE = 500;
+/** A block notice is still sent this many days into a block after an outage. */
+const BLOCK_CATCH_UP_DAYS = 7;
 
 async function memberTimeZone(tx: Tx, userId: string, requested?: unknown) {
   if (validTimeZone(requested)) return requested;
@@ -63,6 +69,8 @@ type ProgrammeSource = {
   accessActive: boolean;
   cancelAtPeriodEnd: boolean;
   productId: string | null;
+  /** A renewed upfront programme that starts when the current one ends. */
+  queued?: { startsAt: string; programmeDays: number } | null;
 };
 async function programmeSource(
   tx: Tx,
@@ -76,8 +84,10 @@ async function programmeSource(
   const paid = !!s && subscriptionHasAccess(s);
   if (s && (paid || s.data?.billing === "upfront" || !access.grant)) {
     const upfront = s.data?.billing === "upfront";
+    // A renewed upfront programme is queued after the current one.
+    const window = effectiveProgrammeWindow(s.data);
     let startsAt: string | undefined =
-      s.data?.programmeStartsAt ??
+      window.programmeStartsAt ??
       (upfront ? s.data?.upfront?.startsAt : undefined) ??
       s.data?.firstPaidAt;
     if (!startsAt) {
@@ -90,12 +100,22 @@ async function programmeSource(
     }
     return {
       billing: upfront ? "upfront" : "monthly",
-      programmeDays: s.data?.programmeDays ?? null,
+      programmeDays: window.programmeDays ?? null,
       startsAt,
-      endsAt: s.period_end ? new Date(s.period_end).toISOString() : null,
+      endsAt: window.endsAt
+        ? new Date(window.endsAt).toISOString()
+        : s.period_end
+          ? new Date(s.period_end).toISOString()
+          : null,
       accessActive: paid,
       cancelAtPeriodEnd: !!s.cancel_at_period_end,
-      productId: s.data?.productId ?? null,
+      productId: window.productId,
+      queued: window.queued
+        ? {
+            startsAt: String(window.queued.startsAt),
+            programmeDays: Number(window.queued.programmeDays),
+          }
+        : null,
     };
   }
   if (access.grant)
@@ -109,6 +129,7 @@ async function programmeSource(
       accessActive: true,
       cancelAtPeriodEnd: false,
       productId: null,
+      queued: null,
     };
   return null;
 }
@@ -187,6 +208,7 @@ async function todayNutrition(tx: Tx, userId: string) {
   };
 }
 
+export type PlanState = "none" | "awaiting_coach" | "ready" | "ended";
 async function load(tx: Tx, userId: string, requestedZone?: unknown) {
   const access = await memberAccess(tx, userId);
   const timeZone = await memberTimeZone(tx, userId, requestedZone);
@@ -200,7 +222,23 @@ async function load(tx: Tx, userId: string, requestedZone?: unknown) {
         timeZone,
       })
     : null;
-  return { access, timeZone, source, position };
+  // A day with no session is a rest day only when the block has a plan:
+  // before one exists (the coach or the Brain is still preparing it, or it
+  // waits for the coach's review) nothing is scheduled yet, and once access
+  // has ended there is nothing to follow.
+  let planState: PlanState = "none";
+  if (source && position) {
+    if (!source.accessActive || position.state === "complete")
+      planState = "ended";
+    else {
+      const [planned] = await tx.query(
+        "SELECT 1 FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'date' BETWEEN $2 AND $3 LIMIT 1",
+        [userId, position.blockStartDate, position.blockEndDate],
+      );
+      planState = planned ? "ready" : "awaiting_coach";
+    }
+  }
+  return { access, timeZone, source, position, planState };
 }
 
 export async function programmeToday(
@@ -211,7 +249,7 @@ export async function programmeToday(
   if (a.role !== "subscriber")
     throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
   return db.tenant(a, async (tx) => {
-    const { access, timeZone, source, position } = await load(
+    const { access, timeZone, source, position, planState } = await load(
       tx,
       a.userId,
       requestedZone,
@@ -228,13 +266,19 @@ export async function programmeToday(
       todays.find((s) => s.status !== "canceled") ?? todays[0] ?? null;
     const next =
       sessions.find((s) => s.date > today && s.status === "planned") ?? null;
-    const end = endOfProgramme({
-      billing: source?.billing ?? null,
-      position,
-      accessEndsAt: source?.endsAt ?? null,
-      accessActive: source?.accessActive ?? false,
-      cancelAtPeriodEnd: source?.cancelAtPeriodEnd,
-    });
+    const end = source?.queued
+      ? // A renewed upfront programme follows the current one.
+        {
+          state: "next_block" as const,
+          at: dateIn(timeZone, new Date(source.queued.startsAt)),
+        }
+      : endOfProgramme({
+          billing: source?.billing ?? null,
+          position,
+          accessEndsAt: source?.endsAt ?? null,
+          accessActive: source?.accessActive ?? false,
+          cancelAtPeriodEnd: source?.cancelAtPeriodEnd,
+        });
     const [offer] =
       source?.productId && "canRenew" in end && end.canRenew
         ? await tx.query(
@@ -269,7 +313,9 @@ export async function programmeToday(
             exercises: session.exercises ?? 0,
           }
         : null,
-      restDay: !session,
+      planState,
+      restDay: planState === "ready" && !session,
+      nextProgramme: source?.queued ?? null,
       next: next
         ? {
             id: next.id,
@@ -305,13 +351,13 @@ export async function programmeTimelineView(
   if (a.role !== "subscriber")
     throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
   return db.tenant(a, async (tx) => {
-    const { timeZone, source, position } = await load(
+    const { timeZone, source, position, planState } = await load(
       tx,
       a.userId,
       requestedZone,
     );
     if (!source || !position)
-      return { timeZone, programme: null, days: [] };
+      return { timeZone, programme: null, planState, days: [] };
     const sessions = await plannedDays(
       tx,
       a.userId,
@@ -326,7 +372,13 @@ export async function programmeTimelineView(
         endsAt: source.endsAt,
         lengthDays: position.of,
       },
-      days: programmeTimeline(position, sessions),
+      planState,
+      // Without a plan for the block, its days are not rest days yet.
+      days: programmeTimeline(position, sessions).map((d) =>
+        planState !== "ready" && d.kind === "rest"
+          ? { ...d, kind: "unplanned" as const, status: "unplanned" as const }
+          : d,
+      ),
     };
   });
 }
@@ -348,6 +400,11 @@ export async function sweepProgrammes(
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       tenantId + ":programmes",
     ]);
+    // Renewed upfront programmes queued after the current one start now.
+    const due = await tx.query(
+      "SELECT * FROM subscriptions WHERE data->>'billing'='upfront' AND data ? 'nextProgramme' AND (data->'nextProgramme'->>'startsAt')::timestamptz<=now() ORDER BY id LIMIT 100 FOR UPDATE",
+    );
+    for (const s of due) await promoteQueuedProgramme(tx, a, s);
     const ended = await tx.query(
       "UPDATE subscriptions SET status='canceled',data=data||jsonb_build_object('endedReason','programme_complete','endedAt',now()) WHERE id IN (SELECT id FROM subscriptions WHERE data->>'billing'='upfront' AND provider_id IS NULL AND status IN ('active','trialing','past_due') AND period_end<=now() ORDER BY period_end,id LIMIT 100) RETURNING id,user_id,period_end,data->>'productId' AS product_id",
     );
@@ -383,44 +440,77 @@ export async function sweepProgrammes(
         templateKey: "programme-ending",
         source: { type: "programme", id: s.id },
       });
-    const monthly = await tx.query(
-      "SELECT s.id,s.user_id,s.data->>'programmeStartsAt' AS starts_at,s.data->'programmeDays' AS days,p.data->>'timezone' AS timezone FROM subscriptions s LEFT JOIN notification_preferences p ON p.tenant_id=s.tenant_id AND p.user_id=s.user_id WHERE coalesce(s.data->>'billing','monthly')='monthly' AND s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now()) AND s.data ? 'programmeStartsAt' ORDER BY s.id LIMIT 500",
-    );
-    let blocks = 0;
-    for (const s of monthly) {
-      const position = programmePosition({
-        billing: "monthly",
-        programmeDays: s.days,
-        startsAt: s.starts_at,
-        timeZone: validTimeZone(s.timezone) ? s.timezone : "Asia/Dubai",
-      });
-      if (position.state !== "active" || position.block < 2 || position.day > 2)
-        continue;
-      const key = `programme-block:${s.id}:${position.blockStartDate}`;
-      const [seen] = await tx.query(
-        "SELECT 1 FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
-        [s.user_id, key],
+    // Monthly blocks: every member is visited (pages by id), and the last
+    // block notified is kept on the row, so a block missed while the worker
+    // was down is caught up instead of dropped.
+    let blocks = 0,
+      cursor = "00000000-0000-0000-0000-000000000000";
+    for (;;) {
+      const monthly = await tx.query(
+        "SELECT s.id,s.user_id,s.data->>'programmeStartsAt' AS starts_at,s.data->'programmeDays' AS days,s.data->'blockNotice' AS notice,p.data->>'timezone' AS timezone FROM subscriptions s LEFT JOIN notification_preferences p ON p.tenant_id=s.tenant_id AND p.user_id=s.user_id WHERE coalesce(s.data->>'billing','monthly')='monthly' AND s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now()) AND s.data ? 'programmeStartsAt' AND s.id>$1::uuid ORDER BY s.id LIMIT $2",
+        [cursor, BLOCK_PAGE],
       );
-      if (seen) continue;
-      await event(tx, a, "programme.block_started", s.id, {
-        memberId: s.user_id,
-        block: position.block,
-        blockStartDate: position.blockStartDate,
-        lengthDays: position.of,
-      });
-      await notifyUser(tx, a, {
-        userId: s.user_id,
-        category: "coaching",
-        dedupeKey: key,
-        title: `Block ${position.block} of your programme has started`,
-        body: `A new ${position.of}-day block started. Today shows where you are and what comes next.`,
-        href: "/app",
-        templateKey: "programme-next-block",
-        source: { type: "programme", id: s.id },
-      });
-      blocks++;
+      if (!monthly.length) break;
+      cursor = monthly[monthly.length - 1].id;
+      for (const s of monthly) {
+        const position = programmePosition({
+          billing: "monthly",
+          programmeDays: s.days,
+          startsAt: s.starts_at,
+          timeZone: validTimeZone(s.timezone) ? s.timezone : "Asia/Dubai",
+        });
+        if (position.state !== "active" || position.block < 2) continue;
+        const last =
+          s.notice?.startsAt === s.starts_at ? Number(s.notice.block) || 0 : 0;
+        if (position.block <= last) continue;
+        const mark = () =>
+          tx.query(
+            "UPDATE subscriptions SET data=data||jsonb_build_object('blockNotice',$2::jsonb) WHERE id=$1",
+            [
+              s.id,
+              JSON.stringify({ startsAt: s.starts_at, block: position.block }),
+            ],
+          );
+        // A row with no notice history (stored before notices were kept)
+        // well into its block is marked without a late notice.
+        if (!last && position.day > BLOCK_CATCH_UP_DAYS) {
+          await mark();
+          continue;
+        }
+        const key = `programme-block:${s.id}:${position.blockStartDate}`;
+        const [seen] = await tx.query(
+          "SELECT 1 FROM notifications WHERE user_id=$1 AND dedupe_key=$2",
+          [s.user_id, key],
+        );
+        if (!seen) {
+          await event(tx, a, "programme.block_started", s.id, {
+            memberId: s.user_id,
+            block: position.block,
+            blockStartDate: position.blockStartDate,
+            lengthDays: position.of,
+          });
+          await notifyUser(tx, a, {
+            userId: s.user_id,
+            category: "coaching",
+            dedupeKey: key,
+            title: `Block ${position.block} of your programme has started`,
+            body: `A new ${position.of}-day block started. Today shows where you are and what comes next.`,
+            href: "/app",
+            templateKey: "programme-next-block",
+            source: { type: "programme", id: s.id },
+          });
+          blocks++;
+        }
+        await mark();
+      }
+      if (monthly.length < BLOCK_PAGE) break;
     }
-    return { ended: ended.length, ending: ending.length, blocks };
+    return {
+      started: due.length,
+      ended: ended.length,
+      ending: ending.length,
+      blocks,
+    };
   });
   const voice = await endOrphanedVoiceAddOns(db, tenantId, a, deps.stripe);
   return { ...result, voice };

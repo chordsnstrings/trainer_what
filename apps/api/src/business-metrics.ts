@@ -83,8 +83,10 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
     `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%' THEN 'subscription' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' ELSE 'other' END AS source,l.account,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3`,
     [since],
   );
+  // A paying member is one charged in the month, or one whose paid upfront
+  // programme covers part of the month (paid once, a member for its length).
   const payers = await tx.query(
-    `SELECT ${month("j.created_at")} AS month,count(DISTINCT j.data->>'userId')::int AS n FROM journals j WHERE ${POSITIVE_INVOICE} AND j.created_at>=$1 GROUP BY 1`,
+    `SELECT x.month,count(DISTINCT x.member)::int AS n FROM (SELECT ${month("j.created_at")} AS month,j.data->>'userId' AS member FROM journals j WHERE ${POSITIVE_INVOICE} AND j.created_at>=$1 UNION ALL SELECT to_char(g,'YYYY-MM'),j.data->>'userId' FROM journals j CROSS JOIN LATERAL generate_series(date_trunc('month',(j.data->>'accessStartsAt')::timestamptz AT TIME ZONE 'Asia/Dubai'),((j.data->>'accessEndsAt')::timestamptz-interval '1 second') AT TIME ZONE 'Asia/Dubai',interval '1 month') g WHERE j.source_key LIKE 'stripe-programme:%' AND coalesce((j.data->>'grossMinor')::bigint,0)>0 AND j.data ? 'accessStartsAt' AND j.data ? 'accessEndsAt' AND (j.data->>'accessEndsAt')::timestamptz>=$1) x GROUP BY 1`,
     [before],
   );
   const firstPaid = await tx.query(
@@ -94,7 +96,7 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
   // A cancellation counts toward churn only when the member (the event actor)
   // had paid before it; a trial canceled before any charge is reported apart.
   const cancellations = await tx.query(
-    `SELECT ${month("x.created_at")} AS month,count(DISTINCT x.subject_id) FILTER(WHERE x.paid)::int AS n,count(DISTINCT x.subject_id) FILTER(WHERE NOT x.paid)::int AS unpaid FROM (SELECT e.subject_id,e.created_at,EXISTS(SELECT 1 FROM journals j WHERE ${POSITIVE_INVOICE} AND j.data->>'userId'=e.actor_id::text AND j.created_at<e.created_at) AS paid FROM events e WHERE e.name='subscription.updated' AND e.data->>'status'='canceled' AND e.created_at>=$1) x GROUP BY 1`,
+    `SELECT ${month("x.created_at")} AS month,count(DISTINCT x.subject_id) FILTER(WHERE x.paid)::int AS n,count(DISTINCT x.subject_id) FILTER(WHERE NOT x.paid)::int AS unpaid FROM (SELECT e.subject_id,e.created_at,EXISTS(SELECT 1 FROM journals j WHERE ${POSITIVE_INVOICE} AND j.data->>'userId'=coalesce(e.data->>'memberId',e.actor_id::text) AND j.created_at<e.created_at) AS paid FROM events e WHERE ((e.name='subscription.updated' AND e.data->>'status'='canceled') OR e.name='programme.ended') AND e.created_at>=$1) x GROUP BY 1`,
     [since],
   );
   // A trial starts at the first trialing update of a provider subscription
@@ -107,8 +109,15 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
     `SELECT ${month("created_at")} AS month,(task LIKE 'voice%' OR provider='elevenlabs') AS voice,coalesce(sum(cost_usd),0)::text AS usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events WHERE created_at>=$1 GROUP BY 1,2`,
     [since],
   );
+  // An upfront programme's price is one payment for the whole programme, so
+  // it is not recurring revenue: it is reported apart, with its 30-day
+  // equivalent over the trainer-set length.
   const subscriptions = await tx.query(
-    "SELECT status,coalesce(data->>'tier','workout') AS tier,count(*)::int AS n,coalesce(sum(price_minor),0)::text AS price,count(*) FILTER(WHERE cancel_at_period_end)::int AS ending FROM subscriptions GROUP BY 1,2",
+    "SELECT status,coalesce(data->>'tier','workout') AS tier,coalesce(data->>'billing','monthly')='upfront' AS upfront,count(*)::int AS n,coalesce(sum(price_minor),0)::text AS price,coalesce(sum(round(price_minor*30.0/greatest(coalesce((data->>'programmeDays')::int,30),1))),0)::text AS monthly_equivalent,count(*) FILTER(WHERE cancel_at_period_end)::int AS ending FROM subscriptions WHERE coalesce(data->>'billing','monthly')<>'upfront' OR period_end>now() GROUP BY 1,2,3",
+  );
+  // Premium voice add-ons are monthly subscriptions of their own.
+  const voiceAddOns = await tx.query(
+    "SELECT count(*)::int AS n,coalesce(sum(coalesce((s.data->'voiceAddOn'->>'amountMinor')::bigint,(p.data->>'voiceAddOnMinor')::bigint,0)),0)::text AS price FROM subscriptions s LEFT JOIN records p ON p.kind='product' AND p.id::text=s.data->'voiceAddOn'->>'productId' WHERE s.data->'voiceAddOn'->>'status' IN ('active','past_due') AND s.data->'voiceAddOn'->>'verified'='true' AND NOT s.data->'voiceAddOn' ? 'endRequested'",
   );
   const payouts = await tx.query(
     "SELECT status,count(*)::int AS n,coalesce(sum(amount_minor),0)::text AS amount FROM payouts GROUP BY 1",
@@ -121,6 +130,7 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
     trials,
     costs,
     subscriptions,
+    voiceAddOns,
     payouts,
   };
 }
@@ -182,6 +192,8 @@ export async function computeBusinessMetrics(
     workout_nutrition: { active: 0, trialing: 0, pastDue: 0, mrrMinor: 0 },
   };
   let pendingCancellations = 0;
+  const upfront = { active: 0, pastDue: 0, collectedMinor: 0, monthlyEquivalentMinor: 0 };
+  const voice = { active: 0, mrrMinor: 0 };
   const payoutStatus: Record<string, { count: number; amountMinor: number }> = {};
   for (const w of workspaces) {
     const f = await db.tenant(
@@ -243,9 +255,20 @@ export async function computeBusinessMetrics(
       if (row.status === "trialing") tiers[tier].trialing += row.n;
       if (row.status === "past_due") tiers[tier].pastDue += row.n;
       if (["active", "past_due"].includes(row.status)) {
-        tiers[tier].mrrMinor += Number(row.price);
-        pendingCancellations += row.ending;
+        if (row.upfront) {
+          if (row.status === "active") upfront.active += row.n;
+          else upfront.pastDue += row.n;
+          upfront.collectedMinor += Number(row.price);
+          upfront.monthlyEquivalentMinor += Number(row.monthly_equivalent);
+        } else {
+          tiers[tier].mrrMinor += Number(row.price);
+          pendingCancellations += row.ending;
+        }
       }
+    }
+    for (const row of f.voiceAddOns) {
+      voice.active += row.n;
+      voice.mrrMinor += Number(row.price);
     }
     for (const row of f.payouts) {
       const entry = (payoutStatus[row.status] ??= { count: 0, amountMinor: 0 });
@@ -308,7 +331,10 @@ export async function computeBusinessMetrics(
         pendingCancellations,
         byTier: tiers,
       },
-      mrrMinor: tiers.workout.mrrMinor + tiers.workout_nutrition.mrrMinor,
+      mrrMinor:
+        tiers.workout.mrrMinor + tiers.workout_nutrition.mrrMinor + voice.mrrMinor,
+      voiceAddOns: voice,
+      upfrontProgrammes: upfront,
       payouts: payoutStatus,
     },
     series: rows,
@@ -323,9 +349,13 @@ export async function computeBusinessMetrics(
         "Net commission plus reviewed usage cost recovery charged to trainers.",
       takeRate: "Net commission divided by gross takings.",
       mrrMinor:
-        "Current monthly price of active and past-due memberships (last invoiced amount); trials are excluded.",
+        "Current monthly price of active and past-due monthly memberships (last invoiced amount) plus active premium voice add-ons; trials and upfront programmes are excluded.",
+      upfrontProgrammes:
+        "Upfront programmes whose paid access is current: the one-off amounts collected and their 30-day equivalent (price × 30 ÷ programme days). Not part of MRR.",
+      payingMembers:
+        "Distinct members charged in the month, plus members whose paid upfront programme covers part of the month.",
       churnRate:
-        "Paid memberships canceled in the month (the member had a positive subscription charge before canceling) divided by distinct paying memberships in the previous month.",
+        "Paid memberships canceled in the month, and upfront programmes that ended without a renewal (the member had a positive charge before), divided by distinct paying members in the previous month.",
       unpaidCancellations:
         "Trials and other memberships canceled before any positive charge; reported separately and excluded from churn.",
       trialConversionRate:

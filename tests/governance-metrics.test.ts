@@ -281,3 +281,59 @@ test("months follow the Asia/Dubai calendar", () => {
     "2026-02",
   ]);
 });
+
+test("an upfront programme is not MRR: it is reported apart with its 30-day equivalent, its member counts as paying in every month it covers, its end counts as churn; voice add-ons are MRR", async () => {
+  const admin = await f.operator("admin");
+  const owner = await f.person({ name: "Owner Upfront" });
+  const m = await f.person({ tenantId: owner.tenantId, role: "subscriber" });
+  const ended = await f.person({ tenantId: owner.tenantId, role: "subscriber" });
+  const before = await computeBusinessMetrics(f.db, operatorActor(admin), { months: 3, now });
+  const programme = (userId: string, from: string, to: string) =>
+    post(
+      owner.tenantId,
+      "stripe-programme:" + randomUUID(),
+      from,
+      [
+        ["stripe_receivable", 300000],
+        ["trainer_payable", -225000],
+        ["platform_commission", -75000],
+      ],
+      { userId, grossMinor: 300000, commissionMinor: 75000, purpose: "programme", accessStartsAt: from, accessEndsAt: to },
+    );
+  await programme(m.userId, "2026-07-01T10:00:00.000Z", "2027-07-01T10:00:00.000Z");
+  await programme(ended.userId, "2026-06-01T10:00:00.000Z", "2026-09-10T10:00:00.000Z");
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), async (tx) => {
+    await tx.query(
+      "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,price_minor,cancel_at_period_end,data) VALUES($1,$2,$3,NULL,'active',now()+interval '300 days',300000,false,$4)",
+      [
+        randomUUID(),
+        owner.tenantId,
+        m.userId,
+        JSON.stringify({
+          tier: "workout",
+          billing: "upfront",
+          programmeDays: 365,
+          voiceAddOn: { providerId: "sub_voice_metrics", status: "active", verified: true, amountMinor: 4900 },
+        }),
+      ],
+    );
+    await tx.query(
+      "INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data,created_at) VALUES($1,$2,NULL,'programme.ended',$3,$4,'2026-09-10T11:00:00Z')",
+      [randomUUID(), owner.tenantId, randomUUID(), JSON.stringify({ memberId: ended.userId })],
+    );
+  });
+  const after = await computeBusinessMetrics(f.db, operatorActor(admin), { months: 3, now });
+  const delta = (pick: (r: typeof after) => number) => pick(after) - pick(before);
+  assert.equal(delta((r) => r.snapshot.mrrMinor), 4900, "only the voice add-on is recurring");
+  assert.equal(delta((r) => r.snapshot.voiceAddOns.active), 1);
+  assert.equal(delta((r) => r.snapshot.upfrontProgrammes.active), 1);
+  assert.equal(delta((r) => r.snapshot.upfrontProgrammes.collectedMinor), 300000);
+  assert.equal(delta((r) => r.snapshot.upfrontProgrammes.monthlyEquivalentMinor), Math.round((300000 * 30) / 365));
+  assert.equal(delta((r) => r.snapshot.memberships.active), 1);
+  // Each programme member's paid access covers part of July, August and September.
+  assert.deepEqual(
+    after.series.map((s, i) => (s.payingMembers ?? 0) - (before.series[i].payingMembers ?? 0)),
+    [2, 2, 2],
+  );
+  assert.equal(after.series[2].cancellations - before.series[2].cancellations, 1);
+});

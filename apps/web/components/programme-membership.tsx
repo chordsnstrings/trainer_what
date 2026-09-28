@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { money } from "@trainer/domain";
+import { OfferTerms } from "./programme-offers";
 
 /**
  * Membership page parts for programmes (docs/features/programme.md): an
@@ -32,11 +33,57 @@ const day = (value?: string | null) =>
       })
     : "—";
 
+/** Days before an upfront programme ends when the next one may be bought (the API's RENEWAL_WINDOW_DAYS). */
+const RENEWAL_WINDOW_DAYS = 7;
+
+/**
+ * What an upfront member may buy now, mirroring the API's admission
+ * (upfrontAdmission): any offer once the programme has ended, another upfront
+ * programme in its final week (queued after it), nothing otherwise.
+ */
+export function upfrontPurchase(
+  membership: any,
+  now = Date.now(),
+): "any" | "upfront" | "none" {
+  const end = membership?.period_end ? Date.parse(membership.period_end) : 0;
+  if (membership?.status === "canceled" || end <= now) return "any";
+  if (membership?.data?.nextProgramme) return "none";
+  return end - now <= RENEWAL_WINDOW_DAYS * 86400000 ? "upfront" : "none";
+}
+
 /** An upfront programme: paid once, access until its end, nothing renews. */
-export function UpfrontMembership({ membership }: { membership: any }) {
-  const ended =
-    membership.status === "canceled" ||
-    (membership.period_end && Date.parse(membership.period_end) <= Date.now());
+export function UpfrontMembership({
+  membership,
+  offers = [],
+}: {
+  membership: any;
+  /** The workspace's published offers. */
+  offers?: any[];
+}) {
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const purchase = upfrontPurchase(membership);
+  const ended = purchase === "any";
+  const next = membership.data?.nextProgramme;
+  const current = membership.data?.upfront;
+  const available = offers.filter(
+    (p) =>
+      p.status === "published" &&
+      (purchase === "any" ||
+        (purchase === "upfront" && p.data?.billing === "upfront")),
+  );
+  const buy = async (productId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api("/payments/checkout", "POST", { productId });
+      if (r?.url) window.location.assign(r.url);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <div className="membership-price">
@@ -52,10 +99,41 @@ export function UpfrontMembership({ membership }: { membership: any }) {
           : "Workout only"}
       </p>
       <p className="muted">
-        {ended ? "Access ended" : "Access until"} {day(membership.period_end)}.
-        An upfront programme does not renew; you can start the next one in its
-        final week.
+        {ended
+          ? `Access ended ${day(membership.period_end)}.`
+          : next
+            ? `This programme ends ${day(current?.endsAt ?? next.startsAt)}. Your next ${next.programmeDays}-day programme starts then and runs until ${day(next.endsAt)}.`
+            : `Access until ${day(membership.period_end)}. An upfront programme does not renew; you can buy the next one in its final week and it starts when this one ends.`}
       </p>
+      {available.length > 0 && (
+        <div id="offers" className="programme-offer-list">
+          <h3>
+            {ended ? "Choose your next plan" : "Start your next programme"}
+          </h3>
+          {available.map((p) => (
+            <div className="list-row" key={p.id}>
+              <div>
+                <strong>{p.data.name}</strong>
+                <OfferTerms data={p.data} />
+              </div>
+              <button
+                className="button"
+                disabled={busy}
+                onClick={() => void buy(p.id)}
+              >
+                {p.data.billing === "upfront"
+                  ? "Buy this programme"
+                  : "Join this plan"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && (
+        <p className="muted" role="alert">
+          {error}
+        </p>
+      )}
     </>
   );
 }
@@ -67,14 +145,16 @@ export function VoiceAddOnCard() {
     [message, setMessage] = useState(""),
     [error, setError] = useState("");
   const load = useCallback(
-    () =>
-      api("/membership/voice-addon").then(setData, () => setData(null)),
+    () => api("/membership/voice-addon").then(setData, () => setData(null)),
     [],
   );
   useEffect(() => {
     void load();
   }, [load]);
-  if (!data || (!data.included && !data.available && !data.active && !data.status))
+  if (
+    !data ||
+    (!data.included && !data.available && !data.active && !data.status)
+  )
     return null;
   const act = async (fn: () => Promise<any>, done: string) => {
     setBusy(true);
@@ -145,6 +225,11 @@ export function VoiceAddOnCard() {
             <span dir="ltr">{money(data.priceMinor ?? 0)}</span> a month. It
             ends with your membership.
           </p>
+          {data.pending?.status === "confirming" && (
+            <p className="muted" role="status">
+              Your premium voice purchase is being confirmed.
+            </p>
+          )}
           <div className="button-row">
             <button
               className="button"
@@ -156,7 +241,9 @@ export function VoiceAddOnCard() {
                 )
               }
             >
-              {data.pending?.url ? "Continue voice checkout" : "Add premium voice"}
+              {data.pending?.url
+                ? "Continue voice checkout"
+                : "Add premium voice"}
             </button>
             {data.pending && (
               <button

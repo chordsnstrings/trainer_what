@@ -74,22 +74,23 @@ function EndOfProgramme({ data }: { data: any }) {
         {busy ? "Opening checkout…" : "Start the next programme"}
       </button>
     ) : (
-      <Link className="button secondary" href="/app/membership">
+      <Link className="button secondary" href="/app/membership#offers">
         Choose your next plan
       </Link>
     ));
   return (
     <div
       className={
-        "programme-end" + (end.state === "ends" || end.state === "ended" ? " ending" : "")
+        "programme-end" +
+        (end.state === "ends" || end.state === "ended" ? " ending" : "")
       }
       role="status"
     >
       {end.state === "next_block" && (
         <p>
           This block ends on {calendarDay(data.programme.blockEndDate)}. Your
-          next block starts {calendarDay(end.at)} and your coach plans it
-          from how this one went.
+          next block starts {calendarDay(end.at)} and your coach plans it from
+          how this one went.
         </p>
       )}
       {end.state === "renews" && (
@@ -168,7 +169,9 @@ function Nutrition({ n }: { n: any }) {
           aria-valuemax={goal}
           aria-valuenow={Math.min(kcal, goal)}
         >
-          <span style={{ inlineSize: `${Math.min(100, (kcal / goal) * 100)}%` }} />
+          <span
+            style={{ inlineSize: `${Math.min(100, (kcal / goal) * 100)}%` }}
+          />
         </div>
       ) : (
         <p className="muted">Your coach has not set today&apos;s target yet.</p>
@@ -234,7 +237,8 @@ export function ProgrammeToday() {
         <p className="eyebrow">YOUR PROGRAMME</p>
         <h2>Start your coaching programme</h2>
         <p className="muted">
-          Choose a membership and your coach&apos;s plan appears here day by day.
+          Choose a membership and your coach&apos;s plan appears here day by
+          day.
         </p>
         <Link className="button" href="/app/membership">
           See membership options
@@ -275,73 +279,88 @@ export function ProgrammeToday() {
         aria-valuemax={p.of}
         aria-valuenow={p.day}
       >
-        <span style={{ inlineSize: `${Math.min(100, (p.day / p.of) * 100)}%` }} />
+        <span
+          style={{ inlineSize: `${Math.min(100, (p.day / p.of) * 100)}%` }}
+        />
       </div>
-      <div className="programme-columns">
-        <div className="programme-tile">
-          <p className="small-label">Today · {calendarDay(data.today)}</p>
-          {s ? (
-            <>
-              <h3>{s.label ?? "Training session"}</h3>
+      {data.planState === "ended" ? null : (
+        <div className="programme-columns">
+          <div className="programme-tile">
+            <p className="small-label">Today · {calendarDay(data.today)}</p>
+            {data.planState === "awaiting_coach" && !s ? (
+              <>
+                <h3>Your coach is preparing your plan</h3>
+                <p className="muted">
+                  Your sessions appear here day by day as soon as it is ready.
+                </p>
+              </>
+            ) : s ? (
+              <>
+                <h3>{s.label ?? "Training session"}</h3>
+                <p className="muted">
+                  {s.status === "completed"
+                    ? "Done. Nice work."
+                    : s.status === "canceled"
+                      ? "Your coach canceled today's session."
+                      : `${s.exercises} ${s.exercises === 1 ? "exercise" : "exercises"}${s.week ? ` · week ${s.week}` : ""}`}
+                </p>
+                {!["completed", "canceled"].includes(s.status) && (
+                  <Link className="button" href="/app/program">
+                    {s.status === "started"
+                      ? "Continue session"
+                      : "Start session"}
+                  </Link>
+                )}
+              </>
+            ) : (
+              <>
+                <h3>Rest day</h3>
+                <p className="muted">
+                  Recovery is part of the plan. Move gently and sleep well.
+                </p>
+              </>
+            )}
+          </div>
+          <div className="programme-tile">
+            <p className="small-label">What&apos;s next</p>
+            {data.next ? (
+              <>
+                <h3>{data.next.label ?? "Training session"}</h3>
+                <p className="muted">
+                  {data.next.inDays === 1
+                    ? "Tomorrow"
+                    : `${calendarDay(data.next.date)} · in ${data.next.inDays} days`}
+                </p>
+              </>
+            ) : (
               <p className="muted">
-                {s.status === "completed"
-                  ? "Done. Nice work."
-                  : s.status === "canceled"
-                    ? "Your coach canceled today's session."
-                    : `${s.exercises} ${s.exercises === 1 ? "exercise" : "exercises"}${s.week ? ` · week ${s.week}` : ""}`}
+                Your coach has not scheduled the next session yet.
               </p>
-              {!["completed", "canceled"].includes(s.status) && (
-                <Link className="button" href="/app/program">
-                  {s.status === "started" ? "Continue session" : "Start session"}
-                </Link>
-              )}
-            </>
-          ) : (
-            <>
-              <h3>Rest day</h3>
-              <p className="muted">
-                Recovery is part of the plan. Move gently and sleep well.
-              </p>
-            </>
-          )}
-        </div>
-        <div className="programme-tile">
-          <p className="small-label">What&apos;s next</p>
-          {data.next ? (
-            <>
-              <h3>{data.next.label ?? "Training session"}</h3>
-              <p className="muted">
-                {data.next.inDays === 1
-                  ? "Tomorrow"
-                  : `${calendarDay(data.next.date)} · in ${data.next.inDays} days`}
-              </p>
-            </>
-          ) : (
-            <p className="muted">
-              Your coach has not scheduled the next session yet.
-            </p>
-          )}
-          <div className="programme-stats">
-            <div>
-              <span className="small-label">Streak</span>
-              <strong>{progress.streak}</strong>
-            </div>
-            <div>
-              <span className="small-label">Adherence</span>
-              <strong>
-                {progress.percent === null ? "—" : `${progress.percent}%`}
-              </strong>
-            </div>
-            <div>
-              <span className="small-label">Last {progress.windowDays} days</span>
-              <strong>
-                {progress.completed}/{progress.scheduled}
-              </strong>
+            )}
+            <div className="programme-stats">
+              <div>
+                <span className="small-label">Streak</span>
+                <strong>{progress.streak}</strong>
+              </div>
+              <div>
+                <span className="small-label">Adherence</span>
+                <strong>
+                  {progress.percent === null ? "—" : `${progress.percent}%`}
+                </strong>
+              </div>
+              <div>
+                <span className="small-label">
+                  Last {progress.windowDays} days
+                </span>
+                <strong>
+                  {progress.completed}/{progress.scheduled}
+                </strong>
+              </div>
             </div>
           </div>
+          <Nutrition n={data.nutrition} />
         </div>
-        <Nutrition n={data.nutrition} />
-      </div>
+      )}
       <EndOfProgramme data={data} />
       <p>
         <Link className="text-link" href="/app/timeline">
@@ -358,6 +377,7 @@ const STATUS_LABEL: Record<string, string> = {
   today: "Today",
   upcoming: "Planned",
   rest: "Rest",
+  unplanned: "Not planned yet",
   canceled: "Canceled",
 };
 /** Every day of the current programme (upfront) or block (monthly), with its session and status. */
@@ -388,7 +408,9 @@ export function ProgrammeTimeline() {
     return (
       <section className="card">
         <h2>No programme yet</h2>
-        <p className="muted">Your timeline appears once your membership starts.</p>
+        <p className="muted">
+          Your timeline appears once your membership starts.
+        </p>
         <Link className="button" href="/app/membership">
           See membership options
         </Link>
@@ -403,12 +425,20 @@ export function ProgrammeTimeline() {
         {calendarDay(p.blockStartDate)} – {calendarDay(p.blockEndDate)}
       </p>
       <h2 id="programme-timeline-title">
-        {p.state === "not_started" ? "Starting soon" : `Day ${p.day} of ${p.of}`}
+        {p.state === "not_started"
+          ? "Starting soon"
+          : `Day ${p.day} of ${p.of}`}
       </h2>
       <p className="muted">
         {done} of {sessions} sessions done
         {p.rolling ? ` · rolling ${p.of}-day blocks` : ""}
       </p>
+      {data.planState === "awaiting_coach" && (
+        <p role="status">
+          Your coach is preparing your plan. Sessions appear here as soon as it
+          is ready.
+        </p>
+      )}
       <ol className="programme-timeline">
         {data.days.map((d: any) => (
           <li
@@ -418,8 +448,23 @@ export function ProgrammeTimeline() {
           >
             <span className="small-label">Day {d.day}</span>
             <span>{calendarDay(d.date)}</span>
-            <strong>{d.kind === "session" ? (d.label ?? "Session") : "Rest"}</strong>
-            <span className={"badge" + (d.status === "done" ? " green" : d.status === "missed" ? " amber" : "")}>
+            <strong>
+              {d.kind === "session"
+                ? (d.label ?? "Session")
+                : d.kind === "unplanned"
+                  ? "—"
+                  : "Rest"}
+            </strong>
+            <span
+              className={
+                "badge" +
+                (d.status === "done"
+                  ? " green"
+                  : d.status === "missed"
+                    ? " amber"
+                    : "")
+              }
+            >
               {STATUS_LABEL[d.status] ?? d.status}
             </span>
           </li>

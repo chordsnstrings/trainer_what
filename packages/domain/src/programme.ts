@@ -285,3 +285,26 @@ export function endOfProgramme(input: {
     return { state: "next_block", at: addDays(input.position.blockEndDate, 1) };
   return { state: "none" };
 }
+
+/**
+ * The programme window that applies now: the current one, or a queued one
+ * whose start has passed but which the worker has not promoted yet.
+ */
+export function effectiveProgrammeWindow(data: any, now = Date.now()) {
+  const next = data?.billing === "upfront" ? data.nextProgramme : null;
+  if (next && Date.parse(next.startsAt) <= now)
+    return {
+      programmeStartsAt: next.startsAt as string,
+      programmeDays: next.programmeDays as number,
+      productId: (next.productId ?? data.productId ?? null) as string | null,
+      endsAt: next.endsAt as string,
+      queued: null,
+    };
+  return {
+    programmeStartsAt: data?.programmeStartsAt as string | undefined,
+    programmeDays: data?.programmeDays,
+    productId: (data?.productId ?? null) as string | null,
+    endsAt: (next ? data?.upfront?.endsAt : undefined) as string | undefined,
+    queued: next ?? null,
+  };
+}

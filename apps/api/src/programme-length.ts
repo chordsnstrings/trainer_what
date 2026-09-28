@@ -2,6 +2,7 @@ import type { Tx } from "@trainer/db";
 import {
   DEFAULT_PROGRAMME_DAYS,
   effectiveProgrammeDays,
+  effectiveProgrammeWindow,
 } from "../../../packages/domain/src/programme.ts";
 import { subscriptionHasAccess } from "./finance-billing.ts";
 
@@ -26,6 +27,11 @@ export async function programmeLengthDays(
     [userId],
   );
   if (!s || !subscriptionHasAccess(s)) return BRAIN_DEFAULT_PROGRAMME_DAYS;
+  // A renewed upfront programme queued after the current one applies from
+  // its own start (the worker then promotes it onto the row).
+  const window = effectiveProgrammeWindow(s.data);
+  if (window.programmeStartsAt !== s.data?.programmeStartsAt)
+    return effectiveProgrammeDays(window.programmeDays);
   if (s.data && Object.prototype.hasOwnProperty.call(s.data, "programmeDays"))
     return effectiveProgrammeDays(s.data.programmeDays);
   if (!s.data?.productId) return BRAIN_DEFAULT_PROGRAMME_DAYS;

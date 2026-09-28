@@ -345,55 +345,107 @@ test("refunds: a partial refund keeps the programme; refunding the rest ends acc
   assert.ok(again.url);
 });
 
-test("renewing in the final week starts the next programme now and keeps the unused days; refunding it returns to the earlier programme", async () => {
+test("renewing in the final week queues the next programme after the current one; refunds remove it or start it now", async () => {
+  const { sweepProgrammes, programmeToday } = await import("../apps/api/src/programme-today.ts");
   const product = await offer(db, owner, { billing: "upfront", programmeDays: 28, priceMinor: 30000 });
+  const longer = await offer(db, owner, { billing: "upfront", programmeDays: 42, priceMinor: 42000 });
   const monthly = await offer(db, owner, { billing: "monthly" });
-  const member = await follower(db, owner);
-  const stripe = fakeStripe();
-  await buyProgramme(member, product, stripe);
-  const first = await subscription(member.userId);
-  // Three days of the first programme left.
-  const previousEnd = new Date(Date.now() + 3 * DAY);
-  await db.tenant(seedScope(owner), (tx) =>
-    tx.query("UPDATE subscriptions SET period_end=$2,data=data||jsonb_build_object('programmeStartsAt',$3::text) WHERE id=$1", [
-      first.id,
-      previousEnd,
-      new Date(previousEnd.getTime() - 28 * DAY).toISOString(),
-    ]),
-  );
+  /** A member three days before the end of a 28-day programme. */
+  const nearlyDone = async () => {
+    const member = await follower(db, owner);
+    const stripe = fakeStripe();
+    await buyProgramme(member, product, stripe);
+    const first = await subscription(member.userId);
+    const previousEnd = new Date(Date.now() + 3 * DAY);
+    await db.tenant(seedScope(owner), (tx) =>
+      tx.query(
+        "UPDATE subscriptions SET period_end=$2,data=jsonb_set(data||jsonb_build_object('programmeStartsAt',$3::text),'{upfront,endsAt}',to_jsonb($4::text)) WHERE id=$1",
+        [first.id, previousEnd, new Date(previousEnd.getTime() - 28 * DAY).toISOString(), previousEnd.toISOString()],
+      ),
+    );
+    return { member, stripe, first: await subscription(member.userId), previousEnd };
+  };
+  const refund = (id: string, amount: number, session: any) =>
+    processStripeEvent(
+      db,
+      evt("refund.updated", {
+        id,
+        object: "refund",
+        status: "succeeded",
+        amount,
+        currency: "aed",
+        charge: "ch_" + session.payment_intent,
+        metadata: {},
+      }),
+    );
+
+  const { member, stripe, first, previousEnd } = await nearlyDone();
   await assert.rejects(
     createMembershipCheckout(db, member, { productId: monthly.id }, options, stripe),
     (e: any) => e.code === "ALREADY_SUBSCRIBED",
     "a monthly membership starts after the programme ends",
   );
-  const { session } = await buyProgramme(member, product, stripe);
-  const renewed = await subscription(member.userId);
-  const paidAt = Date.parse(renewed.data.upfront.paidAt);
-  assert.equal(
-    new Date(renewed.period_end).getTime(),
-    paidAt + 28 * DAY + (previousEnd.getTime() - paidAt),
+  const queued = await buyProgramme(member, longer, stripe);
+  let s = await subscription(member.userId);
+  // The current programme is untouched; the renewal starts when it ends.
+  assert.equal(s.data.upfront.intentId, first.data.upfront.intentId);
+  assert.equal(s.data.programmeStartsAt, first.data.programmeStartsAt);
+  assert.equal(s.data.programmeDays, 28);
+  assert.equal(s.data.nextProgramme.startsAt, previousEnd.toISOString());
+  assert.equal(s.data.nextProgramme.programmeDays, 42);
+  assert.equal(new Date(s.period_end).getTime(), previousEnd.getTime() + 42 * DAY);
+  assert.equal(s.data.commissionRank, first.data.commissionRank);
+  const [renewalJournal] = (await journals("stripe-programme:", member.userId)).slice(-1);
+  assert.equal(renewalJournal.data.accessStartsAt, previousEnd.toISOString());
+  assert.equal(await db.tenant(member, (tx) => programmeLengthDays(tx, member.userId)), 28);
+  const today: any = await programmeToday(db, member);
+  assert.deepEqual([today.programme.day, today.programme.of], [26, 28]);
+  assert.equal(today.endOfProgramme.state, "next_block");
+  assert.equal(today.nextProgramme.programmeDays, 42);
+  // Only one programme is queued at a time.
+  await assert.rejects(
+    createMembershipCheckout(db, member, { productId: product.id }, options, stripe),
+    (e: any) => e.code === "ALREADY_SUBSCRIBED",
   );
-  assert.equal(renewed.data.upfront.previousEndsAt, previousEnd.toISOString());
-  assert.equal(renewed.data.programmeHistory.length, 1);
-  assert.equal(renewed.data.commissionRank, first.data.commissionRank);
-  assert.equal((await journals("stripe-programme:", member.userId)).length, 2);
-  await processStripeEvent(
-    db,
-    evt("refund.updated", {
-      id: "re_renewal_" + member.userId.slice(0, 6),
-      object: "refund",
-      status: "succeeded",
-      amount: 30000,
-      currency: "aed",
-      charge: "ch_" + session.payment_intent,
-      metadata: {},
-    }),
+  // A full refund of the queued programme removes it; access returns to the current end.
+  await refund("re_queued_" + member.userId.slice(0, 6), 42000, queued.session);
+  s = await subscription(member.userId);
+  assert.equal(s.status, "active");
+  assert.equal(s.data.nextProgramme, undefined);
+  assert.equal(new Date(s.period_end).getTime(), previousEnd.getTime());
+  assert.equal(s.data.upfront.intentId, first.data.upfront.intentId);
+  // Queued again, then its start passes: it applies at once and the worker promotes it.
+  const again = await buyProgramme(member, longer, stripe);
+  await db.tenant(seedScope(owner), (tx) =>
+    tx.query(
+      "UPDATE subscriptions SET period_end=now()+interval '41 days',data=jsonb_set(jsonb_set(data,'{nextProgramme,startsAt}',to_jsonb((now()-interval '1 day')::text)),'{upfront,endsAt}',to_jsonb((now()-interval '1 day')::text)) WHERE user_id=$1",
+      [member.userId],
+    ),
   );
-  const restored = await subscription(member.userId);
-  assert.equal(restored.status, "active");
-  assert.equal(new Date(restored.period_end).toISOString(), previousEnd.toISOString());
-  assert.equal(restored.data.programmeDays, 28);
-  assert.equal(restored.data.upfront.intentId, first.data.upfront.intentId);
+  assert.equal(await db.tenant(member, (tx) => programmeLengthDays(tx, member.userId)), 42);
+  const swept = await sweepProgrammes(db, owner.tenantId);
+  assert.ok(swept.started >= 1);
+  s = await subscription(member.userId);
+  assert.equal(s.data.upfront.intentId, again.intent.id);
+  assert.equal(s.data.programmeDays, 42);
+  assert.equal(s.data.productId, longer.id);
+  assert.equal(s.data.nextProgramme, undefined);
+  assert.ok(s.data.programmeHistory.some((w: any) => w.intentId === first.data.upfront.intentId));
+  assert.equal(((await programmeToday(db, member)) as any).programme.day, 2);
+
+  // A full refund of the current programme starts a queued one now.
+  const other = await nearlyDone();
+  const otherQueued = await buyProgramme(other.member, longer, other.stripe);
+  const firstSession = paidProgrammeSession(
+    (await intents(other.member.userId)).find((r) => r.id === other.first.data.upfront.intentId),
+  );
+  await refund("re_current_" + other.member.userId.slice(0, 6), 30000, firstSession);
+  s = await subscription(other.member.userId);
+  assert.equal(s.status, "active");
+  assert.equal(s.data.upfront.intentId, otherQueued.intent.id);
+  assert.equal(s.data.nextProgramme, undefined);
+  assert.ok(Math.abs(new Date(s.period_end).getTime() - (Date.now() + 42 * DAY)) < 60000);
+  assert.ok(Math.abs(Date.parse(s.data.programmeStartsAt) - Date.now()) < 60000);
 });
 
 test("reconciliation completes a programme whose webhook was lost, and a late event of an older monthly membership never replaces it", async () => {

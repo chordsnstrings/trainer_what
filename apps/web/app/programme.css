@@ -117,3 +117,13 @@
 .voice-addon .button-row {
   flex-wrap: wrap;
 }
+
+.programme-offer-list {
+  margin-block-start: 16px;
+  display: grid;
+  gap: 8px;
+}
+.programme-offer-list .list-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}

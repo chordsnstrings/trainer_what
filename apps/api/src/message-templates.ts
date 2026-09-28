@@ -393,8 +393,10 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     "coaching",
     "A new block of a monthly programme started",
     {
-      title: "Block 2 of your programme has started",
-      body: "A new 28-day block started. Today shows where you are and what comes next.",
+      // Generic on purpose: a published template replaces the sender's text
+      // (which names the block and its length) for every block.
+      title: "A new block of your programme has started",
+      body: "A new block of your programme started. Today shows where you are and what comes next.",
       href: "/app",
     },
   ),

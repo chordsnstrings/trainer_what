@@ -1,8 +1,8 @@
 # Trainer-set programme length, voice add-on billing and the day-by-day view (work package `core/programme`)
 
-Status: implemented on branch `core/programme` (base `b4ac2b5`, migration 064). Test runs are
-recorded below exactly as run; limits are listed at the end. Nothing was deployed and no live
-provider was called.
+Status: implemented on branch `core/programme` (base `b4ac2b5`, migration 064), with the review
+fixes of 28 September 2026 (see "Review fixes" below). Test runs are recorded below exactly as
+run; limits are listed at the end. Nothing was deployed and no live provider was called.
 
 ## Plan (written before implementation)
 
@@ -38,9 +38,9 @@ compensate.
   (`monthly` default | `upfront`) and `voiceAddOnMinor` (100..100000 minor units or `null`). An
   upfront offer without a length is refused (400). `premiumVoice` is no longer accepted: voice is
   not sold as an offer of its own any more.
-- `POST /api/v1/products`: the workout + nutrition offer must use the same billing (and, for
-  upfront, the same length) as its workout-only pair (`OFFER_PAIR_BILLING`), besides costing
-  more (unchanged).
+- `POST /api/v1/products`: the workout + nutrition offer must use the same billing and the same
+  programme length (monthly block length too) as its workout-only pair (`OFFER_PAIR_BILLING`),
+  besides costing more (unchanged).
 - `POST /api/v1/products/:id/activate`: a monthly offer gets a recurring monthly price (as
   before); an upfront offer gets a one-time price for the whole programme. When the offer has a
   voice add-on price, a separate Stripe product "… · premium voice" and a monthly price are
@@ -50,7 +50,9 @@ compensate.
   `voicePriceIds`, so members keep the price they bought and their events still verify. Refused
   (`VOICE_INCLUDED`) on an older offer that already includes voice.
 - `POST /api/v1/membership/change-plan` refuses an upfront target (`UPFRONT_PLAN`).
-- Monthly offers renew exactly as before; their `programmeDays` is the block length.
+- Monthly offers renew exactly as before; their `programmeDays` is the block length. When a
+  provider projection maps the membership to a different block length (an edited offer), a new
+  block starts (Day 1) at that event instead of renumbering the current block.
 
 ### Upfront programme payment (`finance-checkout.ts`, `programme-billing.ts`, `stripe-events.ts`)
 
@@ -60,8 +62,9 @@ compensate.
   one-time price, `payment_intent_data.metadata` and no trial (a promotion code's coupon still
   applies). Idempotency key `checkout:<intent>` as for memberships.
 - Admission: an active upfront programme blocks another purchase until its final 7 days
-  (`RENEWAL_WINDOW_DAYS`); in that window only another upfront programme may be bought, and a
-  monthly membership can start once the programme ended.
+  (`RENEWAL_WINDOW_DAYS`); in that window only another upfront programme may be bought (it is
+  queued, below; one queued programme at a time), and a monthly membership can start once the
+  programme ended.
 - A signed `checkout.session.completed` / `async_payment_succeeded` in payment mode with
   `purpose: programme` is verified (intent, tenant, member and provider identity; status
   `complete`; `payment_status` paid or no payment required; currency AED; amount equal to the
@@ -69,10 +72,17 @@ compensate.
   PaymentIntent's `latest_charge` (the event is retained for reconciliation when it cannot be),
   provider objects are mapped to the member, and in one transaction:
   - the subscriptions row becomes `provider_id NULL`, `status active`,
-    `period_end = paid + programmeDays` (plus the unused days of a programme renewed early),
-    `data.billing='upfront'`, the offer's tier/modules, `programmeDays`, `programmeStartsAt`,
-    `data.upfront` (intent, checkout, payment intent, charge, amount, window) and a bounded
-    `programmeHistory`; the stable commission rank, first-paid time and any voice add-on are kept;
+    `period_end = paid + programmeDays`, `data.billing='upfront'`, the offer's tier/modules,
+    `programmeDays`, `programmeStartsAt`, `data.upfront` (intent, checkout, payment intent,
+    charge, amount, window) and a bounded `programmeHistory`; the stable commission rank,
+    first-paid time and any voice add-on are kept;
+  - a renewal bought while the current programme is still running is **queued**: it is stored
+    as `data.nextProgramme` (start = the current end, end = start + its length) and
+    `period_end` moves to its end, while the current window, offer, length and Day 1 stay. When
+    its start passes it applies at once in reads (`effectiveProgrammeWindow` in
+    `packages/domain/src/programme.ts`, used by Today and `programmeLengthDays`) and the worker
+    promotes it onto the row (`promoteQueuedProgramme`, event `programme.started`), moving the
+    finished window to the history;
   - an immutable `stripe-programme:<intent>` journal "Programme payment" posts gross,
     commission at the member's stable rank (assigned at the first positive charge by the shared
     `assignCommissionRank`, which now also counts programme payers) and trainer payable;
@@ -82,16 +92,23 @@ compensate.
   money, does not replace access and opens a `reconciliation` record for finance.
 - Refunds use the existing request → owner decision → provider → ledger path. Migration 064
   widens the member charge helpers, and the refund/dispute/admin/close queries read
-  `stripe-programme:` charges. A refund journal is "Programme refund". A **full** refund of a
-  programme ends its access (`status canceled`, `endedReason refunded`); a full refund of an
-  early renewal returns the member to the programme it renewed (its remaining days). Partial
-  refunds keep access.
+  `stripe-programme:` charges. A refund journal is "Programme refund". A **full** refund of the
+  current programme ends its access (`status canceled`, `endedReason refunded`), or, when a
+  renewal is queued, starts the queued programme now for its full length; a full refund of a
+  queued programme removes it and access returns to the end of the current one; a refund of a
+  programme already over changes no access. Partial refunds keep access.
 - Statements: `financialStatement()` counts programme gross/commission and returns
   `revenue { membershipMinor, programmeMinor, voiceAddOnMinor, sessionsMinor }` (the bridge is
-  unchanged). Business metrics count programme charges as paid membership revenue; acquisition
-  counts them as a first payment; payout close eligibility treats later refunds of programme
-  charges like invoice refunds; an uncertain (`unknown`) programme checkout blocks the monthly
-  close.
+  unchanged). Business metrics count programme charges in gross takings but **not in MRR**: the
+  snapshot reports `upfrontProgrammes { active, pastDue, collectedMinor, monthlyEquivalentMinor }`
+  (price × 30 ÷ programme days, current access only) apart, adds active verified voice add-ons
+  to `mrrMinor` (`voiceAddOns { active, mrrMinor }`, from the mirrored price amount or the offer's
+  add-on price), counts an upfront member as paying in every month the paid access covers, and
+  counts `programme.ended` (an upfront programme that ended without a renewal, after a positive
+  charge) as a cancellation for churn. The trainer's analytics report `recurring_minor` without
+  upfront rows and `upfront_minor` apart. Acquisition counts programme payments as a first
+  payment; payout close eligibility treats later refunds of programme charges like invoice
+  refunds; an uncertain (`unknown`) programme checkout blocks the monthly close.
 - Reconciliation: the member's `POST /api/v1/payments/checkout/reconcile` resolves an upfront
   intent (retrieve/list → the same verified projection); the finance obligations job
   (`finance-automation.ts`) resolves programme and voice add-on checkouts left `creating` /
@@ -99,7 +116,9 @@ compensate.
   voice add-on subscription.
 - A late event of an older monthly membership never replaces a current upfront programme
   (terminal events are history; an active one is retained for reconciliation). A new monthly
-  membership after an ended programme maps its own price and starts a new programme.
+  membership after an ended programme maps its own price and starts a new programme, also
+  before the worker sweep has closed the ended row (an upfront row whose paid access is over
+  counts as terminal for a non-terminal event); the ended window moves to the history.
 - A paid upfront intent is settled for privacy (`settlementBlockers`); the subscription row
   itself blocks while access is current, as for memberships.
 
@@ -110,7 +129,10 @@ compensate.
   - `GET /api/v1/membership/voice-addon`: included (older offer) / available / active / status /
     period end / end-at-period-end flag / pending purchase.
   - `POST /api/v1/membership/voice-addon`: requires current paid access, refuses when voice is
-    included (`VOICE_INCLUDED`) or already on (`VOICE_ACTIVE`); reserves a
+    included (`VOICE_INCLUDED`), already on (`VOICE_ACTIVE`), or when a completed add-on
+    checkout's subscription has not been mirrored yet (`VOICE_PENDING`; the status shows the
+    purchase as `confirming` and not available, and "Check voice purchase" resolves it from the
+    provider); reserves a
     `records.kind='checkout'` intent with `purpose: voice_addon` (never mixed with membership
     intents) and opens a subscription Checkout (`voice-addon:<intent>`); returns the open link on
     repeat; resumes an add-on set to end. New sales need approved commerce, checked before any
@@ -128,21 +150,34 @@ compensate.
 - Add-on invoices post `stripe-invoice:<id>` journals "Voice add-on payment" with
   `purpose: voice_addon`, commission at the member's stable rank, a `billing_invoice` record
   (`purpose: voice_addon`), and they are refundable through the normal path ("Voice add-on
-  refund"). The membership row's status, period and price are untouched.
+  refund"). The membership row's status, period and price are untouched. A **full** refund of
+  an add-on charge of the current add-on marks it `endRequested` (voice stops at once) and the
+  worker cancels the add-on subscription; the mark survives later events of that subscription
+  until the cancellation is mirrored.
+- Membership exit (`endFollowerMembership`, leave or owner removal): before the membership ends,
+  a renewing add-on is set to `cancel_at_period_end` at the provider (idempotency key per
+  mirrored state); payments unavailable or an unconfirmed answer refuse the exit with nothing
+  changed, and a re-enabled add-on found under the exit lock refuses it (`VOICE_ADDON_ACTIVE`).
+  The preview reports `voiceAddOnRenewing`; the result and the `membership.left/removed` event
+  carry `voiceAddOn: 'ends' | 'none'`. After the exit the worker cancels the add-on at once.
 - `memberAccess(...).premiumVoice` = paid access and (an older offer that included voice, or an
   active verified add-on whose period has not ended); `voiceSource` is `included` | `add_on` |
   `null`. Complimentary access never has voice.
 - Migration of existing offers: 064 marks offers with `premiumVoice` as `voiceIncluded`; their
   members keep voice with no add-on; projection of those offers is unchanged.
-- The worker ends add-on subscriptions whose membership has no paid access (idempotency key
-  `voice-addon-end:<subscription>`); entitlement already stops at once.
+- The worker ends add-on subscriptions that must end now (idempotency key
+  `voice-addon-end:<subscription>`): the member has no paid access, is no longer a member of
+  the workspace, or the add-on was refunded in full. The test runs in SQL before the page limit
+  (100 per page, `user_id` cursor, up to 20 pages per cycle), so healthy add-ons never crowd
+  out the ones to end, and a failed cancel never blocks the rows after it. Entitlement already
+  stops at once.
 
 ### Programme length (`apps/api/src/programme-length.ts`)
 
 `programmeLengthDays(tx, userId): Promise<number>` — the `programmeDays` snapshotted on the
 member's paid membership (monthly: from the offer at each provider projection; upfront: from
-the paid intent), else the offer's, else `BRAIN_DEFAULT_PROGRAMME_DAYS` (28) for rolling offers,
-complimentary access or no paid access. Works in the member's own scope and in coaching team
+the paid intent, or the queued renewal's once its start has passed), else the offer's, else
+`BRAIN_DEFAULT_PROGRAMME_DAYS` (28) for rolling offers, complimentary access or no paid access. Works in the member's own scope and in coaching team
 scopes (row security limits both reads).
 
 ### Day by day (`packages/domain/src/programme.ts`, `apps/api/src/programme-today.ts`)
@@ -153,24 +188,38 @@ scopes (row security limits both reads).
   `programmeTimeline`, `adherence` (streak and 28-day adherence; rest days and coach-canceled
   sessions neither break nor extend a streak; today's session counts once done),
   `endOfProgramme` (next block / renews / ends with renew window / ended).
-- `GET /api/v1/programme/today?timezone=` (subscriber): programme position, today's session (or
-  rest day), what's next, streak/adherence, today's nutrition target and diary progress
+- `GET /api/v1/programme/today?timezone=` (subscriber): programme position, `planState`
+  (`none` | `awaiting_coach` | `ready` | `ended`), today's session (or rest day, only when the
+  block has a plan), what's next, streak/adherence, today's nutrition target and diary progress
   (permission / set-up states when missing; review-due flag), and the end-of-programme state
   with the offer to renew when it is still published. Time zone: the device's (validated), else
   the member's notification preference, else the latest planned session's, else Asia/Dubai.
+  `planState` is `awaiting_coach` while the member has access but the current block has no
+  planned session (the coach or the Brain is still preparing it, or it waits for the coach's
+  review), `ended` once access has ended or the programme is complete. With a queued renewal
+  the end state is `next_block` at the queued start and `nextProgramme` gives its length.
 - `GET /api/v1/programme/timeline?timezone=`: one entry per day of the current programme
-  (upfront) or block (monthly): session or rest, done / missed / today / planned / canceled.
+  (upfront) or block (monthly): session or rest, done / missed / today / planned / canceled;
+  without a plan for the block, days are `unplanned` (not rest) and `planState` is returned.
 - Worker `sweepProgrammes` (new `programmes` step of the tenant cycle, skipped while suspended):
-  closes upfront programmes whose access ended once (`programme.ended`, notice
-  `programme-ended`), sends `programme-ending` 3 days before the end (programmes longer than 3
-  days), marks each new monthly block once (`programme.block_started` for the Brain, notice
-  `programme-next-block`), and ends orphaned voice add-ons. The three template keys are
-  registered in `message-templates.ts`.
+  promotes queued upfront programmes whose start passed, closes upfront programmes whose
+  access ended once (`programme.ended`, notice `programme-ended`), sends `programme-ending` 3
+  days before the end (programmes longer than 3 days), marks each new monthly block once
+  (`programme.block_started` for the Brain, notice `programme-next-block`), and ends orphaned
+  voice add-ons. The block sweep visits every monthly member (pages of 500 by id) and keeps
+  `data.blockNotice { startsAt, block }` on the row, so a block missed during a worker outage
+  is caught up within its first 7 days (a row with no notice history further into a block is
+  marked without a late notice). The three template keys are registered in
+  `message-templates.ts`; the registry default of `programme-next-block` is generic ("A new
+  block of your programme has started"), because a published template replaces the sender's
+  text, which names the block and its length.
 
 ### UI (new components; `workspace.tsx` only mounts them)
 
 - `programme-today.tsx`: `ProgrammeToday` on the member's Today screen (Day N of M with a
   progress bar, block badge for rolling offers, today's session or rest day with a start link,
+  "Your coach is preparing your plan" while `planState` is `awaiting_coach`, no day tiles once
+  it is `ended`, "Choose your next plan" linking to `/app/membership#offers`,
   what's next, streak/adherence, nutrition card with calories and macros, end-of-programme notice
   with renew), `ProgrammeTimeline` at the new `/app/timeline` route (nav: "Programme timeline").
 - `programme-offers.tsx`: the trainer's offer form (billing, programme length or rolling, price
@@ -178,7 +227,10 @@ scopes (row security limits both reads).
   member membership page, trainer offer cards, the storefront, the public website offer cards and
   the onboarding preview, `OfferVoicePrice` to price/change an offer's add-on.
 - `programme-membership.tsx`: `UpfrontMembership` (paid in full, access until, no renewal
-  control) and `VoiceAddOnCard` (add, remove at period end, keep, check purchase).
+  control, the queued next programme, and the offers the member may buy now, mirroring the
+  API's admission: any published offer once the programme ended, upfront offers in its final
+  week, none otherwise) and `VoiceAddOnCard` (add, remove at period end, keep, check purchase,
+  "being confirmed").
 - `apps/web/app/programme.css`: logical properties only; grids use `minmax(min(100%, …))` so
   cards and the timeline fit 390px.
 
@@ -268,20 +320,100 @@ Runs:
 Not run: the whole suite, `next build`, the e2e harness, a browser check at 390px (layout relies
 on the logical-CSS lint test and responsive grid rules only).
 
+### Review fixes (28 September 2026) and their runs
+
+Fixed from the review of the first commit (findings in order):
+
+1. **Voice add-on after an exit** (major): the exit stops the add-on renewing before the
+   membership ends (uncertain outcome blocks the exit), and the orphan sweep treats a row with
+   no subscriber membership as orphaned and cancels it (`membership-exit.ts`, `voice-addon.ts`).
+2. **Orphan sweep starvation** (major): the "must end now" test moved into SQL before the page
+   limit, with a `user_id` cursor (`voice-addon.ts`).
+3. **Upfront revenue counted as MRR** (major): upfront rows are left out of MRR and reported
+   apart with a 30-day equivalent; voice add-ons are added to MRR; paying members and churn
+   cover upfront programmes (`business-metrics.ts`, `admin-operations.ts`).
+4. **Monthly purchase after upfront access ended but before the sweep** threw: an upfront row
+   whose access is over now counts as terminal for a non-terminal event (`stripe-events.ts`).
+5. **Early renewal** now queues the next programme instead of carrying days (no "Day M of M"
+   plateau, the Brain plans the right length, no mislabelled days); refunds of the current or
+   the queued programme are handled (`programme-billing.ts`, `programme-today.ts`,
+   `programme-length.ts`, `packages/domain/src/programme.ts`).
+6. **Rest day without a plan**: `planState` (`awaiting_coach` / `ready` / `ended` / `none`);
+   rest only when the block has a plan; UI messages and no tiles once ended.
+7. **No way to buy from the upfront membership card**: it lists the offers the member may buy
+   now; "Choose your next plan" links to them.
+8. **Second add-on purchase while the first is being confirmed**: `VOICE_PENDING` and a
+   `confirming` pending state; reconcile resolves it.
+9. **Full add-on refund kept voice**: now ends voice and the worker cancels the add-on.
+10. **Block sweep capped at 500 and day 1-2 window**: pages through every member and catches up
+    a missed block within 7 days, remembered on the row.
+11. **Pair block lengths**: monthly pairs must share the length; a length change starts a new
+    block.
+12. **Template default** of `programme-next-block` is generic.
+13. **Lifecycle triggers** (paid milestone, intake reminder, refund notices) include
+    `stripe-programme:` payments and never count a voice add-on invoice as a membership's first
+    payment (`lifecycle-messages.ts`). No dedicated test for this one; the existing
+    `lifecycle-messages` suite passes.
+
+Missing requirement (no e2e path for an upfront purchase): the e2e harness still was **not run**
+(it needs a production web build). Instead, `tests/programme-stripe-mock.test.ts` gained an
+integration test that drives the real API and the real Stripe SDK against the e2e Stripe
+double: the trainer creates and activates an upfront offer with a voice add-on price, a member
+buys the programme and the add-on through mock Checkouts, the member leaves, and the worker
+ends the add-on at the mock. No e2e scenario file was added (it could not be run here).
+
+Tests added: `tests/programme-review.test.ts` (7), the queued-renewal test replacing the
+carried-days test in `tests/programme-billing.test.ts`, the Stripe double integration test in
+`tests/programme-stripe-mock.test.ts`, and an upfront/voice metrics test in
+`tests/governance-metrics.test.ts`.
+
+Runs on the final code:
+
+- `npx tsc --noEmit`: exit 0.
+- PGlite (`--test-concurrency=2`), 18 files: the six programme files (billing, voice, today,
+  calendar, stripe-mock, review), finance-checkout, finance-completion, governance-suspension,
+  governance-metrics, accounts-membership-exit, lifecycle-messages, messaging-templates,
+  isolation-elevation, logical-css, privacy-lifecycle, retention, isolation-follower:
+  113 tests, 113 pass, 0 fail, 0 skipped.
+- PGlite, 13 more related files (acquisition, bounded-bootstrap, coach-site, e2e-harness-mocks,
+  fix-ledger, fix-web, fix2-finance, fix2-web, governance-web, isolation-guard, isolation-scope,
+  onboarding-completion, rtl-layout): 118 tests, 118 pass, 0 fail.
+- PostgreSQL, `/opt/tools/pg-sandbox.sh 56132 <worktree>`, run 1 with 11 files (the six
+  programme files, finance-checkout, finance-completion, governance-metrics,
+  accounts-membership-exit, lifecycle-messages): verifier
+  `{"runtimeAccess":"verified","migrations":55,…,"tenantScopeFixed":true}`, 73 tests, 73 pass,
+  `PG_SELECTED_FAILED_FILES=0`.
+- PostgreSQL, run 2 with 7 files (isolation-scope, isolation-follower, isolation-elevation,
+  isolation-guard, governance-suspension, privacy-lifecycle, fix-ledger): verifier passed,
+  46 tests, 46 pass, `PG_SELECTED_FAILED_FILES=0`.
+
+Still not run: the whole suite, `next build`, the e2e harness, a browser check at 390px.
+
 ## Limits
 
 - Upfront programmes renew only by a new purchase (in the final week or after the end); there
   is no automatic renewal or instalment plan.
 - A voice add-on for an upfront member renews monthly until the worker ends it after the
-  programme ends; the last period is not prorated. A failed add-on payment removes voice at once
-  (no grace).
-- Only one queued programme is modelled: an early renewal starts now and carries the unused
-  days, instead of queuing a second programme.
-- The block-start notice is sent on day 1 or 2 of a block; a worker outage longer than that
-  skips it (the `programme.block_started` event is then not recorded for that block).
+  programme ends (or at once after an exit or a full add-on refund); the last period is not
+  prorated or refunded. A failed add-on payment removes voice at once (no grace).
+- One renewal can be queued at a time; a second purchase while one is queued is refused
+  (a payment that still arrives is posted and opens a `reconciliation` record). The queued
+  programme's offer modules apply from its start once the worker promotes it (reads of the
+  day and length switch at its start already).
+- If the exit is refused after the add-on was set to end (a blocker found under the exit
+  lock), the member keeps the add-on until its period ends and can keep it from the membership
+  page.
+- A full refund of any charge of the current add-on subscription ends it, whichever month the
+  charge paid for.
+- The block-start notice is caught up within the first 7 days of a block; a worker outage
+  longer than that skips the notice and the `programme.block_started` event for that block.
+- `planState` reads only planned sessions the member can see; a plan held in the coach's
+  private review queue (the `plans` package) shows as `awaiting_coach` until sessions exist.
+- Upfront paying members are counted for every month their paid window covers even if the
+  programme was later refunded in full.
 - Merge note for the coordinator: `apps/api/src/programme-length.ts` is shared with the `plans`
   package (same signature); keep this package's logic. `TenantSchedulers` gained a `programmes`
   step (tests/governance-suspension.test.ts updated). Stripe-event routing order: bookings →
   voice add-on → membership/programme checkout → generic.
-- Lifecycle, retention and first-payment messages still key on membership invoices; programme
-  payments are not yet part of those message triggers.
+- Retention messages were not changed in this package; lifecycle triggers (paid milestone,
+  intake reminder, refund notices) now include programme payments.

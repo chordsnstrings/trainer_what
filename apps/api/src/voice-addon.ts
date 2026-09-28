@@ -44,12 +44,17 @@ export type VoiceAddOnState = {
   verified: boolean;
   lastStripeEventAt: number;
   intentId?: string | null;
+  /** The monthly amount of the add-on's provider price, when the provider sent it. */
+  amountMinor?: number | null;
+  /** Set when the add-on must end now (a full refund); the worker cancels it. */
+  endRequested?: string;
 };
 /** An add-on grants voice while its verified provider subscription is current. */
 export function voiceAddOnEntitled(v: any, now = Date.now()): boolean {
   return (
     !!v &&
     v.verified === true &&
+    !v.endRequested &&
     ENTITLED.has(v.status) &&
     (!v.periodEnd || Date.parse(v.periodEnd) > now)
   );
@@ -342,6 +347,18 @@ export async function projectVoiceAddOn(
       verified: !!offer,
       lastStripeEventAt: Math.max(meta.eventTime, v?.lastStripeEventAt ?? 0),
       intentId: object.metadata?.intent_id ?? v?.intentId ?? null,
+      amountMinor:
+        Number.isSafeInteger(line?.price?.unit_amount)
+          ? line.price.unit_amount
+          : v?.providerId === object.id
+            ? (v?.amountMinor ?? null)
+            : null,
+      // A refunded add-on stays ended until its cancellation is mirrored.
+      ...(v?.providerId === object.id &&
+      v?.endRequested &&
+      !TERMINAL.has(object.status)
+        ? { endRequested: v.endRequested }
+        : {}),
     };
     await tx.query(
       "UPDATE subscriptions SET data=data||jsonb_build_object('voiceAddOn',$2::jsonb) WHERE id=$1",
@@ -556,6 +573,14 @@ async function processVoiceInvoice(
 // ---------------------------------------------------------------- member API
 
 type Member = Actor & { email?: string };
+/**
+ * An add-on purchase still in flight: a checkout being created, open or
+ * uncertain, or one the provider completed whose add-on subscription has not
+ * been mirrored yet (a second purchase then would charge twice). $1 is the
+ * member, $2 the mirrored add-on subscription id (or null).
+ */
+const PENDING_VOICE_CHECKOUT =
+  "kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='voice_addon' AND (status IN ('creating','open','unknown') OR (status='completed' AND NOT data ? 'subscriptionStatus' AND data->>'subscriptionId' IS DISTINCT FROM $2::text))";
 const subscriber = (a: Actor) => {
   if (a.role !== "subscriber")
     throw fail("SUBSCRIBER_REQUIRED", "Subscriber access required", 403);
@@ -576,17 +601,18 @@ export async function voiceAddOnStatus(db: Database, a: Actor) {
           [s.data.productId],
         )
       : [];
-    const [pending] = await tx.query(
-      "SELECT id,status,data FROM records WHERE kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='voice_addon' AND status IN ('creating','open','unknown') ORDER BY created_at DESC LIMIT 1",
-      [a.userId],
-    );
     const v = s?.data?.voiceAddOn ?? null;
+    const [pending] = await tx.query(
+      `SELECT id,CASE WHEN status='completed' THEN 'confirming' ELSE status END AS status,data FROM records WHERE ${PENDING_VOICE_CHECKOUT} ORDER BY created_at DESC LIMIT 1`,
+      [a.userId, v?.providerId ?? null],
+    );
     const included = paid && voiceIncluded(s?.data);
     return {
       included,
       available:
         paid &&
         !included &&
+        pending?.status !== "confirming" &&
         !!offer?.data?.voiceStripePriceId &&
         !!offer?.data?.voiceAddOnMinor,
       priceMinor: offer?.data?.voiceAddOnMinor ?? null,
@@ -659,9 +685,14 @@ export async function addVoiceAddOn(
         "Your coach has not priced premium voice for this membership yet.",
       );
     const [old] = await tx.query(
-      "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='voice_addon' AND status IN ('creating','open','unknown') ORDER BY created_at LIMIT 1 FOR UPDATE",
-      [a.userId],
+      `SELECT * FROM records WHERE ${PENDING_VOICE_CHECKOUT} ORDER BY created_at LIMIT 1 FOR UPDATE`,
+      [a.userId, v?.providerId ?? null],
     );
+    if (old?.status === "completed")
+      throw fail(
+        "VOICE_PENDING",
+        "Your premium voice purchase is being confirmed. Check again shortly.",
+      );
     if (old) {
       if (
         old.status === "open" &&
@@ -925,10 +956,73 @@ export async function removeVoiceAddOn(
 }
 
 /**
- * The worker ends add-ons whose membership no longer has paid access (a
- * canceled membership, or an upfront programme that ended or was refunded).
- * Without configured provider access nothing is sent; entitlement already
- * requires paid access.
+ * A follower leaving (or removed by the owner) stops the add-on from renewing
+ * before the membership ends, as the membership renewal cancel does: the flag
+ * is reversible while the exit is still being checked, and an uncertain
+ * provider outcome blocks the exit instead of leaving a charge running. The
+ * worker then ends the add-on at once, because it has no membership left.
+ * `reader` is the actor of the exit (the follower or the owner).
+ */
+export async function stopVoiceAddOnForExit(
+  db: Database,
+  reader: Actor,
+  userId: string,
+  stripe: () => StripeLike,
+): Promise<"none" | "ends"> {
+  const [s] = await db.tenant(reader, (tx) =>
+    tx.query("SELECT data->'voiceAddOn' AS v FROM subscriptions WHERE user_id=$1", [
+      userId,
+    ]),
+  );
+  const v: VoiceAddOnState | undefined = s?.v ?? undefined;
+  // An incomplete add-on has taken no payment; the worker ends it.
+  if (!v?.providerId || TERMINAL.has(v.status) || v.status === "incomplete")
+    return "none";
+  if (v.cancelAtPeriodEnd) return "ends";
+  const client = stripe();
+  const remote: any = await client.subscriptions.update(
+    v.providerId,
+    { cancel_at_period_end: true },
+    { idempotencyKey: `voice-addon-cancel:${v.providerId}:${v.lastStripeEventAt}` },
+  );
+  if (remote.id !== v.providerId || remote.cancel_at_period_end !== true)
+    throw fail(
+      "VOICE_UNRESOLVED",
+      "The payment provider has not confirmed that premium voice stops. Nothing was changed; try again shortly.",
+    );
+  await projectVoiceAddOn(db, reader.tenantId, userId, remote, {
+    eventId: `voice-addon-exit:${remote.id}`,
+    eventTime: Math.floor(Date.now() / 1000),
+    stripe: client,
+  });
+  return "ends";
+}
+
+/**
+ * Add-ons that must end now: the member has no paid access (a canceled
+ * membership, an upfront programme that ended or was refunded), is no longer
+ * a member of the workspace, or the add-on charge was refunded in full. The
+ * test is in SQL, before the page limit, so healthy add-ons never crowd out
+ * the ones to end; pages follow a user_id cursor.
+ */
+const ORPHANED_VOICE_ADDONS = `SELECT s.user_id,s.status,s.period_end,s.data FROM subscriptions s
+ WHERE s.data ? 'voiceAddOn' AND s.data->'voiceAddOn'->>'status' IN ('active','trialing','past_due','incomplete')
+ AND s.user_id>$1::uuid AND (
+  NOT EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=s.tenant_id AND m.user_id=s.user_id AND m.role='subscriber')
+  OR s.data->'voiceAddOn' ? 'endRequested'
+  OR NOT (
+   (s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now()))
+   OR (s.status='past_due' AND CASE WHEN s.data->>'graceUntil' ~ '^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+(Z|[+-]\\d{2}:?\\d{2})$' THEN (s.data->>'graceUntil')::timestamptz>now() ELSE false END)
+  )
+ ) ORDER BY s.user_id LIMIT $2`;
+const ORPHAN_PAGE = 100,
+  ORPHAN_PAGES = 20;
+
+/**
+ * The worker ends orphaned add-ons (ORPHANED_VOICE_ADDONS) at once. Without
+ * configured provider access nothing is sent; entitlement already requires
+ * paid access. A failed cancel is retried on the next cycle and never blocks
+ * the rows after it.
  */
 export async function endOrphanedVoiceAddOns(
   db: Database,
@@ -936,34 +1030,46 @@ export async function endOrphanedVoiceAddOns(
   actor: Actor,
   stripe?: StripeLike,
 ) {
-  const rows = await db.tenant(actor, (tx) =>
-    tx.query(
-      "SELECT user_id,status,period_end,data FROM subscriptions WHERE data ? 'voiceAddOn' AND data->'voiceAddOn'->>'status' IN ('active','trialing','past_due','incomplete') LIMIT 100",
-    ),
-  );
-  const orphaned = rows.filter((s) => !subscriptionHasAccess(s));
-  if (!orphaned.length) return { ended: 0, pending: 0 };
   const client = stripe ?? optionalStripe();
-  if (!client) return { ended: 0, pending: orphaned.length };
-  let ended = 0;
-  for (const s of orphaned) {
-    const v = s.data.voiceAddOn;
-    try {
-      const remote: any = await client.subscriptions.cancel(v.providerId, undefined, {
-        idempotencyKey: `voice-addon-end:${v.providerId}`,
-      });
-      if (remote.id !== v.providerId) continue;
-      await projectVoiceAddOn(db, tenantId, s.user_id, remote, {
-        eventId: `voice-addon-end:${remote.id}`,
-        eventTime: Math.floor(Date.now() / 1000),
-        stripe: client,
-      });
-      ended++;
-    } catch {
-      console.error("Voice add-on end could not be confirmed");
+  let ended = 0,
+    pending = 0,
+    cursor = "00000000-0000-0000-0000-000000000000";
+  for (let page = 0; page < ORPHAN_PAGES; page++) {
+    const rows = await db.tenant(actor, (tx) =>
+      tx.query(ORPHANED_VOICE_ADDONS, [cursor, ORPHAN_PAGE]),
+    );
+    if (!rows.length) break;
+    cursor = rows[rows.length - 1].user_id;
+    for (const s of rows) {
+      const v = s.data.voiceAddOn;
+      if (!client || !v?.providerId) {
+        pending++;
+        continue;
+      }
+      try {
+        const remote: any = await client.subscriptions.cancel(
+          v.providerId,
+          undefined,
+          { idempotencyKey: `voice-addon-end:${v.providerId}` },
+        );
+        if (remote.id !== v.providerId) {
+          pending++;
+          continue;
+        }
+        await projectVoiceAddOn(db, tenantId, s.user_id, remote, {
+          eventId: `voice-addon-end:${remote.id}`,
+          eventTime: Math.floor(Date.now() / 1000),
+          stripe: client,
+        });
+        ended++;
+      } catch {
+        pending++;
+        console.error("Voice add-on end could not be confirmed");
+      }
     }
+    if (rows.length < ORPHAN_PAGE) break;
   }
-  return { ended, pending: orphaned.length - ended };
+  return { ended, pending };
 }
 
 export function registerVoiceAddOn(
@@ -995,12 +1101,16 @@ export function registerVoiceAddOn(
   );
   app.post("/api/v1/membership/voice-addon/reconcile", async (req) => {
     const a = subscriber(identity(req));
-    const [pending] = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='voice_addon' AND status IN ('creating','open','unknown') ORDER BY created_at LIMIT 1",
+    const [pending] = await db.tenant(a, async (tx) => {
+      const [s] = await tx.query(
+        "SELECT data->'voiceAddOn'->>'providerId' AS current FROM subscriptions WHERE user_id=$1",
         [a.userId],
-      ),
-    );
+      );
+      return tx.query(
+        `SELECT * FROM records WHERE ${PENDING_VOICE_CHECKOUT} ORDER BY created_at LIMIT 1`,
+        [a.userId, s?.current ?? null],
+      );
+    });
     if (!pending) return { status: "resolved" };
     return reconcileVoiceCheckout(db, a, pending, providers.stripe());
   });
