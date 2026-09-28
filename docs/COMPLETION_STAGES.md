@@ -6,6 +6,20 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-28b — Trainer Brain core, web addresses and marketing site (integrate/round2, unmerged)
+
+Owner direction (28 Sep): the Trainer Brain generates and adapts each subscriber's plan and escalates to the trainer only when not confident; programme length is set by the trainer; voice is an add-on that runs the session; every trainer gets a subdomain and may buy a custom domain paid yearly and handled autonomously; the platform holds those domains and never shows the registrar; a professional multi-page marketing site with SEO, LLM SEO and a follower conversion estimate.
+
+| Package | Delivered | Record |
+| --- | --- | --- |
+| Brain plans | Model-generated dated programmes from intake, Brain rules, cases, templates and the Client Twin; code validator with hard bounds; deterministic confidence with a trainer threshold; review queue (approve, edit with stored diff, reject); safety floor in code; learning examples; weekly adaptation; plan qualification before automatic delivery (migration 063) | `docs/features/brain-plans.md` |
+| Programme | Trainer-set programme length per offer, monthly or upfront billing, voice as a membership add-on, Today view with Day N of M and nutrition progress (migration 064) | `docs/features/programme.md` |
+| Voice session | Brain-written session script in the trainer's style, trainer-voice audio, hands-free runner with timers, set logging from speech, pain stops the session and opens a safety hold, speech-to-text adapter (migration 065); fixed the old cue and title bugs | `docs/features/voice-session.md` |
+| Web addresses | Automatic `<slug>.<root>` subdomains with on-demand TLS; Namecheap and generic registrar adapters; autonomous search, yearly Stripe payment, purchase with reconciliation, DNS, activation, renewal and lapse; platform is the registrant; registrar never shown to trainers (guard test) (migration 066) | `docs/features/web-addresses.md` |
+| Marketing site | 41 server-rendered public pages from one typed list (features, specialties, Dubai and Abu Dhabi, guides, methodology with cited sources), sitemap, JSON-LD, llms.txt, follower and earnings calculators labelled as estimates, optional Instagram connection, early-access capture | `docs/features/marketing-site.md` |
+
+Checks actually run on merged head `5d405e0`: TypeScript passed; full PGlite suite 896 tests, 895 pass, 0 fail, 1 skipped. Each package ran its own PostgreSQL restricted-role tests; web addresses also ran the Python deployment tests with Caddy 2.11.4; the marketing site ran `next build` and a local Chromium check of every page at 390 and 1440 px. Not run on the merged head yet: whole PostgreSQL suite, e2e harness, Claude-authored model answers and judging. No real model, registrar, Stripe or voice provider was called.
+
 ## Stage 2026-09-28 — completion packages, hardening and end-to-end harness (integrate/round2, unmerged)
 
 Owner request (27 Sep, evening): complete every partial and not-built feature, test the rest with mock data, use Claude to check AI responses, make it production ready. Built as eleven packages, each in an isolated worktree with an adversarial review and a fix round, then merged by the coordinator on `integrate/round2` and pushed to `claude/repository-overview-osejlw` (PR #3). Nothing was deployed; `main` and the live server are unchanged.
