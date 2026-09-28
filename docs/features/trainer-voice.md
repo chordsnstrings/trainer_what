@@ -97,10 +97,11 @@ owner and returns the voice's provider, model and language. Withdrawing voice co
 (`POST /privacy/consent`, or `POST /voice/revoke`) deletes every clone and queues its provider
 deletion.
 
-Operator review before members hear a clone (`VOICE_CLONE_REVIEW_REQUIRED`) is **on by
-default** (review round 1): activation leaves the workspace voice `pending` for the existing
-identity and rights verification in Integration operations, where the operator can listen to the
-preview. Switching it off lets the trainer's own recording and consent be the only check.
+The trainer reviews their own clone: they must play its preview line and then accept (activate)
+it before members hear it. Owner decision (28 September 2026): that is the review, so operator
+review (`VOICE_CLONE_REVIEW_REQUIRED`) is **off by default**. Switching it on also holds each
+accepted clone as `pending` for the identity and rights verification in Integration operations,
+where the operator can listen to the preview.
 
 ## Recordings
 
@@ -215,7 +216,7 @@ switched off.
   `VOICE_PRO_CLONE_SLOTS` (default 2; counted across the platform by
   `voice_pro_clones_in_use()`, including Pro clones still being deleted),
   `VOICE_PRO_CLONE_PRICE_AED` (shown, not charged), `VOICE_CLONE_USD` (default 0),
-  `VOICE_CLONE_REVIEW_REQUIRED` (default **on**), `VOICE_TRAINING_OPT_OUT` (default off),
+  `VOICE_CLONE_REVIEW_REQUIRED` (default off; owner decision), `VOICE_TRAINING_OPT_OUT` (default off),
   `VOICE_CONTRACT_VERIFIED`. Leaving Cartesia is refused while clones depend on it (above).
 - Speech-to-text: `STT_PROVIDER` select, blank `STT_BASE_URL` and `STT_MODEL` mean the provider's
   own (`ink-whisper` for Cartesia), `STT_API_VERSION`, USD per hour (help: about 0.07 to 0.12 for
@@ -376,7 +377,7 @@ fixing. Regression tests are in `tests/voice-clones.test.ts` (10 new tests, 24 i
 | 2 | Named deletions were single-shot; an answer lost after the clone was deleted was not re-queued; lists read one page | Fixed: three empty look-ups five minutes apart; `queueStrays` re-queues the name; all list look-ups page |
 | 3 | A Pro voice (named by Cartesia) could survive fine-tune deletion | Fixed: fine-tune deletion lists and deletes its voices first; the double now names Pro voices itself |
 | 4 | A Pro clone's raw recordings stayed in the Cartesia dataset | Fixed: dataset queued for deletion once the Pro voice is ready (and when a failure cannot be retried); the live smoke must confirm the Pro voice keeps speaking afterwards |
-| 5 | Clone review defaulted to off | Fixed: `VOICE_CLONE_REVIEW_REQUIRED` defaults to on. Not done: a liveness phrase and a reviewer excerpt (owner decision 3) |
+| 5 | Clone review defaulted to off | Fixed in round 1 (default on), then set back to off by the owner on 28 September: the trainer's preview-and-accept is the review. Not done: a liveness phrase and a reviewer excerpt (owner decision 3) |
 | 6 | `STT_ZERO_RETENTION` silently ignored with Cartesia | Fixed: the combination stays unapproved (capability, contract, connection check); the member consent names the provider and whose retention applies |
 | 7 | Stuck deletions were visible only for the 100 newest workspaces; no alert | Fixed: `voice_provider_deletions_outstanding()` lists every workspace's open deletions (platform administrators only); `attention` raises a platform alert, cleared when a retry succeeds |
 | 8 | The runtime gate did not check the owner-only policy or the queue's missing DELETE | Fixed in `scripts/verify-runtime-access.mjs` |

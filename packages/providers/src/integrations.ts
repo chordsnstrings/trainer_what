@@ -401,7 +401,7 @@ export function voiceContract() {
       cloneUsd: Number.isFinite(cloneUsd) && cloneUsd >= 0 ? cloneUsd : 0,
       // On until the owner decides otherwise: an operator checks identity and
       // rights before members hear a clone, as for linked ElevenLabs voices.
-      reviewRequired: flag(c.VOICE_CLONE_REVIEW_REQUIRED, true),
+      reviewRequired: flag(c.VOICE_CLONE_REVIEW_REQUIRED, false),
       providerTrainingOptOut: flag(c.VOICE_TRAINING_OPT_OUT, false),
     },
   };

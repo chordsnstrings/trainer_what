@@ -853,8 +853,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Review each clone before members hear it",
         "boolean",
         {
-          defaultValue: "true",
-          help: "On by default: an activated clone waits in Integration operations for your identity and rights check (listen to its preview) before members hear it. Turn off only if the trainer's own recording and consent are enough.",
+          defaultValue: "false",
+          help: "Off by default: the trainer reviews their own clone (listens to its preview and accepts it) and members hear it once accepted. Turn on to also hold each accepted clone in Integration operations for your identity and rights check.",
         },
       ),
       field(

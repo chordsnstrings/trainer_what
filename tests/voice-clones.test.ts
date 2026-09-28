@@ -272,9 +272,12 @@ test("Cartesia settings: provider choice, standard addresses, validation and a r
   } finally {
     delete process.env.STT_ZERO_RETENTION;
   }
-  // Operator review of each clone is on unless switched off.
+  // The trainer's own preview-and-accept is the review; operator review is
+  // off unless switched on (owner decision, 28 September 2026).
   delete process.env.VOICE_CLONE_REVIEW_REQUIRED;
   try {
+    assert.equal(voiceContract().cloning.reviewRequired, false);
+    process.env.VOICE_CLONE_REVIEW_REQUIRED = "true";
     assert.equal(voiceContract().cloning.reviewRequired, true);
   } finally {
     process.env.VOICE_CLONE_REVIEW_REQUIRED = "false";
