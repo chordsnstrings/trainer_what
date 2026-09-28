@@ -328,6 +328,45 @@ export async function leadAnalytics(db: Database, a: Actor) {
     note: "Every website inquiry is counted. Source, campaign and referral are shown only for visitors who allowed optional analytics, and only from visits to your own website pages; withdrawing that permission removes their attribution. Joined counts leads whose visitor later joined your coaching.",
   };
 }
+/**
+ * A trainer's revenue by Dubai calendar month, from the journals the payment
+ * paths actually post (stripe-invoice, stripe-programme, booking-charge and
+ * their refunds; docs/features/platform-finance.md). The previous query read
+ * gross_revenue and commission_revenue, which nothing writes. Minor units.
+ */
+export async function trainerRevenue(tx: Tx) {
+  const MONTH = "to_char(j.created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')";
+  const charges = await tx.query(
+    `SELECT ${MONTH} AS month,coalesce(sum((j.data->>'grossMinor')::bigint) FILTER(WHERE j.source_key LIKE 'stripe-invoice:%' AND coalesce(j.data->>'purpose','')<>'voice_addon'),0)::text AS memberships,coalesce(sum((j.data->>'grossMinor')::bigint) FILTER(WHERE j.source_key LIKE 'stripe-programme:%'),0)::text AS programmes,coalesce(sum((j.data->>'grossMinor')::bigint) FILTER(WHERE j.source_key LIKE 'stripe-invoice:%' AND j.data->>'purpose'='voice_addon'),0)::text AS voice_add_on,coalesce(sum((j.data->>'grossMinor')::bigint) FILTER(WHERE j.source_key LIKE 'booking-charge:%'),0)::text AS sessions,coalesce(sum((j.data->>'refundAmountMinor')::bigint) FILTER(WHERE j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%'),0)::text AS refunds FROM journals j WHERE j.created_at>now()-interval '24 months' GROUP BY 1`,
+  );
+  const lines = await tx.query(
+    `SELECT ${MONTH} AS month,coalesce(-sum(l.amount_minor) FILTER(WHERE l.account='platform_commission'),0)::text AS commission,coalesce(-sum(l.amount_minor) FILTER(WHERE l.account='trainer_payable' AND j.source_key NOT LIKE 'payout:%' AND j.source_key NOT LIKE 'payout-return:%' AND j.source_key NOT LIKE 'usage:%' AND j.source_key NOT LIKE 'allocated-cost:%' AND j.source_key NOT LIKE 'stripe-settlement:%' AND j.source_key NOT LIKE 'stripe-debit:%'),0)::text AS earned,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='trainer_payable' AND (j.source_key LIKE 'usage:%' OR j.source_key LIKE 'allocated-cost:%' OR j.source_key LIKE 'stripe-settlement:%')),0)::text AS usage_and_fees,coalesce(sum(l.amount_minor) FILTER(WHERE l.account='trainer_payable' AND (j.source_key LIKE 'payout:%' OR j.source_key LIKE 'payout-return:%')),0)::text AS paid_out FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.created_at>now()-interval '24 months' GROUP BY 1`,
+  );
+  const byMonth = new Map(lines.map((r) => [r.month, r]));
+  const months = [
+    ...new Set([...charges.map((r) => r.month), ...lines.map((r) => r.month)]),
+  ].sort((x, y) => y.localeCompare(x));
+  const charge = new Map(charges.map((r) => [r.month, r]));
+  return months.map((month) => {
+    const c = charge.get(month),
+      l = byMonth.get(month);
+    const n = (v: unknown) => Number(v ?? 0);
+    return {
+      month,
+      gross_minor:
+        n(c?.memberships) + n(c?.programmes) + n(c?.voice_add_on) + n(c?.sessions),
+      memberships_minor: n(c?.memberships),
+      programmes_minor: n(c?.programmes),
+      voice_add_on_minor: n(c?.voice_add_on),
+      sessions_minor: n(c?.sessions),
+      refunds_minor: n(c?.refunds),
+      platform_commission_minor: n(l?.commission),
+      earned_minor: n(l?.earned),
+      usage_and_fees_minor: n(l?.usage_and_fees),
+      paid_out_minor: n(l?.paid_out),
+    };
+  });
+}
 export async function businessAnalytics(db: Database, a: Actor) {
   // Inquiries are not finance records: the finance role gets no lead card.
   const leads = a.role === "owner" ? await leadAnalytics(db, a) : null;
@@ -372,10 +411,8 @@ export async function businessAnalytics(db: Database, a: Actor) {
         .sort((x, y) => y.cohort.localeCompare(x.cohort))
         .slice(0, 24);
     })(),
-    revenue: await tx.query(
-      "SELECT to_char(j.created_at,'YYYY-MM') AS month,l.account,sum(l.amount_minor)::text AS amount_minor FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.created_at>now()-interval '24 months' AND l.account IN ('gross_revenue','trainer_payable','commission_revenue','platform_commission','refunds') GROUP BY 1,2 ORDER BY 1 DESC,2",
-    ),
-    note: "Cohorts use account join month and current subscription state. Recurring values are current price totals, not recognized revenue. No health, meal, or coaching data is used for growth reporting.",
+    revenue: await trainerRevenue(tx),
+    note: "Cohorts use account join month and current subscription state. Recurring values are current price totals, not recognized revenue. Revenue is by Dubai calendar month from your ledger: what members paid by product, refunds, platform commission and what you earned before usage charges, fees and payouts. No health, meal, or coaching data is used for growth reporting.",
   }));
 }
 export function registerAdminOperations(

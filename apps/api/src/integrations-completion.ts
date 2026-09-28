@@ -31,6 +31,7 @@ import { tokenHash, newToken } from "./auth.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { memberAccess } from "./entitlements.ts";
+import { costEstimated, reserveVoiceCost } from "./cost-accounting.ts";
 import {
   readCoachWearablePolicy,
   revokeHealthKitDevices,
@@ -1246,25 +1247,23 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         );
       const usageId = randomUUID(),
         audioId = randomUUID();
-      await tx.query(
-        "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,'voice.guidance',$8,$4,'reserved',$5,$6,$7)",
-        [
-          usageId,
-          a.tenantId,
-          a.userId,
-          voice.model ?? pricing.model,
-          pricing.priceVersion,
-          JSON.stringify({
-            basis: "characters",
-            characters: segment.text.length,
-            usdPer1000Characters: pricing.price,
-            reservedCostUsd: estimatedCost,
-            estimated: true,
-          }),
-          audioId,
-          pricing.provider,
-        ],
-      );
+      await reserveVoiceCost(tx, {
+        id: usageId,
+        tenantId: a.tenantId,
+        userId: a.userId,
+        memberId: a.userId,
+        task: "voice.guidance",
+        provider: pricing.provider,
+        model: voice.model ?? pricing.model,
+        priceVersion: pricing.priceVersion,
+        pricing: {
+          basis: "characters",
+          characters: segment.text.length,
+          usdPer1000Characters: pricing.price,
+          reservedCostUsd: estimatedCost,
+        },
+        traceId: audioId,
+      });
       await tx.query(
         "INSERT INTO guided_audio(id,tenant_id,user_id,workout_id,voice_id,voice_version,fingerprint,status,text_content,usage_id) VALUES($1,$2,$3,$4,$5,$6,$7,'reserved',$8,$9)",
         [
@@ -1342,11 +1341,16 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
               providerRequestId: audio.requestId,
               estimatedCostUsd: audio.estimatedCost,
               reconciliation:
-                "Confirm the charge against the provider invoice before statement finalization.",
+                "Priced at its estimate when made; the provider invoice can correct it.",
             }),
           ],
         );
-        // A generated response proves audio delivery, not provider-billed usage. The reserved cost stays unknown until provider invoice reconciliation.
+        // Delivered audio is priced now at the reserved estimate ('estimated'),
+        // so it never blocks the usage charge, month close or payouts; the
+        // provider invoice can still correct it (docs/features/platform-finance.md).
+        await costEstimated(tx, reservation.usageId, {
+          providerRequestId: audio.requestId,
+        });
         await event(tx, a, "voice.guidance_generated", reservation.id, {
           workoutId,
           estimatedCostUsd: audio.estimatedCost,

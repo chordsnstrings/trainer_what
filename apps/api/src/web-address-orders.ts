@@ -918,7 +918,9 @@ export async function processWebAddressStripeEvent(
       for (const refund of refunds)
         if (
           ["succeeded", "pending"].includes(refund?.status) &&
-          refund.amount > 0
+          refund.amount > 0 &&
+          // A pending snapshot delivered after the refund's failure is stale.
+          !(refund.status === "pending" && (await refundFailed(tx, refund.id)))
         )
           await postRefund(tx, tenantId, order, {
             id: refund.id,
@@ -928,6 +930,8 @@ export async function processWebAddressStripeEvent(
               idOf(refund.charge) ??
               (object.object === "charge" ? object.id : undefined),
           });
+        else if (["failed", "canceled"].includes(refund?.status))
+          await reverseFailedRefund(tx, tenantId, order, refund);
     });
     return true;
   }
@@ -972,6 +976,64 @@ export async function processWebAddressStripeEvent(
   }
   // Other events about these objects need nothing from the ledger.
   return true;
+}
+/** Stripe reported this domain refund failed or canceled (terminal states). */
+async function refundFailed(tx: Tx, refundId: string) {
+  const [row] = await tx.query(
+    "SELECT 1 FROM events WHERE name='web_address.refund_failed' AND data->>'refundId'=$1 LIMIT 1",
+    [refundId],
+  );
+  return !!row;
+}
+/**
+ * A domain refund is journaled when Stripe reports it pending, so a pending
+ * refund that later fails or is canceled never paid the money back. Its
+ * journal is reversed once by a compensating entry with the exact opposite
+ * lines (whatever accounts and amounts the refund posted), and the order asks
+ * an operator to refund again (docs/features/platform-finance.md).
+ */
+async function reverseFailedRefund(
+  tx: Tx,
+  tenantId: string,
+  order: Order,
+  refund: any,
+) {
+  if (typeof refund?.id !== "string" || !refund.id) return;
+  const actor = callbackActor(tenantId);
+  if (!(await refundFailed(tx, refund.id)))
+    await event(tx, actor, "web_address.refund_failed", order.id, {
+      refundId: refund.id,
+      providerStatus: String(refund.status).slice(0, 20),
+    });
+  const [original] = await tx.query(
+    "SELECT j.id,j.data,coalesce(jsonb_agg(jsonb_build_object('account',l.account,'amount',l.amount_minor)) FILTER(WHERE l.id IS NOT NULL),'[]') AS lines FROM journals j LEFT JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.source_key=$1 GROUP BY j.id",
+    ["web-address-refund:" + refund.id],
+  );
+  if (!original) return;
+  const reversed = await journal(
+    tx,
+    actor,
+    "web-address-refund-reversal:" + refund.id,
+    "Trainer web address refund did not complete (" + order.hostname + ")",
+    (original.lines as Array<{ account: string; amount: number | string }>).map(
+      (l) => ({ account: l.account, amount: -Number(l.amount) }),
+    ),
+    {
+      orderId: order.id,
+      hostname: order.hostname,
+      refundId: refund.id,
+      reversesJournalId: original.id,
+      refundAmountMinor: Number(original.data?.refundAmountMinor ?? 0),
+      providerStatus: String(refund.status).slice(0, 20),
+      failureReason: refund.failure_reason
+        ? String(refund.failure_reason).slice(0, 80)
+        : null,
+    },
+  );
+  if (reversed)
+    await update(tx, order.id, {
+      attention: `A refund (${refund.id}) ${refund.status === "canceled" ? "was canceled" : "failed"} at Stripe${refund.failure_reason ? ` (${String(refund.failure_reason).slice(0, 80)})` : ""}; its ledger entry was reversed. Refund again and reconcile.`,
+    });
 }
 function optionalStripe(): WebAddressStripe | undefined {
   try {

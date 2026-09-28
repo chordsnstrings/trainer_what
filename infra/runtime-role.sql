@@ -74,6 +74,11 @@ GRANT EXECUTE ON FUNCTION public_discovery_tenant(uuid) TO trainer_service;
 -- by the public endpoint and listed, exported or erased by the Super admin.
 GRANT SELECT,INSERT,UPDATE,DELETE ON early_access_requests TO trainer_service;
 
+-- Platform finance (072, 073): reviewed monthly USD to AED rates and model
+-- token prices are platform reference data, append-only history written and
+-- read by the Super admin and platform finance screens only.
+GRANT SELECT,INSERT ON exchange_rates,model_prices TO trainer_service;
+
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 

@@ -61,6 +61,7 @@ import {
 } from "../../../packages/domain/src/voice-clone.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { requireRecentMfa } from "./security.ts";
+import { costEstimated, reserveVoiceCost } from "./cost-accounting.ts";
 import {
   encryptionReady,
   openSealedBytes,
@@ -524,20 +525,19 @@ async function reserveCost(
   const [spent] = await tx.query("SELECT voice_guidance_spent_today() AS total");
   if (Number(spent.total) + pricing.reservedCostUsd > contract.cap) return null;
   const usageId = randomUUID();
-  await tx.query(
-    "INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,status,price_version,pricing,trace_id) VALUES($1,$2,$3,$4,$5,$6,'reserved',$7,$8,$9)",
-    [
-      usageId,
-      a.tenantId,
-      userId,
-      task,
-      contract.provider,
-      model,
-      contract.priceVersion,
-      JSON.stringify({ ...pricing, estimated: true }),
-      traceId,
-    ],
-  );
+  // The trainer's own set-up work: no member is served.
+  await reserveVoiceCost(tx, {
+    id: usageId,
+    tenantId: a.tenantId,
+    userId,
+    memberId: null,
+    task,
+    provider: contract.provider,
+    model,
+    priceVersion: contract.priceVersion,
+    pricing,
+    traceId,
+  });
   return usageId;
 }
 async function costUnknown(tx: Tx, usageId: string | null) {
@@ -785,10 +785,12 @@ async function stepInstantClone(
         );
       }),
     );
-    // Made: the cost waits for invoice reconciliation.
+    // Made: priced now at its estimate; the provider invoice can correct it.
     const reserved = usageId;
     usageId = null;
-    await db.tenant(actor, (tx) => costUnknown(tx, reserved));
+    await db.tenant(actor, (tx) =>
+      costEstimated(tx, reserved, { providerVoiceId: voice.id }),
+    );
     // An earlier request (resent, or before a retry) may have made a copy.
     if (job.sent || job.resends)
       await db.tenant(actor, async (tx) => {
@@ -1032,7 +1034,10 @@ async function stepFineTune(
       );
       const reserved = usageId;
       usageId = null;
-      await db.tenant(actor, (tx) => costUnknown(tx, reserved));
+      const started = fineTune;
+      await db.tenant(actor, (tx) =>
+        costEstimated(tx, reserved, { providerFineTuneId: started.id }),
+      );
     }
     const created = fineTune;
     return await db.tenant(actor, async (tx) =>
@@ -1742,6 +1747,9 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
               "UPDATE trainer_voice_clones SET preview_audio=$2,previewed_at=now(),updated_at=now() WHERE id=$1 AND status IN ('ready','active')",
               [clone.id, audio.audio],
             );
+            await costEstimated(tx, usageId, {
+              providerRequestId: audio.requestId,
+            });
             await event(tx, a, "voice.clone_previewed", clone.id, {
               estimatedCostUsd: audio.estimatedCost,
               providerRequestId: audio.requestId,

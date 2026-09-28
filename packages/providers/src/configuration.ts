@@ -564,6 +564,54 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "platform_finance",
+    name: "Platform finance",
+    category: "payments",
+    implemented: true,
+    controls: true,
+    description:
+      "Exchange rate and usage-charge rules behind the Super admin's cost and profit figures.",
+    setupNotes:
+      "These record operator decisions (docs/features/platform-finance.md). Every default keeps the behaviour the platform had before these settings existed. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
+    fields: [
+      field("FINANCE_USD_TO_AED", "Default USD to AED rate", "number", {
+        defaultValue: "3.6725",
+        help: "Converts provider costs for a month that has no reviewed rate yet. 3.6725 is the UAE dirham's peg to the US dollar. 1 to 10.",
+      }),
+      field(
+        "FINANCE_USAGE_MARKUP_PERCENT",
+        "Markup on AI and voice usage charged to trainers (%)",
+        "number",
+        {
+          defaultValue: "0",
+          help: "Owner decision pending. 0 charges trainers at cost, as today. 0 to 100. Applies to usage statements posted after the change.",
+        },
+      ),
+      field(
+        "FINANCE_COMPLIMENTARY_USAGE_BEARER",
+        "Who pays for AI and voice used by complimentary members",
+        "select",
+        {
+          defaultValue: "trainer",
+          options: [
+            { value: "trainer", label: "The trainer (in the monthly usage charge)" },
+            { value: "platform", label: "The platform (left out of the usage charge)" },
+          ],
+          help: "Owner decision pending. The trainer pays today. Applies to usage statements posted after the change.",
+        },
+      ),
+      field(
+        "FINANCE_ESTIMATE_UNRESOLVED_USAGE",
+        "Automatic month close estimates unresolved provider usage",
+        "boolean",
+        {
+          defaultValue: "true",
+          help: "Provider calls whose outcome was never confirmed are priced at their stored estimate and marked estimated, so they do not stop the automatic usage charge, month close and payout. A provider invoice can still correct them. Off: automatic close waits until an operator prices or estimates them.",
+        },
+      ),
+    ],
+  },
+  {
     id: "model",
     name: "AI model",
     category: "intelligence",
@@ -579,6 +627,9 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("MODEL_API_KEY", "API key", "secret", { required: true }),
       field("MODEL_NAME", "Model ID", "text", { required: true }),
+      field("MODEL_PROVIDER", "Provider name for cost records", "text", {
+        help: "Recorded on every AI cost row, for example openai, anthropic or openrouter. Leave blank to use the name read from the API address. Lower-case letters, digits, dots, dashes and underscores.",
+      }),
       field(
         "MODEL_VISION_ENABLED",
         "Selected model supports image input",
@@ -1362,10 +1413,19 @@ export function validateIntegrationValues(
           `${entry.label} must be up to 12 comma-separated endings such as com,net`,
         );
       if (
-        key === "WEB_ADDRESS_USD_TO_AED" &&
+        (key === "WEB_ADDRESS_USD_TO_AED" || key === "FINANCE_USD_TO_AED") &&
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+      if (key === "FINANCE_USAGE_MARKUP_PERCENT" && Number(text) > 100)
+        throw new ConfigurationError(`${entry.label} must be from 0 to 100`);
+      if (
+        key === "MODEL_PROVIDER" &&
+        !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a short name such as openai`,
+        );
       if (
         (key === "VOICE_API_VERSION" || key === "STT_API_VERSION") &&
         !/^\d{4}-\d{2}-\d{2}$/.test(text)

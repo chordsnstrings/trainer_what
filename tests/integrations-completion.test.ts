@@ -469,12 +469,16 @@ test("voice enrollment requires reviewed identity/rights, premium membership and
   assert.equal(audioCalls, 1);
   const usage = await db.tenant(owner, (tx) =>
     tx.query(
-      "SELECT status,cost_usd,pricing FROM cost_events WHERE task='voice.guidance'",
+      "SELECT status,cost_usd,estimated_cost_usd,pricing,product FROM cost_events WHERE task='voice.guidance'",
     ),
   );
-  assert.equal(usage[0].status, "unknown");
-  assert.equal(usage[0].cost_usd, null);
+  // Delivered audio is priced at its reserved estimate when made
+  // ('estimated'); the provider invoice can still correct it
+  // (docs/features/platform-finance.md).
+  assert.equal(usage[0].status, "estimated");
   assert.ok(Number(usage[0].pricing.reservedCostUsd) > 0);
+  assert.equal(Number(usage[0].cost_usd), Number(usage[0].estimated_cost_usd));
+  assert.equal(usage[0].product, "voice_addon");
   assert.equal(
     (await ok(generated.audioUrl.replace("/api/v1", ""))).headers[
       "content-type"

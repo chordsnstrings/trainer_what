@@ -430,7 +430,9 @@ test("the trainer consents, records, makes a Quick clone, previews it and activa
   await ok(`/voice/clones/${quick.id}/preview`, "POST", {}, coach);
   assert.equal(mock.syntheses.length, 1);
   const [cost] = await rows(coach, "SELECT provider,model,status,user_id FROM cost_events WHERE task='voice.preview'");
-  assert.deepEqual([cost.provider, cost.model, cost.status, cost.user_id], ["cartesia", "sonic-3.6", "unknown", coach.userId]);
+  // A preview that answered is priced at its reserved estimate when made
+  // ('estimated'); the provider invoice can still correct it.
+  assert.deepEqual([cost.provider, cost.model, cost.status, cost.user_id], ["cartesia", "sonic-3.6", "estimated", coach.userId]);
   const current = await ok("/voice/clones", "GET", undefined, coach);
   const activated = await ok(`/voice/clones/${quick.id}/activate`, "POST", { revision: current.clones[0].version }, coach);
   assert.equal(activated.status, "active");
@@ -526,12 +528,13 @@ test("previews and clones share the workspace voice budget and stay out of model
     process.env.VOICE_DAILY_USD_LIMIT = "5";
     process.env.VOICE_CLONE_USD = "0";
   }
-  const [counts] = await rows(coach, "SELECT (SELECT n FROM model_usage_today(ARRAY[]::text[],NULL)) AS model_calls,(SELECT count(*)::int FROM cost_events WHERE task NOT LIKE 'voice.%') AS model_rows,voice_guidance_spent_today() AS voice_spent,(SELECT sum((pricing->>'reservedCostUsd')::numeric) FROM cost_events WHERE task LIKE 'voice.%') AS voice_rows");
+  const [counts] = await rows(coach, "SELECT (SELECT n FROM model_usage_today(ARRAY[]::text[],NULL)) AS model_calls,(SELECT count(*)::int FROM cost_events WHERE task NOT LIKE 'voice.%') AS model_rows,voice_guidance_spent_today() AS voice_spent,(SELECT sum(round((pricing->>'reservedCostUsd')::numeric,8)) FROM cost_events WHERE task LIKE 'voice.%') AS voice_rows");
   assert.equal(counts.model_calls, counts.model_rows);
   assert.equal(Number(counts.voice_spent), Number(counts.voice_rows));
   const clones = await rows(coach, "SELECT task,provider,status FROM cost_events WHERE task='voice.clone' ORDER BY created_at");
   assert.equal(clones.length, 2, "one reserved cost per clone sent");
-  assert.ok(clones.every((c) => c.provider === "cartesia" && c.status === "unknown"));
+  // Clones made are priced at their estimate (VOICE_CLONE_USD) when made.
+  assert.ok(clones.every((c) => c.provider === "cartesia" && c.status === "estimated"));
 });
 
 test("activating a newer Quick clone replaces the older one, which is deleted at the provider", async () => {
@@ -837,7 +840,7 @@ test("a refused or unsent clone request releases its cost; automatic retries bac
     const again = await ok(`/voice/clones/${draft.id}/retry`, "POST", { revision: failed.version }, third);
     assert.equal(again.status, "ready");
     const last = await rows(third, "SELECT status FROM cost_events WHERE task='voice.clone' AND trace_id=$1 AND status<>'recorded'", [draft.id]);
-    assert.deepEqual(last, [{ status: "unknown" }], "a clone made waits for invoice reconciliation");
+    assert.deepEqual(last, [{ status: "estimated" }], "a clone made is priced at its estimate until the invoice reconciles it");
     await ok(`/voice/clones/${draft.id}`, "DELETE", undefined, third);
   } finally {
     process.env.VOICE_CLONE_USD = "0";

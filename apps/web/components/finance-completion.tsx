@@ -405,16 +405,128 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
               </tbody>
             </table>
           </div>
+          {data.revenue && (
+            <>
+              <h3>What members paid, by product</h3>
+              <div className="table-scroll">
+                <table>
+                  <tbody>
+                    {[
+                      ["membershipMinor", "Memberships"],
+                      ["programmeMinor", "Upfront programmes"],
+                      ["voiceAddOnMinor", "Voice add-on"],
+                      ["sessionsMinor", "1:1 sessions"],
+                    ].map(([key, label]) => (
+                      <tr key={key}>
+                        <td>{label}</td>
+                        <td>
+                          <span dir="ltr">{money(data.revenue[key] ?? 0)}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {data.disputes &&
+            (data.disputes.openedMinor > 0 ||
+              data.disputes.releasedMinor > 0 ||
+              data.disputes.lostMinor > 0) && (
+              <p>
+                Card disputes: <span dir="ltr">{money(data.disputes.openedMinor)}</span>{" "}
+                held · <span dir="ltr">{money(data.disputes.releasedMinor)}</span>{" "}
+                released · <span dir="ltr">{money(data.disputes.lostMinor)}</span>{" "}
+                lost (included in other adjustments)
+              </p>
+            )}
+          {data.webAddresses &&
+            (data.webAddresses.paymentsMinor > 0 ||
+              data.webAddresses.refundsMinor > 0 ||
+              (data.webAddresses.registrarCostMinor ?? 0) > 0) && (
+              <p>
+                Domains: <span dir="ltr">{money(data.webAddresses.paymentsMinor)}</span>{" "}
+                paid · <span dir="ltr">{money(data.webAddresses.refundsMinor)}</span>{" "}
+                refunded
+                {data.webAddresses.registrarCostMinor !== undefined && (
+                  <>
+                    {" "}
+                    · registrar cost{" "}
+                    <span dir="ltr">
+                      {money(data.webAddresses.registrarCostMinor)}
+                    </span>
+                  </>
+                )}{" "}
+                (outside the trainer balance)
+              </p>
+            )}
           <h3>Provider usage</h3>
+          {data.usageCost && (
+            <p>
+              USD {data.usageCost.costUsd.toFixed(4)} priced
+              {data.usageCost.estimatedUsd > 0 &&
+                ` (of which USD ${data.usageCost.estimatedUsd.toFixed(4)} estimated, awaiting the provider invoice)`}
+              {data.usageCost.unpricedCalls > 0 &&
+                ` · ${data.usageCost.unpricedCalls} call(s) unpriced, about USD ${data.usageCost.unpricedEstimateUsd.toFixed(4)}`}
+              {data.usageCost.complimentaryUsd > 0 &&
+                ` · USD ${data.usageCost.complimentaryUsd.toFixed(4)} for complimentary members`}
+              {data.usageCost.aedPerUsd !== undefined && (
+                <>
+                  {" "}
+                  · <span dir="ltr">{money(data.usageCost.costAedMinor)}</span>{" "}
+                  at {data.usageCost.aedPerUsd} AED per USD (
+                  {data.usageCost.rateSource === "reviewed"
+                    ? "reviewed rate"
+                    : "default rate, not yet reviewed"}
+                  )
+                </>
+              )}
+            </p>
+          )}
           {!data.usage.length ? (
             <p>No recorded usage this month.</p>
           ) : (
             data.usage.map((r: any, i: number) => (
               <p key={i}>
-                {r.provider} / {r.model ?? "service"}: {r.calls} calls · USD{" "}
-                {r.cost_usd ?? "unresolved"} · {r.unresolved} unpriced
+                {r.provider} / {r.model ?? "service"} · {r.status}: {r.calls}{" "}
+                calls · USD {r.cost_usd ?? "unresolved"} · {r.unresolved}{" "}
+                unpriced
               </p>
             ))
+          )}
+          {data.usageByFeature?.length > 0 && (
+            <details>
+              <summary>Usage by feature and product</summary>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Feature</th>
+                      <th>Product</th>
+                      <th>Calls</th>
+                      <th>USD</th>
+                      <th>Estimated USD</th>
+                      <th>Unpriced</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.usageByFeature.map((r: any, i: number) => (
+                      <tr key={i}>
+                        <td>{r.task}</td>
+                        <td>
+                          {r.product ?? "—"}
+                          {r.complimentary ? " (complimentary)" : ""}
+                        </td>
+                        <td>{r.calls}</td>
+                        <td>{Number(r.cost_usd).toFixed(4)}</td>
+                        <td>{Number(r.estimated_usd).toFixed(4)}</td>
+                        <td>{r.unpriced}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           )}
           <h3>Infrastructure and other costs</h3>
           {!data.allocations.length ? (

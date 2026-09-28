@@ -97,6 +97,7 @@ export const ELEVATIONS = {
       "apps/api/src/finance-operations.ts",
       "apps/api/src/governance.ts",
       "apps/api/src/integrations-completion.ts",
+      "apps/api/src/platform-finance.ts",
       "apps/api/src/privacy-lifecycle.ts",
       "apps/api/src/privacy-operations.ts",
       "apps/api/src/support-preview.ts",

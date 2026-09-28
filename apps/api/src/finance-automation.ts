@@ -21,6 +21,12 @@ import {
   postUsageStatement,
 } from "./finance-operations.ts";
 import { createPayout } from "./finance.ts";
+import {
+  estimateUnresolvedUsage,
+  financeSettings,
+  monthRate,
+  periodUsage,
+} from "./cost-accounting.ts";
 import { executePayout } from "./payout-execution.ts";
 import { requireRecentMfa } from "./security.ts";
 const fail = (code: string, message: string) =>
@@ -368,25 +374,49 @@ export async function executeFinanceJob(
     .string()
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
     .parse(job.data.period);
+  // The month's reviewed rate when one is recorded (one rate per month,
+  // docs/features/platform-finance.md), else this automation's approved rate.
+  const rate = await monthRate(db, period);
+  const settings = financeSettings();
+  const fx = rate.source === "reviewed" ? rate.aedPerUsd : c.data.fxAedPerUsd;
+  const fxEvidence =
+    rate.source === "reviewed"
+      ? `Reviewed rate for ${period}, revision ${rate.revision}: ${rate.note}`.slice(0, 500)
+      : c.data.fxEvidence;
+  // Provider calls whose outcome never came back are priced at their stored
+  // estimate and marked estimated (Settings -> Platform finance), in their own
+  // transaction, so they no longer stop the usage charge, close and payout.
+  if (settings.estimateUnresolved)
+    await db.tenant(a, (tx) =>
+      estimateUnresolvedUsage(tx, a, {
+        before: monthCutoff(period),
+        evidenceReference: `Automatic month close ${period}: automation ${c.id} revision ${c.version}`,
+        method: "automation",
+      }),
+    );
   const payout = await db.tenant(a, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId]);
-    const [usage] = await tx.query(
-      "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unknown,round(coalesce(sum(cost_usd),0)*$2::numeric*100)::text AS minor FROM cost_events WHERE to_char(created_at AT TIME ZONE 'Asia/Dubai','YYYY-MM')=$1",
-      [period, c.data.fxAedPerUsd],
-    );
-    if (usage.unknown)
+    const usage = await periodUsage(tx, period, fx, settings);
+    if (usage.unpriced)
       throw fail(
         "USAGE_UNRECONCILED",
-        "Unknown provider usage blocks automatic month close",
+        settings.estimateUnresolved
+          ? "Provider usage with no estimate blocks automatic month close; reconcile it from the provider invoice"
+          : "Unpriced provider usage blocks automatic month close; price or estimate it, or let automatic close estimate it (Settings -> Platform finance)",
       );
-    if (usage.n)
-      await postUsageStatement(tx, a, {
-        period,
-        fxAedPerUsd: c.data.fxAedPerUsd,
-        chargeMinor: Number(usage.minor),
-        feeScheduleVersion: `automation:${c.id}:${c.version}`,
-        evidenceReference: c.data.fxEvidence,
-      });
+    if (usage.events)
+      await postUsageStatement(
+        tx,
+        a,
+        {
+          period,
+          fxAedPerUsd: fx,
+          chargeMinor: usage.chargeMinor,
+          feeScheduleVersion: `automation:${c.id}:${c.version}`,
+          evidenceReference: fxEvidence,
+        },
+        { rate, settings },
+      );
     await closeMonth(
       tx,
       a,

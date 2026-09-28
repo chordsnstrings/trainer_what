@@ -11,10 +11,49 @@ export type ModelUsage = {
     outputUsdPerMillion: number | null;
   };
 };
+/** A reviewed token price in effect for the provider and model of one call. */
+export type ModelPrice = {
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  priceVersion: string;
+};
 export type ModelAccounting = {
-  reserve: (model: string) => Promise<void>;
+  /**
+   * Reserves the call before it is sent. May return the reviewed price in
+   * effect for this provider and model (the Super admin's model price table);
+   * without one, the AI model settings' price applies.
+   */
+  reserve: (model: string) => Promise<void | ModelPrice | null>;
   record: (usage: ModelUsage) => Promise<void>;
 };
+const KNOWN_MODEL_HOSTS: Array<[RegExp, string]> = [
+  [/(^|\.)openai\.com$/, "openai"],
+  [/(^|\.)anthropic\.com$/, "anthropic"],
+  [/(^|\.)openrouter\.ai$/, "openrouter"],
+  [/(^|\.)googleapis\.com$/, "google"],
+  [/(^|\.)mistral\.ai$/, "mistral"],
+  [/(^|\.)groq\.com$/, "groq"],
+  [/(^|\.)deepseek\.com$/, "deepseek"],
+  [/(^|\.)together\.(xyz|ai)$/, "together"],
+  [/(^|\.)x\.ai$/, "xai"],
+  [/(^|\.)fireworks\.ai$/, "fireworks"],
+  [/(^|\.)azure\.com$/, "azure"],
+];
+/**
+ * The provider recorded on AI cost rows: the "Provider name" setting, else a
+ * name read from the API address (api.openai.com is "openai"), else its host.
+ */
+export function modelProviderName(config = runtimeConfig()) {
+  const named = config.MODEL_PROVIDER?.trim().toLowerCase();
+  if (named && /^[a-z0-9][a-z0-9._-]{0,59}$/.test(named)) return named;
+  let host = "";
+  try {
+    host = new URL(config.MODEL_BASE_URL ?? "").hostname.toLowerCase();
+  } catch {}
+  for (const [pattern, name] of KNOWN_MODEL_HOSTS)
+    if (pattern.test(host)) return name;
+  return /^[a-z0-9][a-z0-9.-]{0,59}$/.test(host) ? host : "unnamed-provider";
+}
 const price = (value: string | undefined) =>
   value?.trim() && Number.isFinite(Number(value)) && Number(value) >= 0
     ? Number(value)
@@ -38,12 +77,12 @@ export async function modelCompletion(
   options: { timeoutMs?: number } = {},
 ) {
   const config = runtimeConfig();
-  const pricing = {
+  let pricing: ModelUsage["pricing"] = {
     inputUsdPerMillion: price(config.MODEL_INPUT_USD_PER_MILLION),
     outputUsdPerMillion: price(config.MODEL_OUTPUT_USD_PER_MILLION),
   };
-  const priceVersion = config.MODEL_PRICE_VERSION?.trim() || null;
-  const unknown: ModelUsage = {
+  let priceVersion = config.MODEL_PRICE_VERSION?.trim() || null;
+  const unknown = (): ModelUsage => ({
     model,
     input: null,
     output: null,
@@ -51,7 +90,7 @@ export async function modelCompletion(
     requestId: null,
     priceVersion,
     pricing,
-  };
+  });
   let attempted = false;
   let response: Response, payload: any;
   try {
@@ -69,14 +108,22 @@ export async function modelCompletion(
         body: JSON.stringify({ ...body, model }),
       },
       async () => {
-        await accounting.reserve(model);
+        const reviewed = await accounting.reserve(model);
+        // A reviewed price for this provider and model replaces the settings' price.
+        if (reviewed) {
+          pricing = {
+            inputUsdPerMillion: reviewed.inputUsdPerMillion,
+            outputUsdPerMillion: reviewed.outputUsdPerMillion,
+          };
+          priceVersion = reviewed.priceVersion;
+        }
         attempted = true;
       },
     );
     payload = await response.json();
   } catch (error) {
     if (!attempted) throw error;
-    await accounting.record(unknown);
+    await accounting.record(unknown());
     throw new Error(
       "Model response unavailable; usage requires provider reconciliation",
     );
@@ -100,7 +147,7 @@ export async function modelCompletion(
       ? Math.round(calculated * 100000000) / 100000000
       : null;
   const usage: ModelUsage = {
-    ...unknown,
+    ...unknown(),
     input,
     output,
     cost,

@@ -231,10 +231,12 @@ test("premium voice needs playback consent; the worker makes the audio ahead of 
   assert.equal(view.audio.readyKeys.length, 18 + 121);
   assert.ok(view.audio.readyKeys.includes("l:intro:0") && view.audio.readyKeys.includes("s:num:8"));
   const usage = await scalar(
-    "SELECT count(*)::int AS n,count(*) FILTER (WHERE status='unknown')::int AS unknown,min((pricing->>'reservedCostUsd')::numeric) AS least FROM cost_events WHERE task='voice.session'",
+    "SELECT count(*)::int AS n,count(*) FILTER (WHERE status='estimated' AND cost_usd=estimated_cost_usd)::int AS estimated,min((pricing->>'reservedCostUsd')::numeric) AS least FROM cost_events WHERE task='voice.session'",
   );
   assert.equal(usage.n, 139);
-  assert.equal(usage.unknown, 139, "delivery is not billed usage: reconciliation stays open");
+  // Delivered clips are priced at their reserved estimate when made; the
+  // provider invoice can correct them later (docs/features/platform-finance.md).
+  assert.equal(usage.estimated, 139, "delivered clips are priced at their estimate");
   assert.ok(Number(usage.least) > 0);
   // Cached per session: preparing again neither re-queues nor re-sends.
   await ok("/voice-sessions", "POST", { workoutId: alexWorkout }, alex);
@@ -369,9 +371,12 @@ test("spoken replies: transcription needs consent, stores no audio and a red fla
   assert.equal(mock.transcriptions.length, 1);
   assert.equal(mock.transcriptions[0].model, "scribe_v1");
   assert.equal(mock.transcriptions[0].zeroRetention, true);
-  const cost = await scalar("SELECT status,pricing FROM cost_events WHERE task='voice.transcription'");
-  assert.equal(cost.status, "unknown");
+  const cost = await scalar("SELECT status,pricing,member_id,product FROM cost_events WHERE task='voice.transcription'");
+  // Transcribed: priced at its reserved estimate ('estimated').
+  assert.equal(cost.status, "estimated");
   assert.equal(cost.pricing.basis, "audio_seconds");
+  assert.equal(cost.product, "voice_addon");
+  assert.ok(cost.member_id);
   // The provider's own timing (end of the last word) is kept for reconciliation.
   const timed = await scalar("SELECT data FROM events WHERE name='voice_session.transcribed' AND subject_id=$1", [session.id]);
   assert.equal(timed.data.providerSeconds, 0.8);

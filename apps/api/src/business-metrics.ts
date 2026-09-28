@@ -9,6 +9,11 @@ import {
 } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
+import {
+  VOICE_TASK_SQL,
+  financeSettings,
+  monthRates,
+} from "./cost-accounting.ts";
 
 // Executive business metrics for Super admin and platform finance operators.
 // Read-only: every figure is computed from the ledger (journals and lines),
@@ -18,13 +23,17 @@ type Identity = Actor & { platformRole: string; mfaAt?: string | null };
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 
-/** The UAE dirham is pegged to the US dollar at this rate. */
+/**
+ * The UAE dirham is pegged to the US dollar at this rate: the default for a
+ * month without a reviewed rate (Settings -> Platform finance).
+ */
 export const AED_PER_USD = 3.6725;
 const DUBAI_OFFSET_MS = 4 * 3600000;
 
 export type MonthMetrics = {
   month: string;
   grossMinor: number;
+  /** Memberships, upfront programmes and voice add-ons together. */
   subscriptionGrossMinor: number;
   bookingGrossMinor: number;
   refundsMinor: number;
@@ -51,6 +60,31 @@ export type MonthMetrics = {
   costToRevenue: number | null;
   payoutsPaidMinor: number;
   payoutsReturnedMinor: number;
+  // Added for the platform finance view (docs/features/platform-finance.md).
+  membershipGrossMinor: number;
+  programmeGrossMinor: number;
+  voiceAddOnGrossMinor: number;
+  /** Card dispute amounts held when opened, and those lost. */
+  disputesOpenedMinor: number;
+  disputeLossesMinor: number;
+  /** Cost recovery split: monthly AI/voice usage charges and allocated costs. */
+  usageRecoveryMinor: number;
+  allocatedRecoveryMinor: number;
+  /** Cost allocations the platform absorbed (not charged to the trainer), by period. */
+  absorbedCostsMinor: number;
+  /** Trainer domain payments, refunds and net domain sales (read-only). */
+  domainPaymentsMinor: number;
+  domainRefundsMinor: number;
+  domainNetSalesMinor: number;
+  /** Of the AI and voice cost: rows priced at their estimate. */
+  estimatedCostUsd: number;
+  /** Stored estimates of the unpriced rows (not in the cost figures). */
+  unpricedEstimateUsd: number;
+  /** Cost of members whose access was complimentary. */
+  complimentaryCostUsd: number;
+  /** The month's USD to AED rate and whether it was reviewed. */
+  aedPerUsd: number | null;
+  fxSource: string;
 };
 const rate = (numerator: number, denominator: number) =>
   denominator > 0 ? Math.round((numerator / denominator) * 10000) / 10000 : null;
@@ -80,8 +114,14 @@ const POSITIVE_INVOICE =
 
 async function workspaceFigures(tx: Tx, since: Date, before: Date) {
   const ledger = await tx.query(
-    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%' THEN 'subscription' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' ELSE 'other' END AS source,l.account,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3`,
+    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' AND j.data->>'purpose'='voice_addon' THEN 'voice_addon' WHEN j.source_key LIKE 'stripe-invoice:%' THEN 'membership' WHEN j.source_key LIKE 'stripe-programme:%' THEN 'programme' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' WHEN j.source_key LIKE 'dispute-reserve:%' THEN 'dispute_opened' WHEN j.source_key LIKE 'dispute-resolution:%' THEN 'dispute_resolution' WHEN j.source_key LIKE 'usage:%' THEN 'usage' WHEN j.source_key LIKE 'allocated-cost:%' THEN 'allocated' WHEN j.source_key LIKE 'web-address-invoice:%' THEN 'domain_payment' WHEN j.source_key LIKE 'web-address-refund-reversal:%' THEN 'domain_refund_reversal' WHEN j.source_key LIKE 'web-address-refund:%' THEN 'domain_refund' ELSE 'other' END AS source,l.account,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3`,
     [since],
+  );
+  // Costs a platform operator allocated to the workspace but did not charge
+  // the trainer (kept as records, never journaled), by their period.
+  const absorbed = await tx.query(
+    "SELECT data->>'period' AS month,coalesce(sum((data->>'amountMinor')::bigint),0)::text AS amount FROM records WHERE kind='cost_allocation' AND data->>'chargeTrainer'='false' AND data->>'period'>=$1 GROUP BY 1",
+    [since.toISOString().slice(0, 7)],
   );
   // A paying member is one charged in the month, or one whose paid upfront
   // programme covers part of the month (paid once, a member for its length).
@@ -105,8 +145,11 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
     `WITH trial AS (SELECT e.subject_id,e.actor_id,min(e.created_at) AS started FROM events e WHERE e.name='subscription.updated' AND e.data->>'status'='trialing' GROUP BY 1,2) SELECT ${month("trial.started")} AS month,count(*)::int AS started,count(*) FILTER(WHERE EXISTS(SELECT 1 FROM journals j WHERE ${POSITIVE_INVOICE} AND j.data->>'userId'=trial.actor_id::text AND j.created_at>=trial.started))::int AS converted FROM trial WHERE trial.started>=$1 GROUP BY 1`,
     [since],
   );
+  // Voice is the speech, transcription, preview and clone provider calls
+  // (task voice.*); every other row is an AI model call, including the model
+  // call that suggests voice-session wording.
   const costs = await tx.query(
-    `SELECT ${month("created_at")} AS month,(task LIKE 'voice%' OR provider='elevenlabs') AS voice,coalesce(sum(cost_usd),0)::text AS usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events WHERE created_at>=$1 GROUP BY 1,2`,
+    `SELECT ${month("created_at")} AS month,(${VOICE_TASK_SQL}) AS voice,coalesce(sum(cost_usd),0)::text AS usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,coalesce(sum(estimated_cost_usd) FILTER(WHERE cost_usd IS NULL),0)::text AS unpriced_estimate,coalesce(sum(cost_usd) FILTER(WHERE complimentary),0)::text AS complimentary FROM cost_events WHERE created_at>=$1 GROUP BY 1,2`,
     [since],
   );
   // An upfront programme's price is one payment for the whole programme, so
@@ -124,6 +167,7 @@ async function workspaceFigures(tx: Tx, since: Date, before: Date) {
   );
   return {
     ledger,
+    absorbed,
     payers,
     firstPaid,
     cancellations,
@@ -184,7 +228,26 @@ export async function computeBusinessMetrics(
     costToRevenue: null,
     payoutsPaidMinor: 0,
     payoutsReturnedMinor: 0,
+    membershipGrossMinor: 0,
+    programmeGrossMinor: 0,
+    voiceAddOnGrossMinor: 0,
+    disputesOpenedMinor: 0,
+    disputeLossesMinor: 0,
+    usageRecoveryMinor: 0,
+    allocatedRecoveryMinor: 0,
+    absorbedCostsMinor: 0,
+    domainPaymentsMinor: 0,
+    domainRefundsMinor: 0,
+    domainNetSalesMinor: 0,
+    estimatedCostUsd: 0,
+    unpricedEstimateUsd: 0,
+    complimentaryCostUsd: 0,
+    aedPerUsd: null,
+    fxSource: "",
   });
+  // One rate per month: its reviewed rate, else the default setting.
+  const settings = financeSettings();
+  const rates = await monthRates(db, months, settings);
   const series = new Map(months.map((m) => [m, empty(m)]));
   const priorPayers = new Map<string, number>();
   const tiers: Record<string, { active: number; trialing: number; pastDue: number; mrrMinor: number }> = {
@@ -210,16 +273,37 @@ export async function computeBusinessMetrics(
       if (!m) continue;
       const amount = Number(row.amount);
       if (row.account === "stripe_receivable") {
-        if (row.source === "subscription") m.subscriptionGrossMinor += amount;
+        if (row.source === "membership") m.membershipGrossMinor += amount;
+        if (row.source === "programme") m.programmeGrossMinor += amount;
+        if (row.source === "voice_addon") m.voiceAddOnGrossMinor += amount;
         if (row.source === "booking") m.bookingGrossMinor += amount;
         if (row.source === "refund") m.refundsMinor -= amount;
+        if (row.source === "dispute_resolution") m.disputeLossesMinor -= amount;
       }
+      if (row.account === "dispute_reserve" && row.source === "dispute_opened")
+        m.disputesOpenedMinor -= amount;
       if (row.account === "platform_commission") m.commissionMinor -= amount;
-      if (row.account === "platform_cost_recovery") m.costRecoveryMinor -= amount;
+      if (row.account === "platform_cost_recovery") {
+        m.costRecoveryMinor -= amount;
+        if (row.source === "usage") m.usageRecoveryMinor -= amount;
+        if (row.source === "allocated") m.allocatedRecoveryMinor -= amount;
+      }
       if (row.account === "trainer_payable") {
         if (row.source === "payout") m.payoutsPaidMinor += amount;
         if (row.source === "payout_return") m.payoutsReturnedMinor -= amount;
       }
+      // Trainer domains (read-only here; domain profit is phase B).
+      if (row.account === "web_address_receivable") {
+        if (row.source === "domain_payment") m.domainPaymentsMinor += amount;
+        if (row.source === "domain_refund") m.domainRefundsMinor -= amount;
+        if (row.source === "domain_refund_reversal")
+          m.domainRefundsMinor -= amount;
+      }
+      if (row.account === "web_address_revenue") m.domainNetSalesMinor -= amount;
+    }
+    for (const row of f.absorbed) {
+      const m = series.get(row.month);
+      if (m) m.absorbedCostsMinor += Number(row.amount);
     }
     for (const row of f.payers) {
       const m = series.get(row.month);
@@ -247,7 +331,10 @@ export async function computeBusinessMetrics(
       if (!m) continue;
       if (row.voice) m.voiceCostUsd += Number(row.usd);
       else m.aiCostUsd += Number(row.usd);
+      m.estimatedCostUsd += Number(row.estimated);
       m.unpricedRequests += row.unpriced;
+      m.unpricedEstimateUsd += Number(row.unpriced_estimate);
+      m.complimentaryCostUsd += Number(row.complimentary);
     }
     for (const row of f.subscriptions) {
       const tier = tiers[row.tier] ? row.tier : "workout";
@@ -276,18 +363,29 @@ export async function computeBusinessMetrics(
       entry.amountMinor += Number(row.amount);
     }
   }
+  const usd4 = (n: number) => Math.round(n * 10000) / 10000;
   const finish = (m: MonthMetrics, prior: number) => {
+    m.subscriptionGrossMinor =
+      m.membershipGrossMinor + m.programmeGrossMinor + m.voiceAddOnGrossMinor;
     m.grossMinor = m.subscriptionGrossMinor + m.bookingGrossMinor;
     m.platformRevenueMinor = m.commissionMinor + m.costRecoveryMinor;
     m.refundRate = rate(m.refundsMinor, m.grossMinor);
     m.takeRate = rate(m.commissionMinor, m.grossMinor);
     m.churnRate = rate(m.cancellations, prior);
     m.trialConversionRate = rate(m.trialsConverted, m.trialsStarted);
-    m.aiCostUsd = Math.round(m.aiCostUsd * 10000) / 10000;
-    m.voiceCostUsd = Math.round(m.voiceCostUsd * 10000) / 10000;
-    m.providerCostAedMinor = Math.round(
-      (m.aiCostUsd + m.voiceCostUsd) * AED_PER_USD * 100,
-    );
+    m.aiCostUsd = usd4(m.aiCostUsd);
+    m.voiceCostUsd = usd4(m.voiceCostUsd);
+    m.estimatedCostUsd = usd4(m.estimatedCostUsd);
+    m.unpricedEstimateUsd = usd4(m.unpricedEstimateUsd);
+    m.complimentaryCostUsd = usd4(m.complimentaryCostUsd);
+    const fx = rates.get(m.month);
+    if (fx) {
+      m.aedPerUsd = fx.aedPerUsd;
+      m.fxSource = fx.source;
+      m.providerCostAedMinor = Math.round(
+        (m.aiCostUsd + m.voiceCostUsd) * fx.aedPerUsd * 100,
+      );
+    }
     m.costToRevenue = rate(m.providerCostAedMinor, m.platformRevenueMinor);
     return m;
   };
@@ -297,7 +395,7 @@ export async function computeBusinessMetrics(
   const totals = empty("total");
   for (const m of rows)
     for (const key of Object.keys(totals) as Array<keyof MonthMetrics>)
-      if (typeof m[key] === "number" && !/Rate$|^costToRevenue$|^payingMembers$/.test(key))
+      if (typeof m[key] === "number" && !/Rate$|^costToRevenue$|^payingMembers$|^aedPerUsd$/.test(key))
         (totals as any)[key] += m[key] as number;
   totals.payingMembers = null;
   // Window churn: all cancellations over the sum of each month's prior payers.
@@ -312,7 +410,12 @@ export async function computeBusinessMetrics(
     asOf: now.toISOString(),
     currency: "AED",
     timezone: "Asia/Dubai",
-    fx: { aedPerUsd: AED_PER_USD, basis: "UAE dirham peg to the US dollar" },
+    fx: {
+      aedPerUsd: settings.defaultAedPerUsd,
+      basis:
+        "Each month's reviewed USD to AED rate (Platform finance); a month without one uses the default rate setting (3.6725, the dirham's peg to the US dollar)",
+      months: months.map((m) => rates.get(m)),
+    },
     snapshot: {
       trainers: {
         total: workspaces.length,
@@ -361,7 +464,25 @@ export async function computeBusinessMetrics(
       trialConversionRate:
         "Trials started in the month that later received a positive subscription charge.",
       costToRevenue:
-        "AI and voice provider cost, converted at the AED peg, divided by platform revenue. Unpriced requests are counted separately and not estimated.",
+        "AI and voice provider cost, converted at the month's USD to AED rate, divided by platform revenue. Unpriced requests are counted separately; their stored estimate is shown apart and not added.",
+      aiCostUsd:
+        "AI model calls priced when made (price sheet), reconciled from an invoice or estimated, in US dollars.",
+      voiceCostUsd:
+        "Voice provider calls (speech, transcription, previews, clones): priced at their estimate when made and corrected by the provider invoice.",
+      estimatedCostUsd:
+        "The part of AI and voice cost priced at an estimate that no invoice has confirmed yet.",
+      subscriptionGrossMinor:
+        "Memberships, upfront programmes and voice add-ons together; each is also shown on its own.",
+      disputesOpenedMinor:
+        "Card dispute amounts held when the bank opened a dispute; disputeLossesMinor is what lost disputes took back.",
+      costRecoveryMinor:
+        "AI and voice usage charged to trainers at cost (usageRecoveryMinor) plus allocated costs charged to them (allocatedRecoveryMinor). Posted when charged, usually the month after the usage.",
+      absorbedCostsMinor:
+        "Cost allocations recorded for a workspace but not charged to the trainer, by their period.",
+      domainNetSalesMinor:
+        "Trainer domain payments less refunds (read-only from the web-address ledger); registrar cost and domain profit come in a later phase. Not included in platform revenue.",
+      complimentaryCostUsd:
+        "AI and voice cost of members whose access was complimentary when the call was made (charged to the trainer today).",
       payoutsPaidMinor:
         "Trainer payouts confirmed paid with bank evidence in the month.",
       trainers:
@@ -396,6 +517,22 @@ const csvFields: Array<keyof MonthMetrics> = [
   "costToRevenue",
   "payoutsPaidMinor",
   "payoutsReturnedMinor",
+  "membershipGrossMinor",
+  "programmeGrossMinor",
+  "voiceAddOnGrossMinor",
+  "disputesOpenedMinor",
+  "disputeLossesMinor",
+  "usageRecoveryMinor",
+  "allocatedRecoveryMinor",
+  "absorbedCostsMinor",
+  "domainPaymentsMinor",
+  "domainRefundsMinor",
+  "domainNetSalesMinor",
+  "estimatedCostUsd",
+  "unpricedEstimateUsd",
+  "complimentaryCostUsd",
+  "aedPerUsd",
+  "fxSource",
 ];
 function csvCell(value: unknown) {
   if (value === null || value === undefined) return "";

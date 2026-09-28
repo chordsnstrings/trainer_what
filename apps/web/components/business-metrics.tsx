@@ -98,6 +98,16 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                   detail={`${t.trialsConverted} of ${t.trialsStarted} trials`} />
                 <Tile label="AI and voice cost vs revenue" value={percent(t.costToRevenue)}
                   detail={`${aed(t.providerCostAedMinor)} of ${aed(t.platformRevenueMinor)}${t.unpricedRequests ? ` · ${t.unpricedRequests} unpriced` : ""}`} />
+                <Tile label="Voice add-on MRR" value={aed(data.snapshot.voiceAddOns?.mrrMinor ?? 0)}
+                  detail={`${data.snapshot.voiceAddOns?.active ?? 0} active add-on(s), included in MRR`} />
+                <Tile label="Upfront programmes (current)" value={aed(data.snapshot.upfrontProgrammes?.collectedMinor ?? 0)}
+                  detail={`${data.snapshot.upfrontProgrammes?.active ?? 0} active · ${aed(data.snapshot.upfrontProgrammes?.monthlyEquivalentMinor ?? 0)} a month equivalent, not MRR`} />
+                <Tile label="AI cost (period)" value={`USD ${Number(t.aiCostUsd ?? 0).toFixed(2)}`}
+                  detail={`Voice USD ${Number(t.voiceCostUsd ?? 0).toFixed(2)}${t.estimatedCostUsd ? ` · USD ${Number(t.estimatedCostUsd).toFixed(2)} estimated` : ""}${t.unpricedEstimateUsd ? ` · about USD ${Number(t.unpricedEstimateUsd).toFixed(2)} unpriced` : ""}`} />
+                <Tile label="Domains (period)" value={aed(t.domainNetSalesMinor ?? 0)}
+                  detail={`Net sales · ${aed(t.domainPaymentsMinor ?? 0)} paid, ${aed(t.domainRefundsMinor ?? 0)} refunded; not in platform revenue`} />
+                <Tile label="Card disputes (period)" value={aed(t.disputeLossesMinor ?? 0)}
+                  detail={`Lost · ${aed(t.disputesOpenedMinor ?? 0)} held when opened`} />
               </div>
               <section className="card" aria-labelledby="membership-tiers">
                 <h2 id="membership-tiers">Active memberships by tier</h2>
@@ -149,6 +159,7 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                         <th scope="col">Churn</th>
                         <th scope="col">Trials converted</th>
                         <th scope="col">AI + voice cost</th>
+                        <th scope="col">Platform revenue</th>
                         <th scope="col">Payouts paid</th>
                       </tr>
                     </thead>
@@ -171,7 +182,76 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>{percent(m.churnRate)}</td>
                           <td>{m.trialsConverted}/{m.trialsStarted}</td>
                           <td>{aed(m.providerCostAedMinor)} <small className="muted">{percent(m.costToRevenue)}</small></td>
+                          <td>{aed(m.platformRevenueMinor)}</td>
                           <td>{aed(m.payoutsPaidMinor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              <section className="card" aria-labelledby="monthly-products">
+                <h2 id="monthly-products">Products, costs and domains</h2>
+                <p className="muted">
+                  What members paid for each product, what lost disputes took
+                  back, costs charged back to trainers or absorbed, AI and voice
+                  cost in US dollars (estimated part marked) at each
+                  month&apos;s rate, and trainer domain sales. Domain profit and
+                  a full profit and loss come in the next phase.
+                </p>
+                <div className="table-wrap" role="region" aria-labelledby="monthly-products" tabIndex={0}>
+                  <table className="governance-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Month</th>
+                        <th scope="col">Memberships</th>
+                        <th scope="col">Programmes</th>
+                        <th scope="col">Voice add-on</th>
+                        <th scope="col">1:1 sessions</th>
+                        <th scope="col">Disputes lost</th>
+                        <th scope="col">Usage charged back</th>
+                        <th scope="col">Costs charged / absorbed</th>
+                        <th scope="col">AI cost (USD)</th>
+                        <th scope="col">Voice cost (USD)</th>
+                        <th scope="col">Unpriced</th>
+                        <th scope="col">USD rate</th>
+                        <th scope="col">Domains (net)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...data.series, data.totals].map((m: any) => (
+                        <tr key={m.month} className={m.month === "total" ? "governance-total" : ""}>
+                          <th scope="row">{monthLabel(m.month)}</th>
+                          <td>{aed(m.membershipGrossMinor ?? 0)}</td>
+                          <td>{aed(m.programmeGrossMinor ?? 0)}</td>
+                          <td>{aed(m.voiceAddOnGrossMinor ?? 0)}</td>
+                          <td>{aed(m.bookingGrossMinor ?? 0)}</td>
+                          <td>{aed(m.disputeLossesMinor ?? 0)}</td>
+                          <td>{aed(m.usageRecoveryMinor ?? 0)}</td>
+                          <td>
+                            {aed(m.allocatedRecoveryMinor ?? 0)} /{" "}
+                            {aed(m.absorbedCostsMinor ?? 0)}
+                          </td>
+                          <td>{Number(m.aiCostUsd ?? 0).toFixed(2)}</td>
+                          <td>
+                            {Number(m.voiceCostUsd ?? 0).toFixed(2)}
+                            {m.estimatedCostUsd ? (
+                              <small className="muted"> {Number(m.estimatedCostUsd).toFixed(2)} est.</small>
+                            ) : null}
+                          </td>
+                          <td>
+                            {m.unpricedRequests}
+                            {m.unpricedEstimateUsd ? (
+                              <small className="muted"> ~{Number(m.unpricedEstimateUsd).toFixed(2)}</small>
+                            ) : null}
+                          </td>
+                          <td>
+                            {m.aedPerUsd ?? "—"}
+                            {m.fxSource === "default" ? (
+                              <small className="muted"> default</small>
+                            ) : null}
+                          </td>
+                          <td>{aed(m.domainNetSalesMinor ?? 0)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -204,8 +284,10 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                   <div>
                     <dt>Currency conversion</dt>
                     <dd>
-                      Provider costs in US dollars are converted at {data.fx.aedPerUsd} AED
-                      ({data.fx.basis}).
+                      Provider costs in US dollars are converted at each
+                      month&apos;s rate: {data.fx.basis}. Default rate:{" "}
+                      {data.fx.aedPerUsd} AED per USD. Set a month&apos;s
+                      reviewed rate under Payments and payouts (/admin/finance).
                     </dd>
                   </div>
                 </dl>

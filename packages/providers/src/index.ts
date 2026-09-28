@@ -10,7 +10,12 @@ export * from "./configuration.ts";
 export * from "./sandbox.ts";
 import { sandboxOverride } from "./sandbox.ts";
 import { oidcClientConfig } from "./oidc.ts";
-export type { ModelAccounting, ModelUsage } from "./model-accounting.ts";
+export type {
+  ModelAccounting,
+  ModelPrice,
+  ModelUsage,
+} from "./model-accounting.ts";
+export { modelProviderName } from "./model-accounting.ts";
 import Stripe from "stripe";
 import {
   decisionSchema,

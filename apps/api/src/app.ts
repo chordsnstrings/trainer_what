@@ -157,6 +157,8 @@ import { registerOidcSignIn, isOidcFormCallback } from "./oidc-sign-in.ts";
 import { processStripeEvent } from "./stripe-events.ts";
 import { registerGovernance } from "./governance.ts";
 import { registerBusinessMetrics } from "./business-metrics.ts";
+import { registerPlatformFinance } from "./platform-finance.ts";
+import { VOICE_TASK_SQL } from "./cost-accounting.ts";
 import { registerPlatformAlerts } from "./platform-alerts.ts";
 import {
   ACCOUNT_LOCKED_SQLSTATE,
@@ -709,6 +711,7 @@ export async function buildApp(
   registerComplimentaryAccess(app, db, identity);
   registerGovernance(app, db, identity);
   registerBusinessMetrics(app, db, identity);
+  registerPlatformFinance(app, db, identity);
   registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
@@ -2457,6 +2460,23 @@ export async function buildApp(
                   finance: await financeSummary(tx),
                   costs: await tx.query(
                     "SELECT task,count(*)::int AS requests,sum(cost_usd) AS cost_usd FROM cost_events GROUP BY task",
+                  ),
+                  // All-time AI and voice cost in USD, split by what is
+                  // priced at an estimate and what is still unpriced.
+                  costSummary: Object.fromEntries(
+                    (
+                      await tx.query(
+                        `SELECT CASE WHEN ${VOICE_TASK_SQL} THEN 'voice' ELSE 'ai' END AS kind,count(*)::int AS requests,coalesce(sum(cost_usd),0)::text AS cost_usd,coalesce(sum(cost_usd) FILTER(WHERE status='estimated'),0)::text AS estimated_usd,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced FROM cost_events GROUP BY 1`,
+                      )
+                    ).map((r) => [
+                      r.kind,
+                      {
+                        requests: r.requests,
+                        costUsd: Number(r.cost_usd),
+                        estimatedUsd: Number(r.estimated_usd),
+                        unpriced: r.unpriced,
+                      },
+                    ]),
                   ),
                 }
               : {}),

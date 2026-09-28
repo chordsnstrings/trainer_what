@@ -59,6 +59,7 @@ import {
 import { WorkspaceLifecycle, PersonalPrivacyStatus } from "./privacy-lifecycle";
 import { PrivacyOperations } from "./privacy-operations";
 import { FinanceOperations } from "./finance-operations";
+import { PlatformCostControls } from "./platform-costs";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
@@ -4337,6 +4338,7 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
           <div className="notice error">{error}</div>
         ) : data ? (
           <>
+            <PlatformCostControls />
             <FinancePolicyConsole tenants={data.tenants} />
             <FinanceAutomationConsole tenants={data.tenants} />
             <FinanceOperations tenants={data.tenants} />
@@ -4433,6 +4435,14 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                     <th>Trainer</th>
                     <th>Status</th>
                     <th>Payable</th>
+                    {financeRole && (
+                      <>
+                        <th>Commission (all time)</th>
+                        <th>Charged back</th>
+                        <th>AI cost (USD)</th>
+                        <th>Voice cost (USD)</th>
+                      </>
+                    )}
                     <th>Exceptions</th>
                   </tr>
                 </thead>
@@ -4451,6 +4461,34 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
                           ? money(t.finance.earnedMinor)
                           : "Restricted"}
                       </td>
+                      {financeRole && (
+                        <>
+                          <td>
+                            {t.finance ? money(t.finance.commissionMinor) : "—"}
+                          </td>
+                          <td>
+                            {t.finance
+                              ? money(
+                                  -(t.finance.accounts?.platform_cost_recovery ?? 0),
+                                )
+                              : "—"}
+                          </td>
+                          {(["ai", "voice"] as const).map((kind) => {
+                            const c = t.costSummary?.[kind];
+                            return (
+                              <td key={kind}>
+                                {c ? c.costUsd.toFixed(2) : "0.00"}
+                                {c?.estimatedUsd > 0 && (
+                                  <small> {c.estimatedUsd.toFixed(2)} estimated</small>
+                                )}
+                                {c?.unpriced > 0 && (
+                                  <small> {c.unpriced} unpriced</small>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </>
+                      )}
                       <td>{openCount(t)}</td>
                     </tr>
                   ))}

@@ -116,6 +116,9 @@ export async function verifyRuntimeAccess(client) {
     workspace_app_icons: ["SELECT", "INSERT"],
     tenant_slug_redirects: ["SELECT", "INSERT", "UPDATE"],
     early_access_requests: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    // Platform finance reference data (072, 073): append-only, service only.
+    exchange_rates: ["SELECT", "INSERT"],
+    model_prices: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -554,6 +557,8 @@ export async function verifyRuntimeAccess(client) {
       "workspace_app_icons",
       "tenant_slug_redirects",
       "early_access_requests",
+      "exchange_rates",
+      "model_prices",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",
