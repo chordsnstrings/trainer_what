@@ -69,3 +69,24 @@ export function usesBrandIdentity(name: string | null | undefined): boolean {
     .replace(/[\s._-]+/g, "");
   return key === BRAND_NAME;
 }
+
+/**
+ * Earlier defaults of the platform name. The settings form resubmits every
+ * shown value, so a platform whose application settings were ever saved
+ * stores the old default explicitly; exactly this value (or it in the
+ * environment) counts as "not chosen" and resolves to the trainsyou default.
+ * Any other name an operator chose is kept.
+ */
+export const SUPERSEDED_PLATFORM_NAMES: readonly string[] = ["Trainer Brain"];
+
+/**
+ * The platform name to show for a configured APP_NAME (settings or
+ * environment): trainsyou when it is blank or a superseded default, "trainsyou"
+ * spelled the brand's way (one lowercase word) for any spelling that shows the
+ * trainsyou identity, otherwise the configured name as entered.
+ */
+export function platformName(configured: string | null | undefined): string {
+  const name = (configured ?? "").trim();
+  if (!name || SUPERSEDED_PLATFORM_NAMES.includes(name)) return BRAND_NAME;
+  return usesBrandIdentity(name) ? BRAND_NAME : name;
+}

@@ -30,6 +30,20 @@ Studio branding and never show the trainsyou logo.
   slogan used. Any other name is shown as text with the generated initials
   icons (the previous behaviour), so the logo never contradicts the
   configured name.
+- `platformName(configured)` (contracts `brand.ts`) is the one place the
+  shown name is resolved (API bootstrap, public platform facts, directory,
+  install manifest, joining emails, passkey `rpName`, the web fallback): a
+  blank value or the old default **"Trainer Brain"** (exactly, after
+  trimming; `SUPERSEDED_PLATFORM_NAMES`) resolves to trainsyou, and any
+  spelling that shows the identity ("TrainsYou", "Trains You",
+  "trainsyou.com") is shown as `trainsyou`, as the copy bank requires. Any
+  other chosen name is kept as entered.
+- The settings form resubmits every shown value, so a platform whose
+  application settings were saved before the rename stores "Trainer Brain"
+  explicitly. The APP_NAME field lists it in `supersededValues`, so the
+  settings page and the runtime settings read it (stored or from the
+  environment) as the trainsyou default, and the next save stores
+  `trainsyou`. No migration rewrites stored rows.
 
 ## Assets (`apps/web/public/brand`, supplied files, unmodified)
 
@@ -64,7 +78,22 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   `platformManifest(name)` (contracts `discovery.ts`) serve the trainsyou
   icons, theme colour ink and background paper, and the descriptor as the
   manifest description. The root layout's `themeColor` is paper in light
-  and ink in dark. Coach websites keep their own icons, manifest and colour.
+  and ink in dark (two `theme-color` metas with media queries). Coach
+  websites keep their own icons, manifest and colour; a signed-in member
+  app (`components/member-app-install.tsx`) sets every `theme-color` meta
+  to the trainer's colour and drops the media queries, so dark mode shows
+  the trainer's colour too, and restores both on sign-out.
+- **Trainers' own addresses** (custom domain or subdomain): sign-in,
+  recovery, joining and legal pages there (`/login`, `/forgot-password`,
+  `/join/*`, `/terms`, …) render through the workspace's public screens.
+  The page passes the proxy's `x-trainer-site-slug` down
+  (`requestOrigin().coachSlug`), and `components/public-header.tsx` then
+  shows the trainer's identity inside `TrainerTheme`, "Sign in" and "Join
+  coaching" (`/join-coach/<slug>`), never the trainsyou lockup or the
+  "Teach your AI" sign-up link that coach addresses refuse; the card's
+  "New to …? Get started" becomes "New here? Join coaching". Those pages'
+  title, description, icons and browser colour are the trainer's, not the
+  platform's B2B description.
 - **Social previews**: the brand's home page uses the supplied share card;
   every other marketing page gets `app/og/route.tsx`, redrawn in the brand
   (white field with the ink lockup, the page's eyebrow and H1, a Pace panel
@@ -97,7 +126,7 @@ onto it, so every existing rule follows the brand:
 | `--success`, `--warning`, `--error` | `#226044`, `#805400`, `#AD3535` | `#7FCB9F`, `#E0B25C`, `#F08A80` |
 | `--*-bg`, `--*-line` | status tints (`color-mix`) | recomputed in dark |
 | `--band-ink` / `--on-band` | ink / paper | `#262A26` / paper |
-| `--focus` | ink | paper |
+| `--focus` | ink (on ink bands: `--on-band`) | paper |
 | `--radius` | 8 px panels (controls 6 px) | |
 
 - About 380 hard-coded colours (the previous green palette) in
@@ -116,11 +145,22 @@ onto it, so every existing rule follows the brand:
   `--client-bubble`) onto its own Design Studio variables and keeps the
   light status colours with self-contained tints, so trainer
   surfaces never pick up the trainsyou palette, and never go dark.
-- Typography: Inter through `next/font/google` (self-hosted by Next; no
-  browser request goes to Google), exposed as `--font-inter`, with Arial as
-  the fallback. Inter Display is not on Google Fonts, so display sizes use
-  Inter. Headings are weight 500. The previous "DM Sans" and "Manrope" names
-  (never loaded) are gone. Trainer surfaces keep their font stacks.
+- Typography: Inter, kept in the repository (`apps/web/app/fonts`, the
+  variable-weight Latin and Latin Extended files of
+  `@fontsource-variable/inter` 5.3.0, SIL OFL 1.1 in `Inter-OFL.txt`) and
+  loaded by `next/font/local`, so neither the image build nor the browser
+  contacts Google. Latin is preloaded as `--font-inter` with a
+  metric-matched Arial fallback; `--font-inter-ext` comes first in the
+  stack but its unicode-range limits it to Latin Extended letters, which
+  load only when a page uses them. Inter Display is not bundled, so display
+  sizes use Inter. Headings are weight 500. The previous "DM Sans" and
+  "Manrope" names (never loaded) are gone. Trainer surfaces keep their font
+  stacks.
+- Focus rings: `:focus-visible` draws `--focus`; the ink bands
+  (`.mk-closing`, `.mk-band-ink`) set it to `--on-band`, since the page's
+  ink ring would vanish on an ink band. A test resolves the ring against
+  the band in light and dark and fails for any new `--band-ink` background
+  without it.
 - Logical properties only (`tests/logical-css.test.ts` passes); the lockup
   is Latin artwork and does not mirror in right-to-left layouts.
 
@@ -154,14 +194,22 @@ onto it, so every existing rule follows the brand:
   platform renders its name; trainer surfaces never use the platform
   identity; the palette equals the kit and every text/background token pair
   reaches 4.5:1 (focus and field edges 3:1) in light and dark; Pace is never
-  text on a light surface.
+  text on a light surface. Review fixes added: `platformName` (blank, old
+  default and brand spellings), the settings field's superseded value, the
+  ink-band focus ring (3:1 in light and dark), the header on a trainer's
+  own address (rendered), and the vendored font files and licence.
 - Updated: `marketing-site` (the default name, the home share card, the
   lockup logo, a renamed platform), `discovery-seo` (initials icons for a
   renamed platform, the blank-name default), `fix-settings` (settings
   default), `rtl-layout` (the font class on `<html>`).
 - `scripts/brand-check.mjs` (`npm run test:brand`, through
   `scripts/run-brand-check.mjs`, which reuses the right-to-left runner on
-  ports 3124/4124): local Chromium, never a cloud browser.
+  ports 3124/4124): local Chromium, never a cloud browser. It also checks
+  every visible focusable element's ring colour (`--focus`) at 3:1 against
+  the surface behind it (trainer themes draw their own double ring), and
+  that the coach website and the member app have every `theme-color` meta
+  set to the trainer's colour. It does not visit a trainer's own address
+  (that needs host mapping); the rendered-header test covers it.
 
 Results of this package's run are recorded under "Checks run" below.
 
@@ -207,15 +255,44 @@ Results of this package's run are recorded under "Checks run" below.
 - Not run: the full repository suite, the full PostgreSQL suite, the Python
   deployment tests (no infrastructure file changed) and the e2e harness.
 
+## Review fixes and checks run (28 September 2026, second pass)
+
+Fixed: the invisible focus ring on the ink bands (light mode); the stored
+"Trainer Brain" name keeping the old identity after deploy; the member app
+leaving the platform's dark `theme-color`; the platform header, sign-up link
+and description on sign-in pages at a trainer's own address; the
+`.env.example` name; brand spellings shown against the copy rules; the
+build's Google Fonts download.
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `brand`, `marketing-site`, `logical-css`, `rtl-layout`, `fix-settings`,
+  `marketing-api`, `discovery-seo`, `discovery-install`,
+  `platform-settings`, `provider-configuration`, `settings-runtime`,
+  `fix2-web` (PGlite): 102 pass, 0 fail. `joining-web`,
+  `joining-invitations`, `discovery-directory`, `fix-auth`,
+  `account-completion`: 52 pass, 0 fail.
+- PostgreSQL sandbox (`/opt/tools/pg-sandbox.sh 56151`): `fix-settings`,
+  `marketing-api`, `discovery-seo`, `joining-web`: 32 pass,
+  `PG_SELECTED_FAILED_FILES=0`.
+- `npm run build` (once): passes with no font download; the output has
+  the two Inter files, Latin preloaded.
+- `scripts/brand-check.mjs` on that build (`RTL_WEB_MODE=start`): 72
+  screens pass, now including the focus-ring check on every screen and the
+  trainer `theme-color` check on the coach website and member app in light
+  and dark. A trainer's own address is not visited by the browser check.
+- Not run: the full repository suite, the full PostgreSQL suite, the Python
+  deployment tests (no infrastructure file changed) and the e2e harness.
+
 ## Deployment notes (deployment is separately assigned)
 
-- The settings form resubmits every displayed value, so a live platform
-  whose application settings were ever saved holds `APP_NAME = "Trainer
-  Brain"` explicitly and will keep that name (with initials icons) until the
-  Super admin changes **Platform name** to `trainsyou` or clears it. No data
-  migration rewrites an operator's saved value.
-- `next build` downloads Inter from Google Fonts at build time; the image
-  build needs outbound HTTPS to fonts.googleapis.com and fonts.gstatic.com.
+- A live platform whose application settings were saved before the rename
+  stores `APP_NAME = "Trainer Brain"`; it now reads as unset, so the
+  platform shows trainsyou after rollout with no operator step. A platform
+  that chose any other name keeps it; to show the identity, set **Platform
+  name** to `trainsyou` (a blank value is rejected). An environment
+  `APP_NAME=Trainer Brain` is treated the same way; `.env.example` now says
+  `trainsyou`.
+- The build no longer downloads fonts: Inter is in the repository.
 - The kit's own pre-launch checks remain the owner's: trademark clearance of
   the name and symbol, domain control, and an accessibility review of the
   implemented screens (the palette checks are not a full audit).

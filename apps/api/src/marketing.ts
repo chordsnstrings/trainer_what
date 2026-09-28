@@ -10,7 +10,7 @@ import { event, putRecord, type Actor, type Database } from "@trainer/db";
 import {
   APP_ICON_FILES,
   appInitials,
-  DEFAULT_PLATFORM_NAME,
+  platformName,
   PLATFORM_THEME,
   type AppIconFile,
   type BrandDesign,
@@ -59,7 +59,7 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
 /** What the public marketing pages need from the platform settings. */
 export function publicPlatform() {
   const config = runtimeConfig();
-  const name = config.APP_NAME?.trim() || DEFAULT_PLATFORM_NAME;
+  const name = platformName(config.APP_NAME);
   return {
     name,
     initials: appInitials(name),

@@ -221,6 +221,11 @@ export type IntegrationField = {
   options?: Array<{ value: string; label: string }>;
   help?: string;
   defaultValue?: string;
+  /**
+   * Earlier defaults that now mean "not chosen": a saved or environment value
+   * equal to one of these (after trimming) reads as defaultValue.
+   */
+  supersededValues?: string[];
 };
 export type IntegrationDefinition = {
   id: string;
@@ -263,8 +268,12 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     fields: [
       // Equal to DEFAULT_PLATFORM_NAME in packages/contracts (a test keeps
       // them in step); docs/features/brand.md.
+      // The old default "Trainer Brain" (SUPERSEDED_PLATFORM_NAMES) reads
+      // as unset, so a platform that saved the settings form before the
+      // rename shows trainsyou; any other chosen name is kept.
       field("APP_NAME", "Platform name", "text", {
         defaultValue: "trainsyou",
+        supersededValues: ["Trainer Brain"],
         help: "trainsyou shows the trainsyou logo and icons. Any other name is shown as text, with icons drawn from its initials. Trainers' own websites and apps keep their Design Studio branding.",
       }),
       field("SUPPORT_EMAIL", "Support email", "text"),

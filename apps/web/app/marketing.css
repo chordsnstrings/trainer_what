@@ -789,6 +789,12 @@ a.mk-nav-top {
   font-size: 13px;
   color: var(--muted);
 }
+/* Ink bands: the focus ring takes the band's text colour, since the page's
+   ink ring would vanish on an ink band (tests/brand.test.ts). */
+.mk-closing,
+.mk-band-ink {
+  --focus: var(--on-band);
+}
 .mk-closing {
   text-align: center;
   background: var(--band-ink);

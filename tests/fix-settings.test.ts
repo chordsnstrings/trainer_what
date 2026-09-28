@@ -279,6 +279,24 @@ test("application settings reject blanks, drop the unused legal version and read
   });
   assert.equal(resaved.statusCode, 200, resaved.body);
   assert.equal(resaved.json().values.APP_NAME, "trainsyou");
+  // The old default, stored by any form saved before the trainsyou rename,
+  // reads as unset (docs/features/brand.md); another chosen name is kept.
+  const storeName = (name: string) =>
+    db.system((tx) =>
+      tx.query(
+        `UPDATE platform_settings SET settings_values=settings_values||jsonb_build_object('APP_NAME',$1::text) WHERE integration_id='application'`,
+        [name],
+      ),
+    );
+  await storeName("Trainer Brain");
+  assert.equal((await application()).values.APP_NAME, "trainsyou");
+  assert.equal((await loadRuntimeSettings(db)).APP_NAME, "trainsyou");
+  await storeName(" Trainer Brain ");
+  assert.equal((await loadRuntimeSettings(db)).APP_NAME, "trainsyou");
+  await storeName("Acme Coaching");
+  assert.equal((await application()).values.APP_NAME, "Acme Coaching");
+  assert.equal((await loadRuntimeSettings(db)).APP_NAME, "Acme Coaching");
+  await storeName("trainsyou");
 });
 
 test("an edited email integration defers account email until retested, then delivers once without keeping the link", async () => {

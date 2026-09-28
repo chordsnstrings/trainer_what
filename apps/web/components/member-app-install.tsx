@@ -47,19 +47,40 @@ function swapLinks(
         else link.setAttribute(name, value);
     });
 }
+/**
+ * Sets every <meta name=…> to the member app's value. The root layout gives
+ * theme-color one copy per colour scheme (media queries), so each copy takes
+ * the trainer's colour without its query and gets its own value and query
+ * back on undo.
+ */
 function swapMeta(name: string, content: string): Undo {
-  const existing = document.head.querySelector<HTMLMetaElement>(
-      `meta[name="${name}"]`,
-    ),
-    meta = existing ?? document.createElement("meta"),
-    original = meta.getAttribute("content");
-  meta.name = name;
-  meta.content = content;
-  if (!existing) document.head.append(meta);
+  const existing = [
+    ...document.head.querySelectorAll<HTMLMetaElement>(`meta[name="${name}"]`),
+  ];
+  if (!existing.length) {
+    const meta = document.createElement("meta");
+    meta.name = name;
+    meta.content = content;
+    document.head.append(meta);
+    return () => {
+      if (meta.getAttribute("content") === content) meta.remove();
+    };
+  }
+  const saved = existing.map((meta) => ({
+    meta,
+    content: meta.getAttribute("content"),
+    media: meta.getAttribute("media"),
+  }));
+  for (const meta of existing) {
+    meta.content = content;
+    meta.removeAttribute("media");
+  }
   return () => {
-    if (meta.getAttribute("content") !== content) return;
-    if (!existing) meta.remove();
-    else if (original !== null) meta.setAttribute("content", original);
+    for (const { meta, content: original, media } of saved) {
+      if (meta.getAttribute("content") !== content) continue;
+      if (original !== null) meta.setAttribute("content", original);
+      if (media !== null) meta.setAttribute("media", media);
+    }
   };
 }
 

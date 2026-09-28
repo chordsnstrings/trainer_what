@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { AcquisitionConsent } from "../components/acquisition";
 import { documentLanguage } from "../components/public-website";
 import { publicPlatform } from "../components/marketing/platform";
@@ -32,17 +32,47 @@ import "./voice-session.css";
 import "./web-address.css";
 import "./marketing.css";
 
-// The trainsyou typeface: Inter, self-hosted by Next at build time (no
-// browser request goes to Google). "Inter Display" is not on Google Fonts;
-// display sizes use Inter, with Arial as the fallback (globals.css
-// --ty-font-body / --ty-font-display). Trainer-branded surfaces keep their
-// Design Studio font stacks.
-const inter = Inter({
-  subsets: ["latin"],
+// The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
+// variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
+// repository, so neither the build nor the browser contacts Google. Latin is
+// preloaded; Latin Extended is listed first but, by its unicode-range, only
+// loads for a page that uses those letters. "Inter Display" is not bundled;
+// display sizes use Inter, with metric-matched Arial as the fallback
+// (globals.css --ty-font-body / --ty-font-display). Trainer-branded surfaces
+// keep their Design Studio font stacks.
+const interLatin = localFont({
+  src: "./fonts/inter-latin-wght-normal.woff2",
+  weight: "100 900",
+  style: "normal",
   display: "swap",
   variable: "--font-inter",
-  fallback: ["Arial", "sans-serif"],
+  adjustFontFallback: "Arial",
+  declarations: [
+    {
+      prop: "unicode-range",
+      value:
+        "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+    },
+  ],
 });
+const interLatinExt = localFont({
+  src: "./fonts/inter-latin-ext-wght-normal.woff2",
+  weight: "100 900",
+  style: "normal",
+  display: "swap",
+  variable: "--font-inter-ext",
+  preload: false,
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: "unicode-range",
+      value:
+        "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF",
+    },
+  ],
+});
+/** Sets --font-inter and --font-inter-ext on <html>. */
+const fontVariables = `${interLatin.variable} ${interLatinExt.variable}`;
 
 export async function generateMetadata(): Promise<Metadata> {
   // The platform name comes from the Super admin settings (APP_NAME), and is
@@ -93,7 +123,7 @@ export default async function Layout({
   // document-language.ts for the precedence).
   const { lang, dir } = await documentLanguage();
   return (
-    <html lang={lang} dir={dir} className={inter.variable}>
+    <html lang={lang} dir={dir} className={fontVariables}>
       <body>
         {children}
         <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />

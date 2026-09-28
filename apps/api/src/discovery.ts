@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
 import {
   APP_ICON_FILES,
-  DEFAULT_PLATFORM_NAME,
+  platformName,
   DIRECTORY_LANGUAGES,
   DIRECTORY_PAGE_SIZE,
   DIRECTORY_PATH,
@@ -239,7 +239,7 @@ export async function searchDirectory(
       specialties: DIRECTORY_SPECIALTIES,
       languages: DIRECTORY_LANGUAGES,
     },
-    platformName: runtimeConfig().APP_NAME || DEFAULT_PLATFORM_NAME,
+    platformName: platformName(runtimeConfig().APP_NAME),
   };
 }
 
@@ -550,7 +550,7 @@ export function registerDiscovery(app: FastifyInstance, db: Database) {
     // Anonymous visitors (or a browser that omits cookies) keep the platform
     // manifest instead of an error.
     if (!req.identity || !memberRoles.includes(req.identity.role))
-      return platformManifest(runtimeConfig().APP_NAME || undefined);
+      return platformManifest(platformName(runtimeConfig().APP_NAME));
     return (await memberInstall(db, req.identity)).manifest;
   });
   app.get("/api/v1/app/icons/:key/:file", async (req, res) => {

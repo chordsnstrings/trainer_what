@@ -13,18 +13,22 @@ import {
   BRAND_ASSETS,
   BRAND_COLORS,
   BRAND_COPY,
+  BRAND_NAME,
   DEFAULT_PLATFORM_NAME,
   PLATFORM_ICON_BASE,
+  SUPERSEDED_PLATFORM_NAMES,
   llmsTxt,
   marketingJsonLd,
   marketingMetadata,
   marketingPage,
   platformIcons,
   platformManifest,
+  platformName,
   usesBrandIdentity,
 } from "@trainer/contracts";
 import { INTEGRATION_CATALOG } from "../packages/providers/src/configuration.ts";
 import { PlatformLogo } from "../apps/web/components/brand-logo.tsx";
+import { PublicHeader } from "../apps/web/components/public-header.tsx";
 import {
   MarketingFooter,
   MarketingHeader,
@@ -47,6 +51,21 @@ test("the default platform name is trainsyou and a configured APP_NAME still ove
     assert.equal(usesBrandIdentity(name), false, String(name));
   assert.equal(platformManifest().name, "trainsyou");
   assert.equal(platformManifest("Acme Coaching").name, "Acme Coaching");
+});
+
+test("the shown platform name is trainsyou for a blank, the old default or any brand spelling", () => {
+  for (const name of [undefined, null, "", "  ", "Trainer Brain", " Trainer Brain "])
+    assert.equal(platformName(name), BRAND_NAME, String(name));
+  // A spelling that shows the trainsyou identity is written the brand's way
+  // (one lowercase word) in titles, alt text, JSON-LD and emails.
+  for (const name of ["TrainsYou", "Trains You", "trains-you", " trainsyou.com "])
+    assert.equal(platformName(name), BRAND_NAME, name);
+  for (const name of ["Acme Coaching", "Trainer Brain Pro", "trainer brain"])
+    assert.equal(platformName(name), name.trim(), name);
+  // The settings field treats the same old default as unset.
+  const setting = INTEGRATION_CATALOG.find((d) => d.id === "application")!
+    .fields.find((f) => f.key === "APP_NAME")!;
+  assert.deepEqual(setting.supersededValues, [...SUPERSEDED_PLATFORM_NAMES]);
 });
 
 test("every supplied logo, icon and share image is in apps/web/public/brand at its real size", async () => {
@@ -113,8 +132,15 @@ test("the platform manifest, favicons and install icons use the trainsyou icons"
   assert.match(layout, /const icons = platformIcons\(name\);/);
   assert.match(layout, /apple: \{ url: icons\.apple180/);
   assert.match(layout, /icons\.faviconSvg/);
-  assert.match(layout, /from "next\/font\/google"/);
-  assert.match(layout, /Inter\(\{/);
+  // Inter ships in the repository (OFL), so the build needs no network.
+  assert.match(layout, /from "next\/font\/local"/);
+  assert.doesNotMatch(layout, /next\/font\/google/);
+  for (const file of ["inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2"]) {
+    assert.match(layout, new RegExp(`src: "\\./fonts/${file.replace(/\./g, "\\.")}"`));
+    const woff2 = await readFile(web("app/fonts/" + file));
+    assert.equal(woff2.subarray(0, 4).toString("latin1"), "wOF2", file);
+  }
+  assert.match(await source("app/fonts/Inter-OFL.txt"), /SIL Open Font License, Version 1\.1/);
   assert.match(await source("app/manifest.ts"), /platformManifest\(name\)/);
   // The brand assets are static files, outside the routing proxy.
   assert.match(await source("proxy.ts"), /\|brand\/\)/);
@@ -172,6 +198,37 @@ test("the header and footer show the lockup in ink and white, and a renamed plat
   const acme = renderToStaticMarkup(createElement(PlatformLogo, { name: "Acme Coaching" }));
   assert.doesNotMatch(acme, /brand\//);
   assert.match(acme, />AC<\/span><span>Acme Coaching</);
+});
+
+test("sign-in and joining pages on a trainer's own address show the trainer, never the platform's logo or sign-up", async () => {
+  const platform = { name: "trainsyou", initials: "T", registrationOpen: true };
+  const render = (coach: Parameters<typeof PublicHeader>[0]["coach"], path = "/login") =>
+    renderToStaticMarkup(createElement(PublicHeader, { path, platform, coach }));
+  const trainer = { name: "Alex Morgan", slug: "alex-morgan", theme: {} };
+  for (const markup of [
+    render({ slug: "alex-morgan", host: true, trainer }),
+    render({ slug: "alex-morgan", host: true, trainer: null }),
+    render({ slug: "alex-morgan", host: true, trainer }, "/forgot-password"),
+  ]) {
+    assert.doesNotMatch(markup, /\/brand\/|Teach your AI|href="\/signup"|trainsyou/, markup);
+    assert.match(markup, /href="\/join-coach\/alex-morgan"/);
+    assert.match(markup, /<a class="wordmark"[^>]* href="\/">/);
+  }
+  assert.match(render({ slug: "alex-morgan", host: true, trainer }), /Alex Morgan/);
+  // A /coach/ page on the platform address links home to the coach's page.
+  assert.match(render({ slug: "alex-morgan", host: false, trainer }), /href="\/coach\/alex-morgan"/);
+  // The platform's own sign-in page keeps the trainsyou header.
+  const own = render(null);
+  assert.ok(own.includes(BRAND_ASSETS.lockupInk));
+  assert.match(own, />Teach your AI</);
+  // The server passes the proxy's coach slug down; the page uses it.
+  const page = await source("app/[[...path]]/page.tsx");
+  assert.match(page, /<Workspace[\s\S]*coachSlug=\{coachSlug\}/);
+  const workspace = await source("components/workspace.tsx");
+  assert.match(workspace, /<Public\s+path=\{path\}\s+platform=\{platform\}\s+coachSlug=\{coachSlug\}/);
+  assert.match(workspace, /<PublicHeader/);
+  assert.doesNotMatch(workspace, /<MarketingHeader/);
+  assert.match(await source("components/discovery-server.ts"), /x-trainer-site-slug/);
 });
 
 test("platform surfaces carry .platform-ui; trainer-branded ones never show the platform identity", async () => {
@@ -233,6 +290,8 @@ function resolver(...layers: Record<string, string>[]) {
   return (name: string) => resolve(`var(${name})`);
 }
 
+const platformCssFiles = ["globals.css", "marketing.css", "platform-settings.css", "governance.css", "host-operations.css"];
+
 test("design tokens are the supplied palette and meet the contrast checks in light and dark", async () => {
   const css = await readFile(web("app/globals.css"), "utf8");
   const root = declarations(css.match(/:root \{([\s\S]*?)\n\}/)![1]);
@@ -292,10 +351,29 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
       assert.ok(contrast(color("--field-border"), color(bg)) >= 3, `${mode}: field edge on ${bg}`);
     }
   }
+  // Ink bands give the focus ring their text colour: the page's ink ring
+  // would draw ink on ink there (non-text contrast 3:1).
+  const marketing = await readFile(web("app/marketing.css"), "utf8");
+  const bandRule = marketing.match(/\n\.mk-closing,\s*\.mk-band-ink \{([^}]*)\}/);
+  assert.ok(bandRule, "the ink bands set their own focus ring");
+  const band = declarations(bandRule[1]);
+  for (const [mode, layers] of [["light", [root]], ["dark", [root, dark]]] as const) {
+    const color = resolver(...layers, band);
+    const ratio = contrast(color("--focus"), color("--band-ink"));
+    assert.ok(ratio >= 3, `${mode}: focus ring on the ink band is ${ratio.toFixed(2)}:1`);
+  }
+  for (const file of platformCssFiles) {
+    const text = await readFile(web("app/" + file), "utf8");
+    for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      if (/background(-color)?:\s*var\(--band-ink\)/.test(rule[2]))
+        assert.ok(
+          [".mk-closing", ".mk-band-ink"].includes(rule[1].trim().split("\n").pop()!.trim()),
+          `${file}: ${rule[1].trim()} is an ink band without the band focus ring`,
+        );
+  }
   // Pace is a background accent: never text on a light surface (it may
   // colour figures on the ink band, where it reads at 14:1).
-  const platformCss = ["globals.css", "marketing.css", "platform-settings.css", "governance.css", "host-operations.css"];
-  for (const file of platformCss) {
+  for (const file of platformCssFiles) {
     const text = await readFile(web("app/" + file), "utf8");
     for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       if (!/(^|\s|;)color:\s*var\(--lime\)/.test(rule[2])) continue;

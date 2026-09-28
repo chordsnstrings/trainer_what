@@ -102,7 +102,8 @@ after(async () => {
 
 test("the public platform endpoint gives the brand, availability and assumptions", async () => {
   const platform = await ok(h, "/public/platform");
-  assert.equal(platform.name, "TrainsYou");
+  // APP_NAME "TrainsYou" shows the brand, so it is spelled the brand's way.
+  assert.equal(platform.name, "trainsyou");
   assert.equal(platform.initials, "T");
   assert.equal(platform.registrationOpen, true);
   assert.equal(platform.coachAddressTemplate, PLATFORM + "/coach/{slug}");

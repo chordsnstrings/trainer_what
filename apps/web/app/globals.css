@@ -16,11 +16,17 @@
   --ty-success: #226044;
   --ty-warning: #805400;
   --ty-error: #ad3535;
-  /* Inter is self-hosted by next/font (app/layout.tsx sets --font-inter);
-     Inter Display is not bundled, so display sizes use Inter. */
-  --ty-font-body: var(--font-inter, Inter), Inter, Arial, sans-serif;
+  /* Inter ships with the app (app/fonts, loaded by next/font/local in
+     app/layout.tsx): --font-inter-ext covers only Latin Extended letters
+     (unicode-range), then --font-inter is Latin with its metric-matched
+     Arial fallback. Inter Display is not bundled, so display sizes use
+     Inter. */
+  --ty-font-body:
+    var(--font-inter-ext, Inter), var(--font-inter, Inter), Inter, Arial,
+    sans-serif;
   --ty-font-display:
-    "Inter Display", var(--font-inter, Inter), Inter, Arial, sans-serif;
+    "Inter Display", var(--font-inter-ext, Inter), var(--font-inter, Inter),
+    Inter, Arial, sans-serif;
   --ty-space-1: 4px;
   --ty-space-2: 8px;
   --ty-space-3: 12px;

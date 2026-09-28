@@ -178,6 +178,33 @@ function measure(page) {
           `${el.tagName.toLowerCase()}${el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/)[0] : ""} "${el.textContent.trim().slice(0, 30)}" ${value.toFixed(2)}:1`,
         );
     }
+    // Focus rings (3px outline in --focus, drawn outside the element) need
+    // 3:1 against the surface they sit on: the parent's backdrop. Trainer
+    // themes draw their own white-and-black double ring.
+    const hex = (v) => {
+      const m = v.trim().match(/^#([0-9a-f]{6})$/i);
+      if (!m) return parse(v.trim());
+      const n = parseInt(m[1], 16);
+      return { r: n >> 16, g: (n >> 8) & 255, b: n & 255, a: 1 };
+    };
+    const lowFocus = [];
+    for (const el of document.body.querySelectorAll(
+      "a[href], button, input:not([type='hidden']), select, textarea, summary, [tabindex]:not([tabindex='-1'])",
+    )) {
+      if (el.closest(".trainer-theme, [aria-hidden='true'], [hidden], :disabled")) continue;
+      if (!el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }))
+        continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1 || !el.parentElement) continue;
+      const ring = hex(getComputedStyle(el).getPropertyValue("--focus"));
+      const under = backdrop(el.parentElement);
+      if (!ring || !under) continue;
+      const value = ratio(ring.a < 1 ? blend(ring, under) : ring, under);
+      if (value < 3)
+        lowFocus.push(
+          `${el.tagName.toLowerCase()}${el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/)[0] : ""} "${(el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 30)}" ${value.toFixed(2)}:1`,
+        );
+    }
     const logo = [...document.querySelectorAll(".brand-logo img")].find(
       (img) => img.checkVisibility?.() && img.getBoundingClientRect().width > 0,
     );
@@ -198,6 +225,7 @@ function measure(page) {
       canvas: getComputedStyle(root).backgroundColor,
       scanned,
       low,
+      lowFocus,
     };
   });
 }
@@ -221,6 +249,11 @@ function assertPlatform(label, m, scheme) {
     fail(label, `favicon ${m.icon}`);
   if (m.low.length)
     fail(label, `${m.low.length} low-contrast text: ${m.low.slice(0, 5).join("; ")}`);
+  if (m.lowFocus.length)
+    fail(
+      label,
+      `${m.lowFocus.length} focus ring(s) below 3:1: ${m.lowFocus.slice(0, 5).join("; ")}`,
+    );
 }
 
 /** BRAND_CHECK_SHOTS=<dir> keeps a first-screen image of a few pages. */
@@ -346,6 +379,34 @@ try {
           if (m.platformUi || m.anyBrandAsset)
             fail(label, "shows the platform identity on a trainer-branded surface");
           if (m.overflow > 1) fail(label, `horizontal overflow of ${m.overflow}px`);
+          // The browser colour is the trainer's in both schemes: every
+          // theme-color copy (the root layout has one per scheme) changes.
+          const unified = () => {
+            const metas = [...document.querySelectorAll("meta[name='theme-color']")];
+            return (
+              metas.length > 0 &&
+              metas.every(
+                (meta) =>
+                  !meta.getAttribute("media") &&
+                  meta.getAttribute("content") === metas[0].getAttribute("content"),
+              ) &&
+              !["#f3f4f0", "#171917"].includes(
+                metas[0].getAttribute("content").toLowerCase(),
+              )
+            );
+          };
+          await memberPage
+            .waitForFunction(unified, null, { timeout: 30_000 })
+            .catch(() => {});
+          if (!(await memberPage.evaluate(unified)))
+            fail(
+              label,
+              `browser colour is not the trainer's: ${await memberPage.evaluate(() =>
+                [...document.querySelectorAll("meta[name='theme-color']")]
+                  .map((meta) => `${meta.getAttribute("media") ?? "all"}=${meta.getAttribute("content")}`)
+                  .join(", "),
+              )}`,
+            );
         });
     }
     await ctx.close();
