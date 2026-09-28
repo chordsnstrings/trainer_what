@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Field } from "./field";
+import { PayoutFeeForm, PlatformCostsView } from "./platform-finance-costs";
 import {
   GovernanceError,
   GovernanceLinks,
@@ -61,6 +62,7 @@ const TABS = [
   ["domains", "Domains"],
   ["payouts", "Payouts"],
   ["flags", "Cost against income"],
+  ["costs", "Platform costs"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -224,7 +226,7 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
                 <div className="button-row">
                   <a
                     className="button secondary"
-                    href={`/api/v1/admin/platform-finance/export/${tab}.csv?${query}`}
+                    href={`/api/v1/admin/platform-finance/export/${tab === "costs" ? "costs" : tab}.csv?${query}`}
                     download
                   >
                     Download this view (CSV)
@@ -251,8 +253,9 @@ export function PlatformFinance({ platformRole }: { platformRole: string }) {
                     }
                   />
                 )}
-                {tab === "payouts" && <PayoutsView rows={data.payouts} />}
+                {tab === "payouts" && <PayoutsView rows={data.payouts} onChanged={load} />}
                 {tab === "flags" && <FlagsView rows={data.flags} />}
+                {tab === "costs" && <PlatformCostsView range={range} onChanged={load} />}
               </section>
             </>
           )}
@@ -452,7 +455,7 @@ function ProvidersView({ rows }: { rows: any[] }) {
         Estimated is priced at the estimate when the call was made; reconciled
         is priced from the provider&apos;s invoice.
       </p>
-      <Table label="Cost by provider" head={["Provider", "Calls", "Cost", "Estimated", "Reconciled", "Unpriced", "Invoiced", "AED"]}>
+      <Table label="Cost by provider" head={["Provider", "Calls", "Cost", "Estimated", "Reconciled", "Unpriced", "Invoiced usage", "Plan fees", "AED"]}>
         {rows.map((p) => (
           <tr key={p.provider}>
             <th scope="row">{p.provider}</th>
@@ -464,6 +467,7 @@ function ProvidersView({ rows }: { rows: any[] }) {
               {p.unpriced} {p.unpriced > 0 && <>(about {usd(p.unpricedEstimateUsd)})</>}
             </td>
             <td>{p.invoicedUsd === null ? "—" : usd(p.invoicedUsd)}</td>
+            <td>{p.planUsd === null || p.planUsd === undefined ? "—" : usd(p.planUsd)}</td>
             <td><Money minor={p.aedMinor} /></td>
           </tr>
         ))}
@@ -551,7 +555,7 @@ function DomainsView({ domains, busy, onCheck }: { domains: any; busy: boolean; 
     </>
   );
 }
-function PayoutsView({ rows }: { rows: any[] }) {
+function PayoutsView({ rows, onChanged }: { rows: any[]; onChanged: () => Promise<void> }) {
   if (!rows.length) return <p>No payouts for these months.</p>;
   return (
     <>
@@ -565,9 +569,15 @@ function PayoutsView({ rows }: { rows: any[] }) {
             <td>{p.revision}</td>
             <td><Money minor={p.amountMinor} /></td>
             <td>
-              {p.bankFeeMinor === null || p.bankFeeMinor === undefined
-                ? "—"
-                : <span dir="ltr">{inCurrency(p.bankFeeMinor, p.bankFeeCurrency ?? "AED")}</span>}
+              {p.bankFeeMinor === null || p.bankFeeMinor === undefined ? (
+                ["submitted", "processing", "paid", "returned", "failed", "unknown"].includes(p.status) ? (
+                  <PayoutFeeForm payout={p} onDone={onChanged} />
+                ) : (
+                  "—"
+                )
+              ) : (
+                <span dir="ltr">{inCurrency(p.bankFeeMinor, p.bankFeeCurrency ?? "AED")}</span>
+              )}
             </td>
           </tr>
         ))}

@@ -610,6 +610,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         },
       ),
       field(
+        "FINANCE_EMAIL_USD_PER_MESSAGE",
+        "Email cost per delivered message (USD)",
+        "number",
+        {
+          defaultValue: "0",
+          help: "The email provider's price per message, counted for every delivered email in the Platform finance profit and loss. 0 counts only the email plan, entered as a recurring platform cost. 0 to 1, up to six decimals.",
+        },
+      ),
+      field(
         "FINANCE_STRIPE_FEE_PERCENT",
         "Stripe card fee shown to trainers (%)",
         "number",
@@ -1512,6 +1521,13 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(
           `${entry.label} must be from 0 to 20 with at most three decimals`,
+        );
+      if (
+        key === "FINANCE_EMAIL_USD_PER_MESSAGE" &&
+        !(/^\d(\.\d{1,6})?$/.test(text) && Number(text) <= 1)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1 with at most six decimals`,
         );
       if (
         key === "FINANCE_STRIPE_FEE_FIXED_AED" &&

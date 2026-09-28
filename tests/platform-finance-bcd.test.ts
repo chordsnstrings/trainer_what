@@ -271,3 +271,195 @@ test("the worker builds the summary once an hour", async () => {
   await withRuntimeConfig({}, () => runPlatformFinanceJobs(f.db, new Date(now.getTime() + 2 * 3600000)));
   assert.equal(await runs(), first + 1);
 });
+
+// ---- Phase C -------------------------------------------------------------------
+
+test("platform costs: receipts, reversals, recurring months, payout bank fees and registrar top-ups", async () => {
+  const fin = await f.operator("finance");
+  const intent = randomUUID();
+  const body = {
+    intent,
+    month: "2025-01",
+    category: "server",
+    description: "Synthetic server bill",
+    vendor: "Synthetic host",
+    amount: "24.00",
+    currency: "USD",
+    receiptReference: "INV-SYN-1",
+  };
+  const first = await f.call("/admin/platform-finance/costs", { cookie: fin.cookie, body });
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().amountMinor, 2400);
+  // A retried request records nothing twice; other values under the same intent are refused.
+  const again = await f.call("/admin/platform-finance/costs", { cookie: fin.cookie, body });
+  assert.equal(again.json().id, first.json().id);
+  assert.equal((await f.call("/admin/platform-finance/costs", { cookie: fin.cookie, body: { ...body, amount: "25.00" } })).json().code, "INTENT_CONFLICT");
+  // Entries are never changed: a reversal corrects them, once.
+  const wrong = await f.call("/admin/platform-finance/costs", { cookie: fin.cookie, body: { ...body, intent: randomUUID(), amount: "99.00" } });
+  const reversed = await f.call(`/admin/platform-finance/costs/${wrong.json().id}/reverse`, { cookie: fin.cookie, body: { reason: "Entered twice by mistake" } });
+  assert.equal(reversed.json().amountMinor, -9900);
+  const reversedAgain = await f.call(`/admin/platform-finance/costs/${wrong.json().id}/reverse`, { cookie: fin.cookie, body: { reason: "Entered twice by mistake" } });
+  assert.equal(reversedAgain.json().id, reversed.json().id);
+  await assert.rejects(
+    f.db.system((tx) => tx.query("UPDATE platform_costs SET amount_minor=1 WHERE id=$1", [first.json().id])),
+    // The trigger refuses it; under PostgreSQL the service role has no UPDATE grant either.
+    /immutable|permission denied/,
+  );
+  // A registrar top-up is a prepayment: in the registrar's book, not a cost.
+  await f.call("/admin/platform-finance/costs", { cookie: fin.cookie, body: { ...body, intent: randomUUID(), category: "registrar_topup", amount: "50.00", description: "Registrar top-up" } });
+  // A recurring cost enters each month once.
+  const recurring = await f.call("/admin/platform-finance/recurring", {
+    cookie: fin.cookie,
+    body: { category: "email", description: "Synthetic email plan", amount: "15.00", currency: "USD", receiptReference: "PLAN-SYN", startsMonth: "2024-12" },
+  });
+  assert.equal(recurring.statusCode, 200, recurring.body);
+  const { postRecurringCosts } = await import("../apps/api/src/platform-costs.ts");
+  const posted = await postRecurringCosts(f.db, "2025-02");
+  assert.ok(posted.posted >= 3);
+  assert.equal((await postRecurringCosts(f.db, "2025-02")).posted, 0);
+  const ended = await f.call(`/admin/platform-finance/recurring/${recurring.json().id}/end`, { cookie: fin.cookie, body: { revision: 1, endsMonth: "2025-01" } });
+  assert.equal(ended.json().ends_month, "2025-01");
+  // A payout's bank fee: once per payout sent to the bank.
+  const owner = await f.person({ name: "Owner Payout Fee" });
+  const payoutId = randomUUID();
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("INSERT INTO payouts(id,tenant_id,period,amount_minor,beneficiary_id,revision,status,prepared_by) VALUES($1,$2,'2025-01',50000,$3,1,'ready',$4)", [payoutId, owner.tenantId, randomUUID(), fin.userId]),
+  );
+  const fee = { tenantId: owner.tenantId, payoutId, amount: "5.25", currency: "AED", receiptReference: "BANK-STMT-1" };
+  assert.equal((await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: fee })).json().code, "PAYOUT_NOT_SENT");
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) => tx.query("UPDATE payouts SET status='submitted' WHERE id=$1", [payoutId]));
+  const recorded = await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: fee });
+  assert.equal(recorded.statusCode, 200, recorded.body);
+  assert.equal((await f.call("/admin/platform-finance/payout-fees", { cookie: fin.cookie, body: { ...fee, amount: "6.00" } })).json().code, "INTENT_CONFLICT");
+  const month = recorded.json().month;
+  // The profit and loss counts server, email plan and the payout fee, never the top-up.
+  const pnl = await platformPnl(f.db, { from: "2025-01", to: "2025-01" });
+  const line = (key: string) => pnl.months[0].costs.find((l: any) => l.key === key)!.aedMinor;
+  assert.equal(line("platform"), Math.round(2400 * 3.6725) + Math.round(1500 * 3.6725));
+  assert.equal(pnl.domains.registrar.topUpsMinor.USD, 5000);
+  const inMonth = await platformPnl(f.db, { from: month, to: month });
+  assert.equal(inMonth.months[0].costs.find((l: any) => l.key === "payoutFees")!.aedMinor, 525);
+  const costs = await f.call("/admin/platform-finance/costs?from=2024-12&to=2025-02", { cookie: fin.cookie });
+  assert.equal(costs.statusCode, 200, costs.body);
+  assert.ok(costs.json().entries.some((e: any) => e.source === "recurring" && e.month === "2024-12"));
+  // Months entered before the last month was set stay; none after it follow.
+  assert.equal((await postRecurringCosts(f.db, "2025-04")).posted, 0);
+  const later = await f.call("/admin/platform-finance/costs?from=2025-03&to=2025-04", { cookie: fin.cookie });
+  assert.ok(!later.json().entries.some((e: any) => e.source === "recurring" && e.description === "Synthetic email plan"));
+  // Trainers never reach these routes.
+  assert.equal((await f.call("/admin/platform-finance/costs", { cookie: owner.cookie })).statusCode, 403);
+});
+
+test("a provider invoice prices calls, records plan fees and adjusts a month already charged, once", async () => {
+  const { parseInvoice } = await import("../apps/api/src/provider-invoices.ts");
+  assert.throws(() => parseInvoice("csv", "request_id,amount\nx,abc\n"), /US dollars/);
+  assert.throws(() => parseInvoice("csv", "request_id,foo\nx,1\n"), /cost_usd column/);
+  assert.throws(() => parseInvoice("json", JSON.stringify({ totalUsd: "3", lines: [{ cost_usd: "1" }] })), /totalUsd/);
+  assert.equal(parseInvoice("csv", 'cost_usd,description\n"1.50","A, quoted ""line"""\n').lines[0].description, 'A, quoted "line"');
+  const fin = await f.operator("finance");
+  const owner = await f.person({ name: "Owner Invoice" });
+  const at = "2024-12-10T10:00:00Z";
+  await f.db.tenant(f.scoped(owner.tenantId, "finance"), async (tx) => {
+    for (const [trace, est] of [["req-inv-1", 1], [null, 0.5], [null, 0.5]] as const)
+      await tx.query(
+        "INSERT INTO cost_events(id,tenant_id,task,provider,model,cost_usd,estimated_cost_usd,status,product,created_at,pricing,trace_id) VALUES($1,$2,'coaching','acmeai','m',$3,$3,'estimated','membership',$4,'{}',$5)",
+        [randomUUID(), owner.tenantId, est, at, trace],
+      );
+  });
+  // Charged at the estimates: 2 USD at 4 AED with the 100% markup.
+  await f.db.tenant(operatorOf(owner), (tx) =>
+    postUsageStatement(tx, operatorOf(owner), { period: "2024-12", fxAedPerUsd: 4, chargeMinor: 1600, feeScheduleVersion: "fixture-v1", evidenceReference: "Synthetic usage evidence" }),
+  );
+  const content = "request_id,cost_usd,kind,description\nreq-inv-1,1.20,usage,One call\n,1.40,usage,Other calls\n,10.00,plan,Monthly plan\n";
+  const importInvoice = (extra: Record<string, unknown> = {}) =>
+    f.call("/admin/platform-finance/invoices", {
+      cookie: fin.cookie,
+      body: { provider: "acmeai", month: "2024-12", reference: "ACME-2024-12", format: "csv", content, evidenceReference: "Synthetic provider invoice export", ...extra },
+    });
+  const r = await importInvoice();
+  assert.equal(r.statusCode, 200, r.body);
+  const result = r.json();
+  assert.equal(result.reconciledRequests, 1);
+  assert.equal(result.planUsd, "10.00000000");
+  // 2.60 USD now at 4 AED and 100% = 2080; charged 1600: +480 as an adjustment.
+  assert.deepEqual(result.corrections.posted, [{ tenantId: owner.tenantId, differenceMinor: 480 }]);
+  const rows = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("SELECT status,cost_usd::text AS cost FROM cost_events WHERE provider='acmeai' ORDER BY cost_usd"),
+  );
+  assert.deepEqual(rows.map((x: any) => [x.status, Number(x.cost)]), [["reconciled", 0.7], ["reconciled", 0.7], ["reconciled", 1.2]]);
+  // The posted statement is unchanged; the adjustment is a new journal.
+  const [statement] = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) => tx.query("SELECT charge_minor FROM usage_statements WHERE period='2024-12'"));
+  assert.equal(Number(statement.charge_minor), 1600);
+  const [adjustment] = await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
+    tx.query("SELECT description,data FROM journals WHERE source_key='usage-adjustment:2024-12:ACME-2024-12'"),
+  );
+  assert.equal(adjustment.description, "AI Coach Service Fee adjustment");
+  assert.equal(adjustment.data.markupPercent, 100);
+  // The same import again changes nothing; other content under the reference is refused.
+  const repeat = await importInvoice();
+  assert.equal(repeat.json().alreadyImported, true);
+  assert.equal((await importInvoice({ content: content.replace("10.00", "11.00") })).json().code, "INVOICE_CONFLICT");
+  const corrections = await f.call("/admin/platform-finance/usage-corrections", { cookie: fin.cookie, body: { period: "2024-12", reference: "ACME-2024-12" } });
+  assert.deepEqual(corrections.json().posted, []);
+  // The plan fee is a platform cost of the month.
+  const pnl = await platformPnl(f.db, { from: "2024-12", to: "2024-12" });
+  assert.ok(pnl.platformCosts.some((c: any) => c.category === "provider_plan" && c.amountMinor === 1000 && c.currency === "USD"));
+  assert.ok(pnl.providers.some((p: any) => p.provider === "acmeai" && p.invoicedUsd === 2.6 && p.planUsd === 10), JSON.stringify(pnl.providers));
+  // The trainer sees the adjustment only as the AI Coach Service Fee.
+  const posted = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  const view = await f.call(`/finance/statements/${posted}`, { cookie: owner.cookie });
+  assert.equal(view.json().aiCoachServiceFeeMinor, 1600 + 480);
+  const entry = view.json().entries.find((e: any) => e.source_key.startsWith("usage-adjustment:"));
+  assert.deepEqual([entry.description, entry.data], ["AI Coach Service Fee adjustment", { period: "2024-12", amountMinor: 480 }]);
+  assert.doesNotMatch(view.body, /acmeai|chargeableUsd|markupPercent/);
+});
+
+test("Stripe's fee per charge, refund and dispute is read once from its balance transaction", async () => {
+  const { sweepStripeFees, captureFeesAfterWebhook } = await import("../apps/api/src/stripe-fees.ts");
+  const owner = await f.person({ name: "Owner Stripe Fees" });
+  const at = new Date().toISOString();
+  await post(owner.tenantId, "stripe-invoice:in_fee1", at, [["stripe_receivable", 19900], ["trainer_payable", -14925], ["platform_commission", -4975]], { grossMinor: 19900, commissionMinor: 4975, chargeId: "ch_fee1" });
+  await post(owner.tenantId, "stripe-refund:re_fee1", at, [["stripe_receivable", -19900], ["trainer_payable", 14925], ["platform_commission", 4975]], { refundAmountMinor: 19900, commissionReversalMinor: 4975, chargeId: "ch_fee1" });
+  await post(owner.tenantId, "web-address-invoice:in_fee2", at, [["web_address_receivable", 1999], ["web_address_revenue", -1999]], { grossMinor: 1999, chargeId: "ch_fee2" }, "USD");
+  await post(owner.tenantId, "dispute-reserve:dp_fee1", at, [["trainer_payable", 19900], ["dispute_reserve", -19900]], { chargeId: "ch_fee1" });
+  const created = Math.floor(Date.now() / 1000);
+  const bt = (id: string, amount: number, fee: number, currency = "aed") => ({ id, object: "balance_transaction", amount, currency, fee, net: amount - fee, created, fee_details: [{ amount: fee, currency, type: "stripe_fee", description: "Stripe processing fees" }] });
+  const reads: string[] = [];
+  const stripe = {
+    charges: {
+      retrieve: async (id: string) => {
+        reads.push(id);
+        return id === "ch_fee1"
+          ? { id, balance_transaction: bt("txn_fee1", 19900, 677) }
+          : { id, balance_transaction: { ...bt("txn_fee2", 7341, 459), exchange_rate: 3.6725 } };
+      },
+    },
+    refunds: { retrieve: async (id: string) => (reads.push(id), { id, charge: "ch_fee1", balance_transaction: bt("txn_re1", -19900, 0) }) },
+    disputes: { retrieve: async (id: string) => (reads.push(id), { id, charge: "ch_fee1", balance_transactions: [bt("txn_dp1", -19900, 5500)] }) },
+    paymentIntents: { retrieve: async () => { throw new Error("not used"); } },
+  };
+  const first = await sweepStripeFees(f.db, stripe, { tenantId: owner.tenantId });
+  assert.deepEqual([first.recorded, first.failed], [4, 0]);
+  const second = await sweepStripeFees(f.db, stripe, { tenantId: owner.tenantId });
+  assert.deepEqual([second.recorded, reads.length], [0, 4]);
+  // A webhook for the workspace reads nothing new.
+  await captureFeesAfterWebhook(f.db, stripe, { data: { object: { metadata: { tenant_id: owner.tenantId } } } });
+  assert.equal(reads.length, 4);
+  const rows = await f.db.system((tx) => tx.query("SELECT balance_transaction_id,source_type,product,fee_minor FROM stripe_fees WHERE tenant_id=$1 ORDER BY balance_transaction_id", [owner.tenantId]));
+  assert.deepEqual(
+    rows.map((r: any) => [r.balance_transaction_id, r.source_type, r.product, Number(r.fee_minor)]),
+    [["txn_dp1", "dispute", "membership", 5500], ["txn_fee1", "charge", "membership", 677], ["txn_fee2", "charge", "domain", 459], ["txn_re1", "refund", "membership", 0]],
+  );
+  // The trainer sees Stripe's fee on their own payments (not the platform's domain fees).
+  const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  const view = await f.call(`/finance/statements/${month}`, { cookie: owner.cookie });
+  assert.equal(view.statusCode, 200, view.body);
+  assert.deepEqual(view.json().stripeFeesOnPayments, [{ currency: "AED", count: 3, feeMinor: 6177 }]);
+  // The profit and loss uses Stripe's recorded fees for the month.
+  await rebuildPlatformSummary(f.db, [month]);
+  const pnl = await platformPnl(f.db, { from: month, to: month });
+  const stripeLine = pnl.months[0].costs.find((l: any) => l.key === "stripeFees")!.aedMinor;
+  assert.ok(stripeLine >= 677 + 459 + 5500, String(stripeLine));
+  const trainer = pnl.trainers.find((t: any) => t.tenantId === owner.tenantId);
+  assert.equal(trainer?.stripeFeesMinor, 677 + 459 + 5500);
+});

@@ -9,6 +9,7 @@ import {
 import { allocateCost, financialStatement } from "./finance-statements.ts";
 import { monthRate, stripeFeeSettings } from "./cost-accounting.ts";
 import { trainerRevenue } from "./admin-operations.ts";
+import { tenantStripeFees } from "./stripe-fees.ts";
 import { createPromotion, reconcilePromotion } from "./finance-promotions.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -97,9 +98,12 @@ export function registerFinanceCompletion(app: FastifyInstance, db: Database) {
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
       .parse((req.params as any).period);
-    return monthRate(db, period).then((rate) =>
-      db.tenant(a, (tx) => financialStatement(tx, period, { rate })),
-    );
+    return monthRate(db, period).then(async (rate) => ({
+      ...(await db.tenant(a, (tx) => financialStatement(tx, period, { rate }))),
+      // Stripe's own fee on this month's member payments (the trainer pays
+      // them), read from Stripe per payment.
+      stripeFeesOnPayments: await tenantStripeFees(db, a.tenantId, period),
+    }));
   });
   app.post("/api/v1/finance/promotions", (req) =>
     createPromotion(db, owner(req), req.body),

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 import {
   VOICE_TASK_SQL,
@@ -12,12 +13,31 @@ import {
   type MonthRate,
 } from "./cost-accounting.ts";
 import {
+  finishRun,
+  lastRun,
+  platformFinanceJobs,
+  ranWithin,
+  startRun,
+} from "./platform-finance-runs.ts";
+import {
+  createRecurringCost,
+  endRecurringCost,
   platformCostsForMonths,
+  postRecurringCosts,
   providerInvoicesForMonths,
   readRegistrarBalance,
+  recordPayoutFee,
+  recordPlatformCost,
+  recurringCosts,
   registrarBook,
+  reversePlatformCost,
+  stripeFeesForMonths,
   type PlatformCostRow,
 } from "./platform-costs.ts";
+import { importProviderInvoice, postUsageCorrections } from "./provider-invoices.ts";
+import { sweepStripeFees, type StripeFeeClient } from "./stripe-fees.ts";
+import { monthCutoff } from "./finance-operations.ts";
+import { stripeClient } from "../../../packages/providers/src/index.ts";
 
 // Platform finance phase B (docs/features/platform-finance.md): the Super
 // admin's profit and loss across every trainer workspace. Each workspace's
@@ -39,6 +59,12 @@ const MONTH = (column: string) =>
   `to_char(${column} AT TIME ZONE 'Asia/Dubai','YYYY-MM')`;
 /** USD amounts summed at eight decimals (numeric(18,8)) without float drift. */
 const usd8 = (n: number) => Math.round(n * 1e8) / 1e8;
+/** Settings → Platform finance: what one delivered email costs (USD). */
+export function emailPrice(config = runtimeConfig()) {
+  const text = String(config.FINANCE_EMAIL_USD_PER_MESSAGE ?? "").trim();
+  const n = text === "" ? 0 : Number(text);
+  return n >= 0 && n <= 1 ? n : 0;
+}
 
 // ---- Per-workspace monthly figures -----------------------------------------
 
@@ -118,8 +144,8 @@ export type WorkspaceMonth = {
   payouts: Array<{ id: string; status: string; amountMinor: number; revision: number }>;
   /** This month's usage statement (posted after the month ends), if any. */
   usageStatement: { chargeMinor: number } | null;
-  /** Stripe's actual fees on this workspace's payments (phase C). */
-  stripeFees: { feeMinor: number; count: number; currency: string } | null;
+  /** Emails delivered to the provider for this workspace (phase C email cost). */
+  emailsSent: number;
 };
 const emptyDomain = (): DomainFigures => ({
   paymentsMinor: 0,
@@ -165,7 +191,7 @@ export function emptyWorkspaceMonth(): WorkspaceMonth {
     payingMembers: 0,
     payouts: [],
     usageStatement: null,
-    stripeFees: null,
+    emailsSent: 0,
   };
 }
 
@@ -366,8 +392,14 @@ export async function workspaceMonths(
     const m = at(s.period);
     if (m) m.usageStatement = { chargeMinor: Number(s.charge) };
   }
-  for (const [month, m] of out)
-    for (const extra of extraFigures) await extra(tx, month, m);
+  const emails = await tx.query(
+    `SELECT ${MONTH("created_at")} AS month,count(*)::int AS n FROM jobs WHERE kind='email' AND status='completed' AND created_at>=$1 AND created_at<$2 GROUP BY 1`,
+    [from, to],
+  );
+  for (const e of emails) {
+    const m = out.get(e.month) ?? (e.n ? at(e.month) : null);
+    if (m) m.emailsSent = e.n;
+  }
   for (const m of out.values()) {
     for (const key of Object.keys(m.cost) as Array<keyof WorkspaceMonth["cost"]>)
       if (key !== "calls" && key !== "unpricedCalls") m.cost[key] = usd8(m.cost[key]);
@@ -384,17 +416,6 @@ export async function workspaceMonths(
   }
   return out;
 }
-/**
- * Figures later phases add to a workspace month (Stripe's actual fees,
- * phase C), registered by their module so this one stays independent.
- */
-const extraFigures: Array<(tx: Tx, month: string, m: WorkspaceMonth) => Promise<void>> = [];
-export function registerWorkspaceFigures(
-  add: (tx: Tx, month: string, m: WorkspaceMonth) => Promise<void>,
-) {
-  extraFigures.push(add);
-}
-
 /** An operator's read of a workspace, or the worker's when no one asked. */
 const operatorScope = (userId: string | null, tenantId: string) =>
   userId
@@ -431,50 +452,6 @@ export function currentDubaiMonth(now = new Date()) {
 export function previousMonth(month: string) {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
-}
-
-/** Records the start of a platform finance run; returns its id. */
-export async function startRun(
-  db: Database,
-  kind: string,
-  actorId: string | null,
-  result: Record<string, unknown> = {},
-) {
-  const id = randomUUID();
-  await db.system((tx) =>
-    tx.query(
-      "INSERT INTO platform_finance_runs(id,kind,status,actor_id,result) VALUES($1,$2,'running',$3,$4)",
-      [id, kind, actorId, JSON.stringify(result)],
-    ),
-  );
-  return id;
-}
-export async function finishRun(
-  db: Database,
-  id: string,
-  outcome: { result?: Record<string, unknown>; error?: string },
-) {
-  await db.system((tx) =>
-    tx.query(
-      "UPDATE platform_finance_runs SET status=$2,finished_at=now(),result=result||$3::jsonb,error=$4 WHERE id=$1 AND status='running'",
-      [
-        id,
-        outcome.error ? "failed" : "succeeded",
-        JSON.stringify(outcome.result ?? {}),
-        outcome.error ? outcome.error.replace(/\s+/g, " ").slice(0, 1000) : null,
-      ],
-    ),
-  );
-}
-/** The latest run of a kind, if any. */
-export async function lastRun(db: Database, kind: string, status?: string) {
-  const [row] = await db.system((tx) =>
-    tx.query(
-      "SELECT * FROM platform_finance_runs WHERE kind=$1 AND ($2::text IS NULL OR status=$2) ORDER BY started_at DESC LIMIT 1",
-      [kind, status ?? null],
-    ),
-  );
-  return row ?? null;
 }
 
 /**
@@ -561,6 +538,12 @@ export function monthPnl(
   rate: MonthRate,
   workspaces: WorkspaceMonth[],
   platform: PlatformCostRow[],
+  extras: {
+    /** Stripe's fees per payment recorded for the month (AED), or null. */
+    stripeFeesMinor?: number | null;
+    /** Email messages delivered and the configured price per message. */
+    emails?: { sent: number; usdPerMessage: number };
+  } = {},
 ): Omit<MonthPnl, "change"> {
   const r = rate.aedPerUsd;
   const sum = (pick: (w: WorkspaceMonth) => number) =>
@@ -576,15 +559,25 @@ export function monthPnl(
       0,
     );
   const notes: string[] = [];
-  // Stripe's fee on each payment when phase C recorded it; otherwise the
-  // fees deducted at settlement (member payments only).
-  const actualFees = workspaces.filter((w) => w.stripeFees);
-  const stripeFeesMinor = actualFees.length
-    ? sum((w) => w.stripeFees?.feeMinor ?? 0)
-    : sum((w) => w.stripeFeesRecoveredMinor);
-  if (!actualFees.length && sum((w) => w.gross.membership + w.gross.programme + w.gross.voiceAddOn + w.gross.booking) > 0)
+  // Stripe's fee on each payment (domain payments included) when it was
+  // read from Stripe; otherwise the fees deducted at settlement.
+  const recorded = extras.stripeFeesMinor ?? null;
+  const stripeFeesMinor = recorded ?? sum((w) => w.stripeFeesRecoveredMinor);
+  if (
+    recorded === null &&
+    sum((w) => w.gross.membership + w.gross.programme + w.gross.voiceAddOn + w.gross.booking) +
+      domain((d) => d.paymentsMinor) >
+      0
+  )
     notes.push(
-      "Stripe fees are the fees recorded at settlement; per-payment fees from Stripe are not recorded for this month yet.",
+      "Stripe fees are the fees recorded at settlement; Stripe's fee per payment is not recorded for this month yet.",
+    );
+  const emailMinor = extras.emails
+    ? usdToAedMinor(extras.emails.sent * extras.emails.usdPerMessage, r)
+    : 0;
+  if (extras.emails?.sent && !extras.emails.usdPerMessage)
+    notes.push(
+      `${extras.emails.sent} email(s) delivered; no price per message is set (Settings → Platform finance), so only the email plan (platform costs) is counted.`,
     );
   const platformCost = (categories: string[] | null, exclude: string[] = []) =>
     platform
@@ -613,8 +606,9 @@ export function monthPnl(
     { key: "stripeFees", label: "Stripe fees", aedMinor: stripeFeesMinor },
     { key: "payoutFees", label: "Payout bank fees", aedMinor: platformCost(["payout_fee"]) },
     { key: "registrar", label: "Domain registrar cost", aedMinor: domain((d) => d.registrarCostMinor) },
-    { key: "platform", label: "Platform costs (servers, email, plans)", aedMinor: platformCost(null, ["payout_fee", "registrar_topup", "provider_invoice"]) },
-    { key: "providerInvoices", label: "Provider plan and invoice charges", aedMinor: platformCost(["provider_invoice"]) },
+    { key: "platform", label: "Platform costs (servers, email plan, provider plans)", aedMinor: platformCost(null, ["payout_fee", "registrar_topup", "provider_invoice"]) },
+    { key: "providerInvoices", label: "Provider invoice charges not attributed to calls", aedMinor: platformCost(["provider_invoice"]) },
+    { key: "email", label: "Email (per message)", aedMinor: emailMinor },
     {
       key: "refundsDisputes",
       label: "Refunds and disputes (commission returned, domain refunds and losses)",
@@ -727,6 +721,16 @@ export async function platformPnl(
   const missingMonths = months.filter((m) => !covered.has(m));
   const rates = await monthRates(db, [...new Set([...months, previousMonth(months[0])])]);
   const platformCosts = await platformCostsForMonths(db, months);
+  const stripeFees = await stripeFeesForMonths(db, months);
+  const feeMinor = (month: string, tenantId?: string) => {
+    const rows = stripeFees.filter(
+      (f) => f.month === month && (tenantId === undefined || f.tenantId === tenantId),
+    );
+    if (!rows.length) return null;
+    const r = rates.get(month)?.aedPerUsd ?? 3.6725;
+    return rows.reduce((n, f) => n + toAed(f.feeMinor, f.currency, r), 0);
+  };
+  const usdPerEmail = emailPrice();
   const byMonth = new Map<string, Array<{ tenantId: string; name: string; state: string; f: WorkspaceMonth }>>();
   for (const r of rows) {
     const list = byMonth.get(r.month) ?? [];
@@ -736,11 +740,19 @@ export async function platformPnl(
   const pnl: MonthPnl[] = [];
   let previous: Omit<MonthPnl, "change"> | null = null;
   for (const month of months) {
+    const list = (byMonth.get(month) ?? []).map((x) => x.f);
     const p = monthPnl(
       month,
       rates.get(month)!,
-      (byMonth.get(month) ?? []).map((x) => x.f),
+      list,
       platformCosts.filter((c) => c.month === month),
+      {
+        stripeFeesMinor: feeMinor(month),
+        emails: {
+          sent: list.reduce((n, f) => n + (f.emailsSent ?? 0), 0),
+          usdPerMessage: usdPerEmail,
+        },
+      },
     );
     pnl.push({
       ...p,
@@ -840,7 +852,7 @@ export async function platformPnl(
       t.refundsDisputesMinor += returned;
       t.contributionMinor += income - returned - domainLoss - provider;
       t.payingMemberMonths += f.payingMembers;
-      t.stripeFeesMinor += f.stripeFees?.feeMinor ?? f.stripeFeesRecoveredMinor;
+      t.stripeFeesMinor += feeMinor(month, x.tenantId) ?? f.stripeFeesRecoveredMinor;
       t.payoutsPaidMinor += f.payoutsPaidMinor - f.payoutsReturnedMinor;
       t.unpricedCalls += f.cost.unpricedCalls;
       trainers.set(x.tenantId, t);
@@ -945,7 +957,7 @@ export async function platformPnl(
         features.set(key, e);
       }
       for (const x of f.byProvider) {
-        const e = providers.get(x.provider) ?? { provider: x.provider, calls: 0, usd: 0, estimatedUsd: 0, reconciledUsd: 0, unpriced: 0, unpricedEstimateUsd: 0, aedMinor: 0, invoicedUsd: null as number | null, invoices: [] as any[] };
+        const e = providers.get(x.provider) ?? { provider: x.provider, calls: 0, usd: 0, estimatedUsd: 0, reconciledUsd: 0, unpriced: 0, unpricedEstimateUsd: 0, aedMinor: 0, invoicedUsd: null as number | null, planUsd: null as number | null, invoices: [] as any[] };
         e.calls += x.calls;
         e.usd = usd8(e.usd + x.usd);
         e.estimatedUsd = usd8(e.estimatedUsd + x.estimatedUsd);
@@ -958,8 +970,10 @@ export async function platformPnl(
     }
   }
   for (const invoice of await providerInvoicesForMonths(db, months)) {
-    const e = providers.get(invoice.provider) ?? { provider: invoice.provider, calls: 0, usd: 0, estimatedUsd: 0, reconciledUsd: 0, unpriced: 0, unpricedEstimateUsd: 0, aedMinor: 0, invoicedUsd: null, invoices: [] };
-    e.invoicedUsd = usd8((e.invoicedUsd ?? 0) + invoice.totalUsd);
+    const e = providers.get(invoice.provider) ?? { provider: invoice.provider, calls: 0, usd: 0, estimatedUsd: 0, reconciledUsd: 0, unpriced: 0, unpricedEstimateUsd: 0, aedMinor: 0, invoicedUsd: null, planUsd: null, invoices: [] };
+    // Usage lines are compared with the calls' cost; plan fees are apart.
+    e.invoicedUsd = usd8((e.invoicedUsd ?? 0) + invoice.usageUsd);
+    e.planUsd = usd8((e.planUsd ?? 0) + invoice.planUsd);
     e.invoices.push(invoice);
     providers.set(invoice.provider, e);
   }
@@ -1090,8 +1104,8 @@ export function pnlCsv(data: Awaited<ReturnType<typeof platformPnl>>, tab: strin
     );
   if (tab === "providers")
     return toCsv(
-      ["provider", "calls", "cost_usd", "estimated_usd", "reconciled_usd", "unpriced_calls", "unpriced_estimate_usd", "invoiced_usd", "cost_aed"],
-      data.providers.map((p) => [p.provider, p.calls, p.usd, p.estimatedUsd, p.reconciledUsd, p.unpriced, p.unpricedEstimateUsd, p.invoicedUsd ?? "", aed(p.aedMinor)]),
+      ["provider", "calls", "cost_usd", "estimated_usd", "reconciled_usd", "unpriced_calls", "unpriced_estimate_usd", "invoiced_usage_usd", "invoiced_plan_usd", "cost_aed"],
+      data.providers.map((p) => [p.provider, p.calls, p.usd, p.estimatedUsd, p.reconciledUsd, p.unpriced, p.unpricedEstimateUsd, p.invoicedUsd ?? "", p.planUsd ?? "", aed(p.aedMinor)]),
     );
   if (tab === "domains")
     return toCsv(
@@ -1160,6 +1174,8 @@ export function registerPlatformPnl(
   app: FastifyInstance,
   db: Database,
   identity: (req: FastifyRequest) => Identity,
+  /** The Stripe client for fee reads (a test double in fixtures). */
+  stripeFees?: () => StripeFeeClient,
 ) {
   const access = (req: FastifyRequest) => {
     const a = identity(req);
@@ -1219,6 +1235,93 @@ export function registerPlatformPnl(
     await audit(a, "platform_finance.registrar_balance_checked", {});
     return checkRegistrarBalance(db, a.userId);
   });
+  // ---- Phase C: the platform's own costs, invoices, adjustments, fees ----
+  app.get(prefix + "/costs", async (req) => {
+    const a = access(req);
+    const r = range(req);
+    const [entries, invoices, recurring, fees] = await Promise.all([
+      platformCostsForMonths(db, r.months),
+      providerInvoicesForMonths(db, r.months),
+      recurringCosts(db),
+      stripeFeesForMonths(db, r.months),
+    ]);
+    const runs: Record<string, unknown> = {};
+    for (const kind of ["stripe_fees", "recurring_costs", "digitalocean", "registrar_balance"])
+      runs[kind] = await lastRun(db, kind);
+    const byCurrency: Record<string, number> = {};
+    for (const f of fees as Array<{ currency: string; feeMinor: number }>) byCurrency[f.currency] = (byCurrency[f.currency] ?? 0) + f.feeMinor;
+    await audit(a, "platform_finance.costs_read", { from: r.from, to: r.to });
+    return {
+      range: { from: r.from, to: r.to },
+      entries,
+      invoices,
+      recurring,
+      stripeFees: { count: fees.reduce((n: number, f: { count: number }) => n + f.count, 0), byCurrency, rows: fees },
+      runs,
+    };
+  });
+  app.post(prefix + "/costs", async (req) => {
+    const a = access(req);
+    const row = await recordPlatformCost(db, a, req.body);
+    await audit(a, "platform_finance.cost_recorded", { id: row.id, month: row.month, category: row.category, amountMinor: row.amountMinor, currency: row.currency });
+    return row;
+  });
+  app.post(prefix + "/costs/:id/reverse", async (req) => {
+    const a = access(req);
+    const id = z.string().uuid().parse((req.params as any).id);
+    const b = z.object({ reason: z.string().trim().min(10).max(400) }).strict().parse(req.body);
+    const row = await reversePlatformCost(db, a, id, b.reason);
+    await audit(a, "platform_finance.cost_reversed", { id, reversal: row.id, reason: b.reason });
+    return row;
+  });
+  app.post(prefix + "/recurring", async (req) => {
+    const a = access(req);
+    const row = await createRecurringCost(db, a, req.body);
+    await audit(a, "platform_finance.recurring_added", { id: row.id });
+    return row;
+  });
+  app.post(prefix + "/recurring/:id/end", async (req) => {
+    const a = access(req);
+    const id = z.string().uuid().parse((req.params as any).id);
+    const b = z
+      .object({ revision: z.number().int().positive(), endsMonth: z.string().regex(periodSchemaText) })
+      .strict()
+      .parse(req.body);
+    const row = await endRecurringCost(db, id, b);
+    await audit(a, "platform_finance.recurring_ended", { id, endsMonth: b.endsMonth });
+    return row;
+  });
+  app.post(prefix + "/payout-fees", async (req) => {
+    const a = access(req);
+    const row = await recordPayoutFee(db, a, req.body);
+    await audit(a, "platform_finance.payout_fee_recorded", { id: row.id, payoutId: row.payoutId, amountMinor: row.amountMinor, currency: row.currency });
+    return row;
+  });
+  app.post(prefix + "/invoices", async (req) => {
+    const a = access(req);
+    return importProviderInvoice(db, a, req.body);
+  });
+  app.post(prefix + "/usage-corrections", async (req) => {
+    const a = access(req);
+    const b = z
+      .object({
+        period: z.string().regex(periodSchemaText),
+        reference: z.string().trim().min(3).max(200),
+      })
+      .strict()
+      .parse(req.body);
+    if (monthCutoff(b.period).getTime() > Date.now())
+      throw fail(409, "PERIOD_OPEN", "Adjust a month after it ends");
+    const result = await postUsageCorrections(db, a, b.period, b.reference);
+    await audit(a, "platform_finance.usage_corrections", { ...b, posted: result.posted.length, skipped: result.skipped.length });
+    return result;
+  });
+  app.post(prefix + "/stripe-fees/sweep", async (req) => {
+    const a = access(req);
+    z.object({}).strict().parse(req.body ?? {});
+    await audit(a, "platform_finance.stripe_fees_swept", {});
+    return runStripeFeeSweep(db, stripeFees?.() ?? null, a.userId);
+  });
   const send = (reply: FastifyReply, name: string, body: string) =>
     reply
       .header("Content-Type", "text/csv; charset=utf-8")
@@ -1242,22 +1345,8 @@ export function registerPlatformPnl(
 // ---- Worker ---------------------------------------------------------------------
 
 const HOUR = 3600000;
-/** Whether a kind last succeeded (or was attempted, `anyStatus`) within `ms`. */
-export async function ranWithin(
-  db: Database,
-  kind: string,
-  ms: number,
-  now = new Date(),
-  anyStatus = false,
-) {
-  const [row] = await db.system((tx) =>
-    tx.query(
-      "SELECT 1 FROM platform_finance_runs WHERE kind=$1 AND ($2 OR status IN ('succeeded','running')) AND started_at>$3 LIMIT 1",
-      [kind, anyStatus, new Date(now.getTime() - ms).toISOString()],
-    ),
-  );
-  return !!row;
-}
+export { registerPlatformFinanceJob } from "./platform-finance-runs.ts";
+import { registerPlatformFinanceJob } from "./platform-finance-runs.ts";
 /**
  * Platform finance jobs the worker runs (idempotent; each records a run):
  * the monthly summary for this and last month every hour (the last 24
@@ -1280,7 +1369,7 @@ export async function runPlatformFinanceJobs(db: Database, now = new Date()) {
       (e: Error) => ({ error: e.message }),
     );
   }
-  for (const job of platformJobs) {
+  for (const job of platformFinanceJobs()) {
     try {
       results[job.id] = await job.run(db, now);
     } catch (e) {
@@ -1289,14 +1378,49 @@ export async function runPlatformFinanceJobs(db: Database, now = new Date()) {
   }
   return results;
 }
-const platformJobs: Array<{
-  id: string;
-  run: (db: Database, now: Date) => Promise<unknown>;
-}> = [];
-/** Adds a platform finance job to the worker's hourly pass (phases C and D). */
-export function registerPlatformFinanceJob(job: {
-  id: string;
-  run: (db: Database, now: Date) => Promise<unknown>;
-}) {
-  if (!platformJobs.some((j) => j.id === job.id)) platformJobs.push(job);
+
+/** One Stripe fee sweep, recorded as a run (a missing Stripe key skips it). */
+export async function runStripeFeeSweep(
+  db: Database,
+  client: StripeFeeClient | null,
+  actorId: string | null = null,
+) {
+  let stripe = client;
+  if (!stripe) {
+    if (!runtimeConfig().STRIPE_SECRET_KEY) return { skipped: "not_configured" };
+    // The isolated test runner never reaches Stripe; it passes a double.
+    if (process.env.NODE_TEST_CONTEXT) return { skipped: "test_runner" };
+    stripe = stripeClient() as unknown as StripeFeeClient;
+  }
+  const run = await startRun(db, "stripe_fees", actorId);
+  try {
+    const result = await sweepStripeFees(db, stripe);
+    await finishRun(db, run, { result });
+    return result;
+  } catch (error) {
+    await finishRun(db, run, { error: (error as Error).message || "Stripe fee sweep failed" });
+    throw error;
+  }
 }
+registerPlatformFinanceJob({
+  id: "recurring_costs",
+  async run(db, now) {
+    if (await ranWithin(db, "recurring_costs", HOUR, now)) return { skipped: "ran_recently" };
+    const run = await startRun(db, "recurring_costs", null);
+    try {
+      const result = await postRecurringCosts(db, currentDubaiMonth(now));
+      await finishRun(db, run, { result });
+      return result;
+    } catch (error) {
+      await finishRun(db, run, { error: (error as Error).message });
+      throw error;
+    }
+  },
+});
+registerPlatformFinanceJob({
+  id: "stripe_fees",
+  async run(db, now) {
+    if (await ranWithin(db, "stripe_fees", HOUR, now, true)) return { skipped: "ran_recently" };
+    return runStripeFeeSweep(db, null);
+  },
+});

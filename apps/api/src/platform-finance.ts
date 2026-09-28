@@ -436,7 +436,7 @@ export async function priceProviderUsage(
     usageStatementsPosted: preview.usageStatementsPosted,
     chargedWorkspaces: charged,
     note: preview.usageStatementsPosted
-      ? "Usage statements already posted for this month keep their charge. The workspaces listed were charged at the estimates; the difference is shown here and on each workspace's usage statements, and is not charged (correction entries come in a later phase)."
+      ? "Usage statements already posted for this month keep their charge. The workspaces listed were charged at the estimates; the difference is shown here and becomes an AI Coach Service Fee adjustment when you post adjustments for the month (Platform finance → Platform costs), or when the provider's invoice is imported there."
       : null,
     allocatedThisRunUsd: usdText(allocated),
     /** Every call priced under this reference, all runs: equals allocatedUsd. */

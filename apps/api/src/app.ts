@@ -159,6 +159,7 @@ import { registerGovernance } from "./governance.ts";
 import { registerBusinessMetrics } from "./business-metrics.ts";
 import { registerPlatformFinance } from "./platform-finance.ts";
 import { registerPlatformPnl } from "./platform-pnl.ts";
+import { captureFeesAfterWebhook, type StripeFeeClient } from "./stripe-fees.ts";
 import { VOICE_TASK_SQL } from "./cost-accounting.ts";
 import { ledgerItem } from "./finance-statements.ts";
 import { registerPlatformAlerts } from "./platform-alerts.ts";
@@ -714,7 +715,12 @@ export async function buildApp(
   registerGovernance(app, db, identity);
   registerBusinessMetrics(app, db, identity);
   registerPlatformFinance(app, db, identity);
-  registerPlatformPnl(app, db, identity);
+  registerPlatformPnl(
+    app,
+    db,
+    identity,
+    options.providers?.stripe as unknown as (() => StripeFeeClient) | undefined,
+  );
   registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
@@ -2580,6 +2586,18 @@ export async function buildApp(
         [stripeEvent.id],
       ),
     );
+    // Stripe's fee of this workspace's new payments, refunds and disputes
+    // (read-only, best effort; the hourly sweep catches anything missed).
+    // The isolated test runner reads fees only through a Stripe double.
+    const feeClient = options.providers?.stripe
+      ? (options.providers.stripe() as unknown as StripeFeeClient)
+      : process.env.NODE_TEST_CONTEXT
+        ? null
+        : (stripe as unknown as StripeFeeClient);
+    if (feeClient)
+      void captureFeesAfterWebhook(db, feeClient, stripeEvent).catch(() => {
+        console.error("Stripe fee capture after a webhook needs the sweep");
+      });
     return reply.send({ received: true });
   });
   app.addHook("onClose", async () => {

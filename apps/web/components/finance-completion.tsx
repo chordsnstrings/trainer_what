@@ -501,6 +501,22 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
               Stripe's card fees are paid by you: they are deducted from your
               earnings when Stripe settles your members' payments, and shown
               above as Stripe fees.
+              {data.stripeFeesOnPayments?.length > 0 && (
+                <>
+                  {" "}
+                  Stripe's fee on this month's payments:{" "}
+                  {data.stripeFeesOnPayments
+                    .map((f: any) =>
+                      new Intl.NumberFormat("en-AE", {
+                        style: "currency",
+                        currency: f.currency,
+                        maximumFractionDigits: 2,
+                      }).format(f.feeMinor / 100) + ` (${f.count} payment${f.count === 1 ? "" : "s"})`,
+                    )
+                    .join(" + ")}
+                  .
+                </>
+              )}
             </p>
           )}
           {data.usageCost && <h3>Provider usage</h3>}

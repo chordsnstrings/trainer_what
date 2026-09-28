@@ -124,6 +124,11 @@ export async function verifyRuntimeAccess(client) {
     // Platform finance phase B (075): summary cache and job runs, service only.
     platform_finance_months: ["SELECT", "INSERT", "UPDATE"],
     platform_finance_runs: ["SELECT", "INSERT", "UPDATE"],
+    // Platform finance phase C (076): append-only, service only.
+    platform_costs: ["SELECT", "INSERT"],
+    platform_recurring_costs: ["SELECT", "INSERT", "UPDATE"],
+    provider_invoices: ["SELECT", "INSERT"],
+    stripe_fees: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -596,6 +601,10 @@ export async function verifyRuntimeAccess(client) {
       "model_prices",
       "platform_finance_months",
       "platform_finance_runs",
+      "platform_costs",
+      "platform_recurring_costs",
+      "provider_invoices",
+      "stripe_fees",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

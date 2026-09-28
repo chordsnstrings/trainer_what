@@ -282,20 +282,64 @@ deployed.
   `/export/:tab.csv`: admin and finance platform roles with a fresh authenticator; every read,
   rebuild, balance check and export writes an `admin_operations_audit` row. Trainers get 403.
 
-## Phase C: costs not recorded yet
+## Phase C: costs not recorded before (delivered, stage 2026-09-28u)
 
-- A platform ledger for costs that belong to no trainer (servers, email plan, provider plans, app
-  store accounts, registrar top-ups, the main domain), also closing the two known ledger gaps
-  (domain receivable never settled, no registrar top-up entry).
-- Provider invoices and correction entries per trainer and feature (priced rows stay immutable;
-  corrections are new entries), including the difference for months already charged.
-- Stripe fee per charge, refund and dispute (domain sales and dispute fees included), and a
-  suggested split of each Stripe payout; then the Stripe fee decision can become a setting.
-- Bank fee per trainer payout; email cost per message and the plan fee.
-- Per-provider voice price rows in the price table (phase A keeps voice rates in the provider
-  settings).
-- Migration numbers are allocated when built (072 and 073 are used; 071 belongs to domain
-  pricing).
+Migration 076 (service-only tables, grants in the migration and `infra/runtime-role.sql`,
+classified in `scripts/verify-runtime-access.mjs`); screen: Platform finance → "Platform costs"
+tab (`apps/web/components/platform-finance-costs.tsx`) and a bank-fee form on the Payouts tab.
+
+- **Platform cost ledger** (`platform_costs`, `apps/api/src/platform-costs.ts`): costs that
+  belong to no trainer, by the Dubai month they are for: servers, the email plan, provider plans,
+  provider invoice charges not attributed to calls, registrar top-ups, payout bank fees, app store
+  accounts, the platform domain, other. Amount in AED or USD with a receipt reference; append-only
+  (a mistake is corrected by a reversal entry, `POST .../costs/:id/reverse`, once); every entry
+  has an idempotency key (`manual:<intent>`, `recurring:<id>:<month>`,
+  `payout-fee:<payout>`, `invoice:<provider>:<reference>:plan|remainder`, DigitalOcean's in phase
+  D). Registrar top-ups are prepayments: the Domains tab shows top-ups less registrar charges as
+  the registrar's book balance next to the balance the registrar reports; they are not costs in
+  the profit and loss (each domain's registrar charge is).
+- **Recurring costs** (`platform_recurring_costs`): a monthly amount from a first month, until a
+  last month is set; the worker enters each month once (up to the last 12 months on its first
+  pass).
+- **Provider invoices** (`provider_invoices`, `apps/api/src/provider-invoices.ts`,
+  `POST /api/v1/admin/platform-finance/invoices`): a CSV (`cost_usd`, optional `request_id`,
+  `kind` usage or plan, `description`) or JSON (`{ "lines": [...] }`, optional `totalUsd` that
+  must equal the lines) export, at most 1 MB and 10,000 lines, imported once per provider and
+  reference (the same content again returns the recorded import; other content is refused).
+  Lines naming a provider request reconcile that call; the usage total then prices the month's
+  remaining estimated calls in proportion to their estimates (the phase A provider pricing, with
+  its guards); with no calls left to price, usage the calls do not account for becomes a
+  "provider invoice charges" platform cost; plan lines become a "provider plan" cost. The
+  Providers tab compares each provider's call cost with the invoiced usage and plan fees.
+- **Corrections for months already charged**: posted usage statements are never rewritten. For
+  every workspace charged for the month, `postUsageCorrections` computes what its priced usage
+  comes to now at that statement's own rate, markup and complimentary rule (a statement posted
+  before markups existed was at cost), less what was charged (the statement plus earlier
+  adjustments), and posts the difference once per reference as a journal
+  `usage-adjustment:<month>:<reference>` (debit or credit of the trainer's payable balance against
+  `platform_cost_recovery`), described "AI Coach Service Fee adjustment", with an owner
+  notification ("AI Coach Service Fee adjustment: AED X more / back for <month>"). It runs after
+  every invoice import and on request ("Post adjustments", `POST .../usage-corrections`). The
+  statement adds it to the AI Coach Service Fee of the month it posts (cash basis); months with
+  unpriced calls are skipped.
+- **Stripe's fee per payment** (`stripe_fees`, `apps/api/src/stripe-fees.ts`): each charge,
+  refund and dispute's balance transaction (fee, fee details, net, exchange rate, settlement
+  currency), keyed by balance transaction, read after every Stripe webhook for that workspace
+  (best effort, not in the webhook's result) and by an hourly sweep of the last 90 days (at most
+  50 Stripe reads a run; "Read Stripe fees now"). Read-only Stripe calls
+  (`charges.retrieve`, `refunds.retrieve`, `disputes.retrieve`, `paymentIntents.retrieve` with
+  `expand`). The profit and loss uses these fees for a month once any are recorded (domain payment
+  fees included); otherwise the fees recorded at settlement. Trainers see Stripe's fee on their
+  month's member payments on the statement (`stripeFeesOnPayments`; domain payment fees are the
+  platform's). The Stripe mock (`tests/e2e/mocks/stripe.ts`) now gives charges, refunds and
+  disputes balance transactions (2.9% + AED 1, +2% conversion, a mock AED 55 dispute fee).
+- **Payout bank fees**: `POST .../payout-fees` (one per payout, only for a payout sent to the
+  bank), a platform cost shown against the payout; not charged to the trainer.
+- **Email cost**: delivered email jobs per workspace and month are counted in the summary; the
+  profit and loss prices them at "Email cost per delivered message (USD)" (Settings → Platform
+  finance, default 0: only the email plan, entered as a recurring cost, counts).
+- **Not done**: a suggested split of each Stripe payout by workspace (settlements stay entered by
+  hand); per-provider voice price rows (voice prices stay in the provider settings).
 
 ## Phase D: automation
 
