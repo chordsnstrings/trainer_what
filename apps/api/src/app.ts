@@ -45,6 +45,7 @@ import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
+import { registerVoiceSessions } from "./voice-session.ts";
 import {
   resolveProbeHost,
   resolveRequestHost,
@@ -600,6 +601,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerIntegrationCompletion(app, db);
+  registerVoiceSessions(app, db);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });
   registerFinanceCompletion(app, db);

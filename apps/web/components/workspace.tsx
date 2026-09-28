@@ -19,6 +19,7 @@ import {
   GuidedSession,
   IntegrationOperations,
 } from "./integration-center";
+import { VoiceSessionRunner } from "./voice-session";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { CoachingStudio } from "./coaching-studio";
 import {
@@ -1128,6 +1129,12 @@ export default function Workspace() {
             <ClientTwin userId={state.user.userId} subscriber />
           ) : path.startsWith("/app/guided/") ? (
             <GuidedSession workoutId={path.split("/")[3]} />
+          ) : path.startsWith("/app/voice-session/") ? (
+            <VoiceSessionRunner
+              workoutId={path.split("/")[3]}
+              tenantId={state.user.tenantId}
+              userId={state.user.userId}
+            />
           ) : path.includes("/program") ? (
             <TrainingPrograms state={state} />
           ) : path.includes("/workouts") ? (
@@ -2651,9 +2658,14 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
       />
       {workout.status === "active" && (
-        <Link className="text-link" href={`/app/guided/${workout.id}`}>
-          Open guided session with exercise cues and rest timers
-        </Link>
+        <>
+          <Link className="text-link" href={`/app/voice-session/${workout.id}`}>
+            Start a voice-led session (hands-free, set by set)
+          </Link>
+          <Link className="text-link" href={`/app/guided/${workout.id}`}>
+            Open guided session with exercise cues and rest timers
+          </Link>
+        </>
       )}
       {queued > 0 && (
         <div className="notice">

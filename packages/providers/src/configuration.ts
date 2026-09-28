@@ -126,6 +126,25 @@ export function integrationCapability(
         Number(config.VOICE_DAILY_USD_LIMIT) > 0,
     };
   }
+  if (id === "speech_to_text") {
+    const configured = has(
+      "STT_PROVIDER",
+      "STT_BASE_URL",
+      "STT_API_KEY",
+      "STT_MODEL",
+      "STT_PRICE_VERSION",
+      "STT_USD_PER_HOUR",
+    );
+    return {
+      configured,
+      approved:
+        configured &&
+        config.STT_CONTRACT_VERIFIED === "true" &&
+        config.STT_PROVIDER === "elevenlabs" &&
+        Number.isFinite(Number(config.STT_USD_PER_HOUR)) &&
+        Number(config.STT_USD_PER_HOUR) >= 0,
+    };
+  }
   if (id === "lean") {
     // The connection check validates only the public endpoint; no read-only
     // account request exists in the verified contract. Activation therefore
@@ -607,6 +626,47 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "speech_to_text",
+    name: "Speech-to-text",
+    category: "intelligence",
+    implemented: true,
+    description:
+      "Spoken replies (done, reps, pause, pain) during voice-led workout sessions.",
+    setupNotes:
+      "ElevenLabs speech-to-text transcribes short audio chunks, only from members with premium voice who switched on spoken replies and consented. Audio is sent once and never stored by this app; turn on zero retention when the provider account supports it. Transcription counts against the workspace voice daily limit set under Trainer voice. Browsers with on-device speech recognition, and tap buttons, work without this provider. The connection check reads the provider model list; no audio is sent.",
+    fields: [
+      field("STT_PROVIDER", "Provider name", "text", {
+        required: true,
+        defaultValue: "elevenlabs",
+      }),
+      field("STT_BASE_URL", "API base URL", "url", {
+        required: true,
+        defaultValue: "https://api.elevenlabs.io/v1",
+      }),
+      field("STT_API_KEY", "API key", "secret", { required: true }),
+      field("STT_MODEL", "Approved transcription model ID", "text", {
+        required: true,
+        defaultValue: "scribe_v1",
+      }),
+      field("STT_PRICE_VERSION", "Reviewed price version", "text", {
+        required: true,
+      }),
+      field("STT_USD_PER_HOUR", "Estimated USD / hour of audio", "number", {
+        required: true,
+      }),
+      field("STT_ZERO_RETENTION", "Request zero retention", "boolean", {
+        defaultValue: "false",
+        help: "Sends enable_logging=false. Only enable when the provider account supports zero-retention mode.",
+      }),
+      field(
+        "STT_CONTRACT_VERIFIED",
+        "Account contract and audio processing approved",
+        "boolean",
+        { defaultValue: "false" },
+      ),
+    ],
+  },
+  {
     id: "domains",
     name: "Custom domains",
     category: "branding",
@@ -945,7 +1005,10 @@ export async function providerRequest(
       reject(new ConfigurationError("Provider could not be reached")),
     );
     if (init.body !== undefined && init.body !== null) {
-      if (typeof init.body !== "string") {
+      if (
+        typeof init.body !== "string" &&
+        !(init.body instanceof Uint8Array)
+      ) {
         req.destroy();
         reject(new ConfigurationError("Unsupported provider request body"));
         return;
@@ -980,6 +1043,7 @@ export async function testIntegration(
       whoop: "WHOOP_CONTRACT_VERIFIED",
       zepp: "ZEPP_CONTRACT_VERIFIED",
       voice: "VOICE_CONTRACT_VERIFIED",
+      speech_to_text: "STT_CONTRACT_VERIFIED",
       domains: "DOMAIN_OPERATIONS_ENABLED",
     };
     if (contractFlags[id] && config[contractFlags[id]] !== "true")
@@ -1043,6 +1107,41 @@ export async function testIntegration(
         message:
           "Configuration and recorded approval validated without an external request. User authorization, device behavior, provider account capabilities and end-to-end delivery remain separate qualification checks.",
         checkedAt,
+      };
+    }
+    if (id === "speech_to_text") {
+      if (fields.STT_PROVIDER !== "elevenlabs")
+        throw new ConfigurationError(
+          "Choose the implemented elevenlabs speech-to-text provider.",
+        );
+      // Read-only: the model list proves the key and base URL; no audio is sent.
+      const response = await providerRequest(
+        fields.STT_BASE_URL.replace(/\/$/, "") + "/models",
+        {
+          headers: {
+            "xi-api-key": fields.STT_API_KEY,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      if (!response.ok)
+        return {
+          status: "failed",
+          message: `The speech provider rejected the account check (HTTP ${response.status}). Check the base URL and key permissions.`,
+          checkedAt,
+        };
+      const models = (await response.json().catch(() => null)) as any;
+      if (!Array.isArray(models))
+        throw new ConfigurationError(
+          "The speech provider returned an unexpected model list",
+        );
+      return {
+        status: "verified",
+        message:
+          "Speech provider access verified without sending audio. Transcription quality, languages and zero retention need a separate check with consenting testers.",
+        checkedAt,
+        details: { models: models.length },
       };
     }
     if (id === "stripe") {

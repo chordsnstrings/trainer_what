@@ -80,3 +80,6 @@ GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text,text,boolean) TO trainer_se
 -- token, wearable OAuth relay): definer functions the service role calls in a
 -- workspace-bound service transaction instead of an elevated owner scope.
 GRANT EXECUTE ON FUNCTION healthkit_device_for_token(text),integration_oauth_relay(text,text) TO trainer_service;
+-- Voice-led sessions (065): voice_session_styles, voice_sessions and
+-- voice_session_clips are tenant tables reached only through SET LOCAL ROLE
+-- trainer_app (grants in the migration); the service role gets no direct grant.

@@ -56,6 +56,7 @@ export const ELEVATIONS = {
       "apps/api/src/nutrition-schedule.ts",
       "apps/api/src/platform-alerts.ts",
       "apps/api/src/safety-policy.ts",
+      "apps/api/src/voice-session.ts",
       "apps/worker/src/dispatch.ts",
       "apps/worker/src/email-delivery.ts",
       "apps/worker/src/push-delivery.ts",

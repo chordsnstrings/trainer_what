@@ -268,6 +268,15 @@ export async function disableUserIntegrations(
       "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)",
       [userId],
     );
+    // Voice-led session audio (migration 065) stops with the voice.
+    await tx.query(
+      "UPDATE voice_session_clips SET status='revoked',audio=NULL,updated_at=now() WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND status<>'revoked'",
+      [userId],
+    );
+    await tx.query(
+      "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE (user_id=$1 OR voice_id IN (SELECT id FROM trainer_voices WHERE user_id=$1)) AND audio_status<>'revoked'",
+      [userId],
+    );
   }
 }
 
@@ -865,10 +874,12 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
       "Guided sessions are paused. Resolve the workout hold or coach takeover first.",
     );
   const exercises = workout.data.program?.exercises ?? [];
+  // The trainer's cue is the exercise's `cue` field (trainingExerciseSchema);
+  // programs never carried `notes`, so the cue was silently dropped before.
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
-    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${ex.notes ? " " + ex.notes : ""} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
+    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${typeof ex.cue === "string" && ex.cue.trim() ? " " + ex.cue.trim() : ""} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
     restSeconds: Math.max(
       0,
       Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),
@@ -983,6 +994,15 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       );
       await tx.query(
         "UPDATE guided_audio SET status='revoked',audio=NULL WHERE voice_id=$1",
+        [r.id],
+      );
+      // A new enrollment version replaces every clip made with the old one.
+      await tx.query(
+        "UPDATE voice_session_clips SET status='revoked',audio=NULL,updated_at=now() WHERE voice_id=$1 AND status<>'revoked'",
+        [r.id],
+      );
+      await tx.query(
+        "UPDATE voice_sessions SET mode='text',audio_status='revoked',unavailable_reason='VOICE_UNAVAILABLE',version=version+1,updated_at=now() WHERE voice_id=$1 AND audio_status<>'revoked'",
         [r.id],
       );
       await event(tx, a, "voice.enrollment_requested", r.id);
@@ -1101,7 +1121,8 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
       } catch {}
       return {
         workoutId: m.workout.id,
-        name: m.workout.data.program?.name ?? "Workout",
+        // Programs are titled (trainingProgramSchema.title), not named.
+        name: m.workout.data.program?.title ?? "Workout",
         segments: m.segments,
         premium: m.premium,
         audioAvailable: available && !!voice && m.premium,

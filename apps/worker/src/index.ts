@@ -6,6 +6,7 @@ import { withRuntimeConfig } from "../../../packages/providers/src/configuration
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
+import { processVoiceSessions } from "../../api/src/voice-session.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
 import { maintainHealthKitSync } from "../../api/src/healthkit-sync.ts";
 import { evaluatePlatformAlerts } from "../../api/src/platform-alerts.ts";
@@ -30,7 +31,16 @@ if (!process.env.DATABASE_URL) {
   let lastIntegrationTick = 0;
   let lastAlertEvaluation = 0;
   let integrationTask: Promise<void> | undefined;
+  let voiceTask: Promise<void> | undefined;
   async function tick() {
+    if (!voiceTask)
+      // Trainer-voice audio for prepared sessions, off the delivery path like
+      // wearable reads; it keeps this cycle's reviewed provider configuration.
+      voiceTask = processVoiceSessions(db)
+        .catch(() => console.error("Voice session audio needs review"))
+        .finally(() => {
+          voiceTask = undefined;
+        });
     if (!integrationTask && Date.now() - lastIntegrationTick >= 60000) {
       lastIntegrationTick = Date.now();
       // Keep slow wearable reads independent of financial and email delivery.
@@ -104,9 +114,9 @@ if (!process.env.DATABASE_URL) {
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.on(signal, async () => {
       running = false;
-      if (integrationTask)
+      if (integrationTask || voiceTask)
         await Promise.race([
-          integrationTask,
+          Promise.all([integrationTask, voiceTask]),
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
       await infrastructure.settled().catch(() => {});
