@@ -143,8 +143,9 @@ Answers come from, in order: a scripted queue (`mocks.model.enqueue(...)` in a s
 file of reviewed answers, then the rule-based responder (`model-rules.ts`) unless
 `--model-fallback=fail`. The rule-based responder produces schema-valid JSON for every prompt kind
 the app sends (Brain decisions, rule compilation, coach action selection, nutrition evaluation,
-weekly plans, recipe drafts, policy compilation and meal-photo estimates) from the supplied
-evidence only. It proves the pipeline, not coaching quality.
+weekly plans, recipe drafts, policy compilation, meal-photo estimates, and the Trainer Brain's
+`plan_generation` and `plan_adaptation` prompts from `docs/features/brain-plans.md`) from the
+supplied evidence only. It proves the pipeline, not coaching quality.
 
 Capture: every model request is appended to `tests/e2e/artifacts/<run>/model-capture.jsonl` (or
 `--model-capture=FILE`) with its prompt kind, task, the canonical request and the answer given.

@@ -21,6 +21,7 @@ import {
 } from "./integration-center";
 import { TrainingHoldReview, TrainingHoldNotice } from "./coaching-completion";
 import { CoachingStudio } from "./coaching-studio";
+import { BrainPlans, PlanIntakeNotice } from "./brain-plans";
 import {
   ExceptionCorrection,
   CoachingFeedbackQueue,
@@ -1122,6 +1123,8 @@ export default function Workspace() {
               path,
             ) ? (
             <CoachingStudio key={path} path={path} />
+          ) : path === "/trainer/brain/plans" ? (
+            <BrainPlans role={state.user.role} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
           ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
@@ -1599,6 +1602,7 @@ function BrainView({
           ["actions", "Routine actions"],
           ["checks", "Independent checks"],
           ["autonomy", "Activation"],
+          ["plans", "Plans"],
         ].map(([key, label]) => (
           <Link
             key={key}
@@ -2481,7 +2485,7 @@ function Programs({ state, records, action, busy }: ViewProps) {
             }
             detail={
               sub
-                ? "Your trainer will assign a program built around your intake."
+                ? "Your trainer's Brain prepares a program built around your intake."
                 : "Create a useful training block, then assign it to a subscriber."
             }
           />
@@ -3895,6 +3899,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       {sub && (
         <Card>
           <h2>Help your coach understand you</h2>
+          <PlanIntakeNotice />
           <form
             onSubmit={(e) => {
               e.preventDefault();

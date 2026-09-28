@@ -267,6 +267,50 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     },
   ),
   kind(
+    "brain-plan-ready",
+    "member",
+    "coaching",
+    "The trainer's Brain delivered a new training plan",
+    {
+      title: "Your training plan is ready",
+      body: "Your trainer's Brain prepared your plan from your profile. Open Training to see today's session and the weeks ahead.",
+      href: "/app/program",
+    },
+  ),
+  kind(
+    "brain-plan-adjusted",
+    "member",
+    "coaching",
+    "The Brain adjusted next week's planned sessions",
+    {
+      title: "Next week's training was adjusted",
+      body: "Your trainer's Brain adjusted next week's sessions from how this week went. Open Training to see them.",
+      href: "/app/program",
+    },
+  ),
+  kind(
+    "brain-plan-withdrawn",
+    "member",
+    "coaching",
+    "The trainer withdrew a delivered plan to revise it",
+    {
+      title: "Your trainer is revising your plan",
+      body: "Your trainer reviewed your plan and is preparing a revised one. Your completed sessions are kept.",
+      href: "/app/program",
+    },
+  ),
+  kind(
+    "brain-plan-review",
+    "trainer",
+    "coaching",
+    "A Brain plan or weekly adjustment needs the trainer's review",
+    {
+      title: "A plan needs your review",
+      body: "Your Brain prepared a plan it is not confident about, or one the safety rules send to you. Review, edit or reject it.",
+      href: "/trainer/brain/plans",
+    },
+  ),
+  kind(
     "website-inquiry",
     "trainer",
     "coaching",

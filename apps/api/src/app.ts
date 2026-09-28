@@ -26,6 +26,7 @@ import { registerVoiceAddOn } from "./voice-addon.ts";
 import { registerProgrammeToday } from "./programme-today.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
+import { registerBrainPlans } from "./brain-plans.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import {
   registerCoachingFeedback,
@@ -607,6 +608,7 @@ export async function buildApp(
   registerRetention(app, db);
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
+  registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
   registerHealthKitSync(app, db);
   registerFinanceBilling(app, db, { stripe: options.providers?.stripe });

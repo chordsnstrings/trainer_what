@@ -241,6 +241,8 @@ export async function verifyRuntimeAccess(client) {
     "member_takeover_active()",
     "workspace_member_role(uuid)",
     "member_policy_review_append(jsonb,jsonb,integer)",
+    // Migration 063: a follower's own plan-generation state (docs/features/brain-plans.md).
+    "member_plan_status()",
   ];
   for (const name of functions) {
     const [r] = await query(

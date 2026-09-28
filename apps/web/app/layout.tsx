@@ -14,6 +14,7 @@ import "./coach-directory.css";
 import "./host-operations.css";
 import "./provider-sandbox.css";
 import "./programme.css";
+import "./brain-plans.css";
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   // Real PNG sizes for install surfaces; iOS ignores SVG home-screen icons.

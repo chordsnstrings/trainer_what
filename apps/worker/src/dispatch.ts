@@ -4,6 +4,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { executePushDelivery } from "./push-delivery.ts";
 import { executeNutritionJob } from "../../api/src/nutrition-schedule.ts";
+import { executeBrainPlanJob } from "../../api/src/brain-plans.ts";
 
 type Handler = (db: Database, tenantId: string, job: any) => Promise<any>;
 export type JobHandlers = {
@@ -11,12 +12,15 @@ export type JobHandlers = {
   nutrition: Handler;
   push: Handler;
   email: Handler;
+  /** Trainer Brain plan generation and weekly adaptation; optional for older callers. */
+  brainPlan?: Handler;
 };
 export const defaultHandlers: JobHandlers = {
   finance: (db, tenantId, job) => runClaimedFinanceJob(db, tenantId, job),
   nutrition: (db, tenantId, job) => executeNutritionJob(db, tenantId, job),
   push: (db, tenantId, job) => executePushDelivery(db, tenantId, job),
   email: (db, tenantId, job) => executeEmailDelivery(db, tenantId, job),
+  brainPlan: (db, tenantId, job) => executeBrainPlanJob(db, tenantId, job),
 };
 const workerActor = (tenantId: string): Actor =>
   elevated("worker", { tenantId, role: "staff" });
@@ -83,6 +87,18 @@ export async function runClaimedJob(
             job.attempts,
             job.leased_until,
           ],
+        ),
+      );
+      return;
+    }
+    if (job.kind === "brain_plan") {
+      // The generation record keeps its own outcome (delivered, review,
+      // failed); the job completes once the handler has returned.
+      await (handlers.brainPlan ?? executeBrainPlanJob)(db, tenantId, job);
+      await db.tenant(a, (tx) =>
+        tx.query(
+          "UPDATE jobs SET status='completed',leased_until=NULL,last_error=NULL WHERE id=$1 AND status='pending' AND attempts=$2 AND leased_until=$3",
+          [job.id, job.attempts, job.leased_until],
         ),
       );
       return;
