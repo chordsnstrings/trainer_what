@@ -33,9 +33,10 @@ export default async function Layout({
   children: React.ReactNode;
 }) {
   // English and left to right unless the visitor chose Arabic (?lang= or the
-  // device cookie mirrored from a member's saved language), or a coach
-  // website is written in Arabic. The workspace applies the member's saved
-  // language after sign-in (components/document-direction.tsx).
+  // device choice it set), a coach website is written in Arabic, or the
+  // signed-in member saved Arabic (mirrored by the workspace, which applies it
+  // after sign-in; see components/document-direction.tsx and pageLanguage in
+  // document-language.ts for the precedence).
   const { lang, dir } = await documentLanguage();
   return (
     <html lang={lang} dir={dir}>

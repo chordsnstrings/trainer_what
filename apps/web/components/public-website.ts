@@ -4,9 +4,10 @@ import { verifiedProxyHeaders } from "../host-proxy";
 import {
   LANGUAGE_COOKIE,
   LANGUAGE_HEADER,
+  MEMBER_LANGUAGE_COOKIE,
   PAGE_PATH_HEADER,
-  coachSiteSlug,
-  resolveDocumentLanguage,
+  pageLanguage,
+  parseLanguage,
 } from "../document-language";
 
 // Server-only helpers shared by the root layout and the catch-all page. The
@@ -47,24 +48,24 @@ export const publicWebsite = cache(async (slug: string) => {
 });
 
 /**
- * The document language for this request: an explicit `?lang=` (forwarded by
- * proxy.ts), the device cookie, the coach website's language on its pages,
- * then English. A signed-in member's saved language is applied in the
- * workspace and mirrored into the cookie, so later page loads start in it.
+ * The document language for this request (see `pageLanguage`): an explicit
+ * `?lang=` (forwarded by proxy.ts) or device choice, then on coach website
+ * pages the website's own language, then the signed-in member's mirrored
+ * language, then English. In the workspace the member's language comes first.
  */
 export async function documentLanguage() {
   const incoming = await headers(),
     jar = await cookies();
-  const query = incoming.get(LANGUAGE_HEADER),
-    cookie = jar.get(LANGUAGE_COOKIE)?.value;
-  const explicit = resolveDocumentLanguage({ query, cookie });
-  const slug = coachSiteSlug(incoming.get(PAGE_PATH_HEADER));
-  if (explicit.source !== "default" || !slug) return explicit;
-  // The page shows its own error when the website cannot be loaded; the
-  // document then keeps the English default.
-  const site = await publicWebsite(slug).then(
-    (data) => data?.site?.language,
-    () => undefined,
-  );
-  return resolveDocumentLanguage({ site });
+  return pageLanguage({
+    path: incoming.get(PAGE_PATH_HEADER),
+    query: incoming.get(LANGUAGE_HEADER),
+    cookie: jar.get(LANGUAGE_COOKIE)?.value,
+    member: jar.get(MEMBER_LANGUAGE_COOKIE)?.value,
+    // A published website without a language is English. When it cannot be
+    // loaded the page shows its own error and the document falls back.
+    siteLanguage: async (slug) => {
+      const data = await publicWebsite(slug);
+      return data ? (parseLanguage(data.site?.language) ?? "en") : undefined;
+    },
+  });
 }

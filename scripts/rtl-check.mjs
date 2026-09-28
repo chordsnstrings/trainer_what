@@ -45,6 +45,8 @@ const TRAINER_ROUTES = [
   "/trainer/finance",
   "/trainer/design",
   "/trainer/website",
+  "/trainer/website/preview",
+  "/trainer/team",
   "/trainer/settings",
 ];
 const ADMIN_ROUTES = [
@@ -52,6 +54,8 @@ const ADMIN_ROUTES = [
   "/admin/settings",
   "/admin/governance",
   "/admin/metrics",
+  "/admin/infrastructure",
+  "/admin/support",
 ];
 const FOLLOWER_ROUTES = [
   "/app",
@@ -165,7 +169,8 @@ function measure(page) {
       (sidebarRect.right <= 1 || sidebarRect.left >= width - 1);
     // A control is clipped when it is rendered but lies partly outside the
     // viewport horizontally, and no scroll container inside the page lets the
-    // member reach it.
+    // member reach it. Only overflow-x auto/scroll can be scrolled; an
+    // ancestor with overflow hidden or clip cuts the control off.
     const clipped = [];
     for (const el of document.querySelectorAll(
       "a[href], button, input:not([type=hidden]), select, textarea, [role=button], summary",
@@ -186,13 +191,14 @@ function measure(page) {
       while (scroller && scroller !== document.body) {
         const style = getComputedStyle(scroller);
         if (
-          /(auto|scroll|hidden|clip)/.test(style.overflowX) &&
+          /(auto|scroll)/.test(style.overflowX) &&
           scroller.scrollWidth > scroller.clientWidth + 1
         ) {
           const s = scroller.getBoundingClientRect();
           reachable = s.left >= -1 && s.right <= width + 1;
           break;
         }
+        if (/(hidden|clip)/.test(style.overflowX)) break;
         scroller = scroller.parentElement;
       }
       if (!reachable) clipped.push(describe(el));
@@ -236,6 +242,32 @@ function measure(page) {
         const input = document.querySelector("input[type=email]");
         return input ? getComputedStyle(input).direction : null;
       })(),
+      // A web address typed after a fixed prefix reads left to right.
+      affixPrefixFirst: (() => {
+        const affix = document.querySelector(".input-affix");
+        const prefix = affix?.querySelector("span"),
+          input = affix?.querySelector("input");
+        if (!prefix || !input) return null;
+        return (
+          prefix.getBoundingClientRect().right <=
+          input.getBoundingClientRect().left + 1
+        );
+      })(),
+      // Timestamps pushed to the end of an audit row stay at its end (the
+      // left edge in right to left).
+      auditTimesAtEnd: (() => {
+        const rows = [...document.querySelectorAll(".ps-audit-list li")]
+          .map((li) => [li, li.querySelector(":scope > time")])
+          .filter(([, time]) => time);
+        if (!rows.length || width < 651) return null;
+        return rows.every(
+          ([li, time]) =>
+            Math.abs(
+              time.getBoundingClientRect().left -
+                li.getBoundingClientRect().left,
+            ) <= 1,
+        );
+      })(),
     };
   });
 }
@@ -262,6 +294,10 @@ async function assertRtl(page, label, extra = {}) {
     fail(label, "an email field is not left to right");
   if (m.arrowMirrored === false)
     fail(label, "a forward arrow icon did not mirror");
+  if (m.affixPrefixFirst === false)
+    fail(label, "an address prefix is not left of its input");
+  if (m.auditTimesAtEnd === false)
+    fail(label, "an audit timestamp is not at the end of its row");
   if (extra.workspace) {
     if (!m.sidebar) fail(label, "no workspace navigation");
     else if (m.width >= 651) {
@@ -440,6 +476,37 @@ try {
       return saved.draft.language;
     });
     if (result !== "ar") fail("website", "the website language was not saved");
+    if (want("sources")) {
+      // The signed-in coach (language never chosen, so English) viewing
+      // their own Arabic website on this device: the workspace mirrors the
+      // member's language into its own cookie, never the explicit choice, so
+      // the website keeps its language while the workspace stays English.
+      const label = "signed-in coach's own Arabic website";
+      // The workspace has applied the member's saved language once a
+      // language cookie appears (a missing one is a finding below).
+      await page
+        .waitForFunction(
+          () => /(^|; )trainer(_member)?_lang=/.test(document.cookie),
+          null,
+          { timeout: 30_000 },
+        )
+        .catch(() => {});
+      const cookies = await ctx.cookies();
+      if (cookies.find((c) => c.name === "trainer_member_lang")?.value !== "en")
+        fail(label, "the member language cookie is not English");
+      if (cookies.some((c) => c.name === "trainer_lang"))
+        fail(label, "the workspace wrote the visitor's explicit choice");
+      if (
+        !/lang="ar" dir="rtl"/.test(await serverHtml(ctx, "/coach/alex-morgan"))
+      )
+        fail(label, "the server did not render the website's language");
+      if (!/lang="en" dir="ltr"/.test(await serverHtml(ctx, "/trainer")))
+        fail(label, "the workspace did not keep the member's language");
+      await screen(label, async () => {
+        await visit(page, "/coach/alex-morgan");
+        await assertRtl(page, label, { coachSite: true });
+      });
+    }
     await ctx.close();
   }
   if (want("sources")) {

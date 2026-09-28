@@ -55,9 +55,10 @@ export const siteSchema = z
     seoTitle: z.string().trim().max(100).default(""),
     seoDescription: z.string().trim().max(200).default(""),
     // The language the coach writes the website in. Arabic lays the public
-    // website out right to left unless the visitor chose a language; older
-    // drafts and published sites read as English.
-    language: z.enum(["en", "ar"]).default("en"),
+    // website out right to left unless the visitor chose a language. Absent
+    // means English (older drafts and published sites), and English is never
+    // stored (see the transform below).
+    language: z.enum(["en", "ar"]).optional(),
     pages: z.array(page).max(100).default([]),
   })
   .strict()
@@ -68,7 +69,13 @@ export const siteSchema = z
         message: "Page addresses must be unique",
         path: ["pages"],
       });
-  });
+  })
+  // Only a website switched to Arabic carries the key. The previous release's
+  // strict schema rejects unknown keys, so an English website saved here stays
+  // readable by it after an operator rollback (rollback_release).
+  .transform(({ language, ...site }) =>
+    language === "ar" ? { ...site, language } : site,
+  );
 function owner(req: FastifyRequest) {
   const a = req.identity;
   if (!a) throw fail(401, "AUTH_REQUIRED", "Please sign in");

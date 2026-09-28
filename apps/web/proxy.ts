@@ -52,8 +52,10 @@ export async function proxy(request: NextRequest) {
       });
     }
     // Page requests: an explicit ?lang= becomes the device language cookie
-    // and, with the final page path, reaches the root layout's <html lang dir>
-    // as server-set headers (client copies of x-trainer-* were removed above).
+    // (its only writer; readable by the page, which restores it after leaving
+    // a coach website client-side) and, with the final page path, reaches the
+    // root layout's <html lang dir> as server-set headers (client copies of
+    // x-trainer-* were removed above).
     const language = parseLanguage(request.nextUrl.searchParams.get("lang"));
     if (language) forwarded.set(LANGUAGE_HEADER, language);
     const remember = (response: NextResponse) => {

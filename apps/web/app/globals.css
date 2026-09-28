@@ -44,21 +44,32 @@
 .bidi-mirror {
   display: inline-block;
 }
-/* Codes, times, emails, phone numbers, web addresses and numbers typed as
-   numbers read left to right in every layout. */
+/* Codes, emails, phone numbers, web addresses (including an address typed
+   after a fixed prefix) and numbers typed as numbers read left to right in
+   every layout. */
 code,
 kbd,
 samp,
 pre,
-time,
 input[type="email"],
 input[type="tel"],
 input[type="url"],
 input[type="number"],
 input[type="password"],
+.input-affix,
 .ltr-data {
   direction: ltr;
   unicode-bidi: isolate;
+}
+/* Times keep their own character order (a numeric date and time reads left
+   to right, an Arabic-formatted one right to left) but their box follows the
+   page: margins and alignment resolve against the layout's direction, so a
+   timestamp pushed to the end of a row stays at its end. */
+time {
+  unicode-bidi: plaintext;
+  /* Chromium and Safari know the prefixed keyword; Firefox the standard one. */
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
 }
 /* Text people type or write (Arabic or English) follows its own direction in
    either layout. */

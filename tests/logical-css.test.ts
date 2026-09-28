@@ -46,7 +46,13 @@ const SIDE_VALUE_PROPERTIES = new Set([
   "transform-origin",
   "perspective-origin",
   "mask-position",
+  "-webkit-mask-position",
   "caption-side",
+  // Shorthands that carry a position (`background: url(x) right 8px center`).
+  "background",
+  "mask",
+  "-webkit-mask",
+  "border-image",
 ]);
 const FOUR_SIDE_SHORTHANDS = new Set([
   "margin",
@@ -105,7 +111,14 @@ export function physicalRule(property: string, value: string): string | null {
   if (prop.startsWith("--")) return null;
   if (PHYSICAL_PROPERTY.test(prop))
     return "physical property: use the inline-start/end form";
-  if (SIDE_VALUE_PROPERTIES.has(prop) && /\b(left|right)\b/.test(val))
+  // Addresses and quoted strings are not positions (`url(arrow-right.svg)`).
+  const positions = val
+    .replace(/url\([^)]*\)/g, "url()")
+    .replace(/"[^"]*"|'[^']*'/g, '""');
+  if (
+    SIDE_VALUE_PROPERTIES.has(prop) &&
+    /(^|[^a-z0-9-])(left|right)($|[^a-z0-9-])/.test(positions)
+  )
     return "physical value: use start/end or a logical form";
   if (/gradient\(\s*to\s+(left|right)\b/.test(val))
     return "physical gradient direction";
@@ -125,18 +138,28 @@ export function physicalRule(property: string, value: string): string | null {
         return "asymmetric corner radii: use border-start-start-radius etc.";
     }
   }
-  if (prop === "transform" || prop === "translate") {
+  if (prop === "transform" || prop === "translate" || prop === "scale") {
+    const args = (re: RegExp) => calls(val, re).map((a) => a.split(","));
     const xs = [
       ...calls(val, /translatex/),
-      ...calls(val, /translate(?!x|y|z|3d)/).map((a) => a.split(",")[0]),
-      ...calls(val, /translate3d/).map((a) => a.split(",")[0]),
+      ...args(/translate(?!x|y|z|3d)/).map((a) => a[0]),
+      ...args(/translate3d/).map((a) => a[0]),
+      // matrix(a, b, c, d, tx, ty) and matrix3d(..., tx at index 12, ...)
+      ...args(/(?<![a-z0-9])matrix(?!3d)/).map((a) => a[4] ?? "0"),
+      ...args(/matrix3d/).map((a) => a[12] ?? "0"),
       ...(prop === "translate" ? [tokens(val)[0] ?? "0"] : []),
     ];
     if (xs.some((x) => !isZero(x) && !signed(x)))
       return "horizontal translation: multiply by var(--inline-sign)";
-    if (
-      calls(val, /scalex/).some((x) => x.trim().startsWith("-") && !signed(x))
-    )
+    const flips = [
+      ...calls(val, /scalex/),
+      ...args(/(?<![a-z0-9])scale(?!x|y|z|3d)/).map((a) => a[0]),
+      ...args(/scale3d/).map((a) => a[0]),
+      ...args(/(?<![a-z0-9])matrix(?!3d)/).map((a) => a[0]),
+      ...args(/matrix3d/).map((a) => a[0]),
+      ...(prop === "scale" ? [tokens(val)[0] ?? "1"] : []),
+    ];
+    if (flips.some((x) => x.trim().startsWith("-") && !signed(x)))
       return "horizontal flip: use var(--inline-sign)";
   }
   return null;
@@ -216,37 +239,58 @@ export function inlineStyleDeclarations(source: string) {
   const objects: any[] = [];
   const styleNames = new Set<string>();
   const declarations = new Map<string, any>();
+  /**
+   * Every style object a style expression can evaluate to: object literals,
+   * both branches of `a ? {…} : {…}`, `open && {…}`, spreads inside a style
+   * object (`{ ...base, ...(open ? {…} : {}) }`) and named style objects.
+   * Call arguments are data, not styles, and are not followed.
+   */
+  const collect = (expression: any) => {
+    if (!expression) return;
+    switch (expression.type) {
+      case "TSAsExpression":
+      case "TSSatisfiesExpression":
+      case "TSNonNullExpression":
+      case "TSTypeAssertion":
+      case "ParenthesizedExpression":
+        return collect(expression.expression);
+      case "ConditionalExpression":
+        collect(expression.consequent);
+        return collect(expression.alternate);
+      case "LogicalExpression":
+        collect(expression.left);
+        return collect(expression.right);
+      case "SequenceExpression":
+        return collect(expression.expressions.at(-1));
+      case "Identifier":
+        styleNames.add(expression.name);
+        return;
+      case "ObjectExpression":
+        objects.push(expression);
+        for (const property of expression.properties)
+          if (property.type === "SpreadElement") collect(property.argument);
+        return;
+    }
+  };
   const visit = (node: any) => {
     if (!node || typeof node.type !== "string") return;
     if (
       node.type === "JSXAttribute" &&
       node.name?.name === "style" &&
       node.value?.type === "JSXExpressionContainer"
+    )
+      collect(node.value.expression);
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init
     ) {
-      let expression = node.value.expression;
-      while (
-        expression &&
-        ["TSAsExpression", "TSSatisfiesExpression"].includes(expression.type)
-      )
-        expression = expression.expression;
-      if (expression?.type === "ObjectExpression") objects.push(expression);
-      if (expression?.type === "Identifier") styleNames.add(expression.name);
-    }
-    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
-      let init = node.init;
-      while (
-        init &&
-        ["TSAsExpression", "TSSatisfiesExpression"].includes(init.type)
-      )
-        init = init.expression;
-      if (init?.type === "ObjectExpression") {
-        declarations.set(node.id.name, init);
-        const annotation = source.slice(
-          node.id.typeAnnotation?.start ?? 0,
-          node.id.typeAnnotation?.end ?? 0,
-        );
-        if (/CSSProperties/.test(annotation)) objects.push(init);
-      }
+      declarations.set(node.id.name, node.init);
+      const annotation = source.slice(
+        node.id.typeAnnotation?.start ?? 0,
+        node.id.typeAnnotation?.end ?? 0,
+      );
+      if (/CSSProperties/.test(annotation)) collect(node.init);
     }
     for (const key of Object.keys(node)) {
       if (["loc", "start", "end", "extra"].includes(key)) continue;
@@ -256,8 +300,17 @@ export function inlineStyleDeclarations(source: string) {
     }
   };
   visit(ast.program);
-  for (const name of styleNames)
-    if (declarations.has(name)) objects.push(declarations.get(name));
+  // Named style objects, including names reached through other names.
+  const resolved = new Set<string>();
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const name of [...styleNames])
+      if (!resolved.has(name) && declarations.has(name)) {
+        resolved.add(name);
+        collect(declarations.get(name));
+        grew = true;
+      }
+  }
   const out: Array<{ property: string; value: string; line: number }> = [];
   for (const object of new Set(objects))
     for (const property of object.properties) {
@@ -353,6 +406,15 @@ test("the physical-direction checker flags what does not mirror and passes logic
     ["transform", "rotate(2deg) translateX(4px)"],
     ["translate", "10px 0"],
     ["transform", "scaleX(-1)"],
+    ["background", "url(x.svg) no-repeat right 8px center"],
+    ["background", "#fff url('/i.svg') left top / 12px no-repeat"],
+    ["mask", "url(m.svg) right center no-repeat"],
+    ["-webkit-mask-position", "left"],
+    ["transform", "matrix(-1, 0, 0, 1, 0, 0)"],
+    ["transform", "matrix(1,0,0,1,12,0)"],
+    ["transform", "matrix3d(-1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)"],
+    ["transform", "scale(-1, 1)"],
+    ["scale", "-1 1"],
   ])
     assert.ok(physicalRule(property, value), `${property}: ${value}`);
   for (const [property, value] of [
@@ -375,6 +437,14 @@ test("the physical-direction checker flags what does not mirror and passes logic
     ["--sidebar-left", "4px"],
     ["flex-direction", "row"],
     ["grid-template-columns", "1fr 2fr"],
+    ["background", "url(/icons/arrow-right.svg) no-repeat center"],
+    ["background", "linear-gradient(180deg, #fff, #000)"],
+    ["background", "var(--paper)"],
+    ["transform", "matrix(1, 0, 0, 1, 0, -4)"],
+    ["transform", "matrix(calc(-1 * var(--inline-sign)), 0, 0, 1, 0, 0)"],
+    ["transform", "scale(1.02)"],
+    ["transform", "scale(1, -1)"],
+    ["scale", "1.1"],
   ])
     assert.equal(physicalRule(property, value), null, `${property}: ${value}`);
   // Declarations are read inside media queries and with their lines.
@@ -394,13 +464,28 @@ test("the physical-direction checker flags what does not mirror and passes logic
 const box = { marginRight: 8 };
 const typed: CSSProperties = { textAlign: "left" };
 const crop = { left: 4, top: 2 };
-export const A = () => <div style={{ right: 16, paddingInlineStart: 4 }}><p style={box} /><i style={typed} /></div>;`;
+const base = { borderLeftWidth: 1 };
+const chosen = open ? { float: "left" } : base;
+export const A = () => <div style={{ right: 16, paddingInlineStart: 4 }}><p style={box} /><i style={typed} />
+  <b style={open ? { right: 0, marginLeft: 8 } : undefined} />
+  <s style={{ ...(open && { left: 1 }) }} />
+  <u style={{ ...(open ? { paddingRight: 4 } : {}), ...chosen }} />
+  <em style={(open && { clear: "right" }) as CSSProperties} />
+  <q style={styleFor({ left: 99 })} />
+</div>;`;
   const inline = inlineStyleDeclarations(tsx).map(
     (d) => d.property + ":" + d.value,
   );
   assert.deepEqual(inline.sort(), [
+    "border-left-width:1",
+    "clear:right",
+    "float:left",
+    "left:1",
+    "margin-left:8",
     "margin-right:8",
     "padding-inline-start:4",
+    "padding-right:4",
+    "right:0",
     "right:16",
     "text-align:left",
   ]);

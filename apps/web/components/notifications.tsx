@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseLanguage } from "../document-language";
-import { rememberLanguage } from "./document-direction";
+import { rememberMemberLanguage } from "./document-direction";
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -51,7 +51,7 @@ export function NotificationPreferences() {
               setValue({ ...saved, options });
               // The saved language also sets the workspace direction.
               const language = parseLanguage(saved.data?.language);
-              if (language) rememberLanguage(language);
+              if (language) rememberMemberLanguage(language);
               setError("Preferences saved.");
             } catch (e) {
               setError((e as Error).message);
