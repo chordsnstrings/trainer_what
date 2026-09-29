@@ -310,9 +310,33 @@ hang in that case and now waits at most about 20 s), ASCII-only rationale compar
   (started before the two last edits); `fix-nutrition-model` and `fix-nutrition-trial` again on
   the final tree: 35 tests, 35 pass, `PG_SELECTED_FAILED_FILES=0`.
 - Mutation checks as listed under Tests.
-- Not run: the e2e harness (the trainer suite's evaluation double already reads the `[category]`
-  prefix its checks carry, and its members' notes contain none of the new scope terms), the
-  whole test suite, a live model call or a new trial run.
+- Not run in that pass: the e2e harness, the whole test suite, a live model call or a new trial
+  run.
+
+### Review round, checks re-run on the committed tree (29 September 2026)
+
+Every finding was verified again against the trial records (the six declines in
+`tests/nutrition-trial-fixtures.ts` match `calls-seed.jsonl` and the Opus and Sonnet
+`tasks-10.answers.json` replies word for word; Haiku returned full weeks for both members). The
+only change after commit `931ef09` is the stale header comment on `NUTRITION_PROMPT_VERSION`
+(`packages/providers/src/nutrition.ts`), which still said evaluation scenarios carry their
+category. All runs below are on that final tree:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: both pass.
+- PGlite, the 35 test files that mention nutrition, the worker dispatcher, the Next config, the
+  e2e model rules, prompt-refs, `foldNutritionText`, `rationaleMatches` or
+  `nutritionScopeSignals` (`node --import tsx --test --test-concurrency=1`): 394 tests, 393 pass,
+  1 skipped (the retirement race needs PostgreSQL), 0 fail.
+- PostgreSQL sandbox (`/opt/tools/pg-sandbox.sh 56556`, 68 migrations, runtime role verified)
+  with the 26 database-touching files among those 35, `isolation-follower` and
+  `governance-suspension` (from the earlier database set) and `fix-nutrition-trial`: 29 files, 311
+  tests, 310 pass, 1 skipped (a consent-history migration replay that runs embedded only), 0
+  fail, `PG_SELECTED_FAILED_FILES=0`; the retirement race ran here and passed.
+- E2E harness, suites `trainer,follower` (`node scripts/e2e/run.mjs --suites=trainer,follower`,
+  including a fresh `next build`): 213 passed, 0 failed, 0 skipped, including AI recipe drafts
+  and policy compilation, 24 held-out nutrition checks, the nutrition evaluation (now without a
+  scenario category) and sample-week preview, and activation of automatic nutrition delivery.
+- Not run: the whole test suite, the other e2e suites, a live model call or a new trial run.
 
 ## Limits and follow-ups
 
