@@ -557,7 +557,9 @@ test("the coach website root carries the page language and direction; Arabic tex
     /^<div class="trainer-theme coach-website" lang="ar" dir="rtl"/,
   );
   assert.match(arabic, /تدريب يناسب حياتك/);
-  assert.match(arabic, /<div class="site-prose" dir="auto">أهلاً بك<\/div>/);
+  assert.match(arabic, /<div class="site-prose site-lead" dir="auto">أهلاً بك<\/div>/);
+  // Coach-written headings follow their own direction too.
+  assert.match(arabic, /<h1 dir="auto">تدريب يناسب حياتك<\/h1>/);
   // The visitor's explicit English choice wins over the website's language.
   assert.match(
     render({ initialData: data, language: "en" }),
@@ -569,7 +571,10 @@ test("the coach website root carries the page language and direction; Arabic tex
     language: "ar",
     path: "contact",
   });
-  assert.match(contact, /<a href="mailto:amal@example.test" dir="ltr">/);
+  assert.match(
+    contact,
+    /<a href="mailto:amal@example.test">[\s\S]*?<span dir="ltr">amal@example.test<\/span>/,
+  );
   // The trainer's private preview follows the draft's own language.
   assert.match(
     render({ initialData: data, preview: true }),

@@ -62,11 +62,21 @@ No deployment, provider call or live action was made. All test data is synthetic
   consent withdrawal uses `lockSuspendedMember` (same training lock, confirms the
   membership and that the workspace is suspended) because the existing
   `training_actor_is_current` helper answers only for active workspaces.
-- The suspended screen shows followers a **Membership and billing** section
-  (`suspended-member-billing.tsx`): price, status and renewal date, **Cancel
-  membership renewal**, **Check renewal status** for a pending change, a refund
-  request form for eligible charges, their refund requests, and **Request account
-  deletion** with a confirmation step.
+- The suspended screen tells a follower that coaching with the coach is
+  paused ("Coaching with <coach> is paused", about the coach's coaching
+  workspace, never "<name> is suspended"), with Check again and Sign out
+  first, other coaches as buttons and a real support link (`mailto:` the
+  `SUPPORT_EMAIL` from `/workspace/status`, else the platform's About page).
+  Its **Membership and payments** section (`suspended-member-billing.tsx`)
+  shows the price and renewal date, **Cancel membership renewal**, **Check
+  renewal status** for a pending change, a refund request form for eligible
+  charges and their refund requests in plain words; renewal and refund text
+  appears only with a live membership (otherwise "You have no paid
+  membership with <coach>, so nothing is charged while coaching is
+  paused"). **Download my data** is a secondary button and **Request account
+  deletion** a quiet link that confirms in a bottom sheet. Trainers and team
+  members keep the workspace wording and the data download
+  (docs/features/phone-first.md).
 - Payment and refund confirmation emails for paid sessions (Stripe webhooks keep
   arriving) are marked `transactional` and are still sent while suspended.
 - The suspended screen with a generic message (no operator notice). The public

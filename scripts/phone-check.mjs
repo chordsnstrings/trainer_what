@@ -1,13 +1,17 @@
-// Phone-first check for the member app (local Chromium only; never a cloud
-// browser). Signs in as the synthetic member and visits every member screen
-// at 360x740 and 390x844 as a touch phone, and fails when:
+// Phone-first check for the member app and the signed-out subscriber pages
+// (local Chromium only; never a cloud browser). Visits the directory, a
+// coach's website, joining, sign-in, recovery and legal pages signed out,
+// then signs in as the synthetic member and visits every member screen at
+// 360x740 and 390x844 as a touch phone, and fails when:
 // - the page scrolls sideways (horizontal overflow);
 // - the bottom tab bar is missing, has no current tab (aria-current) or a
 //   tab shorter than 56 px;
 // - a control people tap is smaller than 44x44 px (links inside running
 //   text are exempt, as in WCAG 2.5.8; a checkbox counts its label);
 // - something fixed covers the tab bar or the screen's primary action;
-// - with reduced motion, anything animates (a tab tap, opening a sheet).
+// - with reduced motion, anything animates (a tab tap, opening a sheet);
+// - signed out: a field's text is under 16 px or the trainer-marketing
+//   footer shows.
 // Start it through scripts/run-phone-check.mjs (npm run test:phone), which
 // seeds data and starts the servers. docs/features/phone-first.md.
 import { createRequire } from "node:module";
@@ -47,6 +51,25 @@ export const MEMBER_ROUTES = [
   "/app/profile",
   "/app/more",
 ];
+// Signed-out subscriber pages (docs/features/phone-first.md, "Public,
+// joining and sign-in pages"). An invitation link is added when the
+// synthetic owner can create one.
+export const PUBLIC_ROUTES = [
+  "/coaches",
+  "/coach/alex-morgan",
+  "/coach/alex-morgan/about",
+  "/coach/alex-morgan/memberships",
+  "/coach/alex-morgan/galleries",
+  "/coach/alex-morgan/contact",
+  "/join-coach/alex-morgan",
+  "/login",
+  "/forgot-password",
+  "/magic-link",
+  "/terms",
+  "/privacy",
+  "/ai-disclosure",
+];
+const owner = process.env.PHONE_CHECK_OWNER ?? "coach@example.test";
 const MIN_TARGET = 44;
 const MIN_TAB = 56;
 
@@ -56,7 +79,7 @@ const pageErrors = [];
 const fail = (label, message) => failures.push(`${label}: ${message}`);
 
 /** Everything the rules need, measured in the page. */
-function inspect({ minTarget, minTab }) {
+function inspect({ minTarget, minTab, publicPage = false }) {
   const width = window.innerWidth;
   const root = document.documentElement;
   const visible = (el) =>
@@ -66,7 +89,10 @@ function inspect({ minTarget, minTab }) {
     // (components/acquisition.tsx) and has its own check in
     // browser-completion-check.mjs; it is dismissed before measuring.
     !el.closest(
-      "[aria-hidden='true'], [hidden], .sr-only, .skip-link, .acquisition-consent",
+      "[aria-hidden='true'], [hidden], .sr-only, .skip-link, .acquisition-consent" +
+        // The platform's marketing header on the directory and platform
+        // sign-in pages belongs to the marketing site (brand-check.mjs).
+        (publicPage ? ", .mk-header" : ""),
     );
   const describe = (el) =>
     `${el.tagName.toLowerCase()}${
@@ -130,6 +156,19 @@ function inspect({ minTarget, minTab }) {
   const sticky = document.querySelector(
     ".sticky-action-bar .sticky-action-buttons > :last-child",
   );
+  // Form fields under 16 px make iOS zoom in.
+  const smallFields = [
+    ...document.querySelectorAll(
+      "input:not([type=checkbox]):not([type=radio]):not([type=hidden]), select, textarea",
+    ),
+  ]
+    .filter(
+      (el) =>
+        visible(el) &&
+        !el.closest(".site-honeypot") &&
+        parseFloat(getComputedStyle(el).fontSize) < 16,
+    )
+    .map(describe);
   return {
     path: location.pathname,
     overflow: Math.max(
@@ -145,7 +184,95 @@ function inspect({ minTarget, minTab }) {
     stickyPrimary: sticky ? describe(sticky) : null,
     stickyReach: sticky ? reaches(sticky) : null,
     loading: !!document.querySelector(".loading-screen"),
+    smallFields,
+    // Subscribers never get the trainer-marketing footer.
+    trainerFooter: !!document.querySelector(".mk-footer"),
   };
+}
+
+/**
+ * The signed-out pages a subscriber meets before the app: the directory, a
+ * coach's website, joining, sign-in, recovery and the legal documents. No
+ * sideways scroll, 44 px tap targets, 16 px fields, the sticky action (when
+ * there is one) reachable, and no trainer-marketing footer.
+ */
+async function publicCheck(phone) {
+  const ctx = await browser.newContext({
+    viewport: { width: phone.width, height: phone.height },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
+  ctx.setDefaultNavigationTimeout(180_000);
+  ctx.setDefaultTimeout(60_000);
+  const routes = [...PUBLIC_ROUTES];
+  try {
+    // An invitation link from the synthetic owner, in its own context.
+    const staff = await browser.newContext();
+    const signIn = await staff.request.post(base + "/api/v1/auth/login", {
+      headers: { origin: base },
+      data: { email: owner, password },
+      failOnStatusCode: false,
+    });
+    if (signIn.ok()) {
+      const invite = await staff.request.post(base + "/api/v1/invitations", {
+        headers: { origin: base },
+        data: {
+          email: `phone-check-${phone.width}@example.test`,
+          role: "subscriber",
+        },
+        failOnStatusCode: false,
+      });
+      if (invite.ok()) routes.push(new URL((await invite.json()).url).pathname);
+    }
+    await staff.close();
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => pageErrors.push(`${page.url()}: ${e.message}`));
+    let answered = false;
+    for (const route of routes) {
+      const label = `${phone.name} signed out ${route.replace(/\/join\/[^/]+$/, "/join/:link")}`;
+      try {
+        await page.goto(base + route, { waitUntil: "load" });
+        await settle(page);
+        if (!answered)
+          for (const name of [/without analytics/i, /^No thanks$/i]) {
+            const choice = page.getByRole("button", { name });
+            if (await choice.count().catch(() => 0)) {
+              await choice
+                .first()
+                .click({ timeout: 5000 })
+                .catch(() => {});
+              answered = true;
+            }
+          }
+        const m = await page.evaluate(inspect, {
+          minTarget: MIN_TARGET,
+          minTab: MIN_TAB,
+          publicPage: true,
+        });
+        measured.push({ label, ...m });
+        if (m.overflow > 1)
+          fail(label, `horizontal overflow of ${m.overflow}px`);
+        if (m.small.length)
+          fail(
+            label,
+            `${m.small.length} tap target(s) under ${MIN_TARGET}px: ${m.small.slice(0, 6).join("; ")}`,
+          );
+        if (m.smallFields.length)
+          fail(label, `fields under 16 px: ${m.smallFields.join("; ")}`);
+        if (m.trainerFooter) fail(label, "shows the trainer-marketing footer");
+        if (m.stickyPrimary && m.stickyReach !== true)
+          fail(
+            label,
+            `the primary action ${m.stickyPrimary} is covered by ${m.stickyReach}`,
+          );
+      } catch (e) {
+        fail(label, e.message.split("\n")[0]);
+      }
+    }
+  } finally {
+    await ctx.close();
+  }
 }
 
 /** The first primary button in the page content, scrolled to the middle. */
@@ -291,6 +418,7 @@ const browser = await chromium.launch({
   ...(executablePath ? { executablePath } : {}),
 });
 try {
+  for (const phone of PHONES) await publicCheck(phone);
   for (const phone of PHONES) {
     const ctx = await browser.newContext({
       viewport: { width: phone.width, height: phone.height },

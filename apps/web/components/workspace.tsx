@@ -1,7 +1,7 @@
 "use client";
 import { Field } from "./field";
 import { TeamControls } from "./team-controls";
-import { CoachSwitcher, FollowerInvitations, InvitationJoin } from "./joining";
+import { CoachSwitcher, FollowerInvitations } from "./joining";
 import {
   AdminComplimentaryAccess,
   ComplimentaryAccessManager,
@@ -41,15 +41,13 @@ import {
   TrainingProgress,
   WorkoutTools,
 } from "./training-workspace";
-import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
 import { HostOperations } from "./host-operations";
-import { MarketingFooter } from "./marketing/frame";
-import { PublicHeader } from "./public-header";
+import { Public } from "./public-pages";
 import { PlatformLogo } from "./brand-logo";
 import {
   FollowerEstimate,
@@ -62,14 +60,11 @@ import { FinanceOperations } from "./finance-operations";
 import { PlatformCostControls } from "./platform-costs";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
-import { AccountSecurity, AccountRecovery } from "./account-security";
-import { AccountExtras, MagicAccess } from "./account-completion";
+import { AccountSecurity } from "./account-security";
+import { AccountExtras } from "./account-completion";
 import { AccountSettings } from "./account-settings";
-import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
-import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
 import { OperatorRecovery } from "./operator-recovery";
 import { FollowerRemoval, FormerFollowers } from "./membership-exit";
-import { PasskeyLoginButton } from "./passkeys";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
 import { MemberShell, MoreScreen } from "./member-shell";
@@ -87,9 +82,7 @@ import {
   TrainerDesign,
   TrainerTheme,
   CoachIdentity,
-  CoachCover,
   CoachWelcome,
-  CoachStory,
   ClientHomeSections,
 } from "./trainer-design";
 import {
@@ -4928,378 +4921,5 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
         !error && <p>Loading platform evidence…</p>
       )}
     </>
-  );
-}
-
-function Public({
-  path,
-  platform,
-  coachSlug,
-  onAuthenticated,
-}: {
-  path: string;
-  platform: WorkspacePlatform;
-  /** The trainer whose own domain or subdomain serves this page, if any. */
-  coachSlug: string | null;
-  onAuthenticated: () => Promise<void>;
-}) {
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [slugHint, setSlugHint] = useState(""),
-    [store, setStore] = useState<any>(null);
-  const enroll = path.startsWith("/join-coach/");
-  const join = path.startsWith("/join/"),
-    auth =
-      path === "/forgot-password" ||
-      path.startsWith("/reset-password/") ||
-      path.startsWith("/verify-email/") ||
-      path === "/login" ||
-      path === "/signup" ||
-      join ||
-      enroll,
-    signup = path === "/signup";
-  // A /coach/ page, or any page on a trainer's own address (sign in,
-  // recovery, joining), carries that trainer's identity, not the platform's.
-  const coachPage = path.startsWith("/coach/");
-  const siteSlug = coachPage ? path.split("/")[2] || null : coachSlug;
-  useEffect(() => {
-    if (!siteSlug) return;
-    api("/public/trainers/" + encodeURIComponent(siteSlug))
-      .then(setStore)
-      // On a coach address the sign-in page works without the trainer's
-      // details; only the /coach/ page itself reports them missing.
-      .catch((e) => coachPage && setError(e.message));
-  }, [siteSlug, coachPage]);
-  useEffect(() => {
-    // A name typed in the address preview arrives as ?slug=.
-    if (path !== "/signup") return;
-    const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
-    if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
-  }, [path]);
-  const coach = !!siteSlug;
-  const Shell = coach ? TrainerTheme : PlainShell;
-  return (
-    <Shell
-      className={coach ? "public" : "public platform-ui"}
-      theme={store?.trainer?.theme}
-    >
-      <PublicHeader
-        path={path}
-        platform={platform}
-        coach={
-          siteSlug
-            ? { slug: siteSlug, host: !coachPage, trainer: store?.trainer }
-            : null
-        }
-      />
-      {path === "/sign-in/verify" ? (
-        <SocialSignInVerify />
-      ) : path.startsWith("/verify-email-change/") ? (
-        <EmailChangeConfirm token={path.split("/").pop() ?? ""} />
-      ) : path.startsWith("/account-recovery/") ? (
-        <RecoveryLinkReset token={path.split("/").pop() ?? ""} />
-      ) : path === "/magic-link" ||
-        path.startsWith("/magic-link/") ||
-        path === "/recover-authenticator" ? (
-        <MagicAccess path={path} />
-      ) : path.startsWith("/reset-password/") ||
-        path.startsWith("/verify-email/") ||
-        path === "/forgot-password" ? (
-        <AccountRecovery path={path} />
-      ) : auth ? (
-        <main className="auth-layout">
-          <div className="auth-story">
-            <p className="eyebrow">YOUR KNOWLEDGE. YOUR NEXT CHAPTER.</p>
-            <h1>
-              {join
-                ? "Meet your next chapter."
-                : signup
-                  ? "You’ve built the experience.\nNow build the business."
-                  : "Welcome back to your coaching space."}
-            </h1>
-            <p>
-              Your judgment is the part that matters. Give it a place to grow.
-            </p>
-            <div className="auth-lines">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-          <Card>
-            <h2>
-              {enroll
-                ? "Join this coaching space"
-                : join
-                  ? "Accept your invitation"
-                  : signup
-                    ? "Create your coaching space"
-                    : "Sign in"}
-            </h2>
-            <p className="muted">
-              {signup
-                ? "Start with your identity. Your Brain comes next."
-                : join
-                  ? "Use the email address your trainer invited."
-                  : "Pick up exactly where you left off."}
-            </p>
-            {error && (
-              <div className="notice error" role="alert">
-                {error}
-              </div>
-            )}
-            {join && (
-              <InvitationJoin
-                token={path.split("/").pop() ?? ""}
-                onAuthenticated={onAuthenticated}
-              />
-            )}
-            <form
-              hidden={join}
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                setError("");
-                const f = new FormData(e.currentTarget);
-                try {
-                  await api(
-                    enroll
-                      ? "/auth/enroll"
-                      : join
-                        ? "/invitations/accept"
-                        : signup
-                          ? "/auth/register"
-                          : "/auth/login",
-                    "POST",
-                    enroll
-                      ? {
-                          name: f.get("name"),
-                          email: f.get("email"),
-                          password: f.get("password"),
-                          coachSlug: path.split("/").pop(),
-                          accepted: true,
-                          ...(f.get("code") ? { code: f.get("code") } : {}),
-                        }
-                      : join
-                        ? {
-                            name: f.get("name"),
-                            email: f.get("email"),
-                            password: f.get("password"),
-                            token: path.split("/").pop(),
-                            accepted: true,
-                            ...(f.get("code") ? { code: f.get("code") } : {}),
-                          }
-                        : signup
-                          ? {
-                              name: f.get("name"),
-                              email: f.get("email"),
-                              password: f.get("password"),
-                              slug: f.get("slug"),
-                              accepted: true,
-                            }
-                          : {
-                              email: f.get("email"),
-                              password: f.get("password"),
-                              ...(f.get("code") ? { code: f.get("code") } : {}),
-                            },
-                  );
-                  await onAuthenticated();
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {(signup || join || enroll) && (
-                <Field label="Your name">
-                  <input
-                    name="name"
-                    autoComplete="name"
-                    required
-                    minLength={2}
-                  />
-                </Field>
-              )}
-              <Field label="Email address">
-                <input
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                />
-              </Field>
-              {signup && (
-                <Field label="Your coaching address">
-                  <div className="input-affix">
-                    <span>/coach/</span>
-                    <input
-                      key={slugHint}
-                      name="slug"
-                      pattern="[a-z][a-z0-9-]{2,39}"
-                      placeholder="your-name"
-                      defaultValue={slugHint}
-                      required
-                    />
-                  </div>
-                </Field>
-              )}
-              <Field label="Password">
-                <input
-                  name="password"
-                  type="password"
-                  minLength={signup || join || enroll ? 12 : 1}
-                  autoComplete={
-                    signup || join || enroll
-                      ? "new-password"
-                      : "current-password"
-                  }
-                  required
-                />
-                {(signup || join || enroll) && (
-                  <small>At least 12 characters.</small>
-                )}
-              </Field>
-              {!signup && (
-                <>
-                  <Field label="Authenticator code (if enabled)">
-                    <input
-                      name="code"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]{6}"
-                    />
-                  </Field>
-                  <p>
-                    <Link className="text-link" href="/forgot-password">
-                      Forgot your password?
-                    </Link>
-                  </p>
-                </>
-              )}
-              {(signup || join || enroll) && (
-                <label className="check-field">
-                  <input type="checkbox" required />I accept the published terms
-                  and understand the digital coaching disclosure.
-                </label>
-              )}
-              <Button type="submit" disabled={busy}>
-                {busy
-                  ? "Opening your workspace…"
-                  : join || enroll
-                    ? "Join my coach"
-                    : signup
-                      ? "Create my workspace"
-                      : "Sign in"}
-                <ArrowRight size={16} />
-              </Button>
-            </form>
-            {(path === "/login" || join || enroll) && (
-              <SocialSignIn
-                intent={join ? "invite" : enroll ? "join" : "sign_in"}
-                coachSlug={enroll ? path.split("/").pop() : undefined}
-                inviteToken={join ? path.split("/").pop() : undefined}
-              />
-            )}
-            {path === "/login" && (
-              <>
-                <div className="divider" />
-                <PasskeyLoginButton />
-                <p>
-                  <Link href="/magic-link">Email me a sign-in link</Link>
-                </p>
-                <p>
-                  <Link href="/recover-authenticator">
-                    Use an authenticator recovery code
-                  </Link>
-                </p>
-              </>
-            )}
-            {coach ? (
-              // A coach address refuses /signup; new members join the coach.
-              !join &&
-              !enroll && (
-                <>
-                  <div className="divider" />
-                  <p className="muted">
-                    New here?{" "}
-                    <Link href={`/join-coach/${store?.trainer?.slug ?? siteSlug}`}>
-                      Join coaching
-                    </Link>
-                  </p>
-                </>
-              )
-            ) : (
-              <>
-                <div className="divider" />
-                <p className="muted">
-                  {signup
-                    ? "Already have a coaching space?"
-                    : `New to ${platform.name}?`}{" "}
-                  <Link href={signup ? "/login" : "/signup"}>
-                    {signup ? "Sign in" : "Get started"}
-                  </Link>
-                </p>
-              </>
-            )}
-          </Card>
-        </main>
-      ) : path.startsWith("/coach/") ? (
-        <main className="public-section">
-          {store ? (
-            <>
-              <CoachIdentity
-                name={store.trainer.name}
-                theme={store.trainer.theme}
-              />
-              <CoachCover theme={store.trainer.theme} />
-              <p className="eyebrow">{store.trainer.name}</p>
-              <h1>
-                {store.trainer.theme?.headline ?? "Coaching built around you."}
-              </h1>
-              <p className="lead">{store.trainer.theme?.bio}</p>
-              <CoachStory
-                name={store.trainer.name}
-                theme={store.trainer.theme}
-              />
-              {store.products.map((p: any) => (
-                <Card key={p.id}>
-                  <h2>{p.data.name}</h2>
-                  <p>{p.data.description}</p>
-                  <OfferTerms data={p.data} />
-                  <p>
-                    <Link
-                      className="button"
-                      href={"/join-coach/" + store.trainer.slug}
-                    >
-                      Join this coaching space <ArrowRight size={16} />
-                    </Link>
-                  </p>
-                </Card>
-              ))}
-            </>
-          ) : (
-            <p>{error || "Loading coaching page…"}</p>
-          )}
-        </main>
-      ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
-        <PublishedLegal
-          documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
-        />
-      ) : null}
-      {coach ? (
-        <footer className="public-footer">
-          <span>{platform.name}</span>
-          <div>
-            <Link href="/terms">Terms</Link>
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/ai-disclosure">Digital coaching</Link>
-          </div>
-        </footer>
-      ) : (
-        <MarketingFooter appName={platform.name} initials={platform.initials} />
-      )}
-    </Shell>
   );
 }

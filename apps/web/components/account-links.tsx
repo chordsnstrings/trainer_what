@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { accountRequest, formatDate, type AccountError } from "./account-request";
+import { AuthPage, ReturnToSignIn } from "./auth-page";
 
 function Shell({
   title,
@@ -12,21 +13,11 @@ function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT</p>
-        <h1>{title}</h1>
-      </section>
-      <section className="card">
-        <h2>{heading}</h2>
-        {children}
-        <p className="auth-return">
-          <a className="text-link" href="/login">
-            Return to sign in
-          </a>
-        </p>
-      </section>
-    </main>
+    <AuthPage eyebrow="YOUR ACCOUNT" title={title}>
+      <h2>{heading}</h2>
+      {children}
+      <ReturnToSignIn />
+    </AuthPage>
   );
 }
 

@@ -242,6 +242,120 @@ no-preference query; play scripted motion with `playMotion` (never
 content with `data-fixed-ui` (or use `StickyActionBar`), so `playArrival`
 never moves it with its parent.
 
+## Public, joining and sign-in pages
+
+Branch `ui/public` applies the same rules to what a subscriber sees before
+and around the member app. Styles are in `app/subscriber-public.css`
+(sign-in, joining, legal, paused coaching, footer), `app/coach-site.css`
+(a coach's website) and `app/coach-directory.css`, all mobile first with
+`min-width` queries only (the website editor keeps one older
+`max-width` rule of its own). No new motion was added; buttons, the sticky
+bar and sheets keep the shared microanimations.
+
+- **Frame** (`components/public-pages.tsx`, moved out of `workspace.tsx`):
+  sign-in, recovery, email-link, joining and legal pages render in
+  `AuthPage` (`components/auth-page.tsx`): one heading block and one card in
+  a 16 px-gutter column, no trainer story beside it. Only trainer sign-up
+  (`/signup`) keeps the trainer-marketing story and footer.
+- **Header**: on a coach's address, a coach's join page (`/join-coach/<name>`)
+  and an invitation (`/join/<link>`) the header is the compact
+  `.subscriber-header` with the coach's identity, from the first paint (an
+  invitation fills in the coach once it is read). Joining pages drop "Join
+  coaching" (the page is the join flow) and the sign-in page drops "Sign in".
+- **Footer** (`components/subscriber-footer.tsx`): Find a coach (platform
+  address only), Member sign in, Terms, Privacy, Digital coaching and
+  Analytics preferences, with the platform's or the coach's name. It
+  replaces the trainer-marketing footer on the directory, sign-in, joining
+  and legal pages and the coach website's own footer.
+- **Sign in**: email (`type=email`, `autocomplete=email`) and password
+  (`current-password`), "Forgot your password?" under the password, one
+  48 px Sign in button. The authenticator code (`one-time-code`) appears only
+  after the API answers `MFA_REQUIRED`. Passkey, "Email me a sign-in link"
+  and "Lost your authenticator app? Use a recovery code" sit together as
+  matching secondary actions. The bottom offers "Find a coach" (and, when
+  registration is open, trainer sign-up as "Are you a coach?"); on a coach's
+  address, "Join <coach>".
+- **Ended or missing membership** (`MEMBERSHIP_ENDED`, `NO_MEMBERSHIP`, also
+  from Apple or Google sign-in): a neutral panel, not a red error, with what
+  to do next: rejoin this coach (on a coach's address) or find a coach, and
+  how an invitation works.
+- **After leaving a coach**: `LeaveTrainer` stores a short note in this
+  tab's `sessionStorage` (`account:left-coach`, read once, ignored after
+  10 minutes) and opens `/login?left=1`, which says "You left <coach>",
+  whether renewal was cancelled, that the account stays open, and offers
+  Find a coach (or Back to the website on a coach's address).
+- **Joining** (`AccountJoinForm` in `components/joining.tsx`, used by
+  `/join-coach/<name>` and a signed-out invitation): headed "Join <coach>"
+  with one line on what happens; the choice "I'm new here" / "I already
+  have an account" as two full-width cards (title and one short line, never
+  wrapping); a new account enters name, email and a new password
+  (`new-password`, "At least 12 characters."); an existing account enters
+  email and its password (`current-password`) and sees the authenticator
+  field only when asked. No "Forgot your password?", no "Welcome back", no
+  trainer copy. The terms checkbox names and links only published documents
+  (below). On phones "Join <coach>" is in the `StickyActionBar`; from
+  768 px it is inside the form. A disabled button stays readable (muted
+  text, dashed edge) with the reason beside it. `POST /auth/enroll` now
+  takes `name` only for a new account (`NAME_REQUIRED` otherwise), like
+  `/invitations/accept`.
+- **Invitations**: closed, expired, replaced and already-used invitations are
+  one short state each with the way forward; a signed-in invited account
+  joins with one button (sticky on phones); the wrong account is told which
+  address the invitation is for.
+- **Terms that are not published yet**: `GET /api/v1/public/legal-status`
+  (`legalStatus` in `apps/api/src/legal.ts`) lists the registration
+  documents (terms, privacy policy, digital coaching disclosure) and whether
+  each is published, and `joiningOpen`, decided exactly as acceptance is
+  recorded: with strict security (production) joining is refused until
+  `LEGAL_APPROVED=true` and every document is published; in development an
+  unpublished document is recorded as `<key>:development-draft`. Forms
+  (`components/legal-acceptance.tsx`) ask people to accept only the
+  published documents, say plainly which ones are not published yet, and
+  while joining is closed show "Joining opens once the platform publishes
+  its approved terms" and disable the action. If the status cannot be read,
+  the form asks for all three and the API decides, as before.
+- **Legal pages** (`/terms`, `/privacy`, `/ai-disclosure`): a styled 44 px
+  "Home" link, the document's plain name (no "Platform document" label),
+  16 px text with 16 px gutters, "in effect from 29 Sept 2026" (no times),
+  the earlier-versions picker only when there is more than one version. An
+  unpublished document says it is still being approved and that nobody is
+  asked to accept it; a failed load offers Try again.
+- **Coach directory** (`/coaches`): one-column search (16 px fields,
+  `inputmode=search`), Clear filters as a button, and an empty state with
+  next steps (open a coach's link or invitation, or sign in) and a button.
+- **Coach website** (`CoachWebsite` in `components/coach-site.tsx`): a
+  compact header (identity, then the pages as one sideways-scrolling row
+  with the current page marked); one column; the home page is the hero
+  (cover image when there is one), "Meet your coach" with the coach's photo
+  or an intentional placeholder in the coach's colours (initials on a tinted
+  panel, same box, no layout shift) and a short excerpt that is never the
+  home introduction repeated, then "How to start" in three steps. About
+  shows the photo or placeholder and the coach's text, or a plain line
+  when there is none. Memberships lists plans as cards; with no plans it
+  says so and offers "Contact <coach>" as the next step. Galleries without
+  photos show a placeholder and one line. Contact has icon rows for email,
+  WhatsApp, Instagram and YouTube (opening outside the app), a styled form
+  with the right keyboards and autofill, the consent checkbox as a 22 px box
+  in a 44 px row, and "Message sent" afterwards. On phones the main action
+  (Start coaching or Join <coach> once plans are listed, Contact otherwise;
+  Send message on the contact page) is in the `StickyActionBar`, with
+  Contact as the secondary; from 768 px it is in the page and the header.
+- **Paused coaching** (`components/workspace-suspended.tsx`,
+  `suspensionCopy`): a member reads "Coaching with <coach> is paused" and
+  that the coach's coaching workspace is paused, never "<name> is
+  suspended". Check again and Sign out come first; other coaches are
+  full-width buttons; support is a real link (`mailto:` the platform's
+  `SUPPORT_EMAIL`, else the About page's company section). Membership and
+  payments (`suspended-member-billing.tsx`) matches what the member has:
+  renewal and refund text only with a live membership ("You have no paid
+  membership with <coach>, so nothing is charged while coaching is paused"
+  otherwise), plain refund states, Download my data, and deletion as a quiet
+  link that confirms in a bottom sheet.
+- **Leaving a coach** (`LeaveTrainer`, member app): "Leave <coach>" opens a
+  `BottomSheet` with what happens, an optional note for the coach and
+  "Stay with <coach>" / "Leave <coach>", replacing the required checkbox and
+  the browser's "Please check this box" tooltip.
+
 ## Checks
 
 - `tests/member-shell.test.ts`: tabs, current tab and side item, back
@@ -257,8 +371,20 @@ never moves it with its parent.
   missing tab bar, anything other than one `aria-current` tab, a tab under
   56 px, a tap target under 44x44 px (links inside running text are exempt,
   a checkbox counts its label), or anything fixed covering the tab bar, the
-  sticky primary action or the first primary button. Results go to
-  `test-results/phone-check.json`.
+  sticky primary action or the first primary button. Before signing in it
+  visits the signed-out pages (directory, the synthetic coach's website
+  pages, `/join-coach/alex-morgan`, an invitation from the synthetic owner,
+  sign-in, recovery, email link and the three legal pages) at both sizes
+  and fails on sideways overflow, a tap target under 44 px, a field under
+  16 px, a covered sticky action or the trainer-marketing footer. Results
+  go to `test-results/phone-check.json`.
+- `tests/public-pages.test.ts`: the legal status and its gate, enrol with a
+  name for new accounts only, forms never asking to accept an unpublished
+  document, the short join flow, no trainer-marketing footer or story for
+  subscribers, the footer links, the directory's empty state, the coach
+  website (one action, no repeated intro, empty states), legal pages,
+  leaving (bottom sheet, one-time confirmation) and the mobile-first
+  stylesheets.
 - `tests/member-motion.test.ts`: the motion tokens match between CSS and
   `motion.ts`; durations stay short; outside the no-preference query the
   stylesheet has no animation or transition at all; every animation names

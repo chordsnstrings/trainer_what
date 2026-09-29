@@ -196,7 +196,17 @@ Web: `SocialSignIn` buttons on `/login`, `/join-coach/<slug>` and
 
 - **Leave a trainer** (`LeaveTrainer` in `/app/profile`):
   `GET /api/v1/membership/leave` previews; `POST /api/v1/membership/leave`
-  `{confirm:true, reason?}`.
+  `{confirm:true, reason?}`. "Leave <coach>" opens an in-app bottom sheet
+  (what happens, an optional note for the coach, "Stay with <coach>" or
+  "Leave <coach>") instead of a required checkbox. With another coach the
+  app opens it; otherwise the member lands on `/login?left=1`, which
+  confirms "You left <coach>" (read once from this tab's
+  `sessionStorage`), says whether renewal was cancelled and offers Find a
+  coach.
+- **Signing in with an ended or missing membership** (`MEMBERSHIP_ENDED`,
+  `NO_MEMBERSHIP`, including from Apple or Google) shows a neutral panel
+  with next steps (rejoin the coach on a coach's address, or find a coach),
+  not a red error.
 
 Shared exit behaviour (`apps/api/src/membership-exit.ts`):
 

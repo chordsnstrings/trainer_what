@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { PasskeySettings } from "./passkeys";
+import { AuthPage, ReturnToSignIn } from "./auth-page";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/auth/" + path, {
     method: body ? "POST" : "GET",
@@ -136,25 +137,22 @@ export function MagicAccess({ path }: { path: string }) {
     [message, setMessage] = useState(""),
     [complete, setComplete] = useState(false);
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT</p>
-        <h1>
-          {recover
-            ? "Recover your authenticator."
-            : token
-              ? "Confirm your sign-in."
-              : "Email a secure sign-in link."}
-        </h1>
-        <p>
-          {recover
-            ? "Use a saved recovery code and your password. Your existing sessions and recovery codes will be revoked."
-            : token
-              ? "Confirm below to use this link. If an authenticator is enabled, enter its fresh code."
-              : "A single-use link expires after 15 minutes. Your authenticator remains required if enabled."}
-        </p>
-      </section>
-      <section className="card">
+    <AuthPage
+      title={
+        recover
+          ? "Recover your authenticator"
+          : token
+            ? "Confirm your sign-in"
+            : "Email me a sign-in link"
+      }
+      intro={
+        recover
+          ? "Use a saved recovery code and your password. You will be signed out on your other devices and your old recovery codes stop working."
+          : token
+            ? "Confirm below to use this link. If you use an authenticator app, enter its current code."
+            : "We’ll email you a link that signs you in once. It works for 15 minutes. If you use an authenticator app, you’ll still need its code."
+      }
+    >
         {message && (
           <p className="notice" role="status">
             {message}
@@ -211,19 +209,23 @@ export function MagicAccess({ path }: { path: string }) {
                 <input
                   name="email"
                   type="email"
+                  inputMode="email"
                   autoComplete="email"
+                  enterKeyHint={recover ? "next" : "send"}
                   required
                 />
               </label>
             )}
             {token && (
               <label className="field">
-                <span>Authenticator code, if enabled</span>
+                <span>Authenticator code (only if you use one)</span>
                 <input
                   name="code"
                   inputMode="numeric"
                   autoComplete="one-time-code"
+                  enterKeyHint="go"
                   pattern="[0-9]{6}"
+                  maxLength={6}
                 />
               </label>
             )}
@@ -235,6 +237,7 @@ export function MagicAccess({ path }: { path: string }) {
                     name="password"
                     type="password"
                     autoComplete="current-password"
+                    enterKeyHint="next"
                     required
                   />
                 </label>
@@ -243,6 +246,9 @@ export function MagicAccess({ path }: { path: string }) {
                   <input
                     name="recoveryCode"
                     autoComplete="one-time-code"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    enterKeyHint="go"
                     minLength={20}
                     maxLength={100}
                     required
@@ -259,10 +265,7 @@ export function MagicAccess({ path }: { path: string }) {
             </button>
           </form>
         )}
-        <p className="auth-return">
-          <a href="/login">Return to sign in</a>
-        </p>
-      </section>
-    </main>
+        <ReturnToSignIn />
+    </AuthPage>
   );
 }

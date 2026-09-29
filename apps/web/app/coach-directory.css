@@ -1,5 +1,7 @@
 /* Public coach directory and the owner's directory listing settings. Logical
-   properties only, so a right-to-left pass needs no rewrites. */
+   properties only, so a right-to-left pass needs no rewrites. The public
+   directory is phone first: base rules are the phone layout, 768 px adds
+   columns (docs/features/phone-first.md). */
 .directory-page {
   min-height: 100vh;
   display: flex;
@@ -8,70 +10,79 @@
 .directory {
   inline-size: min(100%, 1180px);
   margin-inline: auto;
-  padding-block: 24px 64px;
-  padding-inline: 24px;
+  padding-block: 20px 48px;
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
   flex: 1;
 }
 .directory h1 {
-  font-size: clamp(30px, 5vw, 48px);
-  line-height: 1.08;
-  margin-block-end: 14px;
+  font-size: 30px;
+  line-height: 1.12;
+  margin-block-end: 12px;
 }
 .directory-intro {
   max-inline-size: 640px;
-  line-height: 1.7;
-  margin-block-end: 28px;
+  font-size: 15px;
+  line-height: 1.6;
+  margin-block-end: 20px;
+}
+.directory .card {
+  padding-block: 18px;
+  padding-inline: 16px;
+  margin-block-end: 16px;
 }
 .directory-search {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
-  gap: 0 16px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding-block: 20px 4px;
-  padding-inline: 20px;
-  margin-block-end: 24px;
+  padding-block: 16px 4px;
+  padding-inline: 16px;
+  margin-block-end: 20px;
+}
+.directory-search .field {
+  margin-block-end: 14px;
 }
 .directory-search-actions {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  margin-block-end: 16px;
+  gap: 8px;
+  margin-block-end: 12px;
 }
-.directory-search-actions a {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.directory-search-actions .button {
+  flex: 1 1 140px;
 }
 .directory-count {
-  margin-block-end: 16px;
+  margin-block-end: 12px;
 }
 .directory-grid {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 .directory-card {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   align-items: flex-start;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 16px;
   block-size: 100%;
   min-inline-size: 0;
 }
 .directory-photo {
   flex: none;
-  inline-size: 72px;
-  block-size: 72px;
+  inline-size: 56px;
+  block-size: 56px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--mint);
@@ -83,23 +94,24 @@
   background: var(--green);
   color: var(--on-green);
   font-weight: 650;
-  font-size: 22px;
+  font-size: 20px;
 }
 .directory-card-body {
+  flex: 1;
   min-inline-size: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-start;
 }
 .directory-card-body h2 {
-  font-size: 20px;
+  font-size: 19px;
   margin: 0;
   overflow-wrap: anywhere;
 }
 .directory-card-body p {
   margin: 0;
-  line-height: 1.6;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 .directory-tags {
@@ -115,16 +127,43 @@
   border-radius: 999px;
   padding-block: 4px;
   padding-inline: 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .directory-languages {
-  font-size: 12px;
+  font-size: 13px;
+}
+.directory-visit {
+  align-self: stretch;
 }
 .directory-empty {
   text-align: start;
 }
+.directory-empty h2 {
+  font-size: 21px;
+  margin-block-end: 8px;
+}
+.directory-empty > p {
+  font-size: 15px;
+  line-height: 1.55;
+}
+.directory-next {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px 16px;
+  padding-inline-start: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.directory-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.directory-empty-actions .button {
+  flex: 1 1 140px;
+}
 .directory .directory-closed-title {
-  font-size: clamp(24px, 4vw, 32px);
+  font-size: 24px;
   margin-block-end: 12px;
 }
 .directory-pages {
@@ -132,9 +171,15 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
-  margin-block-start: 28px;
+  margin-block-start: 24px;
 }
-.directory-pages a,
+.directory-pages a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .directory-footer a {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -149,6 +194,50 @@
   border-block-start: 1px solid var(--line);
   font-size: 12px;
   color: var(--muted);
+}
+@media (min-width: 768px) {
+  .directory {
+    padding-block: 32px 64px;
+    padding-inline: 32px;
+  }
+  .directory h1 {
+    font-size: 44px;
+    line-height: 1.08;
+  }
+  .directory .card {
+    padding: 24px;
+  }
+  .directory-search {
+    grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+    align-items: end;
+    padding-block: 20px 4px;
+    padding-inline: 20px;
+  }
+  .directory-search-actions {
+    grid-column: 1 / -1;
+  }
+  .directory-search-actions .button,
+  .directory-empty-actions .button {
+    flex: 0 0 auto;
+  }
+  .directory-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+  }
+  .directory-card {
+    padding: 20px;
+  }
+  .directory-photo {
+    inline-size: 72px;
+    block-size: 72px;
+  }
+  .directory-visit {
+    align-self: flex-start;
+  }
+  .directory .directory-closed-title {
+    font-size: 32px;
+  }
 }
 
 /* Owner settings inside the website editor. */
@@ -197,18 +286,4 @@
 .directory-preview p {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
-}
-
-@media (max-width: 760px) {
-  .directory-search {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 420px) {
-  .directory {
-    padding-inline: 16px;
-  }
-  .directory-card {
-    flex-direction: column;
-  }
 }
