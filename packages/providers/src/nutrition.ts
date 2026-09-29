@@ -10,7 +10,8 @@ import {
 /**
  * v3: identifiers go out as short references (M recipes, G ingredient facts,
  * X teaching cases, S sources, Q held-out checks), meal weeks state their
- * numeric limits and may be declined, policy compilation may leave blanks as
+ * numeric limits and may be declined (always when a coach boundary applies
+ * or the model is unsure), policy compilation may leave blanks as
  * questions, evaluation scenarios carry their category and a stated
  * nutrient precision. Releases pin this version (nutritionModelIdentity).
  */

@@ -1466,16 +1466,18 @@ export function nutritionRoutes(
     const allScenarios = [...scenarios, ...safetyCases];
     const result = await nutritionModel(
       "nutrition_evaluation",
-      'For each unseen scenario return one decision: {"decisions":[{"scenarioId","action":"plan"|"exception","targetKcal":number or null,"caseIds":[references of the relevant teaching cases],"reason","principle":diet_match|goal_target|portion_arithmetic|allergen_limit|equipment_time|budget_limit|adjustment_limit|scope_referral,"rationaleEvidence":{"caseId","quote":at least three exact words copied from that teaching case\'s recommendation, reason, avoid, changeWhen or referWhen (not its scenario)},"sampleMeal":null or {"slot","recipeId","variantKey","servings","ingredients":[{"foodId","grams"}],"nutrients":{"kcal","protein","carbohydrate","fat"}}}]}. Each scenario gives its teaching category; use the principle that categoryPrinciples maps it to (boundaries is scope_referral) and cite a teaching case that supports the decision. For a plan, set targetKcal from the coach policy and provide a worked meal for requestedMealSlot: ingredient grams are servings times the recipe grams divided by its yieldServings (rounded to two decimals; combine repeated ingredients), and nutrients are calculated from those grams and the per-100 g ingredient facts. Give kcal to the nearest whole number or finer and protein, carbohydrate and fat to one decimal place or finer. For exceptions withhold the sample meal (null) and targetKcal (null). Apply coach policy and cases; unknown allergy, specialist needs or unsupported age/diet/goal require exception. Held-out expected recipes and portions are withheld. Cite real teaching evidence and explain its application. Never invent food facts.',
+      'For each unseen scenario return one decision: {"decisions":[{"scenarioId","action":"plan"|"exception","targetKcal":number or null,"caseIds":[references of the relevant teaching cases],"reason","principle":diet_match|goal_target|portion_arithmetic|allergen_limit|equipment_time|budget_limit|adjustment_limit|scope_referral,"rationaleEvidence":{"caseId","quote":at least three exact words copied from that teaching case\'s recommendation, reason, avoid, changeWhen or referWhen (not its scenario)},"sampleMeal":null or {"slot","recipeId","variantKey","servings","ingredients":[{"foodId","grams"}],"nutrients":{"kcal","protein","carbohydrate","fat"}}}]}. Decide which teaching category each scenario falls under, use the principle categoryPrinciples maps that category to, and cite a teaching case that supports the decision; system safety checks use scope_referral. For a plan, set targetKcal from the coach policy and provide a worked meal for requestedMealSlot: ingredient grams are servings times the recipe grams divided by its yieldServings (rounded to two decimals; combine repeated ingredients), and nutrients are calculated from those grams and the per-100 g ingredient facts. Give kcal to the nearest whole number or finer and protein, carbohydrate and fat to one decimal place or finer. For exceptions withhold the sample meal (null) and targetKcal (null). Apply coach policy and cases; unknown allergy, specialist needs or unsupported age/diet/goal require exception. Held-out expected recipes and portions are withheld. Cite real teaching evidence and explain its application. Never invent food facts.',
       {
         ...evidence(
           m,
           allScenarios.map((s) => s.data.profile),
         ),
         categoryPrinciples: principleForCategory,
+        // A held-out check's category stays with the coach: naming it would
+        // turn the principle the model must choose into a table lookup (and
+        // tell it which checks are referrals).
         scenarios: allScenarios.map((s) => ({
           id: s.id,
-          category: s.data.category,
           prompt: s.data.prompt,
           profile: s.data.profile,
           requestedMealSlot:

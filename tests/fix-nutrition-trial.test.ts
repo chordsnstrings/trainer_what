@@ -13,6 +13,7 @@ import {
   trialPolicy,
   trialProfile,
   trialProfileRaw,
+  trialMembers,
   trialRecipes,
   trialReplies,
   trialSlowestReplyMs,
@@ -31,6 +32,7 @@ import {
   type NutritionWeek,
 } from "../packages/domain/src/nutrition.ts";
 import {
+  declinedWeekDetail,
   declinedWeekSchema,
   nutritionWeekFeasibility,
   nutritionWeekInstruction,
@@ -45,6 +47,8 @@ import {
 import {
   nutritionPolicyDraft,
   nutritionPolicyReplySchema,
+  statedInTeaching,
+  teachingSentences,
   teachingTexts,
 } from "../packages/domain/src/nutrition-policy-draft.ts";
 import {
@@ -405,18 +409,23 @@ function planFromPrompt(member: string) {
   };
 }
 
+/**
+ * Trial members the code gates allow a week for (T2S05 and T3S02 fall under
+ * their coach's boundaries and are screened out before any call).
+ */
+const PLANNABLE = [
+  "T1S02",
+  "T1S03",
+  "T1S06",
+  "T1S07",
+  "T2S03",
+  "T2S08",
+  "T3S06",
+  "T3S07",
+];
+
 test("the numbers in the prompt are enough to build a week the validator accepts for every plannable trial member", () => {
-  const members = [
-    "T1S02",
-    "T1S03",
-    "T1S06",
-    "T1S07",
-    "T2S03",
-    "T2S08",
-    "T3S02",
-    "T3S06",
-    "T3S07",
-  ];
+  const members = PLANNABLE;
   for (const member of members) {
     assert.ok(planned(member), member + " is plannable");
     const { week, m, profile, target } = planFromPrompt(member);
@@ -484,17 +493,24 @@ test("the trial weeks no model could fill are found before the call; plannable m
       "the client message is generic",
     );
   }
-  for (const member of [
-    "T1S02",
-    "T1S03",
-    "T1S06",
-    "T1S07",
-    "T2S03",
-    "T2S08",
-    "T3S02",
-    "T3S06",
-    "T3S07",
-  ]) {
+  // The plannable list is exactly the members every code gate lets through.
+  assert.deepEqual(
+    trialMembers.filter((member) => {
+      const m = material(member.slice(0, 2) as TrialTrainer);
+      return (
+        planned(member) !== null &&
+        nutritionWeekFeasibility({
+          policy: m.policy,
+          profile: trialProfile(member),
+          foods: m.foods,
+          recipes: m.recipes,
+          targetKcal: planned(member)!,
+        }) === null
+      );
+    }),
+    PLANNABLE,
+  );
+  for (const member of PLANNABLE) {
     const t = member.slice(0, 2) as TrialTrainer,
       m = material(t);
     assert.equal(
@@ -781,6 +797,110 @@ test("a recipe draft cites ingredient references; an unknown one uses the caller
 });
 
 // ---------------------------------------------------------------------------
+// 4b. Coach boundaries: the code screen first, the model's decline second
+
+test("members under their coach's boundaries are screened out before any model call", () => {
+  // T2S05 (osteopenia, takes vitamin D; T2 sends osteoporosis and medication
+  // to the coach) and T3S02 (eats only at suhoor and iftar; T3 sends Ramadan
+  // meal timing to the coach) passed every code gate in the trial: only the
+  // model's decline stopped their weeks, and Haiku returned full weeks.
+  for (const member of ["T2S05", "T3S02"]) {
+    const t = member.slice(0, 2) as TrialTrainer;
+    assert.throws(
+      () => nutritionTarget(trialPolicy(t), trialProfile(member)),
+      (e: any) => e instanceof NutritionBlocked && e.code === "SCOPE_REVIEW",
+      member,
+    );
+  }
+  const policy = trialPolicy("T3"),
+    profile = trialProfile("T3S06");
+  for (const notes of [
+    "Osteoporosis diagnosed last year",
+    "Low bone density",
+    "Takes vitamin D and calcium",
+    "Iron tablets for anaemia",
+    "B12 injections every month",
+    "I do intermittent fasting",
+    "Fasting in Ramadan this month",
+    "I eat only at suhoor and iftar",
+    "عندي هشاشة العظام",
+    "ترقق العظام",
+    "آخذ فيتامين د",
+    "حبوب الحديد يوميا",
+    "صائمة في رمضان",
+    "أتسحر وأفطر فقط",
+    "أصوم الاثنين والخميس",
+  ])
+    assert.throws(
+      () => nutritionTarget(policy, { ...profile, notes }),
+      (e: any) => e instanceof NutritionBlocked && e.code === "SCOPE_REVIEW",
+      notes,
+    );
+  // Ordinary words stay plannable.
+  for (const notes of [
+    "Breakfast before work, quick meals",
+    "No fast food please",
+    "Bone broth on cold days",
+    "A calorie deficit that feels easy",
+    "فطور خفيف قبل الدوام",
+    "إفطار الصباح بسيط",
+    "نقص الوزن ببطء",
+  ])
+    assert.equal(nutritionTarget(policy, { ...profile, notes }), 1800, notes);
+});
+
+test("the week prompt puts the coach's boundaries first and asks for a decline when unsure", () => {
+  const text = nutritionWeekInstruction(
+    nutritionWeekLimits({ policy: trialPolicy("T3"), targetKcal: 1800 }),
+  );
+  for (const expected of [
+    "Coach boundaries come first",
+    "notes) against the policy's boundaries and the coach's boundaries teaching case",
+    "eating times these slots cannot follow, such as fasting",
+    "or you are not sure whether it does, do not plan",
+    "when a coach boundary applies or you are unsure",
+    "that filtering does not check the coach's boundaries",
+  ])
+    assert.ok(text.includes(expected), expected);
+  // v3 before this review told the model the options "already fit this client".
+  assert.ok(!text.includes("already fit"));
+  assert.ok(
+    text.indexOf("Coach boundaries come first") < text.indexOf("Days:"),
+    "the boundary check comes before the planning rules",
+  );
+});
+
+test("the trial's boundary declines are read as declines, cite the boundaries case and keep the reason for the coach", async () => {
+  // Seed, Opus and Sonnet declined T2S05 and T3S02 under v2; the same replies
+  // in references must decode to a decline (days: []), never an error.
+  const weekReply = z.union([nutritionWeekSchema, declinedWeekSchema]);
+  for (const member of ["T2S05", "T3S02"]) {
+    const t = member.slice(0, 2) as TrialTrainer,
+      boundaries = trialUid(`${t}:ncase:boundaries`),
+      input = { ...weekInput(member), targetKcal: t === "T2" ? 1900 : 1800 };
+    for (const model of ["seed", "opus", "sonnet"]) {
+      const raw = reply(`${model}:${member}/meal_week`);
+      assert.equal(nutritionWeekSchema.safeParse(raw).success, false);
+      const { result, seen } = await callModel(
+        "nutrition_week",
+        input,
+        weekReply,
+        ({ payload }) => asReferences(raw, payload, input),
+      );
+      assert.equal(result.days.length, 0, model + " " + member);
+      assert.ok(result.caseIds.includes(boundaries), model + " " + member);
+      // The notes the models declined on reach the model.
+      const payload = JSON.parse(seen.body.messages[1].content);
+      assert.equal(payload.input.profile.notes, trialProfileRaw(member).notes);
+      assert.match(
+        declinedWeekDetail(result.explanation),
+        member === "T2S05" ? /osteopenia/i : /Ramadan/,
+      );
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 5. Policy compilation: blanks become questions for the coach
 
 const draftFor = (key: string) => {
@@ -876,6 +996,98 @@ test("an invented tolerance and age limit are flagged; broken replies stay inval
     );
 });
 
+test("an invented number is flagged unless the teaching states it for that same field", () => {
+  // The first v3 check accepted any number written anywhere in the teaching,
+  // so an invented 5% tolerance passed on T1's "at most 5 times a week" and
+  // T3's repeat limit. No trainer taught a tolerance (expected.json).
+  for (const t of ["T1", "T3"] as const) {
+    const seed = reply(`seed:${t}/nutrition_policy`),
+      cases = trialCases(t);
+    const d = nutritionPolicyDraft(
+      nutritionPolicyReplySchema.parse({
+        ...seed,
+        gaps: [],
+        policy: {
+          ...seed.policy,
+          tolerancePercent: 5,
+          minAge: 18,
+          maxAge: seed.policy.maxAge ?? 65,
+        },
+      }),
+      {
+        sourceIds: cases.map((c) => c.id),
+        teaching: teachingTexts(cases.map((c) => c.data)),
+      },
+    );
+    assert.ok(
+      d.gaps.includes(
+        "Your teaching does not state the daily calorie tolerance of 5% in this draft. Confirm it or enter the right value before this policy is used.",
+      ),
+      t + " " + JSON.stringify(d.gaps),
+    );
+  }
+  // Every value the trial models took from the teaching is still found:
+  // no Seed, Opus or Sonnet policy gets a "does not state" question.
+  for (const t of ["T1", "T2", "T3"] as const)
+    for (const model of ["seed", "opus", "sonnet"])
+      assert.ok(
+        !draftFor(`${model}:${t}/nutrition_policy`).gaps.some((g) =>
+          g.startsWith("Your teaching does not state"),
+        ),
+        model + " " + t,
+      );
+  const stated = (
+    kind: Parameters<typeof statedInTeaching>[0],
+    value: number,
+    text: string,
+  ) => statedInTeaching(kind, value, teachingSentences([text]));
+  for (const [kind, value, text] of [
+    ["tolerancePercent", 5, "Days may be 5% above or below the target."],
+    ["tolerancePercent", 10, "Stay within ten percent of the daily target."],
+    ["tolerancePercent", 7.5, "A day is fine at ±7,5 % of the target."],
+    ["tolerancePercent", 10, "نطاق ١٠٪ من الهدف اليومي"],
+    ["age", 18, "Clients under 18 or over 65 come to me."],
+    ["age", 65, "Clients under 18 or over 65 come to me."],
+    ["age", 70, "Adults aged 18 to 70 only."],
+    ["age", 18, "18+ only."],
+    ["age", 18, "أقل من 18 سنة يأتون إلي"],
+    ["kcal", 1800, "I never go below 1800 or above 3200."],
+    ["kcal", 3200, "within my 1,800-3,200 limits"],
+    ["kcal", 2800, "Muscle gain 2800 kcal."],
+    ["servings", 0.5, "Clients eat between 0.5 and 2.5 servings."],
+    ["servings", 0.5, "From half a serving to two servings."],
+    ["maxRecipeRepeats", 5, "Repeat recipes at most 5 times a week each."],
+    ["requiredCheckins", 3, "After 3 check-ins with high hunger."],
+    ["days", 7, "over at least 7 days"],
+    ["days", 14, "over two weeks"],
+  ] as const)
+    assert.ok(stated(kind, value, text), `${kind} ${value}: ${text}`);
+  for (const [kind, value, text] of [
+    // The same number, written for something else.
+    ["tolerancePercent", 5, "Repeat recipes at most 5 times a week."],
+    ["tolerancePercent", 30, "Protein is 30% of calories."],
+    ["tolerancePercent", 10, "Adjust by 10 kcal."],
+    ["age", 20, "Only 20 minutes and an air fryer."],
+    ["age", 65, "Recipes serve 2; 65 g of rice each."],
+    ["kcal", 1800, "Walk 1800 steps after dinner."],
+    ["servings", 0.5, "Use 0.5 kg of rice for the batch."],
+    ["maxRecipeRepeats", 5, "Cook in 5 minutes."],
+    ["requiredCheckins", 3, "Eat 3 meals a day."],
+    ["days", 7, "Repeat at most 7 times."],
+  ] as const)
+    assert.ok(!stated(kind, value, text), `${kind} ${value}: ${text}`);
+  // A client's age in a case's scenario is the situation, not the coach's limit.
+  const teaching = teachingTexts([
+    {
+      category: "boundaries",
+      scenario: "A 70-year-old client asks for a fat-loss plan.",
+      recommendation: "Clients under 18 come to me.",
+    },
+  ]);
+  assert.ok(!teaching.some((x) => x.includes("70-year-old")));
+  assert.equal(statedInTeaching("age", 70, teachingSentences(teaching)), false);
+});
+
 test("a draft field that cannot be used always comes with a question, so a blocked draft is never silent", () => {
   const seed = reply("seed:T1/nutrition_policy"),
     cases = trialCases("T1");
@@ -887,7 +1099,10 @@ test("a draft field that cannot be used always comes with a question, so a block
     }),
     {
       sourceIds: cases.map((c) => c.id),
-      teaching: [...teachingTexts(cases.map((c) => c.data)), "10%"],
+      teaching: [
+        ...teachingTexts(cases.map((c) => c.data)),
+        "Days may be 10% above or below the target.",
+      ],
     },
   );
   assert.equal(d.policy, null);
@@ -961,8 +1176,8 @@ test("a safety check citing the teaching that sets the violated limit passes; un
   };
   // Still refused, and why: a quote taken from the case's scenario (the
   // question, not the coach's answer; the v3 prompt names the fields to quote)
-  // and principles other than scope_referral (the v3 prompt now gives each
-  // scenario's category).
+  // and principles other than scope_referral (the v3 prompt says system
+  // safety checks use scope_referral).
   const stillFailing: Record<string, string> = {
     "opus:T1/nutrition_eval sys-unsupported-diet": "scenario quote",
     "sonnet:T2/nutrition_eval sys-specialist-scope": "scenario quote",
@@ -1051,6 +1266,77 @@ test("a safety check citing the teaching that sets the violated limit passes; un
 
 // ---------------------------------------------------------------------------
 // 7. Client-facing text never shows identifiers
+
+test("a coach who teaches in Arabic can be quoted: Arabic rationale evidence is compared letter for letter", () => {
+  // The old comparison kept only a-z and 0-9, so every Arabic quote became an
+  // empty string and no Arabic-teaching coach could ever pass qualification.
+  const caseId = trialUid("T2:ncase:boundaries-ar");
+  const cases = [
+    {
+      id: caseId,
+      data: {
+        category: "boundaries",
+        scenario: "عميلة حامل تطلب خطة وجبات أسبوعية",
+        recommendation:
+          "لا تقدّم خطة تلقائية للحامل، وأرسلها إلى المدربة مباشرة.",
+        reason: "سلامة الأم والجنين أولاً.",
+        changeWhen: "",
+        referWhen: "الحمل والرضاعة والسكري",
+        avoid: "التخمين",
+      },
+    },
+  ];
+  const scenario = {
+    category: "boundaries",
+    expectedCaseId: caseId,
+    expectedPrinciple: "scope_referral",
+  };
+  const decide = (quote: string, principle = "scope_referral") =>
+    rationaleMatches(
+      {
+        caseIds: [caseId],
+        principle,
+        rationaleEvidence: { caseId, quote },
+      },
+      scenario,
+      cases,
+    );
+  // An exact quote, and the same words with other hamza, diacritic and
+  // punctuation spellings (folded as the nutrition screens fold them).
+  assert.equal(decide("لا تقدّم خطة تلقائية للحامل"), true);
+  assert.equal(decide("لا تقدم خطه تلقائيه للحامل"), true);
+  assert.equal(decide("وأرسلها إلى المدربة مباشرة"), true);
+  assert.equal(decide("الحمل والرضاعة والسكري"), true);
+  // Still refused: words from the scenario, words the case never says, a
+  // quote too short to be evidence, and the wrong principle.
+  assert.equal(decide("عميلة حامل تطلب خطة"), false);
+  assert.equal(decide("قدّم خطة تلقائية للحامل دائماً"), false);
+  assert.equal(decide("التخمين"), false);
+  assert.equal(decide("لا تقدّم خطة تلقائية للحامل", "diet_match"), false);
+  // English quotes behave as before.
+  const en = [
+    {
+      id: caseId,
+      data: {
+        ...cases[0].data,
+        recommendation:
+          "Do not give an automatic plan to pregnant clients; send them to me.",
+      },
+    },
+  ];
+  assert.equal(
+    rationaleMatches(
+      {
+        caseIds: [caseId],
+        principle: "scope_referral",
+        rationaleEvidence: { caseId, quote: "automatic plan to Pregnant" },
+      },
+      scenario,
+      en,
+    ),
+    true,
+  );
+});
 
 test("an explanation naming a record ID is replaced by the neutral explanation", () => {
   const days = [

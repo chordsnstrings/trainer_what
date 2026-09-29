@@ -11,8 +11,9 @@ import { foldNutritionText, nutritionPolicySchema } from "./nutrition.ts";
  * The strict policy schema rejected all of these as invalid model output, so
  * the coach got an error instead of the questions. Now a blank or unusable
  * field becomes a precise question for the coach, the partial draft is kept
- * for the policy form, and a number the teaching never states is flagged for
- * confirmation. A draft with any gap or conflict still cannot be confirmed.
+ * for the policy form, and a number the teaching does not state for that
+ * field is flagged for confirmation. A draft with any gap or conflict still
+ * cannot be confirmed.
  */
 
 const shortText = z.string().trim().min(1).max(2000);
@@ -147,6 +148,7 @@ export const nutritionPolicyFieldQuestions: Record<string, Field> = {
 
 const WORDS: Record<string, number> = {
   zero: 0,
+  half: 0.5,
   one: 1,
   two: 2,
   three: 3,
@@ -176,31 +178,141 @@ const WORDS: Record<string, number> = {
   ninety: 90,
   hundred: 100,
 };
-/** Every number the teaching states, as digits (thousands separators, Arabic digits and English number words included). */
-export function teachingNumbers(texts: string[]) {
-  const found = new Set<number>();
-  for (const raw of texts) {
-    const text = foldNutritionText(raw).replace(
-      /(?<![\d.])\d{1,3}(?:,\d{3})+(?![\d])/g,
-      (m) => m.replace(/,/g, ""),
-    );
-    for (const m of text.matchAll(/\d+(?:[.,]\d+)?|\.\d+/g))
-      found.add(Number(m[0].replace(",", ".")));
-    for (const m of text.matchAll(/\p{L}+/gu))
-      if (m[0] in WORDS) found.add(WORDS[m[0]]);
-  }
-  return found;
+/**
+ * Teaching text prepared for finding stated limits: folded (case, Arabic
+ * letters and digits), thousands separators removed, decimal commas as
+ * points, English number words as digits, split into sentences (a point
+ * followed by a space ends one; "0.5" does not).
+ */
+export function teachingSentences(texts: string[]) {
+  return texts.flatMap((raw) =>
+    foldNutritionText(raw)
+      .replace(/\u066A/g, "%")
+      .replace(/(?<![\d.])\d{1,3}(?:,\d{3})+(?!\d)/g, (m) =>
+        m.replace(/,/g, ""),
+      )
+      .replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2")
+      .replace(/\p{L}+/gu, (w) => (w in WORDS ? String(WORDS[w]) : w))
+      .split(/[.!?;\u061B](?:\s+|$)|\n+/)
+      .map((t) => t.trim())
+      .filter(Boolean),
+  );
 }
-/** Every string value inside teaching records (cases and confirmed sources). */
+/**
+ * Every string value inside teaching records (cases and confirmed sources),
+ * except a case's `scenario`: that is the client situation or question the
+ * coach answered, and a number in it (a client's age, say) is not a limit
+ * the coach set.
+ */
 export function teachingTexts(values: unknown[]) {
   const out: string[] = [];
   const walk = (v: unknown) => {
     if (typeof v === "string") out.push(v);
     else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    else if (v && typeof v === "object")
+      Object.entries(v).forEach(([k, x]) => k !== "scenario" && walk(x));
   };
   values.forEach(walk);
   return out;
+}
+
+type Place = { before: string; after: string; sentence: string };
+/** Units that say a number is something else (minutes, grams, days, ...). */
+const otherUnit = (units: string) =>
+  new RegExp(`^\\s*-?\\s*(?:${units})(?![\\p{L}])`, "u");
+const KCAL = "k?cals?|calories|kilocalories|سعره|سعرات|كالوري|كيلو ?كالوري";
+const PERCENT = "%|percent|per cent|بالمئه|بالمائه|في المئه|في المائه";
+const TIME =
+  "mins?|minutes?|hours?|days?|weeks?|months?|years?|يوم|يوما|ايام|اسبوع|اسابيع|شهر|دقيقه|دقائق|ساعه|ساعات";
+const AMOUNT =
+  "kg|g|grams?|servings?|portions?|times|meals?|recipes?|check-? ?ins?|checkins?|حصه|حصص|مرات|مره|جرام|غرام|وجبه|وجبات";
+const has = (source: string) => new RegExp(source, "u");
+/**
+ * Where each field's number must be written: next to its own wording (a
+ * tolerance as a percent in a sentence about the target range, an age after
+ * "under", "over", "aged" or before "years", calories with kcal or a limit
+ * word, portions with servings, repeats with times, check-ins and days with
+ * their words). A number stated only for something else is not enough.
+ */
+const statedAs = {
+  tolerancePercent: (p) =>
+    has(`^\\s*(?:${PERCENT})`).test(p.after) &&
+    /toleran|within|either (?:side|way)|(?:above|over|higher|more) (?:or|and) (?:below|under|lower|less)|(?:below|under|lower|less) (?:or|and) (?:above|over|higher|more)|plus or minus|±|\+ ?\/? ?-|margin|leeway|deviat|off (?:the |their )?target|(?:of|from|around) (?:the |their |each |a |your )?(?:daily )?(?:calorie )?target|نطاق|هامش|انحراف|فرق|(?:زياده|اعلى|اكثر|فوق) (?:او|و) ?(?:نقص|نقصان|اقل|تحت)|(?:نقص|نقصان|اقل|تحت) (?:او|و) ?(?:زياده|اعلى|اكثر|فوق)/u.test(
+      p.sentence,
+    ),
+  age: (p) =>
+    !otherUnit(
+      `${PERCENT}|${KCAL}|${AMOUNT}|mins?|minutes?|hours?|days?|weeks?|months?`,
+    ).test(p.after) &&
+    (/(?<![\p{L}])(?:under|below|over|above|younger than|older than|less than|more than|at least|aged?|ages|age of|up to|from|until|between|تحت|فوق|اقل من|اكثر من|اكبر من|اصغر من|عمر|سن|بين)\s*-?\s*$/u.test(
+      p.before,
+    ) ||
+      /^\s*(?:\+|-?\s*years?(?![\p{L}])|yrs?(?![\p{L}])|y\.?\s?o(?![\p{L}])|-?\s*year-?olds?|or (?:older|younger|over|under|above|below|more|less)|and (?:over|under|older|younger|up|above|below)|سنه|سنوات|عام|عاما|اعوام)/u.test(
+        p.after,
+      ) ||
+      (/(?:(?<![\p{L}])(?:to|and|or|الى|او|و)|-|–)\s*$/u.test(p.before) &&
+        /(?<![\p{L}])(?:age|aged|ages|years?|yrs|old|older|younger|adults?|minors?|teen\w*|عمر|سن|سنه|سنوات|بالغ\p{L}*)(?![\p{L}])/u.test(
+          p.sentence,
+        ))),
+  kcal: (p) =>
+    has(`^\\s*-?\\s*(?:${KCAL})(?![\\p{L}])`).test(p.after) ||
+    (!otherUnit(`${PERCENT}|${TIME}|${AMOUNT}`).test(p.after) &&
+      (/(?:(?<![\p{L}])(?:below|above|under|over|less than|more than|at least|at most|no (?:less|more) than|minimum(?: of)?|maximum(?: of)?|min|max|lowest|highest|floor|ceiling|never|between|from|to|and|add|remove|cut|reduce|increase|decrease|by|اقل من|اكثر من|تحت|فوق|بين|من|الى|حتى)|-|–)\s*$/u.test(
+        p.before,
+      ) ||
+        /^\s*(?:-|–|to|and|الى|و)\s*\d/u.test(p.after) ||
+        has(`${KCAL}|calorie|energy|طاقه`).test(p.sentence))),
+  servings: (p) =>
+    /^\s*(?:servings?|portions?|حصه|حصص)/u.test(p.after) ||
+    (!otherUnit(
+      `${PERCENT}|${KCAL}|${TIME}|kg|g|grams?|times|meals?|recipes?|check-? ?ins?|مرات|مره|جرام|غرام`,
+    ).test(p.after) &&
+      /serving|portion|حصه|حصص/u.test(p.sentence)),
+  maxRecipeRepeats: (p) =>
+    /^\s*(?:times?|x|repeats?|uses?|مرات|مره)(?![\p{L}])/u.test(p.after) ||
+    (!otherUnit(
+      `${PERCENT}|${KCAL}|${TIME}|kg|g|grams?|servings?|portions?|meals?|check-? ?ins?|حصه|حصص`,
+    ).test(p.after) &&
+      /repeat|(?<![\p{L}])times|per week|a week|weekly|each week|تكرار|يتكرر|مرات|اسبوع/u.test(
+        p.sentence,
+      )),
+  requiredCheckins: (p) =>
+    /^\s*(?:check-? ?ins?|checkins?|تسجيلات?|متابعات?|تقييمات?)/u.test(p.after),
+} satisfies Record<string, (p: Place) => boolean>;
+export type StatedKind = keyof typeof statedAs | "days";
+/** A number written as days, or as weeks (seven days each). */
+function statedDays(value: number, sentences: string[]) {
+  for (const s of sentences)
+    for (const m of s.matchAll(
+      /(?<![\d.])(\d+(?:\.\d+)?)\s*-?\s*(days?|weeks?|يوم|يوما|ايام|اسبوع|اسابيع)(?![\p{L}])/gu,
+    ))
+      if (Number(m[1]) * (/^(?:w|اس)/u.test(m[2]) ? 7 : 1) === value)
+        return true;
+  return false;
+}
+/**
+ * Whether the teaching states `value` for a policy field, next to that
+ * field's own wording (statedAs). The trial showed why a number anywhere is
+ * not enough: an invented 5% tolerance matched the "5" of a repeat limit.
+ */
+export function statedInTeaching(
+  kind: StatedKind,
+  value: number,
+  sentences: string[],
+) {
+  if (kind === "days") return statedDays(value, sentences);
+  for (const sentence of sentences)
+    for (const m of sentence.matchAll(/(?<![\d.])\d+(?:\.\d+)?(?!\.?\d)/g))
+      if (
+        Math.abs(Number(m[0]) - value) < 1e-9 &&
+        statedAs[kind]({
+          before: sentence.slice(0, m.index),
+          after: sentence.slice(m.index! + m[0].length),
+          sentence,
+        })
+      )
+        return true;
+  return false;
 }
 
 const list = (v: unknown) =>
@@ -234,8 +346,10 @@ export type NutritionPolicyDraft = {
  * - A missing title gets a neutral name. Source references are limited to the
  *   supplied teaching cases and sources (`context.sourceIds`); without any,
  *   the draft cites all of them, which is what it was compiled from.
- * - A number that no teaching text states (for example a calorie tolerance
- *   the coach never gave) is flagged for the coach to confirm.
+ * - A number the teaching does not state for that field, next to the
+ *   field's own wording (statedInTeaching; for example a calorie tolerance
+ *   the coach never gave, even when the same digit is a repeat limit), is
+ *   flagged for the coach to confirm.
  */
 export function nutritionPolicyDraft(
   reply: NutritionPolicyReply,
@@ -305,10 +419,13 @@ export function nutritionPolicyDraft(
       else if (!key) gaps.push(`Check the drafted limits: ${issue.message}.`);
     }
   for (const key of unusable) ask(key);
-  // Numbers must come from the coach: flag any the teaching never states.
-  const known = teachingNumbers(context.teaching);
-  const unstated = (v: unknown) =>
-    typeof v === "number" && Number.isFinite(v) && !known.has(Math.abs(v));
+  // Numbers must come from the coach: flag any the teaching does not state
+  // for that field (next to the field's own wording).
+  const sentences = teachingSentences(context.teaching);
+  const unstated = (kind: StatedKind, v: unknown) =>
+    typeof v === "number" &&
+    Number.isFinite(v) &&
+    !statedInTeaching(kind, Math.abs(v), sentences);
   const flag = (field: string, value: number, unit = "") => {
     const f = nutritionPolicyFieldQuestions[field];
     ask(
@@ -316,28 +433,32 @@ export function nutritionPolicyDraft(
       `Your teaching does not state the ${f.label} of ${value}${unit} in this draft. Confirm it or enter the right value before this policy is used.`,
     );
   };
-  for (const [field, unit] of [
-    ["minAge", ""],
-    ["maxAge", ""],
-    ["minKcal", " kcal"],
-    ["maxKcal", " kcal"],
-    ["tolerancePercent", "%"],
-    ["minServings", " servings"],
-    ["maxServings", " servings"],
-    ["maxRecipeRepeats", ""],
+  for (const [field, kind, unit] of [
+    ["minAge", "age", ""],
+    ["maxAge", "age", ""],
+    ["minKcal", "kcal", " kcal"],
+    ["maxKcal", "kcal", " kcal"],
+    ["tolerancePercent", "tolerancePercent", "%"],
+    ["minServings", "servings", " servings"],
+    ["maxServings", "servings", " servings"],
+    ["maxRecipeRepeats", "maxRecipeRepeats", ""],
   ] as const)
-    if (!unusable.has(field) && unstated(draft[field]))
+    if (!unusable.has(field) && unstated(kind, draft[field]))
       flag(field, draft[field] as number, unit);
   if (!unusable.has("targets") && Array.isArray(draft.targets))
     for (const t of draft.targets as Array<Record<string, unknown>>)
-      if (t && unstated(t.kcal))
+      if (t && unstated("kcal", t.kcal))
         ask(
           "targets",
           `Your teaching does not state the ${t.kcal} kcal target for "${String(t.goal ?? "a goal")}" in this draft. Confirm it or enter the right value before this policy is used.`,
         );
   if (!unusable.has("adjustment") && adjustment?.enabled === true)
-    for (const key of ["requiredCheckins", "minimumDays", "deltaKcal"])
-      if (unstated(adjustment[key]))
+    for (const [key, kind] of [
+      ["requiredCheckins", "requiredCheckins"],
+      ["minimumDays", "days"],
+      ["deltaKcal", "kcal"],
+    ] as const)
+      if (unstated(kind, adjustment[key]))
         ask(
           "adjustment",
           `Your teaching does not state the automatic adjustment's ${key === "requiredCheckins" ? "number of check-ins" : key === "minimumDays" ? "number of days" : "calorie change"} (${adjustment[key]}) in this draft. Confirm it or enter the right value before this policy is used.`,

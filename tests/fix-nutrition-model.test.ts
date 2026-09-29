@@ -22,7 +22,6 @@ import {
 import { trialReplies } from "./nutrition-trial-fixtures.ts";
 import {
   nutritionTarget,
-  nutritionCategories,
   localDate,
   scaledNutrients,
 } from "../packages/domain/src/nutrition.ts";
@@ -175,9 +174,12 @@ function evaluationAnswer(input: any) {
       try {
         target = nutritionTarget(input.policy, s.profile);
       } catch {}
-      // v3 gives each scenario's category. Like every trial model, the
-      // answer cites the diet teaching for an unsupported diet.
-      const cited = s.prompt.includes("unsupported-diet") ? "diet" : s.category;
+      // The request does not name a scenario's category; like the trial's
+      // checks, these prompts start with it, as a coach may write them. Like
+      // every trial model, the answer cites the diet teaching for an
+      // unsupported diet.
+      const category = /^\[([a-z_-]+)\]/.exec(s.prompt)![1],
+        cited = s.prompt.includes("unsupported-diet") ? "diet" : category;
       const teaching = input.cases.find((c: any) => c.data.category === cited),
         recipe = input.recipes.find((r: any) =>
           r.slots.includes(s.requestedMealSlot),
@@ -193,7 +195,7 @@ function evaluationAnswer(input: any) {
         targetKcal: target,
         caseIds: [teaching.id],
         reason: "Applies the confirmed synthetic fixture policy.",
-        principle: principleForCategory[s.category],
+        principle: (principleForCategory as Record<string, string>)[category],
         rationaleEvidence: { caseId: teaching.id, quote: teaching.data.reason },
         sampleMeal:
           target === null
@@ -311,7 +313,7 @@ before(async () => {
       exception = i >= 20;
     await ok("/nutrition/scenarios", "POST", {
       category: c.data.category,
-      prompt: `Unseen model-contract situation ${i}; apply the available evidence.`,
+      prompt: `[${c.data.category}] Unseen model-contract situation ${i}; apply the available evidence.`,
       profile: {
         ...fixtureProfile,
         ...(exception ? { allergyStatus: "unknown" } : {}),
@@ -345,7 +347,7 @@ after(async () => {
   await db.close();
 });
 
-test("evaluation gives each scenario its category, scales its budget and accepts the teaching behind a safety limit", async () => {
+test("evaluation keeps each check's category from the model, scales its budget and accepts the teaching behind a safety limit", async () => {
   const evaluation = await ok("/nutrition/evaluate", "POST", {});
   // Rounded worked meals and a diet-case citation for the unsupported-diet
   // check both failed every trial model; the v3 contract accepts them.
@@ -356,10 +358,17 @@ test("evaluation gives each scenario its category, scales its budget and accepts
   );
   const request = last("nutrition_evaluation");
   assert.equal(request.input.scenarios.length, 28);
-  assert.ok(
-    request.input.scenarios.every((s: any) =>
-      (nutritionCategories as readonly string[]).includes(s.category),
-    ),
+  // The category of a held-out check is the coach's answer key: the model
+  // must work out the principle itself (it gets only the category map).
+  assert.ok(request.input.scenarios.every((s: any) => !("category" in s)));
+  assert.deepEqual(request.input.categoryPrinciples, principleForCategory);
+  assert.doesNotMatch(
+    request.system,
+    /Each scenario gives its teaching category/,
+  );
+  assert.match(
+    request.system,
+    /Decide which teaching category each scenario falls under/,
   );
   const budget = nutritionBudget("nutrition_evaluation", { scenarios: 28 });
   assert.equal(request.maxTokens, budget.maxTokens);
@@ -550,6 +559,88 @@ test("a declined week goes to the coach with the model's reason; the client sees
   );
 });
 
+test("a coach boundary in the client's notes stops the week before any model call", async () => {
+  // The trial's T2S05 and T3S02 notes (osteopenia with vitamin D; Ramadan
+  // meal timing) passed every code gate in the trial, and an Arabic note.
+  for (const [label, notes] of [
+    ["osteopenia", "Osteopenia; takes vitamin D."],
+    [
+      "ramadan",
+      "Fasting during Ramadan: eats only at suhoor (before dawn) and iftar (sunset).",
+    ],
+    ["ramadan-ar", "صائمة في رمضان وآكل عند السحور فقط"],
+  ]) {
+    const user = await subscriber("boundary-" + label, {
+      ...fixtureProfile,
+      notes,
+    });
+    const before = modelCalls;
+    const r = await generate(user);
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().status, "exception", label);
+    assert.equal(r.json().code, "SCOPE_REVIEW", label);
+    assert.equal(modelCalls, before, "no model is asked: " + label);
+    const [plan] = await rows(
+      "SELECT id FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1",
+      [user.userId],
+    );
+    assert.equal(plan, undefined);
+    const [exception] = await rows(
+      "SELECT * FROM records WHERE kind='nutrition_exception' AND owner_user_id=$1 AND status='open'",
+      [user.userId],
+    );
+    assert.equal(exception.data.code, "SCOPE_REVIEW");
+  }
+});
+
+test("the trial's boundary declines end with the coach and no plan, whatever the notes say", async () => {
+  // A boundary the code screen has no word for reaches the model; the week
+  // request tells it to decline, and each trial decline (Seed, Opus and
+  // Sonnet for T2S05 and T3S02) becomes PLAN_NOT_POSSIBLE for the coach.
+  const notes = "Recovering from surgery last month.";
+  for (const member of ["T2S05", "T3S02"])
+    for (const model of ["seed", "opus", "sonnet"]) {
+      const trial = JSON.parse(trialReplies[`${model}:${member}/meal_week`]);
+      const user = await subscriber(`boundary-${model}-${member}`, {
+        ...fixtureProfile,
+        notes,
+      });
+      override.nutrition_week = (input) => {
+        const ref = input.cases.find(
+          (c: any) => c.data.category === "boundaries",
+        ).id;
+        return { ...trial, caseIds: [ref] };
+      };
+      let result: any;
+      try {
+        result = (await generate(user)).json();
+      } finally {
+        delete override.nutrition_week;
+      }
+      const label = model + " " + member;
+      assert.equal(result.status, "exception", label);
+      assert.equal(result.code, "PLAN_NOT_POSSIBLE", label);
+      assert.ok(!("coachDetail" in result));
+      const request = last("nutrition_week");
+      assert.match(request.system, /Coach boundaries come first/);
+      assert.equal(request.input.profile.notes, notes);
+      const [plan] = await rows(
+        "SELECT id FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1",
+        [user.userId],
+      );
+      assert.equal(plan, undefined, label);
+      const [exception] = await rows(
+        "SELECT * FROM records WHERE kind='nutrition_exception' AND owner_user_id=$1 AND status='open'",
+        [user.userId],
+      );
+      assert.equal(exception.data.code, "PLAN_NOT_POSSIBLE", label);
+      assert.ok(
+        exception.data.coachDetail.includes(trial.explanation.slice(0, 60)),
+        label,
+      );
+    }
+});
+
 test("a catalog that cannot fill the week goes to the coach before any model call", async () => {
   // Every fixture recipe option needs at least 10 minutes.
   const quick = { ...fixtureProfile, maxMinutes: 5 };
@@ -595,7 +686,16 @@ test("an in-flight week holds its lease for the model timeout and answers GENERA
   hold = new Promise<void>((resolve) => (release = resolve));
   const calls = modelCalls;
   const pending = generate(s5);
-  while (modelCalls === calls) await new Promise((r) => setTimeout(r, 5));
+  // Bounded, so a request that never reaches the model fails here instead
+  // of hanging the file (as it did when an earlier test left no release).
+  for (let waited = 0; modelCalls === calls; waited += 5) {
+    if (waited > 20000) {
+      release();
+      hold = null;
+      assert.fail("the week never reached the model: " + (await pending).body);
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
   const [job] = await rows(
     "SELECT extract(epoch FROM leased_until-now())::float8 AS lease FROM jobs WHERE kind='nutrition_week' AND data->>'userId'=$1 AND status='running'",
     [s5.userId],

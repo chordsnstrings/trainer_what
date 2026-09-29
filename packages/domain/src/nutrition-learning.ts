@@ -21,11 +21,12 @@ export {
   nutritionExpectedMealSchema,
   nutritionSampleMealSchema,
 } from "./nutrition-learning-schema.ts";
+// Letters and digits of any script (folded like the nutrition screens), so
+// Arabic teaching compares and can be quoted: an ASCII-only class turned
+// every Arabic quote into an empty string that could never match.
 const normalized = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
+  foldNutritionText(s)
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 export function nutritionLearning(
   cases: Array<{ id: string; data: any; status: string }>,

@@ -380,6 +380,17 @@ const clinicalTerms = [
   "epilep(?:sy|tic)",
   "phenylketonuria|pku",
   "medications?|prescription",
+  // Bone density conditions (the trial's "Osteopenia; takes vitamin D").
+  "osteopor(?:osis|otic)|osteopeni(?:a|c)|(?:low )?bone (?:density|loss|mass)",
+  // Vitamin and mineral supplementation, deficiencies and anaemia. Protein
+  // powders and creatine are not listed; plain "supplement" is not either.
+  "(?:multi)?vitamins?|vit\\.? ?[abcdek]\\d{0,2}|b12|folic acid",
+  "(?:iron|calcium|potassium|magnesium|zinc) (?:supplements?|tablets?|pills?|injections?|infusions?|drips?)",
+  "deficien(?:cy|cies|t)|anaemi(?:a|c)|anemi(?:a|c)",
+  // Fasting and Ramadan meal timing: the week's slots assume daytime meals, so
+  // a client who eats only at suhoor and iftar (the trial's T3S02) goes to the
+  // coach. "fast food" and "breakfast" do not match.
+  "fasting|fasted|ramadh?an|ramzan|suhoor|suhur|sahur|sehri|sohour|iftaa?r",
   // Arabic (folded): diabetes, insulin, GLP-1 brands, blood pressure, kidney, liver,
   // cancer/chemotherapy, pregnancy/breastfeeding, eating disorders, gut, gout, PCOS,
   // bariatric surgery, heart, thyroid, epilepsy and medicines.
@@ -396,6 +407,13 @@ const clinicalTerms = [
   "سيلياك|داء (?:ال)?بطني|داء (?:ال)?زلاقي|كرون|قولون (?:ال)?(?:تقرحي|عصبي)",
   "نقرس|تكيس (?:ال)?مبايض|(?:تكميم|ربط|قص) (?:ال)?معدة|تحويل (?:ال)?مسار",
   "(?:امراض|مرض|قصور) (?:ال)?قلب|جلطة|غدة (?:ال)?درقية|صرع|دواء|ادوية",
+  // Bone density (osteoporosis, osteopenia), vitamins and mineral tablets,
+  // anaemia. Bare "نقص" is not listed: "نقص الوزن" is weight loss.
+  "(?:هشاشة|ترقق|لين|كثافة) (?:ال)?عظام",
+  "فيتامينا?ت?|(?:حبوب|اقراص|ابر|حقن) (?:ال)?(?:حديد|كالسيوم|فيتامين)|فقر (?:ال)?دم|انيميا",
+  // Fasting and Ramadan meal timing (Gulf spellings included). "فطور" and
+  // "افطار" also mean breakfast, so they are not listed.
+  "رمضان|صيام|صائم|صائمة|صايم|صايمة|صوم|[اتين]صوم|سحور|[اتين]?تسحر",
 ];
 const clinicalPattern = termPattern(clinicalTerms);
 /** Clinical, medication or life-stage terms found in free text (English and Arabic). */

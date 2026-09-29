@@ -242,9 +242,7 @@ function nutritionEvaluation(input: any) {
       try {
         target = nutritionTarget(m.policy, s.profile);
       } catch {}
-      // nutrition-cases-v3 sends each scenario's category.
       const category =
-        s.category ??
         /^\[([a-z_-]+)\]/.exec(String(s.prompt))?.[1] ??
         (target === null ? "boundaries" : "diet");
       const teaching =

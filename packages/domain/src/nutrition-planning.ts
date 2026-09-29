@@ -127,7 +127,9 @@ export function nutritionWeekLimits(input: {
  * kcal range (exactly the range validateNutritionWeek applies), macro ranges
  * from an individual target, serving limits, slots and the repeat limit, and
  * the self-check the model must do before answering. A week that cannot meet
- * them is declined, never bent.
+ * them is declined, never bent. The coach's boundaries come before any of it:
+ * a profile they cover, or one the model is unsure about, is declined too
+ * (the code screen in nutritionTarget runs first and does not rely on this).
  */
 export function nutritionWeekInstruction(limits: NutritionWeekLimits) {
   const { kcal, servings } = limits;
@@ -137,19 +139,20 @@ export function nutritionWeekInstruction(limits: NutritionWeekLimits) {
   );
   return [
     "Plan one week of meals for this client using only the coach's supplied recipes. Every number below is a hard limit set by the coach.",
+    "Coach boundaries come first: before planning, read the client's profile (goal, diet, allergies, exclusions and notes) against the policy's boundaries and the coach's boundaries teaching case. If anything in the profile falls under a boundary (for example a medical condition, a medication or supplement, pregnancy or breastfeeding, an eating disorder, or eating times these slots cannot follow, such as fasting), or you are not sure whether it does, do not plan: decline the week as described at the end and cite the boundaries case.",
     "Days: exactly 7, offsets 0 to 6.",
     `Meals: every day has exactly one meal for each of these slots, no more and no fewer: ${limits.slots.join(", ")}.`,
     `Portions: each meal's servings is from ${servings.min} to ${servings.max}, in steps of 0.25.`,
     `Daily energy: the target is ${kcal.target} kcal, fixed by the coach (do not calculate another). Each day's total must be between ${kcal.min} and ${kcal.max} kcal (the target plus or minus ${kcal.tolerancePercent}%, whole kcal). Aim close to ${kcal.target}.`,
     ...macroLines,
     `Repeats: one recipe may be used at most ${limits.maxRecipeRepeats} times in the week, counting every slot.`,
-    "Recipes: use a recipe only in a slot listed in its slots, and only one of its listed options (its key is the variantKey). The supplied recipes and options already fit this client's diet, allergies, exclusions, equipment, time and budget; never use anything else.",
+    "Recipes: use a recipe only in a slot listed in its slots, and only one of its listed options (its key is the variantKey); never use anything else. The supplied options were filtered for the client's diet, allergies, exclusions, equipment, time and budget only; that filtering does not check the coach's boundaries.",
     `A meal's nutrients are its servings times the option's perServing values. Before answering, add up each day's kcal${limits.macros.length ? " and " + limits.macros.map((m) => m.key).join(", ") : ""} from those numbers and change servings until every day is inside its range.`,
     "batchKey is null, or a short key shared by meals cooked in one batch; one batch uses one recipe and option.",
     "caseIds: the references of the coach teaching cases that support this week.",
     "explanation: one to three plain sentences for the client, with no IDs or references and no medical, supplement or dosage advice; any calorie number must be the target or a day's total.",
     'Return only JSON {"days":[{"offset":0,"meals":[{"slot":"...","recipeId":"...","variantKey":"...","servings":1,"batchKey":null}]}],"caseIds":["..."],"explanation":"..."}.',
-    'If no week can meet every limit above with these recipes, do not invent a recipe or bend a limit: return {"days":[],"caseIds":[...],"explanation":"the reason, for the coach"} and the coach will review it.',
+    'To decline, when a coach boundary applies or you are unsure, or when no week can meet every limit above with these recipes, do not invent a recipe or bend a limit: return {"days":[],"caseIds":[...],"explanation":"the reason, for the coach"} and the coach will review it.',
   ].join(" ");
 }
 
