@@ -30,7 +30,10 @@ const reduced = () =>
  * The reveal units: each home band's content, each block of an inner page
  * (a section, the calculator, a grid, the FAQs, the related links) and the
  * closing panel. Never the hero, the breadcrumbs, the page heading or the
- * relay, and never the small "Last updated" line.
+ * relay, and never the small "Last updated" line. Never the journey player
+ * either (the /how-it-works steps section and the home band while a coach
+ * can launch, components/marketing/journey.tsx): its stage has its own
+ * one-off chapter motion, which a rise on top would double.
  */
 const UNITS = [
   ".mk-home-band > .mk-home-inner",
@@ -38,6 +41,8 @@ const UNITS = [
   ".mk-page > div:not([class]) > *",
   ".mk-closing",
 ].join(", ");
+/** What never waits for a reveal: the first screen's showpieces and the journey. */
+const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band";
 /** The longest item stagger in app/marketing.css (--mk-stagger), in ms. */
 export const MAX_STAGGER = 240;
 /** Grids whose items follow their unit in a short stagger (app/marketing.css). */
@@ -63,7 +68,7 @@ export function MarketingMotion({ path }: { path: string }) {
       return;
     root.classList.add("mk-motion");
     const units = [...root.querySelectorAll<HTMLElement>(UNITS)].filter(
-      (unit) => !unit.closest(".mk-hero, .mk-page-head, .mk-relay"),
+      (unit) => !unit.closest(NEVER),
     );
     let target: Element | null = null;
     try {

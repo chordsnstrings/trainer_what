@@ -48,7 +48,7 @@ const executablePath =
   env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 
 await mkdir(root + "test-results", { recursive: true });
-const log = createWriteStream(root + "test-results/marketing-motion-servers.log");
+const log = createWriteStream(root + "test-results/marketing-motion-sitewide-servers.log");
 const children = [];
 const failures = [];
 const fail = (label, message) => failures.push(`${label}: ${message}`);
@@ -87,7 +87,7 @@ async function serve(dir, port) {
   child.stderr.pipe(log, { end: false });
   children.push(child);
   for (let i = 0; i < 200; i++) {
-    if (child.exitCode !== null) throw new Error(`the server in ${dir} exited; see marketing-motion-servers.log`);
+    if (child.exitCode !== null) throw new Error(`the server in ${dir} exited; see test-results/marketing-motion-sitewide-servers.log`);
     if (await fetch(url + "/").then((r) => r.ok, () => false)) return url;
     await new Promise((r) => setTimeout(r, 300));
   }

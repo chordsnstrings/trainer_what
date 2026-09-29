@@ -481,3 +481,48 @@ test("the script's motion values are the CSS tokens, and no animation library is
   assert.match(motion, /\.mk-hero, \.mk-page-head, \.mk-relay/);
   assert.match(motion, /classList\.add\("mk-motion"\)/);
 });
+
+test("one set of motion tokens; the journey player shares the sitewide press and reveal rules (its hover rules: tests/marketing-journey.test.ts)", async () => {
+  // The tokens are defined once across every stylesheet: the journey's
+  // (app/marketing-journey.css) and the rest only use them.
+  const dir = web("app/");
+  for (const file of (await readdir(dir)).filter((f) => f.endsWith(".css"))) {
+    const css = (await readFile(new URL(file, dir), "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
+    const count = [...css.matchAll(/--mk-(?:dur|ease)-[a-z-]+\s*:/g)].length;
+    assert.equal(count, file === "marketing.css" ? Object.keys(TOKENS).length : 0, `${file} defines ${count} motion token(s)`);
+  }
+  const rules = cssRules(await readFile(web("app/marketing.css"), "utf8"));
+  // The player's control buttons press like every other button, and hold
+  // still under reduced motion.
+  const press = rules.find((r) => r.selectors.includes(".mk .mk-walk-btn:active:not(:disabled)"));
+  assert.ok(press && press.selectors.includes(":is(.mk, .mk-header) .button:active:not(:disabled)"), "the journey buttons share the press");
+  assert.ok(
+    rules.some(
+      (r) =>
+        r.selectors.includes(".mk .mk-walk-btn") &&
+        r.declarations.some((d) => d.property === "transition" && d.value === "scale var(--mk-dur-fast) var(--mk-ease-out)"),
+    ),
+  );
+  assert.ok(
+    rules.some(
+      (r) =>
+        r.context.some((c) => c.includes("prefers-reduced-motion: reduce")) &&
+        r.selector.includes(".mk-walk-btn") &&
+        r.declarations.some((d) => d.property === "scale" && d.value === "none" && d.important),
+    ),
+  );
+  // The relay's ring pulses on the hero relay only, never on the journey's
+  // copy of the mark in its laptop bar.
+  const ring = rules.filter((r) => r.declarations.some((d) => d.property === "animation" && d.value.startsWith("mk-ring ")));
+  assert.deepEqual(
+    ring.flatMap((r) => r.selectors),
+    [".mk .mk-relay .mk-relay-mark::after"],
+  );
+  // The reveal never marks the journey: it has its own chapter motion.
+  const motion = await readFile(web("components/marketing/motion.tsx"), "utf8");
+  assert.match(motion, /\.mk-walk-section, \.mk-walk-band/);
+  assert.match(motion, /!unit\.closest\(NEVER\)/);
+  const journey = await readFile(web("components/marketing/journey.tsx"), "utf8");
+  assert.match(journey, /className="mk-section mk-walk-section"/);
+  assert.match(journey, /className="mk-home-band mk-home-paper mk-walk-band"/);
+});

@@ -1575,7 +1575,10 @@ a.mk-nav-top {
   .mk-relay-core .mk-relay-dot {
     animation-delay: 1.5s;
   }
-  .mk .mk-relay-mark::after {
+  /* The hero relay's mark only: the journey's laptop bar
+     (components/marketing/journey.tsx) shows the same mark, which never
+     pulses on its own. */
+  .mk .mk-relay .mk-relay-mark::after {
     animation: mk-ring var(--mk-dur-emphasis) var(--mk-ease-out) 0.85s 1;
   }
   /* Success ticks: the spring. */
@@ -2172,7 +2175,8 @@ a.mk-nav-top {
 
 /* Buttons: a press on every device, the lift where the pointer hovers
    (globals.css), and the trailing arrow nudges forward (it mirrors in right
-   to left). The colour change on hover is instant. */
+   to left). The colour change on hover is instant. The journey player's
+   control buttons (app/marketing-journey.css) press the same way. */
 :is(.mk, .mk-header) .button {
   transition:
     transform var(--mk-dur-fast) var(--mk-ease-out),
@@ -2185,7 +2189,8 @@ a.mk-nav-top {
   }
 }
 .mk-mobile-menu > summary,
-.mk-footer .mk-footer-prefs {
+.mk-footer .mk-footer-prefs,
+.mk .mk-walk-btn {
   transition: scale var(--mk-dur-fast) var(--mk-ease-out);
 }
 .mk-footer .mk-footer-prefs {
@@ -2193,7 +2198,8 @@ a.mk-nav-top {
 }
 :is(.mk, .mk-header) .button:active:not(:disabled),
 .mk-mobile-menu > summary:active,
-.mk-footer .mk-footer-prefs:active {
+.mk-footer .mk-footer-prefs:active,
+.mk .mk-walk-btn:active:not(:disabled) {
   scale: 0.97;
   transition-duration: var(--mk-dur-press);
   transition-timing-function: var(--mk-ease-in);
@@ -2341,8 +2347,9 @@ a.mk-nav-top {
    first screen when the page loads waits ("pending") and rises 12px into
    place once as it enters the view; the items of a grid follow 40ms apart
    (at most 240ms), the /features screens 80ms apart. The hero, the page
-   heading, the relay, anything on the first screen and any unit taller
-   than one and a half screens never wait. Every rule keys on an attribute
+   heading, the relay, the journey player (its stage has its own chapter
+   motion), anything on the first screen and any unit taller than one and
+   a half screens never wait. Every rule keys on an attribute
    or class of the element it moves, so marking and revealing restyle only
    those elements. */
 :is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(2) {
@@ -2623,7 +2630,7 @@ a.mk-nav-top {
     transition: none !important;
     animation: none !important;
   }
-  :is(.mk, .mk-header, .mk-footer) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs) {
+  :is(.mk, .mk-header, .mk-footer) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn) {
     translate: 0 0 !important;
     scale: none !important;
   }

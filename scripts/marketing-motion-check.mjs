@@ -1,7 +1,8 @@
 // The coach-to-subscriber journey player in local Chromium, at 360x740,
 // 390x844 (phones, touch) and 1366x900. Run it with
-// `npm run test:marketing-motion` (scripts/run-marketing-motion-check.mjs
-// starts the production build against a stub platform API).
+// `npm run test:marketing-motion-journey` (scripts/run-marketing-motion-check.mjs
+// starts the production build against a stub platform API);
+// `npm run test:marketing-motion` runs it and then the sitewide check.
 //
 // Checks: the launch gate (no player while a coach cannot launch); the
 // player is visible with no horizontal overflow; auto-play starts only when
@@ -13,7 +14,10 @@
 // auto-plays and moves nothing even after Play; without JavaScript every
 // step shows and no dead controls do; no layout shift while chapters change
 // (and through one full, sped-up pass that ends on Replay); stage text
-// passes WCAG AA contrast in every chapter; right to left mirrors.
+// passes WCAG AA contrast in every chapter; right to left mirrors. With the
+// sitewide microanimations (components/marketing/motion.tsx): the section
+// reveal runs on the page but never marks the player, and the hero relay's
+// ring never pulses on the journey's copy of the mark (no double motion).
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 
@@ -122,6 +126,31 @@ const overflow = (page) =>
       document.documentElement.scrollWidth -
       document.documentElement.clientWidth,
   );
+/**
+ * The sitewide motion around the player: whether the reveal ran on the page
+ * (.mk-motion), how many reveal marks sit on or in the player's section or
+ * band, and the ring animation on the laptop bar's mark and the hero relay's.
+ */
+const interplay = (page) =>
+  page.evaluate(() => {
+    const holder = document
+      .querySelector(".mk-walk")
+      ?.closest(".mk-walk-section, .mk-walk-band");
+    const marks = "[data-mk-reveal], [data-mk-item]";
+    const ring = (selector) => {
+      const el = document.querySelector(selector);
+      return el ? getComputedStyle(el, "::after").animationName : null;
+    };
+    return {
+      motion: !!document.querySelector(".mk.mk-motion"),
+      holder: !!holder,
+      marked:
+        (holder?.closest(marks) ? 1 : 0) +
+        (holder?.querySelectorAll(marks).length ?? 0),
+      barRing: ring(".mk-walk .w-bar .mk-relay-mark"),
+      heroRing: ring(".mk-relay .mk-relay-mark"),
+    };
+  });
 async function waitFor(page, fn, arg, timeout = 8000) {
   try {
     await page.waitForFunction(fn, arg, { timeout, polling: 50 });
@@ -581,6 +610,17 @@ for (const vp of VIEWPORTS) {
       (await overflow(page)) <= 0,
       `${await overflow(page)}px`,
     );
+    const around = await interplay(page);
+    check(
+      `${tag} sitewide reveal leaves the player alone`,
+      around.motion && around.holder && around.marked === 0,
+      JSON.stringify(around),
+    );
+    check(
+      `${tag} the bar's mark does not pulse`,
+      around.barRing === "none",
+      JSON.stringify(around),
+    );
     check(`${tag} no page errors`, errors.length === 0, errors.join(" | "));
     await page.close();
   }
@@ -625,6 +665,17 @@ for (const vp of VIEWPORTS) {
       `${tag} home: no horizontal overflow`,
       (await overflow(page)) <= 0,
       `${await overflow(page)}px`,
+    );
+    const around = await interplay(page);
+    check(
+      `${tag} home: sitewide reveal leaves the band alone`,
+      around.motion && around.holder && around.marked === 0,
+      JSON.stringify(around),
+    );
+    check(
+      `${tag} home: the hero relay keeps its ring`,
+      around.heroRing === "mk-ring",
+      JSON.stringify(around),
     );
     check(
       `${tag} home: no page errors`,

@@ -457,12 +457,29 @@ const decls = (body: string) =>
         ] as const,
     );
 
-test("motion tokens: the brief's values on the marketing roots", async () => {
+test("motion tokens: the brief's values, defined once in marketing.css", async () => {
+  // The journey's stylesheet uses the sitewide tokens and defines none of
+  // its own (tests/marketing-motion-sitewide.test.ts checks the one
+  // definition across every stylesheet).
   const css = await readFile(cssUrl, "utf8");
-  const root = rules(css).find(
+  assert.doesNotMatch(
+    css.replace(/\/\*[\s\S]*?\*\//g, ""),
+    /--mk-(?:dur|ease)-[a-z-]+\s*:/,
+    "marketing-journey.css defines a motion token",
+  );
+  const sitewide = await readFile(
+    new URL("../apps/web/app/marketing.css", import.meta.url),
+    "utf8",
+  );
+  const root = rules(sitewide).find(
     (r) => r.selector.replace(/\s+/g, " ") === ".mk, .mk-header, .mk-footer",
   )!;
-  assert.deepEqual(Object.fromEntries(decls(root.body)), {
+  const defined = Object.fromEntries(
+    decls(root.body).filter(([p]) => /^--mk-(?:dur|ease)-/.test(p)),
+  );
+  for (const [, name] of css.matchAll(/var\((--mk-(?:dur|ease)-[a-z-]+)\)/g))
+    assert.ok(name in defined, `${name} is not a marketing.css token`);
+  assert.deepEqual(defined, {
     "--mk-dur-press": "80ms",
     "--mk-dur-fast": "140ms",
     "--mk-dur-base": "200ms",

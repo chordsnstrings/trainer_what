@@ -954,7 +954,8 @@ track.
   root's data attributes; the stage and captions arrive as server-rendered
   slots, so the mocks never enter the JavaScript bundle.
   `app/marketing-journey.css`, imported next to `marketing.css` in
-  `app/layout.tsx`, holds the motion tokens and every journey style.
+  `app/layout.tsx`, holds every journey style (since the combine step the
+  motion tokens are defined only in `marketing.css`; see "Combined" below).
 - /how-it-works: the "Eight steps, start to finish" section keeps its h2 and
   `ol.mk-steps`, with the registry titles and bodies unchanged and the
   HowTo JSON-LD untouched. Each step adds one subscriber line, looked up
@@ -1063,8 +1064,9 @@ CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
   token durations and easings, hover rules inside `(hover: hover)`, a
   reduced-motion block, nothing infinite, the spring only on success
   states); the island imports only React and no dependency was added.
-- `npm run test:marketing-motion` (`scripts/run-marketing-motion-check.mjs`
-  starts the production build against a stub platform API, no database,
+- `npm run test:marketing-motion-journey` (since the combine step;
+  `npm run test:marketing-motion` now runs this and the sitewide check;
+  `scripts/run-marketing-motion-check.mjs` starts the production build against a stub platform API, no database,
   provider or credential; `scripts/marketing-motion-check.mjs` runs local
   Chromium at 360×740, 390×844 and 1366×900): the gate closed, then open;
   the player visible with no horizontal overflow; auto-play at load only
@@ -1079,6 +1081,112 @@ CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
   contrast and at least 11 px in every chapter (both sides on phones); no
   JavaScript; right to left at 390 and 1366.
 
+## Combined: sitewide motion and the journey (29 September 2026, `ui/marketing-motion`)
+
+`mk/motion` (sitewide microanimations, `53c1443`) and then `mk/walkthrough`
+(the journey player, `3ccff10`) merged with `--no-ff` onto `c856d9d` in
+`.claude/worktrees/mk-integrate`. Git conflicts: `site.tsx` (both imports
+kept: `journey` and `motion`), `package.json` (the npm scripts, below) and
+this file (both sections kept). No marketing text changed (`git diff
+c856d9d` on `marketing-content.ts` and `marketing.ts` is empty).
+
+Resolved so the two tracks behave as one:
+
+- Tokens: one definition, on `.mk, .mk-header, .mk-footer` in
+  `app/marketing.css`. The walkthrough's duplicate block in
+  `app/marketing-journey.css` is gone (same selector, same values); the
+  journey only uses them. `tests/marketing-motion-sitewide.test.ts` now
+  fails if any stylesheet in `app/` other than `marketing.css` defines a
+  `--mk-dur-*` or `--mk-ease-*` token, and `tests/marketing-journey.test.ts`
+  checks that every token the journey uses is one of those.
+- Reveal: the section reveal never marks the journey (`NEVER` in
+  `components/marketing/motion.tsx` adds `.mk-walk-section` and
+  `.mk-walk-band` to the hero, page heading and relay). Without this the
+  /how-it-works steps section, as one unit below the first screen, would
+  fade and rise 12 px and stagger its eight step cards while the player
+  starts its own chapter beats. The home band was never a unit (its inner
+  is `.mk-container`, not `.mk-home-inner`); the exclusion covers it anyway.
+- Relay ring: the hero relay's one-off ring (`mk-ring` on
+  `.mk-relay-mark::after`) was keyed on every `.mk-relay-mark`, so it also
+  fired, 0.85 s after load, on the journey laptop bar's copy of the mark
+  (`CoreMark`). It is now `.mk .mk-relay .mk-relay-mark::after`.
+- Press: the player's control buttons (`.mk-walk-btn`: Pause/Play/Replay,
+  Previous, Next) join the sitewide press (scale 0.97 on the press token,
+  ease-in) and the reduced-motion freeze list. Their hover tint was
+  already instant and inside `(hover: hover)`, like the sitewide buttons;
+  the chapter segments and the step cards keep their instant tints and do
+  not move (they are not link cards).
+- Checks: `npm run test:marketing-motion` (`scripts/run-marketing-motion-checks.mjs`)
+  runs the journey check and then the sitewide check, the second even when
+  the first fails, and exits 1 if either fails. `npm run
+  test:marketing-motion-journey` and `npm run test:marketing-motion-sitewide`
+  run one each. The sitewide check's server log is now
+  `test-results/marketing-motion-sitewide-servers.log` (it shared a name
+  with the journey's). The journey check adds, at 360, 390 and 1366 with
+  motion allowed: the sitewide reveal ran on the page (`.mk-motion`) but
+  left no mark on or in the player's section or band; the laptop bar's
+  mark has no animation; the hero relay still has its ring.
+
+### Checks on the merged tree (29 September 2026, this machine)
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`:
+  both pass.
+- `node --import tsx --test --test-concurrency=1` on
+  `tests/marketing-site.test.ts`, `tests/marketing-api.test.ts`,
+  `tests/marketing-journey.test.ts`, `tests/marketing-motion-sitewide.test.ts`,
+  `tests/logical-css.test.ts`, `tests/brand.test.ts` and
+  `tests/branding.test.ts`: 68 tests, all pass;
+  `tests/marketing-follower-model.test.ts`: 12, all pass.
+- `npm run build`: passes.
+- `npm run test:marketing-motion` with `MOTION_BASE_DIR` set to a fresh
+  `next build` of `c856d9d`: exit 1.
+  - Journey player: 146 checks passed, 0 failed (including the new reveal,
+    ring and gate checks).
+  - Sitewide: every rule of its own passed (nothing on the first screen,
+    in the hero or relay waited; nothing hidden after a scroll-through or
+    with JavaScript off; reduced motion ran, marked and settled nothing;
+    CLS 0 on load and while scrolling on every page; no scroll long tasks
+    in the median run; the reveal's setup at most 3.4 ms and its slowest
+    callback 17.5 ms). It failed two LCP comparisons with base, both at
+    1366: `/` 508 against 400 ms and `/features` 696 against 632 ms
+    (allowance 50 ms). The other eight page and width medians were within
+    the allowance (390: `/` 452 (500), `/how-it-works` 456 (420),
+    `/pricing` 464 (464), `/features` 664 (744), `/earnings-calculator`
+    376 (356); 1366: `/how-it-works` 436 (408), `/pricing` 412 (404),
+    `/earnings-calculator` 452 (420) ms).
+- A separate probe (not committed): fifteen cold loads per build, the
+  three builds alternating, CPU throttled 4x, no scrolling, LCP median
+  (it equals first paint on these pages):
+
+  | Page and width | `c856d9d` | `mk/motion` alone | merged |
+  | --- | --- | --- | --- |
+  | 1366 `/` | 472 ms | 488 ms | 500 ms |
+  | 1366 `/features` | 772 ms | 768 ms | 816 ms |
+  | 1366 `/how-it-works` | 436 ms | 440 ms | 456 ms |
+  | 1366 `/pricing` | 444 ms | 472 ms | 468 ms |
+  | 390 `/` | 396 ms | 400 ms | 440 ms |
+
+  The merged build is within the check's allowance of base on all five,
+  but it paints later than `mk/motion` alone on four of them (12 to 48 ms;
+  `/pricing` 4 ms earlier). The pages here run with the launch
+  gate closed, so the only difference the merge makes to them is the
+  journey stylesheet, which `app/layout.tsx` imports for every page: the
+  marketing CSS chunk is 6.5 KB gzipped at `c856d9d`, 8.1 KB with
+  `mk/motion` alone and 12.1 KB merged. This is the combined weight of the
+  two tracks as built (the walkthrough measured its stylesheet at about
+  +4.1 KB gzipped), not a conflict, so it was not changed here.
+- `npm run test:brand` on the production build (`RTL_WEB_MODE=start`,
+  ports 3941/4941, fresh PGlite data): passed on 112 screens. Its platform
+  has every provider off, so the journey is not rendered there.
+- `npm run test:browser` (ports 3943/4943, fresh PGlite data,
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`): the
+  first attempt stopped before any page because the demo workspace had not
+  been seeded (its fixture requires `npm run seed:demo`); after `npm run
+  seed:demo` on fresh data it passed ("Browser smoke passed", including
+  its marketing-site pass, which loads the key public pages such as `/`,
+  `/how-it-works`, `/demo`, `/features`, `/pricing` and the calculators and
+  checks each H1 in the shared frame).
+
 ## Not done / next
 
 - Journey: the owner decides D10 (keep the player hidden until a coach can
@@ -1086,9 +1194,16 @@ CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
   launch-ready run yet (its runner seeds a platform with every provider
   off, so it measures the gate-closed pages, which equal base); the
   storyboard's LCP and long-task measurements (`marketing-perf-check.mjs`,
-  section C) are not built. The sitewide microanimations (part B) and the
-  motion-token names shared with the subscriber app's pass are a separate
-  track; the combine step de-duplicates the token block.
+  section C) are not built. The sitewide microanimations (part B) are
+  combined on `ui/marketing-motion` (tokens de-duplicated; see "Combined"
+  above).
+- Combined weight: the journey stylesheet loads on every page, also while
+  the launch gate hides the player, and delays first paint by 12 to 48 ms
+  at 4x throttling over `mk/motion` alone on four of five probed pages; `npm run
+  test:marketing-motion` exits 1 on two desktop LCP comparisons (see
+  above). A decision for the owner or the next pass: accept it, trim the
+  journey stylesheet, or load it only where the player renders (the brief
+  placed the import in `app/layout.tsx`).
 - Stage record: this package ran in parallel with others, so it does not edit
   `CLAUDE_HANDOFF.md`, `docs/COMPLETION_STAGES.md` or
   `docs/PROJECT_MEMORY.md`; the coordinating session records it there.

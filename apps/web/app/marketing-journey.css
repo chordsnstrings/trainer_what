@@ -7,21 +7,11 @@
    transform, opacity and stroke-dashoffset animate; hover rules sit in
    (hover: hover); logical properties only (tests/logical-css.test.ts). */
 
-/* Motion tokens (the same values as the subscriber app's motion pass). */
-.mk,
-.mk-header,
-.mk-footer {
-  --mk-dur-press: 80ms;
-  --mk-dur-fast: 140ms;
-  --mk-dur-base: 200ms;
-  --mk-dur-slow: 280ms;
-  --mk-dur-emphasis: 420ms;
-  --mk-ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --mk-ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --mk-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  /* Success states only. */
-  --mk-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-}
+/* The motion tokens (--mk-dur-*, --mk-ease-*) are defined once, on the
+   marketing roots in app/marketing.css (imported just before this file);
+   the controls' press and hover and the section reveal are the sitewide
+   ones there too (the reveal leaves the player alone: its stage has its
+   own chapter motion). */
 
 .mk-walk {
   /* The demo coach's colour inside the phone (white text 9.6:1). */

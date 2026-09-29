@@ -1,5 +1,7 @@
 // Runs scripts/marketing-motion-check.mjs against the production web build
-// (`npm run build` first) with local Chromium. The marketing pages read one
+// (`npm run build` first) with local Chromium (`npm run
+// test:marketing-motion-journey`; `npm run test:marketing-motion` runs it
+// and then scripts/marketing-motion-sitewide-check.mjs). The marketing pages read one
 // API route, GET /api/v1/public/platform; a stub answers it here, so no
 // database, provider or credential is involved. The stub starts "closed"
 // (it answers 503, so the pages use their built-in platform: every provider
