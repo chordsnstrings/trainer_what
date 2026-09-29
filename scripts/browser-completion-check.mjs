@@ -405,7 +405,7 @@ export async function checkConsentOnPhone({ browser, base, member, password }) {
   // The footer link opens the preferences as a bottom sheet.
   const sheet = page.getByRole("dialog", { name: "Optional site analytics" });
   await page
-    .locator(".site-footer")
+    .locator(".subscriber-footer")
     .getByRole("button", { name: "Analytics preferences", exact: true })
     .click();
   await sheet.waitFor();

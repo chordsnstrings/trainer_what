@@ -5,6 +5,7 @@ import {
   signInErrorMessage,
   type AccountError,
 } from "./account-request";
+import { AuthPage, ReturnToSignIn } from "./auth-page";
 
 type Provider = { id: string; name: string; enabled: boolean };
 
@@ -17,14 +18,22 @@ export function SocialSignIn({
   intent,
   coachSlug,
   inviteToken,
+  accepted: given,
 }: {
   intent: "sign_in" | "join" | "invite";
   coachSlug?: string;
   inviteToken?: string;
+  /**
+   * The page's own terms acceptance (components/legal-acceptance.tsx). When
+   * given, these buttons follow it instead of showing a second checkbox.
+   */
+  accepted?: boolean;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]),
     [message, setMessage] = useState(""),
-    [accepted, setAccepted] = useState(false),
+    // An ended or missing membership is a state to explain, not an error.
+    [neutral, setNeutral] = useState(false),
+    [ticked, setTicked] = useState(false),
     [busy, setBusy] = useState("");
   useEffect(() => {
     accountRequest<{ providers: Provider[] }>("/auth/oidc/providers")
@@ -34,15 +43,21 @@ export function SocialSignIn({
     const error = params.get("signin_error");
     if (error) {
       setMessage(signInErrorMessage(error));
+      setNeutral(error === "MEMBERSHIP_ENDED" || error === "NO_MEMBERSHIP");
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
   if (!providers.length && !message) return null;
   const needsTerms = intent !== "sign_in";
+  const ownBox = needsTerms && given === undefined;
+  const accepted = given ?? ticked;
   return (
     <div className="acct-social">
       {message && (
-        <div className="notice error" role="alert">
+        <div
+          className={neutral ? "notice" : "notice error"}
+          role={neutral ? "status" : "alert"}
+        >
           {message}
         </div>
       )}
@@ -51,12 +66,12 @@ export function SocialSignIn({
           <p className="acct-or">
             <span>or</span>
           </p>
-          {needsTerms && (
+          {ownBox && (
             <label className="check-field">
               <input
                 type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
+                checked={ticked}
+                onChange={(e) => setTicked(e.target.checked)}
               />
               I accept the published terms and understand the digital coaching
               disclosure.
@@ -84,6 +99,7 @@ export function SocialSignIn({
                   );
                   window.location.assign(r.authorizationUrl);
                 } catch (e) {
+                  setNeutral(false);
                   setMessage((e as AccountError).message);
                   setBusy("");
                 }
@@ -110,12 +126,7 @@ export function SocialSignInVerify() {
       .catch(() => setExpired(true));
   }, []);
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT</p>
-        <h1>One more step.</h1>
-      </section>
-      <section className="card">
+    <AuthPage eyebrow="YOUR ACCOUNT" title="One more step.">
         <h2>Authenticator code</h2>
         {expired ? (
           <p className="notice error" role="alert">
@@ -171,12 +182,7 @@ export function SocialSignInVerify() {
             )}
           </>
         )}
-        <p className="auth-return">
-          <a className="text-link" href="/login">
-            Return to sign in
-          </a>
-        </p>
-      </section>
-    </main>
+        <ReturnToSignIn />
+    </AuthPage>
   );
 }

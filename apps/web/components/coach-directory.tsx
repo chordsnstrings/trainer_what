@@ -5,7 +5,8 @@ import {
   DIRECTORY_PAGE_SIZE,
   appInitials,
 } from "@trainer/contracts";
-import { MarketingFooter, MarketingHeader } from "./marketing/frame";
+import { MarketingHeader } from "./marketing/frame";
+import { SubscriberFooter } from "./subscriber-footer";
 
 type Option = { id: string; label: string };
 export type DirectoryCoach = {
@@ -63,8 +64,10 @@ function CoachCard({ coach }: { coach: DirectoryCoach }) {
           </span>
         )}
         <div className="directory-card-body">
-          <h2 id={headingId}>{coach.name}</h2>
-          {coach.headline && <p>{coach.headline}</p>}
+          <h2 id={headingId} dir="auto">
+            {coach.name}
+          </h2>
+          {coach.headline && <p dir="auto">{coach.headline}</p>}
           <ul className="directory-tags" aria-label="Specialties">
             {coach.specialties.map((s) => (
               <li key={s.id}>{s.label}</li>
@@ -73,7 +76,7 @@ function CoachCard({ coach }: { coach: DirectoryCoach }) {
           <p className="muted directory-languages">
             Coaches in {coach.languages.map((l) => l.label).join(", ")}
           </p>
-          <a className="button secondary" href={coach.url}>
+          <a className="button secondary directory-visit" href={coach.url}>
             Visit {coach.name}’s website
           </a>
         </div>
@@ -116,9 +119,12 @@ export function CoachDirectory({
           <input
             name="q"
             type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
             maxLength={80}
             defaultValue={query.q}
-            placeholder="For example, strength or a coach’s name"
+            placeholder="Strength, yoga or a coach’s name"
           />
         </label>
         <label className="field">
@@ -147,7 +153,11 @@ export function CoachDirectory({
           <button className="button" type="submit">
             Search coaches
           </button>
-          {filtered && <Link href="/coaches">Clear filters</Link>}
+          {filtered && (
+            <Link className="button secondary" href="/coaches">
+              Clear filters
+            </Link>
+          )}
         </div>
       </form>
       {data.error ? (
@@ -167,18 +177,7 @@ export function CoachDirectory({
           </ul>
         </>
       ) : (
-        <section className="card directory-empty" role="status">
-          <h2>
-            {filtered
-              ? "No coaches match this search."
-              : "No coaches are listed yet."}
-          </h2>
-          <p className="muted">
-            {filtered
-              ? "Try another specialty or language, or clear the filters."
-              : "Coaches appear here after they launch and choose to be listed."}
-          </p>
-        </section>
+        <DirectoryEmpty filtered={filtered} />
       )}
       {(previous !== null || data.nextOffset !== null) && (
         <nav className="directory-pages" aria-label="Directory pages">
@@ -193,6 +192,54 @@ export function CoachDirectory({
         </nav>
       )}
     </DirectoryFrame>
+  );
+}
+
+/**
+ * No results, with somewhere to go next: clear the filters, open a coach's
+ * link or invitation, or sign in for someone who already has a coach.
+ */
+function DirectoryEmpty({ filtered }: { filtered: boolean }) {
+  return (
+    <section
+      className="card directory-empty"
+      role="status"
+      aria-labelledby="directory-empty-title"
+    >
+      <h2 id="directory-empty-title">
+        {filtered
+          ? "No coaches match this search."
+          : "No coaches are listed yet."}
+      </h2>
+      <p className="muted">
+        {filtered
+          ? "Try another specialty or language, or clear the filters to see every listed coach."
+          : "Coaches appear here once they choose to be listed. Many coaches share their own link instead."}
+      </p>
+      <ul className="directory-next">
+        <li>
+          <strong>Have a link or an invitation from a coach?</strong> Open it
+          to visit their website or join them.
+        </li>
+        <li>
+          <strong>Already coaching with someone?</strong> Sign in to open your
+          app.
+        </li>
+      </ul>
+      <div className="directory-empty-actions">
+        {filtered ? (
+          <Link className="button" href="/coaches">
+            Clear filters
+          </Link>
+        ) : null}
+        <Link
+          className={filtered ? "button secondary" : "button"}
+          href="/login"
+        >
+          Sign in
+        </Link>
+      </div>
+    </section>
   );
 }
 
@@ -215,10 +262,9 @@ function DirectoryFrame({
       <main className="directory" id="main">
         {children}
       </main>
-      <MarketingFooter
-        appName={platformName}
-        initials={appInitials(platformName)}
-      />
+      {/* Visitors looking for a coach get the subscriber footer, not the
+          trainer-marketing one. */}
+      <SubscriberFooter name={platformName} directory={false} />
     </div>
   );
 }
@@ -244,9 +290,11 @@ export function CoachDirectoryClosed({
           Coaches’ own websites are still open. If you have a coach’s link or
           invitation, use it to visit their website or join.
         </p>
-        <p>
-          <Link href="/">Return to the home page</Link>
-        </p>
+        <div className="directory-empty-actions">
+          <Link className="button secondary" href="/">
+            Return to the home page
+          </Link>
+        </div>
       </section>
     </DirectoryFrame>
   );

@@ -250,26 +250,38 @@ test("no floating analytics control remains in the component", async () => {
 });
 
 test("the answer changes only from public footer links and Profile > Privacy", async () => {
+  // Public pages share one subscriber footer (components/subscriber-footer.tsx)
+  // whose "Analytics preferences" button opens the preferences sheet.
+  const footer = await web("components/subscriber-footer.tsx");
+  assert.match(
+    footer,
+    /<footer className="subscriber-footer">[\s\S]*\{analytics && \([\s\S]*data-analytics-preferences=""[\s\S]*<\/footer>/,
+  );
+  // The coach website offers it except in the trainer's private preview.
   const coachSite = await web("components/coach-site.tsx");
-  assert.match(
-    coachSite,
-    /<footer className="site-footer">[\s\S]*className="analytics-footer-link"\s+data-analytics-preferences=""[\s\S]*<\/footer>/,
-  );
+  assert.match(coachSite, /<SubscriberFooter[\s\S]*?analytics=\{!preview\}/);
+  // Sign-in, joining and legal pages (the platform's and a coach's own
+  // address) use the same footer with the entry on.
+  const publicPages = await web("components/public-pages.tsx");
+  assert.match(publicPages, /<SubscriberFooter\s/);
+  assert.doesNotMatch(publicPages, /analytics=\{false\}/);
   const workspace = await web("components/workspace.tsx");
-  assert.match(
-    workspace,
-    /<footer className="public-footer">[\s\S]*className="analytics-footer-link"\s+data-analytics-preferences=""[\s\S]*<\/footer>/,
-  );
   // The member app's settings: the privacy card holds the analytics switch.
   assert.match(
     workspace,
     /<Card id="privacy">\s*<h2>\{sub \? "Privacy and your data" : "Your data"\}<\/h2>[\s\S]*?<AnalyticsSetting \/>\s*<\/Card>/,
   );
-  // The member app's own footer offers no analytics control.
+  // The member app's own footers offer no analytics control: the workspace
+  // footer and the member shell's laptop footer (components/member-shell.tsx).
   const memberFooter =
     /<footer className="workspace-footer">([\s\S]*?)<\/footer>/.exec(workspace);
   assert.ok(memberFooter);
   assert.doesNotMatch(memberFooter[1], /analytics/i);
+  const shell = await web("components/member-shell.tsx");
+  const shellFooter =
+    /<footer className="member-footer">([\s\S]*?)<\/footer>/.exec(shell);
+  assert.ok(shellFooter);
+  assert.doesNotMatch(shellFooter[1], /analytics/i);
   // The marketing footer keeps its entry (marketing text is unchanged).
   const frame = await web("components/marketing/frame.tsx");
   assert.match(

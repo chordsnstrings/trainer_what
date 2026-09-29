@@ -103,10 +103,15 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   `/join/*`, `/terms`, …) render through the workspace's public screens.
   The page passes the proxy's `x-trainer-site-slug` down
   (`requestOrigin().coachSlug`), and `components/public-header.tsx` then
-  shows the trainer's identity inside `TrainerTheme`, "Sign in" and "Join
-  coaching" (`/join-coach/<slug>`), never the trainsyou lockup or the
-  "Teach your AI" sign-up link that coach addresses refuse; the card's
-  "New to …? Get started" becomes "New here? Join coaching". Those pages'
+  shows the trainer's identity inside `TrainerTheme` in a compact bar with
+  "Sign in" and "Join coaching" (`/join-coach/<slug>`), never the trainsyou
+  lockup or the "Teach your AI" sign-up link that coach addresses refuse;
+  the sign-in page ends with "New here? Join <coach>". A coach's join page
+  and an invitation on the platform address get the same coach header
+  (joining pages leave out "Join coaching"), and every subscriber page has
+  the subscriber footer (`components/subscriber-footer.tsx`), never the
+  trainer-marketing footer (docs/features/phone-first.md, "Public, joining
+  and sign-in pages"). Those pages'
   title, description, icons and browser colour are the trainer's, not the
   platform's B2B description.
 - **Social previews**: the brand's home page uses the supplied share card;

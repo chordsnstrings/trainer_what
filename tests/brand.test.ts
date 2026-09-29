@@ -286,8 +286,20 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
   assert.match(page, /<Workspace[\s\S]*coachSlug=\{coachSlug\}/);
   const workspace = await source("components/workspace.tsx");
   assert.match(workspace, /<Public\s+path=\{path\}\s+platform=\{platform\}\s+coachSlug=\{coachSlug\}/);
-  assert.match(workspace, /<PublicHeader/);
   assert.doesNotMatch(workspace, /<MarketingHeader/);
+  // The public pages moved to components/public-pages.tsx.
+  const publicPages = await source("components/public-pages.tsx");
+  assert.match(publicPages, /<PublicHeader/);
+  assert.doesNotMatch(publicPages, /<MarketingHeader/);
+  // Joining pages drop "Join coaching" (the page is the join flow).
+  for (const path of ["/join-coach/alex-morgan", "/join/" + "t".repeat(40)]) {
+    const joining = render({ slug: "alex-morgan", host: false, trainer }, path);
+    assert.doesNotMatch(joining, /Join coaching|\/brand\/|trainsyou/, path);
+    assert.match(joining, /Alex Morgan/);
+  }
+  // An invitation still being read: a coach header without a home link.
+  const reading = render({ slug: "", host: false, trainer: null }, "/join/" + "t".repeat(40));
+  assert.doesNotMatch(reading, /Teach your AI|href="\/join-coach\//);
   assert.match(await source("components/discovery-server.ts"), /x-trainer-site-slug/);
 });
 
@@ -297,7 +309,10 @@ test("platform surfaces carry .platform-ui; trainer-branded ones never show the 
   // works in the platform identity.
   assert.match(workspace, /<TrainerTheme className="workspace member-shell"/);
   assert.match(workspace, /<PlainShell className="workspace platform-ui">/);
-  assert.match(workspace, /coach \? "public" : "public platform-ui"/);
+  assert.match(
+    await source("components/public-pages.tsx"),
+    /coach \? "public" : "public platform-ui"/,
+  );
   assert.match(workspace, /<PlatformLogo name=\{platformName\} \/>/);
   // The loading screen may belong to a trainer's member app: no platform mark.
   assert.doesNotMatch(workspace, /brand-mark">b\./);

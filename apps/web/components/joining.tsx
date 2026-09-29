@@ -1,8 +1,19 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Field } from "./field";
 import { leaveSession } from "./offline-queue";
+import { AuthPage } from "./auth-page";
+import { StickyActionBar } from "./phone-ui";
+import { SocialSignIn } from "./social-sign-in";
+import {
+  JoiningClosedNote,
+  LegalAcceptance,
+  acceptanceGiven,
+  legalPlan,
+  useLegalStatus,
+  type LegalStatus,
+} from "./legal-acceptance";
 
 /** Joining a trainer: invitation acceptance, the owner's invitation list, and coach switching. */
 async function api(
@@ -37,6 +48,16 @@ const day = (value?: string | null) =>
       })
     : "—";
 
+/** "6 Oct 2026" for subscriber-facing invitation text. */
+const inviteDay = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
+
 type Preview = {
   coach: { name: string; slug: string };
   role: string;
@@ -56,6 +77,262 @@ type Preview = {
   };
 };
 
+type JoinMode = "new" | "existing";
+export type JoinFields = {
+  mode: JoinMode;
+  name?: string;
+  email: string;
+  password: string;
+  code?: string;
+};
+
+/**
+ * "I'm new here" or "I already have an account", as two full-width choice
+ * cards (a title and one short line each), so neither label wraps on a
+ * 360 px phone. The radios keep keyboard and screen reader behaviour.
+ */
+export function JoinAccountChoice({
+  mode,
+  onChange,
+}: {
+  mode: JoinMode;
+  onChange: (mode: JoinMode) => void;
+}) {
+  const choices: Array<[JoinMode, string, string]> = [
+    ["new", "I’m new here", "Create a new account"],
+    ["existing", "I already have an account", "Use the password you have"],
+  ];
+  return (
+    <fieldset className="join-choice">
+      <legend className="sr-only">Do you already have an account?</legend>
+      {choices.map(([value, title, note]) => (
+        <label
+          key={value}
+          className={`join-choice-card${mode === value ? " is-selected" : ""}`}
+        >
+          <input
+            type="radio"
+            name="join-account"
+            value={value}
+            checked={mode === value}
+            onChange={() => onChange(value)}
+          />
+          <span>
+            <strong>{title}</strong>
+            <small>{note}</small>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Plain wording for the joining errors people can act on. */
+export function joinErrorMessage(
+  error: { code?: string; message: string },
+  mode: JoinMode,
+) {
+  if (error.code === "INVALID_LOGIN")
+    return mode === "new"
+      ? "An account already uses this email address. Choose “I already have an account” and enter its password."
+      : "That password does not match the account for this email address.";
+  if (
+    error.code === "LEGAL_PENDING" ||
+    error.code === "LEGAL_PUBLICATION_REQUIRED"
+  )
+    return "Joining opens once the platform publishes its approved terms. Please try again later.";
+  if (error.code === "TRAINER_UNAVAILABLE" || error.code === "WORKSPACE_CLOSED")
+    return "This coach is not taking new members online right now.";
+  return error.message;
+}
+
+/**
+ * The signed-out joining form shared by a coach's join page
+ * (/join-coach/<name>) and an invitation (/join/<link>): the account choice,
+ * one column of fields (labels above, 16 px text, the right keyboard and
+ * autofill), the terms acceptance for published documents only, and the
+ * main action in a StickyActionBar on phones (inline from 768 px). A new
+ * account never sees an authenticator field; an existing one sees it only
+ * when the API asks for it.
+ */
+export function AccountJoinForm({
+  formId,
+  coachName,
+  newNote,
+  gateOpen = true,
+  closedUntil,
+  submit,
+  onJoined,
+  social,
+  legal,
+}: {
+  /** The platform's legal status (useLegalStatus), loaded by the page. */
+  legal: LegalStatus | null;
+  formId: string;
+  coachName: string;
+  /** One line under the choice for a new account. */
+  newNote: string;
+  /** An extra gate beside the legal status (an invitation's legalOpen). */
+  gateOpen?: boolean;
+  /** Shown while joining is closed, e.g. an invitation's expiry date. */
+  closedUntil?: string;
+  submit: (fields: JoinFields) => Promise<unknown>;
+  onJoined: () => Promise<void> | void;
+  /** Apple and Google buttons, given whether the terms are accepted. */
+  social?: (accepted: boolean) => ReactNode;
+}) {
+  const [mode, setMode] = useState<JoinMode>("new"),
+    [agreed, setAgreed] = useState(false),
+    [needCode, setNeedCode] = useState(false),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const plan = legalPlan(legal);
+  const open = gateOpen && plan.open;
+  const accepted = acceptanceGiven(plan, agreed);
+  const blocked = !open
+    ? "Joining opens once the platform publishes its terms."
+    : !accepted
+      ? "Tick the box above to accept the terms."
+      : "";
+  const label = busy ? "Joining…" : `Join ${coachName}`;
+  return (
+    <>
+      <form
+        id={formId}
+        className="join-form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!open || !accepted) return;
+          const f = new FormData(e.currentTarget);
+          setBusy(true);
+          setError("");
+          try {
+            await submit({
+              mode,
+              ...(mode === "new" ? { name: String(f.get("name") ?? "") } : {}),
+              email: String(f.get("email") ?? ""),
+              password: String(f.get("password") ?? ""),
+              ...(f.get("code") ? { code: String(f.get("code")) } : {}),
+            });
+            await onJoined();
+          } catch (err) {
+            const failure = err as { code?: string; message: string };
+            if (failure.code === "MFA_REQUIRED" && mode === "existing") {
+              setNeedCode(true);
+              setError("");
+            } else setError(joinErrorMessage(failure, mode));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <JoinAccountChoice
+          mode={mode}
+          onChange={(next) => {
+            setMode(next);
+            setNeedCode(false);
+            setError("");
+          }}
+        />
+        <p className="muted join-form-note">
+          {mode === "new"
+            ? newNote
+            : "No new account is created, and any other coaches you have stay as they are."}
+        </p>
+        {error && (
+          <p className="notice error" role="alert">
+            {error}
+          </p>
+        )}
+        {mode === "new" && (
+          <Field label="Your name">
+            <input
+              name="name"
+              autoComplete="name"
+              autoCapitalize="words"
+              enterKeyHint="next"
+              required
+              minLength={2}
+              maxLength={100}
+            />
+          </Field>
+        )}
+        <Field label="Email address">
+          <input
+            name="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="next"
+            required
+          />
+        </Field>
+        <Field label={mode === "new" ? "Create a password" : "Password"}>
+          <input
+            name="password"
+            type="password"
+            minLength={12}
+            maxLength={128}
+            autoComplete={mode === "new" ? "new-password" : "current-password"}
+            enterKeyHint={needCode ? "next" : "done"}
+            aria-describedby={mode === "new" ? `${formId}-password-hint` : undefined}
+            required
+          />
+        </Field>
+        {mode === "new" && (
+          <small className="field-hint" id={`${formId}-password-hint`}>
+            At least 12 characters.
+          </small>
+        )}
+        {needCode && (
+          <>
+            <p className="notice" role="status">
+              Your account uses an authenticator app. Enter its current
+              6-digit code to finish joining.
+            </p>
+            <Field label="Authenticator code">
+              <input
+                name="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                enterKeyHint="done"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+                autoFocus
+              />
+            </Field>
+          </>
+        )}
+        {open ? (
+          <LegalAcceptance plan={plan} checked={agreed} onChange={setAgreed} />
+        ) : (
+          <JoiningClosedNote until={closedUntil} />
+        )}
+        <div className="join-inline-submit">
+          <button className="button" type="submit" disabled={busy || !!blocked}>
+            {label}
+          </button>
+          {blocked && <p className="control-reason">{blocked}</p>}
+        </div>
+      </form>
+      {social?.(open && accepted)}
+      <StickyActionBar label="Join" note={blocked || undefined}>
+        <button
+          className="button"
+          type="submit"
+          form={formId}
+          disabled={busy || !!blocked}
+        >
+          {label}
+        </button>
+      </StickyActionBar>
+    </>
+  );
+}
+
 /**
  * Shown on /join/<link>. A signed-in account invited by its own address
  * joins with one click; a signed-out person creates an account or signs in
@@ -64,106 +341,101 @@ type Preview = {
 export function InvitationJoin({
   token,
   onAuthenticated,
+  onCoach,
 }: {
   token: string;
   onAuthenticated: () => Promise<void>;
+  /** Tells the page whose invitation this is, for the coach's header. */
+  onCoach?: (coach: { name: string; slug: string }) => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [mode, setMode] = useState<"new" | "existing">("new"),
     [agreed, setAgreed] = useState(false);
+  const legal = useLegalStatus();
+  const plan = legalPlan(legal);
   const load = useCallback(() => {
     setError("");
     api("/invitations/preview", "POST", { token }).then(setPreview, (e) =>
       setError(
         e.code === "INVALID_INVITE"
-          ? "This invitation link is not valid. Ask your coach for a new invitation."
+          ? "This invitation link is not valid. Ask your coach to send a new invitation."
           : e.message,
       ),
     );
   }, [token]);
   useEffect(load, [load]);
+  const coachName = preview?.coach.name,
+    coachSlug = preview?.coach.slug;
+  useEffect(() => {
+    if (coachName && coachSlug) onCoach?.({ name: coachName, slug: coachSlug });
+  }, [coachName, coachSlug, onCoach]);
+  const signIn = (
+    <p className="auth-return">
+      <Link className="text-link" href="/login">
+        Sign in to your coaching
+      </Link>
+    </p>
+  );
   if (error && !preview)
     return (
-      <div className="join-panel">
-        <p className="notice error" role="alert">
+      <AuthPage title="This invitation can’t be opened">
+        <p className="notice" role="alert">
           {error}
         </p>
-        <p>
-          <Link className="text-link" href="/login">
-            Sign in to your coaching space
-          </Link>
-        </p>
-      </div>
+        {signIn}
+      </AuthPage>
     );
   if (!preview)
     return (
-      <p className="muted" role="status">
-        Checking your invitation…
-      </p>
+      <AuthPage title="Your invitation">
+        <p className="muted" role="status">
+          Checking your invitation…
+        </p>
+      </AuthPage>
     );
-  const closed = preview.status !== "pending";
-  const coachName = preview.coach.name;
-  if (closed)
+  const name = preview.coach.name;
+  if (preview.status !== "pending")
     return (
-      <div className="join-panel" data-testid="invitation-closed">
-        <p className="notice" role="status">
-          {preview.status === "accepted"
-            ? `This invitation to ${coachName} has already been used.`
+      <AuthPage
+        title={
+          preview.status === "accepted"
+            ? "This invitation was already used"
             : preview.status === "expired"
-              ? `This invitation to ${coachName} has expired. Ask your coach to send a new one.`
+              ? "This invitation has expired"
               : preview.replaced
-                ? `This link was replaced by a newer invitation from ${coachName}. Use the most recent link.`
-                : `${coachName} cancelled this invitation.`}
-        </p>
-        <p>
-          <Link className="text-link" href="/login">
-            Sign in to your coaching space
-          </Link>
-        </p>
-      </div>
+                ? "There is a newer invitation"
+                : "This invitation was cancelled"
+        }
+      >
+        <div data-testid="invitation-closed">
+          <p className="notice" role="status">
+            {preview.status === "accepted"
+              ? `This invitation to ${name} has already been used. If it was you, sign in to continue.`
+              : preview.status === "expired"
+                ? `This invitation to ${name} has expired. Ask ${name} to send a new one.`
+                : preview.replaced
+                  ? `${name} sent you a newer invitation. Use the link in the most recent email.`
+                  : `${name} cancelled this invitation. Ask ${name} if you still want to join.`}
+          </p>
+          {signIn}
+        </div>
+      </AuthPage>
     );
-  const legalNote = !preview.legalOpen && (
-    <p className="notice" role="status">
-      Joining opens once the platform publishes its approved terms. Your
-      invitation stays valid until {day(preview.expiresAt)}.
-    </p>
-  );
-  const accept = (
-    <label className="check-field">
-      <input
-        type="checkbox"
-        checked={agreed}
-        onChange={(e) => setAgreed(e.target.checked)}
-        required
-      />
-      <span>
-        I accept the published <Link href="/terms">terms</Link>,{" "}
-        <Link href="/privacy">privacy policy</Link> and{" "}
-        <Link href="/ai-disclosure">digital coaching disclosure</Link>.
-      </span>
-    </label>
-  );
-  const heading = (
-    <div className="join-summary">
-      <p className="eyebrow">INVITATION</p>
-      <h3>Join {coachName}</h3>
-      <p className="muted">
-        {preview.role === "subscriber"
-          ? "Coaching invitation"
-          : "Team invitation"}{" "}
-        for {preview.invitedEmail} · valid until {day(preview.expiresAt)}
-      </p>
-    </div>
-  );
+  const until = inviteDay(preview.expiresAt);
+  const open = preview.legalOpen && plan.open;
+  const accepted = acceptanceGiven(plan, agreed);
+  const intro =
+    preview.role === "subscriber"
+      ? `${name} invited you to coaching. The invitation is for ${preview.invitedEmail} and works until ${until}.`
+      : `${name} invited you to join their team. The invitation is for ${preview.invitedEmail} and works until ${until}.`;
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setError("");
     try {
       return (await fn()) !== false;
     } catch (e) {
-      setError((e as Error).message);
+      setError(joinErrorMessage(e as Error & { code?: string }, "existing"));
       return false;
     } finally {
       setBusy(false);
@@ -187,77 +459,103 @@ export function InvitationJoin({
       leave,
     });
   };
+  const errorNotice = error && (
+    <p className="notice error" role="alert">
+      {error}
+    </p>
+  );
   if (preview.viewer.signedIn) {
     const v = preview.viewer;
     if (v.alreadyMember)
       return (
-        <div className="join-panel">
-          {heading}
-          <p className="notice success" role="status">
-            You already belong to {coachName}. Switch to it from “Your coaches”
-            in your app.
+        <AuthPage title={`You already belong to ${name}`}>
+          <p>
+            Open your app to continue. If you have more than one coach, switch
+            to {name} from “Switch coach” in the app.
           </p>
-          <Link className="button" href="/app">
+          <Link className="button auth-primary" href="/app">
             Open my app
           </Link>
-        </div>
+        </AuthPage>
       );
-    if (v.emailMatches && preview.role === "subscriber")
+    if (v.emailMatches && preview.role === "subscriber") {
+      const blocked = !open
+        ? "Joining opens once the platform publishes its terms."
+        : !accepted
+          ? "Tick the box above to accept the terms."
+          : "";
+      const label = busy ? "Joining…" : `Join ${name}`;
       return (
-        <form
-          className="join-panel"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const ok = await run(() =>
-              leaveCurrent(
-                () =>
-                  api("/invitations/accept-signed-in", "POST", {
-                    token,
-                    accepted: true,
-                  }),
-                "Join",
-              ),
-            );
-            if (ok) window.location.assign("/app?joined=1");
-          }}
-        >
-          {heading}
-          {legalNote}
-          {error && (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          )}
-          <p>
-            You’re signed in as <strong>{v.name}</strong> ({v.email}). Join with
-            this account. Your other coaches stay available and you can switch
-            between them at any time.
-          </p>
-          {accept}
-          <button
-            className="button"
-            type="submit"
-            disabled={busy || !agreed || !preview.legalOpen}
+        <AuthPage title={`Join ${name}`} intro={intro} wide>
+          <form
+            id="invitation-join-form"
+            className="join-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (blocked) return;
+              const ok = await run(() =>
+                leaveCurrent(
+                  () =>
+                    api("/invitations/accept-signed-in", "POST", {
+                      token,
+                      accepted: true,
+                    }),
+                  "Join",
+                ),
+              );
+              if (ok) window.location.assign("/app?joined=1");
+            }}
           >
-            {busy ? "Joining…" : `Join ${coachName}`}
-          </button>
-        </form>
+            {errorNotice}
+            <p>
+              You’re signed in as <strong>{v.name}</strong>{" "}
+              <span className="ltr-data">({v.email})</span>. Join with this
+              account. Your other coaches stay available and you can switch
+              between them at any time.
+            </p>
+            {open ? (
+              <LegalAcceptance
+                plan={plan}
+                checked={agreed}
+                onChange={setAgreed}
+              />
+            ) : (
+              <JoiningClosedNote until={until} />
+            )}
+            <div className="join-inline-submit">
+              <button
+                className="button"
+                type="submit"
+                disabled={busy || !!blocked}
+              >
+                {label}
+              </button>
+              {blocked && <p className="control-reason">{blocked}</p>}
+            </div>
+          </form>
+          <StickyActionBar label="Join" note={blocked || undefined}>
+            <button
+              className="button"
+              type="submit"
+              form="invitation-join-form"
+              disabled={busy || !!blocked}
+            >
+              {label}
+            </button>
+          </StickyActionBar>
+        </AuthPage>
       );
+    }
     return (
-      <div className="join-panel">
-        {heading}
+      <AuthPage title={`Join ${name}`} intro={intro}>
         <p className="notice" role="status">
           {preview.role === "subscriber"
-            ? `You’re signed in as ${v.email}, but this invitation is for ${preview.invitedEmail}. Sign out, then open this link again with the invited account, or ask your coach to invite ${v.email}.`
+            ? `You’re signed in as ${v.email}, but this invitation is for ${preview.invitedEmail}. Sign out, then open this link again with the invited account, or ask ${name} to invite ${v.email}.`
             : "Team invitations are accepted with your password. Sign out, then open this link again."}
         </p>
-        {error && (
-          <p className="notice error" role="alert">
-            {error}
-          </p>
-        )}
+        {errorNotice}
         <button
-          className="button secondary"
+          className="button secondary auth-primary"
           type="button"
           disabled={busy}
           onClick={() =>
@@ -273,98 +571,34 @@ export function InvitationJoin({
         >
           Sign out and continue
         </button>
-      </div>
+      </AuthPage>
     );
   }
   return (
-    <form
-      className="join-panel"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        const ok = await run(() =>
+    <AuthPage title={`Join ${name}`} intro={intro} wide>
+      <AccountJoinForm
+        legal={legal}
+        formId="invitation-join-form"
+        coachName={name}
+        newNote="Create your account with the email address the invitation was sent to."
+        gateOpen={preview.legalOpen}
+        closedUntil={until}
+        submit={(f) =>
           api("/invitations/accept", "POST", {
             token,
-            email: f.get("email"),
-            password: f.get("password"),
+            email: f.email,
+            password: f.password,
             accepted: true,
-            ...(mode === "new" ? { name: f.get("name") } : {}),
-            ...(f.get("code") ? { code: f.get("code") } : {}),
-          }),
-        );
-        if (ok) await onAuthenticated();
-      }}
-    >
-      {heading}
-      {legalNote}
-      <div className="join-mode" role="radiogroup" aria-label="Account">
-        <label className={mode === "new" ? "selected" : ""}>
-          <input
-            type="radio"
-            name="mode"
-            checked={mode === "new"}
-            onChange={() => setMode("new")}
-          />
-          I’m new here
-        </label>
-        <label className={mode === "existing" ? "selected" : ""}>
-          <input
-            type="radio"
-            name="mode"
-            checked={mode === "existing"}
-            onChange={() => setMode("existing")}
-          />
-          I already have an account
-        </label>
-      </div>
-      <p className="muted">
-        {mode === "new"
-          ? "Create your account with the email address your coach invited."
-          : "Sign in with your existing password. No new account is created, and your other coaches stay available."}
-      </p>
-      {error && (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
-      )}
-      {mode === "new" && (
-        <Field label="Your name">
-          <input name="name" autoComplete="name" required minLength={2} />
-        </Field>
-      )}
-      <Field label="Email address">
-        <input name="email" type="email" autoComplete="email" required />
-      </Field>
-      <Field label="Password">
-        <input
-          name="password"
-          type="password"
-          minLength={12}
-          autoComplete={mode === "new" ? "new-password" : "current-password"}
-          required
-        />
-      </Field>
-      {mode === "new" ? (
-        <small className="muted">At least 12 characters.</small>
-      ) : (
-        <Field label="Authenticator code (if enabled)">
-          <input
-            name="code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-          />
-        </Field>
-      )}
-      {accept}
-      <button
-        className="button"
-        type="submit"
-        disabled={busy || !agreed || !preview.legalOpen}
-      >
-        {busy ? "Opening your workspace…" : `Join ${coachName}`}
-      </button>
-    </form>
+            ...(f.mode === "new" ? { name: f.name } : {}),
+            ...(f.code ? { code: f.code } : {}),
+          })
+        }
+        onJoined={onAuthenticated}
+        social={(given) => (
+          <SocialSignIn intent="invite" inviteToken={token} accepted={given} />
+        )}
+      />
+    </AuthPage>
   );
 }
 

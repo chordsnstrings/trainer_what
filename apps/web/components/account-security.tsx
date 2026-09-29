@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { AuthPage, ReturnToSignIn } from "./auth-page";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/auth/" + path, {
     method: body ? "POST" : "GET",
@@ -171,19 +172,22 @@ export function AccountRecovery({ path }: { path: string }) {
     [busy, setBusy] = useState(false),
     [complete, setComplete] = useState(false);
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT</p>
-        <h1>
-          {verify
-            ? "Verify your email."
-            : reset
-              ? "Choose a new password."
-              : "Get back to your coaching space."}
-        </h1>
-      </section>
-      <section className="card">
-        <h2>{verify ? "Email verification" : "Password recovery"}</h2>
+    <AuthPage
+      title={
+        verify
+          ? "Verify your email"
+          : reset
+            ? "Choose a new password"
+            : "Reset your password"
+      }
+      intro={
+        verify
+          ? "Confirm that this email address is yours."
+          : reset
+            ? "Use at least 12 characters. You will sign in with it next time."
+            : "Enter the email address you sign in with. If it has an account, we’ll email you a link to choose a new password."
+      }
+    >
         {message && (
           <p className="notice" role="status">
             {message}
@@ -231,8 +235,10 @@ export function AccountRecovery({ path }: { path: string }) {
                 <input
                   name={reset ? "password" : "email"}
                   type={reset ? "password" : "email"}
+                  inputMode={reset ? undefined : "email"}
                   minLength={reset ? 12 : undefined}
                   autoComplete={reset ? "new-password" : "email"}
+                  enterKeyHint={reset ? "done" : "send"}
                   required
                 />
               </label>
@@ -246,12 +252,7 @@ export function AccountRecovery({ path }: { path: string }) {
             </button>
           </form>
         )}
-        <p className="auth-return">
-          <a className="text-link" href="/login">
-            Return to sign in
-          </a>
-        </p>
-      </section>
-    </main>
+        <ReturnToSignIn />
+    </AuthPage>
   );
 }

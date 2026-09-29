@@ -55,8 +55,10 @@ identifier). After it:
 **Changing the answer later** is possible only from:
 
 - a plain footer link "Analytics preferences" on public pages: the
-  marketing footer (unchanged), the coach website footer and the footer of
-  sign-in, joining and legal pages on a coach's own address. It opens the
+  marketing footer (unchanged) and the shared subscriber footer
+  (`components/subscriber-footer.tsx`) on the coach directory, the coach
+  website (not in the trainer's private preview) and sign-in, joining and
+  legal pages. It opens the
   preferences sheet (`ConsentSheet`): a native modal `<dialog>` that is a
   bottom sheet on phones (full width, rounded top corners, safe-area
   padding, contained overscroll) and a centred 480 px dialog from 760 px.
@@ -70,8 +72,9 @@ identifier). After it:
   "Privacy and your data"): "Optional site analytics" shows "On for this
   browser." or "Off for this browser." and one button, "Turn on analytics"
   or "Turn off analytics" (`AnalyticsSetting`). The trainer workspace's
-  settings card "Your data" carries the same switch. The member app's own
-  footer has no analytics control.
+  settings card "Your data" carries the same switch; the member app's More
+  list links "Privacy and your data" to this card. The member app's own
+  footers have no analytics control.
 
 A choice in one control reaches the others at once (the
 `analytics-preference-change` event) and other tabs through storage. The

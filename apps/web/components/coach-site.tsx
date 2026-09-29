@@ -4,7 +4,11 @@ import { Field } from "./field";
 import { offerTermsText } from "./programme-offers";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrainerTheme, CoachIdentity, CoachCover } from "./trainer-design";
+import { TrainerTheme, CoachIdentity } from "./trainer-design";
+import { resolveBrandDesign } from "@trainer/contracts";
+import { AtSign, Mail, MessageCircle, PlayCircle } from "lucide-react";
+import { StickyActionBar } from "./phone-ui";
+import { SubscriberFooter } from "./subscriber-footer";
 import { coachAppLinks } from "./app-routes";
 import { InquirySource } from "./lead-analytics";
 import { PageLanguage } from "./document-direction";
@@ -822,6 +826,77 @@ export function WebsiteStudio({
   );
 }
 
+/** Initials for a coach without a photo or logo. */
+function initialsOf(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+/**
+ * A coach photo, or an intentional placeholder in the coach's colours (their
+ * initials on a tinted panel) when there is no photo or it fails to load.
+ * Both keep the same box, so nothing shifts while the image loads.
+ */
+function SitePortrait({
+  src,
+  name,
+  className = "",
+}: {
+  src: string;
+  name: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState("");
+  return src && failed !== src ? (
+    <img
+      className={`site-portrait ${className}`}
+      src={src}
+      alt={name}
+      width={480}
+      height={600}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(src)}
+    />
+  ) : (
+    <div className={`site-portrait is-placeholder ${className}`} aria-hidden="true">
+      <span>{initialsOf(name)}</span>
+    </div>
+  );
+}
+
+/** A wide cover image, or nothing (the hero stands on its own). */
+function SiteCover({ src }: { src: string }) {
+  const [failed, setFailed] = useState("");
+  if (!src || failed === src) return null;
+  return (
+    <img
+      className="site-cover"
+      src={src}
+      alt=""
+      width={1200}
+      height={675}
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(src)}
+    />
+  );
+}
+
+/**
+ * A coach's public website, phone first (docs/features/phone-first.md,
+ * "Coach website"): a compact header with the coach's identity and a
+ * sideways-scrolling page row, one column of content with 16 px gutters,
+ * and the main action (join, or contact while no plans are listed) in a
+ * sticky bar at the bottom on phones. From 768 px the action moves into the
+ * page and the header. The coach's own text follows its own direction.
+ */
 export function CoachWebsite({
   initialData,
   path = "",
@@ -836,6 +911,7 @@ export function CoachWebsite({
 }) {
   const [data, setData] = useState<any>(initialData ?? null),
     [message, setMessage] = useState(""),
+    [sent, setSent] = useState(false),
     [busy, setBusy] = useState(false),
     [next, setNext] = useState<number | null>(
       initialData?.galleries?.length === 24 ? 24 : null,
@@ -861,6 +937,7 @@ export function CoachWebsite({
       current = false;
     };
   }, [initialData, preview]);
+  useEffect(() => setSent(false), [path]);
   if (!data)
     return (
       <main className="coach-website">
@@ -871,19 +948,67 @@ export function CoachWebsite({
     base = preview ? "/trainer/website/preview" : `/coach/${tenant.slug}`,
     section = path.split("/").filter(Boolean)[0] ?? "",
     join = `/join-coach/${tenant.slug}`;
+  const design = resolveBrandDesign(tenant.theme);
+  const name: string = tenant.name;
   const custom = (site.pages ?? []).find(
       (p: any) => p.slug === section && p.visible,
     ),
     // The coach's own text follows its own direction inside either layout.
-    paragraph = (v: string) => (
-      <div className="site-prose" dir="auto">
+    paragraph = (v: string, className = "") => (
+      <div className={`site-prose ${className}`} dir="auto">
         {v}
       </div>
     );
+  const intro = String(site.introduction || tenant.theme?.bio || "").trim();
+  // The About text, unless it only repeats the home introduction.
+  const aboutText = String(site.about || design.coachBio || "").trim();
+  const about = aboutText && aboutText !== intro ? aboutText : "";
+  const products: any[] = data.products ?? [];
+  const hasPlans = products.length > 0;
+  const contact = `${base}/contact`;
+  const known = ["", "about", "memberships", "galleries", "contact"];
+  const missing = !!section && !custom && !known.includes(section);
+  // One main action per page: joining once plans are listed (from the
+  // memberships page straight to the join form), otherwise a message.
+  const primary = !hasPlans
+    ? { label: `Contact ${name}`, href: contact }
+    : section === "memberships"
+      ? { label: `Join ${name}`, href: join }
+      : { label: site.cta || "Start coaching", href: `${base}/memberships` };
+  const secondary =
+    hasPlans && section !== "contact"
+      ? { label: "Contact", href: contact }
+      : null;
   // Public pages use the server-resolved language (the visitor's choice, else
   // the website's); the private preview shows the draft's own language.
   const pageLanguage =
     (preview ? null : language) ?? parseLanguage(site.language) ?? "en";
+  const links: Array<[string, string, string]> = [
+    ["", base, "Home"],
+    ["about", `${base}/about`, "About"],
+    ["memberships", `${base}/memberships`, "Memberships"],
+    ["galleries", `${base}/galleries`, "Galleries"],
+    ...(site.pages ?? [])
+      .filter((p: any) => p.visible)
+      .map((p: any): [string, string, string] => [
+        p.slug,
+        `${base}/${p.slug}`,
+        p.title,
+      ]),
+    ["contact", contact, "Contact"],
+  ];
+  const inlineActions = (
+    <div className={`site-actions${preview ? " is-preview" : ""}`}>
+      <Link className="button" href={primary.href}>
+        {primary.label}
+      </Link>
+      {secondary && (
+        <Link className="button secondary" href={secondary.href}>
+          {secondary.label}
+        </Link>
+      )}
+    </div>
+  );
   return (
     <TrainerTheme
       theme={tenant.theme}
@@ -892,138 +1017,223 @@ export function CoachWebsite({
     >
       {!preview && <PageLanguage language={pageLanguage} />}
       <header className="site-header">
-        <Link href={base}>
-          <CoachIdentity name={tenant.name} theme={tenant.theme} />
+        <Link href={base} className="site-identity">
+          <CoachIdentity name={name} theme={tenant.theme} compact />
         </Link>
-        <nav aria-label="Coach website">
-          <Link href={base}>Home</Link>
-          <Link href={`${base}/about`}>About</Link>
-          <Link href={`${base}/memberships`}>Memberships</Link>
-          <Link href={`${base}/galleries`}>Galleries</Link>
-          {(site.pages ?? [])
-            .filter((p: any) => p.visible)
-            .map((p: any) => (
-              <Link key={p.slug} href={`${base}/${p.slug}`}>
-                {p.title}
-              </Link>
-            ))}
-          <Link href={`${base}/contact`}>Contact</Link>
+        <nav aria-label="Coach website" className="site-nav">
+          {links.map(([key, href, label]) => (
+            <Link
+              key={key || "home"}
+              href={href}
+              aria-current={key === section ? "page" : undefined}
+              dir="auto"
+            >
+              {label}
+            </Link>
+          ))}
         </nav>
+        {!preview && section !== "contact" && (
+          <Link className="button site-header-action" href={primary.href}>
+            {primary.label}
+          </Link>
+        )}
       </header>
       {preview && (
-        <p className="notice">
+        <p className="notice site-preview-note">
           Private preview of your saved draft.{" "}
           <Link href="/trainer/website">Return to website editor</Link>
         </p>
       )}
-      <main>
+      <main id="main">
         {!section && (
           <>
-            <CoachCover theme={tenant.theme} />
             <section className="site-hero">
+              <SiteCover src={design.coverUrl} />
               <p className="eyebrow">
                 {tenant.theme?.category || "PERSONAL COACHING"}
               </p>
-              <h1>
+              <h1 dir="auto">
                 {site.headline ||
                   tenant.theme?.headline ||
-                  `Train with ${tenant.name}.`}
+                  `Train with ${name}.`}
               </h1>
-              {paragraph(site.introduction || tenant.theme?.bio || "")}
-              <Link className="button" href={`${base}/memberships`}>
-                {site.cta}
-              </Link>
+              {intro && paragraph(intro, "site-lead")}
+              {inlineActions}
             </section>
-            <section className="site-split">
-              <div>
-                <h2>Built around your next chapter.</h2>
-                {paragraph(
-                  (site.about || tenant.theme?.design?.coachBio || "").slice(
-                    0,
-                    1200,
-                  ),
-                )}
-                <Link href={`${base}/about`}>
-                  Meet your coach{" "}
+            <section className="site-meet" aria-labelledby="site-meet-title">
+              <SitePortrait src={design.photoUrl} name={name} />
+              <div className="site-meet-text">
+                <h2 id="site-meet-title">Meet your coach</h2>
+                {about
+                  ? paragraph(
+                      about.length > 420 ? about.slice(0, 400).trimEnd() + "…" : about,
+                      "site-excerpt",
+                    )
+                  : design.tagline && <p dir="auto">{design.tagline}</p>}
+                <Link className="site-more" href={`${base}/about`}>
+                  More about {name}{" "}
                   <span className="bidi-mirror" aria-hidden="true">
                     →
                   </span>
                 </Link>
               </div>
-              {tenant.theme?.design?.photoUrl && (
-                <img src={tenant.theme.design.photoUrl} alt={tenant.name} />
-              )}
+            </section>
+            <section className="site-steps" aria-labelledby="site-steps-title">
+              <h2 id="site-steps-title">How to start</h2>
+              <ol>
+                {hasPlans ? (
+                  <li>
+                    <strong>Choose a plan.</strong> See what each membership
+                    includes and costs.
+                  </li>
+                ) : (
+                  <li>
+                    <strong>Send a message.</strong> Ask {name} about coaching,
+                    prices and times; the reply comes by email.
+                  </li>
+                )}
+                <li>
+                  <strong>Create your account.</strong> It takes a minute on
+                  your phone.
+                </li>
+                <li>
+                  <strong>Train with {name}.</strong> Your plan, coach chat and
+                  progress are in one app.
+                </li>
+              </ol>
             </section>
           </>
         )}
         {section === "about" && (
-          <section>
-            <h1>Meet {tenant.name}.</h1>
-            {paragraph(site.about || tenant.theme?.bio || "")}
+          <section className="site-about">
+            <SitePortrait
+              src={design.photoUrl}
+              name={name}
+              className="is-large"
+            />
+            <div>
+              <h1>Meet {name}.</h1>
+              {design.tagline && (
+                <p className="site-tagline" dir="auto">
+                  {design.tagline}
+                </p>
+              )}
+              {about ? (
+                paragraph(about)
+              ) : (
+                <p className="muted">
+                  {name} hasn’t written more about their coaching here yet.
+                  Send a question and {name} will reply by email.
+                </p>
+              )}
+              {inlineActions}
+            </div>
           </section>
         )}
         {section === "memberships" && (
-          <section>
+          <section className="site-memberships">
             <h1>Find your coaching plan.</h1>
-            <div className="site-grid">
-              {(data.products ?? []).map((p: any) => (
-                <article className="card" key={p.id}>
-                  <p className="eyebrow">
-                    {p.data.tier === "workout_nutrition"
-                      ? "WORKOUT + NUTRITION"
-                      : "WORKOUT"}
+            {hasPlans ? (
+              <>
+                <p className="muted site-subtitle">
+                  Join {name} first; you choose your plan in the app.
+                </p>
+                <ul className="site-plans">
+                  {products.map((p: any) => {
+                    const terms = offerTermsText(p.data);
+                    return (
+                      <li key={p.id}>
+                        <article className="card site-plan">
+                          <p className="eyebrow">
+                            {p.data.tier === "workout_nutrition"
+                              ? "WORKOUT + NUTRITION"
+                              : "WORKOUT"}
+                          </p>
+                          <h2 dir="auto">{p.data.name}</h2>
+                          {p.data.description && (
+                            <p dir="auto">{p.data.description}</p>
+                          )}
+                          <p className="site-price">
+                            <span dir="ltr">{terms.price}</span>
+                          </p>
+                          <p className="muted">{terms.length}</p>
+                          {terms.voice && <p className="muted">{terms.voice}</p>}
+                          {p.data.trialDays > 0 && (
+                            <p>
+                              {p.data.trialDays}-day trial for eligible new
+                              members.
+                            </p>
+                          )}
+                        </article>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {preview ? (
+                  <p className="muted">
+                    Membership signup is available on the published website.
                   </p>
-                  <h2>{p.data.name}</h2>
-                  <p>{p.data.description}</p>
-                  <p className="site-price">
-                    <span dir="ltr">{offerTermsText(p.data).price}</span>
-                  </p>
-                  <p>{offerTermsText(p.data).length}</p>
-                  {p.data.trialDays > 0 && (
-                    <p>
-                      {p.data.trialDays}-day trial for eligible new members.
-                    </p>
-                  )}
-                  {preview ? (
-                    <p className="muted">
-                      Membership signup is available on the published website.
-                    </p>
-                  ) : (
-                    <Link className="button" href={join}>
-                      {site.cta}
-                    </Link>
-                  )}
-                </article>
-              ))}
-            </div>
-            {!data.products?.length && (
-              <p>
-                Membership details are being prepared.{" "}
-                <Link href={`${base}/contact`}>Contact your coach</Link>.
-              </p>
+                ) : (
+                  inlineActions
+                )}
+              </>
+            ) : (
+              <div className="site-empty" role="status">
+                <h2>Plans are not listed yet</h2>
+                <p>
+                  {name} hasn’t published membership plans on this website yet.
+                  Send a message to ask about coaching, prices and times; {name}{" "}
+                  replies by email.
+                </p>
+                {inlineActions}
+              </div>
             )}
           </section>
         )}
         {section === "galleries" && (
-          <section>
+          <section className="site-galleries">
             <h1>Life around the training.</h1>
             {data.galleries.map((g: any) => (
-              <article key={g.id}>
-                <h2>{g.title}</h2>
-                <p>{g.description}</p>
-                <div className="photo-grid">
+              <article key={g.id} className="site-gallery">
+                <h2 dir="auto">{g.title}</h2>
+                {g.description && <p dir="auto">{g.description}</p>}
+                <div className="photo-grid site-photos">
                   {g.photos.map((p: any) => (
                     <figure key={p.media_id}>
-                      <img src={p.url} alt={p.alt} loading="lazy" />
-                      {p.caption && <figcaption>{p.caption}</figcaption>}
+                      <img
+                        src={p.url}
+                        alt={p.alt}
+                        width={800}
+                        height={600}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      {p.caption && (
+                        <figcaption dir="auto">{p.caption}</figcaption>
+                      )}
                     </figure>
                   ))}
                 </div>
               </article>
             ))}
-            {!data.galleries.length && <p>Photos are on their way.</p>}
+            {!data.galleries.length && (
+              <div className="site-empty" role="status">
+                <div className="site-empty-art" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <h2>No photos yet</h2>
+                <p>
+                  {name} hasn’t shared any galleries yet. Their training
+                  photos will appear here.
+                </p>
+              </div>
+            )}
             {next !== null && (
               <button
+                type="button"
+                className="button secondary site-more-galleries"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
@@ -1045,149 +1255,219 @@ export function CoachWebsite({
                   }
                 }}
               >
-                More galleries
+                {busy ? "Loading…" : "More galleries"}
               </button>
             )}
           </section>
         )}
         {section === "contact" && (
           <section className="site-contact">
-            <div>
-              <h1>Let’s talk about your goals.</h1>
-              {site.contactEmail && (
+            <h1>Let’s talk about your goals.</h1>
+            <p className="muted site-subtitle">
+              Send {name} a message and you’ll get a reply by email.
+            </p>
+            {(site.contactEmail ||
+              site.whatsapp ||
+              site.instagram ||
+              site.youtube) && (
+              <ul className="site-contact-links" aria-label={`Other ways to reach ${name}`}>
+                {site.contactEmail && (
+                  <li>
+                    <a href={`mailto:${site.contactEmail}`}>
+                      <Mail size={18} aria-hidden="true" />
+                      <span dir="ltr">{site.contactEmail}</span>
+                    </a>
+                  </li>
+                )}
+                {site.whatsapp && (
+                  <li>
+                    <a
+                      href={`https://wa.me/${site.whatsapp.slice(1)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <MessageCircle size={18} aria-hidden="true" />
+                      Chat on WhatsApp
+                    </a>
+                  </li>
+                )}
+                {site.instagram && (
+                  <li>
+                    <a href={site.instagram} target="_blank" rel="noopener noreferrer">
+                      <AtSign size={18} aria-hidden="true" />
+                      Instagram
+                    </a>
+                  </li>
+                )}
+                {site.youtube && (
+                  <li>
+                    <a href={site.youtube} target="_blank" rel="noopener noreferrer">
+                      <PlayCircle size={18} aria-hidden="true" />
+                      YouTube
+                    </a>
+                  </li>
+                )}
+              </ul>
+            )}
+            {sent ? (
+              <div className="card site-sent" role="status">
+                <h2>Message sent</h2>
                 <p>
-                  <a href={`mailto:${site.contactEmail}`} dir="ltr">
-                    {site.contactEmail}
-                  </a>
+                  {name} has your message and will reply to the email address
+                  you gave.
                 </p>
-              )}
-              {site.whatsapp && (
-                <p>
-                  <a
-                    href={`https://wa.me/${site.whatsapp.slice(1)}`}
-                    rel="noopener noreferrer"
-                  >
-                    Chat on WhatsApp
-                  </a>
-                </p>
-              )}
-              {site.instagram && (
-                <p>
-                  <a href={site.instagram} rel="noopener noreferrer">
-                    Instagram
-                  </a>
-                </p>
-              )}
-              {site.youtube && (
-                <p>
-                  <a href={site.youtube} rel="noopener noreferrer">
-                    YouTube
-                  </a>
-                </p>
-              )}
-            </div>
-            <form
-              className="card"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (preview) {
-                  setMessage("Publish your website to receive real inquiries.");
-                  return;
-                }
-                const f = new FormData(e.currentTarget);
-                setBusy(true);
-                try {
-                  await api(`/public/sites/${tenant.slug}/contact`, "POST", {
-                    name: f.get("name"),
-                    email: f.get("email"),
-                    message: f.get("message"),
-                    consent: f.get("consent") === "on",
-                    website: f.get("website"),
-                  });
-                  setMessage("Your message is with your coach.");
-                } catch (e) {
-                  setMessage((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <Field label="Your name">
-                <input name="name" required maxLength={100} />
-              </Field>
-              <Field label="Email">
-                <input name="email" type="email" required />
-              </Field>
-              <Field label="How can we help?">
-                <textarea
-                  name="message"
-                  minLength={10}
-                  maxLength={4000}
-                  required
-                  rows={5}
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setSent(false)}
+                >
+                  Send another message
+                </button>
+              </div>
+            ) : (
+              <form
+                id="coach-contact-form"
+                className="card site-contact-form"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (preview) {
+                    setMessage("Publish your website to receive real inquiries.");
+                    return;
+                  }
+                  const form = e.currentTarget;
+                  const f = new FormData(form);
+                  setBusy(true);
+                  setMessage("");
+                  try {
+                    await api(`/public/sites/${tenant.slug}/contact`, "POST", {
+                      name: f.get("name"),
+                      email: f.get("email"),
+                      message: f.get("message"),
+                      consent: f.get("consent") === "on",
+                      website: f.get("website"),
+                    });
+                    form.reset();
+                    setSent(true);
+                  } catch (e) {
+                    setMessage((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Field label="Your name">
+                  <input
+                    name="name"
+                    autoComplete="name"
+                    autoCapitalize="words"
+                    enterKeyHint="next"
+                    required
+                    maxLength={100}
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    name="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    enterKeyHint="next"
+                    required
+                  />
+                </Field>
+                <Field label="How can we help?">
+                  <textarea
+                    name="message"
+                    minLength={10}
+                    maxLength={4000}
+                    required
+                    rows={5}
+                    aria-describedby="contact-message-hint"
+                  />
+                </Field>
+                <small className="field-hint" id="contact-message-hint">
+                  At least 10 characters. Leave out health details; share them
+                  with your coach after you join.
+                </small>
+                <input
+                  name="website"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  className="site-honeypot"
                 />
-              </Field>
-              <input
-                name="website"
-                aria-hidden="true"
-                tabIndex={-1}
-                autoComplete="off"
-                className="site-honeypot"
-              />
-              <label className="check">
-                <input name="consent" type="checkbox" required />I agree to be
-                contacted about my inquiry.
-              </label>
-              <button disabled={busy}>
-                {busy
-                  ? "Sending…"
-                  : preview
-                    ? "Preview inquiry"
-                    : "Send message"}
-              </button>
-            </form>
+                <label className="check-field site-consent">
+                  <input name="consent" type="checkbox" required />
+                  <span>I agree to be contacted about my inquiry.</span>
+                </label>
+                {message && (
+                  <p className="notice error" role="alert">
+                    {message}
+                  </p>
+                )}
+                <div className={`site-actions${preview ? " is-preview" : ""}`}>
+                  <button className="button" type="submit" disabled={busy}>
+                    {busy
+                      ? "Sending…"
+                      : preview
+                        ? "Preview inquiry"
+                        : "Send message"}
+                  </button>
+                </div>
+              </form>
+            )}
           </section>
         )}
         {custom && (
-          <section>
-            <h1>{custom.title}</h1>
+          <section className="site-page">
+            <h1 dir="auto">{custom.title}</h1>
             {paragraph(custom.body)}
           </section>
         )}
-        {section &&
-          !custom &&
-          !["about", "memberships", "galleries", "contact"].includes(
-            section,
-          ) && (
-            <section>
-              <h1>Page not found.</h1>
-              <Link href={base}>Return home</Link>
-            </section>
-          )}
-        <Notice message={message} />
+        {missing && (
+          <section className="site-page">
+            <h1>Page not found.</h1>
+            <Link className="button secondary" href={base}>
+              Return home
+            </Link>
+          </section>
+        )}
+        {section !== "contact" && <Notice message={message} />}
       </main>
-      <footer className="site-footer">
-        <span>
-          © {new Date().getFullYear()} {tenant.name}
-        </span>
-        <nav>
-          <Link href="/terms">Terms</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/ai-disclosure">Digital coaching</Link>
-          {!preview && <Link href="/login">Member login</Link>}
-          {/* Opens the analytics preferences (components/acquisition.tsx);
-              the only way back to them after a visitor's first answer. */}
-          {!preview && (
+      <SubscriberFooter
+        name={name}
+        coach
+        directory={false}
+        signIn={!preview}
+        analytics={!preview}
+      />
+      {!preview && !missing && !(section === "contact" && sent) && (
+        <StickyActionBar label={`${name} actions`}>
+          {section === "contact" ? (
             <button
-              type="button"
-              className="analytics-footer-link"
-              data-analytics-preferences=""
+              className="button"
+              type="submit"
+              form="coach-contact-form"
+              disabled={busy}
             >
-              Analytics preferences
+              {busy ? "Sending…" : "Send message"}
             </button>
+          ) : (
+            <>
+              {secondary && (
+                <Link className="button secondary" href={secondary.href}>
+                  {secondary.label}
+                </Link>
+              )}
+              <Link className="button" href={primary.href}>
+                {primary.label}
+              </Link>
+            </>
           )}
-        </nav>
-      </footer>
+        </StickyActionBar>
+      )}
     </TrainerTheme>
   );
 }
