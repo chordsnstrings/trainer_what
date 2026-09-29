@@ -17,8 +17,14 @@ import {
   screenSafety,
 } from "../packages/domain/src/safety-policy.ts";
 import { parseVoiceCommand } from "../packages/domain/src/voice-runner.ts";
-import { phraseIssues } from "../packages/domain/src/text-screen.ts";
 import {
+  compiledRuleFlags,
+  cueIssues,
+  modelCueIssues,
+  phraseIssues,
+} from "../packages/domain/src/text-screen.ts";
+import {
+  checkinsAllowAdjustment,
   NutritionBlocked,
   nutritionRedFlags,
   nutritionTarget,
@@ -462,11 +468,260 @@ test("the floor stays fast on long and adversarial input", () => {
     "knee ".repeat(800) + "locked",
     "blood pressure " + "1/".repeat(1500),
     ("I heard a pop in my knee. ".repeat(150) + "no swelling ").slice(0, 4000),
+    // Whitespace runs after a glucose word used to backtrack quadratically.
+    "my sugar" + " ".repeat(4000),
+    "السكر" + " ".repeat(4000),
+    "السكر" + " ".repeat(16000) + "٦٥",
+    "blood pressure" + " \n".repeat(4000) + "180",
   ];
   const started = performance.now();
   for (const text of inputs) redFlagCategories(text);
   assert.ok(
     performance.now() - started < 1500,
     `took ${performance.now() - started} ms`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review round (29 September 2026): gaps and false positives found in the
+// first version of the extended floor.
+// ---------------------------------------------------------------------------
+const held = (cases: Array<[string, RedFlagCategory]>) => {
+  for (const [text, category] of cases)
+    assert.ok(
+      hasCategory(text, category),
+      `${text}: ${JSON.stringify(redFlagCategories(text))}`,
+    );
+};
+const routine = (texts: string[]) => {
+  for (const text of texts) assert.deepEqual(redFlagCategories(text), [], text);
+};
+
+test("self-harm is held in its -ing and past forms, not in effort idioms or session cues", () => {
+  held([
+    ["I keep thinking about killing myself", "self_harm"],
+    ["I've been thinking about ending my life", "self_harm"],
+    ["I'm thinking of ending it all", "self_harm"],
+    ["I've thought about taking my own life", "self_harm"],
+    ["I don't see the point in living anymore", "self_harm"],
+    ["I feel like ending it", "self_harm"],
+    ["I feel like ending it, I'm so tired of everything", "self_harm"],
+    ["What's the point of living", "self_harm"],
+    ["I want to disappear forever", "self_harm"],
+    ["أفكر في قتل نفسي", "self_harm"],
+    ["أفكر في إنهاء حياتي", "self_harm"],
+    ["ما أشوف فايدة من الحياة", "self_harm"],
+  ]);
+  routine([
+    "I've been killing myself in the gym",
+    "killing myself on these workouts",
+    "End it with a 5 minute walk",
+    "Let's end it here for today",
+    "I feel like ending it early today, I'm tired",
+    "I'm taking my life back one workout at a time",
+    "I want to disappear on holiday for a week",
+  ]);
+});
+
+test("bare sugar with a number is a reading when a symptom, diabetes, a meter or a unit is named", () => {
+  held([
+    [
+      "Sugar was 65 before training and I felt shaky. Should I still train?",
+      "blood_sugar",
+    ],
+    ["sugar 55 and shaky", "blood_sugar"],
+    ["Checked my sugar, it was 52 before training", "blood_sugar"],
+    ["My sugar, 65 before training. Felt shaky.", "blood_sugar"],
+    ["I'm diabetic and my sugar was 300 after dinner", "blood_sugar"],
+    ["sugar 45 mg/dl", "blood_sugar"],
+  ]);
+  // Food sugar in grams uses the same numbers.
+  routine([
+    "I cut added sugar to under 25",
+    "Keep added sugar under 25 a day",
+    "sugar 20 per serving",
+    "This bar: sugar 12, protein 20",
+    "I tested sugar-free gum",
+  ]);
+});
+
+test("a single systolic or diastolic number after a blood-pressure word is read; lifts are not", () => {
+  held([
+    [
+      "My blood pressure was 180 this morning and I have a pounding headache. Should I do the session?",
+      "blood_pressure",
+    ],
+    ["BP 180 this morning and a pounding headache", "blood_pressure"],
+    ["ضغطي ١٨٠ الصبح وعندي صداع قوي", "blood_pressure"],
+    ["ضغطي واصل ١٨٠ وراسي ثقيل", "blood_pressure"],
+    ["My systolic was 180 this morning", "blood_pressure"],
+    ["ضغطي ١٧٥ و ١٠٥ وعندي صداع", "blood_pressure"],
+    ["My pressure was 185 this morning", "blood_pressure"],
+    ["diastolic 105", "blood_pressure"],
+    ["My blood pressure was 140 and I have a headache", "blood_pressure"],
+  ]);
+  routine([
+    "My blood pressure was 130 this morning",
+    "bench press 180 lbs",
+    "bp 100kg for 5 reps",
+    "ضغط صدر ١٠٠ كيلو",
+    "ضغط كتف ١٦٠ و ١٠٠ كيلو",
+    "تمارين الضغط ٢٠ عدة",
+    "heart rate 180 during intervals",
+    "leg press 180/120 feels heavy, pressure on knees",
+  ]);
+});
+
+test("a locked knee is held without a determiner, by pronoun, as 'knee joint', after can't-without, and in Gulf swelling words", () => {
+  held([
+    ["Knee locked", "joint_injury"],
+    [
+      "Something's wrong with my knee. It locked on the stairs yesterday.",
+      "joint_injury",
+    ],
+    ["Can't straighten my knee since it locked", "joint_injury"],
+    ["the knee joint locks up", "joint_injury"],
+    ["I can't squat without my knee locking up", "joint_injury"],
+    ["I can't walk without my knee giving way", "joint_injury"],
+    ["Locked knee after my walk yesterday.", "joint_injury"],
+    ["I rolled my ankle and it's swollen", "joint_injury"],
+    ["ركبتي وارمة من أمس", "joint_injury"],
+    ["ركبتي وارمه ومو قادر أثنيها", "joint_injury"],
+    ["ركبتي نافخة", "joint_injury"],
+    ["قفلت علي ركبتي وأنا أنزل الدرج", "joint_injury"],
+  ]);
+  routine([
+    "Squat without your knees locking out",
+    "Press until it locks out, elbows soft",
+    "My phone locked and my knee is fine",
+    "I rolled my ankle on a foam roller to loosen it",
+  ]);
+});
+
+test("eating-disorder relapse, stopping eating and a very low stated intake are held", () => {
+  held([
+    ["My bulimia is back.", "eating_disorder"],
+    ["I think the bulimia is coming back", "eating_disorder"],
+    ["My anorexia is back in full force", "eating_disorder"],
+    ["I'm slipping back into bulimia", "eating_disorder"],
+    ["رجعت للبوليميا", "eating_disorder"],
+    ["بديت أرجع أتقيأ", "eating_disorder"],
+    ["رجع لي الاستفراغ", "eating_disorder"],
+    ["I feel like I'm slipping back.", "eating_disorder"],
+    ["I've stopped eating", "eating_disorder"],
+    ["I'm only eating 600 calories", "eating_disorder"],
+    ["I'm eating 500 kcal a day", "eating_disorder"],
+    ["آكل ٦٠٠ سعرة باليوم بس", "eating_disorder"],
+    ["I haven't eaten anything in three days", "eating_disorder"],
+    ["I've been fasting for days to lose weight", "eating_disorder"],
+    ["I'm not eating and training twice a day", "eating_disorder"],
+  ]);
+  routine([
+    "History of bulimia, in recovery.",
+    "I had anorexia back in 2015 and I'm fully recovered",
+    "Relapse prevention: stay consistent",
+    "Stop eating after 8pm",
+    "When you're 80% full, stop eating",
+    "I stopped eating bread",
+    "Eat 300 calories before training",
+    "This yoghurt is only 120 calories",
+    "I ate 500 calories at breakfast",
+    "I'm eating 2000 calories a day",
+    "I burned 600 calories",
+    "My squat is slipping back",
+  ]);
+});
+
+test("routine Gulf messages are not read as relapse, fasting as starving, or a gym press as blood pressure", () => {
+  routine([
+    "الحمد لله رجعت للوضع الطبيعي",
+    "رجعت للحاله الطبيعيه بعد الإجازة",
+    "رجعت لعاداتي القديمة في التمرين",
+    "I'm back to my old habits of training at night",
+    "صايم اليوم وما أكلت شي من الفجر، أتمرن قبل الفطور؟",
+    "I'm fasting and haven't eaten anything since dawn, can I train before iftar?",
+    "I'm fasting today, eating nothing until sunset",
+    "ما اكلت شي من الصبح وأبي أتمرن",
+    "I'm skipping meals twice a day due to fasting in Ramadan",
+    "سويت ضغط صدر عالي مره وحده اليوم",
+    "Type 2 sets were tough and I'm sweating",
+  ]);
+  // Relapse wording with food, and not eating for days, are still held.
+  held([
+    ["رجعت لعاداتي القديمة في الأكل وأفوت الوجبات", "eating_disorder"],
+    ["ما اكلت شي من يومين", "eating_disorder"],
+    ["ضغطي مرتفع مره اليوم", "blood_pressure"],
+  ]);
+});
+
+test("coaching cues are not red flags, so trainer cues, rules and automatic replies are kept", () => {
+  const cues = [
+    "Squeeze and hold the contraction at the top for a second",
+    "I can't feel the contraction in my back on rows",
+    "Feel the squeeze in the chest at the top of the fly",
+    "Don't let your knees buckle",
+    "Spotting is recommended for heavy bench",
+    "Spotting from a partner is safer on heavy sets",
+    "Keep your knees locked at the top",
+    "Stand with knees locked and hinge forward",
+    "Avoid letting your knee give way into valgus",
+    "Hold the contractions at the top",
+    "Feel the contraction in your lats",
+  ];
+  for (const cue of cues) {
+    assert.deepEqual(redFlagCategories(cue), [], cue);
+    assert.ok(!cueIssues(cue).includes("red_flag"), cue);
+    assert.ok(!modelCueIssues(cue).includes("red_flag"), cue);
+    assert.ok(!phraseIssues(cue, 400).includes("red_flag"), cue);
+    assert.notEqual(parseVoiceCommand(cue).type, "pain", cue);
+  }
+  assert.deepEqual(
+    compiledRuleFlags({
+      title: "Curl tempo",
+      condition: "Any bicep curl",
+      directive: "Squeeze and hold the contraction at the top for one second.",
+    }),
+    [],
+  );
+  // The pregnancy and injury senses are still held.
+  held([
+    ["I'm 30 weeks pregnant and having contractions", "pregnancy_warning"],
+    ["I think I just had a contraction", "pregnancy_warning"],
+    ["I've been having contractions since this morning", "pregnancy_warning"],
+    ["I feel a contraction every few minutes", "pregnancy_warning"],
+    ["Is it normal to be spotting at 8 weeks?", "pregnancy_warning"],
+    ["It could be spotting, not sure", "pregnancy_warning"],
+    ["I feel a squeezing in my chest", "urgent"],
+    ["I have a squeezing pain in my chest", "pain"],
+    ["There is pressure in my chest", "urgent"],
+    ["tightness in the chest when I walk", "urgent"],
+    ["My knee buckled on the last set", "joint_injury"],
+    ["الطلق بدأ", "pregnancy_warning"],
+  ]);
+});
+
+test("check-ins with an eating-related red flag never drive an automatic calorie change", () => {
+  assert.equal(
+    checkinsAllowAdjustment([
+      { notes: "Hungry most evenings" },
+      { notes: "Busy week, skipped breakfast once." },
+      {},
+    ]),
+    true,
+  );
+  for (const notes of [
+    "I've been making myself sick after meals",
+    "آكل ٥٠٠ سعرة باليوم بس",
+    "I'm only eating 600 calories",
+  ])
+    assert.equal(
+      checkinsAllowAdjustment([{ notes: "Hungry most evenings" }, { notes }]),
+      false,
+      notes,
+    );
+  // A knee report alone does not stop a meal-plan calorie change.
+  assert.equal(
+    checkinsAllowAdjustment([{ notes: "Knee locked on the stairs" }]),
+    true,
   );
 });

@@ -408,6 +408,13 @@ export function nutritionRedFlags(texts: string[]) {
       if (nutritionFloorCategories.has(c)) found.add(c);
   return [...found];
 }
+/**
+ * Check-ins that may drive an automatic calorie change: none of their notes
+ * may carry an eating-related red flag, even one the coach has since reviewed.
+ */
+export function checkinsAllowAdjustment(checkins: Array<{ notes?: unknown }>) {
+  return !nutritionRedFlags(checkins.map((c) => String(c.notes ?? ""))).length;
+}
 export function nutritionTarget(
   policy: NutritionPolicy,
   profile: NutritionProfile,

@@ -64,7 +64,7 @@ const conditionCue =
   "[وف]?(?:عندما|حين|حينما|لما|وقت|اذا|لو|بعد|بعدين|ثم|قبل|الحين|الان|حاليا|امس|البارحه?|احيانا|مسكن(?:ات)?|دواء|ادويه|حبوب)";
 const symptomCue =
   "ach(?:e|es|ed|ing|y)|swell(?:s|ing)?|swollen|bruis(?:e|ed|es|ing)|sharp|stabbing|shooting|burning|throbb(?:ing|ed|s)?|twinges?|tweak(?:ed|ing)?|pop(?:s|ped|ping)?|click(?:s|ed|ing)?|gave\\s+(?:out|way)|giv(?:es|ing)\\s+(?:out|way)|tingl(?:e|es|ed|ing)|cramp(?:s|ed|ing)?|tender(?:ness)?|" +
-  "[وفب]?(?:ال)?(?:ورم|متورمه?|تورم|انتفاخ|منتفخه?|كدمه|كدمات|طقه|طقطقه|وخز|وخزه|حرقان|تشنج)";
+  "[وفب]?(?:ال)?(?:ورم|متورمه?|تورم|انتفاخ|منتفخه?|وارمه?|نافخه?|منفوخه?|كدمه|كدمات|طقه|طقطقه|وخز|وخزه|حرقان|تشنج)";
 // A sentence ends at ! ? ؟, a line break, or a full stop that is not a decimal point.
 const sentenceChar = "(?:[^.!?؟\\n]|\\.(?=\\p{N}))",
   sentenceEnd = "(?:[!?؟\\n]|\\.(?!\\p{N}))";
@@ -136,9 +136,9 @@ const has = (re: RegExp, text: string) => {
 // A negation just before a finding ("no swelling", "no pain or swelling",
 // "isn't swollen", "ما فيه ورم") reads it as absent. Only symptom words and
 // determiners may sit between the negation and the finding, so "not sure but
-// my knee is swollen" is still screened.
+// my knee is swollen" is still screened. Group 1 is the negating word.
 const NEGATED_PREFIX = new RegExp(
-  "(?:^|[^\\p{L}\\p{N}'])(?:no|not|without|zero|never|nor|hardly\\s+any|\\p{L}+n't|[وف]?" +
+  "(?:^|[^\\p{L}\\p{N}'])(no|not|without|zero|never|nor|hardly\\s+any|\\p{L}+n't|[وف]?" +
     ar(
       "(?:ما|لا|مو|مش|مب|ليس|ليست|بدون|بلا|ماكو|مافي|مافيه|ما\\s*في|ما\\s*فيه|لا\\s*يوجد|لا\\s*توجد|ما\\s*عندي|ماعندي|ولا|لم|لن|ما\\s*صار|ما\\s*حسيت\\s*ب|ما\\s*احس\\s*ب|ما\\s*لاحظت|ما\\s*شفت)",
     ) +
@@ -149,15 +149,66 @@ const NEGATED_PREFIX = new RegExp(
     ")?\\s*){0,3}$",
   "u",
 );
+// "I can't squat without my knee locking" says the finding happens every
+// time: "without" after a can't, never or unable clause is not a negation.
+const WITHOUT = new RegExp("^[وف]?(?:without|" + ar("بدون|بلا") + ")$", "u");
+const CANT_BEFORE = new RegExp(
+  "(?:^|[^\\p{L}\\p{N}'])(?:can'?t|cannot|can\\s+not|couldn'?t|could\\s+not|unable\\s+to|impossible\\s+to|hard\\s+to|never|" +
+    ar(
+      "(?:ما|لا|مو)\\s*(?:اقدر|اقدرت|قدرت|استطيع|استطعت|قادر|قادره|اعرف|عرفت)",
+    ) +
+    ")(?:\\s+[^\\s.!?؟,،;]+){0,5}\\s*$",
+  "u",
+);
+/** True when a negation just before `start` reads the finding as absent. */
+function negatedAt(text: string, start: number) {
+  const before = text.slice(Math.max(0, start - 60), start);
+  const m = NEGATED_PREFIX.exec(before);
+  if (!m) return false;
+  if (WITHOUT.test(m[1])) {
+    const at = m.index + m[0].indexOf(m[1]);
+    if (CANT_BEFORE.test(before.slice(0, at))) return false;
+  }
+  return true;
+}
 /** A match of `re` (global, group 1 = boundary) that no negation precedes. */
-function unnegated(re: RegExp, text: string) {
+function unnegated(
+  re: RegExp,
+  text: string,
+  skip?: (text: string, start: number) => boolean,
+) {
   re.lastIndex = 0;
   for (const m of text.matchAll(re)) {
     const start = m.index + (m[1]?.length ?? 0);
-    if (!NEGATED_PREFIX.test(text.slice(Math.max(0, start - 60), start)))
-      return true;
+    if (!negatedAt(text, start) && !skip?.(text, start)) return true;
   }
   return false;
+}
+// Coaching cues about a joint ("don't let your knees buckle", "keep your
+// knees locked", "with the elbows locked") describe form, not an injury: an
+// instruction just before the joint, or a let-not or avoid instruction
+// earlier in the same clause, reads the finding as a cue.
+const INSTRUCTION_JUST_BEFORE = new RegExp(
+  "(?:^|[^\\p{L}\\p{N}'])(?:(?:(?:don'?t|do\\s+not|never|not|try\\s+not\\s+to|careful\\s+not\\s+to)\\s+)?let(?:ting)?|avoid(?:ing)?|keep(?:ing)?|make\\s+sure)\\s+(?:(?:your|the|both|my|his|her|their)\\s+)?$|(?:^|[^\\p{L}\\p{N}'])with\\s+(?:(?:your|the|both)\\s+)?$|" +
+    ar(
+      "(?:^|[^\\p{L}\\p{N}])[وف]?(?:(?:لا|ما)\\s*(?:تخلي|تخلين|تخلون|تدع|تترك)|تجنب|خل|خلي)\\s+$",
+    ),
+  "u",
+);
+const INSTRUCTION_IN_CLAUSE = new RegExp(
+  "(?:^|[^\\p{L}\\p{N}'])(?:(?:don'?t|do\\s+not|never|try\\s+not\\s+to|careful\\s+not\\s+to)\\s+let|avoid(?:ing)?|" +
+    ar("(?:لا|ما)\\s*(?:تخلي|تخلين|تخلون|تدع|تترك)|تجنب") +
+    ")(?![\\p{L}\\p{N}])",
+  "u",
+);
+const CLAUSE_START =
+  /(?:[.!?؟;\n,،—–]|(?:^|[^\p{L}\p{N}'])(?:but|however|although|though|yet|so|because|لكن|بس))(?![\p{L}\p{N}])/gu;
+function instructed(text: string, start: number) {
+  const before = text.slice(Math.max(0, start - 80), start);
+  if (INSTRUCTION_JUST_BEFORE.test(before)) return true;
+  let from = 0;
+  for (const m of before.matchAll(CLAUSE_START)) from = m.index + m[0].length;
+  return INSTRUCTION_IN_CLAUSE.test(before.slice(from));
 }
 /** Arabic-Indic and extended Arabic-Indic digits read as Latin digits. */
 export function latinDigits(text: string) {
@@ -182,7 +233,8 @@ const englishWords: Record<
   urgent:
     "chest\\s+(?:pains?|tightness|pressure)|faint(?:s|ed|ing)?|pass(?:ed|es|ing)?\\s+out|black(?:ed|ing)?\\s+out|blackouts?|lost\\s+consciousness|unconscious|collaps(?:e|ed|es|ing)|dizz(?:y|iness)|light[\\s-]?headed(?:ness)?|vertigo|short(?:ness)?\\s+of\\s+breath|(?:can'?t|cannot|can\\s+not|couldn'?t|could\\s+not)\\s+breathe|hard\\s+to\\s+breathe|(?:trouble|difficulty|struggling)\\s+(?:to\\s+)?breath(?:e|ing)|palpitations?|irregular\\s+heart\\s*beats?|heart\\s+flutter(?:s|ing)?|heart\\s+attack|bleed(?:s|ing)?|bled|severe\\s+headache|seizures?|" +
     // Chest tightness and pressure in other word orders.
-    "(?:tight(?:ness)?|pressure|squeez(?:e|ing)|heaviness|discomfort|crushing)\\s+(?:in|on|across|around)\\s+(?:my|the)\\s+chest|(?:a|my)\\s+tight\\s+chest|chest\\s+(?:feels?|felt|is|was|gets?|got|went|has\\s+been|keeps?\\s+getting)\\s+(?:(?:really|very|so|a\\s+bit|a\\s+little|kind\\s+of|kinda|all)\\s+)?(?:tight|heavy|squeezed|crushed)|" +
+    // Squeeze and pressure need "my": "feel the squeeze in the chest" is a fly cue.
+    "(?:tight(?:ness)?|heaviness|discomfort|crushing)\\s+(?:in|on|across|around)\\s+(?:my|the)\\s+chest|(?:pressure|squeez(?:e|ing))\\s+(?:in|on|across|around)\\s+my\\s+chest|(?:a|my)\\s+tight\\s+chest|chest\\s+(?:feels?|felt|is|was|gets?|got|went|has\\s+been|keeps?\\s+getting)\\s+(?:(?:really|very|so|a\\s+bit|a\\s+little|kind\\s+of|kinda|all)\\s+)?(?:tight|heavy|squeezed|crushed)|" +
     // Breathlessness at rest or on minimal effort (not after a sprint).
     "(?:out\\s+of\\s+breath|breathless(?:ness)?|can'?t\\s+catch\\s+my\\s+breath|gasping(?:\\s+for\\s+(?:air|breath))?|wheez(?:e|es|ing))\\s+(?:\\p{L}+\\s+){0,3}?(?:at\\s+rest|while\\s+(?:resting|sitting|lying)|resting|sitting|lying|in\\s+bed|at\\s+night|doing\\s+nothing|watching\\s+tv|on\\s+the\\s+(?:sofa|couch)|walking\\s+(?:slowly|up\\s+(?:the\\s+)?stairs)|climbing\\s+(?:the\\s+)?stairs|talking)|(?:at\\s+rest|while\\s+(?:resting|sitting|lying)|sitting\\s+(?:down|still)|lying\\s+down|in\\s+bed|on\\s+the\\s+(?:sofa|couch)|doing\\s+nothing)\\s+(?:\\p{L}+\\s+){0,3}?(?:out\\s+of\\s+breath|breathless|gasping|wheezing)|" +
     // Heartbeat that is irregular (not merely fast after effort).
@@ -194,7 +246,16 @@ const englishWords: Record<
   pregnancy: "pregnan(?:t|cy)?|miscarr(?:y|iage|ied)",
   self_harm:
     "suicid(?:e|al)|self[\\s-]?harm(?:ing)?|kill\\s+myself|end\\s+my\\s+life|want\\s+to\\s+die|" +
-    "(?:hurt(?:ing)?|harm(?:ing)?|cut(?:ting)?|burn(?:ing)?)\\s+myself(?!\\s+(?:some\\s+)?(?:slack|a\\s+break|off|short|out|down|in|deadlifting|lifting|training))|(?:don'?t|do\\s+not|no\\s+longer)\\s+want\\s+to\\s+(?:live(?!\\s+(?:on|off|in|at|with|near|there|here|abroad|without))|be\\s+alive|be\\s+here\\s+anymore|exist|wake\\s+up(?!\\s+(?:early|at|so|before|for|to|in))|go\\s+on\\s+(?:living|anymore|like\\s+this))|no\\s+(?:reason|point)\\s+(?:to|in)\\s+(?:live|living|going\\s+on|being\\s+alive)|better\\s+off\\s+(?:dead|without\\s+me)|end\\s+it\\s+all|take\\s+my\\s+(?:own\\s+)?life|wish\\s+i\\s+(?:was|were)\\s+dead|wanna\\s+die",
+    // Other verb forms: "thinking about killing myself", "ending my life",
+    // "ending it all", "taking my own life". "Killing myself in the gym" is
+    // the effort idiom; "ending it" alone only after thinking or feel-like and
+    // at the end of a clause, since "end it with a stretch" is a cue.
+    "kill(?:ing|ed)\\s+myself(?!\\s+(?:in|at|on|with|during|doing|over)\\s+(?:(?:the|this|these|those|my|a|every|each)\\s+)?(?:gym|workouts?|training|sessions?|cardio|runs?|running|sets?|reps?|squats?|deadlifts?|legs?|leg\\s+day|intervals?|hiit|treadmill|bike|rower|stairs|class(?:es)?|program(?:me)?|hills?|sprints?|track|diet|macros)(?![\\p{L}\\p{N}]))|end(?:ing|ed)?\\s+my\\s+(?:own\\s+)?life|ending\\s+it\\s+all|" +
+    "(?:think(?:s|ing)?|thought|feel(?:s|ing)?\\s+like|felt\\s+like)\\s+(?:about\\s+|of\\s+)?(?:just\\s+)?end(?:ing)?\\s+it(?=\\s*(?:[.!?,;…]|$)|\\s+(?:all|already|forever|for\\s+good|tonight)(?![\\p{L}\\p{N}]))|" +
+    "taking\\s+my\\s+(?:own\\s+)?life(?!\\s+back)|took\\s+my\\s+own\\s+life|(?:don'?t|do\\s+not|can'?t|cannot|can\\s+not|no\\s+longer)\\s+see\\s+(?:the|any)\\s+point\\s+(?:in|of|to)\\s+(?:living|life|going\\s+on|being\\s+alive|anything(?:\\s+anymore)?|it\\s+all)|(?:what'?s|what\\s+is)\\s+the\\s+point\\s+(?:of|in)\\s+(?:living|going\\s+on|being\\s+alive)|" +
+    "(?:hurt(?:ing)?|harm(?:ing)?|cut(?:ting)?|burn(?:ing)?)\\s+myself(?!\\s+(?:some\\s+)?(?:slack|a\\s+break|off|short|out|down|in|deadlifting|lifting|training))|(?:don'?t|do\\s+not|no\\s+longer)\\s+want\\s+to\\s+(?:live(?!\\s+(?:on|off|in|at|with|near|there|here|abroad|without))|be\\s+alive|be\\s+here\\s+anymore|exist|wake\\s+up(?!\\s+(?:early|at|so|before|for|to|in))|go\\s+on\\s+(?:living|anymore|like\\s+this))|no\\s+(?:reason|point)\\s+(?:to|in)\\s+(?:live|living|going\\s+on|being\\s+alive)|better\\s+off\\s+(?:dead|without\\s+me)|end\\s+it\\s+all|take\\s+my\\s+(?:own\\s+)?life|wish\\s+i\\s+(?:was|were)\\s+dead|wanna\\s+die|" +
+    // Passive wishes not to exist ("I want to disappear forever"), not a holiday.
+    "(?:want|wanna|wish\\s+i\\s+could)\\s+(?:to\\s+)?(?:just\\s+)?disappear(?!\\s+(?:into|for\\s+(?:a|the)\\s+(?:bit|while|day|weekend|week|holidays?)|on\\s+(?:holiday|vacation)|to\\s+(?:the|a)\\s+))|wish\\s+i\\s+(?:was|were)n'?t\\s+(?:here|alive|around)|wish\\s+i\\s+(?:had\\s+)?never\\s+(?:been\\s+born|existed)",
 };
 // Arabic is already folded (see screeningText); clitics and the article may lead.
 const arabicWords: Record<
@@ -215,6 +276,8 @@ const arabicWords: Record<
   pregnancy: "حامل|حوامل|اجهاض",
   self_harm:
     "انتحار|[اي]نتحر|اقتل\\s*نفسي|انهي\\s*حياتي|اوذي\\s*نفسي|ايذاء\\s*(?:ال)?نفس|" +
+    // "thinking of killing myself / ending my life" (verbal nouns), "I see no point in living".
+    "قتل\\s*نفسي|انهاء\\s*حياتي|(?:ما|لا|مو)\\s*(?:اشوف|اري|اجد|لقيت)\\s*(?:اي\\s*)?(?:فايده|داعي|معني|سبب)\\s*(?:من|ل|في)\\s*(?:ال)?(?:حياه|حياتي|عيش|العيش)|" +
     "(?:ابي|ابغي|ابغا|اريد|ودي|بدي)\\s*(?:ان\\s*)?اموت(?!\\s*(?:من\\s*)?(?:ال)?(?:ضحك|جوع|تعب|حر|برد|وناسه|فرح|عطش|شوق|ملل|طفش))|اتمني\\s*(?:ال)?موت|اتمني\\s*(?:اني|لو)\\s*(?:اموت|ميت|مت)|(?:ما|لا|مو)\\s*(?:ابي|ابغي|اريد|ودي|بدي)\\s*(?:ان\\s*)?(?:(?:اعيش|احيا)(?!\\s*(?:علي|ع|ب|في|مع|بدون|هناك|هنا))|اكمل\\s*حياتي)|(?:اجرح|اضر|احرق)\\s*نفسي|جرحت\\s*نفسي|(?:ما\\s*(?:في|فيه|له)|لا\\s*يوجد)\\s*(?:فايده|داعي|معني)\\s*(?:من|ل)\\s*(?:ال)?(?:حياه|حياتي|عيش)|(?:تعبت|زهقت|مليت)\\s*من\\s*(?:ال)?حياه",
 };
 const wordScreens = (["pain", "urgent", "pregnancy", "self_harm"] as const).map(
@@ -241,30 +304,88 @@ const wordScreens = (["pain", "urgent", "pregnancy", "self_harm"] as const).map(
 // ---------------------------------------------------------------------------
 // Blood pressure
 // ---------------------------------------------------------------------------
+// The Arabic gym sense of "ضغط" (a press: "ضغط صدر", "تمارين الضغط") is set
+// apart before blood pressure is read, so "ضغط صدر عالي مره وحده" (incline
+// chest press, once) is not read as a very high pressure.
+const GYM_PRESS = new RegExp(
+  ar(
+    "(^|[^\\p{L}\\p{N}])(?:[وفبل]?(?:ال)?(?:تمرين|تمارين)\\s*(?:ال)?ضغط|[وفبل]?(?:ال)?ضغط\\s*(?:ال)?(?:صدر|كتف|اكتاف|رجل|رجلين|ارجل|بنش|دمبل|دامبل|بار|مائل|اوفرهيد|عسكري|جهاز|ارضي|سميث|امامي|خلفي|للصدر|للكتف|للاكتاف|للرجل|ضيق|واسع))(?![\\p{L}\\p{N}])",
+  ),
+  "gu",
+);
 const BP_CONTEXT = words(
-  "blood\\s*pressure|b\\.?\\s?p|systolic|diastolic|pressure|hypertensi\\p{L}*",
+  "blood\\s*pressure|b\\.?\\s?p|systolic|diastolic|pressure(?!\\s+(?:on|through|into|onto|against|under|off)(?![\\p{L}\\p{N}]))|hypertensi\\p{L}*",
   "ضغط(?:ي|ه|ها|نا|ك)?|انقباضي|انبساطي",
 );
-// "175/105", "175 over 105", "١٧٥ على ١٠٥": plausible readings only, so dates
-// and scores do not count.
-const BP_READING =
-  /(?:^|[^\d.,/])(\d{2,3})\s*(?:\/|\\|over|علي|فوق|-)\s*(\d{2,3})(?![\d/])/gu;
+// "175/105", "175 over 105", "١٧٥ على ١٠٥", "١٧٥ و ١٠٥": plausible readings
+// only, so dates, scores and weights do not count.
+const BP_READING = new RegExp(
+  "(?:^|[^\\d.,/])(\\d{2,3})\\s*(?:\\/|\\\\|over|" +
+    ar("علي|فوق|و") +
+    "|-)\\s*(\\d{2,3})(?![\\d/])(?!\\s*(?:kg|kgs|kilos?|lbs?|pounds?|reps?|x|" +
+    ar("كيلو|كجم|كغ|عدات|عده|تكرار") +
+    ")(?![\\p{L}]))",
+  "gu",
+);
+// A single number after a blood-pressure word ("my blood pressure was 180",
+// "ضغطي ١٨٠", "systolic 180"): group 2 is the value. The number must not start
+// a pair (read above) or carry a lift unit, so "bp 180 lbs" is not read.
+const BP_NUMBER_LINK =
+  "(?:is|was|were|has|had|been|at|of|around|about|reading|reads?|read|came|back|this|morning|today|tonight|now|still|went|gone|up|to|hit|reached|showed|showing|says|said|over|above|like|just|only|checked|measured|when|i|it|the|my|me|" +
+  ar(
+    "كان|كانت|صار|صارت|وصل|واصل|طلع|طالع|اليوم|الصبح|الصباح|الحين|امس|البارحه|عندي|علي|الي|فوق|تقريبا|حوالي|يقرا|يقول|هو|قاس|قست|قياس|قراءه|فيه|يوم",
+  ) +
+  ")";
+const BP_NUMBER_TAIL =
+  "(?![\\d.,]*\\d)(?!\\s*(?:\\/|\\\\|over|" +
+  ar("علي|فوق|و") +
+  "|-)\\s*\\d)(?!\\s*(?:kg|kgs|kilos?|lbs?|pounds?|x|reps?|sets?|%|bpm|km|miles?|minutes?|mins?|seconds?|secs?|times|days?|steps|" +
+  ar(
+    "كيلو|كجم|كغ|عدات|عده|تكرار|مجموعات|مجموعه|مره|مرات|نبضه|نبضات|دقيقه|دقايق|ثانيه|يوم|ايام|خطوه|خطوات",
+  ) +
+  ")(?![\\p{L}]))";
+const BP_SYSTOLIC = new RegExp(
+  B +
+    "(?:blood\\s*pressure|b\\.?\\s?p|systolic|top\\s+number|upper\\s+number|(?:my|his|her)\\s+pressure|" +
+    ar("[وفبل]?(?:ضغطي|ضغط\\s*(?:ال)?دم(?:ي)?|الضغط|(?:ال)?انقباضي)") +
+    ")(?:\\s*(?:[:=,-]\\s*)?" +
+    BP_NUMBER_LINK +
+    "){0,4}\\s*(?:[:=,-]\\s*)?(\\d{2,3})" +
+    BP_NUMBER_TAIL,
+  "gu",
+);
+const BP_DIASTOLIC = new RegExp(
+  B +
+    "(?:diastolic|bottom\\s+number|lower\\s+number|" +
+    ar("[وفبل]?(?:ال)?انبساطي") +
+    ")(?:\\s*(?:[:=,-]\\s*)?" +
+    BP_NUMBER_LINK +
+    "){0,4}\\s*(?:[:=,-]\\s*)?(\\d{2,3})" +
+    BP_NUMBER_TAIL,
+  "gu",
+);
+// "مره" after high is "very", but "مره وحده" is "once".
+const VERY_AR =
+  "(?:جدا|وايد|مره(?!\\s*(?:وحده|واحده|ثانيه|ثنتين|ثلاث|كل|في))|كثير|حيل|بزياده|بشكل\\s*(?:كبير|خطير))";
 const BP_VERY_HIGH = words(
   "(?:blood\\s*pressure|bp|pressure)\\s+(?:(?:is|was|has\\s+been|went|got|shot|spiked|reads?|reading|came\\s+back|this\\s+morning|today|still|now)\\s+){0,3}(?:really|very|super|dangerously|extremely|crazy|way|so|too)\\s+(?:high|elevated|up)|(?:blood\\s*pressure|bp)\\s+(?:(?:is|was|went|has|just)\\s+)?(?:through\\s+the\\s+roof|sky[\\s-]?high|spiked|spiking|skyrocket\\p{L}*)|(?:really|very|dangerously|extremely|super)\\s+high\\s+(?:blood\\s*pressure|bp)|hypertensive\\s+(?:crisis|emergency|urgency)",
-  "ضغط(?:ي|ه|ها)?\\s*(?:\\S+\\s+){0,2}?(?:مرتفع|عالي|طالع|رافع|مرتفعه|عاليه)\\s*(?:جدا|وايد|مره|كثير|حيل|بزياده|بشكل\\s*(?:كبير|خطير))|ارتفاع\\s*(?:شديد|حاد|كبير|مفاجئ|مفاجي)\\s*(?:في\\s*)?(?:ال)?ضغط",
+  "ضغط(?:ي|ه|ها)?\\s*(?:\\S+\\s+){0,2}?(?:مرتفع|عالي|طالع|رافع|مرتفعه|عاليه)\\s*" +
+    VERY_AR +
+    "|ارتفاع\\s*(?:شديد|حاد|كبير|مفاجئ|مفاجي)\\s*(?:في\\s*)?(?:ال)?ضغط",
 );
 // Warning symptoms that make any blood-pressure report urgent (chest pain and
 // nosebleeds are red flags on their own).
 const BP_SYMPTOM = words(
   "head\\s*aches?|headaches?|migraines?|(?:pounding|throbbing|splitting)\\s+head|head\\s+(?:is\\s+|was\\s+)?(?:pounding|throbbing|killing\\s+me)|(?:blurr(?:y|ed)|double|fuzzy)\\s+(?:vision|eyes?|sight)|vision\\s+(?:is\\s+|was\\s+|went\\s+|goes\\s+|gets\\s+|got\\s+)?(?:\\p{L}+\\s+)?(?:blurr\\p{L}*|fuzzy|dark|funny|weird|strange|spotty)|seeing\\s+(?:spots|stars|double|flashes|flashing)|nose\\s*bleeds?|nosebleeds?",
-  "صداع|زغلل\\p{L}*|(?:ال)?رؤيه\\s*(?:مشوشه|ضبابيه|مزدوجه|مغبشه)|نظري\\s*(?:مشوش|ضبابي|يزغلل|مغبش)|تشوش\\s*(?:في\\s*)?(?:ال)?(?:رؤيه|نظر)|اشوف\\s*(?:نجوم|نقاط|مزدوج|ضباب)|رعاف|راسي\\s*(?:ي|ت)?(?:عور|وجع|الم|ينبض|يدق|بينفجر|ينفجر|يعورني)|(?:وجع|الم)\\s*(?:في\\s*)?(?:ال)?راس(?:ي)?",
+  "صداع|زغلل\\p{L}*|(?:ال)?رؤيه\\s*(?:مشوشه|ضبابيه|مزدوجه|مغبشه)|نظري\\s*(?:مشوش|ضبابي|يزغلل|مغبش)|تشوش\\s*(?:في\\s*)?(?:ال)?(?:رؤيه|نظر)|اشوف\\s*(?:نجوم|نقاط|مزدوج|ضباب)|رعاف|راسي\\s*(?:ي|ت)?(?:عور|وجع|الم|ينبض|يدق|بينفجر|ينفجر|يعورني|ثقيل)|(?:وجع|الم|ثقل)\\s*(?:في\\s*)?(?:ال)?راس(?:ي)?",
 );
 // A raised or known high pressure: with a warning symptom it is a red flag.
 const BP_RAISED = words(
   "high\\s+blood\\s*pressure|hypertensi\\p{L}*|(?:blood\\s*pressure|bp|pressure)\\s+(?:(?:is|was|has\\s+been|went|got|feels?)\\s+){0,2}(?:high|up|elevated|raised)",
   "ضغط(?:ي|ه|ها)?\\s*(?:\\S+\\s+){0,1}?(?:مرتفع|عالي|طالع|رافع)(?:ه)?|ارتفاع\\s*(?:في\\s*)?(?:ال)?ضغط",
 );
-function bloodPressureFlag(t: string) {
+function bloodPressureFlag(text: string) {
+  const t = text.replace(GYM_PRESS, "$1 ");
   if (!has(BP_CONTEXT, t)) return false;
   if (has(BP_VERY_HIGH, t)) return true;
   let reading = false;
@@ -282,6 +403,18 @@ function bloodPressureFlag(t: string) {
       continue;
     if (systolic >= 160 || diastolic >= 100) return true;
     reading = true;
+  }
+  for (const [re, min, max, severe] of [
+    [BP_SYSTOLIC, 70, 300, 160],
+    [BP_DIASTOLIC, 30, 200, 100],
+  ] as const) {
+    re.lastIndex = 0;
+    for (const m of t.matchAll(re)) {
+      const value = Number(m[2]);
+      if (value < min || value > max) continue;
+      if (value >= severe) return true;
+      reading = true;
+    }
   }
   // Any reading, or a raised or known high pressure, with a warning symptom.
   return (reading || has(BP_RAISED, t)) && unnegated(BP_SYMPTOM, t);
@@ -310,21 +443,32 @@ const GLUCOSE_UNIT =
   ar("ملغ|مغ|مجم|ملجم|ملي\\s*مول|مليمول|ملم") +
   ")?";
 const GLUCOSE_NOT_UNIT =
-  "(?!\\s*(?:g|gr|grams?|kcal|cal|calories|%|percent|tsp|tbsp|teaspoons?|tablespoons?|spoons?|cubes?|days?|weeks?|months?|hours?|hrs?|minutes?|mins?|seconds?|times|x|kg|kgs|kilos?|lbs?|pounds?|sets?|reps?|km|miles?|steps|years?|yrs?|am|pm|" +
+  "(?!\\s*(?:g|gr|grams?|kcal|cal|calories|%|percent|tsp|tbsp|teaspoons?|tablespoons?|spoons?|cubes?|days?|weeks?|months?|hours?|hrs?|minutes?|mins?|seconds?|times|x|kg|kgs|kilos?|lbs?|pounds?|sets?|reps?|km|miles?|steps|years?|yrs?|am|pm|a\\s+day|per\\s+day|daily|/\\s*day|per\\s+(?:serving|portion|100|bar|can|bottle|cup|scoop|glass)|a\\s+(?:serving|portion|bar|can|bottle|cup|scoop|glass)|servings?|portions?|" +
   ar(
     "غرام|جرام|جم|غ|ملعقه|ملاعق|سعره|سعرات|يوم|ايام|اسبوع|ساعه|ساعات|دقيقه|دقايق|دقائق|مره|مرات|كيلو|كجم|سنه|سنوات|صباحا|مساء",
   ) +
   ")(?![\\p{L}]))";
-const GLUCOSE_READING = new RegExp(
-  B +
-    GLUCOSE_WORD +
-    "(?:\\s*[:=-]?\\s*" +
-    GLUCOSE_LINK +
-    "){0,5}\\s*[:=-]?\\s*(\\d{1,3}(?:[.,]\\d{1,2})?)(?![\\d.,]*\\d)\\s*" +
-    GLUCOSE_UNIT +
-    E +
-    GLUCOSE_NOT_UNIT,
-  "gu",
+// The separators are written so whitespace runs have one reading
+// (\s*(?:[:=,-]\s*)?), which keeps matching linear on padded input.
+const glucoseReading = (word: string) =>
+  new RegExp(
+    B +
+      word +
+      "(?:\\s*(?:[:=,-]\\s*)?" +
+      GLUCOSE_LINK +
+      "){0,5}\\s*(?:[:=,-]\\s*)?(\\d{1,3}(?:[.,]\\d{1,2})?)(?![\\d.,]*\\d)\\s*" +
+      GLUCOSE_UNIT +
+      E +
+      GLUCOSE_NOT_UNIT,
+    "gu",
+  );
+const GLUCOSE_READING = glucoseReading(GLUCOSE_WORD);
+// Bare "sugar" with a number ("Sugar was 65 before training") is a reading
+// when the message also names a glucose unit, diabetes, a hypo symptom or a
+// meter check; otherwise it may be food sugar ("sugar to under 25").
+const BARE_SUGAR_READING = glucoseReading("sugars?");
+const GLUCOSE_CHECK = words(
+  "(?:check(?:ed|ing)?|test(?:ed|ing)?|measur(?:e|ed|ing)|pricked)\\s+(?:(?:my|her|his|the)\\s+)?(?:blood\\s+)?sugars?|glucometer|(?:sugar|glucose)\\s+(?:meter|monitor|sensor)",
 );
 // Hypo- and hyperglycaemia said in words.
 const GLUCOSE_WORDS = words(
@@ -338,7 +482,7 @@ const HYPO_SYMPTOM = words(
   "(?:رجفه|رعشه|ارتجاف|ارتعاش|رجفان|ارجف|اترجف|ترجف|يرجف|ارتجف|ارتجفت|مرتجف|مرتجفه|ارتعش|ارتعشت|مرتعش|مرتعشه|اتعرق|تعرق|تعرقت|عرقان|عرقانه|عرق\\s*بارد)",
 );
 const DIABETES_CONTEXT = words(
-  "diabet\\p{L}*|insulin|metformin|gliclazide|glipizide|sulfonylureas?|glucose|blood\\s+sugar|my\\s+sugar|hypo\\p{L}*|t[12]d|type\\s*[12]|cgm|libre|dexcom",
+  "diabet\\p{L}*|insulin|metformin|gliclazide|glipizide|sulfonylureas?|glucose|blood\\s+sugar|my\\s+sugar|hypo\\p{L}*|t[12]d|(?:i'?m|i\\s+am|i\\s+have|have|with|am|being|he's|she's)\\s+(?:a\\s+)?type\\s*(?:1|2|one|two)(?![\\p{L}\\p{N}])(?!\\s+(?:sets?|reps?|fib\\p{L}*|muscles?|workouts?|days?|sessions?|exercises?|training))|type\\s*(?:1|2|one|two)\\s+diabet\\p{L}*|cgm|libre|dexcom",
   "سكري|سكر|انسولين|ميتفورمين|جلوكوفاج|جلوكوز|هبوط",
 );
 function glucoseFlag(
@@ -349,50 +493,87 @@ function glucoseFlag(
   const mmol = unit ? /mmol|مول|ملم/u.test(unit) : decimal || value <= 30;
   return mmol ? value < 3.9 || value >= 13.9 : value < 70 || value >= 250;
 }
-function bloodSugarFlag(t: string) {
-  if (has(GLUCOSE_WORDS, t)) return true;
-  GLUCOSE_READING.lastIndex = 0;
-  for (const m of t.matchAll(GLUCOSE_READING)) {
+function lowOrHighReading(re: RegExp, t: string, needsUnit = false) {
+  re.lastIndex = 0;
+  for (const m of t.matchAll(re)) {
+    if (needsUnit && !m[3]) continue;
     const raw = m[2];
     const value = Number(raw.replace(",", "."));
     if (Number.isFinite(value) && glucoseFlag(value, m[3], /[.,]/.test(raw)))
       return true;
   }
-  return has(DIABETES_CONTEXT, t) && unnegated(HYPO_SYMPTOM, t);
+  return false;
+}
+function bloodSugarFlag(t: string) {
+  if (has(GLUCOSE_WORDS, t)) return true;
+  if (lowOrHighReading(GLUCOSE_READING, t)) return true;
+  const diabetes = has(DIABETES_CONTEXT, t),
+    symptom = unnegated(HYPO_SYMPTOM, t);
+  if (
+    lowOrHighReading(
+      BARE_SUGAR_READING,
+      t,
+      !(diabetes || symptom || has(GLUCOSE_CHECK, t)),
+    )
+  )
+    return true;
+  return diabetes && symptom;
 }
 
 // ---------------------------------------------------------------------------
 // Pregnancy warning signs (with or without the word "pregnant")
 // ---------------------------------------------------------------------------
-// "Spotting" is a red flag unless it is the gym sense (spotting a lift).
+// "Spotting" is a red flag unless it is the gym sense (spotting a lift,
+// "spotting is recommended for heavy bench", "spotting from a partner").
 const SPOTTING = /(^|[^\p{L}\p{N}])spotting(?![\p{L}\p{N}])/gu;
 const SPOTTER_AFTER =
-  /^\s+(?:me|you|him|her|them|us|each\s+other|someone|somebody|people|others|a\s+(?:friend|partner|lifter|client|mate|buddy)|my\s+(?:friend|partner|mate|buddy|wife|husband|client|brother|sister)|the\s+(?:bar|lift|lifter|bench|squat|press)|(?:for|on|during|while)\s+(?:(?:the|my|a|his|her|your|their|heavy)\s+)?(?:bench\p{L}*|squat\p{L}*|lift\p{L}*|press\p{L}*|sets?|bar\p{L}*|deadlift\p{L}*|clients?|friends?|partners?|mates?|buddy|someone|him|her|them|me|you|people|others)|properly|correctly|safely|technique|tips|cues|position|necessary|required|needed|etiquette|arms?|hands|drills?|duty)(?![\p{L}\p{N}])/u;
+  /^\s+(?:me|you|him|her|them|us|each\s+other|someone|somebody|people|others|a\s+(?:friend|partner|lifter|client|mate|buddy)|my\s+(?:friend|partner|mate|buddy|wife|husband|client|brother|sister)|the\s+(?:bar|lift|lifter|bench|squat|press)|(?:for|on|during|while)\s+(?:(?:the|my|a|his|her|your|their|heavy)\s+)?(?:bench\p{L}*|squat\p{L}*|lift\p{L}*|press\p{L}*|sets?|bar\p{L}*|deadlift\p{L}*|clients?|friends?|partners?|mates?|buddy|someone|him|her|them|me|you|people|others)|properly|correctly|safely|technique|tips|cues|position|necessary|required|needed|etiquette|arms?|hands|drills?|duty|(?:is|isn'?t|was|are|will\s+be|would\s+be|should\s+be|can\s+be)\s+(?:(?:really|very|always|highly|strongly|not|so|super|definitely|usually|also)\s+)?(?:recommended|needed|necessary|required|important|essential|advised|key|crucial|a\s+must|optional|helpful|useful|safer|a\s+good\s+idea|smart|wise|mandatory|encouraged)|helps?|matters|saves|from\s+(?:a|your|my|the|his|her)\s+(?:(?:gym|training|workout|lifting)\s+)?(?:partner|friend|spotter|coach|trainer|mate|buddy|pt))(?![\p{L}\p{N}])/u;
+// Someone else spotting, or spotting as a planned activity ("my buddy is
+// spotting", "I'll be spotting at the gym"), is the gym sense too.
+const SPOTTER_BEFORE =
+  /(?:^|[^\p{L}\p{N}'])(?:(?:buddy|partner|friend|mate|coach|trainer|he|she|they|someone|somebody|nobody|no\s+one|who)\s+(?:is|was|will\s+be|'s|are|were)|he's|she's|they're|(?:i'?ll|i\s+will|will|going\s+to|gonna|need\s+to|want\s+to|have\s+to)\s+be)\s+$/u;
 function spottingFlag(t: string) {
   SPOTTING.lastIndex = 0;
   for (const m of t.matchAll(SPOTTING)) {
     const start = m.index + m[1].length;
     if (SPOTTER_AFTER.test(t.slice(start + "spotting".length))) continue;
-    if (NEGATED_PREFIX.test(t.slice(Math.max(0, start - 60), start))) continue;
+    if (SPOTTER_BEFORE.test(t.slice(Math.max(0, start - 40), start))) continue;
+    if (negatedAt(t, start)) continue;
     return true;
   }
   return false;
 }
-// Contractions, unless they are muscle contractions.
-const CONTRACTIONS = /(^|[^\p{L}\p{N}])contractions?(?![\p{L}\p{N}])/gu;
+// Contractions, unless they are muscle contractions. The plural is a warning
+// sign unless a muscle or a form cue ("hold the contractions") is named; the
+// singular ("squeeze and hold the contraction at the top") is a muscle cue
+// unless labour wording is present or it is reported as an event ("I just
+// had a contraction").
+const CONTRACTIONS = /(^|[^\p{L}\p{N}])contraction(s?)(?![\p{L}\p{N}])/gu;
 const MUSCLE_BEFORE =
   /(?:muscle|muscular|eccentric|concentric|isometric|isotonic|peak|maximal|max|voluntary|explosive|forceful|controlled|slow|fast|quad|quads|glute|glutes|core|ab|abs|abdominal|hamstring|calf|bicep|biceps|tricep|triceps|pelvic\s+floor|kegel|fibre|fiber|good|strong\s+(?:muscle|glute|quad))\s*$/u;
 const MUSCLE_AFTER =
-  /^\s+(?:of|in|through|from)\s+(?:the\s+|your\s+|my\s+)?(?:muscles?|glutes?|quads?|core|abs|hamstrings?|calves|calf|lats?|pecs?|biceps?|triceps?|pelvic\s+floor)/u;
+  /^\s+(?:of|in|through|from)\s+(?:the\s+|your\s+|my\s+)?(?:muscles?|glutes?|quads?|core|abs|hamstrings?|calves|calf|lats?|pecs?|biceps?|triceps?|pelvic\s+floor|chest|shoulders?|delts?|traps?|forearms?)(?![\p{L}\p{N}])/u;
+const FORM_CUE_BEFORE =
+  /(?:^|[^\p{L}\p{N}'])(?:hold|holding|squeeze|squeezing|pause\s+(?:on|at|in)|focus\s+on|feel|feeling)\s+(?:(?:the|each|every|your|those|that|a)\s+)?$/u;
+const CONTRACTION_EVENT =
+  /(?:^|[^\p{L}\p{N}'])(?:had|having|felt|getting|got|get\s+(?:these|those)|been\s+having)\s+(?:(?:a|another|one|my\s+first|some|these|those)\s+)?(?:(?:strong|real|bad|big|painful|proper|sharp|tight|weird|few|little|small)\s+)?$/u;
+const LABOUR_CONTEXT = words(
+  "pregnan\\p{L}*|labou?r|trimester|baby|bump|midwife|due\\s+date|braxton|womb|uterus|cervix|timing\\s+them|\\d+\\s*(?:minutes?|mins?)\\s+apart|minutes\\s+apart|every\\s+(?:\\d+|few|couple\\s+of|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\\s+(?:minutes?|mins?)|getting\\s+(?:stronger|closer|worse|more\\s+(?:painful|frequent|regular))|period[\\s-]like",
+);
 function contractionsFlag(t: string) {
   CONTRACTIONS.lastIndex = 0;
+  let labour: boolean | undefined;
   for (const m of t.matchAll(CONTRACTIONS)) {
     const start = m.index + m[1].length,
       end = start + m[0].length - m[1].length;
     const before = t.slice(Math.max(0, start - 30), start);
     if (MUSCLE_BEFORE.test(before) || MUSCLE_AFTER.test(t.slice(end))) continue;
-    if (NEGATED_PREFIX.test(t.slice(Math.max(0, start - 60), start))) continue;
-    return true;
+    if (negatedAt(t, start)) continue;
+    labour ??= has(LABOUR_CONTEXT, t);
+    if (labour) return true;
+    if (m[2]) {
+      if (!FORM_CUE_BEFORE.test(before)) return true;
+    } else if (CONTRACTION_EVENT.test(before)) return true;
   }
   return false;
 }
@@ -404,7 +585,7 @@ const PREGNANCY_WARNING = words(
   "تنقيط|نقط(?:ه|ات)?\\s*دم|قطر(?:ه|ات)\\s*دم|(?:دم|دماء)\\s*(?:خفيف(?:ه)?|بسيط(?:ه)?|بني|وردي)|نزول\\s*(?:ال)?دم|نزل\\s*(?:علي|مني|معي)?\\s*(?:\\S+\\s+)?دم|(?:شفت|لاحظت|رايت)\\s*(?:شوي(?:ه)?\\s*|بعض\\s*(?:ال)?)?دم|" +
     "نزول\\s*(?:ال)?(?:ماء|مويه|موي|سائل|سوائل|مياه)|(?:تسرب|تسريب|خروج)\\s*(?:ال)?(?:ماء|مويه|سائل|سوائل|مياه)|نزل\\s*(?:مني|علي)?\\s*(?:ماء|مويه|سائل|مياه)|(?:انفجر|انفجار|انكسر)\\s*(?:كيس\\s*)?(?:ال)?(?:ماء|مويه|مياه)|كيس\\s*(?:ال)?(?:ماء|مويه|مياه)\\s*(?:انفجر|نزل|انفتح)|(?:ال)?سائل\\s*(?:ال)?امنيوسي|" +
     "حرك(?:ه|ات)\\s*(?:ال)?(?:جنين|بيبي|طفل|ياهل)\\s*(?:\\S+\\s+){0,1}?(?:قلت|قليله|خفت|خفيفه|اقل|ضعيفه|وقفت|انعدمت|ما\\s*احسها)|(?:قله|قلت|نقص|ضعف|انعدام|توقف|تراجع)\\s*(?:في\\s*)?حرك(?:ه|ات)\\s*(?:ال)?(?:جنين|بيبي|طفل)|(?:ال)?(?:جنين|بيبي|طفل)\\s*(?:ما|لا|مو|مب)\\s*(?:عاد\\s*|قاعد\\s*)?(?:يتحرك|يرفس|تحرك|رفس|يدف)|(?:ما|لا|مو)\\s*(?:احس|حسيت|اشعر|شعرت|قاعده\\s*احس)\\s*(?:ب)?(?:حرك(?:ه|ات)\\s*)?(?:ال)?(?:جنين|بيبي|طفل)|" +
-    "انقباضات(?!\\s*(?:ال)?(?:عضليه|عضلات|عضله|مركزيه|لامركزيه|ثابته|ايزومتريه))|(?:ال)?طلق\\s*(?:ال)?(?:مبكر|متكرر|منتظم|قوي|مستمر)|(?:بدا|بدء|جاني|اجاني|عندي|يجيني)\\s*(?:ال)?طلق|تقلصات\\s*(?:في\\s*)?(?:ال)?رحم|تقلصات\\s*(?:منتظمه|متكرره|قويه|كل)|ولاده\\s*مبكره|تسمم\\s*(?:ال)?حمل",
+    "انقباضات(?!\\s*(?:ال)?(?:عضليه|عضلات|عضله|مركزيه|لامركزيه|ثابته|ايزومتريه))|(?:ال)?طلق\\s*(?:ال)?(?:مبكر|متكرر|منتظم|قوي|مستمر)|(?:بدا|بدء|جاني|اجاني|عندي|يجيني)\\s*(?:ال)?طلق|(?:ال)?طلق\\s*(?:بدا|بدء|جاني|اجاني|يجيني)|تقلصات\\s*(?:في\\s*)?(?:ال)?رحم|تقلصات\\s*(?:منتظمه|متكرره|قويه|كل)|ولاده\\s*مبكره|تسمم\\s*(?:ال)?حمل",
 );
 function pregnancyWarningFlag(t: string) {
   return (
@@ -432,17 +613,21 @@ const JOINT_MENTION = new RegExp(
 const LEAD =
   "(?:(?:my|the|his|her|your|a|right|left|bad|injured|good|operated|other)\\s+)";
 const JOINT_INJURY = words(
-  // Locking or catching ("my knee locked", not "lock out your knees").
+  // Locking or catching ("my knee locked", "knee locked", "the knee joint
+  // locks up"; not "lock out your knees").
   LEAD +
-    "{1,2}(?:" +
+    "{0,2}(?:" +
     JOINT +
-    ")\\s+(?:(?:has|had|have|keeps?|kept|just|suddenly|then|got|gets|is|was|went|seems?\\s+to|started|starts|sometimes|still|also|kinda|kind\\s+of|completely|totally|fully|again|occasionally|randomly)\\s+){0,3}(?:lock(?:ed|s|ing)(?:\\s+up)?|lock\\s+up|seiz(?:ed|es|ing)\\s+up|jammed|(?:gets?|got|getting)\\s+stuck|catch(?:es|ing)|caught)(?!\\s+out)(?!\\s+(?:up\\s+)?(?:on|in)\\s+(?:the|my|a)\\s+(?:bar|rack|door|machine))|" +
+    ")(?:\\s+joint)?\\s+(?:(?:has|had|have|keeps?|kept|just|suddenly|then|got|gets|is|was|went|seems?\\s+to|started|starts|sometimes|still|also|kinda|kind\\s+of|completely|totally|fully|again|occasionally|randomly)\\s+){0,3}(?:lock(?:ed|s|ing)(?:\\s+up)?|lock\\s+up|seiz(?:ed|es|ing)\\s+up|jammed|(?:gets?|got|getting)\\s+stuck|catch(?:es|ing)|caught)(?!\\s+out)(?!\\s+(?:up\\s+)?(?:on|in)\\s+(?:the|my|a)\\s+(?:bar|rack|door|machine))|" +
     // Giving way ("my knee gave way", "my ankle gives out"; tired legs are not).
     LEAD +
     "{0,2}(?:knees?|kneecaps?|ankles?|hips?|joints?|shoulders?|leg)\\s+(?:(?:has|had|keeps?|kept|just|suddenly|then|sometimes|still|also|kind\\s+of|kinda|completely|totally|again|occasionally|randomly|would|will|seems?\\s+to|started\\s+to|starts\\s+to|is|was|has\\s+been|keeps?\\s+on)\\s+){0,3}(?:gave|gives|giving|give|gone|went)\\s+(?:way|out)|" +
     "(?:knees?|kneecaps?|ankles?|hips?|joints?|shoulders?)\\s+(?:(?:is|feels?|felt|seems?|was|has\\s+been|keeps?\\s+feeling|still|went|goes)\\s+){1,2}(?:(?:really|very|so|a\\s+bit|a\\s+little|kind\\s+of|kinda|totally)\\s+)?(?:unstable|loose|like\\s+it(?:'s|\\s+is|\\s+was)?\\s+(?:going\\s+to|gonna)\\s+(?:give|collapse|buckle|pop\\s+out))|" +
     "(?:knees?|ankles?|hips?|joints?)\\s+(?:(?:just|suddenly|keeps?|kept|sometimes)\\s+)?(?:buckl(?:ed|es|ing)|buckle|collapsed)(?!\\s+(?:in|inwards?|together))|unstable\\s+(?:knee|ankle|hip|shoulder|joint)|(?:knee|ankle|hip|shoulder|joint)\\s+instability|" +
     // Dislocation, ligament and tendon tears.
+    // A rolled or twisted joint ("I rolled my ankle"); a locked knee.
+    "locked\\s+(?:up\\s+)?(?:knee|ankle|hip|elbow|jaw|joint|shoulder)(?![\\p{L}\\p{N}])|" +
+    "(?:rolled|twisted|turned|went\\s+over\\s+on)\\s+(?:(?:my|the|his|her|your)\\s+)?(?:(?:right|left|bad)\\s+)?(?:ankle|knee|wrist)(?!\\s+(?:out|around|in\\s+circles|on\\s+(?:a|the|my)\\s+(?:foam|roller|ball|lacrosse|massage|tennis|golf)\\p{L}*))|" +
     "dislocat\\p{L}*|subluxat\\p{L}*|(?:" +
     JOINT +
     ")\\s+(?:(?:just|has|had|kind\\s+of|kinda|nearly|almost)\\s+)?(?:popped|slipped|pops|slips|came)\\s+out|(?:popped|slipped|came)\\s+out\\s+of\\s+(?:its\\s+|the\\s+)?(?:socket|place|joint)|" +
@@ -469,19 +654,21 @@ const JOINT_INJURY = words(
     "[اين]?نخلع(?:ت)?|خلع\\s*(?:في\\s*)?(?:ال)?(?:كتف|مفصل|ركبه|كوع|مرفق|ورك)|(?:ال)?رباط\\s*(?:ال)?صليبي|(?:قطع|انقطاع)\\s*(?:في\\s*)?(?:ال)?(?:رباط|اربطه|وتر|غضروف|هلاله|اخيل)|(?:سمعت|حسيت)\\s*(?:ب)?(?:صوت\\s*)?(?:طقه|فرقعه|طق)\\s*(?:في|من)\\s*" +
     JOINT_AR,
 );
-// Giving way said without naming the joint ("now it's swollen and it gives
-// way"), when a joint is named elsewhere in the message.
+// Giving way or locking said without naming the joint ("now it's swollen
+// and it gives way", "since it locked"), when a joint is named elsewhere in
+// the message. "Press until it locks out" is the lockout cue.
 const GIVE_WAY = words(
-  "(?:gave|gives|giving|give)\\s+way",
-  "[تي]خون(?:ني)|خانتني|خانني|[وف]?(?:ما|لا|مو)\\s*(?:[تي])?(?:شيلني|حملني|تحملني|تتحملني)|(?:مو|مش|غير)\\s*ثابت(?:ه)?",
+  "(?:gave|gives|giving|give)\\s+way|(?:it'?s|it\\s+is|it\\s+was|it\\s+got|it\\s+has\\s+(?:got|gotten|become)|it\\s+went|now\\s+it'?s)\\s+(?:(?:all|really|very|so|pretty|quite|a\\s+bit|badly|still|now|suddenly|massively|super)\\s+){0,2}(?:swollen|puffy|puffed\\s+up)|(?:it|she|he)\\s+(?:(?:has|had|just|suddenly|then|also)\\s+)?(?:swelled|swole|ballooned|puffed)\\s+up|(?:it|she|he)\\s+(?:(?:has|had|just|keeps?|kept|suddenly|then|also|sometimes|still|again|completely|totally)\\s+){0,2}(?:lock(?:ed|s)(?:\\s+up)?|lock\\s+up|locking\\s+up|seized\\s+up|jammed|got\\s+stuck|gets\\s+stuck)(?!\\s+(?:out|me|you|him|her|us|them|the|my|your|it|itself)(?![\\p{L}\\p{N}]))",
+  "[تي]خون(?:ني)|خانتني|خانني|[وف]?(?:ما|لا|مو)\\s*(?:[تي])?(?:شيلني|حملني|تحملني|تتحملني)|(?:مو|مش|غير)\\s*ثابت(?:ه)?|(?:انقفلت|قفلت|تقفلت|علقت|انغلقت|تسكرت)\\s*(?:علي|عليا|فيني|معي)",
 );
+const LOCKOUT_CUE = /(?:^|[^\p{L}\p{N}'])(?:until|till|til)\s+$/u;
 const POP = words(
   "pop(?:s|ped|ping)?|snap(?:s|ped)?|crack(?:ed|s)?|clunk",
   "طقه|طقطقه|فرقعه|طقت|انطقت",
 );
 const SWELLING = words(
   "swell(?:ing|ed|s)?|swollen|puff(?:y|ed\\s+up)|ballooned",
-  "(?:ورم|تورم|متورم(?:ه)?|[تي]ورم(?:ت)?|ورمت|[تي]تورم|تورمت|انتفاخ|منتفخ(?:ه)?|انتفخت|[تي]نتفخ)",
+  "(?:ورم|تورم|متورم(?:ه)?|[تي]ورم(?:ت)?|ورمت|[تي]تورم|تورمت|انتفاخ|منتفخ(?:ه)?|انتفخت|[تي]نتفخ|وارم(?:ه)?|نافخ(?:ه)?|منفوخ(?:ه)?|انتفخ)",
 );
 const SUDDEN_SWELLING = words(
   "swell(?:ed|s|ing)?\\s+up|ballooned|(?:sudden(?:ly)?|severe(?:ly)?|massive(?:ly)?|huge|big|lots?\\s+of|a\\s+lot\\s+of|really|very|badly|extremely|so|super|quite|pretty|visibly|noticeably|rapidly)\\s+(?:swell(?:ing|ed)|swollen|puffy|puffed\\s+up)(?!\\s+(?:from|after|with)\\s+(?:the\\s+|a\\s+|that\\s+)?pump)|" +
@@ -494,54 +681,130 @@ const SUDDEN_SWELLING = words(
     ")",
   "(?:تورم|انتفاخ|ورم)\\s*(?:مفاجئ|مفاجي|شديد|كبير|قوي|وايد)|(?:انتفخت|تورمت|ورمت)\\s*(?:فجاه|بسرعه|وايد|مره)|" +
     JOINT_AR +
-    "\\s*(?:\\S+\\s+){0,2}?(?:[وف]?(?:ورم|تورم|متورم(?:ه)?|[تي]ورم|ورمت|[تي]تورم|تورمت|انتفاخ|منتفخ(?:ه)?|انتفخت|[تي]نتفخ))|(?:ورم|تورم|انتفاخ)\\s*(?:في|ب)\\s*" +
+    "\\s*(?:\\S+\\s+){0,2}?(?:[وف]?(?:ورم|تورم|متورم(?:ه)?|[تي]ورم|ورمت|[تي]تورم|تورمت|انتفاخ|منتفخ(?:ه)?|انتفخت|[تي]نتفخ|وارم(?:ه)?|نافخ(?:ه)?|منفوخ(?:ه)?|انتفخ))|(?:ورم|تورم|انتفاخ)\\s*(?:في|ب)\\s*" +
     JOINT_AR,
 );
+const lockoutOrInstructed = (text: string, start: number) =>
+  instructed(text, start) ||
+  LOCKOUT_CUE.test(text.slice(Math.max(0, start - 12), start));
 function jointInjuryFlag(t: string) {
-  if (unnegated(JOINT_INJURY, t) || unnegated(SUDDEN_SWELLING, t)) return true;
-  if (unnegated(GIVE_WAY, t) && JOINT_MENTION.test(t)) return true;
+  if (unnegated(JOINT_INJURY, t, instructed) || unnegated(SUDDEN_SWELLING, t))
+    return true;
+  if (JOINT_MENTION.test(t) && unnegated(GIVE_WAY, t, lockoutOrInstructed))
+    return true;
   return has(POP, t) && unnegated(SWELLING, t);
 }
 
 // ---------------------------------------------------------------------------
 // Eating-disorder behaviours and relapse
 // ---------------------------------------------------------------------------
+// Named eating disorders, for relapse wording ("my bulimia is back").
+const DISORDER_EN =
+  "bulimi\\p{L}*|anorexi\\p{L}*|binge[\\s-]?eating(?:\\s+disorder)?|eating\\s+disorder|arfid|orthorexi\\p{L}*|purging\\s+disorder";
+const DISORDER_AR =
+  "بوليميا|بوليميه|نهم\\s*(?:ال)?(?:عصبي|مرضي)|(?:ال)?شره\\s*(?:ال)?(?:عصبي|مرضي)|(?:ال)?شراهه\\s*(?:ال)?(?:عصبيه|مرضيه)|انوركسيا|انوريكسيا|انوركسيه|فقدان\\s*(?:ال)?شهيه\\s*(?:ال)?عصبي|اضطراب(?:ات)?\\s*(?:ال)?(?:اكل|طعام)";
 const ED_BEHAVIOUR = words(
   // Purging as a behaviour ("I've been purging", "binge and purge"), not a data or cache purge.
   "(?:i|i've|i\\s+have|i'm|i\\s+am|been|keep|kept|started|start|still|want\\s+to|urge\\s+to|and|then|to)\\s+purg(?:e|ed|es|ing)(?!\\s+(?:the|my|old|stale|expired|all|of|data|records?|backups?|logs?|cache|files?|emails?|inbox|fridge|cupboards?|pantry|closet|wardrobe))|purg(?:e|ed|es|ing)\\s+(?:after|again|when|food|meals?|everything|what\\s+i)|laxatives?|diuretics?\\s+(?:to|for)\\s+(?:lose|drop|cut|make|weight)|water\\s+pills?\\s+(?:to|for)|" +
-    "(?:make|made|making)\\s+myself\\s+(?:sick|throw\\s+up|vomit|puke)|(?:throw(?:ing|s)?|threw)\\s+up\\s+(?:after|my)\\s+(?:eating|meals?|food|dinner|lunch|breakfast|everything|what\\s+i\\s+(?:eat|ate))|(?:vomit(?:ing|ed|s)?|puk(?:e|ing|ed))\\s+(?:after|my)\\s+(?:eating|meals?|food|dinner|lunch|breakfast)|self[\\s-]?induced\\s+vomiting|" +
+    "(?:make|made|making)\\s+myself\\s+(?:sick|throw\\s+up|vomit|puke)|(?:throw(?:ing|s)?|threw)\\s+up\\s+(?:again\\s+)?(?:after|my)\\s+(?:eating|meals?|food|dinner|lunch|breakfast|everything|what\\s+i\\s+(?:eat|ate))|(?:vomit(?:ing|ed|s)?|puk(?:e|ing|ed))\\s+(?:again\\s+)?(?:after|my)\\s+(?:eating|meals?|food|dinner|lunch|breakfast)|self[\\s-]?induced\\s+vomiting|" +
     "(?:binge(?:d|s|ing)?|bingeing|binging)(?![\\s-]*(?:watch\\p{L}*|on\\s+(?:netflix|tv|youtube|shows?|series|episodes?)|(?:netflix|tv|youtube|shows?|series|episodes?|drink\\p{L}*)))|" +
-    // Not eating at all, but not "nothing before my morning run".
-    "starv(?:e|ing|ed)\\s+myself|(?:(?:(?:barely|hardly|not|never)\\s+eat(?:ing)?\\s+(?:anything|at\\s+all|any\\s+food))|eat(?:ing)?\\s+(?:almost\\s+|next\\s+to\\s+)?nothing)(?!\\s+(?:before|after|until|till|during|while|past|late|at\\s+night|in\\s+the\\s+(?:morning|evening)))|(?:barely|hardly)\\s+eat(?:ing)?(?!\\s+(?:breakfast|lunch|dinner|carbs?|sugar|meat|fish|veg\\p{L}*|fruit|dairy|junk|fast\\s+food|out|before|after|late|at|in))|" +
+    "starv(?:e|ing|ed)\\s+myself|(?:barely|hardly)\\s+eat(?:ing)?(?!\\s+(?:breakfast|lunch|dinner|carbs?|sugar|meat|fish|veg\\p{L}*|fruit|dairy|junk|fast\\s+food|out|before|after|late|at|in|anything|any\\s+food))|" +
+    // "I've stopped eating", not "stopped eating after 8" or "stopped eating bread".
+    "stopp(?:ed|ing)\\s+eating(?=\\s*(?:[.!?,;…]|$)|\\s+(?:altogether|completely|entirely|properly|again|at\\s+all|for\\s+(?:days|a\\s+(?:day|few\\s+days|while|week)|two\\s+days|\\d+\\s+days)|since|this\\s+week|today|because|to\\s+(?:lose|drop|cut|get|make)|so\\s+(?:i|that)|and(?!\\s+drinking))(?![\\p{L}\\p{N}]))|" +
     "(?:been|keep|kept|started|start|i'm|i\\s+am|am)\\s+restricting(?:\\s+again)?(?!\\s+(?:carbs?|sugar|salt|sodium|alcohol|caffeine|dairy|gluten|fodmaps?|calories|kcal|my\\s+(?:carbs?|sugar|salt|caffeine|alcohol|calories)))|restricting\\s+(?:again|my\\s+(?:food|eating|meals|intake)|food|meals)|" +
-    "relaps(?:e|ed|es|ing)",
+    "relaps(?:e|ed|es|ing)(?!\\s+(?:prevention|plan|risk|rates?|triggers?))|" +
+    // A named eating disorder returning ("my bulimia is back", "slipping back into anorexia").
+    "(?:" +
+    DISORDER_EN +
+    "|(?:my|the)\\s+ed)\\s+(?:(?:is|has|have|was|are|seems?\\s+to\\s+be|feels?\\s+like\\s+it'?s|might\\s+be|may\\s+be|could\\s+be|really|definitely|slowly|all|kind\\s+of|kinda|starting\\s+to|started|starts)\\s+){0,3}(?:back(?!\\s+(?:in\\s+(?:\\d|the\\s+day|high\\s+school|school|college|uni\\p{L}*|my\\s+(?:teens|twenties|youth|20s|school))|then|when|during|before|around|as\\s+a\\s+(?:teen|kid|child|student)))|coming\\s+back|creeping\\s+(?:back|in)|returning|returned|come\\s+back|came\\s+back|flar(?:ing|ed)\\s+up|taking\\s+over|getting\\s+worse|get\\s+worse)|" +
+    "(?:back\\s+(?:to|into|in)|return(?:ed|ing)?\\s+to|slipp(?:ed|ing)\\s+(?:back\\s+)?into|fall(?:ing|en)?\\s+back\\s+into|fell\\s+back\\s+into|relaps(?:e|ed|ing)\\s+(?:into|to))\\s+(?:(?:my|the|old|full|a|full-blown)\\s+)*(?:" +
+    DISORDER_EN +
+    "|ed\\s+(?:habits|behaviou?rs|thoughts|patterns))",
   // Arabic: vomiting after food, laxatives, binges, starving oneself, relapse.
   "(?:[اتين]?تقيا|[اتين]?تقيء|تقيات|استفرغ(?:ت)?|[اتين]?ستفرغ|[اتين]?طرش|طرشت)\\s*(?:\\S+\\s+){0,2}?(?:ال)?(?:اكل|وجبه|وجبات|وجباتي|اكلته|اكلت)|(?:اجبر|اجبرت|اخلي|خليت)\\s*نفسي\\s*(?:علي\\s*)?(?:ال)?(?:تقيو|استفراغ|استفرغ|اتقيا|اطرش|ترجيع)|(?:ال)?(?:تقيو|استفراغ)\\s*(?:المتعمد|متعمد)|" +
     "(?:حبوب\\s*)?(?:ملين(?:ات)?|مسهل(?:ات)?)|حبوب\\s*(?:ال)?(?:تسهيل|اسهال)|" +
     "نوب(?:ه|ات)\\s*(?:من\\s*)?(?:ال)?(?:اكل|شراهه|نهم)|(?:اكل|اكلت|اكلنا)\\s*(?:بشراهه|بنهم|بشكل\\s*هستيري|بجنون)|(?:ال)?شراهه\\s*(?:في\\s*)?(?:ال)?اكل|" +
-    "[اتين]?جوع\\s*نفسي|جوعت\\s*نفسي|احرم\\s*نفسي\\s*(?:من\\s*)?(?:ال)?اكل|(?:امتنع|امتنعت|ممتنع(?:ه)?)\\s*عن\\s*(?:ال)?اكل|(?:ما|لا|مو)\\s*(?:اكل|اكلت|قاعد\\s*اكل|قاعده\\s*اكل|صرت\\s*اكل)\\s*(?:شي|شيء|ولا\\s*شي|اي\\s*شي|ابد|نهائيا)(?!\\s*(?:بعد|قبل|الساعه|في\\s*الليل|بالليل|وقت))|" +
-    "انتكاس(?:ه)?|انتكست|[اين]?نتكس|(?:رجعت|ارجع|راجع(?:ه)?|رجعنا)\\s*(?:لل|ل|الي\\s*(?:ال)?)\\s*(?:نفس\\s*(?:ال)?)?(?:عادات(?:ي)?|حاله|مرض|اضطراب|وضع|سلوك|سلوكيات)(?:\\s*(?:ال)?(?:قديمه|سابقه|قديم))?",
+    "[اتين]?جوع\\s*نفسي|جوعت\\s*نفسي|احرم\\s*نفسي\\s*(?:من\\s*)?(?:ال)?اكل|(?:امتنع|امتنعت|ممتنع(?:ه)?)\\s*عن\\s*(?:ال)?اكل|" +
+    "انتكاس(?:ه)?|انتكست|[اين]?نتكس|" +
+    // Back to vomiting ("بديت أرجع أتقيأ", "رجع لي الاستفراغ") and to a named disorder ("رجعت للبوليميا").
+    "(?:(?:بديت|بدات)\\s*)?(?:رجعت|ارجع)\\s*(?:[اتن]?تقيا|[اتن]?تقيء|تقيات|استفرغ(?:ت)?|[اتن]?ستفرغ|[اتن]?طرش|طرشت|(?:ال|لل)?تقيو|(?:ال|لل)?استفراغ|(?:ال|لل)?ترجيع)|(?:رجع(?:ت)?|عاد(?:ت)?)\\s*(?:لي|علي)\\s*(?:ال)?(?:تقيو|استفراغ|ترجيع)|" +
+    "(?:رجعت|رجع(?:ت)?\\s*(?:لي|علي)|ارجع|راجع(?:ه)?|رجعنا|عدت|اعود|عاد(?:ت)?\\s*(?:لي|علي)?|رجوع|عوده|انتكاس(?:ه)?|انتكست)\\s*(?:(?:لل|ل|الي|علي|في)\\s*)?(?:ال)?(?:" +
+    DISORDER_AR +
+    ")|(?:ال)?(?:" +
+    DISORDER_AR +
+    ")\\s*(?:رجع(?:ت)?|عاد(?:ت)?|راجع(?:ه)?|(?:قاعد(?:ه)?|بدات|بديت)\\s*ترجع|رجعت\\s*لي)",
 );
+// Not eating at all, but not "nothing before my morning run", and not a
+// religious fast ("صايم وما أكلت شي من الفجر", "fasting and not eating
+// anything until iftar").
+const NOT_EATING = words(
+  "(?:(?:barely|hardly|not|never)\\s+eat(?:ing)?\\s+(?:anything|at\\s+all|any\\s+food)|eat(?:ing)?\\s+(?:almost\\s+|next\\s+to\\s+)?nothing)(?!\\s+(?:before|after|until|till|during|while|past|late|at\\s+night|in\\s+the\\s+(?:morning|evening)))|(?:haven'?t|have\\s+not|hasn'?t|didn'?t|did\\s+not|not)\\s+(?:eaten|eat)\\s+(?:anything|a\\s+thing|at\\s+all|properly)\\s+(?:in|for)\\s+(?:days|a\\s+week|weeks|(?:\\d+|two|three|four|five|six|seven)\\s+days)",
+  "(?:ما|لا|مو)\\s*(?:اكل|اكلت|قاعد\\s*اكل|قاعده\\s*اكل|صرت\\s*اكل)\\s*(?:شي|شيء|ولا\\s*شي|اي\\s*شي|ابد|نهائيا)(?!\\s*(?:بعد|قبل|الساعه|في\\s*الليل|بالليل|وقت|من\\s*(?:ال)?(?:صبح|صباح|فجر|ظهر|عصر)|اليوم|الحين|للحين|لين\\s*الحين))",
+);
+const FASTING_CONTEXT = words(
+  "fasting|fasted|ramadan|iftar|suhoor|suhur|sehri|sahur|since\\s+(?:dawn|fajr|suhoor)|until\\s+(?:sunset|maghrib|iftar)",
+  "صايم(?:ه)?|صيام|صوم|رمضان|فطور(?:ي)?|افطار|فجر|سحور|امساك|مغرب",
+);
+// A stated daily intake below a very-low-calorie level ("I'm only eating 600
+// calories", "آكل ٥٠٠ سعرة"), not a meal, a snack or a deficit.
+const LOW_INTAKE_KCAL = 800;
+const LOW_INTAKE = new RegExp(
+  B +
+    "(?:eat(?:ing|en|s)?|ate|consuming|living\\s+on|surviving\\s+on|intake\\s+(?:is|was|of)|down\\s+to|" +
+    ar("اكل|باكل|قاعد\\s*اكل|قاعده\\s*اكل|صرت\\s*اكل|اكلي") +
+    ")\\s+(?:(?:about|around|like|roughly|maybe|only|just|under|less\\s+than|below|approx(?:imately)?|" +
+    ar("بس|فقط|تقريبا|حوالي|يعني|اقل\\s*من") +
+    ")\\s+)*~?(\\d{2,4})\\s*(?:k?cals?|calories|kilocalories|" +
+    ar("سعره|سعرات|كالوري|كالوريز|كالوريات") +
+    ")" +
+    E +
+    "(?!\\s*(?:deficit|surplus|less|more|fewer|extra|over|under|above|below|short|off|burn\\p{L}*|so\\s+far|until|by|for|before|after|during|within|around|pre|post|per\\s+(?:meal|snack|serving)|a\\s+(?:meal|snack|serving)|each|at|in|of|from|with|an\\s+hour|\\d+\\s*(?:hours?|hrs?|minutes?|mins?)|" +
+    ar(
+      "في\\s*(?:ال)?(?:فطور|غدا|غداء|عشا|عشاء|وجبه)|قبل|بعد|زياده|ناقص|عجز|اقل|اكثر|للوجبه|بالوجبه|بالوجبات",
+    ) +
+    ")(?![\\p{L}\\p{N}]))",
+  "gu",
+);
+function lowIntake(t: string) {
+  LOW_INTAKE.lastIndex = 0;
+  for (const m of t.matchAll(LOW_INTAKE)) {
+    const start = m.index + m[1].length;
+    if (Number(m[2]) < LOW_INTAKE_KCAL && !negatedAt(t, start)) return true;
+  }
+  return false;
+}
 // Only in combination: skipped meals with compensatory training or relapse
 // wording, or relapse wording about food or weight.
 const SKIPPED_MEALS = words(
-  "skip(?:ping|ped|s)?\\s+(?:(?:all|most|my|some|a\\s+lot\\s+of|many|several|two|three|2|3|of|the\\s+odd)\\s+)*meals|skip(?:ping|ped)?\\s+(?:breakfast\\s+and\\s+(?:lunch|dinner)|lunch\\s+and\\s+dinner)|not\\s+eating\\s+(?:much|enough|properly|meals)|(?:cutting|cut)\\s+(?:out\\s+)?(?:meals|whole\\s+meals)",
+  "skip(?:ping|ped|s)?\\s+(?:(?:all|most|my|some|a\\s+lot\\s+of|many|several|two|three|2|3|of|the\\s+odd)\\s+)*meals|skip(?:ping|ped)?\\s+(?:breakfast\\s+and\\s+(?:lunch|dinner)|lunch\\s+and\\s+dinner)|not\\s+eating\\s+(?:much|enough|properly|meals)|not\\s+eating(?=\\s*(?:[.!?,;]|$)|\\s+(?:and|but|while)(?![\\p{L}\\p{N}]))|(?:fasting|fasted)\\s+for\\s+(?:days|weeks|a\\s+week|(?:\\d+|two|three|four|five|six|seven)\\s+days)|(?:cutting|cut)\\s+(?:out\\s+)?(?:meals|whole\\s+meals)",
   "(?:[اتين]?ترك|تركت|[اتين]?فوت|فوتت|[اتين]?سحب\\s*علي|سحبت\\s*علي|[اتين]?طنش|طنشت|[اتين]?تخطي|تخطيت)\\s*(?:\\S+\\s+){0,1}?(?:ال)?(?:وجبات|وجباتي|وجبتين|اكلي)",
 );
 const COMPENSATING = words(
-  "twice\\s+a\\s+day|two\\s+(?:runs|sessions|workouts|times)\\s+a\\s+day|(?:double|extra)\\s+(?:sessions|runs|workouts|cardio)|burn\\s+(?:it|them|that|everything|off|the\\s+calories)|work\\s+(?:it|them)\\s+off|compensat\\p{L}*|make\\s+up\\s+for\\s+(?:eating|what\\s+i\\s+ate|it)|to\\s+(?:lose|drop|cut)\\s+weight|(?:lose|drop)\\s+weight\\s+fast|race\\s+lighter|to\\s+be\\s+lighter|weigh\\s+less",
-  "مرتين\\s*(?:في|ب|بال)?\\s*(?:ال)?يوم|مرتين\\s*باليوم|تمرينين\\s*(?:في|ب|بال)?\\s*(?:ال)?يوم|[اتين]?حرق\\s*(?:ال)?(?:اكل|سعرات|اللي\\s*اكلته)|عشان\\s*(?:اخس|انزل\\s*وزن|انحف)",
+  "(?:run(?:ning|s)?|train(?:ing|s)?|work(?:ing)?\\s+out|workouts?|sessions?|cardio|exercis(?:e|ing)|gym|swim(?:ming)?|cycl(?:e|ing)|walk(?:ing)?|jog(?:ging)?|lift(?:ing)?|hiit|spin(?:ning)?)\\s+(?:\\p{L}+\\s+){0,2}?(?:twice|two\\s+times)\\s+a\\s+day|(?:twice|two\\s+times)\\s+a\\s+day\\s+(?:runs?|training|workouts?|sessions?|cardio|(?:at|in)\\s+the\\s+(?:gym|pool|track))|two\\s+(?:runs|sessions|workouts)\\s+a\\s+day|(?:double|extra)\\s+(?:sessions|runs|workouts|cardio)|burn\\s+(?:it|them|that|everything|off|the\\s+calories)|work\\s+(?:it|them)\\s+off|compensat\\p{L}*|make\\s+up\\s+for\\s+(?:eating|what\\s+i\\s+ate|it)|to\\s+(?:lose|drop|cut)\\s+weight|(?:lose|drop)\\s+weight\\s+fast|race\\s+lighter|to\\s+be\\s+lighter|weigh\\s+less",
+  "(?:اركض|ركض|اتمرن|تمرن|تمرين|امشي|مشي|العب|اسبح|سباحه|كارديو|جيم|نادي|اروح\\s*(?:ال)?(?:جيم|نادي))\\s*(?:\\S+\\s+){0,2}?مرتين\\s*(?:في|ب|بال)?\\s*(?:ال)?يوم|تمرينين\\s*(?:في|ب|بال)?\\s*(?:ال)?يوم|[اتين]?حرق\\s*(?:ال)?(?:اكل|سعرات|اللي\\s*اكلته)|عشان\\s*(?:اخس|انزل\\s*وزن|انحف)",
 );
+// Relapse wording that needs food or weight in the message: "back to my old
+// habits" and "رجعت لعاداتي القديمة" are routine about training, not about
+// eating; "back to normal" ("رجعت للوضع الطبيعي") is never relapse.
 const SLIPPING_BACK = words(
   "slipping\\s+(?:back|again)|sliding\\s+back|falling\\s+back\\s+(?:into|to)|back\\s+(?:into|to)\\s+(?:my\\s+)?old\\s+(?:habits|ways|patterns|behaviou?rs|self)|old\\s+(?:habits|behaviou?rs|patterns|thoughts)\\s+(?:are\\s+|keep\\s+)?(?:coming|creeping)\\s+back",
-  "(?:احس|حاس|حاسه)\\s*(?:اني|انني|ان\\s*انا)?\\s*(?:ارجع|راجع(?:ه)?|بدات\\s*ارجع|قاعد(?:ه)?\\s*ارجع|رجعت)",
+  "(?:احس|حاس|حاسه)\\s*(?:اني|انني|ان\\s*انا)?\\s*(?:ارجع|راجع(?:ه)?|بدات\\s*ارجع|قاعد(?:ه)?\\s*ارجع|رجعت)|" +
+    "(?:رجعت|ارجع|راجع(?:ه)?|رجعنا)\\s*(?:لل|ل|الي\\s*(?:ال)?)\\s*(?:نفس\\s*(?:ال)?(?:عادات(?:ي)?|حاله|مرض|اضطراب|وضع|سلوك|سلوكيات)|(?:عادات(?:ي)?|حاله|وضع|سلوك|سلوكيات|مرض|اضطراب)\\s*(?:ال)?(?:قديمه|سابقه|قديم|سابق))",
+);
+// A member saying they are slipping back, on its own ("I feel like I'm
+// slipping back."), is relapse wording whatever it is about: the trainer reads it.
+const SLIPPING_BARE = words(
+  "(?:i'?m|i\\s+am|i've\\s+been|i\\s+have\\s+been|i\\s+keep|i\\s+kept|i\\s+was)\\s+(?:(?:really|slowly|definitely|maybe|kind\\s+of|kinda|already|just)\\s+)?(?:slipping|sliding)\\s+back(?:\\s+again)?(?=\\s*(?:[.!?,;…]|$)|\\s+(?:again|and|but|so|now|lately|recently)(?![\\p{L}\\p{N}]))",
+  "(?:احس|حاس|حاسه|خايف(?:ه)?)\\s*(?:اني|انني)?\\s*(?:ارجع|راجع(?:ه)?|(?:بدات|بديت|قاعد(?:ه)?)\\s*ارجع)(?:\\s*(?:مره\\s*ثانيه|من\\s*جديد))?(?=\\s*(?:[.!?؟،,;]|$))",
 );
 const EATING_CONTEXT = words(
   "meals?|eat(?:ing|en)?|ate|food|calori\\p{L}*|weigh(?:t|ing)?|scale|body|bulimi\\p{L}*|anorexi\\p{L}*|eating\\s+disorder|thin|skinny",
   "اكل|وجبات|وجبه|اكلي|وزن|وزني|سعرات|اكلت|ميزان|جسمي",
 );
 function eatingDisorderFlag(t: string) {
-  if (unnegated(ED_BEHAVIOUR, t)) return true;
+  if (unnegated(ED_BEHAVIOUR, t) || lowIntake(t)) return true;
+  if (!has(FASTING_CONTEXT, t) && unnegated(NOT_EATING, t)) return true;
+  if (unnegated(SLIPPING_BARE, t)) return true;
   const slipping = unnegated(SLIPPING_BACK, t);
   if (unnegated(SKIPPED_MEALS, t) && (has(COMPENSATING, t) || slipping))
     return true;
@@ -553,15 +816,20 @@ function eatingDisorderFlag(t: string) {
 // ---------------------------------------------------------------------------
 /** Screened text with plain routine negations ("no pain today") removed. */
 function floorText(text: string) {
-  return screeningText(text).replace(
-    routineNegation,
-    (match: string, lead: string, offset: number, whole: string) =>
-      symptomMentioned.test(whole) ||
-      negatedBefore.test(
-        whole.slice(Math.max(0, offset - 40), offset + lead.length),
+  return (
+    screeningText(text)
+      // One reading per whitespace run keeps every pattern linear on padded input.
+      .replace(/\s+/g, (run) => (run.includes("\n") ? "\n" : " "))
+      .replace(
+        routineNegation,
+        (match: string, lead: string, offset: number, whole: string) =>
+          symptomMentioned.test(whole) ||
+          negatedBefore.test(
+            whole.slice(Math.max(0, offset - 40), offset + lead.length),
+          )
+            ? match
+            : lead + " ",
       )
-        ? match
-        : lead + " ",
   );
 }
 /** Every red-flag category the code floor finds in a member's text. */
