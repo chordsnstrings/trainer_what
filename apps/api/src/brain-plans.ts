@@ -192,7 +192,7 @@ const learningRows = (m: Material) =>
     segment: l.data.segment,
     type: l.data.type,
   }));
-/** The plan contract a qualification pins: Brain release, rules, prompt/validator/retrieval versions, model and bounds. */
+/** The plan contract a qualification pins: Brain release, rules, prompt/validator/retrieval versions, model, request form and bounds. */
 function planContract(release: any, settings: PlanSettings) {
   const pin = planModelPin();
   return hash({
@@ -209,6 +209,9 @@ function planContract(release: any, settings: PlanSettings) {
       validatorVersion: pin.validatorVersion,
       confidenceVersion: pin.confidenceVersion,
       retrieval: pin.retrieval.version,
+      // Request style, family, reasoning effort and temperature, unless the
+      // request is the default classic one (modelRequestPin).
+      ...(pin.request ? { request: pin.request } : {}),
     },
     bounds: settings.bounds,
   });

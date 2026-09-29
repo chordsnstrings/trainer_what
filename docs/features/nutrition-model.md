@@ -48,6 +48,15 @@ Claude answer files in the trial scratchpad; the replies used here are copied in
   30 s + 10 ms per budgeted token = **150 s**; an evaluation gets
   `min(27000, max(12000, 4000 + 550 × scenarios))` tokens and the matching time, **at most 300 s**
   (the cap `modelCompletion` applies). `nutritionModel` passes both to `modelCompletion`.
+- Since branch `fix/openai-compat` these times are multiplied for the model family (AI model
+  settings; 1 for classic models, so the values here are unchanged; 2 by default for GPT-5 and
+  later and the o-series, within the 300 s cap) and the lease below is read per request as
+  `nutritionWeekLeaseSeconds()` (390 s for a reasoning model at the default); see
+  `docs/features/model-gateway.md`. The release's model identity (`nutritionModelIdentity()`)
+  also carries the AI model's request style and reasoning effort whenever the request differs
+  from the default classic one, so changing either pauses automatic weeks and swaps until the
+  knowledge is evaluated and activated again ("The AI model's request style or reasoning effort
+  changed after activation").
 - `NUTRITION_WEEK_LEASE_SECONDS` = week timeout + 90 s = **240 s**. The worker's claim of a
   `nutrition_week` job (`apps/worker/src/dispatch.ts`), the manual job a member's request
   creates, the request's "running" window (`GENERATION_PENDING`), the "interrupted before dispatch"

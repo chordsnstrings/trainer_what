@@ -9,6 +9,11 @@ import {
   sandboxOverride,
   sandboxResolver,
 } from "./sandbox.ts";
+import {
+  describeModelRequest,
+  modelTimeoutMultiplier,
+  validTimeoutMultiplier,
+} from "./model-request.ts";
 
 export type RuntimeConfig = Record<string, string | undefined>;
 const runtime = new AsyncLocalStorage<RuntimeConfig>();
@@ -693,6 +698,65 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       field("MODEL_PROVIDER", "Provider name for cost records", "text", {
         help: "Recorded on every AI cost row, for example openai, anthropic or openrouter. Leave blank to use the name read from the API address. Lower-case letters, digits, dots, dashes and underscores.",
       }),
+      field("MODEL_REQUEST_STYLE", "Request style", "select", {
+        defaultValue: "auto",
+        options: [
+          {
+            value: "auto",
+            label: "Automatic (from the model ID; one retry if a parameter is refused)",
+          },
+          { value: "classic", label: "Classic (max_tokens and temperature)" },
+          {
+            value: "reasoning",
+            label:
+              "Reasoning (max_completion_tokens; temperature only for models that accept it)",
+          },
+        ],
+        help: "OpenAI GPT-5 and later, the o-series and chat-latest refuse max_tokens and most refuse a set temperature; automatic sends them max_completion_tokens with the same limit, and the task's temperature only to gpt-5.1, gpt-5.2 and gpt-5.4 (with mini and nano), which accept it while no reasoning effort other than none is sent. Other models (GPT-4.1, GPT-4o, ModelArk Seed, DeepSeek and GLM) get the classic request. With automatic, a provider answer that refuses one of these parameters is retried once in the other style and the style that worked is used from then on; choose a style to send exactly that one. Changing the style or the reasoning effort needs new coaching, plan and nutrition evaluations before automatic delivery resumes.",
+      }),
+      field(
+        "MODEL_REASONING_EFFORT",
+        "Reasoning effort (reasoning style only)",
+        "select",
+        {
+          defaultValue: "auto",
+          options: [
+            {
+              value: "auto",
+              label:
+                "Automatic (low for GPT-5, GPT-5 mini and nano and the o-series; not sent to others)",
+            },
+            { value: "omit", label: "Not sent (the provider's default)" },
+            { value: "none", label: "none (GPT-5.1 and later only)" },
+            {
+              value: "minimal",
+              label: "minimal (gpt-5, gpt-5-mini and gpt-5-nano only)",
+            },
+            { value: "low", label: "low" },
+            { value: "medium", label: "medium" },
+            { value: "high", label: "high" },
+          ],
+          help: "Reasoning counts inside each task's output limit: a lower effort leaves more of it for the answer and is faster. Automatic sends low to gpt-5, gpt-5-mini, gpt-5-nano, o1, o3, o3-mini and o4-mini, whose own default (medium) used the whole limit on many tasks in the September 2026 retest, and sends nothing to other models (the provider's default; gpt-5.1 and later reason little by default). If the provider refuses the automatic level, the call is retried once without it. A chosen level is sent exactly: not every model accepts every level (none: GPT-5.1 and later only; minimal: gpt-5, gpt-5-mini and gpt-5-nano only), and a refused chosen level fails every AI call until it is changed. The connection check warns about a level these models do not accept.",
+        },
+      ),
+      field(
+        "MODEL_TIMEOUT_MULTIPLIER",
+        "Time limit multiplier, classic request style",
+        "number",
+        {
+          defaultValue: "1",
+          help: "Multiplies each AI task's time limit (chat 30 s, plans 69 to 240 s, meal weeks 150 s and so on) for models sent the classic request. 1 keeps the standard limits; raise it for slow thinking models such as DeepSeek V4 Pro or GLM-5.2. 1 to 10; no call waits longer than 300 s.",
+        },
+      ),
+      field(
+        "MODEL_REASONING_TIMEOUT_MULTIPLIER",
+        "Time limit multiplier, reasoning request style",
+        "number",
+        {
+          defaultValue: "2",
+          help: "The same for models sent the reasoning request (GPT-5 and later, o-series), which think before answering. 1 to 10; no call waits longer than 300 s. Meal-week leases follow the longer limit.",
+        },
+      ),
       field(
         "MODEL_VISION_ENABLED",
         "Selected model supports image input",
@@ -1702,6 +1766,14 @@ export function validateIntegrationValues(
           `${entry.label} must be from 0 to 20 with at most two decimals`,
         );
       if (
+        (key === "MODEL_TIMEOUT_MULTIPLIER" ||
+          key === "MODEL_REASONING_TIMEOUT_MULTIPLIER") &&
+        !validTimeoutMultiplier(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 1 to 10 with at most two decimals`,
+        );
+      if (
         key === "MODEL_PROVIDER" &&
         !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())
       )
@@ -2403,12 +2475,31 @@ export async function testIntegration(
             "The selected model was not present in the provider model list. No generation was attempted.",
           checkedAt,
         };
+      // The request calls will start with: the style (the setting, a style
+      // this process learned from a refused parameter, or the model ID) and
+      // the reasoning effort, with a warning for a chosen effort the model ID
+      // is not documented to accept.
+      const plan = describeModelRequest(
+        fields.MODEL_BASE_URL,
+        fields.MODEL_NAME,
+        fields,
+      );
       return {
         status: "verified",
         message:
           "API access and selected model verified without generating content. Coach evaluations must verify output quality separately.",
         checkedAt,
-        details: { model: fields.MODEL_NAME },
+        details: {
+          model: fields.MODEL_NAME,
+          requestStyle: plan.style,
+          requestStyleSource: plan.source,
+          reasoningEffort: plan.reasoningEffort ?? "not_sent",
+          reasoningEffortSource: plan.reasoningEffortSource,
+          ...(plan.reasoningEffortWarning
+            ? { reasoningEffortWarning: plan.reasoningEffortWarning }
+            : {}),
+          timeLimitMultiplier: modelTimeoutMultiplier(fields),
+        },
       };
     }
     if (id === "email" || id === "lean") {

@@ -16,7 +16,13 @@ import {
   type PlanSegment,
 } from "../../domain/src/brain-plans.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
-import { runtimeConfig } from "./configuration.ts";
+import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
+import {
+  familyTimeoutMs,
+  modelCallBudget,
+  modelReplyJson,
+  modelRequestPin,
+} from "./model-request.ts";
 import {
   createPromptRefs,
   promptRefsInstruction,
@@ -51,8 +57,15 @@ function score(query: Set<string>, text: string) {
 const byScore = <T extends { id: string }>(rows: Array<T & { score: number }>) =>
   rows.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
+/**
+ * What a plan qualification pins about the model. `request` is present
+ * whenever the request differs from the default classic one (modelRequestPin),
+ * so changing the request style or reasoning effort needs a new
+ * qualification before plans are delivered automatically.
+ */
 export function planModelPin() {
   const config = runtimeConfig();
+  const request = modelRequestPin(config);
   return {
     endpoint: config.MODEL_BASE_URL ?? null,
     model: config.MODEL_NAME ?? null,
@@ -61,6 +74,7 @@ export function planModelPin() {
     validatorVersion: planValidatorVersion,
     confidenceVersion: planConfidenceVersion,
     retrieval: planRetrievalPolicy,
+    ...(request ? { request } : {}),
   };
 }
 export const planModelConfigured = () => {
@@ -225,18 +239,40 @@ function modelConfig() {
  * Output budget and time for one programme draft. The draft is compact (one
  * session shape plus one row per week), so it grows with sessions a week,
  * exercises and weeks; a 53-week, 7-day programme needs far more than a
- * 4-week one.
+ * 4-week one. The time is multiplied for the configured model's family (AI
+ * model settings; 1 for classic models, so their limits are unchanged).
  */
-export function planGenerationBudget(input: {
-  daysPerWeek: number;
-  weeks: number;
-}) {
+export function planGenerationBudget(
+  input: {
+    daysPerWeek: number;
+    weeks: number;
+  },
+  config: RuntimeConfig = runtimeConfig(),
+) {
   const days = Math.max(1, Math.min(7, Math.round(input.daysPerWeek) || 1));
   const weeks = Math.max(1, Math.min(53, Math.round(input.weeks) || 1));
   return {
     maxTokens: Math.min(16000, Math.max(6000, 2000 + days * 12 * 110 + weeks * 70)),
-    timeoutMs: Math.min(240000, 45000 + days * 6000 + weeks * 1500),
+    timeoutMs: familyTimeoutMs(
+      Math.min(240000, 45000 + days * 6000 + weeks * 1500),
+      config,
+    ),
   };
+}
+/**
+ * How long a brain_plan job holds its worker lease: the longest model call
+ * such a job makes (the largest programme draft, 7 days a week for 53 weeks,
+ * or a weekly adjustment), at the configured model's time limit, plus 90 s
+ * for the transactions before and after it. A second claim during the call
+ * would find the generation still generating, mark it interrupted and hand a
+ * paid reply to the trainer. Classic 257 s, reasoning 390 s by default.
+ */
+export function brainPlanLeaseSeconds(config: RuntimeConfig = runtimeConfig()) {
+  const longest = Math.max(
+    planGenerationBudget({ daysPerWeek: 7, weeks: 53 }, config).timeoutMs,
+    modelCallBudget("plan_adaptation", config).timeoutMs,
+  );
+  return Math.ceil(longest / 1000) + 90;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
@@ -267,7 +303,7 @@ async function complete(
   refs: PromptRefs,
   maxTokens: number,
   accounting: ModelAccounting,
-  timeoutMs = 60000,
+  timeoutMs: number,
 ) {
   const config = modelConfig();
   // The encoded payload is what the model sees (and is shorter than the original).
@@ -295,7 +331,7 @@ async function complete(
   );
   let content: unknown = null;
   try {
-    content = JSON.parse(payload.choices?.[0]?.message?.content ?? "null");
+    content = modelReplyJson(payload);
   } catch {
     content = null;
   }
@@ -461,7 +497,14 @@ export async function proposePlanAdaptation(
     ...input,
     progressionHold: input.progressionHold ?? [],
   });
-  const { content, usage } = await complete(planAdaptationSystem(), refs, 3000, accounting);
+  const budget = modelCallBudget("plan_adaptation", runtimeConfig());
+  const { content, usage } = await complete(
+    planAdaptationSystem(),
+    refs,
+    budget.maxTokens!,
+    accounting,
+    budget.timeoutMs,
+  );
   const reply = decodeReply(refs, unwrapReply(content, "changes"), "proposal", ["reason", "uncertainties"]);
   const parsed = reply.errors.length ? null : adaptationProposalSchema.safeParse(reply.value);
   const errors = reply.errors.length

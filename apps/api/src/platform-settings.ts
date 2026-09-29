@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { integrationStatus, providerSandboxStatus } from "@trainer/providers";
 import { z } from "zod";
+import { describeModelRequest } from "../../../packages/providers/src/model-request.ts";
 import {
   INTEGRATION_CATALOG,
   testIntegration,
@@ -624,9 +625,21 @@ export function platformSettingsRoutes(
         return row;
       });
       let status: TestResult["status"] = "failed";
+      let note = "";
       // Network calls never hold a database transaction or receive unsaved fields.
       try {
         const values = configuredValues(def, snapshot);
+        // The AI model's request style and reasoning effort are the app's
+        // own decision, never provider text: the settings, a style learned in
+        // this process or the model ID (describeModelRequest).
+        if (def.id === "model")
+          note =
+            " " +
+            describeModelRequest(
+              values.MODEL_BASE_URL ?? "",
+              values.MODEL_NAME ?? "",
+              values,
+            ).note;
         const capability = integrationCapability(def.id, values);
         const result =
           capability &&
@@ -646,7 +659,8 @@ export function platformSettingsRoutes(
       const result: TestResult = {
         status,
         message: {
-          verified: "Credentials verified with a read-only provider request.",
+          verified:
+            "Credentials verified with a read-only provider request." + note,
           validated:
             "Configuration validated locally. Review the connection notes for live verification requirements.",
           unavailable:

@@ -45,7 +45,7 @@ import {
   nutritionModelIdentity,
   nutritionBudget,
   NUTRITION_CONTEXT_LIMIT,
-  NUTRITION_WEEK_LEASE_SECONDS,
+  nutritionWeekLeaseSeconds,
 } from "../../../packages/providers/src/nutrition.ts";
 import {
   declinedWeekDetail,
@@ -98,7 +98,8 @@ const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 // A weekly meal-plan attempt holds its job lease and counts as running for the
 // week's model timeout plus time for the transactions around it.
-const WEEK_LEASE = `interval '${NUTRITION_WEEK_LEASE_SECONDS} seconds'`;
+// The configured model's week lease, read in the request's settings snapshot.
+const weekLease = () => `interval '${nutritionWeekLeaseSeconds()} seconds'`;
 const hash = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
 // A follower keeps its own subscriber scope (its rows plus the workspace
@@ -315,6 +316,29 @@ export async function nutritionMaterial(tx: Tx) {
     snapshot,
   };
 }
+/** Keys sorted at every level: a pin read back from JSONB has its keys reordered. */
+const sortedKeys = (value: any): any =>
+  Array.isArray(value)
+    ? value.map(sortedKeys)
+    : value && typeof value === "object"
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((k) => [k, sortedKeys(value[k])]),
+        )
+      : value;
+/** Why an activated release no longer matches the current material. */
+function nutritionPinChange(pinned: any) {
+  const current = nutritionModelIdentity();
+  if (hash(sortedKeys(pinned)) === hash(sortedKeys(current)))
+    return "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available.";
+  if (pinned?.base !== current.base || pinned?.model !== current.model)
+    return "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+  if (pinned?.promptVersion === current.promptVersion)
+    // Same model and instructions: the request style or reasoning effort changed.
+    return "The AI model's request style or reasoning effort changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+  return "The nutrition assistant's instructions were updated after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+}
 export async function nutritionReadiness(tx: Tx) {
   const setup = await latest(tx, "nutrition_setup"),
     material = await nutritionMaterial(tx),
@@ -362,12 +386,7 @@ export async function nutritionReadiness(tx: Tx) {
   } else if (release.data.digest !== material.digest)
     // The release stays pinned to its evaluated digest; delivery waits for requalification.
     gaps.push(
-      hash(release.data.model) === hash(nutritionModelIdentity())
-        ? "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available."
-        : release.data.model?.base === nutritionModelIdentity().base &&
-            release.data.model?.model === nutritionModelIdentity().model
-          ? "The nutrition assistant's instructions were updated after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available."
-          : "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.",
+      nutritionPinChange(release.data.model),
     );
   const configured =
     !!runtimeConfig().MODEL_API_KEY &&
@@ -2361,7 +2380,7 @@ export async function prepareNutritionWeek(
         "Start a new plan today or within the next four weeks.",
       );
     const [prior] = await tx.query(
-      `SELECT *,updated_at<now()-${WEEK_LEASE} AS lease_expired FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2`,
+      `SELECT *,updated_at<now()-${weekLease()} AS lease_expired FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND data->>'requestKey'=$2`,
       [a.userId, b.requestKey],
     );
     if (prior) {
@@ -2392,7 +2411,7 @@ export async function prepareNutritionWeek(
     // A request still inside its lease is in flight, not uncertain: it is
     // answered below as GENERATION_PENDING rather than sent to reconciliation.
     const [uncertain] = await tx.query(
-      `SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status IN ('running','failed','closed') AND coalesce(data->>'providerState','uncertain')='uncertain' AND id<>coalesce($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid) AND NOT (status='running' AND updated_at>now()-${WEEK_LEASE}) LIMIT 1`,
+      `SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status IN ('running','failed','closed') AND coalesce(data->>'providerState','uncertain')='uncertain' AND id<>coalesce($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid) AND NOT (status='running' AND updated_at>now()-${weekLease()}) LIMIT 1`,
       [a.userId, prior?.id ?? null],
     );
     if (uncertain)
@@ -2418,7 +2437,7 @@ export async function prepareNutritionWeek(
     )
       return { done: existing };
     const [running] = await tx.query(
-      `SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND updated_at>now()-${WEEK_LEASE}`,
+      `SELECT id FROM records WHERE kind='nutrition_request' AND owner_user_id=$1 AND status='running' AND updated_at>now()-${weekLease()}`,
       [a.userId],
     );
     if (running)
@@ -2524,7 +2543,7 @@ export async function prepareNutritionWeek(
     );
     if (!recoveryJob) {
       [recoveryJob] = await tx.query(
-        `INSERT INTO jobs(id,tenant_id,kind,intent_key,data,status,attempts,leased_until) VALUES($1,$2,'nutrition_week',$3,$4,'running',1,now()+${WEEK_LEASE}) RETURNING *`,
+        `INSERT INTO jobs(id,tenant_id,kind,intent_key,data,status,attempts,leased_until) VALUES($1,$2,'nutrition_week',$3,$4,'running',1,now()+${weekLease()}) RETURNING *`,
         [
           randomUUID(),
           a.tenantId,

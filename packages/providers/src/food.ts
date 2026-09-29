@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ProviderUnavailable } from "./index.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
+import { modelCallBudget, modelReplyJson } from "./model-request.ts";
 import { runtimeConfig } from "./configuration.ts";
 import { sandboxOverride } from "./sandbox.ts";
 
@@ -226,13 +227,14 @@ export async function estimateMealPhoto(
       "model",
       "Meal-photo analysis is not connected yet. Add your meal manually instead.",
     );
+  const budget = modelCallBudget("meal_photo", c);
   const { payload } = await modelCompletion(
     c.MODEL_BASE_URL,
     c.MODEL_API_KEY,
     c.MODEL_NAME,
     {
       model: c.MODEL_NAME,
-      max_tokens: 2500,
+      max_tokens: budget.maxTokens,
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
@@ -264,11 +266,10 @@ export async function estimateMealPhoto(
       ],
     },
     accounting,
+    { timeoutMs: budget.timeoutMs },
   );
   try {
-    return photoEstimateSchema.parse(
-      JSON.parse(payload.choices?.[0]?.message?.content ?? "null"),
-    );
+    return photoEstimateSchema.parse(modelReplyJson(payload));
   } catch {
     throw new ProviderUnavailable(
       "model",
