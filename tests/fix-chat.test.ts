@@ -266,6 +266,42 @@ test("English and code-switching trial messages are matched exactly as before", 
     assert.equal(writtenInArabic(message(chat)), false, chat);
 });
 
+test("an English word glued to an Arabic article or preposition still matches (review of F1)", () => {
+  // Gulf code-switching glues the article or a preposition to the English
+  // word. These matched when Arabic letters were removed; commit 19adcdd read
+  // "الـband" as one word "الband", so the English term no longer matched.
+  const glued: Array<[string, string]> = [
+    ["نسيت الدمبلز، عندي بس الـband اليوم", "band"],
+    ["عندي بس الband", "band"],
+    ["بالـband بس", "band"],
+    ["ابي اسوي الـdeload هالاسبوع", "deload"],
+    ["ممكن نسوي postpone للـsession؟", "postpone"],
+    ["الـbandاليوم بس", "band"],
+  ];
+  for (const [text, term] of glued) {
+    assert.equal(legacyMatch(text, term), true, `${text} matched before`);
+    assert.equal(requestMatchesTerm(text, term), true, text);
+  }
+  assert.equal(coachingTermText("الـband"), "ال band");
+  assert.equal(coachingTermText("بالband"), "بال band");
+  assert.equal(coachingTermText("٣مرات band"), "3 مرات band");
+  // The action is offered as it was before the Arabic change.
+  assert.deepEqual(eligible("T2S04", glued[0][0]), ["bandRow"]);
+  // An Arabic term still matches with English or digits glued to it, and a
+  // glued number counts as a number for held-out comparison.
+  assert.equal(requestMatchesTerm("تأجيل الحصةplease", "تأجيل الحصة"), true);
+  assert.equal(requestMatchesTerm("ممكن بالتأجيل2", "تأجيل"), true);
+  assert.equal(
+    normalizeCoachingPrompt("فاتني٣ تمارين"),
+    normalizeCoachingPrompt("فاتني 5 تمارين"),
+  );
+  // Only the Arabic/Latin edge splits: English words and Arabic words keep
+  // their letters together.
+  assert.equal(coachingTermText("RIR4 كيلو"), "rir4 كيلو");
+  assert.equal(coachingTermText("band3مرات"), "band3 مرات");
+  assert.equal(requestMatchesTerm("i only have my bandana", "band"), false);
+});
+
 test("Arabic medical questions stay with the trainer even when a routine term matches", () => {
   const lowEnergy = {
     ...action("T2", "lowEnergy"),
@@ -283,8 +319,32 @@ test("Arabic medical questions stay with the trainer even when a routine term ma
     "ما عندي طاقة بعد تحليل الدم",
     "ما عندي طاقة، هل هو اضطراب الأكل؟",
     "تعبانة، والطبيب غيّر الإنسولين",
+    // Review of F1: the Gulf spellings without hamza, pills, painkillers and
+    // treatment are medical too.
+    "تعبانة من الدوا الجديد",
+    "ما عندي طاقة من الحبوب",
+    "تعبانة، دواي الجديد يخليني نعسانة",
+    "تعبانة، آخذ مسكنات قبل التمرين؟",
+    "ما عندي طاقة بسبب العلاج",
+    // A supplement taken on an empty stomach is written like "continuing on"
+    // (مكمل على); both stay with the trainer (see the medical list's comment).
+    "تعبانة، آخذ مكمل على الريق؟",
+    "تعبانة بس مكمل على نفس البرنامج",
   ])
     assert.deepEqual(eligible("T2S03", text, [lowEnergy]), [], text);
+  // Words that only start like a medical word are not excluded: دوام is work
+  // hours, not دوا (medicine).
+  assert.deepEqual(eligible("T2S03", "تعبانة من الدوام اليوم", [lowEnergy]), [
+    "lowEnergy",
+  ]);
+  // English equivalents (T2's own fatigue term).
+  for (const text of [
+    "I'm tired from my new medicine",
+    "So tired lately, can I take painkillers before training?",
+    "Tired after the pills my GP gave me",
+  ])
+    assert.deepEqual(eligible("T2S04", text), [], text);
+  assert.deepEqual(eligible("T2S04", "I'm tired today"), ["lowEnergy"]);
 });
 
 test("supplement questions stay with the trainer even when a routine term matches (T3 Brain test 4)", () => {
@@ -553,6 +613,62 @@ test("the selector states the evidence contract and sends short references", asy
           (e: any) => e instanceof ModelOutputInvalid,
           String(evidenceIds),
         ),
+    );
+});
+
+test("a reference-shaped word in the selector's reason does not withhold a grounded selection (review of F1)", async () => {
+  // "x8", "K2" and "R2" read like references (X, K and R are this request's
+  // prefixes), but only R1 and K1 were issued. The reason is trainer-facing
+  // prose; the identifier fields stay strict.
+  const m = member("T2S04");
+  const progress = action("T2", "progress");
+  const input = {
+    tenantId: randomUUID(),
+    request: message("T2S04/chat2"),
+    facts: coachingFactsSchema.parse(trialFacts(m)),
+    actions: withUses([progress]),
+    examples: [],
+    rules: trialRuleRecords("T2"),
+  };
+  const rule = progress.data.evidenceIds[0];
+  const answer =
+    (reason: string, extra: Record<string, unknown> = {}) =>
+    ({ input }: Sent) => ({
+      actionId: input.actions[0].id,
+      requiresHumanReview: false,
+      reason,
+      evidenceIds: input.actions[0].data.evidenceIds,
+      ...extra,
+    });
+  for (const reason of [
+    "All 3 sets x8 at RIR 4, so the +1 kg step fits",
+    "Fits rule R2 and the goblet squat progression",
+    "Not about vitamin K2; the squat felt easy",
+  ])
+    await withModel(answer(reason), async () => {
+      const result = await selectCoachAction(input, accounting);
+      assert.equal(result.selection.reason, reason, "left as written");
+      assert.equal(result.selection.actionId, progress.id);
+      assert.deepEqual(result.selection.evidenceIds, [rule]);
+      assert.equal(groundedCoachSelection(result.selection, progress), true);
+    });
+  // An issued reference in the reason is stored as the full ID, never as R1.
+  await withModel(answer("Rule R1 allows +1 kg"), async () => {
+    const result = await selectCoachAction(input, accounting);
+    assert.equal(result.selection.reason, `Rule ${rule} allows +1 kg`);
+  });
+  // The identifier fields are not relaxed.
+  for (const extra of [
+    { evidenceIds: ["R2"] },
+    { evidenceIds: ["x8"] },
+    { actionId: "K2" },
+  ])
+    await withModel(answer("All 3 sets x8 at RIR 4", extra), async () =>
+      assert.rejects(
+        selectCoachAction(input, accounting),
+        (e: any) => e instanceof ModelOutputInvalid,
+        JSON.stringify(extra),
+      ),
     );
 });
 

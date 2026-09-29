@@ -8,7 +8,7 @@ Wired on branch `core/fix-chat` (task F1, `docs/features/coaching-chat.md`):
 
 | Call | Kinds (prefix: identifiers) | `idKeys` | Prompt version |
 | --- | --- | --- | --- |
-| `selectCoachAction` | `K`: actions, `R`: rules, `X`: teaching cases; `ID` for identifiers inside facts | `actionId`, `evidenceIds` | `coach-action-selector-v3` |
+| `selectCoachAction` | `K`: actions, `R`: rules, `X`: teaching cases; `ID` for identifiers inside facts | `actionId`, `evidenceIds` (an issue in the free-text `reason` does not reject the reply: its references are decoded, and a reference-shaped word such as "x8" or "K2" is left as written) | `coach-action-selector-v3` |
 | `modelDecision` | `EV`: evidence items; `ID` for identifiers inside evidence data | `evidenceIds` (a reference or UUID in the member-facing `message` is invalid output) | `coach-decision-v1` |
 
 ## Why
@@ -94,7 +94,10 @@ Other members: `refs.payload` (send this), `resolve(token)`, `resolveAll(tokens)
    model output (`ModelOutputInvalid`, or an `errors` entry such as
    `Model output: evidenceIds.2 malformed_uuid`) and route it to the trainer as today. Never drop
    the unknown entries and continue. Then run the existing schema and evidence checks, unchanged,
-   on `decoded.value`.
+   on `decoded.value`. A call site may exempt a free-text field that only the trainer reads and
+   that nothing checks as an identifier (`selectCoachAction` exempts `reason`: coaching prose such
+   as "3 sets x8" or "vitamin K2" is reference-shaped and must not withhold a correct selection);
+   the `idKeys` fields are never exempt.
 5. **Name the identifier fields.** Current outputs:
 
    | Call | `idKeys` |

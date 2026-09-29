@@ -110,12 +110,16 @@ export async function selectCoachAction(
   let selection: z.infer<typeof selectionSchema>;
   try {
     // References (or full IDs) map back to the IDs this request showed; any
-    // other identifier is invalid output, never matched to a near miss.
+    // other identifier in actionId or evidenceIds is invalid output, never
+    // matched to a near miss. The free-text reason (trainer-facing, never
+    // shown to the member) is decoded too, so no reference is stored, but a
+    // reference-shaped word in it ("sets x8", "vitamin K2") is left as written
+    // instead of withholding a grounded selection.
     const decoded = refs.decode(
       JSON.parse(payload.choices?.[0]?.message?.content ?? "null"),
       { idKeys: ["actionId", "evidenceIds"] },
     );
-    if (!decoded.ok)
+    if (decoded.issues.some((issue) => issue.path[0] !== "reason"))
       throw new Error("The model cited an identifier it was not shown");
     selection = selectionSchema.parse(decoded.value);
     const ids = new Set(evidence.map((e) => e.id));

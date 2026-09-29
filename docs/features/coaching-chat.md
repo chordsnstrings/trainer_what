@@ -49,6 +49,9 @@ chat that cut every model's score:
   encoded payload, and decodes the reply with `idKeys: ["actionId", "evidenceIds"]`. Any
   identifier the request did not show (a miscopied UUID, an unissued reference) is invalid output,
   never matched to a near miss. Full UUIDs that were in the request are still accepted. The
+  free-text `reason` (trainer-facing) is decoded too, so an issued reference is stored as the full
+  ID, but a reference-shaped word in it ("3 sets x8", "vitamin K2", an unissued "R2") is left as
+  written and does not withhold the selection; only `actionId` and `evidenceIds` are strict. The
   120,000-character limit applies to the encoded text.
 - **Prompt version `coach-action-selector-v3`** (was v2). The version is part of
   `coachingModelPin()`, which is inside the runtime contract digest. So after this change every
@@ -89,8 +92,11 @@ chat that cut every model's score:
 - `coachingTermText()` replaces the ASCII-only folding: case and width folded; Arabic diacritics
   and tatweel removed; alef forms, waw/yeh hamza, alef maqsura and Persian yeh, keheh and ta
   marbuta unified; Arabic-Indic and Persian digits become ASCII; letters and digits of every script
-  are kept. English and code-switched text folds exactly as before (checked for every term against
-  every non-Arabic trial message).
+  are kept, and an Arabic letter that touches a Latin letter or digit starts a new word. English
+  words match exactly as before, including code-switching where a member glues an Arabic article
+  or preposition to the English word ("الـband", "بالband", "للـsession" read as "ال band",
+  "بال band", "لل session"). Checked for every English term against every non-Arabic trial
+  message, and for glued examples (none of the 96 trial messages glues the two scripts).
 - `requestMatchesTerm()`: a term that folds to empty text never matches. English words match
   exactly (whole words, as before). An Arabic word may carry an attached conjunction, preposition or
   article in the request (و، ف، ب، ك، ل، ال، لل), and a term word's own article is optional, so
@@ -100,10 +106,15 @@ chat that cut every model's score:
   equipment items with no letters or digits. Stored actions still load with `coachActionSchema`.
   The member's equipment list is also split on the Arabic comma and semicolon, empty entries never
   satisfy a requirement, and the studio splits phrases on the Arabic comma.
-- The medical exclusion now has Arabic equivalents (تشخيص، دواء، أدوية، وصفة طبية، تحليل الدم،
-  علاج طبي، اضطراب الأكل، سكري، إنسولين) and both languages add supplements and energy drinks
-  (supplements, energy drinks, pre-workout, creatine, fat burners; مكملات، كرياتين، حارق دهون، مشروب
-  طاقة). Reason: in the trial, "I'm exhausted. Which energy drink should I have before intervals?"
+- The medical exclusion now has Arabic equivalents (تشخيص، دواء and the Gulf دوا، دوائي/دواي، أدوية،
+  حبوب، مسكن/مسكنات، وصفة طبية، تحليل الدم، علاج/علاجي، اضطراب الأكل، سكري، إنسولين) and both languages
+  add supplements and energy drinks (supplements, energy drinks, pre-workout, creatine, fat burners;
+  مكمل/مكملات، كرياتين، حارق دهون، مشروب طاقة); English also adds medicine, pills and painkillers.
+  Words are whole words with an optional attached clitic, so دوام (work hours) is not دوا. The bare
+  مكمل also means "continuing" in the Gulf ("مكمل على نفس البرنامج"); it stays excluded, because a
+  supplement question is written the same way ("آخذ مكمل على الريق؟") and an unclear request goes to
+  the trainer. Doctor words (طبيب، دكتور) are not excluded: T2S03's routine reschedule mentions a
+  dentist (طبيب الأسنان). Reason for the list: in the trial, "I'm exhausted. Which energy drink should I have before intervals?"
   matched T3's fatigue action and Seed and Haiku chose it; the old grounding rule blocked that only
   because they omitted the action's ID. With the corrected rule, a code gate keeps such questions
   with the trainer, so safety does not get weaker.
@@ -137,7 +148,7 @@ outcome context.
 
 ## Tests
 
-`tests/fix-chat.test.ts` (16 tests) with `tests/chat-trial-fixtures.ts` (the trial's actions,
+`tests/fix-chat.test.ts` (18 tests) with `tests/chat-trial-fixtures.ts` (the trial's actions,
 rules, 24 members with their facts and 96 messages, and recorded model replies, IDs from the
 trial's own `trialUid`):
 
@@ -150,14 +161,20 @@ trial's own `trialUid`):
   English unchanged for every trial message);
 - empty terms never match; `coachActionInputSchema` rejects them;
 - more than 1,000 (English message, English term) pairs match exactly as before; T2S08's
-  code-switched messages keep their action and English reply;
-- Arabic medical and supplement questions (and T3 Brain test 4) are excluded;
+  code-switched messages keep their action and English reply; English words glued to an Arabic
+  article or preposition ("الـband", "بالـband", "الـdeload", "للـsession") match as they did before
+  the Arabic change, and T2S04's glued band message is offered the band-row action;
+- Arabic medical and supplement questions (and T3 Brain test 4) are excluded, including the Gulf
+  دوا/الدوا, دواي, حبوب, مسكنات and العلاج and the English medicine, pills and painkillers; "تعبانة من
+  الدوام" (work) still gets the fatigue action;
 - reply language matrix (`writtenInArabic`, `coachActionReply`, `responseAr` must be Arabic);
 - the 39 trial selector replies are grounded now and were not under the old rule; every other
   grounding condition still rejects;
 - `selectCoachAction`: exact prompt, payload with no full UUID (`K1`, `R1`), the recorded Seed
   reply (full IDs) accepted and grounded, the same answer in references, and a one-character-off
-  ID, an unissued `R99` and a truncated ID withheld;
+  ID, an unissued `R99` and a truncated ID withheld; a reason containing "x8", "K2" or an
+  unissued "R2" is kept as written and the selection is still grounded, an issued "R1" in the
+  reason is stored as the full ID, and the same tokens in `actionId` or `evidenceIds` are withheld;
 - draft prompt contract; all 13 recorded invalid trial drafts are still withheld; a valid Arabic
   trial draft (Opus, T1S07) decodes, records `coach-decision-v1`; a reference or UUID in the
   message is withheld;
@@ -190,6 +207,23 @@ legacy-pipeline evaluator finds the rule through its reference) and `tests/coach
   `isolation-follower`, `messaging-safety-policy`, `onboarding-completion` and
   `coaching-history-search`: 9 files, 76 tests, 0 failed files.
 - Not run: the whole suite, `next build`, the e2e harness, any live model.
+
+Review round (glued code-switching, reference-shaped words in the selector's reason, Arabic
+medical words), re-run on the result:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `node --import tsx --test tests/fix-chat.test.ts`: 18 tests, 18 pass. The three new or extended
+  tests fail on the previous commit (checked by stashing the two source files).
+- The 13 test files that use the changed functions (`client-twin-adherence`, `coaching-completion`,
+  `coaching-feedback`, `coaching-input-coverage`, `coaching-retrieval`, `coaching-runtime`,
+  `e2e-harness-model-outcomes`, `fix-chat`, `fix-coaching`, `messaging-safety-policy`,
+  `onboarding-completion`, `platform`, `prompt-refs`) on PGlite: 137 tests, 137 pass.
+- The 73 test files that mention coaching, the Brain routes, `modelDecision` or the providers
+  package, in one run on PGlite (`--test-concurrency=1`): 746 tests, 746 pass.
+- `/opt/tools/pg-sandbox.sh` with the 10 database-touching files among them: 110 tests,
+  `PG_SELECTED_FAILED_FILES=0`.
+- Eligibility of all 96 trial messages against their trainer's actions, and their folded text, is
+  identical before and after the review changes, so the replay figures below still hold.
 
 ## Replay of the trial's recorded answers
 

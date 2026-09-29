@@ -170,7 +170,12 @@ export const coachingActions = [
  * waw and yeh hamza, alef maqsura and Persian yeh, keheh, ta marbuta);
  * Arabic-Indic digits become ASCII. Letters and digits of every script are
  * kept and anything else becomes one space, so Arabic text never folds to
- * empty text. No lookbehind: this module is also bundled for browsers.
+ * empty text. Arabic letters that touch Latin letters or digits are split
+ * into separate words, so a code-switched English word keeps matching when a
+ * member glues an Arabic article or preposition to it ("الـband" and
+ * "بالband" read as "ال band" and "بال band"), as it did when Arabic
+ * letters were removed.
+ * No lookbehind: this module is also bundled for browsers.
  */
 export function coachingTermText(value: string) {
   return value
@@ -185,6 +190,8 @@ export function coachingTermText(value: string) {
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
     .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/(\p{Script=Arabic})(?=[\p{Script=Latin}0-9])/gu, "$1 ")
+    .replace(/([\p{Script=Latin}0-9])(?=\p{Script=Arabic})/gu, "$1 ")
     .trim();
 }
 const arabicLetter = /\p{Script=Arabic}/u;
@@ -237,13 +244,18 @@ export function requestMatchesTerm(request: string, term: string) {
 // Medical and supplement topics stay with the trainer even when a routine
 // term matches (in the trial, "I'm exhausted. Which energy drink should I have
 // before intervals?" matched a fatigue action). The Arabic list is matched on
-// coachingTermText() with an optional attached clitic.
+// coachingTermText() (so it is written in folded spelling, e.g. دوايي for
+// دوائي) with an optional attached clitic. It includes the Gulf spellings
+// (دوا، دواي) and pills (حبوب). The bare مكمل also reads "continuing" in the
+// Gulf ("مكمل على نفس البرنامج"); it stays excluded because "آخذ مكمل على
+// الريق؟" (a supplement on an empty stomach) is written the same way, and an
+// unclear request goes to the trainer.
 const medicalRequest =
-  /\b(diagnos(?:e|is|ing)|medicat(?:ion|ions)|prescrib(?:e|ing)|blood (?:test|results)|medical treatment|eating disorder|diabetes|supplements?|energy drinks?|pre-?workouts?|creatine|fat burners?)\b/i;
+  /\b(diagnos(?:e|is|ing)|medicat(?:ion|ions)|medicines?|pills?|painkillers?|prescrib(?:e|ing)|blood (?:test|results)|medical treatment|eating disorder|diabetes|supplements?|energy drinks?|pre-?workouts?|creatine|fat burners?)\b/i;
 const arabicMedicalRequest = new RegExp(
   " " +
     arabicClitic +
-    "(?:تشخيص|دواء|دوايي|ادويه|ادويتي|وصفه طبيه|تحليل (?:ال)?دم|فحص (?:ال)?دم|علاج طبي|اضطراب (?:ال)?اكل|سكري|مرض (?:ال)?سكر|انسولين|مكمل|مكملات|كرياتين|حارق (?:ال)?دهون|حارقات (?:ال)?دهون|مشروب (?:ال)?طاقه|مشروبات (?:ال)?طاقه)(?= )",
+    "(?:تشخيص|دواء|دوا|دواي|دوايي|ادويه|ادويتي|حبوب|مسكن|مسكنات|وصفه طبيه|تحليل (?:ال)?دم|فحص (?:ال)?دم|علاج|علاجي|اضطراب (?:ال)?اكل|سكري|مرض (?:ال)?سكر|انسولين|مكمل|مكملات|كرياتين|حارق (?:ال)?دهون|حارقات (?:ال)?دهون|مشروب (?:ال)?طاقه|مشروبات (?:ال)?طاقه)(?= )",
   "u",
 );
 export const coachActionSchema = z
