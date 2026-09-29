@@ -43,7 +43,14 @@ const reviewed: Array<
     "personal_review",
   ],
   ["I binge-watched TV all weekend and skipped training", "automatic_allowed"],
-  ["I've been purging after dinners", "personal_review"],
+  // Purging is a code-floor red flag since the 29 September 2026 model trial
+  // (eating-disorder behaviours); it was a personal-review topic before.
+  ["I've been purging after dinners", "hold"],
+  // "Eating disorder" as a topic is still the policy's review category.
+  [
+    "I have a history of an eating disorder, is this plan ok?",
+    "personal_review",
+  ],
   ["Great session, no pain at all!", "automatic_allowed"],
   ["Should I stop the program? I feel dizzy after squats", "hold"],
   ["ما عندي أي ألم الحمدلله", "automatic_allowed"],
@@ -705,4 +712,69 @@ test("open reviews that are not yet due never hide an overdue safety hold", asyn
     ),
     0,
   );
+});
+
+test("the model trial's missed red flags pause training from chat and digital coaching, with the floor categories pinned", async () => {
+  const cases: Array<[string, "/messages" | "/coaching/ask", string, string]> =
+    [
+      [
+        "trial-bp@example.test",
+        "/coaching/ask",
+        "My blood pressure this morning was 175/105 and I have a pounding headache. Should I do the session?",
+        "blood_pressure",
+      ],
+      [
+        "trial-sugar@example.test",
+        "/coaching/ask",
+        "My sugar was 65 before training and I felt shaky. Should I still train?",
+        "blood_sugar",
+      ],
+      [
+        "trial-knee@example.test",
+        "/messages",
+        "ركبتي قفلت وورمت بعد المشي أمس.",
+        "joint_injury",
+      ],
+      [
+        "trial-relapse@example.test",
+        "/coaching/ask",
+        "I've been skipping meals and running twice a day. I feel like I'm slipping back.",
+        "eating_disorder",
+      ],
+    ];
+  const originalFetch = globalThis.fetch;
+  let modelCalls = 0;
+  globalThis.fetch = async (...args) => {
+    modelCalls++;
+    return originalFetch(...args);
+  };
+  try {
+    for (const [email, path, text, category] of cases) {
+      const member = await join(email, true);
+      const sent = await request(
+        path,
+        "POST",
+        path === "/messages" ? { text } : { message: text },
+        member,
+      );
+      assert.equal(sent.statusCode, 200, sent.body);
+      if (path === "/coaching/ask")
+        assert.match(sent.json().data.text, /Training is paused/);
+      const held = await rows(member.userId);
+      assert.ok(
+        held.some((r) => r.kind === "training_hold" && r.status === "active"),
+        text,
+      );
+      const exception = await exceptionOf(member.userId);
+      assert.equal(exception.data.trigger, "code_floor", text);
+      assert.ok(
+        exception.data.screening.floorCategories.includes(category),
+        `${text}: ${exception.data.screening.floorCategories}`,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  // The floor answers before any model is called.
+  assert.equal(modelCalls, 0);
 });

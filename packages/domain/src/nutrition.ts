@@ -5,6 +5,7 @@ import {
   nutritionPrinciples,
   nutritionSampleMealSchema,
 } from "./nutrition-learning-schema.ts";
+import { redFlagCategories, type RedFlagCategory } from "./red-flags.ts";
 
 export const nutritionCategories = [
   "diet",
@@ -387,18 +388,40 @@ export function nutritionScopeSignals(texts: string[]) {
   }
   return [...new Set(found)];
 }
+// The code safety floor's red flags that bear on eating: a meal plan is not
+// prepared automatically for a member reporting them (a knee or pain report
+// alone does not stop meal planning).
+const nutritionFloorCategories: ReadonlySet<RedFlagCategory> = new Set([
+  "urgent",
+  "pregnancy",
+  "pregnancy_warning",
+  "self_harm",
+  "blood_pressure",
+  "blood_sugar",
+  "eating_disorder",
+]);
+/** Code-floor red flags (the same screen as chat and plans) that stop automatic meal planning. */
+export function nutritionRedFlags(texts: string[]) {
+  const found = new Set<RedFlagCategory>();
+  for (const t of texts)
+    for (const c of redFlagCategories(t))
+      if (nutritionFloorCategories.has(c)) found.add(c);
+  return [...found];
+}
 export function nutritionTarget(
   policy: NutritionPolicy,
   profile: NutritionProfile,
 ) {
+  const profileText = [
+    profile.notes,
+    profile.goal,
+    profile.diet,
+    ...profile.exclusions,
+    ...profile.allergens,
+  ];
   if (
-    nutritionScopeSignals([
-      profile.notes,
-      profile.goal,
-      profile.diet,
-      ...profile.exclusions,
-      ...profile.allergens,
-    ]).length
+    nutritionScopeSignals(profileText).length ||
+    nutritionRedFlags(profileText).length
   )
     block(
       "SCOPE_REVIEW",
