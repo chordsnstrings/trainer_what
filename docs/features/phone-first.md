@@ -121,7 +121,7 @@ install prompt).
 ## Bottom insets for fixed UI
 
 Fixed member UI publishes its size on `<html>`; any other fixed element
-(toasts, the analytics preferences control, a future install prompt) uses
+(toasts, the analytics consent bar, the install and update prompts) uses
 `--member-bottom-inset` to stay clear:
 
 | Property | Meaning |
@@ -133,8 +133,10 @@ Fixed member UI publishes its size on `<html>`; any other fixed element
 
 `<html data-keyboard="open">` marks an open keyboard (`useKeyboardInset`,
 shared and reference counted). Page content already pads itself by
-`--member-bottom-inset`. The analytics preferences control from the root
-layout is lifted by the same value (`phone-first.css`, last rule).
+`--member-bottom-inset`. The analytics consent bar from the root layout
+sits on the same value itself (`analytics-consent.css`,
+docs/features/analytics-consent.md): flush above the tab bar and any action
+bar, hidden while the keyboard is open.
 
 ## Shared controls (`components/phone-ui.tsx`)
 
@@ -187,7 +189,7 @@ from the next field, and unclassed buttons styled as secondary buttons
 - **Coaching profile** (`/app/intake`) opens on the intake questions (not
   account security) with Save in a sticky bar; **Profile and settings**
   (`/app/profile`) keeps account, notifications and privacy and links to
-  the coaching profile; its "Your data" card is `#your-data`.
+  the coaching profile; its "Privacy and your data" card is `#privacy`.
 - **Nutrition**: `ScrollTabs`; meal plan days scroll sideways on phones.
   **Log a meal**: 44 px Remove buttons, the nutrient labels clear of the
   helper text, and a reason beside a disabled Use camera.
@@ -287,8 +289,6 @@ never moves it with its parent.
 - The Today screen's content (contradictory plan states, repeated
   navigation cards and stats, length) is the Today/content track; the tab
   bar now covers the navigation those cards duplicate.
-- The analytics preferences control is the consent track (`ui/consent`);
-  it should position itself with `--member-bottom-inset`.
 - Dark mode and translated Arabic copy for member screens, coach website
   and joining pages, public legal pages, meal logging and barcode review
   copy, notification and support labels, membership and checkout states,

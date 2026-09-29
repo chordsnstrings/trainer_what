@@ -65,6 +65,7 @@ import { Support } from "./support";
 import { AccountSecurity, AccountRecovery } from "./account-security";
 import { AccountExtras, MagicAccess } from "./account-completion";
 import { AccountSettings } from "./account-settings";
+import { AnalyticsSetting } from "./acquisition";
 import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
 import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
 import { OperatorRecovery } from "./operator-recovery";
@@ -4549,8 +4550,9 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
-        <Card id="your-data">
-          <h2>Your data</h2>
+        {/* Profile > Privacy (/app/profile#privacy), linked from More. */}
+        <Card id="privacy">
+          <h2>{sub ? "Privacy and your data" : "Your data"}</h2>
           <p className="muted">
             Download your coaching records, manage consent, or request account
             deletion. Required financial records follow the applicable retention
@@ -4591,6 +4593,8 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
           >
             Withdraw coaching-data consent
           </Button>
+          <div className="divider" />
+          <AnalyticsSetting />
         </Card>
       </div>
       )}
@@ -5295,6 +5299,14 @@ function Public({
             <Link href="/terms">Terms</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/ai-disclosure">Digital coaching</Link>
+            {/* Opens the analytics preferences (components/acquisition.tsx). */}
+            <button
+              type="button"
+              className="analytics-footer-link"
+              data-analytics-preferences=""
+            >
+              Analytics preferences
+            </button>
           </div>
         </footer>
       ) : (

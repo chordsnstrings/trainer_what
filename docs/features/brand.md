@@ -378,7 +378,8 @@ Review fixes (same stage, second pass):
 - The optional-analytics prompt on marketing pages is a white bottom bar
   with ink text and two equal secondary buttons, opened only after a
   scroll; the footer's "Analytics preferences" replaces the floating
-  button.
+  button. (29 September 2026: the floating button is gone everywhere and
+  any answer ends the bar for good; see `docs/features/analytics-consent.md`.)
 - The /features strip keeps two figures (capabilities, tools replaced);
   the home subscriber tiles are flat links without shadows or amber
   "Available soon" badges.

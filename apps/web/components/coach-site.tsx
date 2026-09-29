@@ -1175,6 +1175,17 @@ export function CoachWebsite({
           <Link href="/privacy">Privacy</Link>
           <Link href="/ai-disclosure">Digital coaching</Link>
           {!preview && <Link href="/login">Member login</Link>}
+          {/* Opens the analytics preferences (components/acquisition.tsx);
+              the only way back to them after a visitor's first answer. */}
+          {!preview && (
+            <button
+              type="button"
+              className="analytics-footer-link"
+              data-analytics-preferences=""
+            >
+              Analytics preferences
+            </button>
+          )}
         </nav>
       </footer>
     </TrainerTheme>

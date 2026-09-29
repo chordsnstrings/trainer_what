@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import {
   checkAcquisitionConsent,
   checkCompletionFlows,
+  checkConsentOnPhone,
 } from "./browser-completion-check.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -140,6 +141,12 @@ const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
 await mkdir("test-results", { recursive: true });
 try {
   const acquisitionConsent = await checkAcquisitionConsent({ page, base });
+  const consentOnPhone = await checkConsentOnPhone({
+    browser,
+    base,
+    member: "sam.taylor@example.test",
+    password: process.env.DEMO_PASSWORD ?? "TrainerDemo2026!",
+  });
   await page.goto(base, { waitUntil: "networkidle" });
   await capture(page, {
     path: "test-results/landing-desktop.png",
@@ -304,11 +311,10 @@ try {
   pages.push(subscriber);
   await observe(subscriber);
   await subscriber.goto(base + "/login");
+  // The first analytics prompt is the slim bar; any answer ends it.
   await subscriber
-    .getByRole("button", {
-      name: "Continue without analytics",
-      exact: true,
-    })
+    .getByRole("complementary", { name: "Optional analytics" })
+    .getByRole("button", { name: "No thanks", exact: true })
     .click();
   await subscriber.getByLabel("Email address").fill("sam.taylor@example.test");
   await subscriber
@@ -546,6 +552,7 @@ try {
         routes: visitedRoutes.size,
         routePaths: [...visitedRoutes].sort(),
         acquisitionConsent,
+        consentOnPhone,
         marketing,
         completionFlows,
         onboardingResume: true,

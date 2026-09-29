@@ -1203,12 +1203,10 @@
   }
 }
 
-/* Fixed UI rendered outside the member shell (the analytics preferences
-   control from the root layout) sits above the tab bar and any action bar.
-   New fixed UI should use var(--member-bottom-inset) the same way. */
-:root:has(.member-shell) .acquisition-consent {
-  inset-block-end: calc(var(--member-bottom-inset) + 12px) !important;
-}
+/* Fixed UI rendered outside the member shell (the analytics consent bar in
+   analytics-consent.css, the PWA prompts) positions itself with
+   var(--member-bottom-inset), so it sits above the tab bar and any action
+   bar without an override here. */
 
 /* ------------------------------------------------------------------ */
 /* Workout screen (member)                                              */

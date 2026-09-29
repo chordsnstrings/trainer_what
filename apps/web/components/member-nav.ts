@@ -155,7 +155,7 @@ const D = {
   privacy: {
     id: "privacy",
     label: "Privacy and your data",
-    href: "/app/profile#your-data",
+    href: "/app/profile#privacy",
     icon: "privacy",
     detail: "Download or delete your data",
   },

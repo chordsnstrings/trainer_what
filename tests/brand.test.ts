@@ -353,7 +353,7 @@ function resolver(...layers: Record<string, string>[]) {
   return (name: string) => resolve(`var(${name})`);
 }
 
-const platformCssFiles = ["globals.css", "marketing.css", "platform-settings.css", "governance.css", "host-operations.css"];
+const platformCssFiles = ["globals.css", "marketing.css", "analytics-consent.css", "platform-settings.css", "governance.css", "host-operations.css"];
 
 test("design tokens are the supplied palette and meet the contrast checks in light and dark", async () => {
   const css = await readFile(web("app/globals.css"), "utf8");
