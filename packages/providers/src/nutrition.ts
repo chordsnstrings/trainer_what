@@ -12,8 +12,9 @@ import {
  * X teaching cases, S sources, Q held-out checks), meal weeks state their
  * numeric limits and may be declined (always when a coach boundary applies
  * or the model is unsure), policy compilation may leave blanks as
- * questions, evaluation scenarios carry their category and a stated
- * nutrient precision. Releases pin this version (nutritionModelIdentity).
+ * questions, and evaluation states the nutrient precision and the case
+ * fields a quote may come from (a held-out check's category is not sent).
+ * Releases pin this version (nutritionModelIdentity).
  */
 export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v3";
 export const NUTRITION_CONTEXT_LIMIT = 180000;
