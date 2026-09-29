@@ -3,6 +3,25 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
+import { formatWhen, labelFor, timeZoneChoices } from "../lib/format";
+
+/** Notification categories in words (never the stored key). */
+export const NOTIFICATION_CATEGORIES: Record<string, string> = {
+  account: "Account",
+  authenticators: "Sign-in security",
+  booking: "Booking",
+  boundaries: "Coaching",
+  coaching: "Coaching",
+  human_review: "Coach review",
+  payout_fee: "Payouts",
+  policy_review: "Coaching",
+  safety: "Safety",
+  server: "Service",
+  workout: "Training",
+  nutrition: "Nutrition",
+  billing: "Membership",
+  support: "Support",
+};
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -105,8 +124,8 @@ export function NotificationPreferences() {
             English otherwise. Arabic also arranges the app from right to left.
           </small>
           <label className="field">
-            <span>Time zone</span>
-            <input
+            <span>Time zone for reminders and quiet hours</span>
+            <select
               value={value.data.timezone}
               required
               onChange={(e) =>
@@ -115,7 +134,13 @@ export function NotificationPreferences() {
                   data: { ...value.data, timezone: e.target.value },
                 })
               }
-            />
+            >
+              {timeZoneChoices(value.data.timezone).map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
+                </option>
+              ))}
+            </select>
           </label>
           {[
             ["quietStart", "Quiet hours start"],
@@ -137,7 +162,9 @@ export function NotificationPreferences() {
               />
             </label>
           ))}
-          <small>Set both times alike to disable quiet hours.</small>
+          <small>
+            Choose the same start and end time to turn quiet hours off.
+          </small>
           <p>
             <button className="button" disabled={busy}>
               Save preferences
@@ -179,8 +206,10 @@ export function NotificationInbox() {
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">KEEP IN TOUCH</p>
-          <h1>Your notifications.</h1>
+          <h1>Notifications</h1>
+          <p className="muted">
+            Updates about your coaching, bookings and account.
+          </p>
         </div>
         <button
           className="button secondary"
@@ -198,21 +227,26 @@ export function NotificationInbox() {
       {loading && <p role="status">Loading notifications…</p>}
       {!loading && !error && !rows.length && (
         <section className="card">
-          <p>You’re all caught up.</p>
+          <h2>You’re all caught up</h2>
+          <p className="muted">
+            New updates from your coach, your bookings and your account appear
+            here.
+          </p>
         </section>
       )}
       {rows.map((n) => (
         <article className="card" key={n.id}>
-          <small>
-            {n.category} · {new Date(n.created_at).toLocaleString()}
-            {n.read_at ? " · Read" : " · New"}
-          </small>
+          <p className="notification-meta">
+            <span>{labelFor(NOTIFICATION_CATEGORIES, n.category)}</span>
+            <span>{formatWhen(n.created_at)}</span>
+            {!n.read_at && <span className="badge green">New</span>}
+          </p>
           {/* Reviewed Arabic templates read right to left in any layout. */}
           <h2 dir="auto">{n.title}</h2>
           <p style={{ whiteSpace: "pre-wrap" }} dir="auto">
             {n.body}
           </p>
-          <div className="actions">
+          <div className="actions notification-actions">
             {n.href && (
               <Link className="button secondary" href={n.href}>
                 Open

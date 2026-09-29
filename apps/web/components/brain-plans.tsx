@@ -1,5 +1,6 @@
 "use client";
 import { Field } from "./field";
+import { formatDateRange } from "../lib/format";
 import { useEffect, useState } from "react";
 
 /**
@@ -1067,12 +1068,16 @@ export function BrainPlans({ role }: { role: string }) {
 }
 
 const MEMBER_STATE: Record<string, string> = {
-  preparing: "Your trainer's Brain is preparing your plan from your profile.",
-  in_review: "Your trainer is reviewing your plan before it reaches you.",
+  preparing: "Your coach is preparing your plan from your coaching profile.",
+  in_review: "Your coach is checking your plan before it reaches you.",
   delivered: "Your plan is ready.",
-  with_trainer: "Your trainer is preparing your plan personally.",
+  with_trainer: "Your coach is preparing your plan personally.",
 };
-/** The subscriber's generated plan and its state. */
+/**
+ * The member's plan from their coach: its state while it is prepared, then
+ * its summary and the focus of each week. The sessions themselves are on
+ * the programme page and the timeline (member-program.tsx).
+ */
 export function MemberPlan() {
   const [data, setData] = useState<any>();
   useEffect(() => {
@@ -1082,45 +1087,36 @@ export function MemberPlan() {
   }, []);
   if (!data || (!data.status && !data.program)) return null;
   const p = data.program;
+  const state = data.status?.state;
+  // Once delivered, the plan card below already says it is ready.
+  if (!p && state === "delivered") return null;
   return (
     <section className="card member-plan">
-      <h2>{p ? p.title : "Your plan"}</h2>
-      {data.status && (
-        <p role="status">{MEMBER_STATE[data.status.state] ?? MEMBER_STATE.preparing}</p>
+      {!p && <h2>Your plan</h2>}
+      {state && state !== "delivered" && (
+        <p role="status">{MEMBER_STATE[state] ?? MEMBER_STATE.preparing}</p>
       )}
       {p && (
         <>
+          <p className="small-label">From your coach</p>
+          <h2>{p.title}</h2>
           {p.summary && <p className="muted">{p.summary}</p>}
-          <p className="muted">
-            {p.startDate} to {p.endDate} · {p.programmeDays} days
+          <p className="muted" dir="auto">
+            {formatDateRange(p.startDate, p.endDate)} · {p.programmeDays} days
           </p>
-          <ol className="plan-weeks">
-            {p.weeks.map((w: any) => (
-              <li key={w.week}>
-                Week {w.week}: {w.focus}
-                {w.deload ? " (lighter recovery week)" : ""}
-              </li>
-            ))}
-          </ol>
-          <h3>Coming up</h3>
-          {!data.upcoming.length && (
-            <p className="muted">No sessions left in this block.</p>
+          {p.weeks?.length > 0 && (
+            <details>
+              <summary>What each week focuses on</summary>
+              <ol className="plan-weeks">
+                {p.weeks.map((w: any) => (
+                  <li key={w.week}>
+                    Week {w.week}: {w.focus}
+                    {w.deload ? " (a lighter recovery week)" : ""}
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
-          {data.upcoming.map((s: any) => (
-            <div key={s.id} className="plan-session">
-              <h4>
-                {s.date} · {s.label} · week {s.week}
-              </h4>
-              <ExerciseRows
-                legend={s.label}
-                exercises={(s.exercises ?? []).map((e: any) => ({
-                  ...e,
-                  alternatives: (e.alternatives ?? []).map((a: any) => a.name ?? a),
-                }))}
-                names={[]}
-              />
-            </div>
-          ))}
         </>
       )}
     </section>
@@ -1131,10 +1127,9 @@ export function MemberPlan() {
 export function PlanIntakeNotice() {
   return (
     <p className="muted plan-intake-notice">
-      When you save this, your trainer&rsquo;s Brain prepares your training
-      plan from it: your goal, experience, training days and equipment. Your
-      trainer reviews it whenever the Brain is not sure. Anything you list as a
-      limitation, and any pain you report later, always goes to your trainer
+      Your coach uses your answers to prepare your training plan: your goal,
+      experience, training days and equipment. Anything you list as a
+      limitation, and any pain you report later, always goes to your coach
       personally.
     </p>
   );

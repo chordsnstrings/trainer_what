@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { formatDate } from "../lib/format";
 import { money } from "@trainer/domain";
 import { OfferTerms } from "./programme-offers";
 
@@ -24,14 +25,8 @@ async function api(path: string, method = "GET", body?: unknown) {
     });
   return data;
 }
-const day = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
+/** "29 Sep 2026" (lib/format.ts). */
+const day = (value?: string | null) => (value ? formatDate(value) : "—");
 
 /** Days before an upfront programme ends when the next one may be bought (the API's RENEWAL_WINDOW_DAYS). */
 const RENEWAL_WINDOW_DAYS = 7;

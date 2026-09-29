@@ -115,11 +115,11 @@ export function TrainingHoldNotice({ records }: { records: any[] }) {
       <strong>Your training is paused.</strong>
       <p>{hold.data.reason}</p>
       <p>
-        Your trainer must review this hold before another session can begin. You
-        can still send them a message. Seek urgent local medical help for severe
-        or urgent symptoms.
+        Your coach reviews this before your next session can start. You can
+        still message them. Seek urgent local medical help for severe or urgent
+        symptoms.
       </p>
-      <a href="/app/chat">Message your trainer</a>
+      <a href="/app/chat">Message your coach</a>
     </section>
   );
 }

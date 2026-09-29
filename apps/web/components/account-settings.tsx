@@ -176,6 +176,16 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
         <p className="notice error" role="alert">
           {loadError}
         </p>
+        <button
+          type="button"
+          className="button secondary"
+          onClick={() => {
+            setLoadError("");
+            void load();
+          }}
+        >
+          Try again
+        </button>
       </section>
     );
   if (!account)

@@ -228,11 +228,13 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     [photos, setPhotos] = useState<any[]>([]),
     [library, setLibrary] = useState(false),
     [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loaded, setLoaded] = useState(false);
   async function load(offset = 0) {
     const d = await api(`/tenant/galleries?offset=${offset}`);
     setGalleries((v) => (offset ? [...v, ...d.galleries] : d.galleries));
     setNext(d.nextOffset);
+    setLoaded(true);
     return d.galleries;
   }
   useEffect(() => {
@@ -272,8 +274,8 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     <div className="site-workspace">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">YOUR COACHING IN PICTURES</p>
-          <h1>{client ? "Coach galleries." : "Photos & galleries."}</h1>
+          {!client && <p className="eyebrow">YOUR COACHING IN PICTURES</p>}
+          <h1>{client ? "Coach galleries" : "Photos & galleries."}</h1>
           <p className="muted">
             {client
               ? "A closer look at your coach’s practice."
@@ -305,6 +307,20 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
           </Field>
           <button disabled={busy}>Create gallery</button>
         </form>
+      )}
+      {client && !loaded && !message && (
+        <p className="muted" aria-busy="true">
+          Loading your coach&apos;s galleries…
+        </p>
+      )}
+      {client && loaded && !galleries.length && (
+        <section className="card">
+          <h2>No photos yet</h2>
+          <p className="muted">
+            When your coach shares photos from their sessions and practice, they
+            appear here.
+          </p>
+        </section>
       )}
       <div className="gallery-list">
         {galleries.map((g) => (

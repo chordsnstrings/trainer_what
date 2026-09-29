@@ -2,6 +2,15 @@
 import { ScrollTabs, tabPanelProps } from "./phone-ui";
 import { Field } from "./field";
 import {
+  deviceTimeZone,
+  formatDate,
+  formatDateRange,
+  humanize,
+  nextDays,
+  plural,
+  timeZoneChoices,
+} from "../lib/format";
+import {
   useCallback,
   useEffect,
   useState,
@@ -1778,12 +1787,28 @@ export function ProfileForm({
             </option>
           </select>
         </Field>
-        <Field label="Timezone">
-          <input
-            name="timezone"
-            defaultValue={initial?.timezone ?? "Asia/Dubai"}
-            required
-          />
+        <Field label="Time zone for your meal days">
+          {mode === "client" ? (
+            <select
+              name="timezone"
+              defaultValue={
+                initial?.timezone ?? deviceTimeZone() ?? "Asia/Dubai"
+              }
+              required
+            >
+              {timeZoneChoices(initial?.timezone).map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              name="timezone"
+              defaultValue={initial?.timezone ?? "Asia/Dubai"}
+              required
+            />
+          )}
         </Field>
       </div>
       <Field label="Practical preferences or questions">
@@ -1796,9 +1821,9 @@ export function ProfileForm({
             process this nutrition profile for my coaching.
           </label>
           <label className="check">
-            <input type="checkbox" name="ai" /> Allow my nutrition information
-            to be sent to the configured AI service for nutrition coaching. I
-            can revoke this separately.
+            <input type="checkbox" name="ai" /> Let the meal-planning assistant
+            use my food preferences to suggest meal weeks. I can turn this off
+            at any time.
           </label>
         </>
       )}
@@ -1983,27 +2008,55 @@ function ScenarioForm({
   );
 }
 
+/** "Hob · 20 min", never "Hob preparation · 20 min · hob". */
+export function mealPreparation(m: {
+  cookingName?: string;
+  minutes?: number;
+  equipment?: string[];
+}) {
+  const name = m.cookingName ?? "";
+  const equipment = (m.equipment ?? []).filter(
+    (e) => !name.toLowerCase().includes(String(e).toLowerCase()),
+  );
+  return [name, m.minutes ? `${m.minutes} min` : "", equipment.join(", ")]
+    .filter(Boolean)
+    .join(" · ");
+}
+const RECIPE_SOURCE: Record<string, string> = {
+  coach: "your coach",
+  trainer: "your coach",
+  platform: "the recipe library",
+  library: "the recipe library",
+  platform_library: "the recipe library",
+};
 export function WeekView({
   plan,
   onLog,
   onSwap,
+  testData = false,
 }: {
   plan: any;
   onLog?: (day: any, meal: any) => void;
   onSwap?: (day: any, meal: any) => void;
+  /** Development only: a made-up week may show its test description. */
+  testData?: boolean;
 }) {
   const view = plan.data.view;
+  const synthetic =
+    !!plan.data.synthetic || plan.data.origin === "synthetic_fixture";
   const [date, setDate] = useState(view.days[0]?.date);
   const day = view.days.find((d: any) => d.date === date) ?? view.days[0];
   return (
     <Card title="Your week of meals">
       <div className="nutrition-week-heading">
-        <p>
-          {view.weekStart} — {view.weekEnd}
+        <p>{formatDateRange(view.weekStart, view.weekEnd)}</p>
+        <p className="muted">
+          About {Number(view.targetKcal).toLocaleString("en")} kcal a day
         </p>
-        <span className="badge">Approx. {view.targetKcal} kcal / day</span>
       </div>
-      <p>{view.explanation}</p>
+      {/* A made-up week's description is test data: the page labels it
+          instead (development only). */}
+      {!synthetic && view.explanation && <p>{view.explanation}</p>}
       <nav className="nutrition-days" aria-label="Meal plan days">
         {view.days.map((d: any) => (
           <button
@@ -2012,23 +2065,23 @@ export function WeekView({
             onClick={() => setDate(d.date)}
           >
             <span>
-              {new Date(d.date + "T12:00:00Z").toLocaleDateString("en", {
-                weekday: "short",
-              })}
+              {formatDate(d.date, { weekday: true, year: false }).split(" ")[0]}
             </span>
-            {d.date.slice(5)}
+            {formatDate(d.date, { year: false })}
           </button>
         ))}
       </nav>
       {day && (
         <>
           <div className="nutrition-day-total">
-            <strong>{day.date}</strong>
+            <strong>
+              {formatDate(day.date, { weekday: "long", year: false })}
+            </strong>
             <span>
-              Approx. {day.totals.kcal} kcal · protein{" "}
-              {day.totals.protein ?? "unknown"} g · carbohydrate{" "}
-              {day.totals.carbohydrate ?? "unknown"} g · fat{" "}
-              {day.totals.fat ?? "unknown"} g
+              About {Number(day.totals.kcal).toLocaleString("en")} kcal ·
+              protein {day.totals.protein ?? "not known"} g · carbohydrate{" "}
+              {day.totals.carbohydrate ?? "not known"} g · fat{" "}
+              {day.totals.fat ?? "not known"} g
             </span>
           </div>
           <div className="nutrition-meals">
@@ -2037,11 +2090,13 @@ export function WeekView({
                 <p className="eyebrow">{m.slot}</p>
                 <h3>{m.name}</h3>
                 <p>
-                  {m.servings} serving(s) · approx. {m.nutrients.kcal} kcal
+                  <bdi>
+                    {plural(m.servings, "serving")} · about {m.nutrients.kcal}{" "}
+                    kcal
+                  </bdi>
                 </p>
                 <p className="muted">
-                  {m.cookingName} · {m.minutes} min ·{" "}
-                  {m.equipment.join(", ") || "No cooking equipment"}
+                  {mealPreparation(m) || "No cooking needed"}
                 </p>
                 <details>
                   <summary>Ingredients & cooking instructions</summary>
@@ -2061,13 +2116,13 @@ export function WeekView({
                   {m.storageNote && <p>{m.storageNote}</p>}
                   {m.batchKey && (
                     <p>
-                      Shared preparation batch: {m.batchKey}. The grocery list
-                      includes each allocated portion once.
+                      Cooked in one batch with other meals this week. The
+                      grocery list counts it once.
                     </p>
                   )}
                   <p className="muted">
-                    Recipe source: {m.source}. Ingredient estimates are saved
-                    with this plan.
+                    Recipe from{" "}
+                    {RECIPE_SOURCE[m.source] ?? "your coach's recipes"}.
                   </p>
                 </details>
                 <div className="nutrition-actions">
@@ -2101,15 +2156,25 @@ export function WeekView({
   );
 }
 
+const PLAN_STATUS: Record<string, string> = {
+  delivered: "current",
+  needs_recheck: "being rechecked",
+  superseded: "replaced",
+  archived: "earlier week",
+};
 export function NutritionSubscriber({
   userId,
   tenantId,
   coachView = false,
+  environment,
 }: {
   userId: string;
   tenantId: string;
   coachView?: boolean;
+  /** "development" shows test-data labels; members never see them otherwise. */
+  environment?: string;
 }) {
+  const testData = environment === "development";
   const r = useNutrition(
       coachView ? "/nutrition?userId=" + userId : "/nutrition",
     ),
@@ -2342,17 +2407,95 @@ export function NutritionSubscriber({
       slot: m.slot,
       deleted: false,
     });
+  // Preparing a meal week: shown first until there is a week, then after it.
+  const nextWeek = !coachView && (
+    <Card title={plan ? "Plan your next week" : "Your first week"}>
+      {!d.profile ? (
+        <p>
+          Start with{" "}
+          <button
+            className="nutrition-text-button"
+            onClick={() => setTab("profile")}
+          >
+            your food preferences and permissions
+          </button>
+          .
+        </p>
+      ) : (
+        <form
+          className="nutrition-inline"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void r.action(
+              () =>
+                api("/nutrition/generate", "POST", {
+                  requestKey: crypto.randomUUID(),
+                  weekStart: f.get("weekStart"),
+                }),
+              "Your meal week is ready",
+            );
+          }}
+        >
+          <Field label="Week starts">
+            {/* The next two weeks as plain days, never a US-style date
+                field (lib/format.ts nextDays). */}
+            <select name="weekStart" defaultValue={d.today} required>
+              {nextDays(d.today).map((day) => (
+                <option key={day.value} value={day.value}>
+                  {day.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button
+            className="button"
+            disabled={!permitted || !d.modelConsent || !d.ready}
+          >
+            Prepare my week
+          </button>
+        </form>
+      )}
+      {/* One plain reason beside an unavailable button. */}
+      {d.profile && (!permitted || !d.modelConsent || !d.ready) && (
+        <p className="control-reason">
+          {!d.entitled
+            ? "New meal weeks come with a nutrition membership."
+            : offline
+              ? "You are offline. Prepare a week when you are back online."
+              : !d.ready
+                ? "Your coach is still setting up meal plans, so new weeks are not available yet. Your current plan stays here."
+                : !d.modelConsent
+                  ? "Turn on meal planning help in Food preferences to prepare a week."
+                  : "Meal planning is paused for your account. Message your coach."}
+        </p>
+      )}
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={cache}
+          onChange={(e) => {
+            setCache(e.target.checked);
+            if (!e.target.checked) localStorage.removeItem(key);
+          }}
+        />{" "}
+        Keep a copy of this week on this phone for 12 hours, to use without a
+        connection.
+      </label>
+    </Card>
+  );
   return (
     <div className="nutrition">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">EAT WELL, WITH YOUR COACH</p>
           <h1>Nutrition</h1>
-          <p>Your meals, preparation and shopping, connected.</p>
+          <p className="muted">
+            Your meals, cooking and shopping for the week.
+          </p>
         </div>
-        <span className="badge">
-          {d.entitled ? "Workout + nutrition" : "Nutrition membership required"}
-        </span>
+        {!d.entitled && (
+          <span className="badge">Needs a nutrition membership</span>
+        )}
       </div>
       {/* One row that scrolls sideways on phones instead of wrapping. */}
       <ScrollTabs
@@ -2382,7 +2525,7 @@ export function NutritionSubscriber({
       )}
       {queued.length > 0 && (
         <Notice>
-          {queued.length} meal entry/entries waiting to sync.{" "}
+          {plural(queued.length, "meal entry", "meal entries")} waiting to sync.{" "}
           {!offline && (
             <button className="button secondary" onClick={() => void syncNow()}>
               Sync now
@@ -2403,7 +2546,8 @@ export function NutritionSubscriber({
           <ul>
             {rejected.map((entry) => (
               <li key={entry.item.eventKey}>
-                {entry.item.date} · {entry.item.name}
+                {formatDate(entry.item.date, { year: false })} ·{" "}
+                {entry.item.name}
                 {entry.item.correctsId ? " (correction)" : ""} —{" "}
                 {entry.failure.message}{" "}
                 <button
@@ -2467,8 +2611,12 @@ export function NutritionSubscriber({
                 .filter((x: any) => x.kind === "nutrition_plan")
                 .map((x: any) => (
                   <option key={x.id} value={x.id}>
-                    {x.data.view.weekStart} — {x.data.view.weekEnd} ·{" "}
-                    {x.status.replaceAll("_", " ")}
+                    {formatDateRange(
+                      x.data.view.weekStart,
+                      x.data.view.weekEnd,
+                    )}{" "}
+                    ·{" "}
+                    {PLAN_STATUS[x.status] ?? humanize(x.status).toLowerCase()}
                   </option>
                 ))}
             </select>
@@ -2476,93 +2624,35 @@ export function NutritionSubscriber({
         )}
         {tab === "today" && (
           <>
-            {!coachView && (
-              <Card title={plan ? "Plan your next week" : "Your first week"}>
-                {!d.profile ? (
-                  <p>
-                    Start with{" "}
-                    <button
-                      className="nutrition-text-button"
-                      onClick={() => setTab("profile")}
-                    >
-                      your food preferences and permissions
-                    </button>
-                    .
-                  </p>
-                ) : (
-                  <form
-                    className="nutrition-inline"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const f = new FormData(e.currentTarget);
-                      void r.action(
-                        () =>
-                          api("/nutrition/generate", "POST", {
-                            requestKey: crypto.randomUUID(),
-                            weekStart: f.get("weekStart"),
-                          }),
-                        "Your meal week is ready",
-                      );
-                    }}
-                  >
-                    <Field label="Week starts">
-                      <input
-                        type="date"
-                        name="weekStart"
-                        min={d.today}
-                        defaultValue={d.today}
-                        required
-                      />
-                    </Field>
-                    <button
-                      className="button"
-                      disabled={!permitted || !d.modelConsent || !d.ready}
-                    >
-                      Prepare my week
-                    </button>
-                  </form>
-                )}
-                {!d.ready && (
-                  <p>
-                    Your coach's nutrition setup is not ready for new automatic
-                    plans yet.
-                  </p>
-                )}
-                {d.profile && !d.modelConsent && (
-                  <p>
-                    Enable AI nutrition permission in Food preferences to
-                    request an automatic plan.
-                  </p>
-                )}
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={cache}
-                    onChange={(e) => {
-                      setCache(e.target.checked);
-                      if (!e.target.checked) localStorage.removeItem(key);
-                    }}
-                  />{" "}
-                  Keep a private copy of the latest plan on this device for up
-                  to 12 hours.
-                </label>
-              </Card>
-            )}
+            {/* Without a week yet, preparing the first one comes first. */}
+            {!plan && nextWeek}
             {plan ? (
               <>
-                <Notice>
-                  {plan.data.synthetic ||
-                  plan.data.origin === "synthetic_fixture"
-                    ? "Demonstration plan with synthetic food and coach data. It has not been qualified for personal use."
-                    : plan.status === "delivered"
-                      ? "This plan follows your coach's qualified nutrition rules."
-                      : catalogRecheck
-                        ? "Being rechecked — your coach withdrew a food or recipe in this week. Do not follow it or shop from it until a new week is prepared."
-                        : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
-                </Notice>
+                {plan.data.synthetic ||
+                plan.data.origin === "synthetic_fixture" ? (
+                  // Test data is labelled only in development.
+                  testData ? (
+                    <Notice>
+                      Test data (development only): made-up foods and coach
+                      rules for trying the app.
+                    </Notice>
+                  ) : (
+                    <Notice>
+                      This is a sample week that shows how meal plans work. Ask
+                      your coach before following it.
+                    </Notice>
+                  )
+                ) : plan.status === "delivered" ? null : (
+                  <Notice>
+                    {catalogRecheck
+                      ? "Your coach removed a food or recipe from this week. Do not follow it or shop from it until a new week is ready."
+                      : "This is an earlier week. Your preferences or your coach's approach may have changed since, so prepare a new week before following it."}
+                  </Notice>
+                )}
                 <WeekView
                   key={plan.id}
                   plan={plan}
+                  testData={testData}
                   onLog={
                     !coachView &&
                     d.entitled &&
@@ -2604,6 +2694,8 @@ export function NutritionSubscriber({
                 </p>
               </Card>
             )}
+            {/* This week's meals first; planning the next one follows. */}
+            {plan && nextWeek}
             {swap && options && (
               <Card title="Choose a permitted alternative">
                 <form
@@ -2705,9 +2797,12 @@ export function NutritionSubscriber({
                   </Notice>
                 )}
                 <p>
-                  {plan.data.view.weekStart} — {plan.data.view.weekEnd}.
-                  Quantities are the ingredients used by the planned portions;
-                  shop pack sizes separately.
+                  {formatDateRange(
+                    plan.data.view.weekStart,
+                    plan.data.view.weekEnd,
+                  )}
+                  . Amounts are what the planned portions use; packs in the shop
+                  may be larger.
                 </p>
                 <GroceryList
                   plan={plan}
@@ -2790,11 +2885,11 @@ export function NutritionSubscriber({
                             type: "nutrition_model",
                             granted: false,
                           }),
-                        "AI nutrition permission revoked",
+                        "Meal planning help is off",
                       )
                     }
                   >
-                    Revoke AI nutrition permission
+                    Turn off meal planning help
                   </button>
                   <button
                     className="button secondary"
@@ -2829,9 +2924,11 @@ export function NutritionSubscriber({
             )}
             <Card title="What you recorded">
               <p>
-                {d.twin.loggedMeals ?? 0} meals across {d.twin.loggedDays ?? 0}{" "}
-                days in the last 28 days. Missing entries do not mean missed
-                meals.
+                <bdi>
+                  {plural(d.twin.loggedMeals ?? 0, "meal")} across{" "}
+                  {plural(d.twin.loggedDays ?? 0, "day")} in the last 28 days.
+                </bdi>{" "}
+                Missing entries do not mean missed meals.
               </p>
               {d.records
                 .filter(
@@ -2847,8 +2944,11 @@ export function NutritionSubscriber({
                 .map((x: any) => (
                   <details key={x.id}>
                     <summary>
-                      {x.data.date} · {x.data.name} · {x.data.kcal ?? "Unknown"}{" "}
-                      kcal
+                      {formatDate(x.data.date, { weekday: true, year: false })}{" "}
+                      · {x.data.name} ·{" "}
+                      {x.data.kcal == null
+                        ? "calories not known"
+                        : `${x.data.kcal} kcal`}
                     </summary>
                     <p>{x.data.notes}</p>
                     {!coachView && (
@@ -2967,8 +3067,9 @@ export function NutritionSubscriber({
               .filter((x: any) => x.kind === "nutrition_checkin")
               .map((x: any) => (
                 <p key={x.id}>
-                  {x.data.date} · hunger {x.data.hunger}/5 · difficulty{" "}
-                  {x.data.difficulty}/5
+                  {formatDate(x.data.date, { weekday: true, year: false })} ·
+                  hunger {x.data.hunger} of 5 · how hard {x.data.difficulty} of
+                  5
                 </p>
               ))}
           </Card>

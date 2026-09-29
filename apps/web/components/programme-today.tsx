@@ -1,8 +1,13 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatDate, formatDateRange, plural } from "../lib/format";
 
-/** The subscriber's day-by-day programme view and its timeline (docs/features/programme.md). */
+/**
+ * What happens when the programme ends, and the programme timeline
+ * (docs/features/programme.md). The Today screen itself is
+ * components/member-today.tsx.
+ */
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -30,29 +35,18 @@ const zoneQuery = () => {
   const zone = deviceTimeZone();
   return zone ? `?timezone=${encodeURIComponent(zone)}` : "";
 };
+/** A calendar day: "Tue 29 Sep". */
 const calendarDay = (date: string) =>
-  new Date(date + "T12:00:00Z").toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-const instantDay = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
-const round = (n: number | null | undefined) =>
-  typeof n === "number" ? Math.round(n) : null;
+  formatDate(date, { weekday: true, year: false });
 
-function EndOfProgramme({ data }: { data: any }) {
+export function EndOfProgramme({ data }: { data: any }) {
   const end = data.endOfProgramme;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   if (!end || end.state === "none") return null;
+  // A monthly block rolling into the next one is routine: said once on the
+  // timeline, not on Today.
+  if (end.state === "next_block" || end.state === "renews") return null;
   const renew = async () => {
     setBusy(true);
     setError("");
@@ -61,8 +55,10 @@ function EndOfProgramme({ data }: { data: any }) {
         productId: end.renewProductId,
       });
       if (r?.url) window.location.assign(r.url);
-    } catch (e: any) {
-      setError(e.message);
+    } catch {
+      setError(
+        "Checkout could not be opened. Try again, or open Membership to choose a plan.",
+      );
     } finally {
       setBusy(false);
     }
@@ -86,22 +82,12 @@ function EndOfProgramme({ data }: { data: any }) {
       }
       role="status"
     >
-      {end.state === "next_block" && (
-        <p>
-          This block ends on {calendarDay(data.programme.blockEndDate)}. Your
-          next block starts {calendarDay(end.at)} and your coach plans it from
-          how this one went.
-        </p>
-      )}
-      {end.state === "renews" && (
-        <p>Your membership renews {end.at ? instantDay(end.at) : "monthly"}.</p>
-      )}
       {end.state === "ends" && (
         <p>
-          Your access ends on {instantDay(end.at)}.
+          Your access ends on {formatDate(end.at)}.
           {data.programme?.billing === "upfront"
             ? " Your programme was paid in full; nothing renews automatically."
-            : " Renewal is off."}
+            : " Your membership will not renew."}
         </p>
       )}
       {end.state === "ended" && (
@@ -121,104 +107,52 @@ function EndOfProgramme({ data }: { data: any }) {
   );
 }
 
-function Nutrition({ n }: { n: any }) {
-  if (!n) return null;
-  if (n.state === "permission")
-    return (
-      <div className="programme-tile">
-        <p className="small-label">Nutrition today</p>
-        <p>Allow nutrition coaching to see today&apos;s targets.</p>
-        <Link className="text-link" href="/app/nutrition">
-          Open nutrition
-        </Link>
-      </div>
-    );
-  if (n.state === "setup")
-    return (
-      <div className="programme-tile">
-        <p className="small-label">Nutrition today</p>
-        <p>Add your food preferences so your coach can set your targets.</p>
-        <Link className="text-link" href="/app/nutrition">
-          Set up nutrition
-        </Link>
-      </div>
-    );
-  const t = n.target;
-  const kcal = round(n.consumed?.kcal) ?? 0;
-  const goal = t?.kcal ?? round(n.planned?.kcal);
-  const macros = [
-    ["Protein", "protein"],
-    ["Carbohydrate", "carbohydrate"],
-    ["Fat", "fat"],
-  ] as const;
-  return (
-    <div className="programme-tile programme-nutrition">
-      <p className="small-label">Nutrition today</p>
-      <h3>
-        <span dir="ltr">
-          {kcal}
-          {goal ? ` / ${goal}` : ""} kcal
-        </span>
-      </h3>
-      {goal ? (
-        <div
-          className="programme-meter"
-          role="progressbar"
-          aria-label="Calories logged against today's target"
-          aria-valuemin={0}
-          aria-valuemax={goal}
-          aria-valuenow={Math.min(kcal, goal)}
-        >
-          <span
-            style={{ inlineSize: `${Math.min(100, (kcal / goal) * 100)}%` }}
-          />
-        </div>
-      ) : (
-        <p className="muted">Your coach has not set today&apos;s target yet.</p>
-      )}
-      {macros.map(([label, key]) =>
-        t?.[key] != null ? (
-          <div className="programme-macro" key={key}>
-            <span>{label}</span>
-            <span dir="ltr">
-              {round(n.consumed?.[key]) ?? 0} / {round(t[key])} g
-            </span>
-          </div>
-        ) : null,
-      )}
-      <p className="muted">
-        {n.meals} {n.meals === 1 ? "meal" : "meals"} logged
-        {t?.reviewDue ? " · target review due with your coach" : ""}
-      </p>
-      <Link className="text-link" href="/app/nutrition/log">
-        Log a meal
-      </Link>
-    </div>
-  );
+const STATUS_LABEL: Record<string, string> = {
+  done: "Done",
+  missed: "Missed",
+  today: "Today",
+  upcoming: "Planned",
+  rest: "Rest",
+  canceled: "Cancelled",
+};
+
+/** The block's days in weeks of seven, for the phone list. */
+export function timelineWeeks<T extends { date: string }>(days: T[]) {
+  const weeks: Array<{ index: number; from: string; to: string; days: T[] }> =
+    [];
+  days.forEach((d, i) => {
+    const w = Math.floor(i / 7);
+    if (!weeks[w])
+      weeks[w] = { index: w + 1, from: d.date, to: d.date, days: [] };
+    weeks[w].days.push(d);
+    weeks[w].to = d.date;
+  });
+  return weeks;
 }
 
-/** Today: Day N of M, today's session or rest, what's next, streak, nutrition and the programme end. */
-export function ProgrammeToday() {
+/** Every day of the current programme (upfront) or block (monthly), with its session and status. */
+export function ProgrammeTimeline({ programLabel }: { programLabel?: string }) {
   const [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
-  const load = useCallback(
-    () =>
-      api("/programme/today" + zoneQuery()).then(
-        (d) => {
-          setData(d);
-          setError("");
-        },
-        (e) => setError(e.message),
-      ),
-    [],
-  );
+    [error, setError] = useState(false);
+  const load = () =>
+    api("/programme/timeline" + zoneQuery()).then(
+      (d) => {
+        setData(d);
+        setError(false);
+      },
+      () => setError(true),
+    );
   useEffect(() => {
     void load();
-  }, [load]);
+  }, []);
   if (error)
     return (
-      <section className="card programme-today" aria-live="polite">
-        <p className="muted">Today&apos;s programme could not be loaded.</p>
+      <section className="card" role="alert">
+        <h1>Timeline</h1>
+        <p className="muted">
+          Your timeline could not be loaded. Check your connection, then try
+          again.
+        </p>
         <button className="button secondary" onClick={() => void load()}>
           Try again
         </button>
@@ -226,255 +160,160 @@ export function ProgrammeToday() {
     );
   if (!data)
     return (
-      <section className="card programme-today" aria-busy="true">
-        <p className="muted">Loading today&apos;s programme…</p>
+      <section className="card" aria-busy="true">
+        <p className="muted">Loading your timeline…</p>
       </section>
     );
   const p = data.programme;
   if (!p)
     return (
-      <section className="card programme-today">
-        <p className="eyebrow">YOUR PROGRAMME</p>
-        <h2>Start your coaching programme</h2>
+      <section className="card">
+        <h1>No programme yet</h1>
         <p className="muted">
-          Choose a membership and your coach&apos;s plan appears here day by
-          day.
+          Your timeline shows every day of your programme once your membership
+          starts.
         </p>
         <Link className="button" href="/app/membership">
           See membership options
         </Link>
       </section>
     );
-  const s = data.session;
-  const progress = data.progress;
+  const days: any[] = data.days ?? [];
+  const done = days.filter((d) => d.status === "done").length,
+    sessions = days.filter((d) => d.kind === "session").length;
+  const range = formatDateRange(p.blockStartDate, p.blockEndDate);
   return (
-    <section
-      className="card programme-today"
-      aria-labelledby="programme-today-title"
-    >
-      <div className="programme-day">
-        <p className="eyebrow" id="programme-today-title">
-          {p.state === "not_started"
-            ? "YOUR PROGRAMME STARTS SOON"
-            : p.state === "complete"
-              ? "PROGRAMME COMPLETE"
-              : p.billing === "upfront"
-                ? "YOUR PROGRAMME"
-                : `BLOCK ${p.block}`}
+    <div className="programme-timeline-page">
+      <header className="page-heading">
+        <p className="eyebrow">
+          {p.billing === "upfront" ? "Your programme" : `Block ${p.block}`} ·{" "}
+          {range}
         </p>
-        <strong>
+        <h1>
           {p.state === "not_started"
             ? `Starts ${calendarDay(p.startDate)}`
-            : `Day ${p.day} of ${p.of}`}
-        </strong>
-        {p.rolling && p.state !== "not_started" && (
-          <span className="badge">Rolling {p.of}-day blocks</span>
+            : p.state === "complete"
+              ? "Programme complete"
+              : `Day ${p.day} of ${p.of}`}
+        </h1>
+        {data.planState === "ready" && (
+          <p className="muted">
+            {/* Isolated, so a leading number stays in place right to left. */}
+            <bdi>
+              {done} of {plural(sessions, "session")} done
+            </bdi>
+            {p.rolling
+              ? `. A new ${p.of}-day block starts on ${calendarDay(nextDay(p.blockEndDate))}.`
+              : ""}
+          </p>
         )}
-      </div>
-      <div
-        className="programme-meter"
-        role="progressbar"
-        aria-label="Progress through the programme"
-        aria-valuemin={0}
-        aria-valuemax={p.of}
-        aria-valuenow={p.day}
-      >
-        <span
-          style={{ inlineSize: `${Math.min(100, (p.day / p.of) * 100)}%` }}
-        />
-      </div>
-      {data.planState === "ended" ? null : (
-        <div className="programme-columns">
-          <div className="programme-tile">
-            <p className="small-label">Today · {calendarDay(data.today)}</p>
-            {data.planState === "awaiting_coach" && !s ? (
-              <>
-                <h3>Your coach is preparing your plan</h3>
-                <p className="muted">
-                  Your sessions appear here day by day as soon as it is ready.
-                </p>
-              </>
-            ) : s ? (
-              <>
-                <h3>{s.label ?? "Training session"}</h3>
-                <p className="muted">
-                  {s.status === "completed"
-                    ? "Done. Nice work."
-                    : s.status === "canceled"
-                      ? "Your coach canceled today's session."
-                      : `${s.exercises} ${s.exercises === 1 ? "exercise" : "exercises"}${s.week ? ` · week ${s.week}` : ""}`}
-                </p>
-                {!["completed", "canceled"].includes(s.status) && (
-                  <Link className="button" href="/app/program">
-                    {s.status === "started"
-                      ? "Continue session"
-                      : "Start session"}
-                  </Link>
-                )}
-              </>
-            ) : (
-              <>
-                <h3>Rest day</h3>
-                <p className="muted">
-                  Recovery is part of the plan. Move gently and sleep well.
-                </p>
-              </>
-            )}
-          </div>
-          <div className="programme-tile">
-            <p className="small-label">What&apos;s next</p>
-            {data.next ? (
-              <>
-                <h3>{data.next.label ?? "Training session"}</h3>
-                <p className="muted">
-                  {data.next.inDays === 1
-                    ? "Tomorrow"
-                    : `${calendarDay(data.next.date)} · in ${data.next.inDays} days`}
-                </p>
-              </>
-            ) : (
-              <p className="muted">
-                Your coach has not scheduled the next session yet.
-              </p>
-            )}
-            <div className="programme-stats">
-              <div>
-                <span className="small-label">Streak</span>
-                <strong>{progress.streak}</strong>
-              </div>
-              <div>
-                <span className="small-label">Adherence</span>
-                <strong>
-                  {progress.percent === null ? "—" : `${progress.percent}%`}
-                </strong>
-              </div>
-              <div>
-                <span className="small-label">
-                  Last {progress.windowDays} days
-                </span>
-                <strong>
-                  {progress.completed}/{progress.scheduled}
-                </strong>
-              </div>
-            </div>
-          </div>
-          <Nutrition n={data.nutrition} />
-        </div>
+      </header>
+      {data.planState === "awaiting_coach" && (
+        <section className="card" role="status">
+          <h2>Your coach is preparing your plan</h2>
+          <p className="muted">
+            Your sessions appear here day by day as soon as it is ready.
+          </p>
+          <Link className="button secondary" href="/app/chat">
+            Message your coach
+          </Link>
+        </section>
       )}
-      <EndOfProgramme data={data} />
-      <p>
-        <Link className="text-link" href="/app/timeline">
-          See the whole {p.billing === "upfront" ? "programme" : "block"}
-        </Link>
-      </p>
-    </section>
+      {data.planState === "self_paced" && data.plan && (
+        <section className="card" aria-labelledby="self-paced-title">
+          <p className="small-label">At your own pace</p>
+          <h2 id="self-paced-title">{data.plan.title || programLabel}</h2>
+          <p className="muted">
+            {data.plan.daysPerWeek
+              ? `${plural(data.plan.daysPerWeek, "session")} a week, on the days that suit you. `
+              : "Train on the days that suit you. "}
+            <bdi>{data.plan.completedThisWeek} done in the last 7 days.</bdi>
+          </p>
+          <ul className="timeline-plan-sessions">
+            {data.plan.sessions.map((s: any, i: number) => (
+              <li key={i}>
+                <strong>{s.label || `Session ${i + 1}`}</strong>
+                <span className="muted">{plural(s.exercises, "exercise")}</span>
+              </li>
+            ))}
+          </ul>
+          <Link className="button" href="/app/program">
+            Open {programLabel || "your plan"}
+          </Link>
+        </section>
+      )}
+      {data.planState === "ended" && (
+        <section className="card" role="status">
+          <h2>
+            {p.billing === "upfront"
+              ? "You completed this programme"
+              : "Your membership has ended"}
+          </h2>
+          <Link className="button" href="/app/membership#offers">
+            Choose your next plan
+          </Link>
+        </section>
+      )}
+      {data.planState === "ready" &&
+        timelineWeeks(days).map((week) => {
+          const current = week.days.some((d: any) => d.date === p.today);
+          const planned = week.days.filter(
+            (d: any) => d.kind === "session",
+          ).length;
+          return (
+            // The current week is open; the others fold to one line each.
+            <details
+              className="card timeline-week"
+              key={week.index}
+              open={current || undefined}
+            >
+              <summary>
+                <strong>Week {week.index}</strong>
+                <span className="muted">
+                  {formatDateRange(week.from, week.to)} ·{" "}
+                  {plural(planned, "session")}
+                </span>
+              </summary>
+              <ol className="programme-timeline">
+                {week.days.map((d: any) => (
+                  <li
+                    key={d.date}
+                    className={
+                      d.status + (d.date === p.today ? " is-today" : "")
+                    }
+                    aria-current={d.date === p.today ? "date" : undefined}
+                  >
+                    <span className="timeline-date">{calendarDay(d.date)}</span>
+                    <strong className="timeline-label">
+                      {d.kind === "session"
+                        ? d.label || "Training session"
+                        : "Rest"}
+                    </strong>
+                    {d.kind === "session" && (
+                      <span
+                        className={
+                          "badge" +
+                          (d.status === "done"
+                            ? " green"
+                            : d.status === "missed"
+                              ? " amber"
+                              : "")
+                        }
+                      >
+                        {STATUS_LABEL[d.status] ?? "Planned"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </details>
+          );
+        })}
+    </div>
   );
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  done: "Done",
-  missed: "Missed",
-  today: "Today",
-  upcoming: "Planned",
-  rest: "Rest",
-  unplanned: "Not planned yet",
-  canceled: "Canceled",
-};
-/** Every day of the current programme (upfront) or block (monthly), with its session and status. */
-export function ProgrammeTimeline() {
-  const [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
-  useEffect(() => {
-    api("/programme/timeline" + zoneQuery()).then(setData, (e) =>
-      setError(e.message),
-    );
-  }, []);
-  if (error)
-    return (
-      <section className="card">
-        <p className="muted" role="alert">
-          The programme timeline could not be loaded.
-        </p>
-      </section>
-    );
-  if (!data)
-    return (
-      <section className="card" aria-busy="true">
-        <p className="muted">Loading your programme…</p>
-      </section>
-    );
-  const p = data.programme;
-  if (!p)
-    return (
-      <section className="card">
-        <h2>No programme yet</h2>
-        <p className="muted">
-          Your timeline appears once your membership starts.
-        </p>
-        <Link className="button" href="/app/membership">
-          See membership options
-        </Link>
-      </section>
-    );
-  const done = data.days.filter((d: any) => d.status === "done").length,
-    sessions = data.days.filter((d: any) => d.kind === "session").length;
-  return (
-    <section className="card" aria-labelledby="programme-timeline-title">
-      <p className="eyebrow">
-        {p.billing === "upfront" ? "PROGRAMME" : `BLOCK ${p.block}`} ·{" "}
-        {calendarDay(p.blockStartDate)} – {calendarDay(p.blockEndDate)}
-      </p>
-      <h2 id="programme-timeline-title">
-        {p.state === "not_started"
-          ? "Starting soon"
-          : `Day ${p.day} of ${p.of}`}
-      </h2>
-      <p className="muted">
-        {done} of {sessions} sessions done
-        {p.rolling ? ` · rolling ${p.of}-day blocks` : ""}
-      </p>
-      {data.planState === "awaiting_coach" && (
-        <p role="status">
-          Your coach is preparing your plan. Sessions appear here as soon as it
-          is ready.
-        </p>
-      )}
-      <ol className="programme-timeline">
-        {data.days.map((d: any) => (
-          <li
-            key={d.date}
-            className={d.status}
-            aria-current={d.status === "today" ? "date" : undefined}
-          >
-            <span className="small-label">Day {d.day}</span>
-            <span>{calendarDay(d.date)}</span>
-            <strong>
-              {d.kind === "session"
-                ? (d.label ?? "Session")
-                : d.kind === "unplanned"
-                  ? "—"
-                  : "Rest"}
-            </strong>
-            <span
-              className={
-                "badge" +
-                (d.status === "done"
-                  ? " green"
-                  : d.status === "missed"
-                    ? " amber"
-                    : "")
-              }
-            >
-              {STATUS_LABEL[d.status] ?? d.status}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <p>
-        <Link className="text-link" href="/app">
-          Back to today
-        </Link>
-      </p>
-    </section>
-  );
+function nextDay(date: string) {
+  return new Date(Date.parse(date + "T12:00:00Z") + 86400000)
+    .toISOString()
+    .slice(0, 10);
 }

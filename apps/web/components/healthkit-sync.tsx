@@ -1,24 +1,32 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { ACCOUNT_READ_TIMEOUT_MS, fetchWithin } from "./account-request";
+import { formatDate, formatTime, formatWhen, humanize } from "../lib/format";
 
 // Automatic Apple Health sync through the HealthKit companion app. The
 // companion app itself is separate native work; these screens let a member
 // pair it, see its status, disconnect it and delete what it synchronized.
 async function api(path: string, method = "GET", body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
+  const init: RequestInit = {
     method,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  };
+  // A status read that does not answer ends in "Check again", never an
+  // endless "Loading sync status…" (account-request.ts fetchWithin).
+  const response =
+    method === "GET"
+      ? await fetchWithin("/api/v1" + path, init, ACCOUNT_READ_TIMEOUT_MS)
+      : await fetch("/api/v1" + path, init);
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
-const when = (value?: string | null) =>
-  value ? new Date(value).toLocaleString() : "Never";
+/** "Today, 14:05" or "29 Sep, 14:05" (lib/format.ts), never seconds. */
+const when = (value?: string | null) => (value ? formatWhen(value) : "Never");
 const rowStyle = { flexWrap: "wrap" as const, rowGap: 10 };
 const codeStyle = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -86,13 +94,23 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
-    [pairing, setPairing] = useState<Pairing | null>(null);
+    [pairing, setPairing] = useState<Pairing | null>(null),
+    [failed, setFailed] = useState(false);
   const refresh = useCallback(async () => {
     setStatus(await api("/healthkit/status"));
+    setFailed(false);
   }, []);
+  // A failed first read says so with a retry, never an endless "Loading".
+  const load = useCallback(
+    () =>
+      refresh().catch(() => {
+        setFailed(true);
+      }),
+    [refresh],
+  );
   useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
-  }, [refresh]);
+    void load();
+  }, [load]);
   const run = async (fn: () => Promise<unknown>, success: string) => {
     setBusy(true);
     setMessage("");
@@ -109,6 +127,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
   return (
     <HealthKitSyncView
       status={status}
+      failed={failed}
+      onRetry={() => void load()}
       role={role}
       message={message}
       busy={busy}
@@ -158,6 +178,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
 /** Presentational states of the sync panel; the panel above supplies data. */
 export function HealthKitSyncView({
   status,
+  failed = false,
+  onRetry,
   role,
   message,
   busy,
@@ -170,6 +192,9 @@ export function HealthKitSyncView({
   onDelete,
 }: {
   status: Status | null;
+  /** The status could not be read: show a retry, not "Loading". */
+  failed?: boolean;
+  onRetry?: () => void;
   role: string;
   message: string;
   busy: boolean;
@@ -190,15 +215,29 @@ export function HealthKitSyncView({
       <p className="muted">
         Pair the companion iPhone app to send workouts, heart rate, heart-rate
         variability, resting heart rate, sleep, steps, active energy and body
-        mass in the background. Data is used for display and deterministic
-        coaching indicators only, never for AI prompts or advertising.
+        mass in the background. Your readings are shown to you and your coach
+        and used for simple coaching checks. The digital coach never sees them,
+        and they are never used for advertising.
       </p>
       {message && (
         <p role="status" className="notice">
           {message}
         </p>
       )}
-      {!status ? (
+      {!status && failed ? (
+        <div>
+          <p>Automatic sync status could not be checked just now.</p>
+          {onRetry && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={onRetry}
+            >
+              Check again
+            </button>
+          )}
+        </div>
+      ) : !status ? (
         <p className="muted">Loading sync status…</p>
       ) : !status.available ? (
         <p>
@@ -279,9 +318,8 @@ export function HealthKitSyncView({
                 <code style={{ overflowWrap: "anywhere" }}>
                   {pairing.server}
                 </code>{" "}
-                and this code before{" "}
-                {new Date(pairing.expiresAt).toLocaleTimeString()}. Never share
-                it; anyone with the code can add a device to your account.
+                and this code before {formatTime(pairing.expiresAt)}. Never
+                share it; anyone with the code can add a device to your account.
               </p>
             </div>
           )}
@@ -301,7 +339,7 @@ export function HealthKitSyncView({
                 </span>
                 <p>
                   Paired {when(d.pairedAt)} · Last sync {when(d.lastSyncAt)} ·{" "}
-                  {d.samplesReceived.toLocaleString()} entries
+                  {d.samplesReceived.toLocaleString("en")} entries
                 </p>
                 {d.status === "active" && d.lastErrorCode && (
                   <p className="muted">
@@ -375,13 +413,12 @@ export type Day = {
 };
 const hours = (minutes: number) =>
   `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`;
-const activityName = (value: string) =>
-  value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+const activityName = (value: string) => humanize(value);
 export function dayLine(d: Day) {
   return [
-    d.steps !== null && `${Math.round(d.steps).toLocaleString()} steps`,
+    d.steps !== null && `${Math.round(d.steps).toLocaleString("en")} steps`,
     d.activeEnergyKcal !== null &&
-      `${Math.round(d.activeEnergyKcal).toLocaleString()} kcal active`,
+      `${Math.round(d.activeEnergyKcal).toLocaleString("en")} kcal active`,
     d.sleepMinutes !== null && `${hours(d.sleepMinutes)} asleep`,
     ...d.workouts.map(
       (w) => `${activityName(w.activity)} ${Math.round(w.minutes)} min`,
@@ -430,13 +467,7 @@ export function HealthKitActivityList({
       {days.map((d) => (
         <div className="list-row" key={d.day} style={rowStyle}>
           <div>
-            <strong>
-              {new Date(d.day + "T12:00:00").toLocaleDateString(undefined, {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}
-            </strong>
+            <strong>{formatDate(d.day, { weekday: true, year: false })}</strong>
             <p>{dayLine(d) || "Measurements recorded; totals pending."}</p>
           </div>
         </div>

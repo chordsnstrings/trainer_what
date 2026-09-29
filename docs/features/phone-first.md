@@ -54,7 +54,7 @@ destinations, icon and short label, 64 px tall plus the home indicator
 
 1. Today (`/app`)
 2. The programme, labelled with the coach's `programLabel`
-   (`resolveBrandDesign`), `/app/program`; workouts, guided and voice
+   (`resolveBrandDesign`, default "Programme" since `ui/member`), `/app/program`; workouts, guided and voice
    sessions and the timeline sit under it
 3. Chat (`/app/chat`) with an unread badge
 4. Nutrition (`/app/nutrition`, including Log a meal), or Progress when
@@ -285,8 +285,9 @@ never moves it with its parent.
 ## Not done here (other tracks)
 
 - The Today screen's content (contradictory plan states, repeated
-  navigation cards and stats, length) is the Today/content track; the tab
-  bar now covers the navigation those cards duplicate.
+  navigation cards and stats, length) and the other member screens' logic,
+  states and wording are done on `ui/member`: see
+  `docs/features/member-screens.md`.
 - The analytics preferences control is the consent track (`ui/consent`);
   it should position itself with `--member-bottom-inset`.
 - Dark mode and translated Arabic copy for member screens, coach website

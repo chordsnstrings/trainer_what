@@ -1,5 +1,11 @@
 "use client";
 import {
+  formatCountdown,
+  formatDateRange,
+  formatWhen,
+  labelFor,
+} from "../lib/format";
+import {
   useCallback,
   useEffect,
   useRef,
@@ -7,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
+import { painDescription } from "./pain-report";
 import { BottomSheet, FileInput, StickyActionBar } from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { WebAddressCenter } from "./web-address";
@@ -91,16 +98,20 @@ export function IntegrationCenter({
   return (
     <div className="stack">
       <div className="page-heading">
-        <p className="eyebrow">CONNECTIONS</p>
+        {trainer && <p className="eyebrow">CONNECTIONS</p>}
         <h1>
-          {path.includes("/voice")
-            ? "Your voice, with your permission."
-            : path.includes("/domains")
-              ? "Your coaching address."
-              : "Connections you control."}
+          {!trainer
+            ? "Connections"
+            : path.includes("/voice")
+              ? "Your voice, with your permission."
+              : path.includes("/domains")
+                ? "Your coaching address."
+                : "Connections you control."}
         </h1>
         <p className="muted">
-          Choose what you share and see the status of each connection.
+          {trainer
+            ? "Choose what you share and see the status of each connection."
+            : "Share readings from your watch or phone with your coach. You choose what to share and can stop at any time."}
         </p>
       </div>
       {trainer && (
@@ -146,6 +157,15 @@ export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
   );
 }
 
+/** Connection states in words (members never see the stored key). */
+const CONNECTION_STATUS: Record<string, string> = {
+  active: "Connected",
+  pending: "Connecting…",
+  revocation_pending: "Disconnecting…",
+  revoked: "Disconnected",
+  error: "Needs attention: reconnect it",
+  expired: "Needs reconnecting",
+};
 function HealthConnections({
   integrations,
   trainer = false,
@@ -223,23 +243,25 @@ function HealthConnections({
               title={provider === "whoop" ? "WHOOP" : "Amazfit / Zepp"}
             >
               <p className="muted">
-                {connection?.status ??
-                  (enabled
+                {connection
+                  ? labelFor(CONNECTION_STATUS, connection.status)
+                  : enabled
                     ? "Ready to connect"
                     : trainer
                       ? "Awaiting provider setup and approval"
-                      : "Not available yet")}
+                      : "Not available in your coaching space yet"}
               </p>
               {connection?.lastSyncedAt && (
                 <p>
-                  Last synchronized{" "}
-                  {new Date(connection.lastSyncedAt).toLocaleString()}
-                  {connection.stale ? " · Stale data" : ""}
+                  Last synced {formatWhen(connection.lastSyncedAt)}
+                  {connection.stale ? " · not updated recently" : ""}
                 </p>
               )}
               {connection?.summary?.message && (
                 <p>{connection.summary.message}</p>
               )}
+              {(enabled || connection || trainer) && (
+              <>
               <p>
                 Used to show your readings and to calculate simple, rule-based
                 coaching indicators. Never sent to AI or used for advertising.
@@ -286,6 +308,8 @@ function HealthConnections({
                   </p>
                 )}
               </form>
+              </>
+              )}
               {connection?.status === "active" && (
                 <button
                   disabled={action.busy}
@@ -309,11 +333,11 @@ function HealthConnections({
                       void action.run(
                         () =>
                           api(`/integrations/${provider}/revoke`, "POST", {}),
-                        "Local access stopped; provider revocation queued",
+                        "Disconnected here; the provider is being told",
                       )
                     }
                   >
-                    Revoke connection
+                    Disconnect
                   </button>
                 )}
             </Panel>
@@ -322,9 +346,8 @@ function HealthConnections({
       </div>
       <Panel title="Import Apple Health">
         <p>
-          Choose export.xml, review the coverage and give explicit permission.
-          Supported numeric observations retain their source, unit and
-          measurement time.
+          Bring in steps, heart rate, sleep and more from the Health app on
+          your iPhone. You see what is in the file before anything is saved.
         </p>
         {importsRefused && <ImportRefusedNotice trainer={trainer} />}
         <FileInput
@@ -347,17 +370,14 @@ function HealthConnections({
         {observations.length > 0 && !importsRefused && (
           <div>
             <p>
-              {fileName} · {observations.length.toLocaleString()} observations ·{" "}
-              {new Set(observations.map((r) => r.type)).size} categories
+              {fileName}: {observations.length.toLocaleString("en")} readings
+              of {new Set(observations.map((r) => r.type)).size} kinds
             </p>
             <p>
-              {new Date(
+              {formatDateRange(
                 Math.min(...observations.map((r) => Date.parse(r.measuredAt))),
-              ).toLocaleDateString()}{" "}
-              –{" "}
-              {new Date(
                 Math.max(...observations.map((r) => Date.parse(r.measuredAt))),
-              ).toLocaleDateString()}
+              )}
             </p>
             <label>
               <input
@@ -365,9 +385,9 @@ function HealthConnections({
                 checked={consent}
                 onChange={(e) => setConsent(e.target.checked)}
               />{" "}
-              I allow this workspace to import these observations for display
-              and deterministic coaching indicators. They will not be used for
-              model prompts or advertising.
+              Save these readings so you and your coach can see them and use
+              them for simple coaching checks. The digital coach never sees
+              them, and they are never used for advertising.
             </label>
             <button
               disabled={action.busy || !consent}
@@ -383,7 +403,7 @@ function HealthConnections({
                 }, "Health export imported")
               }
             >
-              Import reviewed observations
+              Save these readings
             </button>
           </div>
         )}
@@ -399,8 +419,8 @@ function HealthConnections({
                     : source.source}
                 </strong>
                 <p>
-                  {source.observations} observations · Last updated{" "}
-                  {new Date(source.latest_import).toLocaleString()}
+                  {source.observations} readings · last updated{" "}
+                  {formatWhen(source.latest_import)}
                 </p>
               </div>
               <button
@@ -409,16 +429,16 @@ function HealthConnections({
                   void action.run(
                     () =>
                       api(`/integrations/${source.source}/revoke`, "POST", {}),
-                    "Source use revoked",
+                    "These readings are no longer used",
                   )
                 }
               >
-                Revoke use
+                Stop using these readings
               </button>
             </div>
           ))
         ) : (
-          <p className="muted">No active imported observations.</p>
+          <p className="muted">No readings imported yet.</p>
         )}
         {(data.importHistory ?? []).map((batch: any) => (
           <div className="list-row" key={batch.id}>
@@ -429,8 +449,8 @@ function HealthConnections({
                   : "Manual import"}
               </strong>
               <p>
-                {batch.observations} observations · Imported{" "}
-                {new Date(batch.imported_at).toLocaleString()}
+                {batch.observations} readings · imported{" "}
+                {formatWhen(batch.imported_at)}
               </p>
             </div>
             <button
@@ -649,9 +669,10 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     <div className="stack guided-session">
       <div className="page-heading">
         <h1>{data?.name ?? "Guided workout"}</h1>
+        {/* One plain safety line; the voice state is shown once, below. */}
         <p>
-          {data?.warning ??
-            "Follow your assigned workout and stop if you experience pain or dizziness."}
+          Stop straight away if you feel pain or dizziness, and tap Report
+          pain.
         </p>
       </div>
       <Notice value={action.message} />
@@ -669,13 +690,15 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
           <p>{segment.text}</p>
           <p className="guided-timer" role="timer" aria-live="polite">
             {rest > 0
-              ? `Rest ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
+              ? `Rest ${formatCountdown(rest)}`
               : "Ready"}
           </p>
+          {/* Secondary controls; Next exercise is the sticky bar's one
+              primary action, so it is not repeated here. */}
           <div className="guided-controls">
             <button
               type="button"
-              className="button"
+              className="button secondary"
               disabled={paused}
               onClick={() => {
                 setRunning(false);
@@ -701,14 +724,6 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
             >
               Previous exercise
             </button>
-            <button
-              type="button"
-              className="button secondary"
-              disabled={paused || last}
-              onClick={() => move(index + 1)}
-            >
-              Next exercise
-            </button>
           </div>
           {paused && (
             <p className="control-reason">
@@ -724,8 +739,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
                   checked={voiceConsent}
                   onChange={(e) => setVoiceConsent(e.target.checked)}
                 />{" "}
-                I want this workout instruction read in my trainer's approved
-                voice.
+                Read this exercise to me in my coach&apos;s voice.
               </label>
               <button
                 type="button"
@@ -741,12 +755,12 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
                     if (!r.audioUrl)
                       throw new Error(
                         r.message ??
-                          "Audio is awaiting review. Written instructions remain available.",
+                          "Your coach's voice is not ready for this exercise yet. The written steps above still work.",
                       );
-                  }, "Trainer voice is ready")
+                  }, "Your coach's voice is ready")
                 }
               >
-                Prepare trainer voice
+                Play in my coach&apos;s voice
               </button>
               {!voiceConsent && (
                 <p className="control-reason">
@@ -800,7 +814,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
         label="Guided session actions"
         note={
           rest > 0
-            ? `Rest ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
+            ? `Rest ${formatCountdown(rest)}`
             : undefined
         }
       >
@@ -845,7 +859,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               type="submit"
               form="guided-pain-report"
               className="button"
-              disabled={action.busy || painText.trim().length < 3}
+              disabled={action.busy}
             >
               Stop workout and notify coach
             </button>
@@ -856,22 +870,20 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
           id="guided-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = painText.trim();
-            if (description.length < 3) return;
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
             setPainOpen(false);
             setPainText("");
             stop(description);
           }}
         >
           <label className="field">
-            <span>Pain or a safety concern</span>
+            <span>What happened? (optional)</span>
             <textarea
               data-autofocus
               name="description"
               value={painText}
               onChange={(e) => setPainText(e.target.value)}
-              required
-              minLength={3}
               maxLength={2000}
               rows={4}
               enterKeyHint="send"

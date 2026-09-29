@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { formatDate, labelFor } from "../lib/format";
 import { money } from "@trainer/domain";
 /** "July 2026" for a YYYY-MM month. */
 const monthName = (period: string) =>
@@ -19,7 +20,26 @@ async function request(url: string, body?: unknown) {
     throw new Error(data.message ?? "Request could not be completed");
   return data;
 }
-export function BillingHistory() {
+const INVOICE_STATUS: Record<string, string> = {
+  paid: "Paid",
+  open: "Due",
+  draft: "Being prepared",
+  void: "Cancelled",
+  uncollectible: "Not paid",
+};
+const REFUND_STATUS: Record<string, string> = {
+  pending: "Waiting for review",
+  requested: "Waiting for review",
+  approved: "Approved",
+  processing: "Being refunded",
+  refunded: "Refunded",
+  succeeded: "Refunded",
+  denied: "Declined",
+  rejected: "Declined",
+  failed: "Could not be refunded",
+};
+/** Receipts, refund requests and renewal confirmation for a member. */
+export function BillingHistory({ active = false }: { active?: boolean }) {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
@@ -42,22 +62,25 @@ export function BillingHistory() {
   }
   return (
     <section className="card">
-      <h2>Invoices and refunds</h2>
+      <h2>Receipts and refunds</h2>
       <p className="muted">
-        Download available receipts or choose an eligible charge to request a
-        refund.
+        Your receipts, and a refund request for a recent payment when one is
+        possible.
       </p>
       {message && (
         <p role="status" className="notice">
           {message}
         </p>
       )}
-      {!data && !message && <p>Loading billing history…</p>}
+      {!data && !message && <p className="muted">Loading your receipts…</p>}
       {data && (
         <>
           {data.transitions.length > 0 && (
             <div className="notice">
-              <p>A renewal change is awaiting provider confirmation.</p>
+              <p>
+                We are confirming your renewal change with the payment
+                provider.
+              </p>
               <button
                 className="button secondary"
                 disabled={busy}
@@ -67,14 +90,21 @@ export function BillingHistory() {
               </button>
             </div>
           )}
-          {!data.invoices.length && <p>No invoices yet.</p>}
+          {!data.invoices.length && (
+            <p className="muted">
+              {active
+                ? "Receipts appear here after each payment is confirmed."
+                : "You have no payments yet."}
+            </p>
+          )}
           {data.invoices.map((r: any) => (
             <article className="list-row" key={r.id}>
               <div>
                 <strong>{r.data.number ?? r.data.invoiceId}</strong>
                 <p>
-                  {new Date(r.data.issuedAt).toLocaleDateString()} ·{" "}
-                  {money(r.data.amountPaid)} · {r.status}
+                  {formatDate(r.data.issuedAt)} ·{" "}
+                  <span dir="ltr">{money(r.data.amountPaid)}</span> ·{" "}
+                  {labelFor(INVOICE_STATUS, r.status)}
                 </p>
               </div>
               <div>
@@ -115,8 +145,7 @@ export function BillingHistory() {
                     .filter((c: any) => c.eligible)
                     .map((c: any) => (
                       <option key={c.id} value={c.chargeId}>
-                        {new Date(c.chargedAt).toLocaleDateString()} —{" "}
-                        {money(c.remainingMinor)}
+                        {formatDate(c.chargedAt)} — {money(c.remainingMinor)}
                       </option>
                     ))}
                 </select>
@@ -145,7 +174,9 @@ export function BillingHistory() {
                     <p>{r.data.reason}</p>
                     {r.data.decisionReason && <p>{r.data.decisionReason}</p>}
                   </div>
-                  <span className="badge">{r.status}</span>
+                  <span className="badge">
+                    {labelFor(REFUND_STATUS, r.status)}
+                  </span>
                 </article>
               ))}
             </>

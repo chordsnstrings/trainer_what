@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDateTime } from "../lib/format";
 
 type PushDevice = {
   id: string;
@@ -451,8 +452,8 @@ export function PushNotifications() {
       )}
       {settings && !settings.configured && (
         <p className="notice">
-          Push notifications have not been configured for this app. You can
-          still remove saved devices below.
+          Phone and browser notifications are not switched on for this app yet.
+          Your in-app inbox still shows every update.
         </p>
       )}
       {browser.support === "insecure" && (
@@ -536,11 +537,13 @@ export function PushNotifications() {
       )}
       {settings && (
         <>
-          <h3>
-            Saved devices ({settings.devices.length}/{settings.maxDevices})
-          </h3>
-          {!settings.devices.length && (
-            <p className="muted">No devices are connected to your account.</p>
+          <h3>Devices that get notifications</h3>
+          {settings.devices.length ? (
+            <p className="muted">
+              {settings.devices.length} of up to {settings.maxDevices} devices.
+            </p>
+          ) : (
+            <p className="muted">No devices get notifications yet.</p>
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {settings.devices.map((device) => (
@@ -556,11 +559,10 @@ export function PushNotifications() {
               >
                 <div style={{ flex: "1 1 200px", overflowWrap: "anywhere" }}>
                   <strong>{device.label}</strong>
-                  {device.current && " · This sign-in session"}
+                  {device.current && " · This device"}
                   <br />
                   <small className="muted">
-                    Connection ends{" "}
-                    {new Date(device.expiresAt).toLocaleString()}
+                    Stays connected until {formatDateTime(device.expiresAt)}
                   </small>
                 </div>
                 <button
@@ -591,7 +593,7 @@ export function PushNotifications() {
           void refresh();
         }}
       >
-        Refresh push status
+        Check again
       </button>
     </section>
   );

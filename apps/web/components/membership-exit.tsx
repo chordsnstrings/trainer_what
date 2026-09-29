@@ -5,6 +5,7 @@ import {
   formatDate,
   type AccountError,
 } from "./account-request";
+import { BottomSheet } from "./phone-ui";
 
 type Preview = {
   subscription: {
@@ -47,7 +48,9 @@ function Consequences({
         </li>
       )}
       <li>
-        Coaching records stay with this trainer under the retention policy.
+        {follower
+          ? "Your coaching records stay with this coach for the time the privacy policy sets."
+          : "Coaching records stay with this trainer under the retention policy."}
         {preview.openDeletionRequests
           ? follower
             ? " Your deletion request stays open; the platform privacy team still processes it after you leave."
@@ -75,7 +78,11 @@ function Blockers({ preview }: { preview: Preview }) {
   );
 }
 
-/** A follower ends their own membership with the current trainer. */
+/**
+ * A follower ends their own membership with the current coach. The card
+ * says what leaving means in one line; the full consequences, an optional
+ * note and the confirmation open in a bottom sheet.
+ */
 export function LeaveTrainer() {
   const [preview, setPreview] = useState<
       | (Preview & { workspace: { name: string }; otherWorkspaces: number })
@@ -83,6 +90,7 @@ export function LeaveTrainer() {
     >(null),
     [message, setMessage] = useState(""),
     [done, setDone] = useState(false),
+    [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     accountRequest("/membership/leave")
@@ -90,66 +98,109 @@ export function LeaveTrainer() {
       .catch((e) => setMessage((e as Error).message));
   }, []);
   if (!preview && !message) return null;
+  const coach = preview?.workspace.name ?? "this coach";
   return (
     <section className="card acct-danger" aria-labelledby="acct-leave">
-      <h2 id="acct-leave">Leave {preview?.workspace.name ?? "this trainer"}</h2>
-      {message && (
+      <h2 id="acct-leave">Leave {coach}</h2>
+      {message && !open && (
         <p className={`notice ${done ? "success" : "error"}`} role="status">
           {message}
         </p>
       )}
       {preview && !done && (
         <>
-          <Consequences preview={preview} follower />
-          <Blockers preview={preview} />
-          <form
-            onSubmit={async (e: FormEvent<HTMLFormElement>) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              setBusy(true);
+          <p className="muted">
+            Your access to {coach} ends straight away. Your account and any
+            other coaches are not affected.
+          </p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
               setMessage("");
-              try {
-                const r = await accountRequest("/membership/leave", "POST", {
-                  confirm: true,
-                  ...(String(f.get("reason") ?? "").trim()
-                    ? { reason: String(f.get("reason")).trim() }
-                    : {}),
-                });
-                setDone(true);
-                setMessage(
-                  r.nextWorkspace
-                    ? "You left this trainer. Opening your other coaching space…"
-                    : "You left this trainer. Your account remains; join another coach any time.",
-                );
-                window.setTimeout(
-                  () => window.location.assign(r.nextWorkspace ? "/app" : "/"),
-                  1500,
-                );
-              } catch (error) {
-                setMessage((error as AccountError).message);
-              } finally {
-                setBusy(false);
-              }
+              setOpen(true);
             }}
           >
-            <label className="field">
-              <span>Note for your trainer (optional)</span>
-              <textarea name="reason" maxLength={500} rows={3} />
-              <small className="muted">
-                Shared with your trainer. Leave out health details.
-              </small>
-            </label>
-            <label className="check-field">
-              <input type="checkbox" required />I understand my access to this
-              trainer ends now.
-            </label>
-            <button
-              className="button"
-              disabled={busy || preview.blockers.length > 0}
+            Leave {coach}…
+          </button>
+          <BottomSheet
+            open={open}
+            onClose={() => setOpen(false)}
+            title={`Leave ${coach}?`}
+            description="Read what happens, then confirm."
+            footer={
+              <>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setOpen(false)}
+                >
+                  Stay with {coach}
+                </button>
+                <button
+                  type="submit"
+                  form="leave-coach-form"
+                  className="button"
+                  disabled={busy || preview.blockers.length > 0}
+                >
+                  {busy ? "Leaving…" : `Leave ${coach}`}
+                </button>
+              </>
+            }
+          >
+            <Consequences preview={preview} follower />
+            <Blockers preview={preview} />
+            {message && (
+              <p className="notice error" role="alert">
+                {message}
+              </p>
+            )}
+            <form
+              id="leave-coach-form"
+              onSubmit={async (e: FormEvent<HTMLFormElement>) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                setBusy(true);
+                setMessage("");
+                try {
+                  const r = await accountRequest("/membership/leave", "POST", {
+                    confirm: true,
+                    ...(String(f.get("reason") ?? "").trim()
+                      ? { reason: String(f.get("reason")).trim() }
+                      : {}),
+                  });
+                  setDone(true);
+                  setOpen(false);
+                  setMessage(
+                    r.nextWorkspace
+                      ? `You left ${coach}. Opening your other coaching space…`
+                      : `You left ${coach}. Your account remains; join another coach any time.`,
+                  );
+                  window.setTimeout(
+                    () =>
+                      window.location.assign(r.nextWorkspace ? "/app" : "/"),
+                    1500,
+                  );
+                } catch (error) {
+                  setMessage((error as AccountError).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
             >
-              Leave this trainer
-            </button>
-          </form>
+              <label className="field">
+                <span>A note for {coach} (optional)</span>
+                <textarea name="reason" maxLength={500} rows={3} />
+              </label>
+              <small className="muted">
+                {coach} sees this note. Leave out health details.
+              </small>
+              <label className="check-field">
+                <input type="checkbox" required />I understand my access to{" "}
+                {coach} ends now.
+              </label>
+            </form>
+          </BottomSheet>
         </>
       )}
     </section>

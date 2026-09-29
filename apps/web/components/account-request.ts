@@ -1,16 +1,72 @@
+import { formatDateTime } from "../lib/format";
 // JSON request helper shared by the account self-service components.
 export type AccountError = Error & { status?: number; code?: string };
+/**
+ * A read that has not answered by then is reported, never left loading.
+ * Root cause of the "Loading your account…" screen (docs/features/
+ * member-screens.md): the account cards waited for their first read with no
+ * time limit, and two of them hid a failed read behind made-up defaults
+ * ("verification needed", "0 recovery codes"), so a read held up by a busy
+ * server or a flaky connection looked like a page that never loads.
+ */
+export const ACCOUNT_READ_TIMEOUT_MS = 15_000;
+export const ACCOUNT_UNREACHABLE =
+  "Your account details could not be reached. Check your connection and try again.";
+/** Fetch with a time limit that works even when the fetch ignores `signal`. */
+export async function fetchWithin(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller =
+    typeof AbortController === "function" ? new AbortController() : null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller?.abort();
+      reject(new Error("timeout"));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      fetch(url, { ...init, signal: controller?.signal }),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export async function accountRequest<T = any>(
   path: string,
   method = "GET",
   body?: unknown,
+  options: { timeoutMs?: number } = {},
 ): Promise<T> {
-  const r = await fetch("/api/v1" + path, {
+  let r: Response;
+  const init: RequestInit = {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
-  });
+    cache: "no-store",
+  };
+  try {
+    // Reads end in a message with a retry, never an endless "Loading…";
+    // changes are never cut short (their outcome must be known).
+    r =
+      method === "GET"
+        ? await fetchWithin(
+            "/api/v1" + path,
+            init,
+            options.timeoutMs ?? ACCOUNT_READ_TIMEOUT_MS,
+          )
+        : await fetch("/api/v1" + path, init);
+  } catch {
+    throw Object.assign(new Error(ACCOUNT_UNREACHABLE), {
+      status: 0,
+      code: "NETWORK",
+    }) as AccountError;
+  }
   let data: any = {};
   try {
     data = await r.json();
@@ -18,10 +74,18 @@ export async function accountRequest<T = any>(
     data = {};
   }
   if (!r.ok)
-    throw Object.assign(new Error(data.message ?? "Request failed"), {
-      status: r.status,
-      code: data.code,
-    }) as AccountError;
+    throw Object.assign(
+      new Error(
+        data.message ||
+          (r.status === 429
+            ? "Too many requests. Wait a moment, then try again."
+            : "That did not work. Try again in a moment."),
+      ),
+      {
+        status: r.status,
+        code: data.code,
+      },
+    ) as AccountError;
   return data as T;
 }
 /** Human wording for sign-in outcomes returned as ?signin_error=CODE. */
@@ -63,13 +127,7 @@ export function signInErrorMessage(code: string | null | undefined) {
     "Sign-in could not be completed. Try again or use your password."
   );
 }
+/** "29 Sep 2026, 14:05": the app's one date and time format (lib/format.ts). */
 export function formatDate(value: string | null | undefined) {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
+  return formatDateTime(value);
 }

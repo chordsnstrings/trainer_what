@@ -18,6 +18,7 @@ import {
   type VoiceCommand,
 } from "../../../packages/domain/src/voice-runner.ts";
 import type { SessionScript } from "../../../packages/domain/src/voice-session.ts";
+import { formatDate } from "../lib/format";
 import {
   drainWorkoutQueue,
   offlineQueueKeys,
@@ -244,14 +245,18 @@ export function VoiceSessionRunner({
   return (
     <div className="stack voice-session">
       <div className="page-heading">
-        <p className="eyebrow">VOICE-LED SESSION</p>
+        <p className="eyebrow">
+          {session?.mode === "text" || (gate && gate.mode === "text" && !voiceBlockedOnlyByConsentFor(gate))
+            ? "Guided session"
+            : "Voice-led session"}
+        </p>
         <h1>{session?.script.title ?? planned?.title ?? "Your workout, guided"}</h1>
         <p className="muted">
           {ahead
-            ? `Get your trainer's voice ready before ${planned?.date ? planned.date : "the day"}. `
+            ? `Get your session ready before ${planned?.date ? formatDate(planned.date, { weekday: true, year: false }) : "the day"}. `
             : ""}
-          Your trainer's session plan, one step at a time. Say or tap “pain”
-          at any moment and the session stops and your trainer is told.
+          Your coach's session plan, one step at a time. Say or tap “pain”
+          at any moment and the session stops and your coach is told.
         </p>
       </div>
       {notice && (
@@ -275,20 +280,20 @@ export function VoiceSessionRunner({
           <h2 id="voice-prepare">Prepare this session</h2>
           {stale && (
             <p className="notice">
-              Your trainer changed this workout. Prepare the session again so it
+              Your coach changed this workout. Prepare the session again so it
               follows the current plan.
             </p>
           )}
           {gate.held ? (
             <p className="notice error" role="alert">
-              Training is paused for your trainer's review.
+              Training is paused for your coach's review.
             </p>
           ) : (
             <>
               {gate.mode === "voice" || voiceBlockedOnlyByConsent ? (
                 <>
                   <p>
-                    Your trainer's approved voice will guide you through every
+                    Your coach's approved voice will guide you through every
                     exercise, set and rest. Audio is prepared ahead of time.
                   </p>
                   {voiceBlockedOnlyByConsent && (
@@ -298,7 +303,7 @@ export function VoiceSessionRunner({
                         checked={consent}
                         onChange={(e) => setConsent(e.target.checked)}
                       />{" "}
-                      I want this session read in my trainer's approved voice.
+                      I want this session read in my coach's approved voice.
                     </label>
                   )}
                   <div className="button-row">
@@ -320,11 +325,8 @@ export function VoiceSessionRunner({
                 </>
               ) : (
                 <>
-                  <ul className="voice-reasons">
-                    {gate.reasons.map((r) => (
-                      <li key={r.code}>{r.message}</li>
-                    ))}
-                  </ul>
+                  {/* One plain reason, never the list of internal checks. */}
+                  <p className="voice-reason">{voiceReason(gate.reasons)}</p>
                   <button
                     className="button"
                     disabled={busy}
@@ -342,23 +344,25 @@ export function VoiceSessionRunner({
         <section className="card voice-status-card" aria-labelledby="voice-ahead">
           <div className="card-heading">
             <h2 id="voice-ahead">
-              {session.mode === "voice" ? "Your trainer's voice" : "Text-guided session"}
+              {session.mode === "voice" ? "Your coach's voice" : "Text-guided session"}
             </h2>
-            <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
-              {audioBadge(session)}
-            </span>
+            {audioBadge(session) && (
+              <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
+                {audioBadge(session)}
+              </span>
+            )}
           </div>
           {session.unavailableReason && (
-            <p className="muted">{session.unavailableReason.message}</p>
+            <p className="muted">{voiceReason([session.unavailableReason])}</p>
           )}
           <p className="muted">
             {session.audioStatus === "generating"
-              ? "Your trainer's voice is being prepared. You can leave this page; it carries on in the background."
+              ? "Your coach's voice is being prepared. You can leave this page; it carries on in the background."
               : "Ready. Start the workout when you are, and the session will be waiting."}
           </p>
           {session.mode === "text" && gate.mode === "voice" && (
             <button className="button secondary" disabled={busy} onClick={() => void prepare(false)}>
-              Switch to your trainer's voice
+              Switch to your coach's voice
             </button>
           )}
           <button className="button" disabled={busy || gate.held} onClick={() => void startWorkout()}>
@@ -390,6 +394,43 @@ export function VoiceSessionRunner({
     </div>
   );
 }
+/**
+ * One plain reason a session is guided in text instead of the coach's voice
+ * (the server lists every check that failed). Most important first; the
+ * member can act on the membership and the permission, not on the rest.
+ */
+export function voiceReason(
+  reasons: Array<{ code: string; message?: string }>,
+) {
+  const codes = new Set(reasons.map((r) => r.code));
+  if (codes.has("TRAINING_HELD"))
+    return "Training is paused until your coach has reviewed your report.";
+  if (codes.has("MEMBERSHIP_REQUIRED"))
+    return "Guided sessions need an active membership.";
+  // The same order as the server's stored reason (voice-session.ts), so
+  // the preparation page and the running session say the same thing.
+  if (codes.has("VOICE_MEMBERSHIP"))
+    return "Your plan does not include your coach's voice, so this session is guided in text.";
+  if (
+    codes.has("VOICE_CONTRACT") ||
+    codes.has("VOICE_NOT_VERIFIED") ||
+    codes.has("VOICE_UNAVAILABLE")
+  )
+    return "Your coach's voice is not available yet, so this session is guided in text. Everything else works the same.";
+  if (codes.has("VOICE_BUDGET"))
+    return "Your coach's voice is resting for today, so this session is guided in text.";
+  if (codes.has("VOICE_SCRIPT_INVALID"))
+    return "Your workout changed. Prepare the session again.";
+  if (codes.has("PLAYBACK_CONSENT"))
+    return "Tick the box to hear your coach's voice, or use text guidance.";
+  return "This session is guided in text.";
+}
+function voiceBlockedOnlyByConsentFor(gate: { reasons: Array<{ code: string }> }) {
+  return (
+    gate.reasons.length > 0 &&
+    gate.reasons.every((r) => r.code === "PLAYBACK_CONSENT")
+  );
+}
 const audioBadge = (session: SessionView) =>
   session.audioStatus === "generating"
     ? `Preparing ${session.audio.ready}/${session.audio.total}`
@@ -397,7 +438,8 @@ const audioBadge = (session: SessionView) =>
       ? session.audioStatus === "capped"
         ? "Voice paused"
         : "Voice ready"
-      : "Text";
+      : // The heading already says "Text-guided session".
+        "";
 
 /** Holds whether the trainer's voice is audible now, for the echo guard. */
 type Playback = {
@@ -509,7 +551,7 @@ function Runner({
           if (!page.clips.length) break;
         }
       } catch (e) {
-        if (!cancelled) setNotice("Trainer voice could not be loaded: " + message(e) + " The session continues with text.");
+        if (!cancelled) setNotice("Your coach's voice could not be loaded: " + message(e) + " The session continues with text.");
       }
     })();
     return () => {
@@ -645,22 +687,22 @@ function Runner({
       setPlaying(false);
       sayQueue.current = [];
       setAlert(
-        "Stop exercising. Your trainer is being told. If your symptoms are severe or urgent, get local medical help now.",
+        "Stop exercising. Your coach is being told. If your symptoms are severe or urgent, get local medical help now.",
       );
       for (let attempt = 0; attempt < 3; attempt++)
         try {
           await api(`/workouts/${workoutId}/pain`, "POST", { description });
-          setAlert("Session stopped and your trainer has been told. If your symptoms are severe or urgent, get local medical help now.");
+          setAlert("Session stopped and your coach has been told. If your symptoms are severe or urgent, get local medical help now.");
           return;
         } catch (e) {
           const error = e as ApiError;
           if (error.status && error.status < 500) {
-            setAlert(error.message + " Message your trainer about how you feel.");
+            setAlert(error.message + " Message your coach about how you feel.");
             return;
           }
           await new Promise((r) => setTimeout(r, 2000));
         }
-      setAlert("You appear to be offline. Stop exercising and contact your trainer; get local medical help if symptoms are severe.");
+      setAlert("You appear to be offline. Stop exercising and contact your coach; get local medical help if symptoms are severe.");
     },
     [workoutId, setPlaying],
   );
@@ -1012,7 +1054,7 @@ function Runner({
       await api("/voice-sessions/consent", "POST", { playback: false });
       if (listening === "server") setListening("off");
       await onRefresh();
-      setNotice("Your trainer's voice is off and its stored audio for you was removed. The session continues with text.");
+      setNotice("Your coach's voice is off and its stored audio for you was removed. The session continues with text.");
     } catch (e) {
       setNotice(message(e));
     }
@@ -1032,27 +1074,29 @@ function Runner({
       <section className="card voice-status-card" aria-labelledby="voice-mode">
         <div className="card-heading">
           <h2 id="voice-mode">
-            {voiceMode ? "Your trainer's voice" : "Text-guided session"}
+            {voiceMode ? "Your coach's voice" : "Text-guided session"}
           </h2>
-          <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session)}</span>
+          {audioBadge(session) && (
+            <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session)}</span>
+          )}
         </div>
-        {session.unavailableReason && <p className="muted">{session.unavailableReason.message}</p>}
+        {session.unavailableReason && <p className="muted">{voiceReason([session.unavailableReason])}</p>}
         {session.audioStatus === "generating" && (
           <p className="muted">
-            Your trainer's voice is being prepared. You can start now; lines that are not ready yet are shown as text.
+            Your coach's voice is being prepared. You can start now; lines that are not ready yet are shown as text.
           </p>
         )}
         {session.audioStatus === "capped" && (
-          <p className="muted">Your trainer's voice is paused for now. The rest of this session is shown as text.</p>
+          <p className="muted">Your coach's voice is paused for now. The rest of this session is shown as text.</p>
         )}
         {session.mode === "text" && gate.mode === "voice" && runnable && (
           <button className="button secondary" onClick={() => void onPrepare(false)}>
-            Switch to your trainer's voice
+            Switch to your coach's voice
           </button>
         )}
         {session.mode === "text" && runnable && gate.reasons.length === 1 && gate.reasons[0].code === "PLAYBACK_CONSENT" && (
           <button className="button secondary" onClick={() => void onPrepare(true)}>
-            Use my trainer's approved voice
+            Use my coach's approved voice
           </button>
         )}
         {voiceMode && (
@@ -1065,7 +1109,7 @@ function Runner({
               {muted ? "Unmute voice" : "Mute voice"}
             </button>
             <button className="text-button" onClick={() => void withdrawVoice()}>
-              Stop using my trainer's voice
+              Stop using my coach's voice
             </button>
           </div>
         )}
@@ -1086,6 +1130,20 @@ function Runner({
         <h2 id="voice-now" className="voice-now">
           {runnerStatus(ctx, state)}
         </h2>
+        {state.phase === "ready" && (
+          // What the session holds, before it starts.
+          <ul className="voice-plan">
+            {script.exercises.map((e) => (
+              <li key={e.index}>
+                <strong>{e.name}</strong>
+                <span className="muted" dir="auto">
+                  {e.sets} {e.sets === 1 ? "set" : "sets"}
+                  {(e as any).reps ? ` × ${(e as any).reps} reps` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
         {ex && ["setup", "set", "rest"].includes(state.phase) && target && (
           <p className="voice-target">
             {ex.name} · set {state.set} of {ex.sets} · {target.reps} reps
@@ -1105,7 +1163,7 @@ function Runner({
         {changed ? (
           <div className="stack">
             <p className="notice">
-              Your trainer changed this workout, so this session stopped. Sets
+              Your coach changed this workout, so this session stopped. Sets
               you logged are saved. Prepare the session again to follow the
               current plan.
             </p>
@@ -1233,7 +1291,7 @@ function Runner({
           <h2 id="voice-replies">Spoken replies</h2>
           <p className="muted">
             Say “done”, a number of reps, “too heavy”, “pause” or “pain”.
-            While your trainer's voice is speaking, replies are not heard: tap
+            While your coach's voice is speaking, replies are not heard: tap
             a button instead. The buttons always work.
           </p>
           {listening === "off" ? (

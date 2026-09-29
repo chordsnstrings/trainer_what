@@ -80,7 +80,16 @@ import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
-import { ProgrammeToday, ProgrammeTimeline } from "./programme-today";
+import { ProgrammeTimeline } from "./programme-today";
+import { MemberToday } from "./member-today";
+import { MemberProgram } from "./member-program";
+import { MemberCoachingContext } from "./member-context";
+import { MemberChat } from "./member-chat";
+import { MemberIntake } from "./member-intake";
+import { MemberMembership } from "./member-membership";
+import { MemberNotFound, WorkspaceUnavailable } from "./member-states";
+import { painDescription } from "./pain-report";
+import { isMemberRoute } from "./member-nav";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
 import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
@@ -88,9 +97,7 @@ import {
   TrainerTheme,
   CoachIdentity,
   CoachCover,
-  CoachWelcome,
   CoachStory,
-  ClientHomeSections,
 } from "./trainer-design";
 import {
   BRAND_COPY,
@@ -265,7 +272,7 @@ const nav = [
 ] as const;
 const subNav = [
   ["Today", "/app", LayoutDashboard],
-  ["My program", "/app/program", Layers],
+  ["Programme", "/app/program", Layers],
   ["Programme timeline", "/app/timeline", Layers],
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
@@ -652,8 +659,8 @@ export default function Workspace({
       if (!publicPath) {
         setBootstrapError(
           (e as any).status === 429
-            ? "Too many requests. Wait a moment, then retry."
-            : "Your workspace could not be refreshed. Please try again.",
+            ? "Too many requests. Wait a moment, then try again."
+            : "The app could not connect just now.",
         );
       }
     } finally {
@@ -736,30 +743,20 @@ export default function Workspace({
     );
   if (!loading && !state && bootstrapError)
     return (
-      <main className="loading-screen" style={{ padding: 24 }}>
-        <section
-          className="card"
-          style={{ width: "min(100%, 480px)", textAlign: "center" }}
-        >
-          <AlertCircle size={29} aria-hidden="true" />
-          <h1 style={{ fontSize: 27, marginTop: 20 }}>
-            Your workspace is temporarily unavailable.
-          </h1>
-          <p className="muted" role="alert">
-            {bootstrapError}
-          </p>
-          <button
-            className="button"
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              void load();
-            }}
-          >
-            Retry <RefreshCw size={15} />
-          </button>
-        </section>
-      </main>
+      <WorkspaceUnavailable
+        message={bootstrapError}
+        busy={loading}
+        onRetry={() => {
+          setLoading(true);
+          void load();
+        }}
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {}).catch(() => {});
+          clearLocalData(localStorage, { keepQueues: true });
+          memberStateCache = null;
+          router.push("/login");
+        }}
+      />
     );
   // A member keeps the app frame while a page refreshes (the top bar shows
   // the refresh); the full-screen loader is only for the first load.
@@ -909,7 +906,9 @@ export default function Workspace({
     </>
   );
   const page =
-    path === "/app/more" && subscriber ? (
+    subscriber && path.startsWith("/app") && !isMemberRoute(path) ? (
+      <MemberNotFound />
+    ) : path === "/app/more" && subscriber ? (
       <MoreScreen
         nav={memberNav}
         tenantId={state.user.tenantId}
@@ -1055,6 +1054,7 @@ export default function Workspace({
             <NutritionSubscriber
               userId={state.user.userId}
               tenantId={state.user.tenantId}
+              environment={state.environment}
             />
           ) : path === "/trainer/galleries" ||
             path === "/trainer/website" ||
@@ -1096,6 +1096,8 @@ export default function Workspace({
                 records={records("support")}
                 action={action}
                 busy={busy}
+                userId={state.user.userId}
+                member={subscriber}
               />
               <LoadMore
                 more={more}
@@ -1117,7 +1119,7 @@ export default function Workspace({
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
-            <ClientTwin userId={state.user.userId} subscriber />
+            <MemberCoachingContext userId={state.user.userId} />
           ) : path.startsWith("/app/guided/") ? (
             <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.startsWith("/app/voice-session/") ? (
@@ -1129,13 +1131,30 @@ export default function Workspace({
               userId={state.user.userId}
             />
           ) : path.includes("/program") ? (
-            <TrainingPrograms state={state} />
+            subscriber ? (
+              <MemberProgram
+                state={view}
+                programLabel={memberNav.programLabel}
+              />
+            ) : (
+              <TrainingPrograms state={state} />
+            )
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <CoachingMessages state={state} />
+            subscriber ? (
+              <MemberChat state={view} />
+            ) : (
+              <CoachingMessages state={state} />
+            )
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
+          ) : subscriber && path === "/app/membership" ? (
+            <MemberMembership
+              state={view}
+              offers={records("product")}
+              onChanged={load}
+            />
           ) : path.includes("/finance") ||
             path.includes("/payout") ||
             path.includes("/membership") ||
@@ -1163,21 +1182,19 @@ export default function Workspace({
               {state.user.role === "owner" && <RetentionPanel />}
             </>
           ) : path === "/app/timeline" ? (
-            <ProgrammeTimeline />
+            <ProgrammeTimeline programLabel={memberNav.programLabel} />
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
+          ) : subscriber ? (
+            <MemberToday
+              state={view}
+              programLabel={memberNav.programLabel}
+              nutrition={memberNav.nutrition}
+            />
           ) : (
-            <>
-              {subscriber && (
-                <CoachSwitcher
-                  current={state.user.tenantId}
-                  userId={state.user.userId}
-                />
-              )}
-              <Overview {...props} />
-            </>
+            <Overview {...props} />
           );
   if (subscriber)
     return (
@@ -1454,13 +1471,6 @@ function Overview({ state, records }: ViewProps) {
           </Link>
         }
       />
-      {sub && (
-        <>
-          <ProgrammeToday />
-          <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
-          <ClientHomeSections theme={state.tenant.theme} />
-        </>
-      )}
       {state.user.role === "owner" && (
         <section className="card" aria-labelledby="growth-nudge-h">
           <h2 id="growth-nudge-h">What could your followers be worth?</h2>
@@ -3286,7 +3296,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               type="submit"
               form="workout-pain-report"
               className="button"
-              disabled={busy || !painText.trim()}
+              disabled={busy}
             >
               Stop workout and notify coach
             </button>
@@ -3297,8 +3307,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           id="workout-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = painText.trim();
-            if (!description) return;
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
             setPainOpen(false);
             setPainText("");
             void action(
@@ -3308,14 +3318,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           }}
         >
           <label className="field">
-            <span>What happened?</span>
+            <span>What happened? (optional)</span>
             <textarea
               data-autofocus
               value={painText}
               onChange={(e) => setPainText(e.target.value)}
               rows={4}
               maxLength={2000}
-              required
               enterKeyHint="send"
               placeholder="For example: sharp pain in my left knee during the second set"
             />
@@ -4405,146 +4414,138 @@ function Integrations({ state, action, busy, path }: ViewProps) {
   );
 }
 
-function SettingsView({ state, records, action, busy, path }: ViewProps) {
-  const intake = records("intake")[0]?.data ?? {},
-    sub = state.user.role === "subscriber",
-    // A member's coaching intake has its own page, so "Complete your
-    // coaching profile" opens the questions, not account security.
-    intakePage = sub && path === "/app/intake";
+function SettingsView({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  onSaved,
+}: ViewProps) {
+  const sub = state.user.role === "subscriber";
+  // A member's coaching profile questions are their own step-by-step page
+  // (member-intake.tsx); account security stays in Profile and settings.
+  if (sub && path === "/app/intake")
+    return (
+      <MemberIntake intake={records("intake")[0]?.data} onSaved={onSaved} />
+    );
+  if (sub) return <MemberSettings state={state} action={action} busy={busy} />;
+  return <TrainerSettingsView state={state} action={action} busy={busy} />;
+}
+
+/**
+ * Profile and settings for a member, phone first: the coaching profile link,
+ * account details, notifications, sign-in security folded into one section,
+ * privacy and leaving the coach (a bottom sheet in AccountSettings).
+ */
+function MemberSettings({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
+  const intakeDone = state.records.some((r) => r.kind === "intake");
+  return (
+    <div className="member-settings">
+      <header className="page-heading">
+        <h1>Profile and settings</h1>
+        <p className="muted">
+          Your account, notifications, sign-in security and privacy.
+        </p>
+      </header>
+      <section className="card" aria-labelledby="settings-coaching">
+        <h2 id="settings-coaching">Coaching profile</h2>
+        <p className="muted">
+          {intakeDone
+            ? "Your goals, experience, equipment and limits. Change them any time."
+            : "Answer a few questions so your coach can plan training that fits you."}
+        </p>
+        <Link className="button secondary" href="/app/intake">
+          {intakeDone ? "Review your coaching profile" : "Start your coaching profile"}
+        </Link>
+      </section>
+      <AccountSettings returnTo="/app/profile" />
+      <NotificationPreferences />
+      <PushNotifications />
+      <details className="card settings-group" id="security">
+        <summary>
+          <span>
+            <strong>Sign-in security</strong>
+            <small>Authenticator app, passkeys and where you are signed in</small>
+          </span>
+        </summary>
+        <AccountSecurity />
+        <AccountExtras />
+      </details>
+      <PersonalPrivacyStatus />
+      <Card id="your-data">
+        <h2>Your data</h2>
+        <p className="muted">
+          Download your coaching records, or ask for your account to be
+          deleted. Payment records are kept for as long as the law requires.
+        </p>
+        <div className="button-row">
+          <a className="button secondary" href="/api/v1/privacy/export">
+            <Download size={16} />
+            Download my data
+          </a>
+          <Button
+            secondary
+            disabled={busy}
+            onClick={() =>
+              void action(
+                () => api("/privacy/delete-request", "POST", {}),
+                "Deletion request received. We will confirm by email.",
+              )
+            }
+          >
+            Ask to delete my data
+          </Button>
+        </div>
+        <div className="divider" />
+        <p className="muted">
+          You can stop your coach using your coaching profile answers for
+          digital coaching. Your coach can still message you.
+        </p>
+        <Button
+          secondary
+          disabled={busy}
+          onClick={() =>
+            void action(
+              () =>
+                api("/privacy/consent", "POST", {
+                  type: "coaching",
+                  granted: false,
+                }),
+              "Your answers are no longer used for digital coaching.",
+            )
+          }
+        >
+          Stop digital coaching using my answers
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
+function TrainerSettingsView({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
   return (
     <>
       <Heading
         eyebrow="YOUR SPACE, YOUR CHOICES"
-        title={
-          intakePage
-            ? "Your coaching profile."
-            : sub
-              ? "Profile and settings."
-              : "Your workspace settings."
-        }
-        detail={
-          intakePage
-            ? "Tell your coach about your goals, experience and limits. You can change these answers at any time."
-            : "Keep your information useful, your permissions clear and your data under your control."
-        }
+        title="Your workspace settings."
+        detail="Keep your information useful, your permissions clear and your data under your control."
       />
-      {!intakePage && (
-        <>
-          <AccountSecurity />
-          <AccountExtras />
-          <AccountSettings
-            returnTo={sub ? "/app/profile" : "/trainer/settings"}
-          />
-          <PersonalPrivacyStatus />
-        </>
-      )}
+      <AccountSecurity />
+      <AccountExtras />
+      <AccountSettings returnTo="/trainer/settings" />
+      <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
       )}
-      {sub && !intakePage && (
-        <Card>
-          <h2>Coaching profile</h2>
-          <p className="muted">
-            Your goals, experience, equipment and limits help your coach plan
-            your training.
-          </p>
-          <Link className="button secondary" href="/app/intake">
-            Review my coaching profile
-          </Link>
-        </Card>
-      )}
-      {intakePage && (
-        <Card>
-          <h2>Help your coach understand you</h2>
-          <PlanIntakeNotice />
-          <form
-            id="intake-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/intake", "POST", {
-                    age: Number(f.get("age")),
-                    goal: f.get("goal"),
-                    experience: f.get("experience"),
-                    daysPerWeek: Number(f.get("days")),
-                    equipment: f.get("equipment"),
-                    limitations: f.get("limitations"),
-                    consent: true,
-                  }),
-                "Coaching profile saved",
-              );
-            }}
-          >
-            <div className="form-grid">
-              <Field label="Age (18+)">
-                <input
-                  type="number"
-                  name="age"
-                  inputMode="numeric"
-                  min={18}
-                  max={100}
-                  defaultValue={intake.age}
-                  required
-                />
-              </Field>
-              <Field label="Experience">
-                <select
-                  name="experience"
-                  defaultValue={intake.experience ?? "beginner"}
-                >
-                  {["beginner", "intermediate", "advanced"].map((x) => (
-                    <option key={x} value={x}>
-                      {x[0].toUpperCase() + x.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Main goal">
-                <input name="goal" defaultValue={intake.goal} required />
-              </Field>
-              <Field label="Days available each week">
-                <input
-                  name="days"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={7}
-                  defaultValue={intake.daysPerWeek ?? 3}
-                  required
-                />
-              </Field>
-              <Field label="Equipment available">
-                <input name="equipment" defaultValue={intake.equipment} />
-              </Field>
-              <Field label="Limitations your trainer should know">
-                <textarea
-                  name="limitations"
-                  defaultValue={intake.limitations}
-                />
-              </Field>
-            </div>
-            <label className="check-field">
-              <input type="checkbox" required />I agree to the coaching use of
-              this information and understand that digital coaching does not
-              replace medical care.
-            </label>
-            {/* The page's one main action, in thumb reach. */}
-            <StickyActionBar label="Coaching profile actions">
-              <button
-                type="submit"
-                form="intake-form"
-                className="button"
-                disabled={busy}
-              >
-                Save coaching profile
-              </button>
-            </StickyActionBar>
-          </form>
-        </Card>
-      )}
-      {!intakePage && (
       <div className="two-columns">
         <NotificationPreferences />
         <PushNotifications />
@@ -4593,7 +4594,6 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
           </Button>
         </Card>
       </div>
-      )}
       {state.user.role === "owner" && (
         <Card>
           <h2>Team access</h2>

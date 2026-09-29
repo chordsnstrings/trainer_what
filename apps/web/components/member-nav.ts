@@ -49,7 +49,7 @@ const D = {
   today: { id: "today", label: "Today", href: "/app", icon: "today" },
   program: {
     id: "program",
-    label: "My program",
+    label: "Programme",
     href: "/app/program",
     icon: "program",
     detail: "Your plan and training calendar",
@@ -298,6 +298,7 @@ export function memberBackTarget(
   const voice = p.match(/^\/app\/voice-session\/([^/]+)$/);
   if (voice) return `/app/workouts/${voice[1]}`;
   if (p.startsWith("/app/workouts/")) return "/app/program";
+  if (!isMemberRoute(p)) return MEMBER_HOME;
   if (p.startsWith("/app/nutrition/")) return "/app/nutrition";
   return MEMBER_MORE;
 }
@@ -306,7 +307,7 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/app\/timeline$/, "Timeline"],
   [/^\/app\/workouts\//, "Workout"],
   [/^\/app\/guided\//, "Guided session"],
-  [/^\/app\/voice-session\//, "Voice-led session"],
+  [/^\/app\/voice-session\//, "Workout guide"],
   [/^\/app\/chat$/, "Coach chat"],
   [/^\/app\/nutrition\/log$/, "Log a meal"],
   [/^\/app\/nutrition(\/|$)/, "Nutrition"],
@@ -323,6 +324,19 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/app\/more$/, "More"],
 ];
 
+/** Every member app address; anything else under /app is "not found". */
+const MEMBER_ROUTES: RegExp[] = [
+  /^\/app$/,
+  /^\/app\/(more|program|timeline|chat|progress|bookings|twin|intake|wearables|galleries|notifications|support|membership|profile)$/,
+  /^\/app\/nutrition(\/log)?$/,
+  /^\/app\/(workouts|guided|voice-session)\/[A-Za-z0-9-]+$/,
+  /^\/app\/voice-session\/planned\/[A-Za-z0-9-]+$/,
+];
+export function isMemberRoute(path: string) {
+  const p = clean(path);
+  return MEMBER_ROUTES.some((pattern) => pattern.test(p));
+}
+
 /**
  * The compact top bar's title. Today shows the coach's identity instead
  * (null here); a workout passes its own name.
@@ -336,6 +350,7 @@ export function memberPageTitle(
   if (p === "/app/program") return program(options).label;
   if (p.startsWith("/app/workouts/") && options.workoutTitle)
     return options.workoutTitle;
+  if (!isMemberRoute(p)) return "Page not found";
   return TITLES.find(([pattern]) => pattern.test(p))?.[1] ?? "Your coaching";
 }
 

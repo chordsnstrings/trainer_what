@@ -8,6 +8,7 @@ import {
   type ClientContextData,
   type ClientContextView,
 } from "../../../packages/domain/src/client-context.ts";
+import { formatDateTime } from "../lib/format";
 
 export function ClientContext({
   userId,
@@ -71,10 +72,15 @@ export function ClientContext({
     setDraft((d) => ({ ...d, ...patch }));
   return (
     <section className="card">
-      <h2>Preferences and upcoming changes</h2>
+      <h2>
+        {editable
+          ? "How you like to be coached"
+          : "Preferences and upcoming changes"}
+      </h2>
       <p>
-        Optional, self-reported context for your trainer. These notes do not
-        automatically change your training or nutrition plan.
+        {editable
+          ? "Optional notes for your coach, including travel or schedule changes coming up. They do not change your plan by themselves."
+          : "Optional, self-reported context for your trainer. These notes do not automatically change your training or nutrition plan."}
       </p>
       {error && (
         <p className="notice" role="alert">
@@ -82,13 +88,15 @@ export function ClientContext({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <button
-        className="button secondary"
-        disabled={busy}
-        onClick={() => void load()}
-      >
-        Reload saved preferences
-      </button>
+      {!editable && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          Reload saved preferences
+        </button>
+      )}
       {saved && (
         <form
           onSubmit={(e) => {
@@ -212,7 +220,7 @@ export function ClientContext({
                     />
                   </label>
                   <label className="field">
-                    <span>Timezone</span>
+                    <span>Time zone while away</span>
                     <input
                       required
                       maxLength={80}
@@ -288,7 +296,9 @@ export function ClientContext({
                     });
                   }}
                 >
-                  Add dated change
+                  {editable
+                    ? "Add travel or a schedule change"
+                    : "Add dated change"}
                 </button>
                 <button
                   type="button"
@@ -305,7 +315,7 @@ export function ClientContext({
           </fieldset>
           <small>
             {saved.provenance.updatedAt
-              ? `Updated ${new Date(saved.provenance.updatedAt).toLocaleString()}`
+              ? `Updated ${formatDateTime(saved.provenance.updatedAt)}`
               : "No preferences saved yet."}
             {!editable && " · Only the client can edit these preferences."}
           </small>

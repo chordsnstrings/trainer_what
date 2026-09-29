@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { StickyActionBar } from "./phone-ui";
+import { formatDate, labelFor, recentDays } from "../lib/format";
 import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
 
 type Food = {
@@ -34,6 +36,13 @@ const blank = (): Food => ({
   preparation: "unknown",
   uncertainty: "User-provided estimate",
 });
+/** How a food is weighed, in words (never the stored key). */
+const PREPARATION: Record<string, string> = {
+  raw: "raw",
+  cooked: "cooked",
+  ready_to_eat: "ready to eat",
+  unknown: "not stated",
+};
 const value = (v: string) => (v.trim() === "" ? null : Number(v));
 const total = (
   items: Food[],
@@ -110,7 +119,10 @@ export function MealCapture() {
   const stream = useRef<MediaStream | null>(null),
     video = useRef<HTMLVideoElement>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    barcodeIntent = useRef<{ code: string; key: string } | null>(null);
+    barcodeIntent = useRef<{ code: string; key: string } | null>(null),
+    // Whether the member picked a method; until then an unavailable photo
+    // estimate opens on "Write it down" instead.
+    chosen = useRef(false);
   const timezone = nutrition?.profile?.data.profile.timezone ?? "Asia/Dubai";
   async function load() {
     const [s, n] = await Promise.all([
@@ -118,6 +130,7 @@ export function MealCapture() {
       api("/nutrition"),
     ]);
     setSettings(s);
+    if (!chosen.current && !s.photosEnabled) setMode("manual");
     setNutrition(n);
     setDate((d) => d || n.today);
   }
@@ -180,6 +193,7 @@ export function MealCapture() {
       return;
     }
     setDraft(d);
+    chosen.current = true;
     setEventKey(crypto.randomUUID());
     if (d.kind === "photo") {
       setItems(d.data.estimate.items);
@@ -411,15 +425,18 @@ export function MealCapture() {
     <div className="meal-capture nutrition">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">A LITTLE CONTEXT, A CLEARER PICTURE</p>
           <h1>Log a meal</h1>
-          <p>A photo, a barcode or your own notes. You have the final say.</p>
+          <p className="muted">
+            Choose how: a photo, a product barcode or a quick note. You check
+            everything before it is saved.
+          </p>
         </div>
-        <Link className="button secondary" href="/app/nutrition">
-          Back to nutrition
-        </Link>
       </div>
-      <div className="capture-methods" aria-label="Choose how to log your meal">
+      <div
+        className="capture-methods"
+        role="group"
+        aria-label="Choose how to log your meal"
+      >
         {(
           [
             ["photo", "01", "Meal photo", "Start with what you see"],
@@ -433,6 +450,7 @@ export function MealCapture() {
             aria-pressed={mode === key}
             className={mode === key ? "selected" : ""}
             onClick={() => {
+              chosen.current = true;
               setMode(key);
               setDraft(null);
               setError("");
@@ -441,7 +459,13 @@ export function MealCapture() {
           >
             <span className="capture-method-number">{number}</span>
             <b>{title}</b>
-            <small>{desc}</small>
+            <small>
+              {settings &&
+              ((key === "photo" && !settings.photosEnabled) ||
+                (key === "barcode" && !settings.barcodeEnabled))
+                ? "Not available yet"
+                : desc}
+            </small>
           </button>
         ))}
       </div>
@@ -497,12 +521,12 @@ export function MealCapture() {
             : "Working on your request…"}
         </p>
       )}
-      {settings?.photoConsent && (
+      {settings?.photoConsent && mode === "photo" && !draft && (
         <section className="card">
-          <h2>Photo analysis permission</h2>
-          <p>
-            You can turn off meal-photo analysis separately from nutrition plans
-            and manual logging. Unconfirmed photo drafts are removed.
+          <h2>Photo estimates are on</h2>
+          <p className="muted">
+            You can turn them off at any time. Photos not yet saved are removed;
+            your diary and meal plans are not affected.
           </p>
           <button
             className="button secondary"
@@ -517,11 +541,11 @@ export function MealCapture() {
                 setPhoto(null);
                 setPhotoConsent(false);
                 await load();
-                setMessage("Photo analysis permission withdrawn");
+                setMessage("Photo estimates are off.");
               })
             }
           >
-            Turn off photo analysis
+            Turn off photo estimates
           </button>
         </section>
       )}
@@ -605,48 +629,63 @@ export function MealCapture() {
                 onChange={(e) => setPhotoConsent(e.target.checked)}
               />
               <span>
-                I choose to send this photo to the connected AI provider for a
-                meal estimate. It is not used to teach my coach’s model.
+                Send this photo for an automatic estimate of what is on the
+                plate. It is not used to train anything.
               </span>
             </label>
             {!settings?.photosEnabled && settings && (
               <p className="capture-connection">
-                Photo analysis is awaiting the platform’s AI connection. You can
-                prepare a photo here or log your meal manually.
+                Photo estimates are not available yet.{" "}
+                <button
+                  type="button"
+                  className="nutrition-text-button"
+                  onClick={() => {
+                    setMode("manual");
+                    setEventKey("");
+                  }}
+                >
+                  Write the meal down instead
+                </button>
+                .
               </p>
             )}
             {settings?.photosEnabled && !settings.modelConsent && (
               <p className="capture-connection">
-                Turn on nutrition AI permission in Food preferences to use photo
-                analysis.
+                Turn on meal planning help in Food preferences to get photo
+                estimates.
               </p>
             )}
-            <button
-              className="button"
-              type="button"
-              disabled={
-                busy ||
-                !photo ||
-                !photoConsent ||
-                !permitted ||
-                !settings?.photosEnabled ||
-                !settings?.modelConsent
+            {/* The step's main action, in thumb reach. */}
+            <StickyActionBar
+              label="Meal photo actions"
+              note={
+                !photo
+                  ? "Add a photo first."
+                  : !photoConsent
+                    ? "Tick the box above to send the photo for an estimate."
+                    : undefined
               }
-              onClick={() => void analyse()}
             >
-              Estimate this meal{" "}
-              <span className="bidi-mirror" aria-hidden="true">
-                ↗
-              </span>
-            </button>
+              <button
+                className="button"
+                type="button"
+                disabled={
+                  busy ||
+                  !photo ||
+                  !photoConsent ||
+                  !permitted ||
+                  !settings?.photosEnabled ||
+                  !settings?.modelConsent
+                }
+                onClick={() => void analyse()}
+              >
+                Estimate this meal
+              </button>
+            </StickyActionBar>
           </section>
           <aside className="card capture-aside">
             <span className="capture-overline">YOU’RE IN CONTROL</span>
-            <h2>
-              An estimate.
-              <br />
-              Then your edit.
-            </h2>
+            <h2>An estimate, then your edit.</h2>
             <ol>
               <li>
                 <b>Share what you ate.</b>
@@ -693,7 +732,7 @@ export function MealCapture() {
             <div className="capture-dropzone">
               <CameraIcon barcode />
               <b>Point the camera at the barcode</b>
-              <small>EAN-8, EAN-13, UPC-A and GTIN-14</small>
+              <small>Most supermarket barcodes work</small>
               <video
                 className={camera ? "capture-camera" : "capture-camera hidden"}
                 ref={video}
@@ -741,31 +780,48 @@ export function MealCapture() {
             </label>
             {settings && !settings.barcodeEnabled && (
               <p className="capture-connection">
-                Product lookup is awaiting platform activation. You can enter
-                the label manually.
+                Product lookup is not available yet.{" "}
+                <button
+                  type="button"
+                  className="nutrition-text-button"
+                  onClick={() => {
+                    setMode("manual");
+                    setEventKey("");
+                  }}
+                >
+                  Write what the label says instead
+                </button>
+                .
               </p>
             )}
-            <button
-              type="button"
-              className="button"
-              disabled={
-                busy || !permitted || !settings?.barcodeEnabled || !code.trim()
+            <StickyActionBar
+              label="Product actions"
+              note={
+                settings && !settings.barcodeEnabled
+                  ? "Product lookup is not available yet."
+                  : !code.trim()
+                    ? "Scan the barcode or type its numbers first."
+                    : undefined
               }
-              onClick={() => void findProduct()}
             >
-              Find product{" "}
-              <span className="bidi-mirror" aria-hidden="true">
-                ↗
-              </span>
-            </button>
+              <button
+                type="button"
+                className="button"
+                disabled={
+                  busy ||
+                  !permitted ||
+                  !settings?.barcodeEnabled ||
+                  !code.trim()
+                }
+                onClick={() => void findProduct()}
+              >
+                Find product
+              </button>
+            </StickyActionBar>
           </section>
           <aside className="card capture-aside">
             <span className="capture-overline">THE LABEL COMES FIRST</span>
-            <h2>
-              Your package.
-              <br />
-              Your portion.
-            </h2>
+            <h2>Your package, your portion.</h2>
             <p>
               Product records can vary by country and change over time. Compare
               the result with the package in your hand.
@@ -802,14 +858,14 @@ export function MealCapture() {
         <section className="card capture-main capture-manual">
           <div className="capture-section-label">
             <span>YOUR OWN NOTES</span>
-            <span>No AI needed</span>
+            <span>Quick and simple</span>
           </div>
           <h2>Keep a useful record.</h2>
           <p>
             Portions and calories can be approximate. Leave calories blank when
             you don’t know.
           </p>
-          <form onSubmit={manual}>
+          <form id="manual-meal-form" onSubmit={manual}>
             <fieldset
               disabled={busy || !permitted}
               className="nutrition-fieldset"
@@ -825,15 +881,14 @@ export function MealCapture() {
                   />
                 </label>
                 <label className="field">
-                  <span>Date · {timezone}</span>
-                  <input
-                    name="date"
-                    type="date"
-                    defaultValue={date}
-                    key={date}
-                    max={nutrition?.today}
-                    required
-                  />
+                  <span>When did you eat it?</span>
+                  <select name="date" defaultValue={date} key={date} required>
+                    {recentDays(nutrition?.today ?? date, date).map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="field">
                   <span>Portion</span>
@@ -864,15 +919,22 @@ export function MealCapture() {
                   placeholder="Preparation, ingredients or anything useful to remember"
                 />
               </label>
-              <button className="button" type="submit">
+            </fieldset>
+            <StickyActionBar label="Meal actions">
+              <button
+                className="button"
+                type="submit"
+                form="manual-meal-form"
+                disabled={busy || !permitted}
+              >
                 Save my meal
               </button>
-            </fieldset>
+            </StickyActionBar>
           </form>
         </section>
       )}
       {draft && (
-        <form onSubmit={confirm}>
+        <form id="meal-review-form" onSubmit={confirm}>
           <section className="card capture-main">
             <div className="capture-section-label">
               <span>
@@ -935,17 +997,14 @@ export function MealCapture() {
                       ↗
                     </span>
                   </a>{" "}
-                  · ODbL · Retrieved{" "}
-                  {new Date(
-                    draft.data.product.source.retrievedAt,
-                  ).toLocaleDateString()}
+                  · open data, checked{" "}
+                  {formatDate(draft.data.product.source.retrievedAt)}
                 </p>
                 <p>
-                  As sold, per 100 g or 100 ml:{" "}
                   {draft.data.product.nutrientsPer100.kcal === null
-                    ? "calories unavailable"
-                    : `${draft.data.product.nutrientsPer100.kcal} kcal`}
-                  . Verify the unit on your package.
+                    ? "Calories are not listed for this product."
+                    : `${draft.data.product.nutrientsPer100.kcal} kcal per 100 g or 100 ml, as sold.`}{" "}
+                  Check the unit on your package.
                 </p>
                 <details>
                   <summary>Ingredients and allergens from the source</summary>
@@ -975,20 +1034,28 @@ export function MealCapture() {
                   />
                 </label>
                 <label className="field">
-                  <span>Date · {timezone}</span>
-                  <input
-                    type="date"
+                  <span>When did you eat it?</span>
+                  <select
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    max={nutrition?.today}
                     required
-                  />
+                  >
+                    {recentDays(nutrition?.today ?? date, date).map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {items.map((item, i) => (
                 <div className="capture-food" key={i}>
                   <div className="capture-food-heading">
-                    <h3>Food {i + 1}</h3>
+                    <h3>
+                      {draft.kind === "barcode"
+                        ? "How much you ate"
+                        : item.name || `Food ${i + 1}`}
+                    </h3>
                     {draft.kind === "photo" && items.length > 1 && (
                       <button
                         type="button"
@@ -1052,7 +1119,7 @@ export function MealCapture() {
                     <label className="field">
                       <span>
                         {draft.kind === "barcode"
-                          ? "Unit on the label · per 100"
+                          ? "Unit the label uses (per 100 g or 100 ml)"
                           : "Portion unit"}
                       </span>
                       <select
@@ -1114,7 +1181,7 @@ export function MealCapture() {
                           <option value="">Choose a matching ingredient</option>
                           {foodOptions.map((f) => (
                             <option key={f.id} value={f.id}>
-                              {f.name} · {f.preparation.replaceAll("_", " ")}
+                              {f.name} · {labelFor(PREPARATION, f.preparation)}
                             </option>
                           ))}
                         </select>
@@ -1129,10 +1196,10 @@ export function MealCapture() {
                   <div className="capture-nutrients">
                     {(
                       [
-                        ["kcal", "Calories · kcal"],
-                        ["protein", "Protein · g"],
-                        ["carbohydrate", "Carbs · g"],
-                        ["fat", "Fat · g"],
+                        ["kcal", "Calories (kcal)"],
+                        ["protein", "Protein (g)"],
+                        ["carbohydrate", "Carbs (g)"],
+                        ["fat", "Fat (g)"],
                       ] as const
                     ).map(([key, title]) => (
                       <label className="field" key={key}>
@@ -1199,14 +1266,24 @@ export function MealCapture() {
                   my own confirmed diary entry.
                 </span>
               </label>
-              <div className="capture-photo-actions">
+              <StickyActionBar
+                label="Meal review actions"
+                note={
+                  confirmation
+                    ? undefined
+                    : "Tick the box above once you have checked the values."
+                }
+              >
                 <button
                   className="button"
                   type="submit"
+                  form="meal-review-form"
                   disabled={!confirmation}
                 >
                   Confirm and log my meal
                 </button>
+              </StickyActionBar>
+              <div className="capture-photo-actions">
                 <button
                   className="button secondary"
                   type="button"

@@ -284,7 +284,7 @@ export async function checkCompletionFlows({
     "Client galleries must load before checking draft isolation",
   );
   await subscriber
-    .getByRole("heading", { name: "Coach galleries.", exact: true })
+    .getByRole("heading", { name: "Coach galleries", exact: true })
     .waitFor();
   assert.equal(
     await subscriber
@@ -375,8 +375,12 @@ export async function checkCompletionFlows({
 
   await subscriber.goto(base + "/app/chat");
   await subscriber
-    .getByRole("heading", { name: "Talk with your coach", exact: true })
+    .getByRole("heading", { name: "Coach chat", exact: true })
     .waitFor();
+  // Attachments open in a bottom sheet from the composer (member-chat.tsx).
+  await subscriber
+    .getByRole("button", { name: "Attach photos or PDFs", exact: true })
+    .click();
   await subscriber
     .getByLabel(
       "I have permission to share these files in this conversation.",
@@ -396,13 +400,20 @@ export async function checkCompletionFlows({
           buffer: samplePdf(),
         }),
   );
+  await subscriber
+    .getByRole("dialog")
+    .getByRole("button", { name: "Done", exact: true })
+    .click();
+  // The sheet slides away before it closes; the page behind stays inert
+  // (not typeable) until then.
+  await subscriber.getByRole("dialog").waitFor({ state: "hidden" });
   const messageText = `Synthetic attachment message ${run}`;
   await subscriber
     .getByLabel("Your message", { exact: true })
     .fill(messageText);
   const sent = await mutation(subscriber, "/messages", "POST", () =>
     subscriber
-      .getByRole("button", { name: "Send to trainer", exact: true })
+      .getByRole("button", { name: "Send to Alex", exact: true })
       .click(),
   );
   assert.equal(sent.data.attachments.length, 1);
@@ -466,7 +477,7 @@ export async function checkCompletionFlows({
 
   await coach.goto(base + "/trainer/notifications");
   await coach
-    .getByRole("heading", { name: "Your notifications.", exact: true })
+    .getByRole("heading", { name: "Notifications", exact: true })
     .waitFor();
   const notice = coach
     .locator("article")
@@ -477,10 +488,13 @@ export async function checkCompletionFlows({
       }),
     })
     .first();
+  // An unread notice carries a "New" badge (notifications.tsx); reading it
+  // removes the badge and the Mark read button, also after a reload.
+  await notice.getByText("New", { exact: true }).waitFor();
   await notice.getByRole("button", { name: "Mark read", exact: true }).click();
-  await notice.getByText(/· Read/).waitFor();
+  await notice.getByText("New", { exact: true }).waitFor({ state: "detached" });
   await coach.reload();
-  await coach
+  const reloaded = coach
     .locator("article")
     .filter({
       has: coach.getByRole("heading", {
@@ -488,9 +502,9 @@ export async function checkCompletionFlows({
         exact: true,
       }),
     })
-    .first()
-    .getByText(/· Read/)
-    .waitFor();
+    .first();
+  await reloaded.waitFor();
+  assert.equal(await reloaded.getByText("New", { exact: true }).count(), 0);
 
   await subscriber.goto(base + "/app/profile");
   const preferences = subscriber.locator("section").filter({
@@ -507,7 +521,11 @@ export async function checkCompletionFlows({
   await preferences
     .getByLabel("Optional product news", { exact: true })
     .uncheck();
-  await preferences.getByLabel("Time zone", { exact: true }).fill("Asia/Dubai");
+  // A named picker (lib/format.ts timeZoneChoices), never a typed zone id.
+  await preferences
+    // A select's label also reads its chosen option, so match the start.
+    .getByLabel("Time zone for reminders and quiet hours")
+    .selectOption("Asia/Dubai");
   await preferences
     .getByLabel("Quiet hours start", { exact: true })
     .fill("23:00");
@@ -546,7 +564,10 @@ export async function checkCompletionFlows({
     false,
   );
   assert.equal(
-    await preferences.getByLabel("Time zone", { exact: true }).inputValue(),
+    await preferences
+      // A select's label also reads its chosen option, so match the start.
+    .getByLabel("Time zone for reminders and quiet hours")
+      .inputValue(),
     "Asia/Dubai",
   );
   assert.equal(

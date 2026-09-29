@@ -58,7 +58,7 @@ const sections: Record<
   { title: string; note: string; href: string; icon: typeof Dumbbell }
 > = {
   program: {
-    title: "My program",
+    title: "Programme",
     note: "Your next session, at your pace.",
     href: "/app/program",
     icon: Dumbbell,
@@ -123,7 +123,7 @@ export function TrainerTheme({
   );
 }
 
-function BrandImage({
+export function BrandImage({
   src,
   alt,
   className = "",
@@ -473,7 +473,7 @@ export function TrainerDesign({
       programLabel:
         draft.design.programLabel.trim().length >= 2
           ? draft.design.programLabel
-          : "My program",
+          : "Programme",
       ...Object.fromEntries(
         (["logoUrl", "photoUrl", "coverUrl"] as const).map((key) => [
           key,
@@ -1127,7 +1127,7 @@ export function TrainerDesign({
                       value={draft.design.programLabel}
                       minLength={2}
                       maxLength={40}
-                      placeholder="My program"
+                      placeholder="Programme"
                       onChange={(event) =>
                         style("programLabel", event.target.value)
                       }

@@ -1,24 +1,35 @@
 "use client";
 import { useEffect, useState } from "react";
-async function request(path: string, body?: unknown) {
-  const r = await fetch("/api/v1/auth/" + path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.message);
-  return data;
+import { accountRequest } from "./account-request";
+/**
+ * Reads have a time limit and a readable error (account-request.ts), so a
+ * failed read never shows made-up defaults or an endless "Checking…".
+ */
+function request(path: string, body?: unknown) {
+  return accountRequest(
+    "/auth/" + path,
+    body === undefined ? "GET" : "POST",
+    body,
+  );
 }
 export function AccountSecurity() {
   const [status, setStatus] = useState<any>(null),
     [secret, setSecret] = useState(""),
     [codes, setCodes] = useState<string[]>([]),
     [notice, setNotice] = useState(""),
+    [failed, setFailed] = useState(false),
     [busy, setBusy] = useState(false);
-  const load = () => request("security").then(setStatus);
+  const load = () =>
+    request("security").then((value) => {
+      setStatus(value);
+      setFailed(false);
+    });
+  const firstLoad = () =>
+    void load().catch(() => {
+      setFailed(true);
+    });
   useEffect(() => {
-    void load().catch((e) => setNotice(e.message));
+    firstLoad();
   }, []);
   async function submit(path: string, body: unknown) {
     setBusy(true);
@@ -43,7 +54,7 @@ export function AccountSecurity() {
     <section className="card">
       <h2>Account security</h2>
       <p className="muted">
-        Protect your account and verify sensitive financial actions.
+        Protect your account and confirm sensitive changes.
       </p>
       {notice && (
         <p className="notice" role="status">
@@ -62,7 +73,29 @@ export function AccountSecurity() {
           />
         </div>
       )}
-      <p>Email: {status?.emailVerified ? "verified" : "verification needed"}</p>
+      {!status && failed ? (
+        <div role="alert">
+          <p>Your sign-in security could not be checked just now.</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setFailed(false);
+              firstLoad();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        <p>
+          {status
+            ? status.emailVerified
+              ? "Your email address is confirmed."
+              : "Your email address is not confirmed yet."
+            : "Checking your email address…"}
+        </p>
+      )}
       {status && !status.emailVerified && (
         <button
           className="button secondary"
@@ -74,11 +107,15 @@ export function AccountSecurity() {
       )}
       <h3>Authenticator</h3>
       <p>
-        {status?.mfaEnabled
-          ? "Enabled. A fresh code and password confirm sensitive actions for ten minutes."
-          : status?.mfaConfigured
-            ? "Add this account to your authenticator app."
-            : "Authenticator setup is waiting for the security service configuration."}
+        {!status
+          ? failed
+            ? "Shown once your sign-in security is checked."
+            : "Checking…"
+          : status.mfaEnabled
+            ? "Enabled. A fresh code and password confirm sensitive actions for ten minutes."
+            : status?.mfaConfigured
+              ? "Add this account to your authenticator app."
+              : "Authenticator apps are not available here yet. Your password and email keep your account safe in the meantime."}
       </p>
       {status?.mfaConfigured &&
         status.hasPassword === false &&

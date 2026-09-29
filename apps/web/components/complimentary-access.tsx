@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { formatDate } from "../lib/format";
 import Link from "next/link";
 
 /** Trainer-granted complimentary access: owner tools, member view and operator view. */
@@ -19,14 +20,9 @@ async function api(path: string, method = "GET", body?: unknown) {
     });
   return data;
 }
+/** "29 Sep 2026" (lib/format.ts). */
 const day = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
+  value ? formatDate(value) : "—";
 const tierName = (tier: string) =>
   tier === "workout_nutrition" ? "Workout + nutrition" : "Workout";
 const until = (g: any) =>

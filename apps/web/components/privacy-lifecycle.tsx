@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { formatDate, humanize, labelFor } from "../lib/format";
 
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -19,6 +20,13 @@ function Notice({ text }: { text: string }) {
     </p>
   ) : null;
 }
+const REQUEST_STATUS: Record<string, string> = {
+  pending: "Received, waiting to be processed",
+  local_erasure_completed:
+    "Your data here is erased; copies held by partners and backups are being removed",
+  completed: "Completed",
+  canceled: "Cancelled",
+};
 export function PersonalPrivacyStatus() {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState("");
@@ -31,24 +39,23 @@ export function PersonalPrivacyStatus() {
     <section className="card">
       <h2>Your privacy requests</h2>
       <Notice text={message} />
-      <p>
-        Local account erasure and provider or backup cleanup are tracked
-        separately. Retained financial and consent records follow the applicable
-        retention policy.
+      <p className="muted">
+        When you ask for your data to be deleted, we erase it here first, then
+        from our partners and backups. Payment and consent records are kept for
+        as long as the law requires.
       </p>
       {data && !data.requests.length && (
-        <p className="muted">No deletion request has been submitted.</p>
+        <p className="muted">You have not asked for your data to be deleted.</p>
       )}
       {data?.requests.map((r: any) => (
         <p key={r.id}>
-          {r.status.replaceAll("_", " ")} ·{" "}
-          {new Date(r.created_at).toLocaleDateString()}
+          {labelFor(REQUEST_STATUS, r.status)} · asked on{" "}
+          {formatDate(r.created_at)}
         </p>
       ))}
       {data?.followups.map((f: any) => (
         <p key={f.id}>
-          {f.subject}: {f.status} · review by{" "}
-          {new Date(f.due_at).toLocaleDateString()}
+          {f.subject}: {humanize(f.status)} · reviewed by {formatDate(f.due_at)}
         </p>
       ))}
     </section>

@@ -1,24 +1,32 @@
 "use client";
 import { useEffect, useState } from "react";
 import { PasskeySettings } from "./passkeys";
-async function request(path: string, body?: unknown) {
-  const r = await fetch("/api/v1/auth/" + path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const value = await r.json();
-  if (!r.ok) throw new Error(value.message);
-  return value;
+import { formatDate, formatWhen, plural } from "../lib/format";
+import { accountRequest } from "./account-request";
+/** Reads have a time limit and a readable error (account-request.ts). */
+function request(path: string, body?: unknown) {
+  return accountRequest(
+    "/auth/" + path,
+    body === undefined ? "GET" : "POST",
+    body,
+  );
 }
 export function AccountExtras() {
   const [data, setData] = useState<any>(null),
     [codes, setCodes] = useState<string[]>([]),
     [message, setMessage] = useState(""),
+    [failed, setFailed] = useState(false),
     [busy, setBusy] = useState(false);
-  const load = () => request("account").then(setData);
+  const load = () =>
+    request("account").then((value) => {
+      setData(value);
+      setFailed(false);
+    });
   useEffect(() => {
-    const refresh = () => void load().catch((e) => setMessage(e.message));
+    const refresh = () =>
+      void load().catch(() => {
+        setFailed(true);
+      });
     refresh();
     window.addEventListener("account-security-updated", refresh);
     return () =>
@@ -39,7 +47,15 @@ export function AccountExtras() {
         requires your password and one code, invalidates every code and signs
         out all sessions. Set up a new authenticator immediately afterward.
       </p>
-      <p>{data?.recoveryCodesRemaining ?? 0} recovery codes available.</p>
+      <p>
+        {!data
+          ? failed
+            ? "Your recovery codes could not be checked just now."
+            : "Checking your recovery codes…"
+          : data.mfaEnabled
+            ? `${plural(data.recoveryCodesRemaining ?? 0, "recovery code")} left.`
+            : "Recovery codes appear once you set up an authenticator app."}
+      </p>
       {data?.mfaEnabled && (
         <form
           onSubmit={async (e) => {
@@ -91,16 +107,32 @@ export function AccountExtras() {
           </button>
         </div>
       )}
-      <h3>Signed-in sessions</h3>
+      <h3>Where you are signed in</h3>
+      {!data && !failed && <p className="muted">Checking your sign-ins…</p>}
+      {!data && failed && (
+        <div role="alert">
+          <p>Where you are signed in could not be checked just now.</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setFailed(false);
+              void load().catch(() => setFailed(true));
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
       {data?.sessions.map((s: any) => (
         <div className="card" key={s.id}>
           <strong>
-            {s.workspace}
-            {s.current ? " · this session" : ""}
+            {s.current ? "This device" : "Another device or browser"}
           </strong>
           <p>
-            Last active {new Date(s.last_seen_at).toLocaleString()} · expires{" "}
-            {new Date(s.expires_at).toLocaleDateString()}.
+            Last active {formatWhen(s.last_seen_at)} · signs out by itself on{" "}
+            {formatDate(s.expires_at)}
+            {s.workspace ? ` · opened in ${s.workspace}` : ""}.
           </p>
           <button
             className="button secondary"

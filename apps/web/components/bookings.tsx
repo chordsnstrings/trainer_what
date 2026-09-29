@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { StripeFeeNote } from "./programme-offers";
+import { BottomSheet } from "./phone-ui";
+import { formatDateTime, labelFor, zoneName as zoneLabel } from "../lib/format";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/bookings" + path, {
     method: body ? "POST" : "GET",
@@ -12,23 +14,34 @@ async function request(path: string, body?: unknown) {
   return data;
 }
 /** "Gulf Standard Time" for "Asia/Dubai": people never see a raw zone id. */
-export function zoneName(zone: string) {
-  try {
-    return (
-      new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "long" })
-        .formatToParts(new Date())
-        .find((part) => part.type === "timeZoneName")?.value ?? zone
-    );
-  } catch {
-    return zone;
-  }
-}
+export const zoneName = (zone: string) => zoneLabel(zone);
+/** "Thu 1 Oct 2026, 09:00" in the booking time zone (lib/format.ts). */
 const date = (value: string, zone: string) =>
-  new Date(value).toLocaleString("en-GB", {
-    timeZone: zone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  formatDateTime(value, { zone, weekday: true });
+export const BOOKING_STATUS: Record<string, string> = {
+  confirmed: "Booked",
+  payment_pending: "Waiting for payment",
+  canceled: "Cancelled",
+  cancelled: "Cancelled",
+  attended: "Attended",
+  no_show: "Missed",
+  expired: "Hold ended",
+};
+export const PAYMENT_STATUS: Record<string, string> = {
+  not_required: "No payment needed",
+  paid: "Paid",
+  pending: "Waiting for payment",
+  refunded: "Refunded",
+  partially_refunded: "Partly refunded",
+  failed: "Payment failed",
+  forfeited: "Kept under the missed-session rule",
+};
+/** What happens after a missed session, in words. */
+export function missedRule(policy: string) {
+  return policy === "forfeit"
+    ? "If you miss it without cancelling, the session counts as used."
+    : "If you miss it without cancelling, your coach decides what happens.";
+}
 const localInput = (value: string) => {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -39,7 +52,13 @@ export function Bookings({ role }: { role: string }) {
   const [data, setData] = useState<any>(null),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
-    [checkout, setCheckout] = useState("");
+    [checkout, setCheckout] = useState(""),
+    // A member confirms booking or cancelling in a bottom sheet.
+    [sheet, setSheet] = useState<{
+      kind: "book" | "cancel";
+      slot: any;
+      booking?: any;
+    } | null>(null);
   const sub = role === "subscriber";
   const load = () => request("").then(setData);
   useEffect(() => {
@@ -60,7 +79,9 @@ export function Bookings({ role }: { role: string }) {
       await load();
       return result;
     } catch (e) {
-      setNotice((e as Error).message);
+      // Members read "coach", never "trainer".
+      const message = (e as Error).message ?? "That did not work. Try again.";
+      setNotice(sub ? message.replace(/\btrainer\b/gi, "coach") : message);
     } finally {
       setBusy(false);
     }
@@ -70,11 +91,12 @@ export function Bookings({ role }: { role: string }) {
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">TIME WITH YOUR COACH</p>
-          <h1>{sub ? "Make time for progress." : "Your coaching calendar."}</h1>
+          {!sub && <p className="eyebrow">TIME WITH YOUR COACH</p>}
+          <h1>{sub ? "Bookings" : "Your coaching calendar."}</h1>
           <p className="muted">
-            Times are shown in {zoneName(zone)}. Each session keeps the
-            cancellation and missed-session rules shown when it was offered.
+            {sub
+              ? `Book time with your coach. Times are in ${zoneName(zone)}.`
+              : `Times are shown in ${zoneName(zone)}. Each session keeps the cancellation and missed-session rules shown when it was offered.`}
           </p>
           <a className="button secondary" href="/api/v1/bookings/calendar.ics">
             Download calendar
@@ -261,29 +283,28 @@ export function Bookings({ role }: { role: string }) {
               <div className="list-row" key={s.id}>
                 <div>
                   <strong>{s.title}</strong>
-                  <p>
+                  <p dir="auto">
                     {date(s.starts_at, zone)} ·{" "}
                     {s.status === "open"
-                      ? `${Math.max(0, s.capacity - s.booked)} places left`
-                      : "Canceled"}
+                      ? Math.max(0, s.capacity - s.booked) === 1
+                        ? "1 place left"
+                        : `${Math.max(0, s.capacity - s.booked)} places left`
+                      : "Cancelled"}
                   </p>
                   <p>{s.location}</p>
-                  <p className="muted">
+                  <p className="muted" dir="auto">
                     {Number(s.price_minor) > 0
                       ? `AED ${(Number(s.price_minor) / 100).toFixed(2)} per session`
-                      : "Included"}{" "}
-                    · Cancel {s.cancellation_hours} hours before · No-show:{" "}
-                    {s.no_show_policy === "forfeit"
-                      ? "session forfeited"
-                      : "coach review"}
-                    {s.series_id ? " · recurring series" : ""}
+                      : "Included in your membership"}{" "}
+                    · Cancel in the app up to {s.cancellation_hours} hours
+                    before
+                    {s.series_id ? " · repeats every week" : ""}
                   </p>
                   {mine?.status === "payment_pending" && (
                     <p>
-                      Payment pending · hold until{" "}
                       {mine.hold_expires_at
-                        ? date(mine.hold_expires_at, zone)
-                        : "reconciliation"}
+                        ? `Your place is held until ${date(mine.hold_expires_at, zone)} while you pay.`
+                        : "Your place is held while your payment is confirmed."}
                     </p>
                   )}
                 </div>
@@ -293,7 +314,11 @@ export function Bookings({ role }: { role: string }) {
                       <button
                         className="button"
                         disabled={busy || (!mine && s.booked >= s.capacity)}
-                        onClick={() => void act(`/slots/${s.id}/reserve`, {})}
+                        onClick={() =>
+                          mine
+                            ? void act(`/slots/${s.id}/reserve`, {})
+                            : setSheet({ kind: "book", slot: s })
+                        }
                       >
                         {mine
                           ? "Resume payment"
@@ -307,13 +332,10 @@ export function Bookings({ role }: { role: string }) {
                         className="button secondary"
                         disabled={busy}
                         onClick={() =>
-                          void act(`/${mine.id}/cancel`, {
-                            revision: mine.version,
-                            reason: "Canceled by member",
-                          })
+                          setSheet({ kind: "cancel", slot: s, booking: mine })
                         }
                       >
-                        Cancel reservation
+                        Cancel my place
                       </button>
                     )}
                   </div>
@@ -340,13 +362,20 @@ export function Bookings({ role }: { role: string }) {
             <div className="list-row" key={b.id}>
               <div>
                 <strong>{sub ? (slot?.title ?? "Session") : b.name}</strong>
-                <p>
-                  {slot?.title} · {slot && date(slot.starts_at, zone)} ·{" "}
-                  {b.status.replaceAll("_", " ")}
+                <p dir="auto">
+                  {sub ? "" : `${slot?.title ?? "Session"} · `}
+                  {slot ? date(slot.starts_at, zone) : ""}
+                  {" · "}
+                  <span className="badge">
+                    {labelFor(BOOKING_STATUS, b.status)}
+                  </span>
                 </p>
                 <p className="muted">
-                  Payment: {b.payment_status.replaceAll("_", " ")}
-                  {b.cancel_reason ? " · " + b.cancel_reason : ""}
+                  {labelFor(PAYMENT_STATUS, b.payment_status)}
+                  {b.cancel_reason &&
+                  !/^Canceled by (member|coach)$/.test(b.cancel_reason)
+                    ? " · " + b.cancel_reason
+                    : ""}
                 </p>
               </div>
               {!sub && b.status === "confirmed" && (
@@ -377,7 +406,7 @@ export function Bookings({ role }: { role: string }) {
                           })
                         }
                       >
-                        {status.replaceAll("_", " ")}
+                        {labelFor(BOOKING_STATUS, status)}
                       </button>
                     ))}
                 </div>
@@ -386,9 +415,80 @@ export function Bookings({ role }: { role: string }) {
           );
         })}
         {data && !data.bookings.length && (
-          <p className="muted">No reservations yet.</p>
+          <p className="muted">
+            {sub
+              ? "You have not booked a session yet. Choose one above."
+              : "No reservations yet."}
+          </p>
         )}
       </section>
+      {sub && (
+        <BottomSheet
+          open={!!sheet}
+          onClose={() => setSheet(null)}
+          title={
+            sheet?.kind === "cancel"
+              ? "Cancel your place?"
+              : `Book ${sheet?.slot.title ?? "this session"}?`
+          }
+          description={
+            sheet ? (
+              <span dir="auto">
+                {date(sheet.slot.starts_at, zone)}
+                {sheet.slot.location ? ` · ${sheet.slot.location}` : ""}
+              </span>
+            ) : undefined
+          }
+          footer={
+            <>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setSheet(null)}
+              >
+                {sheet?.kind === "cancel" ? "Keep my place" : "Not now"}
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={busy}
+                onClick={() => {
+                  if (!sheet) return;
+                  const done =
+                    sheet.kind === "cancel"
+                      ? act(`/${sheet.booking.id}/cancel`, {
+                          revision: sheet.booking.version,
+                          reason: "Canceled by member",
+                        })
+                      : act(`/slots/${sheet.slot.id}/reserve`, {});
+                  void done.then(() => setSheet(null));
+                }}
+              >
+                {sheet?.kind === "cancel"
+                  ? "Cancel my place"
+                  : Number(sheet?.slot.price_minor) > 0
+                    ? "Book and pay"
+                    : "Book my place"}
+              </button>
+            </>
+          }
+        >
+          {sheet && (
+            <ul className="sheet-facts">
+              <li>
+                {Number(sheet.slot.price_minor) > 0
+                  ? `AED ${(Number(sheet.slot.price_minor) / 100).toFixed(2)}, paid securely on the next screen.`
+                  : "Included in your membership."}
+              </li>
+              <li>
+                You can cancel in the app up to {sheet.slot.cancellation_hours}{" "}
+                hours before it starts; after that, message your coach.
+              </li>
+              <li>{missedRule(sheet.slot.no_show_policy)}</li>
+            </ul>
+          )}
+        </BottomSheet>
+      )}
     </>
   );
 }
