@@ -18,6 +18,7 @@ import {
   type VoiceCommand,
 } from "../../../packages/domain/src/voice-runner.ts";
 import type { SessionScript } from "../../../packages/domain/src/voice-session.ts";
+import { workMeasure, workText } from "../../../packages/domain/src/prescription.ts";
 import {
   drainWorkoutQueue,
   offlineQueueKeys,
@@ -631,6 +632,9 @@ function Runner({
           set: effect.set,
           reps: effect.reps,
           loadKg: effect.loadKg,
+          // A round of timed or distance work logs what was done.
+          ...(effect.durationSeconds !== undefined ? { durationSeconds: effect.durationSeconds } : {}),
+          ...(effect.distanceMeters !== undefined ? { distanceMeters: effect.distanceMeters } : {}),
         },
       });
       localStorage.setItem(keys.pending, JSON.stringify(pending));
@@ -1021,11 +1025,14 @@ function Runner({
   const ex = script.exercises[state.exercise];
   const target = state.targets[state.exercise]?.[state.set - 1];
   const running = !["ready", "finished", "stopped"].includes(state.phase);
+  // A timed round counts down; other sets count up.
   const clock =
     state.phase === "rest"
       ? state.restRemaining
       : state.phase === "set"
-        ? state.setElapsed
+        ? typeof state.workLeft === "number"
+          ? state.workLeft
+          : state.setElapsed
         : null;
   return (
     <>
@@ -1088,7 +1095,10 @@ function Runner({
         </h2>
         {ex && ["setup", "set", "rest"].includes(state.phase) && target && (
           <p className="voice-target">
-            {ex.name} · set {state.set} of {ex.sets} · {target.reps} reps
+            {ex.name} · {workMeasure(ex) === "reps" ? "set" : "round"} {state.set} of {ex.sets} ·{" "}
+            {workMeasure(ex) === "reps"
+              ? `${target.reps} reps`
+              : workText({ ...ex, sets: 1 })}
             {target.loadKg > 0 ? ` · ${target.loadKg} kg` : ""}
             {target.loadKg < ex.loadKg ? " (lighter)" : ""}
           </p>

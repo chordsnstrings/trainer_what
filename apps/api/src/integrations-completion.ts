@@ -14,6 +14,7 @@ import {
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
+import { spokenDistance, spokenDuration, workMeasure } from "../../../packages/domain/src/prescription.ts";
 import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
@@ -904,7 +905,18 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
-    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${spokenCue(ex.cue)} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
+    // Timed and distance work is spoken as rounds of a time or distance.
+    text: `${ex.name}. ${
+      workMeasure(ex) === "time"
+        ? `${ex.sets > 1 ? `${ex.sets} rounds of ` : ""}${spokenDuration(ex.durationSeconds)}`
+        : workMeasure(ex) === "distance"
+          ? `${ex.sets > 1 ? `${ex.sets} rounds of ` : ""}${spokenDistance(ex.distanceMeters)}`
+          : `${ex.sets} sets of ${ex.reps} repetitions`
+    }.${spokenCue(ex.cue)}${
+      Number(ex.restSeconds ?? ex.rest ?? 60) > 0
+        ? ` Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between ${workMeasure(ex) === "reps" ? "sets" : "rounds"}.`
+        : ""
+    }`,
     restSeconds: Math.max(
       0,
       Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),

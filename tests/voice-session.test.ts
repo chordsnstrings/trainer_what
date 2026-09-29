@@ -221,35 +221,36 @@ test("premium voice needs playback consent; the worker makes the audio ahead of 
   assert.equal(mock.syntheses.length, 0, "nothing is generated in the request");
   const result = await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
   assert.equal(result.capped, false);
-  assert.equal(result.generated, 18 + 121);
-  assert.equal(mock.syntheses.length, 139);
+  // 18 session lines and 122 shared clips (numbers 1-100 and 22 phrases, "Time." for timed rounds included).
+  assert.equal(result.generated, 18 + 122);
+  assert.equal(mock.syntheses.length, 140);
   assert.ok(mock.syntheses.every((s) => s.voiceId === "mock-trainer-voice" && s.model === "eleven_multilingual_v2"));
   assert.ok(mock.syntheses.some((s) => s.text === "Set 2 of 3. 8 reps at 60 kilograms. Say done when you finish, or tell me how many reps you did."));
   const view = await ok(`/voice-sessions/${alexSession.id}`, "GET", undefined, alex);
   assert.equal(view.audioStatus, "ready");
-  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 121]);
-  assert.equal(view.audio.readyKeys.length, 18 + 121);
+  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 122]);
+  assert.equal(view.audio.readyKeys.length, 18 + 122);
   assert.ok(view.audio.readyKeys.includes("l:intro:0") && view.audio.readyKeys.includes("s:num:8"));
   const usage = await scalar(
     "SELECT count(*)::int AS n,count(*) FILTER (WHERE status='estimated' AND cost_usd=estimated_cost_usd)::int AS estimated,min((pricing->>'reservedCostUsd')::numeric) AS least FROM cost_events WHERE task='voice.session'",
   );
-  assert.equal(usage.n, 139);
+  assert.equal(usage.n, 140);
   // Delivered clips are priced at their reserved estimate when made; the
   // provider invoice can correct them later (docs/features/platform-finance.md).
-  assert.equal(usage.estimated, 139, "delivered clips are priced at their estimate");
+  assert.equal(usage.estimated, 140, "delivered clips are priced at their estimate");
   assert.ok(Number(usage.least) > 0);
   // Cached per session: preparing again neither re-queues nor re-sends.
   await ok("/voice-sessions", "POST", { workoutId: alexWorkout }, alex);
   await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
-  assert.equal(mock.syntheses.length, 139);
+  assert.equal(mock.syntheses.length, 140);
   // The runner downloads everything in pages and plays from memory.
   const page = await ok(`/voice-sessions/${alexSession.id}/audio`, "GET", undefined, alex);
   assert.equal(page.type, "audio/mpeg");
-  assert.equal(page.clips.length, 139);
+  assert.equal(page.clips.length, 140);
   assert.equal(page.next, null);
   assert.equal(Buffer.from(page.clips[0].audio, "base64").toString("ascii", 0, 3), "ID3");
   const tail = await ok(`/voice-sessions/${alexSession.id}/audio?after=1num:50`, "GET", undefined, alex);
-  assert.ok(tail.clips.length < 139 && tail.clips.every((c: any) => c.shared));
+  assert.ok(tail.clips.length < 140 && tail.clips.every((c: any) => c.shared));
   // Newly ready clips are fetched by key while the rest is still being made.
   const named = await ok(`/voice-sessions/${alexSession.id}/audio?keys=${encodeURIComponent("l:intro:0,s:num:8,l:not:a:line")}`, "GET", undefined, alex);
   assert.deepEqual(named.clips.map((c: any) => (c.shared ? "s:" : "l:") + c.key).sort(), ["l:intro:0", "s:num:8"]);
@@ -349,7 +350,7 @@ test("the daily voice budget caps generation; the session continues as text and 
   const visible = await db.tenant(bea, (tx) =>
     tx.query("SELECT count(*) FILTER (WHERE user_id IS NULL)::int AS shared,count(*) FILTER (WHERE session_id=$1)::int AS others FROM voice_session_clips", [alexSession.id]),
   );
-  assert.equal(visible[0].shared, 121);
+  assert.equal(visible[0].shared, 122);
   assert.equal(visible[0].others, 0);
   assert.equal((await db.tenant(bea, (tx) => tx.query("SELECT id FROM voice_sessions WHERE id=$1", [alexSession.id]))).length, 0);
 });
