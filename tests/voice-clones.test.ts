@@ -559,10 +559,12 @@ test("Arabic lines are spoken as Arabic, a bilingual trainer's phrases follow th
   const heavy = await ok(`/voice-sessions/${sessions.dana.id}/transcribe`, "POST", { audio: wavOf(1.5).toString("base64"), type: "audio/wav", durationMs: 1500 }, dana);
   assert.deepEqual([heavy.transcript, heavy.command, heavy.trainingHeld], ["الوزن ثقيل وايد", { type: "too_heavy" }, false]);
   // Evan (English app) counts in Arabic: English reads nothing useful, the
-  // Arabic reading is understood.
+  // Arabic reading is understood. Before the retest (29 September 2026) the
+  // Arabic reading was acted on and logged the count; nothing is logged from
+  // the other language now: Evan is asked again (or chooses Arabic replies).
   mock.nextTranscripts.push({ text: "ثمان تكرارات", language: "ar", otherwise: "Thank you." });
   const count = await ok(`/voice-sessions/${sessions.evan.id}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000 }, evan);
-  assert.deepEqual([count.transcript, count.command], ["ثمان تكرارات", { type: "reps", reps: 8 }]);
+  assert.deepEqual([count.transcript, count.command, count.trainingHeld], ["Thank you.", { type: "ack" }, false]);
   // Evan chooses Arabic replies on the runner: Arabic is read first.
   mock.nextTranscripts.push({ text: "خلصت", language: "ar", otherwise: "Close." });
   const done = await ok(`/voice-sessions/${sessions.evan.id}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000, language: "ar" }, evan);
@@ -626,6 +628,54 @@ test("when the reply-language reading fails, the other reading is screened for p
   const all = await readings();
   assert.equal(all.length, 6);
   assert.deepEqual(all.filter((r) => r[2] !== "estimated").sort(), [["ar", "reply", "unknown"], ["en", "reply", "unknown"], ["en", "screening", "unknown"]]);
+});
+
+test("retest: the other-language reading never acts, screens for pain phrases only, and still stops for pain", async () => {
+  const gus = await member(coach, "gus-voice@example.test", "Gus Retest");
+  await subscribeVoice(coach, gus);
+  const program = await ok("/programs", "POST", {
+    subscriberId: gus.userId,
+    program: { title: "Retest", goal: "Strength", daysPerWeek: 3, exercises: [{ name: "Back squat", sets: 3, reps: 5, restSeconds: 60, loadKg: 60 }] },
+  }, coach);
+  const workout = (await ok("/workouts/start", "POST", { programId: program.id }, gus)).id;
+  const session = await ok("/voice-sessions", "POST", { workoutId: workout, playbackConsent: true }, gus);
+  assert.equal(session.mode, "voice", JSON.stringify(session.unavailableReason));
+  await ok("/voice-sessions/consent", "POST", { transcription: true }, gus);
+  const reply = (language: "en" | "ar") => ({ audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000, language });
+  const status = async () => (await rows(coach, "SELECT status FROM voice_sessions WHERE id=$1", [session.id]))[0].status;
+  // Gulf "طوفها" (skip it): Cartesia read "طوفا" in Arabic and "2." in
+  // English, and the app logged a set of 2 reps. Only the Arabic reading acts.
+  mock.nextTranscripts.push({ text: "طوفا", language: "ar", otherwise: "2." });
+  const skip = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("ar"), gus);
+  assert.deepEqual([skip.transcript, skip.command, skip.trainingHeld], ["طوفا", { type: "unknown" }, false]);
+  // "I didn't finish that set." read as Arabic contained "ألم" (the question
+  // particle) and stopped the session for pain; it is not a pain phrase.
+  mock.nextTranscripts.push({ text: "I didn't finish that set.", language: "en", otherwise: "ألم أنه لا ينفع هذا المنزل" });
+  const notDone = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("en"), gus);
+  assert.deepEqual([notDone.transcript, notDone.command, notDone.trainingHeld], ["I didn't finish that set.", { type: "not_done" }, false]);
+  assert.notEqual(await status(), "stopped");
+  const holds = await rows(coach, "SELECT count(*)::int AS n FROM records WHERE kind='training_hold' AND owner_user_id=$1", [gus.userId]);
+  assert.equal(holds[0].n, 0, "no training hold opened");
+  // The reply-language reading heard nothing while the other heard words:
+  // asked again, never acted on.
+  mock.nextTranscripts.push({ text: "", language: "ar", otherwise: "Done." });
+  await refused(`/voice-sessions/${session.id}/transcribe`, "POST", reply("ar"), gus, 502, "SPEECH_UNCONFIRMED");
+  // "تقريباً خلصت" (almost finished) is not a completion.
+  mock.nextTranscripts.push({ text: "تقريباً خلصت.", language: "ar", otherwise: "I think it's done." });
+  const almost = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("ar"), gus);
+  assert.deepEqual([almost.transcript, almost.command], ["تقريباً خلصت.", { type: "ack" }]);
+  // A device transcript is screened as heard (the reply language).
+  const device = await ok(`/voice-sessions/${session.id}/utterance`, "POST", { transcript: "الوزن ثقيل واحد." }, gus);
+  assert.deepEqual([device.command, device.trainingHeld], [{ type: "too_heavy" }, false]);
+  assert.notEqual(await status(), "stopped");
+  // Code-switched pain, transliterated in the English reading and written in
+  // Arabic in the other: the session stops.
+  mock.nextTranscripts.push({ text: "My back yawrni.", language: "en", otherwise: "مي باك يعورني" });
+  const pain = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("en"), gus);
+  assert.deepEqual([pain.transcript, pain.command.type, pain.trainingHeld], ["My back yawrni.", "pain", true]);
+  assert.equal(await status(), "stopped");
+  const after = await rows(coach, "SELECT count(*)::int AS n FROM records WHERE kind='training_hold' AND owner_user_id=$1", [gus.userId]);
+  assert.equal(after[0].n, 1, "the pain report opened the hold");
 });
 
 test("another workspace can neither see nor use the clone", async () => {

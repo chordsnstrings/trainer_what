@@ -20,8 +20,12 @@ import { formatDistance, formatDuration, workMeasure } from "./prescription.ts";
 // ---------------------------------------------------------------------------
 export type VoiceCommand =
   | { type: "done" }
-  /** A rep count; `heavy` when the same reply also said it was too heavy. */
-  | { type: "reps"; reps: number; heavy?: boolean }
+  /**
+   * A rep count; `heavy` when the same reply also said it was too heavy.
+   * `typed` when the member entered it on the screen: a heard count that is
+   * implausible for the set is asked again (`plausibleReps`), a typed one is not.
+   */
+  | { type: "reps"; reps: number; heavy?: boolean; typed?: boolean }
   | { type: "too_heavy" }
   | { type: "too_easy" }
   | { type: "pause" }
@@ -61,10 +65,27 @@ const PAIN = has(
     "(?:don'?t|do\\s+not)\\s+feel\\s+(?:okay|ok|well|good|right)|not\\s+feeling\\s+(?:okay|ok|well|good|right)|" +
     // Arabic: dizziness (MSA), nausea, vomiting, cramp or spasm, "something is
     // wrong", and "I am not well" in the first person.
-    "[وب]?(?:ال)?دوار|[وب]?(?:ال)?غثيان|(?:ب|راح\\s*)?[ا]?ستفرغ\\p{L}*|[ا]?تقيا\\p{L}*|ترجيع|شد\\s*عضلي|[وب]?(?:ال)?تشنج\\p{L}*|" +
+    "[وب]?(?:ال)?ب?دوار|[وب]?(?:ال)?غثيان|(?:ب|راح\\s*)?[ا]?ستفرغ\\p{L}*|[ا]?تقيا\\p{L}*|ترجيع|شد\\s*عضلي|[وب]?(?:ال)?تشنج\\p{L}*|" +
     "(?:في|فيه)?\\s*شي(?:ء)?\\s*(?:غلط|خطا)|" +
     "(?:انا\\s*(?:مو|مب|مش)|لست|ماني|مانيب)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)|(?:مو|مب|مش)\\s*بخير|" +
     "(?:احس|حاس|حاسس|حاسه|اشعر)\\s*(?:اني|انني|بنفسي)?\\s*(?:مو|مب|مش|لست|غير|ماني)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)",
+);
+// Gulf "تعبان" ("I'm unwell", also "worn out") and the Gulf pain words as
+// OpenAI's transcribers write them in Latin letters: in the retest (29
+// September 2026) "My back يعورني" came back from every OpenAI model as "My
+// back yawrni" / "yaourni" / "yaurni" / "iauurni" and never stopped the
+// session. Not after a negation ("مو تعبان", "ma yawrni"). "تعبت" (I got
+// tired) and English "tired" are not stops.
+const UNWELL = new RegExp(
+  "(?<!(?:مو|مب|مش|ما|ماني|مانيب|لست|غير|ليس|not|no|never|ma|mu|mo|mob|mub|mb|mish|mesh|mani)\\s+)" +
+    "(?<![\\p{L}\\p{N}'])(?:" +
+    "تعبان|تعبانه|" +
+    "ta(?:3|')?a?ba+n(?:a|ah|eh|ha)?|" +
+    // يعورني / عورني / يوجعني
+    "y(?:a|e)?(?:3|')?(?:a|o|u|w)+(?:e|i)?r{1,2}(?:e|i)?n(?:i|e|y|ee)|i(?:a|e)(?:a|o|u|w)+r{1,2}n(?:i|e|y)|ya(?:o|u|w)+(?:ri|ni)|" +
+    "3?aw+a?r+n(?:i|y)|(?:y|i|t)?(?:o|u|w)+ja3?n(?:i|y|ee)|alam" +
+    ")(?![\\p{L}\\p{N}])",
+  "iu",
 );
 const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|تقيل|تقيله|صعب|صعبه",
   EFFORT_EASY = "easy|light|سهل|سهله|خفيف|خفيفه";
@@ -102,11 +123,39 @@ const REPEAT = has(
   "repeat|again|say\\s+again|what|pardon|sorry|come\\s+again|(?:didn'?t|did\\s+not)\\s+(?:hear|catch|get)\\s+(?:you|that|it)|" +
     "اعد|اعيد|كرر|عيد|مره\\s+ثانيه|مره\\s+اخري|شنو|ايش|وش|وشو|شو|ماذا|ما\\s+التالي|(?:ما|لم)\\s*(?:سمعت|اسمع|فهمت|افهم)\\p{L}*",
 );
-// Only explicit completion words finish a set.
+// Gulf verbs as OpenAI's transcribers write them in Latin letters: "خلصت"
+// (khalast), "كملت" (kammalt), "سويت" (sawwait, "I did", which ties a count
+// to the set: "sawwait 12").
+const KHALAST = "(?:kh|5|x)a?l+a?s+t",
+  KAMMALT = "kam+alt",
+  SAWWAIT = "saw+(?:ai|ei|ay|ey|ee|e|i)t";
+// Only explicit completion words finish a set. "خلص" and "خلاص" alone are not
+// one (trainer decision, 29 September 2026): "خلاص" is also "stop" or
+// "enough", and a hurried "خلص" may be the start of anything; the member
+// hears the help line and says "خلصت", "done" or a count.
 const COMPLETE_WORDS =
   "done|finished|finish|complete|completed|that'?s\\s+it|that\\s+is\\s+it|did\\s+it|made\\s+it|nailed\\s+it|" +
-  "تم|تمت|خلاص|خلصنا|انتهيت|انتهينا|(?:خلصت|كملت|اكملت|انهيت|انجزت)(?:ها|ه)?|سويتها|سويته";
+  "تم|تمت|خلصنا|انتهيت|انتهينا|(?:خلصت|كملت|اكملت|انهيت|انجزت)(?:ها|ه)?|سويتها|سويته|" +
+  "(?:" + KHALAST + "|" + KAMMALT + ")(?:ha|ah)?|(?:kh|5|x)a?l+a?s+na|" + SAWWAIT + "(?:ha|ah)";
 const COMPLETE = has(COMPLETE_WORDS);
+// Said with a hedge, a completion or a count is uncertain, and uncertain
+// replies never log a set: "almost done", "about 8", "I think I'm done",
+// "تقريباً خلصت", "يعني خلصت", "شبه خلصت", "كدت أنتهي", "يمكن خلصت", "حوالي
+// عشر", "باقي ثنتين". Modern Standard and Gulf, with or without diacritics
+// (the text is folded first). The reply is an acknowledgement instead: during
+// a set the member is asked again ("say done when you finish, or tell me how
+// many reps").
+const HEDGE_NUMBER =
+  "\\p{N}+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty";
+const HEDGE = has(
+  "almost|nearly|approximately|roughly|more\\s+or\\s+less|sort\\s+of|sorta|kind\\s+of|kinda|maybe|perhaps|probably|possibly|" +
+    "i\\s+think|i\\s+guess|i\\s+believe|i\\s+suppose|not\\s+sure|unsure|pretty\\s+much|mostly|partly|partially|half|halfway|" +
+    "(?:about|around|like|close\\s+to|up\\s+to|over|under|at\\s+least)\\s+(?:" + HEDGE_NUMBER + ")|(?:" + HEDGE_NUMBER + ")\\s+or\\s+(?:so|more|less)|" +
+    "ta(?:q|2|'|k)?r(?:i|ee)ban|ya(?:3|')?a?ni|" +
+    "(?:بال)?تقريب\\p{L}*|يعني|شبه|[يتان]?كاد(?:ت|وا)?|كدت|كدنا|[او]?وشك\\p{L}*|شارف\\p{L}*|قربت|قربنا|" +
+    "يمكن|ربما|احتمال|اظن|اعتقد|اتوقع|حوالي|بحدود|نص|نصف|نصها|نصه|باقي|" +
+    "(?:مو|مش|مب|لست|ماني|غير)\\s*متاكد\\p{L}*|ما\\s*ادري|مادري|مدري",
+);
 // A negation said before a command word in the same clause (no punctuation
 // between, a few words at most): "I never made it", "it wasn't done", "I
 // didn't get it done", "not quite made it", "ما تم", "مو خلاص"; "I'm not
@@ -129,7 +178,11 @@ const negatedArabic = (negators: string, words: string) =>
 const negation = (words: string) =>
   "(?:" + NEGATION_EN + ")\\s+(?:(?:" + NEGATION_FILLER_EN + ")\\s+){0,3}(?:" + words + ")|" +
   negatedArabic(NEGATION_AR, words);
-const [NEGATED_COMPLETE, NEGATED_COMPLETE_ALL] = hasAndEvery(negation(COMPLETE_WORDS));
+// Transliterated Gulf negation before a transliterated verb: "ma khalast".
+const LATIN_NEGATION = "ma|mu|mo|mob|mub|mb|mish|mesh|lam";
+// "مو خلاص" (not finished) is a negated completion although "خلاص" alone is
+// not a completion.
+const [NEGATED_COMPLETE, NEGATED_COMPLETE_ALL] = hasAndEvery(negation(COMPLETE_WORDS + "|خلاص|خلص"));
 // Carrying on or skipping, negated: the member is not ready, so the session
 // pauses (it never moves on). Also "ready? no" and "هيا لا", said last.
 const FLOW_VERBS_AR =
@@ -177,7 +230,11 @@ const NOT_DONE_WORDS =
   "(?:[وف]?لم\\s*(?:استطع|اتمكن|اقدر|نستطع|نتمكن|نقدر)|[وف]?ما\\s*(?:استطعت|استطعنا|تمكنت|تمكنا))\\p{L}*(?:\\s*(?:من|علي))?(?:\\s*(?:اكمال|انهاء|اتمام|اداء|فعل|عمل)\\p{L}*)?|" +
   "[وف]?(?:ما|مب|مو)\\s*(?:قدرت|اقدرت|قدرنا)(?:\\s*(?:ا|ن)?(?:كمل|خلص|سوي|سو|نهي|رفع|شيل)\\p{L}*)?|" +
   "[وف]?(?:ما|مب)\\s*(?:سويت|سوينا)\\p{L}*|" +
-  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت|انجزت)(?:ها|ه)";
+  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت|انجزت)(?:ها|ه)|" +
+  // "I almost finished it" (MSA "كدت"), like "I almost made it".
+  "(?:كدت|كدنا)\\s*(?:ان\\s*)?(?:ا|ن)?(?:كمل|خلص|نهي|نته|نجز|تم|سوي)\\p{L}*|" +
+  // Transliterated: "ma sawwaitha", "ma khalastha".
+  "(?:ma|mob|mub|mb)\\s+(?:" + SAWWAIT + "\\p{L}*|(?:" + KHALAST + "|" + KAMMALT + ")(?:ha|ah))";
 const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(NOT_DONE_WORDS);
 // Still going, not a report: "not done yet", "I'm not finished", "almost
 // there", "ما خلصت", "لسا ما خلصت", "لم أنته بعد". The completion word in it
@@ -185,8 +242,20 @@ const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(NOT_DONE_WORDS);
 const NOT_YET_WORDS =
   "(?:not|isn'?t|i'?m\\s+not|am\\s+not)\\s+(?:(?:quite|yet|really|fully)\\s+)?(?:done|finished|complete|completed|there)|" +
   "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|(?:almost|nearly)\\s+(?:done|there|finished)|" +
-  "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)";
+  "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)|" +
+  "(?:" + LATIN_NEGATION + ")\\s+(?:" + KHALAST + "|" + KAMMALT + ")";
 const [NOT_YET, NOT_YET_ALL] = hasAndEvery(NOT_YET_WORDS);
+// A completion that is still to come, or asked about: "I need to finish",
+// "I have to complete 8", "let me finish", "I'll be done soon", "done in a
+// sec", "am I done?". Not a completion (and its number is not a count); the
+// member is asked again during a set. Arabic future forms ("لازم اخلص", "راح
+// اخلص", "بخلص") are not completion words already.
+const INTENT_WORDS =
+  "(?:(?:have|has|need|needs|got|want|wants|going|trying|try|ready|about|supposed|planning|hoping)\\s+to|gotta|gonna|wanna|will|shall|(?:i|we|it|you)'?ll|let\\s+me|let'?s|can\\s+i|should\\s+i|may\\s+i)\\s+" +
+  "(?:(?:just|be|get|go|really|quickly|now|then|to)\\s+){0,2}(?:finish|finished|complete|completed|done)|" +
+  "(?:done|finished|finish)\\s+(?:soon|shortly|later|in\\s+a\\s+(?:sec|second|minute|moment|bit|few))|" +
+  "(?:am|are|is)\\s+(?:i|we|it|that|this)\\s+(?:(?:all|really)\\s+)?(?:done|finished|complete|completed)";
+const [INTENT, INTENT_ALL] = hasAndEvery(INTENT_WORDS);
 // "I can't do 10", "ما اقدر اكمل ثلاث": the present-tense complaint (a
 // too-heavy report, TOO_HEAVY) with the count it could not reach.
 const CANNOT_WORDS =
@@ -200,7 +269,7 @@ const CANNOT_WORDS =
 const CLAUSE_BREAK =
   "[,.;:!?،؛؟]|(?<![\\p{L}\\p{N}'])(?:but|only|just|so|and|then|instead|did|[وف]?(?:بس|لكن|بل|فقط|سويت|قمت|عملت))(?![\\p{L}\\p{N}])";
 const NEGATED_CLAUSE = new RegExp(
-  B + "(?:" + NOT_DONE_WORDS + "|" + NOT_YET_WORDS + "|" + CANNOT_WORDS + ")(?:(?!" + CLAUSE_BREAK + ")[\\s\\S])*",
+  B + "(?:" + NOT_DONE_WORDS + "|" + NOT_YET_WORDS + "|" + INTENT_WORDS + "|" + CANNOT_WORDS + ")(?:(?!" + CLAUSE_BREAK + ")[\\s\\S])*",
   "giu",
 );
 // A reply that says the set is still under way ("yet", "still", "لسا").
@@ -281,7 +350,35 @@ const NOT_REPS_BEFORE = new Set([
   "last", "final", "first", "اخر", "اول",
 ]);
 const NOT_REPS_AFTER =
-  /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|sets?|rounds?|كيلو|كيلوغرام|كيلوجرام|ثانيه|ثواني|دقيقه|دقائق|دقايق|مجموعه|مجموعات|جوله|جولات)$/u;
+  /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|hours?|hrs?|sets?|rounds?|exercises?|left|remaining|more|extra|less|fewer|كيلو|كيلوز|كيلوات|كيلس|كيلوغرام|كيلوجرام|كجم|ثانيه|ثواني|دقيقه|دقائق|دقايق|ساعه|ساعات|مجموعه|مجموعات|جوله|جولات|تمرين|تمارين|ست|سيت|ستات|سيتات|زياده|اكثر|اقل|باقي|باقيه)$/u;
+// A count must be tied to the set. It is a rep count only when a rep word
+// follows it ("10 reps", "ثمان تكرارات"), a word that reports it comes just
+// before it ("did 10", "سويت عشر", "just one", "that was one", "sawwait 12")
+// or just after it ("6 only", "ست بس"), or it is the whole reply ("Eight.",
+// "٨", "twenty five", "اثنا عشر"). Anything else is not a count: a misheard
+// "الوزن ثقيل وايد" as "الوزن ثقيل واحد" logged a set of 1 rep, "ما خلصت" as
+// "ما خمسة" logged 5, "هل ست؟ سويت ثمان" logged 6 (retest, 29 September 2026).
+// Also "reps" as transcribers write it in Arabic letters ("8 ربز").
+const REP_UNIT = /^(?:reps?|repetitions?|times|تكرار\p{L}*|عدات|عده|عدتين|مرات|ربز|ريبز|ربس|ريبس|ريب)$/u;
+const COUNT_BEFORE = new RegExp(
+  "^(?:did|done|got|finished|completed|managed|made|hit|only|just|total|that'?s|thats|it'?s|" +
+    "سويت|ساويت|سوينا|قمت|عملت|لعبت|كملت|اكملت|خلصت|خلصنا|انهيت|انجزت|بس|فقط|" +
+    SAWWAIT + "|" + KHALAST + "|" + KAMMALT + ")$",
+  "u",
+);
+const COUNT_AFTER = /^(?:done|finished|only|total|بس|فقط|خلاص|خلص|خلصت)$/u;
+// "That was one", "it was eight": "was" reports a count only after these.
+const WAS_SUBJECT = new Set(["that", "it", "this"]);
+// Said around a bare count, it is still the whole reply.
+const COUNT_FILLER = new Set([
+  "um", "uh", "er", "erm", "hmm", "mm", "ok", "okay", "so", "coach", "yes", "yeah", "yep", "right", "alright", "well", "please", "ya",
+  "يا", "كوتش", "كابتن", "اوكي", "اوك", "تمام", "طيب", "ايه", "ايوه", "ايوا", "نعم", "اي", "زين", "والله",
+]);
+// An effort word just before a number word: "ثقيل واحد", "heavy one", "hard
+// two" are not counts unless a rep word follows ("heavy, 6 reps").
+const EFFORT_BEFORE = new Set([
+  "heavy", "hard", "tough", "much", "difficult", "ثقيل", "ثقيله", "تقيل", "تقيله", "صعب", "صعبه", "وايد", "واجد", "جدا", "مره", "كثير",
+]);
 /** A number word, also after a joined Arabic "and"/"with" ("وعشرين", "بثماني"). */
 function numberWord(token: string): { value: number; tens: boolean } | null {
   for (const t of [token, /^[وبف]\p{L}{2,}$/u.test(token) ? token.slice(1) : null]) {
@@ -291,55 +388,73 @@ function numberWord(token: string): { value: number; tens: boolean } | null {
   }
   return null;
 }
-function spokenNumber(folded: string): number | null {
-  const tokens = westernDigits(folded)
+const countTokens = (text: string) =>
+  westernDigits(text)
     .split(/[^\p{L}\p{N}'%]+/u)
     .filter(Boolean);
+/**
+ * The number that starts at token `i`, with the tokens it spans and a unit
+ * joined to its digits ("8kg"), or null (not a number, or "one" as a pronoun).
+ */
+function numberAt(tokens: string[], i: number): { value: number; width: number; unit?: string; digits: boolean } | null {
+  const t = tokens[i];
+  const digits = /^(\d{1,3})(\p{L}*)$/u.exec(t);
+  // Digits joined to letters are a number only with a unit ("8kg", "10reps");
+  // otherwise they are a word written with Latin digits ("5alast", "3ashra").
+  if (digits && digits[2] && !NOT_REPS_AFTER.test(digits[2]) && !REP_UNIT.test(digits[2])) return null;
+  if (digits) return { value: Number(digits[1]), width: 1, unit: digits[2] || undefined, digits: true };
+  if (t in TEEN_UNITS && TEN_WORDS.has(tokens[i + 1] ?? "")) return { value: TEEN_UNITS[t] + 10, width: 2, digits: false };
+  const word = numberWord(t);
+  if (!word) return null;
+  const next = tokens[i + 1] ?? "",
+    after = tokens[i + 2] ?? "";
+  if (word.tens) {
+    // "twenty five"
+    const units = next && next in UNITS && UNITS[next] < 10 ? UNITS[next] : 0;
+    return { value: word.value + units, width: units ? 2 : 1, digits: false };
+  }
+  // "ثلاثة عشر" (13)
+  if (word.value < 10 && TEN_WORDS.has(next)) return { value: word.value + 10, width: 2, digits: false };
+  // "خمسة وعشرين" (25): the unit, then "and" with the tens.
+  if (word.value < 10 && next.startsWith("و") && numberWord(next)?.tens)
+    return { value: word.value + numberWord(next)!.value, width: 2, digits: false };
+  if (word.value < 10 && next === "و" && after in TENS) return { value: word.value + TENS[after], width: 3, digits: false };
+  if (ONE_WORDS.has(t) && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) return null;
+  return { value: word.value, width: 1, digits: false };
+}
+/**
+ * The rep count of a reply: the first number tied to the set (see REP_UNIT).
+ * `clause` is the reply with negated clauses removed; `whole` is the reply.
+ */
+function spokenCount(clause: string, whole: string): number | null {
+  const tokens = countTokens(clause);
+  const content = countTokens(whole).filter((t) => !COUNT_FILLER.has(t));
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    let value: number | null = null,
-      width = 1,
-      unit: string | undefined;
-    const digits = /^(\d{1,3})(\p{L}*)$/u.exec(t);
-    const word = digits ? null : numberWord(t);
-    if (digits) {
-      value = Number(digits[1]);
-      unit = digits[2] || undefined;
-    } else if (t in TEEN_UNITS && TEN_WORDS.has(tokens[i + 1] ?? "")) {
-      value = TEEN_UNITS[t] + 10;
-      width = 2;
-    } else if (word?.tens) {
-      // "twenty five"
-      const next = tokens[i + 1];
-      const units = next && next in UNITS && UNITS[next] < 10 ? UNITS[next] : 0;
-      value = word.value + units;
-      if (units) width = 2;
-    } else if (word) {
-      value = word.value;
-      const next = tokens[i + 1] ?? "",
-        after = tokens[i + 2] ?? "";
-      if (value < 10 && TEN_WORDS.has(next)) {
-        // "ثلاثة عشر" (13)
-        value += 10;
-        width = 2;
-      } else if (value < 10 && next.startsWith("و") && numberWord(next)?.tens) {
-        // "خمسة وعشرين" (25): the unit, then "and" with the tens.
-        value += numberWord(next)!.value;
-        width = 2;
-      } else if (value < 10 && next === "و" && after in TENS) {
-        value += TENS[after];
-        width = 3;
-      } else if (ONE_WORDS.has(t) && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) {
-        continue;
-      }
-    }
-    if (value === null) continue;
-    unit ??= tokens[i + width];
-    if (NOT_REPS_BEFORE.has(tokens[i - 1] ?? "") || (unit && NOT_REPS_AFTER.test(unit))) {
-      i += width - 1;
+    const n = numberAt(tokens, i);
+    if (!n) continue;
+    const prev = tokens[i - 1] ?? "",
+      next = tokens[i + n.width] ?? "";
+    const unit = n.unit ?? next;
+    const skip = () => {
+      i += n.width - 1;
+    };
+    // A set, an exercise, a load or a time ("set 1 of 3", "60 kilograms").
+    if (NOT_REPS_BEFORE.has(prev) || (unit && NOT_REPS_AFTER.test(unit))) {
+      skip();
       continue;
     }
-    return value;
+    const repWord = REP_UNIT.test(unit);
+    if (!n.digits && EFFORT_BEFORE.has(prev) && !repWord) {
+      skip();
+      continue;
+    }
+    const reported =
+      COUNT_BEFORE.test(prev) ||
+      (prev === "was" && WAS_SUBJECT.has(tokens[i - 2] ?? "")) ||
+      (!!tokens[i - 2] && COUNT_BEFORE.test(tokens[i - 2]) && !numberAt(tokens, i - 1));
+    const alone = content.length === n.width && numberAt(content, 0)?.value === n.value;
+    if (repWord || reported || (!n.unit && COUNT_AFTER.test(next)) || alone) return n.value;
+    skip();
   }
   return null;
 }
@@ -355,13 +470,17 @@ function spokenNumber(folded: string): number | null {
  * "مو مستعد", "don't skip") pauses and never moves on, a number inside a
  * negated clause ("I didn't do the last 2 reps", "ما سويت آخر ثنتين", "I
  * can't do 10") is never a rep count, and a rep count wins over "heavy" in
- * the same reply (the heaviness is kept as a flag).
+ * the same reply (the heaviness is kept as a flag). A set is logged only from
+ * an unambiguous completion: a hedged completion or count ("almost done",
+ * "about 8", "تقريباً خلصت", "يعني خلصت") is an acknowledgement, a number is a
+ * count only when it is tied to the set ("did 10", "10 reps", "سويت عشر", or
+ * the number alone), and "خلص" / "خلاص" alone are not completions.
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
   const screened = screeningText(raw).trim().replace(/[-_]/g, " ");
   if (!screened) return { type: "unknown" };
-  if (safetySignal(raw) || PAIN.test(screened))
+  if (safetySignal(raw) || PAIN.test(screened) || UNWELL.test(screened))
     return { type: "pain", transcript: raw.trim() };
   const folded = screened.replace(INSTRUCTION, " ");
   const effort = folded.replace(NEGATED_EFFORT, " ");
@@ -378,13 +497,17 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
     notYet = NOT_YET.test(folded) || NEGATED_COMPLETE.test(folded);
   const still = (negatedDone || notYet) && STILL.test(folded);
   const notDone = !still && (negatedDone || (notYet && REFERS_BACK.test(folded)));
+  const intent = INTENT.test(folded);
   const completion = folded
     .replace(NEGATED_COMPLETE_ALL, " ")
     .replace(NOT_DONE_ALL, " ")
-    .replace(NOT_YET_ALL, " ");
+    .replace(NOT_YET_ALL, " ")
+    .replace(INTENT_ALL, " ");
+  // Uncertain: never a completion or a count.
+  const hedged = HEDGE.test(folded);
   // A number inside a negated clause is what was not done, never a count.
-  const reps = spokenNumber(folded.replace(NEGATED_CLAUSE, " "));
-  if (reps !== null && reps <= 200 && !skip && !pause)
+  const reps = spokenCount(folded.replace(NEGATED_CLAUSE, " "), folded);
+  if (reps !== null && reps <= 200 && !hedged && !skip && !pause)
     return heavy ? { type: "reps", reps, heavy: true } : { type: "reps", reps };
   if (notDone)
     return {
@@ -397,32 +520,90 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (skip) return { type: "skip" };
   if (pause) return { type: "pause" };
   if (REPEAT.test(folded)) return { type: "repeat" };
+  if (hedged && (reps !== null || COMPLETE.test(completion))) return { type: "ack" };
   if (COMPLETE.test(completion)) return { type: "done" };
   if (RESUME.test(folded)) return { type: "resume" };
-  if (ACK.test(folded.replace(NEGATED_ACK, " ")) || notYet || negatedDone) return { type: "ack" };
+  if (ACK.test(folded.replace(NEGATED_ACK, " ")) || notYet || negatedDone || intent) return { type: "ack" };
   return { type: "unknown" };
 }
 
 /**
- * The transcript to act on when one reply was transcribed in both languages.
- * Cartesia's batch model is told the language and cannot detect it, and a
- * reply in the other language comes back as unrelated words (live check, 29
- * September 2026: Arabic "ألم" read as English was "I"; English "Pain." read
- * as Arabic was "أمي"). The first transcript is in the member's reply
- * language; another is used only when the first was not understood (unknown,
- * or a bare acknowledgement, which never acts) and that one was. Pain and red
- * flags are screened in every transcript before this, so a pain report in
- * either language always stops the session.
+ * The transcript to act on when one reply was transcribed in more than one
+ * language: always the first, read in the member's reply language, and never
+ * another. Cartesia's batch model is told the language and cannot detect it,
+ * so a reply read in the other language comes back as unrelated words (live
+ * check: Arabic "ألم" read as English was "I"; retest, 29 September 2026: Gulf
+ * "طوفها" (skip it) read as English was "2.", and acting on that reading
+ * logged a set of 2 reps). The other reading is screened for pain only
+ * (`otherReadingScreenText`); when the reply-language reading is not
+ * understood the member is asked again (the help line, or "say done" during
+ * a set), and nothing is logged from the other reading.
  */
 export function replyTranscript(transcripts: string[]): string {
-  const heard = transcripts.map((t) => String(t ?? "").trim());
-  const quiet = (t: string) => !t || ["unknown", "ack"].includes(parseVoiceCommand(t).type);
-  const first = heard[0] ?? "";
-  if (quiet(first)) {
-    const understood = heard.slice(1).find((t) => !quiet(t));
-    if (understood) return understood;
-  }
-  return first || heard.find(Boolean) || "";
+  return String(transcripts[0] ?? "").trim();
+}
+
+/**
+ * What each reading of one reply is screened with, in order: the first (the
+ * member's reply language, or a device transcript) as heard, any other with
+ * `otherReadingScreenText`. Empty readings are left out.
+ */
+export function readingsToScreen(transcripts: string[]): Array<{ transcript: string; screened: string }> {
+  return transcripts
+    .map((t, index) => {
+      const transcript = String(t ?? "").trim();
+      return { transcript, screened: index && transcript ? otherReadingScreenText(transcript) : transcript };
+    })
+    .filter((r) => r.transcript);
+}
+
+// Arabic words that are pain only in a phrase. "ألم" is also the question
+// particle ("didn't...?"): "I didn't finish that set." read as Arabic was "ألم
+// أنه لا ينفع هذا المنزل" and stopped the session for pain (retest). "آلام" is
+// also "إلامَ" (to what), "إصابة" also "it hit".
+const AMBIGUOUS_PAIN = new Set(["الم", "الام", "اصابه"]);
+const PAIN_CONTEXT_BEFORE = new Set([
+  "عندي", "فيني", "فيه", "في", "احس", "اشعر", "حاس", "حاسه", "حاسس", "لدي", "يوجد", "جاني", "جاتني", "صار", "اعاني",
+  "من", "مع", "شعرت", "حسيت",
+]);
+const PAIN_CONTEXT_AFTER =
+  /^(?:في|فيه|شديد|شديده|قوي|قويه|حاد|حاده|كبير|فظيع|مره|وايد|جدا|ب\p{L}{2,}|(?:ال)?(?:ركب|ظهر|كتف|صدر|راس|رقب|بطن|ذراع|يد|ايد|رجل|ساق|قدم|كاحل|ورك|معصم|فخذ|كوع|مفصل|عضل|اسفل|ضهر)\p{L}*)$/u;
+const READING_FILLER = new Set(["يا", "اه", "اي", "ايه", "اوه", "اخ", "اح", "اييي", "والله", "كوتش", "كابتن"]);
+/**
+ * The text an other-language reading is screened with (the trainer's policy,
+ * the code floor and the runner's own stop list): folded, with an ambiguous
+ * pain word removed unless it is a pain phrase, that is the whole reading
+ * ("ألم", "آه ألم"), carries an article or clitic ("الألم", "بألم"), or has a
+ * pain context next to it ("عندي ألم", "ألم في ركبتي", "ألم شديد"). Every
+ * other red flag is screened as in the reply-language reading ("My back
+ * يعورني", "أشعر بدوار"), and the reply-language reading is screened unchanged.
+ */
+export function otherReadingScreenText(transcript: string): string {
+  const folded = screeningText(String(transcript ?? ""));
+  const parts = folded.split(/([^\p{L}\p{N}]+)/u);
+  const words = parts.filter((_, k) => k % 2 === 0 && parts[k]);
+  if (words.filter((w) => !READING_FILLER.has(w)).every((w) => AMBIGUOUS_PAIN.has(w))) return folded;
+  // Neighbouring words in the same clause (punctuation ends a clause).
+  const near = (k: number, step: number) => {
+    const out: string[] = [];
+    for (let j = k + step; j >= 0 && j < parts.length && out.length < 2; j += step) {
+      if (j % 2 === 1) {
+        if (/[.,;:!?،؛؟]/u.test(parts[j])) break;
+        continue;
+      }
+      if (parts[j]) out.push(parts[j]);
+    }
+    return out;
+  };
+  return parts
+    .map((part, k) => {
+      if (k % 2 === 1 || !AMBIGUOUS_PAIN.has(part)) return part;
+      const phrase =
+        near(k, -1).some((w) => PAIN_CONTEXT_BEFORE.has(w)) ||
+        near(k, 1).some((w) => PAIN_CONTEXT_AFTER.test(w));
+      return phrase ? part : " ";
+    })
+    .join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -608,6 +789,20 @@ const outcome = (o: RunnerOutcome): RunnerEffect => ({ type: "outcome", outcome:
 const sayDone = () =>
   phrase("say_done", "Say done when you finish the set, or tell me how many reps you did.");
 const noted = () => phrase("noted", "Noted. Your trainer will review it.");
+/**
+ * Whether a heard rep count is plausible for a set with `target` reps: at
+ * least 1, and at most one and a half times the target or five more than it,
+ * whichever is larger, and never more than twice it. 5 reps allow 1 to 10, 10
+ * allow 1 to 15, 20 allow 1 to 30, 3 allow 1 to 6. A count outside this is
+ * more likely a mishearing than a set ("سويت عشر" read as "تسعة عشر", 19,
+ * retest 29 September 2026): the member is asked again and nothing is logged.
+ * A count typed on the screen is not checked.
+ */
+export function plausibleReps(reps: number, target: number) {
+  if (!Number.isFinite(reps) || reps < 1) return false;
+  if (!(target > 0)) return reps <= 200;
+  return reps <= Math.min(2 * target, Math.max(target + 5, Math.ceil(target * 1.5)));
+}
 /** A set prompt; an adjusted target is composed from shared clips. */
 function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: number): RunnerEffect {
   const ex = ctx.script.exercises[exercise];
@@ -942,6 +1137,8 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
           // A number means reps only for rep work; a round is simply done.
           if (measure !== "reps") return finishRound(ctx, s);
           const reps = Math.max(0, Math.min(200, Math.round(event.command.reps)));
+          // A heard count that is implausible for the set is asked again.
+          if (!event.command.typed && !plausibleReps(reps, s.targets[s.exercise][s.set - 1].reps)) return [s, [sayDone()]];
           if (!event.command.heavy) return logSet(ctx, s, reps);
           // "6 reps but it was heavy": the reps are logged as said, and the
           // heaviness is its own outcome (a lighter next set within the rule).
