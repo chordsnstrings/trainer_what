@@ -709,8 +709,166 @@ the green "Strong case" badge on its pale tint); no dark band returns.
 Checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Merge into the PR
 #4 branch".
 
+## Coach-to-subscriber journey (29 September 2026, `mk/walkthrough`)
+
+The owner asked for "a UI animation that shows how the whole coach
+onboarding process will go like and how that will translate to a
+subscriber. the whole workflow." Built from part A of the accuracy-checked
+storyboard (`scratchpad/marketing-motion/storyboard.md`; the deviations are
+recorded there and below). Sitewide microanimations (part B) are a separate
+track.
+
+### What it is
+
+- One player, eight chapters: the eight /how-it-works steps. Each chapter
+  shows what the coach does in the workspace (a laptop mock), how it
+  crosses a wire, and what it means for a subscriber (a phone mock in the
+  demo coach's colours, "Layla Strength", the name the address preview
+  already uses). Chapters 6-8 also draw the dashed return wire, the relay's
+  "it asks you" loop: pain comes back to the coach, an unsure change is
+  handed over, the payment reaches the coach.
+- `components/marketing/journey.tsx` (server): the launch gate
+  (`journeyAvailable`), the subscriber-line lookups, the chapter timings,
+  the eight scenes and both placements. `journey-player.tsx` (the only
+  client code, React only): the control bar, the chapter clock and the
+  root's data attributes; the stage and captions arrive as server-rendered
+  slots, so the mocks never enter the JavaScript bundle.
+  `app/marketing-journey.css`, imported next to `marketing.css` in
+  `app/layout.tsx`, holds the motion tokens and every journey style.
+- /how-it-works: the "Eight steps, start to finish" section keeps its h2 and
+  `ol.mk-steps`, with the registry titles and bodies unchanged and the
+  HowTo JSON-LD untouched. Each step adds one subscriber line, looked up
+  from the registry (never copied; a test resolves every lookup) behind a
+  visually hidden "Your subscriber:" (the column header of "Who does what"
+  on the same page). The steps show 4 columns from 1150 px, 2 below, and a
+  scroll-snap carousel on phones; the active step gets an ink edge and a
+  Pace bar, and a click on a card selects its chapter.
+- Home: a paper band directly after the hero, with no heading (the six H2s
+  and brand-check limits stay): the existing heading as a small label, the
+  active step's title, the controls and "See how it works" to
+  `/how-it-works#steps`. Its stage shows the same scenes with every word
+  replaced by a bar (no words in the stage). It adds at most 13 visible
+  words (label, one title, link).
+- The launch gate: the second half of the workflow (publish, join, pay,
+  daily coaching, payouts) exists only once a coach can launch, so both
+  placements render only while registration is open and the model,
+  payments and payouts providers are available. Otherwise /how-it-works
+  renders its steps section exactly as before and the home page has no
+  band. On the live site today (commerce off until the owner approves)
+  the player stays hidden and appears by itself once those approvals are
+  recorded (storyboard decision D10, needing the owner).
+- Honesty: sample data only ("Illustration with sample data" on the full
+  stage); no metrics, counts, revenue or amounts (prices and statement
+  values are placeholder bars; the statement has three rows and no total);
+  no AI usage, cost, fee or model names anywhere in the mocks; only
+  features available now (chapter 4's nutrition tier and voice add-on rows
+  follow their `/features` availability). Chapter 1's phone has no Join
+  (nothing is published yet); chapter 5's follower joins, pays and answers
+  the intake.
+- New visible words: "Evaluate" (the Scenario lab button), "LS" (the demo
+  coach's initials) and the slug `layla-strength` inside the address built
+  from the platform's `coachAddressTemplate`; control names "Replay" and
+  "Previous step" (accessible names only). Everything else is existing
+  site wording in new places; `tests/marketing-journey.test.ts` checks the
+  mock text against the marketing sources.
+
+### Motion
+
+- Tokens on `.mk, .mk-header, .mk-footer` (the brief's values):
+  80/140/200/280 ms and 420 ms for emphasis; out, in, in-out and spring
+  (success only: ticks, Reserved, Confirmed, Passed, Live, Applied and
+  Rescheduled automatically, Approved, Paid).
+- Base styles are each chapter's complete picture; keyframes hold only the
+  starting states and run while the root carries `data-run`. Only opacity,
+  transform (translate, scale, rotate) and one stroke-dashoffset (the rest
+  ring) animate; scenes crossfade (opacity, with content-visibility so the
+  seven hidden scenes skip rendering). Nothing is infinite; the player
+  plays once through (about 54 s) and stops on its last chapter with
+  Replay.
+- The chapter clock is a Web Animations API animation on the active
+  progress segment; its finish advances the chapter. The first automatic
+  pass shows chapter 1 complete (no blank flash at load). A chapter
+  restarts by rewinding its CSS animations' current time. The CSS
+  animations are never played or paused through the API: in Chromium that
+  detaches them from the style sheet, and a swap animation removed by the
+  next chapter kept running (found by the browser check); pausing uses
+  `animation-play-state` through `data-hold` instead.
+- Auto-play starts only when at least half of the stage is on screen and
+  the tab is visible. It holds (and resumes by itself) when the stage
+  leaves the screen, the tab is hidden or a mouse rests on the player; it
+  stops until Play when keyboard focus enters the player, on Pause, a
+  swipe, a chapter button, Previous or Next, or a touch on the step cards.
+- Phones (up to 760 px): a square stage showing one frame at a time under a
+  strip (laptop icon, wire, phone icon); at each crossing the frames swap
+  (the leaving one slides 12% towards the inline start and fades, the other
+  enters). Mock text never goes below 11 px; the bar (Play, Previous, eight
+  24 px-wide chapter targets, Next) fits one row at 360 px.
+- Reduced motion: no auto-play, static complete chapters, instant changes;
+  Play runs a slideshow whose clock has no target, so nothing on screen
+  moves. Without JavaScript: every step shows, the stage shows chapter 1
+  complete and no controls show.
+- Keyboard and screen readers: Pause/Play/Replay is the first control;
+  chapter buttons use a roving tabindex (arrows, mirrored in right to left,
+  Home and End), carry `aria-current="step"` and are named "01 Claim your
+  address" from the visible number and heading; a polite live region
+  announces the step only after manual navigation. The stage is
+  `aria-hidden`.
+- Right to left: everything uses logical properties; the coach sits at the
+  inline start, the wires point from coach to phone, the platform mark is
+  never mirrored.
+
+### Weight (measured on the production build)
+
+With the launch gate open, against the gate-closed page: /how-it-works
++9.0 kB gzipped (HTML with its inline RSC payload; 9.6 kB in an earlier
+run; storyboard limit 16 kB) and / +6.3 kB (limit 10 kB). The stylesheet is 29.0 kB raw; minified, it
+adds about 4.1 kB gzipped to the combined app CSS (limit 5 kB; all app
+CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
+(limit 8 kB). No images and no new dependency.
+
+### Checks
+
+- `tests/marketing-journey.test.ts` (10 tests): the captions are the
+  registry's eight titles and bodies in the same `ol`, and the chapter
+  buttons' names follow them; the steps stay real HTML and the embedded
+  HowTo JSON-LD is the registry's; every subscriber line resolves and
+  shows; the launch gate (registration, model, payments and payouts each
+  off: no player, no band, the steps section byte-identical to the base
+  `Section`); the home band (no heading, no words in its stage, directly
+  after the hero); no AI cost, fee, model names, amounts, counts or
+  "Available soon" in the mocks, the three-row statement, no Join in
+  chapter 1, Pay in chapter 5, the gated extras; the new-word list; the
+  address from the platform; the token values; motion hygiene (keyframes
+  and transitions limited to transform, opacity and stroke-dashoffset,
+  token durations and easings, hover rules inside `(hover: hover)`, a
+  reduced-motion block, nothing infinite, the spring only on success
+  states); the island imports only React and no dependency was added.
+- `npm run test:marketing-motion` (`scripts/run-marketing-motion-check.mjs`
+  starts the production build against a stub platform API, no database,
+  provider or credential; `scripts/marketing-motion-check.mjs` runs local
+  Chromium at 360×740, 390×844 and 1366×900): the gate closed, then open;
+  the player visible with no horizontal overflow; auto-play at load only
+  if half of the stage is on screen, holding out of view and resuming in
+  view (home too); Pause/Play by keyboard, the chapter buttons (Tab, arrows,
+  Home, End, names, live announcement), Previous and Next; phones: square
+  stage, one frame at rest, the strip, the swap at the crossing, controls
+  in one row, a swipe; no layout shift (CLS and layout boxes) while
+  chapters change and through one full pass sped up 20× (chapters 2-8 in
+  order, then Replay); reduced motion (no auto-play, no animation even
+  after Play, the slideshow advances, instant chapters); stage text AA
+  contrast and at least 11 px in every chapter (both sides on phones); no
+  JavaScript; right to left at 390 and 1366.
+
 ## Not done / next
 
+- Journey: the owner decides D10 (keep the player hidden until a coach can
+  launch, the default built here, or show it earlier). brand-check has no
+  launch-ready run yet (its runner seeds a platform with every provider
+  off, so it measures the gate-closed pages, which equal base); the
+  storyboard's LCP and long-task measurements (`marketing-perf-check.mjs`,
+  section C) are not built. The sitewide microanimations (part B) and the
+  motion-token names shared with the subscriber app's pass are a separate
+  track; the combine step de-duplicates the token block.
 - Stage record: this package ran in parallel with others, so it does not edit
   `CLAUDE_HANDOFF.md`, `docs/COMPLETION_STAGES.md` or
   `docs/PROJECT_MEMORY.md`; the coordinating session records it there.
