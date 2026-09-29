@@ -14,6 +14,7 @@ import {
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
+import { speechLanguage } from "../../../packages/domain/src/speech-language.ts";
 import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
@@ -575,6 +576,33 @@ export async function processIntegrationJobs(db: Database) {
 export const FILE_IMPORT_SOURCES = ["apple_health", "manual_import"];
 export const IMPORT_HISTORY_LIMIT = 50;
 
+/**
+ * What makes a member's guided audio reusable: workout, voice version, text,
+ * provider, model and price, and for a mostly Arabic segment its language
+ * (29 September 2026: segments were all sent as English before, so that audio
+ * is never reused for them).
+ */
+export function guidedAudioFingerprint(
+  workoutId: string,
+  voice: { id: string; version: number; provider: string },
+  text: string,
+  model: string,
+  priceVersion: string,
+) {
+  const language = speechLanguage(text);
+  return hash(
+    [
+      workoutId,
+      voice.id,
+      voice.version,
+      text,
+      voice.provider,
+      model,
+      priceVersion,
+      ...(language !== "en" ? ["language:" + language] : []),
+    ].join(":"),
+  );
+}
 export function registerIntegrationCompletion(
   app: FastifyInstance,
   db: Database,
@@ -1216,16 +1244,12 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "Trainer voice is awaiting verification or permission.",
         );
       await consent(tx, a, "voice_playback", true, consentVersion);
-      const fingerprint = hash(
-        [
-          workoutId,
-          voice.id,
-          voice.version,
-          segment.text,
-          voice.provider,
-          voice.model ?? pricing.model,
-          pricing.priceVersion,
-        ].join(":"),
+      const fingerprint = guidedAudioFingerprint(
+        workoutId,
+        voice as { id: string; version: number; provider: string },
+        segment.text,
+        voice.model ?? pricing.model,
+        pricing.priceVersion,
       );
       const [existing] = await tx.query(
         "SELECT id,status,data FROM guided_audio WHERE user_id=$1 AND fingerprint=$2",

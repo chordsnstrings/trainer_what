@@ -6,6 +6,7 @@ import {
   runtimeConfig,
 } from "./configuration.ts";
 import { sandboxOverride } from "./sandbox.ts";
+import { speechLanguage } from "../../domain/src/speech-language.ts";
 import {
   CARTESIA_API_VERSION,
   CARTESIA_BASE_URL,
@@ -449,7 +450,10 @@ export function cartesiaDeletionClient(values: Record<string, string | undefined
  * nothing there and the attempt would only add an unknown cost).
  * `voice.language` is the language the voice was recorded in and is not sent:
  * Cartesia reads `language` as the language of the text, which is
- * `textLanguage` (English for today's scripts, shared phrases and previews).
+ * `textLanguage` when the caller fixes it (the English preview line), else the
+ * line's own language (`speechLanguage`): session scripts are English code
+ * lines plus the trainer's phrases and plan cues, which may be Arabic, and an
+ * Arabic line sent as English is read with English phonetics.
  */
 export async function generateTrainerVoice(
   voiceId: string,
@@ -472,7 +476,7 @@ export async function generateTrainerVoice(
   if (c.provider === "cartesia") {
     try {
       ({ audio, contentType, requestId } = await cartesiaVoiceClient(c).speech(
-        { voiceId, text, model, language: voice.textLanguage ?? "en" },
+        { voiceId, text, model, language: voice.textLanguage ?? speechLanguage(text) },
         beforeSend,
       ));
     } catch (error) {

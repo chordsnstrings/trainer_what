@@ -619,6 +619,29 @@ test("Brain wording suggestions are checked and kept for the trainer's review; n
     // Dismissing clears what is left.
     await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
     assert.equal((await ok("/voice-sessions/style", "GET", undefined, coach)).suggestions.encouragement.length, 0);
+    // Model trial, 29 September 2026: a bilingual answer with five warm-up
+    // lines (four are kept) was refused whole. v2 states the keys and limits
+    // and reads the answer leniently; every line is still checked.
+    const system = modelPrompts.at(-1).messages[0].content;
+    assert.match(system, /voice-session-suggestions-v2/);
+    assert.match(system, /At most 4 lines for intro, 4 for warmup, 8 for encouragement, 4 for cooldown and 4 for finish/);
+    modelReply = {
+      intro: ["Welcome back, let's move gently together.", "أهلاً بك، لنبدأ بهدوء."],
+      warmup: ["Breathe in, and slowly out.", "Let your body wake up gently.", "Settle into an easy rhythm.", "خذي نفساً عميقاً، ثم أخرجيه ببطء.", "دعي جسمك يستيقظ بهدوء."],
+      encouragement: "You're doing beautifully.",
+      feedback: ["Nice form; you're stronger each session."],
+    };
+    const lenient = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.equal(lenient.suggestions.warmup.length, 4);
+    assert.deepEqual(lenient.suggestions.encouragement, ["You're doing beautifully."]);
+    assert.ok(lenient.suggestions.intro.includes("أهلاً بك، لنبدأ بهدوء."));
+    assert.equal(JSON.stringify(lenient).includes("stronger each session"), false, "unknown keys are dropped");
+    // An answer with none of the kinds is still refused.
+    modelReply = { suggestions: { opening: "Welcome back." }, requiresReview: true };
+    const refusedAnswer = await request("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.equal(refusedAnswer.statusCode, 502);
+    assert.equal(refusedAnswer.json().code, "MODEL_UNCONFIRMED");
+    await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
   } finally {
     for (const k of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"])
       if (saved[k] === undefined) delete process.env[k];

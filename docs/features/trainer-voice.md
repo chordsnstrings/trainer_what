@@ -131,7 +131,7 @@ value or log line; provider error text has any `sk_car_…` removed.
 | Use | Request | Cost row (`cost_events`) |
 | --- | --- | --- |
 | Speech (sessions, guided audio, previews) | `POST /tts/bytes`, MP3 44.1 kHz 128 kbps, `voice: {mode:"id", id}` (valid for 2026-03-01 and 2026-08-14) | `voice.session`, `voice.guidance`, `voice.preview`: characters x `VOICE_USD_PER_1000_CHARACTERS` |
-| Spoken replies | `POST /stt`, `ink-whisper`, word timings, language from the member's saved language (`ar` or `en`; batch ink-whisper does not detect it) | `voice.transcription`: seconds x `STT_USD_PER_HOUR` |
+| Spoken replies | `POST /stt`, `ink-whisper`, word timings; batch ink-whisper does not detect the language, so each reply is read twice (29 September 2026): in the member's reply language (chosen on the runner, else their saved `ar` or `en`) and in the other one, for pain screening and as a fallback (`docs/features/voice-session.md`, "Talk-back and language") | `voice.transcription`: seconds x `STT_USD_PER_HOUR`, one row per reading (the second has `screening: true`) |
 | Quick clone | `POST /voices/clone` (clip, name, language, description; no deprecated `mode`/`enhance`) | `voice.clone`: `VOICE_CLONE_USD` (default 0) |
 | Pro clone | `POST /datasets/`, `POST /datasets/{id}/files` (purpose `fine_tune`), `POST /fine-tunes/`, `GET /fine-tunes/{id}`, `GET /fine-tunes/{id}/voices` | `voice.clone` at training start |
 | Deletion | `DELETE /voices/{id}`, `/datasets/{id}`; a fine-tune: `GET /fine-tunes/{id}/voices`, each voice deleted, then `DELETE /fine-tunes/{id}` (404 counts as deleted) | none |
@@ -158,9 +158,10 @@ value or log line; provider error text has any `sk_car_…` removed.
   deletion. Trying a Quick clone again after `PROVIDER_UNCONFIRMED` looks the name up first.
 - A Quick clone keeps no model of its own: it speaks with the configured `VOICE_MODEL`, so a model
   change (for example off a sunset snapshot) reaches every Quick clone.
-- Speech sends `language` as the language of the text (English for today's session scripts,
-  shared phrases and the preview line), never the language the voice was recorded in, which is
-  used only to make the clone.
+- Speech sends `language` as the language of the text, never the language the voice was
+  recorded in, which is used only to make the clone. Since 29 September 2026 that is each line's
+  own language (`speechLanguage`): session and guided lines were all sent as English before,
+  including the trainer's Arabic phrases and cues. The preview line is English.
 - After a Pro clone is ready its dataset (the trainer's raw recordings) is queued for deletion at
   Cartesia; a failed Pro clone keeps it only while trying again can help.
 - A Pro clone speaks with a dated model it was trained for (`proCloneModel`: the configured model
@@ -283,11 +284,13 @@ Events: `voice.clone_started`, `_submitted`, `_retried`, `_ready`, `_previewed`,
   2026-08-14, speech, transcription, the voice list, name look-ups, the fine-tune and dataset
   lists, and the "missing" answers the deletion queue relies on. The owner's account is on
   Cartesia's free tier, which refuses cloning, so no clone was made.
-- Still not verified against Cartesia: a real Quick clone (creation answer, how soon a name
-  look-up finds it, speech from it, its deletion), per-clone credit charges, Pro slots, how a Pro
-  voice is named, that a Pro voice still speaks after its dataset is deleted, maximum transcript
-  length, and real audio quality. These need a Cartesia plan with cloning (Pro stays off until
-  then).
+- Checked live on 29 September 2026 (`docs/features/voice-session.md`, "Live check of the whole
+  chain"; the account now allows cloning): a real Quick clone through `cloneVoice` (3.4 s; the
+  answer's `id` is a UUID and `name` is ours; the name look-up found it 95 ms later), English and
+  Arabic speech from it, and its deletion (`deleted`, then an empty look-up).
+- Still not verified against Cartesia: per-clone credit charges (`GET /usage/credits` needs an
+  admin key), Pro slots, how a Pro voice is named, that a Pro voice still speaks after its dataset
+  is deleted, and maximum transcript length.
 
 ## Live check against api.cartesia.ai (28 September 2026)
 
@@ -336,7 +339,9 @@ also has no commercial use licence. MP3 speech at 128 kbps is about 16 KB a seco
 0. The Cartesia plan. The key supplied on 28 September 2026 is on the free tier: speech and
    transcription work, cloning is refused (HTTP 402) and the tier has no commercial use licence.
    Quick clones need at least the Pro plan; Pro clones need Startup or higher. Until the plan is
-   upgraded, trainers' clones fail with `PROVIDER_PLAN` and operators are alerted.
+   upgraded, trainers' clones fail with `PROVIDER_PLAN` and operators are alerted. Update 29
+   September 2026: the same key now makes Quick clones (live check); which plan it is on, and so
+   whether Pro clones are possible, was not checked.
 1. The Pro clone price shown to trainers (`VOICE_PRO_CLONE_PRICE_AED`) and how it is billed (the
    app shows it and records it in the clone's evidence but does not charge it).
 2. Whether Pro is switched on by default (it is off; it needs a Cartesia Startup plan or higher,

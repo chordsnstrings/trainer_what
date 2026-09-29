@@ -5,7 +5,9 @@
  *   (voice_model_mismatch otherwise), like the real service;
  * - POST /stt (multipart: file, model ink-whisper) returns a transcript with
  *   word timings and a duration. `TRANSCRIPT:<words>;` inside the audio bytes,
- *   or `nextTranscripts`, choose the words; otherwise "done";
+ *   or `nextTranscripts`, choose the words; otherwise "done". The same audio
+ *   sent again in another language is the same reply (the app transcribes a
+ *   reply in both English and Arabic);
  * - voices: POST /voices/clone (multipart clip, name, language), GET /voices
  *   (q, is_owner), GET and DELETE /voices/:id;
  * - Pro clones: datasets and their files, fine-tunes that answer "training"
@@ -17,7 +19,7 @@
  * Every route checks the key (Authorization: Bearer or X-API-Key) and the
  * Cartesia-Version header. Bodies are not logged (they carry recordings).
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { MockServer, type MockRequest, type MockResponse } from "./http.ts";
 import { silentMp3 } from "./voice.ts";
 
@@ -73,9 +75,13 @@ export class CartesiaMock {
   /**
    * Words the next replies say. A `{ text, language }` entry is recognised
    * only when the request names that language (batch ink-whisper does not
-   * detect it); otherwise nothing is recognised.
+   * detect it); otherwise nothing is recognised, or `otherwise` is returned
+   * (the unrelated words the real model gives for speech in another
+   * language). One entry is one reply, however many languages it is sent in.
    */
-  nextTranscripts: Array<string | { text: string; language: string }> = [];
+  nextTranscripts: Array<string | { text: string; language: string; otherwise?: string }> = [];
+  /** Replies by audio, with the languages each was already transcribed in. */
+  private readonly replies = new Map<string, { said: string | { text: string; language: string; otherwise?: string }; languages: Set<string> }>();
   /** Page size for list routes (at most the request's limit). */
   listPageSize = 100;
   /** Voices hidden from lists and name searches, as a lagging list would. */
@@ -161,8 +167,16 @@ export class CartesiaMock {
         model = f.get("model")?.value;
       if (!file?.filename || model !== "ink-whisper") return this.problem(400, null, "file and model ink-whisper are required");
       const language = f.get("language")?.value ?? "en";
-      const next = /TRANSCRIPT:([^;]*);/.exec(file.value)?.[1] ?? this.nextTranscripts.shift() ?? "done";
-      const text = typeof next === "string" ? next : next.language === language ? next.text : "";
+      // The same audio in a language it was not yet read in is the same reply.
+      const audioKey = createHash("sha256").update(file.value).digest("hex");
+      let reply = this.replies.get(audioKey);
+      if (!reply || reply.languages.has(language)) {
+        reply = { said: /TRANSCRIPT:([^;]*);/.exec(file.value)?.[1] ?? this.nextTranscripts.shift() ?? "done", languages: new Set() };
+        this.replies.set(audioKey, reply);
+      }
+      reply.languages.add(language);
+      const next = reply.said;
+      const text = typeof next === "string" ? next : next.language === language ? next.text : (next.otherwise ?? "");
       this.transcriptions.push({ model, language, bytes: Buffer.byteLength(file.value), text, at: new Date().toISOString() });
       const words = text.split(/\s+/).filter(Boolean).map((word, i) => ({ word, start: i * 0.4, end: i * 0.4 + 0.35 }));
       return {
