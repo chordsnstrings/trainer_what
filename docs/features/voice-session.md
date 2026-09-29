@@ -97,7 +97,8 @@ optional on-device speech commands).
 - `parseVoiceCommand` maps a reply to `done`, `reps n` (digits, English number words, Arabic
   digits and basic Arabic words), `too_heavy`, `too_easy`, `pause`, `resume`, `ack`, `skip`,
   `repeat`, `pain` or `unknown`. Pain and red flags (`safetySignal`, which honours routine
-  negations such as "no pain") always win. Only explicit completion words (done, finished,
+  negations such as "no pain"; see `docs/features/safety-floor.md` for the readings and
+  combinations it also holds, such as "my knee gave way" or a blood-sugar reading of 65) always win. Only explicit completion words (done, finished,
   complete, that's it, تم, خلصت...) or a rep count log a set; "okay", "yes", "sure" are `ack`
   and "go", "ready", "next", "let's go" are `resume`, which never log a set (during a set they
   get a "say done when you finish" hint; `ack` never skips a rest or resumes a pause). Negated

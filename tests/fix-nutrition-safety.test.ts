@@ -52,7 +52,8 @@ const envKeys = [
 ];
 const saved = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
 let modelCalls = 0,
-  weekExplanation: string | null = null;
+  weekExplanation: string | null = null,
+  weekUnusable = false;
 async function req(
   path: string,
   method: any = "GET",
@@ -186,10 +187,12 @@ before(async () => {
     let output: any;
     if (task === "nutrition_evaluation") output = evaluationAnswer(input);
     else if (task === "nutrition_week") {
-      output = fixtureWeek(
-        input.recipes,
-        input.cases.map((c: any) => c.id),
-      );
+      output = weekUnusable
+        ? { days: [] }
+        : fixtureWeek(
+            input.recipes,
+            input.cases.map((c: any) => c.id),
+          );
       if (weekExplanation) output.explanation = weekExplanation;
     } else throw new Error("Unexpected model task " + task);
     return new Response(
@@ -642,6 +645,108 @@ test("clinical notes skip automatic delivery and unsafe model explanations never
     assert.match(text, /about 1500 kcal a day/);
   }
   assert.equal(plan.data.view.explanationCheck.accepted, false);
+});
+
+test("an eating-related red flag in a check-in or meal-log note stops automatic meal weeks until the coach resolves it", async () => {
+  // Model trial review: meal weeks screened only the food profile, so a
+  // member who wrote "I've been making myself sick after meals" in a check-in
+  // still received automatic weeks. The check is made before any model call.
+  const weekStart = dateOffset(today, 14);
+  const generate = () =>
+    ok(
+      "/nutrition/generate",
+      "POST",
+      { requestKey: randomUUID(), weekStart },
+      subscriber,
+    );
+  const openScopeReview = async () =>
+    (await ok("/nutrition/coach")).records.find(
+      (r: any) =>
+        r.kind === "nutrition_exception" &&
+        r.status === "open" &&
+        r.data.code === "SCOPE_REVIEW" &&
+        r.owner_user_id === subscriber.userId,
+    );
+  const resolve = async () => {
+    const e = await openScopeReview();
+    assert.ok(e, "an open SCOPE_REVIEW exception for the coach");
+    await ok(`/nutrition/exceptions/${e.id}/resolve`, "POST", {
+      resolution:
+        "Spoke with the client; referred to their GP and agreed next steps.",
+    });
+  };
+  await ok(
+    "/nutrition/checkins",
+    "POST",
+    {
+      eventKey: randomUUID(),
+      date: today,
+      hunger: 4,
+      difficulty: 2,
+      weightKg: null,
+      notes: "I've been making myself sick after meals",
+    },
+    subscriber,
+  );
+  let calls = modelCalls;
+  let blocked = await generate();
+  assert.equal(blocked.status, "exception");
+  assert.equal(blocked.code, "SCOPE_REVIEW");
+  assert.doesNotMatch(blocked.message, /sick|meals/);
+  assert.equal(modelCalls, calls);
+  await resolve();
+  // A meal-log note, in Gulf Arabic, after the resolution stops the next attempt again.
+  await ok(
+    "/nutrition/logs",
+    "POST",
+    {
+      eventKey: randomUUID(),
+      date: today,
+      timezone: "Asia/Dubai",
+      name: "Lunch",
+      notes: "آكل ٥٠٠ سعرة باليوم بس عشان أنزل وزن",
+      kcal: 250,
+    },
+    subscriber,
+  );
+  blocked = await generate();
+  assert.equal(blocked.code, "SCOPE_REVIEW");
+  assert.equal(modelCalls, calls);
+  await resolve();
+  // Once the coach has resolved it, the reviewed notes no longer stop the
+  // week, and neither does a routine note written after the resolution: the
+  // request reaches the model (whose unusable answer is not delivered).
+  await ok(
+    "/nutrition/checkins",
+    "POST",
+    {
+      eventKey: randomUUID(),
+      date: today,
+      hunger: 3,
+      difficulty: 3,
+      weightKg: null,
+      notes: "Busy week, skipped breakfast once. Felt fine.",
+    },
+    subscriber,
+  );
+  weekUnusable = true;
+  const next = await generate();
+  weekUnusable = false;
+  assert.ok(modelCalls > calls, "the reviewed notes no longer block");
+  assert.equal(next.status, "exception");
+  assert.notEqual(next.code, "SCOPE_REVIEW");
+  const resolved = (await ok("/nutrition/coach")).records.filter(
+    (r: any) =>
+      r.kind === "nutrition_exception" &&
+      r.status === "resolved" &&
+      r.data.code === "SCOPE_REVIEW",
+  );
+  assert.ok(resolved.length >= 2);
+  for (const r of resolved)
+    assert.ok(
+      !Number.isNaN(Date.parse(r.data.resolvedAt)),
+      "resolvedAt is recorded",
+    );
 });
 
 test("retiring an unsafe food or recipe flags current and future delivered weeks for coach review", async () => {

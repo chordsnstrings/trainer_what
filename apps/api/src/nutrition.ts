@@ -58,6 +58,8 @@ import {
   nutritionTarget,
   validateNutritionWeek,
   NutritionBlocked,
+  nutritionRedFlags,
+  checkinsAllowAdjustment,
   nutritionSummary,
   localDate,
   dateOffset,
@@ -110,6 +112,28 @@ async function find(tx: Tx, recordId: string, kind: string) {
   ]);
   if (!r) throw fail(404, "NOT_FOUND", "Nutrition item unavailable");
   return r;
+}
+// The same 28-day window training plans screen (brain-plans SAFETY_WINDOW_DAYS).
+const NUTRITION_SAFETY_WINDOW_DAYS = 28;
+/**
+ * The code safety floor over the member's recent nutrition check-in and
+ * meal-log notes, the free text where eating-related red flags are most
+ * likely written ("I've been making myself sick after meals"). Automatic meal
+ * weeks stop for the coach (SCOPE_REVIEW) as they do for the food profile.
+ * Notes saved before the coach's latest resolution of a SCOPE_REVIEW
+ * exception (its resolvedAt, so a later operator note does not move it) have
+ * been reviewed and no longer stop automatic weeks.
+ */
+async function requireNoRecentNutritionRedFlags(tx: Tx, userId: string) {
+  const rows = await tx.query(
+    "SELECT r.data->>'notes' AS text FROM records r WHERE r.owner_user_id=$1 AND r.kind IN ('nutrition_checkin','nutrition_log') AND r.created_at>=now()-make_interval(days=>$2) AND coalesce(r.data->>'notes','')<>'' AND r.created_at>coalesce((SELECT max(coalesce((e.data->>'resolvedAt')::timestamptz,e.updated_at)) FROM records e WHERE e.kind='nutrition_exception' AND e.owner_user_id=$1 AND e.status='resolved' AND e.data->>'code'='SCOPE_REVIEW'),'-infinity'::timestamptz) ORDER BY r.created_at DESC LIMIT 200",
+    [userId, NUTRITION_SAFETY_WINDOW_DAYS],
+  );
+  if (nutritionRedFlags(rows.map((r) => r.text as string)).length)
+    throw new NutritionBlocked(
+      "SCOPE_REVIEW",
+      "Your recent nutrition notes need a coach review before automatic dietary guidance.",
+    );
 }
 async function latest(tx: Tx, kind: string, userId?: string, status?: string) {
   const [r] = await tx.query(
@@ -1615,7 +1639,7 @@ export function nutritionRoutes(
       const r = await find(tx, (req.params as any).id, "nutrition_exception");
       // Resolution is single-use: a repeated submission cannot append duplicate teaching.
       const resolved = await tx.query(
-        "UPDATE records SET status='resolved',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1 AND status='open' RETURNING id",
+        "UPDATE records SET status='resolved',version=version+1,updated_at=now(),data=data||$2::jsonb||jsonb_build_object('resolvedAt',now()) WHERE id=$1 AND status='open' RETURNING id",
         [
           r.id,
           JSON.stringify({ resolution: b.resolution, resolvedBy: a.userId }),
@@ -2286,6 +2310,7 @@ export async function prepareNutritionWeek(
     let targetKcal: number,
       individualTarget: Awaited<ReturnType<typeof clientNutritionTarget>>;
     try {
+      await requireNoRecentNutritionRedFlags(tx, a.userId);
       individualTarget = await clientNutritionTarget(
         tx,
         a.userId,
@@ -2327,6 +2352,7 @@ export async function prepareNutritionWeek(
         const dates = sample.map((c) => c.data.date).sort();
         if (
           dates.at(-1)! >= dateOffset(dates[0], adjustment.minimumDays) &&
+          checkinsAllowAdjustment(sample.map((c) => c.data)) &&
           sample.every((c) =>
             adjustment.trigger === "hunger_high"
               ? c.data.hunger >= 4
@@ -2455,6 +2481,8 @@ export async function prepareNutritionWeek(
       const now = await permission(tx, a.userId, true),
         profile = await latest(tx, "nutrition_profile", a.userId),
         ready = await requireNutritionReady(tx);
+      // A red flag written while the week was being prepared still stops it.
+      await requireNoRecentNutritionRedFlags(tx, a.userId);
       if (
         profile?.id !== s.profile.id ||
         ready.release!.id !== s.release.id ||

@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { safetySignal, screeningText } from "./index.ts";
+import {
+  RED_FLAG_CATEGORIES,
+  latinDigits,
+  redFlagCategories,
+  screeningText,
+  type RedFlagCategory,
+} from "./index.ts";
 
 /**
  * The published coaching safety policy may only tighten coaching safety
@@ -14,8 +20,11 @@ export const SAFETY_FLOOR = Object.freeze({
   /** Longest a policy personal-review question may wait before escalation. */
   personalReviewHours: 72,
   minimumHours: 1,
-  /** Always pause training; checked by safetySignal() before any policy. */
-  holdCategories: Object.freeze(["pain", "urgent", "pregnancy", "self_harm"]),
+  /**
+   * Always pause training; checked by safetySignal() (redFlagCategories in
+   * red-flags.ts) before any policy.
+   */
+  holdCategories: RED_FLAG_CATEGORIES,
 });
 
 /** Opt-in categories a policy can route to the trainer's personal review. */
@@ -396,11 +405,16 @@ export const PINNED_DUE_SQL =
  */
 export const EFFECTIVE_DUE_SQL = `LEAST(coalesce(${PINNED_DUE_SQL},'infinity'::timestamptz),created_at+make_interval(hours=>CASE WHEN data->>'category'='safety' THEN $1::int ELSE $2::int END))`;
 const compiled = new Map<string, RegExp>();
-/** Terms are folded like the red-flag screen; Arabic clitic prefixes are allowed. */
+/**
+ * Terms are folded like the red-flag screen, with Arabic-Indic digits read as
+ * Latin ("عمري ١٦" matches "عمري 16"); Arabic clitic prefixes are allowed.
+ */
 function matcher(value: string) {
   let pattern = compiled.get(value);
   if (!pattern) {
-    const folded = screeningText(value).trim().replace(/\s+/g, " ");
+    const folded = latinDigits(screeningText(value))
+      .trim()
+      .replace(/\s+/g, " ");
     // Defence in depth: a term with no letters or numbers never matches.
     if (foldedCore(folded).length < 2) {
       pattern = /(?!)/u;
@@ -425,6 +439,8 @@ export type SafetyScreen = {
   /** Pause training and escalate: the code floor or a policy red-flag term. */
   hold: boolean;
   floor: boolean;
+  /** What the code floor found (empty when it found nothing). */
+  floorCategories: RedFlagCategory[];
   policyTerms: string[];
   /** Route to the trainer instead of an automatic response (never weaker than hold). */
   review: boolean;
@@ -437,8 +453,9 @@ export function screenSafety(
     "redFlagTerms" | "personalReviewCategories" | "personalReviewTerms"
   >,
 ): SafetyScreen {
-  const screened = screeningText(text);
-  const floor = safetySignal(text);
+  const screened = latinDigits(screeningText(text));
+  const floorCategories = redFlagCategories(text);
+  const floor = floorCategories.length > 0;
   const policyTerms = policy.redFlagTerms.filter((t) =>
     matcher(t).test(screened),
   );
@@ -451,6 +468,7 @@ export function screenSafety(
   return {
     hold,
     floor,
+    floorCategories,
     policyTerms,
     review: !hold && reviewCategories.length > 0,
     reviewCategories,
