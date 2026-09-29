@@ -1231,6 +1231,12 @@ export function registerWebAddresses(
         subscription_data: {
           metadata,
           description: text.description,
+          // Classic billing mode: charging a late renewal now resets the
+          // billing cycle anchor with proration_behavior "none", which invoices
+          // the full year at once only in classic mode. Flexible mode (the
+          // default since 2025-09-30.clover) would create no invoice and move
+          // the next charge a year out (web-address-orders.ts alignBilling).
+          billing_mode: { type: "classic" },
         },
         success_url: `${c.origin}/trainer/domains?order=${order.id}`,
         cancel_url: `${c.origin}/trainer/domains?order=${order.id}&checkout=cancelled`,

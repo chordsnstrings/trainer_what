@@ -2,6 +2,7 @@ import type { Actor, Database, Tx } from "@trainer/db";
 import { event, putRecord } from "@trainer/db";
 import { requireCommerce, stripeClient } from "@trainer/providers";
 import { z } from "zod";
+import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 export const promotionSchema = z
@@ -48,6 +49,15 @@ export async function createPromotion(
       throw fail(
         "PRODUCT_REQUIRED",
         "Publish this offer to Stripe before adding a promotion",
+      );
+    // The discounted first payment must be free or a chargeable amount:
+    // Stripe cannot charge less than AED 2.00.
+    const price = Number(product.data.priceMinor);
+    const discounted = price - Math.round((price * input.percentOff) / 100);
+    if (discounted > 0 && discounted < STRIPE_MIN_CHARGE_AED_MINOR)
+      throw fail(
+        "PROMOTION_BELOW_MINIMUM",
+        `With this discount the first payment would be AED ${(discounted / 100).toFixed(2)}; card payments start at AED 2.00. Choose a smaller discount or 100%.`,
       );
     return putRecord(
       tx,
@@ -137,7 +147,7 @@ export async function checkoutOfferTerms(
     [a.userId],
   );
   const [trialUse] = await tx.query(
-    "SELECT id FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->'offerTerms'->>'trialDays')::integer>0 AND status<>'expired' LIMIT 1",
+    "SELECT id FROM records WHERE kind='checkout' AND owner_user_id=$1 AND (data->'offerTerms'->>'trialDays')::integer>0 AND status<>'expired' AND NOT (status='closed' AND data ? 'providerRefusal') LIMIT 1",
     [a.userId],
   );
   const trialDays =

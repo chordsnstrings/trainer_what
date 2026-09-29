@@ -533,7 +533,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       field("STRIPE_PUBLISHABLE_KEY", "Publishable API key", "text"),
       field("STRIPE_WEBHOOK_SECRET", "Webhook signing secret", "secret", {
         required: true,
-        help: "Configure the Stripe endpoint as /api/v1/webhooks/stripe on the public application address.",
+        help: "Configure the Stripe endpoint as /api/v1/webhooks/stripe on the public application address, created with API version 2026-08-26.dahlia (docs/features/payments-stripe.md lists its events).",
       }),
       field("COMMERCE_APPROVED", "Enable live commerce", "boolean", {
         defaultValue: "false",

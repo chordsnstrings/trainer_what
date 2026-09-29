@@ -7,10 +7,16 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
-import { requireCommerce, stripeClient } from "@trainer/providers";
+import {
+  requireCommerce,
+  stripeClient,
+  stripeRefused,
+} from "@trainer/providers";
 import { z } from "zod";
+import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
 import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import { checkoutAbsent, refusalOf } from "./stripe-outcomes.ts";
 import {
   offerBilling,
   processProgrammeCheckoutEvent,
@@ -22,6 +28,7 @@ const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 const terminalSubscription = (status: string) =>
   ["canceled", "incomplete_expired"].includes(status);
+
 const inputSchema = z
   .object({
     productId: uuid,
@@ -116,18 +123,27 @@ export async function processMembershipCheckoutEvent(
   if (remote?.mode !== "subscription") return false;
   if (remote.metadata?.purpose === "voice_addon") return false;
   const intentId = remote.metadata?.intent_id ?? remote.client_reference_id;
+  // Every checkout this platform creates carries its intent, tenant and
+  // member: one without them (a Payment Link) is not the platform's, and
+  // the webhook route parks it instead of failing it for three days.
   if (!uuid.safeParse(intentId).success)
-    throw fail(
-      "CHECKOUT_MAPPING_REQUIRED",
-      "Subscription checkout has no recognized business intent",
+    throw Object.assign(
+      fail(
+        "CHECKOUT_MAPPING_REQUIRED",
+        "Subscription checkout has no recognized business intent",
+      ),
+      { unmatched: true },
     );
   if (
     !uuid.safeParse(remote.metadata?.tenant_id).success ||
     !uuid.safeParse(remote.metadata?.user_id).success
   )
-    throw fail(
-      "CHECKOUT_MAPPING_REQUIRED",
-      "Checkout tenant and user identity are required",
+    throw Object.assign(
+      fail(
+        "CHECKOUT_MAPPING_REQUIRED",
+        "Checkout tenant and user identity are required",
+      ),
+      { unmatched: true },
     );
   const providerActor = elevated("provider-callback", {
     tenantId: remote.metadata.tenant_id,
@@ -266,7 +282,8 @@ async function reconcileIntent(
   r: any,
   stripe: ReturnType<typeof stripeClient>,
 ) {
-  let remote: any;
+  let remote: any,
+    listed = false;
   if (r.data.providerId)
     remote = await stripe.checkout.sessions.retrieve(r.data.providerId);
   else {
@@ -291,10 +308,30 @@ async function reconcileIntent(
         remote = matches[0];
         break;
       }
-      if (!result.has_more) break;
+      if (!result.has_more) {
+        listed = true;
+        break;
+      }
       cursor = result.data.at(-1)?.id;
       if (!cursor) break;
     }
+  }
+  // Stripe never created a session for this intent, and one created now
+  // could no longer be paid (its expiry has passed): the intent is expired.
+  if (!remote && listed && checkoutAbsent(r)) {
+    const scope = elevated("provider-callback", {
+      tenantId: r.tenant_id,
+      role: "owner",
+    });
+    await db.tenant(scope, async (tx) => {
+      await checkoutLock(tx, { tenantId: r.tenant_id, userId: r.owner_user_id });
+      await tx.query(
+        "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
+        [r.id, JSON.stringify({ providerStatus: "absent" })],
+      );
+      await event(tx, scope, "checkout.absent", r.id);
+    });
+    return { status: "expired" };
   }
   if (!remote)
     throw fail(
@@ -498,6 +535,16 @@ export async function createMembershipCheckout(
           );
           if (!product?.data.stripePriceId)
             throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
+          // Stripe cannot charge less than AED 2.00; an older offer priced
+          // below it is refused before any provider instruction.
+          if (
+            Number(product.data.priceMinor) > 0 &&
+            Number(product.data.priceMinor) < STRIPE_MIN_CHARGE_AED_MINOR
+          )
+            throw fail(
+              "PRICE_BELOW_MINIMUM",
+              "This offer's price is below the smallest card payment (AED 2.00); your coach needs to update it",
+            );
           const billing = offerBilling(product.data);
           if (admission === "renew_upfront" && billing !== "upfront")
             throw fail(
@@ -635,10 +682,20 @@ export async function createMembershipCheckout(
         );
       return { url: remote.url, intentId: intent.id };
     } catch (error) {
+      // A Stripe refusal (a 4xx answer) created nothing: the intent is
+      // closed with the reason and another purchase may start. Anything else
+      // may have reached Stripe and stays uncertain until reconciled.
+      const refused = stripeRefused(error);
       await db.tenant(a, (tx) =>
         tx.query(
-          "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
-          [intent.id],
+          "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='creating'",
+          [
+            intent.id,
+            refused ? "closed" : "unknown",
+            JSON.stringify(
+              refused ? { providerRefusal: refusalOf(error) } : {},
+            ),
+          ],
         ),
       );
       throw error;

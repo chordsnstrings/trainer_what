@@ -166,6 +166,45 @@ export function integrationStatus() {
     },
   ];
 }
+/**
+ * The Stripe API version every request is sent with, stated explicitly (it is
+ * the version stripe-node 22.6.2 is generated for; a new SDK major must fail
+ * the type check here instead of changing request shapes silently).
+ */
+export const STRIPE_API_VERSION = "2026-08-26.dahlia" as const;
+/**
+ * Webhook payload versions the event projections are verified against: the
+ * pinned version, and the live account default (2026-06-24.dahlia) that an
+ * endpoint without its own version receives. Both dahlia versions have the
+ * same shape for every field the app reads (docs/features/payments-stripe.md).
+ */
+export const STRIPE_WEBHOOK_API_VERSIONS: readonly string[] = [
+  STRIPE_API_VERSION,
+  "2026-06-24.dahlia",
+];
+/** Whether a secret or restricted key is a live-mode key. */
+export const stripeKeyLive = (key: string) => /^(sk|rk)_live_/.test(key);
+/**
+ * A Stripe API refusal that proves nothing was created or changed: an HTTP
+ * 400, 401, 402, 403 or 404 answer. An idempotency error (the key was already
+ * used, so the first request may have acted), 409, 429, 5xx, timeouts and
+ * connection errors stay uncertain.
+ */
+export function stripeRefused(error: unknown): boolean {
+  const e = error as {
+    type?: unknown;
+    rawType?: unknown;
+    statusCode?: unknown;
+  } | null;
+  return (
+    !!e &&
+    typeof e.type === "string" &&
+    e.type.startsWith("Stripe") &&
+    e.type !== "StripeIdempotencyError" &&
+    e.rawType !== "idempotency_error" &&
+    [400, 401, 402, 403, 404].includes(Number(e.statusCode))
+  );
+}
 export function stripeClient() {
   const config = runtimeConfig();
   if (!config.STRIPE_SECRET_KEY) throw new ProviderUnavailable("stripe");
@@ -173,6 +212,7 @@ export function stripeClient() {
   // loopback HTTPS mock; the override is ignored everywhere else.
   const sandbox = sandboxOverride("STRIPE_API_BASE_URL");
   return new Stripe(config.STRIPE_SECRET_KEY, {
+    apiVersion: STRIPE_API_VERSION,
     maxNetworkRetries: 2,
     timeout: 15000,
     ...(sandbox

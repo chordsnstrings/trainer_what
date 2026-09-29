@@ -55,7 +55,7 @@ name. The coordinator still owns the final number; if it changes, keep it after
   retry and the app must reconcile; coupons limited to products are refused for another product's
   price (`coupon_not_applicable`), expired or used-up coupons are refused, and redemptions are
   counted; `charge.refunded` no longer embeds the refunds list, matching the stamped API version
-  `2025-09-30.clover` (Stripe dropped it from 2022-11-15); `chargeEventObject(charge, "2022-08-01")`
+  `2026-06-24.dahlia`, the live account default, since 29 September 2026 (Stripe dropped it from 2022-11-15); `chargeEventObject(charge, "2022-08-01")`
   and `sendEvent(..., { apiVersion })` produce the older shape on purpose.
 - New suite `tests/e2e/scenarios/provider-recovery.e2e.ts` (phase "completion: provider-loss
   recovery"), per audience:

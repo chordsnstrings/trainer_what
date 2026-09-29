@@ -3069,7 +3069,16 @@ async function verifyAndActivate(
  * without proration). If that date has already passed without it, the
  * renewal is charged now instead (a new billing cycle from today), so it is
  * paid well before expiry. "failed" is retried on a short backoff.
+ *
+ * Charging now resets the billing cycle anchor without proration, which
+ * invoices the full year at once only in classic billing mode (checkout
+ * creates these subscriptions in it, web-addresses.ts). A subscription in
+ * flexible mode would get no invoice from that reset, so it gets a trial
+ * ending in a few minutes instead: the trial's end starts the new yearly
+ * period with its full invoice in either mode.
  */
+/** How soon a late renewal of a flexible-mode subscription is charged. */
+const LATE_CHARGE_DELAY_SECONDS = 300;
 async function alignBilling(
   db: Database,
   tenantId: string,
@@ -3088,7 +3097,25 @@ async function alignBilling(
   const late = anchor * 1000 <= Date.now() + 3600000;
   const wa = workerActor(tenantId);
   try {
-    if (late)
+    const flexible =
+      late &&
+      (
+        await stripeOf(deps).subscriptions.retrieve(
+          order.stripe_subscription_id,
+        )
+      )?.billing_mode?.type === "flexible";
+    if (late && flexible)
+      await stripeOf(deps).subscriptions.update(
+        order.stripe_subscription_id,
+        {
+          trial_end: Math.floor(Date.now() / 1000) + LATE_CHARGE_DELAY_SECONDS,
+          proration_behavior: "none",
+        },
+        {
+          idempotencyKey: `web-address-charge:${order.id}:${new Date(expires).toISOString().slice(0, 10)}`,
+        },
+      );
+    else if (late)
       await stripeOf(deps).subscriptions.update(
         order.stripe_subscription_id,
         { billing_cycle_anchor: "now", proration_behavior: "none" },

@@ -202,7 +202,12 @@ Shared exit behaviour (`apps/api/src/membership-exit.ts`):
 
 - A renewing Stripe subscription is first set to cancel at period end through
   the existing `changeRenewal` flow (stable intent; an uncertain outcome is
-  held for reconciliation and blocks the exit until reconciled). Without a
+  held for reconciliation and blocks the exit until reconciled; a Stripe
+  refusal fails the instruction and frees the exit). A past-due, incomplete or
+  unpaid subscription is instead ended at once (`subscriptions.cancel`), so
+  Stripe stops collecting its open invoice from someone who is no longer a
+  member; the notice says the subscription with its unpaid payment is
+  cancelled (29 September 2026, `payments-stripe.md`). Without a
   payment provider the exit is refused with 503 and nothing changes. Paid
   time is not refunded automatically; the UI tells the follower to request a
   refund before leaving.
