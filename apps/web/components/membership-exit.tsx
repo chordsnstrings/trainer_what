@@ -1,4 +1,5 @@
 "use client";
+import { clearPersonalCaches } from "./pwa";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   accountRequest,
@@ -116,6 +117,8 @@ export function LeaveTrainer() {
                     : {}),
                 });
                 setDone(true);
+                // This coach's pages must not stay on a shared phone.
+                void clearPersonalCaches();
                 setMessage(
                   r.nextWorkspace
                     ? "You left this trainer. Opening your other coaching space…"

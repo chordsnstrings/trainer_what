@@ -335,14 +335,14 @@ try {
     .getByRole("button", { name: "Log set 1", exact: true })
     .click();
   await subscriber
-    .getByText("1 set log is waiting to sync.", { exact: false })
+    .getByText("1 set log saved on this phone — will sync.", { exact: false })
     .waitFor();
   await subscriber.reload({ waitUntil: "domcontentloaded" });
   await subscriber.locator(".set-row").first().waitFor();
   if (subscriber.url() !== workoutUrl)
     throw new Error("Offline reload did not preserve the workout route");
   await subscriber
-    .getByText("1 set log is waiting to sync.", { exact: false })
+    .getByText("1 set log saved on this phone — will sync.", { exact: false })
     .waitFor();
   await subscriberContext.setOffline(false);
   await subscriber.waitForFunction(
@@ -488,14 +488,14 @@ try {
     .first()
     .click();
   await subscriber
-    .getByText("1 meal entry/entries waiting to sync.", { exact: false })
+    .getByText("1 meal saved on this phone — will sync.", { exact: false })
     .waitFor();
   await subscriber.reload({ waitUntil: "domcontentloaded" });
   await subscriber
     .getByRole("heading", { name: "Your week of meals", exact: true })
     .waitFor();
   await subscriber
-    .getByText("1 meal entry/entries waiting to sync.", { exact: false })
+    .getByText("1 meal saved on this phone — will sync.", { exact: false })
     .waitFor();
   await subscriberContext.setOffline(false);
   await subscriber.waitForFunction(

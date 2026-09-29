@@ -584,7 +584,7 @@ test("the root layout renders <html lang dir> from the resolved document languag
   );
   assert.match(layout, /const \{ lang, dir \} = await documentLanguage\(\);/);
   // The brand typeface adds its CSS variable class (next/font).
-  assert.match(layout, /<html\s+lang=\{lang\}\s+dir=\{dir\}(\s+className=\{[^}]+\})?\s*>/);
+  assert.match(layout, /<html\s+lang=\{lang\}\s+dir=\{dir\}(\s+className=\{[^}]+\})?(\s+suppressHydrationWarning)?\s*>/);
   const server = await readFile(
     new URL("../apps/web/components/public-website.ts", import.meta.url),
     "utf8",

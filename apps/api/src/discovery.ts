@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import sharp from "sharp";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
@@ -12,11 +11,10 @@ import {
   DIRECTORY_SPECIALTIES,
   INDEXABLE_MARKETING_PAGES,
   SITEMAP_COACHES_PER_FILE,
-  appInitials,
-  brandContrast,
   coachHostPagePath,
   directoryListingSchema,
   directorySearchSchema,
+  memberAppManifest,
   platformManifest,
   resolveBrandDesign,
   shortAppName,
@@ -26,6 +24,8 @@ import {
 } from "@trainer/contracts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { siteSchema } from "./coach-site.ts";
+import { hasNutritionAccess } from "./entitlements.ts";
+import { renderAppIcon } from "./app-icons.ts";
 import type { HostContext } from "./host-routing.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
@@ -370,6 +370,27 @@ export async function memberInstall(db: Database, a: Actor) {
   const icon = (file: AppIconFile) =>
     `/api/v1/app/icons/${key}/${file}?v=${revision}`;
   const name = String(tenant.name);
+  const subscriber = a.role === "subscriber";
+  // Shortcuts only for what this member can use; the manifest is per member
+  // (cookie-scoped, Vary: Cookie), so nothing here reaches anyone else.
+  const [features] = subscriber
+    ? await db.tenant(a, async (tx) => {
+        const [prefs] = await tx.query(
+          "SELECT data->>'language' AS language FROM notification_preferences WHERE user_id=$1",
+          [a.userId],
+        );
+        const [slots] = await tx.query(
+          "SELECT EXISTS(SELECT 1 FROM booking_slots WHERE ends_at>now()-interval '30 days') AS bookings",
+        );
+        return [
+          {
+            language: prefs?.language ?? null,
+            nutrition: await hasNutritionAccess(tx, a.userId),
+            bookings: slots?.bookings === true,
+          },
+        ];
+      })
+    : [{ language: null, nutrition: false, bookings: false }];
   return {
     name,
     shortName: shortAppName(name),
@@ -378,106 +399,20 @@ export async function memberInstall(db: Database, a: Actor) {
     published: tenant.published === true,
     manifestUrl: "/api/v1/app/manifest.webmanifest",
     icons: { apple: icon("180.png"), icon: icon("192.png") },
-    manifest: {
-      id: `/coach/${tenant.slug}`,
+    manifest: memberAppManifest({
+      slug: tenant.slug,
       name,
-      short_name: shortAppName(name),
-      description: `${name} coaching`,
-      start_url: a.role === "subscriber" ? "/app" : "/trainer",
-      scope: "/",
-      display: "standalone",
-      background_color: design.surface,
-      theme_color: design.primary,
-      icons: [
-        { file: "192.png", sizes: "192x192", purpose: "any" },
-        { file: "512.png", sizes: "512x512", purpose: "any" },
-        { file: "maskable-512.png", sizes: "512x512", purpose: "maskable" },
-      ].map((entry) => ({
-        src: icon(entry.file as AppIconFile),
-        sizes: entry.sizes,
-        type: "image/png",
-        purpose: entry.purpose,
-      })),
-    },
+      role: a.role,
+      primary: design.primary,
+      surface: design.surface,
+      language: features.language,
+      features: { nutrition: features.nutrition, bookings: features.bookings },
+      icon,
+    }),
   };
 }
 
-const escapeXml = (value: string) =>
-  value.replace(
-    /[<>&"']/g,
-    (c) =>
-      ({
-        "<": "&lt;",
-        ">": "&gt;",
-        "&": "&amp;",
-        '"': "&quot;",
-        "'": "&apos;",
-      })[c]!,
-  );
-export const MASKABLE_LOGO_SCALE = 0.56;
-/**
- * Render an exact-size PNG. A platform-hosted logo sits on the brand surface
- * colour (inside the maskable safe zone when needed); otherwise initials are
- * drawn on the brand primary colour. Output is always opaque.
- */
-export async function renderAppIcon(options: {
-  name: string;
-  design: BrandDesign;
-  size: number;
-  variant: "any" | "apple" | "maskable";
-  logo?: Buffer;
-}): Promise<Buffer> {
-  const { name, design, size, variant, logo } = options;
-  if (logo) {
-    try {
-      // A maskable icon's safe zone is the centred circle of radius 0.4; a
-      // square of side 0.56 fits inside it (half-diagonal 0.396).
-      const inner = Math.round(
-        size *
-          (variant === "maskable"
-            ? MASKABLE_LOGO_SCALE
-            : variant === "apple"
-              ? 0.8
-              : 0.84),
-      );
-      const fitted = await sharp(logo)
-        .resize(inner, inner, {
-          fit: "contain",
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
-        })
-        .png()
-        .toBuffer();
-      return await sharp({
-        create: {
-          width: size,
-          height: size,
-          channels: 3,
-          background: design.surface,
-        },
-      })
-        .composite([{ input: fitted, gravity: "centre" }])
-        // The base is opaque, so dropping the alpha channel loses nothing;
-        // home-screen surfaces treat an alpha channel inconsistently.
-        .removeAlpha()
-        .png()
-        .toBuffer();
-    } catch {
-      // A damaged stored image falls back to initials rather than failing.
-    }
-  }
-  const ink =
-    brandContrast("#ffffff", design.primary) >=
-    brandContrast("#000000", design.primary)
-      ? "#ffffff"
-      : "#000000";
-  const fontSize = variant === "maskable" ? 150 : 190;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 512 512"><rect width="512" height="512" fill="${design.primary}"/><text x="256" y="256" dy="0.35em" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="${fontSize}" fill="${ink}">${escapeXml(appInitials(name))}</text></svg>`;
-  return sharp(Buffer.from(svg))
-    .resize(size, size)
-    .flatten({ background: design.primary })
-    .png()
-    .toBuffer();
-}
+export { MASKABLE_LOGO_SCALE, renderAppIcon } from "./app-icons.ts";
 
 const sitemapQuery = z
   .object({ page: z.coerce.number().int().min(0).max(100000).default(0) })
@@ -557,7 +492,8 @@ export function registerDiscovery(app: FastifyInstance, db: Database) {
     const { key, file } = req.params as { key: string; file: string };
     if (!iconKeyPattern.test(key) || !Object.hasOwn(APP_ICON_FILES, file))
       throw fail(404, "NOT_FOUND", "Icon unavailable");
-    const spec = APP_ICON_FILES[file as AppIconFile];
+    const spec: (typeof APP_ICON_FILES)[AppIconFile] =
+      APP_ICON_FILES[file as AppIconFile];
     const context = req.hostContext;
     const [tenant] = await db.system((tx) =>
       tx.query(
@@ -585,7 +521,9 @@ export function registerDiscovery(app: FastifyInstance, db: Database) {
       design,
       size: spec.size,
       variant: spec.variant,
-      logo,
+      shortcut: "shortcut" in spec ? spec.shortcut : undefined,
+      // Shortcut icons draw the feature's symbol, never the logo.
+      logo: spec.variant === "shortcut" ? undefined : logo,
     });
   });
 }

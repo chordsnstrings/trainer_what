@@ -4,6 +4,7 @@
 // plays the trainer-voice clips (or shows the words), runs the clock, listens
 // for spoken replies and performs the effects: set logs go through the same
 // device queue as the workout page, pain opens the existing safety hold.
+import { queuedSummary } from "./pwa";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ECHO_GRACE_MS,
@@ -1222,7 +1223,7 @@ function Runner({
         ) : null}
         {(queued > 0 || rejected > 0) && (
           <p className="muted" role="status">
-            {queued > 0 && `${queued} set logs waiting to sync. `}
+            {queued > 0 && `${queuedSummary(queued, "set")}. `}
             {rejected > 0 && `${rejected} set logs need attention on the workout log.`}
           </p>
         )}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AcquisitionConsent } from "../components/acquisition";
+import { LAUNCH_COLOUR_SCRIPT } from "../components/pwa";
 import { documentLanguage } from "../components/public-website";
 import { publicPlatform } from "../components/marketing/platform";
 import {
@@ -31,6 +32,7 @@ import "./brain-plans.css";
 import "./voice-session.css";
 import "./web-address.css";
 import "./phone-first.css";
+import "./pwa.css";
 import "./marketing.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
@@ -98,6 +100,11 @@ export async function generateMetadata(): Promise<Metadata> {
       ],
       apple: { url: icons.apple180, sizes: "180x180" },
     },
+    // Opened from the home screen, iOS shows the app full screen with a
+    // light status bar and this title under the icon (the member app puts
+    // the coach's name there once signed in: member-app-install.tsx).
+    appleWebApp: { capable: true, title: name, statusBarStyle: "default" },
+    other: { "apple-mobile-web-app-capable": "yes" },
     // app/manifest.ts serves /manifest.webmanifest from the configured name.
     description: brand
       ? `${BRAND_COPY.line} ${BRAND_COPY.explanation}`
@@ -124,7 +131,17 @@ export default async function Layout({
   // document-language.ts for the precedence).
   const { lang, dir } = await documentLanguage();
   return (
-    <html lang={lang} dir={dir} className={fontVariables}>
+    // The launch script may set the member app's first-paint colour on
+    // <html> before React hydrates (docs/features/pwa.md).
+    <html
+      lang={lang}
+      dir={dir}
+      className={fontVariables}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LAUNCH_COLOUR_SCRIPT }} />
+      </head>
       <body>
         {children}
         <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />

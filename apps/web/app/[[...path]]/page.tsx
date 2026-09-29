@@ -185,7 +185,7 @@ export async function generateMetadata({
             description: `Personal coaching with ${data.tenant.name}.`,
             icons: {
               icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
-              apple: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+              apple: `/api/v1/public/sites/${data.tenant.slug}/icon/180`,
             },
           }
         : { description: null }),
@@ -222,7 +222,7 @@ export async function generateMetadata({
     manifest: `/api/v1/public/sites/${data.tenant.slug}/manifest.webmanifest`,
     icons: {
       icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
-      apple: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+      apple: `/api/v1/public/sites/${data.tenant.slug}/icon/180`,
     },
   };
 }

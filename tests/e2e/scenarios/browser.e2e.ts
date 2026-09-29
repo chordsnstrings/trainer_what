@@ -187,7 +187,7 @@ async function offlineWorkout(ctx: E2EContext, browser: Browser, member: Followe
     const cached = await page.getByText("Workout saved for this device").count();
     await context.setOffline(true);
     await page.locator("form.set-row").first().locator('button[type="submit"]').click();
-    await visible(page, /waiting to sync/);
+    await visible(page, /will sync/);
     let reloaded = "not attempted";
     if (cached) {
       await page.reload();
@@ -208,7 +208,7 @@ async function offlineWorkout(ctx: E2EContext, browser: Browser, member: Followe
       const sets = (await device.get("/api/v1/bootstrap")).sets.filter((s: any) => s.workout_id === workout.id);
       return sets.length > before;
     }, 30000);
-    await page.getByText(/waiting to sync/).first().waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
+    await page.getByText(/will sync/).first().waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
     return `${reloaded}; set synced after reconnecting`;
   });
 }
@@ -237,7 +237,7 @@ async function offlineDiary(ctx: E2EContext, browser: Browser, member: FollowerS
     await page.evaluate(() => window.dispatchEvent(new Event("offline")));
     await visible(page, /Offline\. Saved plans are a reference copy/);
     await page.getByRole("button", { name: "Log this meal" }).first().click();
-    await visible(page, /Saved on this device|waiting to sync/);
+    await visible(page, /Saved on this phone|will sync/);
     await context.setOffline(false);
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await ctx.waitUntil("the queued meal reaches the diary", async () => (await count()) > before, 30000);
