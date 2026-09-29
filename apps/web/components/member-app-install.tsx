@@ -1,10 +1,12 @@
 "use client";
 import { useEffect } from "react";
+import { rememberLaunchColour } from "./pwa";
 
 type Install = {
   name: string;
   shortName: string;
   themeColor: string;
+  backgroundColor: string;
   manifestUrl: string;
   icons: { apple: string; icon: string };
 };
@@ -105,6 +107,8 @@ export function MemberAppManifest({
         if (!response.ok || cancelled) return;
         const install = (await response.json()) as Install;
         if (cancelled) return;
+        // The installed app's next launch paints the coach's surface first.
+        if (role === "subscriber") rememberLaunchColour(install.backgroundColor);
         undo.push(
           swapLinks('link[rel="manifest"]', "manifest", install.manifestUrl, {
             crossorigin: "use-credentials",

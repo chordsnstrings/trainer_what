@@ -14,6 +14,7 @@ import {
   useLegalStatus,
   type LegalStatus,
 } from "./legal-acceptance";
+import { clearPersonalCaches } from "./pwa";
 
 /** Joining a trainer: invitation acceptance, the owner's invitation list, and coach switching. */
 async function api(
@@ -457,6 +458,7 @@ export function InvitationJoin({
           `${n} workout or meal ${n === 1 ? "entry has" : "entries have"} not synced. ${n === 1 ? "It stays" : "They stay"} on this device and will sync when you return to your current coach. ${verb} anyway?`,
         ),
       leave,
+      afterLeave: clearPersonalCaches,
     });
   };
   const errorNotice = error && (
@@ -911,6 +913,7 @@ export function CoachSwitcher({
           ),
         leave: () =>
           api("/auth/workspace", "POST", { tenantId: next.tenantId }),
+        afterLeave: clearPersonalCaches,
       });
       if (left)
         window.location.assign(

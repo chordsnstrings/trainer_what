@@ -115,6 +115,22 @@ import {
 } from "./workspace-paging";
 import { GovernanceLinks } from "./governance-shared";
 import {
+  OFFLINE_STATE_KEY,
+  QUEUED_LABEL,
+  cacheNames,
+  clearPersonalCaches,
+  installKeys,
+  queuedSummary,
+} from "./pwa";
+import {
+  AppUpdateToast,
+  InstallAppRow,
+  InstallCard,
+  OfflineScreen,
+  PushPrompt,
+  useAppServiceWorker,
+} from "./pwa-ui";
+import {
   clearLocalData,
   discardRejected,
   drainWorkoutQueue,
@@ -481,6 +497,7 @@ function WorkspaceSwitcher({
                 ),
               leave: () =>
                 api("/auth/workspace", "POST", { tenantId: next.tenantId }),
+              afterLeave: clearPersonalCaches,
             });
             if (!left) {
               setBusy(false);
@@ -562,11 +579,20 @@ export default function Workspace({
     [mobile, setMobile] = useState(false),
     [online, setOnline] = useState(true),
     [suspended, setSuspended] = useState(false),
+    // No connection and nothing saved on this phone to show instead.
+    [offlineScreen, setOfflineScreen] = useState<number | null | false>(
+      false,
+    ),
     // Pages loaded beyond the bootstrap's first page. Cleared whenever the
     // bootstrap reloads, so a changed row is never shown from an old page.
     [extra, setExtra] = useState<ExtraPages>({}),
     [moreLoading, setMoreLoading] = useState("");
   const generation = useRef(0);
+  // The state on screen, for a failed refresh to keep (see `load`).
+  const shownState = useRef(state);
+  shownState.current = state;
+  // This release's service worker; members choose when a new one reloads.
+  const serviceWorker = useAppServiceWorker(path.startsWith("/app"));
   const shown = useMemo(
     () => (state ? mergePages(state, extra) : null),
     [state, extra],
@@ -595,11 +621,14 @@ export default function Workspace({
       setState(next);
       setSuspended(false);
       setBootstrapError("");
+      setOfflineScreen(false);
       if (next.user.role === "subscriber")
         localStorage.setItem(
-          "trainer:offline",
+          OFFLINE_STATE_KEY,
           JSON.stringify({
             expires: Date.now() + 12 * 3600000,
+            // When this phone last had the member's data (offline screen).
+            savedAt: Date.now(),
             state: {
               ...next,
               records: next.records.filter((r: any) =>
@@ -624,24 +653,49 @@ export default function Workspace({
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
         clearLocalData(localStorage, { keepQueues: true });
+        void clearPersonalCaches();
         memberStateCache = null;
         setState(null);
         setBootstrapError("");
         if (!publicPath) router.replace("/login");
         return;
       }
-      const cached = localStorage.getItem("trainer:offline");
-      if (!navigator.onLine && cached) {
+      const cached = localStorage.getItem(OFFLINE_STATE_KEY);
+      // No connection: a failed fetch, not an answer from the server.
+      const noConnection = !navigator.onLine || e instanceof TypeError;
+      if (
+        !navigator.onLine &&
+        path.startsWith("/app") &&
+        shownState.current?.user.role === "subscriber"
+      ) {
+        // Offline, a member keeps what is on screen; the top bar says
+        // "Offline". (Online, a failed refresh says so below.)
+        setBootstrapError("");
+        setOfflineScreen(false);
+        return;
+      }
+      if (noConnection && cached) {
         try {
           const offline = JSON.parse(cached);
           if (offline.expires > Date.now()) {
             setState(offline.state);
             setBootstrapError("");
+            setOfflineScreen(false);
             return;
           }
         } catch {
-          localStorage.removeItem("trainer:offline");
+          localStorage.removeItem(OFFLINE_STATE_KEY);
         }
+      }
+      if (noConnection && !publicPath && path.startsWith("/app")) {
+        // Offline is not a server error: say so, and what still works.
+        let savedAt: number | null = null;
+        try {
+          savedAt = cached ? (JSON.parse(cached).savedAt ?? null) : null;
+        } catch {}
+        setBootstrapError("");
+        setOfflineScreen(savedAt);
+        return;
       }
       if (!publicPath) {
         setBootstrapError(
@@ -653,7 +707,7 @@ export default function Workspace({
     } finally {
       setLoading(false);
     }
-  }, [publicPath, router]);
+  }, [publicPath, router, path]);
   useEffect(() => {
     setError("");
     setBootstrapError("");
@@ -665,8 +719,6 @@ export default function Workspace({
     } else setLoading(false);
   }, [path, publicPath, load]);
   useEffect(() => {
-    if ("serviceWorker" in navigator)
-      void navigator.serviceWorker.register("/sw.js").catch(() => {});
     const update = () => setOnline(navigator.onLine);
     update();
     window.addEventListener("online", update);
@@ -724,7 +776,18 @@ export default function Workspace({
         onSignOut={async () => {
           await api("/auth/logout", "POST", {});
           clearLocalData(localStorage, { keepQueues: true });
+          await clearPersonalCaches();
           router.push("/login");
+        }}
+      />
+    );
+  if (!loading && !state && offlineScreen !== false)
+    return (
+      <OfflineScreen
+        savedAt={offlineScreen}
+        onRetry={() => {
+          setLoading(true);
+          void load();
         }}
       />
     );
@@ -845,6 +908,7 @@ export default function Workspace({
           `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
         ),
       leave: () => api("/auth/logout", "POST", {}),
+      afterLeave: clearPersonalCaches,
     });
     if (left) {
       memberStateCache = null;
@@ -864,7 +928,7 @@ export default function Workspace({
               records, when seeded, are synthetic
             </div>
           )}
-          {!online && (
+          {!online && !subscriber && (
             <div className="notice">
               You’re offline. Workout logs are kept on this device until they
               can sync.
@@ -906,6 +970,7 @@ export default function Workspace({
     path === "/app/more" && subscriber ? (
       <MoreScreen
         nav={memberNav}
+        coachName={state.tenant.name}
         tenantId={state.user.tenantId}
         userId={state.user.userId}
         onSignOut={() => void signOut()}
@@ -1127,7 +1192,24 @@ export default function Workspace({
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <CoachingMessages state={state} />
+            <>
+              {/* A coach's reply is the moment to offer notifications. */}
+              {subscriber &&
+                records("message").some((m) =>
+                  ["trainer", "digital_qualified", "digital_reviewed"].includes(
+                    m.data?.author,
+                  ),
+                ) && (
+                  <PushPrompt
+                    coachName={state.tenant.name}
+                    askedKey={
+                      installKeys(state.user.tenantId, state.user.userId)
+                        .pushAsked
+                    }
+                  />
+                )}
+              <CoachingMessages state={state} />
+            </>
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
           ) : path.includes("/finance") ||
@@ -1176,6 +1258,11 @@ export default function Workspace({
   if (subscriber)
     return (
       <TrainerTheme className="workspace member-shell" theme={state.tenant.theme}>
+        <AppUpdateToast
+          path={path}
+          waiting={serviceWorker.waiting}
+          onReload={serviceWorker.reload}
+        />
         <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
         <MemberShell
@@ -1192,6 +1279,7 @@ export default function Workspace({
           }
           supportEmail={state.platform?.supportEmail}
           refreshing={loading}
+          offline={!online}
           onSignOut={() => void signOut()}
           footerNote={
             state.environment === "development" ? (
@@ -1451,6 +1539,15 @@ function Overview({ state, records }: ViewProps) {
       {sub && (
         <>
           <ProgrammeToday />
+          <InstallCard
+            coachName={state.tenant.name}
+            tenantId={state.user.tenantId}
+            userId={state.user.userId}
+            loggedSession={
+              state.sets.length > 0 ||
+              workouts.some((w) => w.status === "completed")
+            }
+          />
           <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
           <ClientHomeSections theme={state.tenant.theme} />
         </>
@@ -2842,14 +2939,21 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     void (async () => {
       try {
         await navigator.serviceWorker.ready;
-        const cache = await caches.open("trainer-workout-shell-v1");
+        // This release's caches (components/pwa.ts, public/sw.js): the
+        // workout page with the personal pages, its assets with the build.
+        const names = cacheNames();
+        const [pages, shell] = await Promise.all([
+          caches.open(names.pages),
+          caches.open(names.shell),
+        ]);
         const assets = performance
           .getEntriesByType("resource")
           .map((r) => r.name)
           .filter((url) => url.startsWith(location.origin + "/_next/static/"));
-        await Promise.all(
-          [path, ...new Set(assets)].map((url) => cache.add(url)),
-        );
+        await Promise.all([
+          pages.add(path),
+          ...[...new Set(assets)].map((url) => shell.add(url)),
+        ]);
         if (active)
           setNotice(
             "Workout saved for this device. Set logs can sync after a connection loss.",
@@ -2961,7 +3065,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       )}
       {queued > 0 && (
         <div className="notice">
-          {queued} set {queued === 1 ? "log is" : "logs are"} waiting to sync.{" "}
+          {queuedSummary(queued, "set")}.{" "}
           <button className="text-button" onClick={() => void sync()}>
             Sync now
           </button>
@@ -3114,7 +3218,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 ).some((p) => p.logicalKey === row.logicalKey);
                 setNotice(
                   stillPending
-                    ? `Set ${row.set} of ${ex.name} is saved on this device. It will sync when you are back online.`
+                    ? `Set ${row.set} of ${ex.name}: ${QUEUED_LABEL.toLowerCase()} when you are back online.`
                     : `Set ${row.set} of ${ex.name} logged.`,
                 );
               }}
@@ -3124,7 +3228,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 {row.done && (
                   <span className="set-logged">
                     <Check size={16} aria-hidden="true" />
-                    {row.pending ? "Saved on this device" : "Logged"}
+                    {row.pending ? QUEUED_LABEL : "Logged"}
                     {row.values && (
                       <>
                         {": "}
@@ -4434,6 +4538,9 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       )}
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
+      )}
+      {sub && !intakePage && (
+        <InstallAppRow coachName={state.tenant.name} variant="card" />
       )}
       {sub && !intakePage && (
         <Card>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isStandalone, registerServiceWorker } from "./pwa";
 
 type PushDevice = {
   id: string;
@@ -119,10 +120,8 @@ async function readBrowserState(): Promise<BrowserState> {
 }
 
 async function readyRegistration() {
-  await navigator.serviceWorker.register("/sw.js", {
-    scope: "/",
-    updateViaCache: "none",
-  });
+  // The same release-versioned worker the app registers (components/pwa.ts).
+  await registerServiceWorker();
   return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
     const timeout = window.setTimeout(
       () =>
@@ -156,6 +155,90 @@ function actionError(error: unknown, fallback: string) {
     return "Notifications were not allowed. Check this site's notification permission in your browser settings, then retry.";
   }
   return fallback;
+}
+
+/** Whether this device can turn on push from a prompt (not the settings card). */
+export type PushReadiness =
+  | { kind: "ready"; publicKey: string }
+  | { kind: "ios-install" }
+  | { kind: "enabled" }
+  | { kind: "unavailable" };
+/**
+ * What a prompt after a meaningful moment (install, a coach's reply) can
+ * offer: turn push on, explain that iPhone needs the installed app, or
+ * nothing (not configured, unsupported, blocked, or already on).
+ */
+export async function pushReadiness(): Promise<PushReadiness> {
+  try {
+    const browser = await readBrowserState();
+    if (browser.support === "install") return { kind: "ios-install" };
+    if (browser.support !== "supported" || browser.permission === "denied")
+      return { kind: "unavailable" };
+    const settings = await pushApi<PushSettings>();
+    if (!settings.configured || !settings.publicKey)
+      return { kind: "unavailable" };
+    if (
+      browser.permission === "granted" &&
+      browser.subscription &&
+      settings.devices.some((device) => device.current) &&
+      hasCurrentKey(browser.subscription, settings.publicKey)
+    )
+      return { kind: "enabled" };
+    return { kind: "ready", publicKey: settings.publicKey };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+/**
+ * Turns push on for this device from the member's own tap: permission first
+ * (still inside the tap), then the subscription, saved for this sign-in.
+ */
+export async function turnOnPush(
+  publicKey: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    const permission =
+      Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+    if (permission !== "granted")
+      return {
+        ok: false,
+        message:
+          permission === "denied"
+            ? "Notifications are blocked for this app. You can allow them later in your phone's settings."
+            : "Notifications are still off. You can turn them on any time in Profile and settings.",
+      };
+    const registration = await readyRegistration();
+    let subscription = await registration.pushManager.getSubscription();
+    if (
+      subscription &&
+      (subscriptionExpired(subscription) ||
+        !hasCurrentKey(subscription, publicKey))
+    ) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    subscription ??= await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: publicKeyBytes(publicKey),
+    });
+    await pushApi("", "POST", {
+      endpoint: subscription.endpoint,
+      expirationTime: subscription.expirationTime,
+      publicKey,
+      label: isStandalone() ? "Installed app" : "This browser",
+    });
+    return { ok: true, message: "Notifications are on for this phone." };
+  } catch (e) {
+    return {
+      ok: false,
+      message: actionError(
+        e,
+        "Notifications could not be turned on. Try again from Profile and settings.",
+      ),
+    };
+  }
 }
 
 export function PushNotifications() {

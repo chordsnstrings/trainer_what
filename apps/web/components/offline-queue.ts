@@ -311,8 +311,10 @@ export async function replayOfflineQueues(
 /**
  * Leaves the current session by sign-out or workspace switch. Both queues
  * replay first, while this session is still valid; unsynced entries need
- * confirmation and are never removed. Caches are cleared after `leave`.
- * Returns false when the person chose to stay.
+ * confirmation and are never removed. Caches are cleared after `leave`:
+ * this app's device data here, and the browser's cached pages through
+ * `afterLeave` (clearPersonalCaches in pwa.ts). Returns false when the
+ * person chose to stay.
  */
 export async function leaveSession(
   store: QueueStore,
@@ -323,6 +325,7 @@ export async function leaveSession(
     post: Post;
     confirm: (unsynced: number) => boolean;
     leave: () => Promise<unknown>;
+    afterLeave?: () => Promise<unknown> | unknown;
   },
 ) {
   if (options.online)
@@ -333,6 +336,7 @@ export async function leaveSession(
   if (unsynced > 0 && !options.confirm(unsynced)) return false;
   await options.leave();
   clearLocalData(store, { keepQueues: true });
+  await options.afterLeave?.();
   return true;
 }
 /**

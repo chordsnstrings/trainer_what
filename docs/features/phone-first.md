@@ -115,8 +115,11 @@ bars pad the safe-area insets; the page never rubber-bands
 (`overscroll-behavior-y: contain` on the root while the member shell is
 shown); a link to another site opens outside the app
 (`useExternalLinksOutsideApp`); every sub-page has the in-app back button.
-The PWA track builds on this (manifest, service worker, offline screen,
-install prompt).
+The PWA track ([pwa.md](pwa.md), branch `ui/pwa`) builds on this: the
+coach's manifest and shortcuts, the release-versioned service worker and its
+"New version ready" toast, the offline screen and the top bar's "Offline"
+pill (`MemberShell` `offline`), "Install the app" in More and Profile and a
+one-time install card on Today, and the unread count on the app icon.
 
 ## Bottom insets for fixed UI
 

@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  CloudOff,
   CreditCard,
   Dumbbell,
   Ellipsis,
@@ -44,6 +45,8 @@ import { CoachIdentity } from "./trainer-design";
 import { CoachSwitcher } from "./joining";
 import { useKeyboardInset } from "./phone-ui";
 import { playArrival } from "./motion";
+import { setAppBadge } from "./pwa";
+import { InstallAppRow } from "./pwa-ui";
 import {
   activeDestination,
   activeTab,
@@ -189,6 +192,8 @@ export type MemberShellProps = {
   /** A quiet line at the end of the page (the development notice). */
   footerNote?: ReactNode;
   refreshing?: boolean;
+  /** No connection: a small indicator in the top bar. */
+  offline?: boolean;
   onSignOut: () => void;
   children: ReactNode;
 };
@@ -203,6 +208,7 @@ export function MemberShell({
   supportEmail,
   footerNote,
   refreshing = false,
+  offline = false,
   onSignOut,
   children,
 }: MemberShellProps) {
@@ -215,6 +221,8 @@ export function MemberShell({
     playArrival(main.current);
   }, [path]);
   const unread = useUnreadChat(path, messages, user.tenantId, user.userId);
+  // The installed app's icon shows unread coach messages, where supported.
+  useEffect(() => setAppBadge(unread), [unread]);
   const tabs = memberTabs(nav),
     tab = activeTab(path, nav),
     current = activeDestination(path),
@@ -334,6 +342,16 @@ export function MemberShell({
               <CoachIdentity name={tenant.name} theme={tenant.theme} compact />
             </Link>
           )}
+          {offline && (
+            <span className="member-offline" role="status">
+              <CloudOff size={16} aria-hidden="true" />
+              Offline
+              <span className="sr-only">
+                . Workouts and meals you log are saved on this phone and sync
+                when you are back online.
+              </span>
+            </span>
+          )}
           <Link
             href="/app/profile"
             className="member-topbar-me"
@@ -394,11 +412,14 @@ export function MemberShell({
 /** /app/more: one tap to everything that is not a tab. */
 export function MoreScreen({
   nav,
+  coachName,
   tenantId,
   userId,
   onSignOut,
 }: {
   nav: MemberNavOptions;
+  /** Names the coach in "Install the app". */
+  coachName?: string;
   tenantId: string;
   userId: string;
   onSignOut: () => void;
@@ -434,6 +455,8 @@ export function MoreScreen({
           </ul>
         </section>
       ))}
+      {/* Hidden in the installed app (docs/features/pwa.md). */}
+      {coachName && <InstallAppRow coachName={coachName} />}
       {/* Shown only to someone coached by more than one coach. */}
       <CoachSwitcher current={tenantId} userId={userId} />
       <section className="more-group">

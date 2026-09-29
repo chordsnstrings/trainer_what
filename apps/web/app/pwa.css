@@ -1,0 +1,247 @@
+/* The installable member app (docs/features/pwa.md): the offline screen,
+   the "New version ready" toast, the install card, row and sheet steps,
+   the notifications prompt and the offline indicator in the top bar.
+   Mobile first (min-width queries only), logical properties only, the
+   shared tokens; no animations of its own (the bottom sheet keeps its
+   shared motion). */
+
+/* The installed app's first paint takes the coach's surface colour (the
+   launch script in app/layout.tsx), so it matches the launch screen. */
+:root[data-launch="member"],
+:root[data-launch="member"] .loading-screen {
+  background: var(--member-launch);
+}
+
+/* ------------------------------------------------------------------ */
+/* Offline screen                                                       */
+/* ------------------------------------------------------------------ */
+.offline-screen {
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px
+    max(16px, env(safe-area-inset-bottom, 0px));
+}
+.offline-card {
+  inline-size: min(100%, 480px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.offline-card h1 {
+  font-size: 24px;
+  margin: 4px 0 0;
+}
+.offline-card h2 {
+  font-size: 16px;
+  margin: 8px 0 0;
+}
+.offline-card p {
+  margin: 0;
+}
+.offline-card ul {
+  margin: 0;
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 8px;
+}
+.offline-card .button {
+  min-block-size: 48px;
+  inline-size: 100%;
+  justify-content: center;
+  margin-block-start: 8px;
+}
+@media (min-width: 768px) {
+  .offline-card .button {
+    inline-size: auto;
+  }
+}
+
+/* Top bar: a quiet "Offline" pill before the member's avatar. */
+.member-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-inline-start: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+/* ------------------------------------------------------------------ */
+/* "New version ready" toast                                            */
+/* ------------------------------------------------------------------ */
+/* Above the tab bar and any action bar (--member-bottom-inset) and, while it
+   shows, the analytics consent bar (--consent-bar-block-size from
+   components/acquisition.tsx), so it never covers the consent choices. */
+.app-update-toast {
+  position: fixed;
+  z-index: 50;
+  inset-inline: var(--member-gutter, 16px);
+  inset-block-end: calc(
+    var(--member-bottom-inset, 0px) + var(--consent-bar-block-size, 0px) +
+      12px
+  );
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 8px;
+  padding-inline: 16px 8px;
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.app-update-toast p {
+  flex: 1;
+  min-inline-size: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.app-update-toast p span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.app-update-toast .button {
+  min-block-size: 44px;
+  flex: none;
+}
+.app-update-toast .app-update-later {
+  inline-size: 44px;
+  block-size: 44px;
+  flex: none;
+}
+@media (min-width: 768px) {
+  .app-update-toast {
+    inset-inline: auto var(--member-gutter, 16px);
+    inline-size: 360px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Install: the card on Today, the card in Profile, the sheet's steps   */
+/* ------------------------------------------------------------------ */
+.install-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: start;
+}
+.install-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: 12px;
+  background: var(--brand-tint, var(--mint));
+  color: var(--brand-on-tint, var(--ink));
+}
+.install-card-text h2 {
+  font-size: 17px;
+  margin: 0 0 4px;
+}
+.install-card-text p {
+  margin: 0;
+}
+.install-card-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.install-card-actions .button {
+  min-block-size: 48px;
+}
+.install-card-actions .text-button {
+  min-block-size: 44px;
+  padding-inline: 12px;
+}
+.install-app-card .button {
+  min-block-size: 44px;
+}
+
+.install-steps {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.install-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.install-step-picture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: 52px;
+  block-size: 52px;
+  border-radius: 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--brand-link, var(--ink));
+}
+.install-step-add {
+  font-weight: 650;
+  font-size: 15px;
+}
+.install-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 16px;
+}
+.install-step-number {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Notifications after a meaningful moment                              */
+/* ------------------------------------------------------------------ */
+.push-prompt {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-block-end: 16px;
+  padding: 14px 16px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.push-prompt > svg {
+  flex: none;
+  margin-block-start: 2px;
+}
+.push-prompt h3 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+.push-prompt p {
+  margin: 0 0 8px;
+}
+.push-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.push-prompt-actions .button {
+  min-block-size: 44px;
+}
+.push-prompt-actions .text-button {
+  min-block-size: 44px;
+  padding-inline: 12px;
+}

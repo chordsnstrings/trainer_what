@@ -1,4 +1,5 @@
 "use client";
+import { clearPersonalCaches } from "./pwa";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   accountRequest,
@@ -134,6 +135,8 @@ export function LeaveTrainer() {
       const renewalCancelled = r.subscriptionAction === "renewal_cancelled";
       setOpen(false);
       setDone(true);
+      // This coach's pages must not stay on a shared phone.
+      void clearPersonalCaches();
       if (r.nextWorkspace) {
         setMessage(
           `You left ${name}.${renewalCancelled ? " Renewal is cancelled; no further payments are taken." : ""} Opening your other coaching…`,

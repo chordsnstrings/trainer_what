@@ -93,7 +93,7 @@ test("members of an unpublished workspace get the trainer-branded manifest with 
   assert.equal(body.short_name, "Maryam Al");
   assert.equal(body.theme_color, "#733f32");
   assert.equal(body.background_color, "#fbf5ef");
-  assert.equal(body.start_url, "/app");
+  assert.equal(body.start_url, "/app?source=pwa");
   assert.equal(body.scope, "/");
   assert.equal(body.display, "standalone");
   assert.equal(body.id, "/coach/install-unpublished");
@@ -106,7 +106,10 @@ test("members of an unpublished workspace get the trainer-branded manifest with 
     ],
   );
   for (const who of [c, staff, finance])
-    assert.equal((await manifestOf(who.cookie)).body.start_url, "/trainer");
+    assert.equal(
+      (await manifestOf(who.cookie)).body.start_url,
+      "/trainer?source=pwa",
+    );
   const install = await ok(h, "/app/install", { cookie: follower.cookie });
   assert.equal(install.published, false);
   assert.equal(install.themeColor, "#733f32");
@@ -134,6 +137,7 @@ test("member icons are exact-size opaque PNGs that load without cookies from an 
   const install = await ok(h, "/app/install", { cookie: follower.cookie });
   const sources = [
     ...body.icons.map((i: any) => [i.src, Number(i.sizes.split("x")[0])]),
+    ...body.shortcuts.map((s: any) => [s.icons[0].src, 96]),
     [install.icons.apple, 180],
     [install.icons.icon, 192],
   ];
@@ -297,4 +301,104 @@ test("icons fall back to initials and a coach domain serves only its own workspa
     Array.from({ length: 5 }, () => workspaceIconKey(h.db, fresh.tenantId)),
   );
   assert.equal(new Set(keys).size, 1);
+});
+
+test("a member's manifest names the coach, installs per coach, opens Today and offers shortcuts only for enabled features", async () => {
+  const a = await coach(h, "install-shortcuts-a"),
+    b = await coach(h, "install-shortcuts-b");
+  await saveBrand(a, "Amal Fitness");
+  await saveBrand(b, "Bilal Strength Club");
+  const follower = await member(h, a.tenantId, "subscriber"),
+    other = await member(h, b.tenantId, "subscriber");
+  const first = (await manifestOf(follower.cookie)).body,
+    second = (await manifestOf(other.cookie)).body;
+  // Two coaches' apps install side by side: one stable id per coach.
+  assert.equal(first.id, "/coach/install-shortcuts-a");
+  assert.equal(second.id, "/coach/install-shortcuts-b");
+  assert.equal(first.description, "Your training and messages with Amal Fitness.");
+  assert.deepEqual(first.categories, ["health", "fitness", "lifestyle"]);
+  assert.deepEqual(first.launch_handler, {
+    client_mode: ["navigate-existing", "auto"],
+  });
+  assert.equal(first.lang, "en");
+  assert.equal(first.dir, "ltr");
+  // No nutrition and no bookable sessions: workout and chat only.
+  assert.deepEqual(
+    first.shortcuts.map((s: any) => [s.name, s.url]),
+    [
+      ["Today's workout", "/app/program?source=shortcut"],
+      ["Coach chat", "/app/chat?source=shortcut"],
+    ],
+  );
+  for (const shortcut of first.shortcuts) {
+    assert.ok(shortcut.short_name.length <= 12, shortcut.short_name);
+    assert.deepEqual(
+      shortcut.icons.map((i: any) => [i.sizes, i.type]),
+      [["96x96", "image/png"]],
+    );
+  }
+  // The coach opens bookings and the member saved Arabic.
+  await h.db.system(async (tx) => {
+    await tx.query(
+      "INSERT INTO booking_slots(id,tenant_id,trainer_id,starts_at,ends_at,capacity,title,location) VALUES(gen_random_uuid(),$1,$2,now()+interval '1 day',now()+interval '25 hours',1,'Check-in','Online')",
+      [a.tenantId, a.userId],
+    );
+    await tx.query(
+      "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3)",
+      [a.tenantId, follower.userId, JSON.stringify({ language: "ar" })],
+    );
+  });
+  const updated = (await manifestOf(follower.cookie)).body;
+  assert.equal(updated.lang, "ar");
+  assert.equal(updated.dir, "rtl");
+  assert.deepEqual(
+    updated.shortcuts.map((s: any) => s.url),
+    [
+      "/app/program?source=shortcut",
+      "/app/chat?source=shortcut",
+      "/app/bookings?source=shortcut",
+    ],
+  );
+  // The other coach's member is unaffected, and the team gets no shortcuts.
+  assert.equal((await manifestOf(other.cookie)).body.lang, "en");
+  assert.equal((await manifestOf(a.cookie)).body.shortcuts, undefined);
+  // Shortcut icons draw the symbol on the coach's primary colour.
+  const { buffer } = await png(updated.shortcuts[0].icons[0].src);
+  const { data, info } = await sharp(buffer)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  assert.equal(info.width, 96);
+  assert.deepEqual([data[0], data[1], data[2]], [0x73, 0x3f, 0x32]);
+});
+
+test("the coach website's manifest shares the member app's id and has opaque any and maskable icons", async () => {
+  const c = await coach(h, "install-site");
+  await saveBrand(c, "Site Coach");
+  await launch(h, c);
+  const r = await call(h, "/public/sites/install-site/manifest.webmanifest");
+  assert.equal(r.statusCode, 200, r.body);
+  const body = r.json();
+  assert.equal(body.id, "/coach/install-site");
+  assert.equal(body.start_url, "/app?source=pwa");
+  assert.equal(body.display, "standalone");
+  assert.equal(body.short_name, "Site Coach");
+  assert.deepEqual(
+    body.icons.map((i: any) => [i.sizes, i.purpose]),
+    [
+      ["192x192", "any"],
+      ["512x512", "any"],
+      ["512x512", "maskable"],
+    ],
+  );
+  for (const [file, size] of [
+    ["192", 192],
+    ["512", 512],
+    ["maskable-512", 512],
+    ["180", 180],
+  ] as const) {
+    const { buffer } = await png(`/api/v1/public/sites/install-site/icon/${file}`);
+    const meta = await sharp(buffer).metadata();
+    assert.equal(meta.width, size, file);
+    assert.equal(meta.hasAlpha, false, file);
+  }
 });

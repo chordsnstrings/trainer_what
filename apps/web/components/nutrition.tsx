@@ -1,4 +1,5 @@
 "use client";
+import { QUEUED_LABEL, queuedSummary } from "./pwa";
 import { ScrollTabs, tabPanelProps } from "./phone-ui";
 import { Field } from "./field";
 import {
@@ -2264,7 +2265,7 @@ export function NutritionSubscriber({
     );
     if (outcome === "pending")
       r.setMessage(
-        "Saved on this device. It will sync when your connection is available.",
+        `${QUEUED_LABEL} when you are back online.`,
       );
     else if (outcome === "accepted") r.setMessage("Meal recorded");
   }
@@ -2382,7 +2383,7 @@ export function NutritionSubscriber({
       )}
       {queued.length > 0 && (
         <Notice>
-          {queued.length} meal entry/entries waiting to sync.{" "}
+          {queuedSummary(queued.length, "meal")}.{" "}
           {!offline && (
             <button className="button secondary" onClick={() => void syncNow()}>
               Sync now
