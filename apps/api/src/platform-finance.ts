@@ -4,6 +4,7 @@ import { z } from "zod";
 import { elevated, event, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { monthCutoff } from "./finance-operations.ts";
+import { refreshSummary } from "./platform-finance-runs.ts";
 import {
   dubaiMonthRange,
   financeSettings,
@@ -436,7 +437,7 @@ export async function priceProviderUsage(
     usageStatementsPosted: preview.usageStatementsPosted,
     chargedWorkspaces: charged,
     note: preview.usageStatementsPosted
-      ? "Usage statements already posted for this month keep their charge. The workspaces listed were charged at the estimates; the difference is shown here and on each workspace's usage statements, and is not charged (correction entries come in a later phase)."
+      ? "Usage statements already posted for this month keep their charge. The workspaces listed were charged at the estimates; the difference is shown here and becomes an AI Coach Service Fee adjustment when you post adjustments for the month (Platform finance → Platform costs), or when the provider's invoice is imported there."
       : null,
     allocatedThisRunUsd: usdText(allocated),
     /** Every call priced under this reference, all runs: equals allocatedUsd. */
@@ -690,6 +691,9 @@ export function registerPlatformFinance(
       })
       .strict()
       .parse(req.body);
-    return priceProviderUsage(db, a, b);
+    const result = await priceProviderUsage(db, a, b);
+    // The month's priced calls change on Platform finance.
+    await refreshSummary(db, [b.period]);
+    return result;
   });
 }

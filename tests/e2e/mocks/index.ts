@@ -121,6 +121,15 @@ export async function startMocks(
   });
   // DigitalOcean DNS double: zones of bought domains (and the platform root).
   const digitalocean = new DigitalOceanMock(material, secrets.digitalocean);
+  // DigitalOcean billing (platform finance phase D): a team whose earlier
+  // invoices hold only another project's items; this month is estimated
+  // from the platform project's droplet.
+  {
+    const now = new Date();
+    const month = (by: number) =>
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + by, 1)).toISOString().slice(0, 7);
+    digitalocean.seedBilling({ months: [month(-2), month(-1)], firstPlatformMonth: month(0) });
+  }
   const all = [stripe, email, lean, model, push, whoop, zepp, voice, cartesia, registrar, food, google, apple, s3, namecheap, digitalocean];
   await Promise.all(all.map((m) => m.start()));
   const dns = new DnsMock();
@@ -282,11 +291,20 @@ export async function startMocks(
         WEB_ADDRESS_REGISTRANT_PHONE: "+971.500000000",
         WEB_ADDRESS_REGISTRANT_EMAIL: "domains@sandbox.example",
         // The owner's price rule and suggested endings (28 September 2026):
-        // cost rounded up to USD 5, plus USD 4.99; nothing over USD 100.
+        // cost rounded up to USD 5, plus USD 4.99, at least USD 4 left after
+        // Stripe's estimated fees (the documented defaults); nothing over
+        // USD 100; no .ae.
         WEB_ADDRESS_PRICE_STEP_USD: "5.00",
         WEB_ADDRESS_PRICE_ENDING_USD: "4.99",
         WEB_ADDRESS_PRICE_CAP_USD: "100.00",
-        WEB_ADDRESS_TLDS: "com,fit,fitness,coach,training,ae,club,pro,app,me",
+        WEB_ADDRESS_MIN_MARGIN_USD: "4.00",
+        WEB_ADDRESS_STRIPE_PERCENT: "2.9",
+        WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT: "1.0",
+        WEB_ADDRESS_STRIPE_FIXED_USD: "0.28",
+        WEB_ADDRESS_STRIPE_BILLING_PERCENT: "0.7",
+        WEB_ADDRESS_STRIPE_CONVERSION_PERCENT: "1.0",
+        WEB_ADDRESS_STRIPE_USD_BALANCE: "false",
+        WEB_ADDRESS_TLDS: "com,fit,fitness,coach,training,club,pro,app,me",
         WEB_ADDRESS_TARGET_IPV4: WEB_ADDRESS_SANDBOX_IPV4.target,
         WEB_ADDRESS_PURCHASES_ENABLED: "true",
       },
@@ -294,6 +312,11 @@ export async function startMocks(
     },
     // Bought domains get a zone at the DigitalOcean DNS double and are
     // delegated to it through the Namecheap double.
+    // Platform finance phase D: the billing import reads the same double.
+    digitalocean_billing: {
+      values: { DO_BILLING_PROJECT: "GymMembership", DO_BILLING_IMPORT_ENABLED: "true" },
+      secrets: { DO_BILLING_TOKEN: secrets.digitalocean },
+    },
     dns_hosting: {
       values: {
         DNS_PROVIDER: "digitalocean",

@@ -270,9 +270,13 @@ export async function exportPersonalData(
       records: await tx.query("SELECT * FROM personal_export_records($1)", [
         a.userId,
       ]),
-      usage: await tx.query("SELECT * FROM personal_export_usage($1)", [
-        a.userId,
-      ]),
+      // What ran for the person and when. The provider, model and price of
+      // each call are the platform's commercial data (owner decision, 28
+      // September 2026: trainers see usage only as the AI Coach Service
+      // Fee), not the person's; the helper of migration 061 is unchanged.
+      usage: (
+        await tx.query("SELECT * FROM personal_export_usage($1)", [a.userId])
+      ).map((r: any) => ({ id: r.id, task: r.task, created_at: r.created_at })),
       audit: await tx.query("SELECT * FROM personal_export_audit($1)", [
         a.userId,
       ]),

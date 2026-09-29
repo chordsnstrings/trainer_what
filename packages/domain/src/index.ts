@@ -201,6 +201,38 @@ export function refundEligible(chargedAt: string, now = new Date()) {
   const age = now.getTime() - new Date(chargedAt).getTime();
   return age >= 0 && age <= 7 * 24 * 60 * 60 * 1000;
 }
+/**
+ * What one member payment leaves the trainer, for the estimate shown before
+ * the trainer sets a price (owner decision, 28 September 2026: trainers pay
+ * Stripe's fees and see them plainly). The Stripe fee is the configured
+ * percentage plus the fixed fee, rounded half up to minor units; a card
+ * issued abroad costs the extra percentage on top. Commission is the
+ * platform's band for the member (25% for the first 100 paying members).
+ * An estimate: the actual fee of each payment comes from Stripe.
+ */
+export function paymentBreakdown(
+  priceMinor: number,
+  fees: { percentBps: number; fixedMinor: number; internationalBps: number },
+  commissionBps = 2500,
+) {
+  if (!Number.isSafeInteger(priceMinor) || priceMinor < 0)
+    throw new Error("Invalid price");
+  const part = (bps: number) =>
+    Number((BigInt(priceMinor) * BigInt(Math.max(0, Math.round(bps))) + 5000n) / 10000n);
+  const stripeFeeMinor = priceMinor > 0 ? part(fees.percentBps) + fees.fixedMinor : 0;
+  const internationalFeeMinor =
+    priceMinor > 0 ? stripeFeeMinor + part(fees.internationalBps) : 0;
+  const commissionMinor = part(commissionBps);
+  return {
+    priceMinor,
+    stripeFeeMinor,
+    internationalFeeMinor,
+    commissionMinor,
+    youReceiveMinor: priceMinor - commissionMinor - stripeFeeMinor,
+    youReceiveInternationalMinor:
+      priceMinor - commissionMinor - internationalFeeMinor,
+  };
+}
 export function money(minor: number | string) {
   return new Intl.NumberFormat("en-AE", {
     style: "currency",

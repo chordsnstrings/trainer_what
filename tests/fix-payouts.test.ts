@@ -873,7 +873,8 @@ test("finance administration routes enforce role, forced MFA, tenant scope, vali
   const usage = {
     period: "2026-06",
     fxAedPerUsd: 3.6725,
-    chargeMinor: 551,
+    // 1.5 USD at 3.6725 with the default 100% markup (owner decision).
+    chargeMinor: 1102,
     feeScheduleVersion: "fixture-v1",
     evidenceReference: "Provider invoice fixture",
   };

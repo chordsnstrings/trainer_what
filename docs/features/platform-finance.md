@@ -8,6 +8,16 @@ This document is the plan (phases A to D) and the record of what phase A deliver
 behind it read the code on `integrate/round2` (`bb80aa3`); its findings are summarised under
 "Starting point".
 
+Status (28 September 2026): phase A is merged into the PR #4 branch and was part of PR #4,
+which the owner merged into `main`. Phases B-D and their review round 1 (`core/finance-bcd`,
+stages 2026-09-28t to 28w, migrations 075-077) are merged into the PR #4 branch
+(`integrate/round2`) after the domain margin track, stage 2026-09-28x, where the checks on the
+merged tree are recorded; not deployed. Statements below that the branch is unmerged were true
+when written. Seen at that merge and still open: the Stripe fee of a domain payment not read yet
+is estimated with this page's Stripe fee settings (2.9% + AED 1.00), not the domain margin's
+fuller USD estimate (+1% international card, +0.7% Stripe Billing, +1% conversion); and Stripe
+Billing's 0.7% fee is neither read nor estimated here, for memberships or domains.
+
 ## Starting point (audit of 28 September)
 
 - Money and cost data were already recorded in detail: every charge, refund, payout and domain
@@ -29,18 +39,26 @@ behind it read the code on `integrate/round2` (`bb80aa3`); its findings are summ
 - Suspected: a domain refund was journaled while Stripe still reported it `pending`, with no
   reversal if it later failed.
 
-## Owner decisions still open (current behaviour kept)
+## Owner decisions (28 September 2026)
 
-| Decision | Current behaviour | Where it can change |
+The owner decided the questions phase A left open ("Stripe fees paid by the
+trainer with full understanding", "100% markup", "complimentary charged to
+the trainer", "cash basis", "no budget limits: we pay only when we get paid",
+the label "AI Coach Service Fee"; full list in `docs/PROJECT_MEMORY.md`):
+
+| Decision | Behaviour | Where |
 | --- | --- | --- |
-| Who bears Stripe fees | The trainer bears the whole fee of each settlement (`stripe-settlement:` debits `trainer_payable`) | Not a setting yet: splitting a settlement's fee by commission share needs Stripe's per-charge fee (phase C) |
-| AI and voice charged to trainers | At cost, no markup | Settings → Platform finance → "Markup on AI and voice usage charged to trainers (%)", default 0 |
-| AI and voice used by complimentary members | Charged to the trainer | Settings → Platform finance → "Who pays for AI and voice used by complimentary members", default the trainer |
-| When income is recognised | When paid (upfront programmes and yearly domains are not spread) | Phase D |
-| Budget limits | None beyond the daily AI call limit and the daily voice USD limit | Phase D |
-| Charging calls whose outcome never came back | Not charged until reconciled from the invoice or estimated by an operator | Settings → Platform finance → "Automatic month close estimates unresolved provider usage", default off |
+| Who bears Stripe fees | The trainer, shown plainly: an estimate before they set a price (offer form, voice add-on price, paid sessions), the fees deducted each month beside every payout, and "Stripe fees (paid by you)" on the monthly statement and analytics | Settings → Platform finance: "Stripe card fee shown to trainers (%)" 2.9, "Stripe fixed fee per payment shown to trainers (AED)" 1.00, "Extra Stripe fee for cards issued outside the UAE (%)" 1 (Stripe's standard UAE pricing); the fee actually deducted is Stripe's own (settlement, and per payment from phase C) |
+| AI and voice charged to trainers | Twice the provider cost (100% markup), named only "AI Coach Service Fee": one line with the amount, no provider, call, feature or markup detail anywhere a trainer looks (statement, analytics, workspace lists, CSV, the monthly notification) | Settings → Platform finance → "Markup on AI and voice usage charged to trainers (%)", default 100 (0 to 1000); an unset or blank value reads as 100 |
+| AI and voice used by complimentary members | Charged to the trainer | Same settings, default the trainer |
+| When income is recognised | When it is received (cash basis): a payment counts in the month it was journaled; upfront programmes and yearly domains are not spread; the AI Coach Service Fee counts when the trainer's earnings cover it (it is deducted from them; until then it is shown as owed) | Platform finance screen ("basis") |
+| Budget limits | None ("we pay only when we get paid"); the screen and alerts show cost against income and flag costs without matching income instead | Platform finance → Cost against income; alerts in phase D |
+| Charging calls whose outcome never came back | Not charged until reconciled from the invoice or estimated by an operator (unchanged) | Settings → Platform finance → "Automatic month close estimates unresolved provider usage", default off |
+| Marketing | No marketing text changes; AI costs and the markup are never mentioned in marketing | — |
 
-A setting change applies to usage statements posted after it; posted statements never change.
+A setting change applies to usage statements posted after it; posted statements never change
+(a statement posted at 0% keeps its charge; later corrections to its month use the markup it
+was posted with, phase C).
 
 ## Phase A: show what is recorded, fix cost recording (delivered, branch `core/finance-a`)
 
@@ -204,46 +222,307 @@ See `docs/COMPLETION_STAGES.md`, stage 2026-09-28r (formerly recorded on `core/f
 the checks actually run. Phase A is merged into the PR #4 branch (`integrate/round2`), not
 deployed.
 
-## Phase B: the Platform finance screen and domain profit
+## Owner decisions applied (branch `core/finance-bcd`, stage 2026-09-28t)
 
-`core/domain-pricing` (migration 071, web-address pricing and ledger in USD) is merged into the
-same branch, so phase B can build on it:
+- **Markup.** `financeSettings()` reads "Markup on AI and voice usage charged to trainers (%)" with
+  the default 100 (0 to 1000; blank or unset is 100). `periodUsage` (manual statement, preview and
+  automation) charges `round(priced USD × rate × (100 + markup))` fils. Statements posted before
+  keep their charge; each statement's journal records the markup it used.
+- **"AI Coach Service Fee".** New usage journals are described "AI Coach Service Fee"
+  (`AI_COACH_SERVICE_FEE`). Wherever a trainer looks the charge is one line with its amount:
+  the monthly statement (`aiCoachServiceFeeMinor`; the trainer's statement no longer returns
+  `usage`, `usageByFeature` or `usageCost`, and its ledger entries for `usage:` and
+  `usage-adjustment:` carry only `{ period, amountMinor }`), the Payments card ("AI Coach Service
+  Fee" by the month it is for, from `usageStatements` reduced to `period, charge_minor` plus
+  `adjustments_minor`, the later adjustments of that month), the workspace journal list (same
+  sanitising, `trainerEntry`, with a "Deducted from your earnings" column), the trainer
+  analytics revenue table (columns "AI Coach Service Fee", "Stripe fees (paid by you)", "Other
+  charges", in AED), the trainer ledger CSV (new `item` column, formula cells neutralised, and
+  only the trainer's own line of each fee journal), the payout list and a new owner
+  notification when the fee is posted ("AI Coach Service Fee for May 2026" / "AI Coach Service
+  Fee: AED 12.00. It is deducted from your earnings and shown on your June 2026 statement.":
+  a month's fee is posted after it ends, so the notice names the statement it is on; template
+  `ai-coach-service-fee`, category account, in-app only). The workspace `costs` list now carries
+  only `id, task, status, created_at` (no provider, model or cost), the "AI usage" card with
+  provider costs was removed from the trainer's progress screen, the workspace events list
+  leaves out the platform's pricing events and removes cost, provider and rate fields from the
+  others (`trainerEvent`), and a personal data export lists each call's id, task and time only.
+  Operators keep every detail.
+- **Stripe fees, plainly.** `GET /api/v1/finance/fees` (owner and finance; staff too, without
+  the commission bands, since they price paid sessions) returns the fee parameters, the
+  commission bands and the booking fee in effect; the offer form and the voice add-on price show
+  what each payment leaves the trainer (`paymentBreakdown` in `@trainer/domain`: AED 199 →
+  Stripe about AED 6.77, abroad about AED 8.76, commission AED 49.75 at 25%, you receive about
+  AED 142.48; one short summary is announced to screen readers once typing pauses), and the
+  paid-session form states Stripe's fee terms and the platform's booking fee.
+  `GET /api/v1/finance/deductions` gives Stripe fees and other charges per Dubai month and the
+  AI Coach Service Fee by the month it is for (`aiCoachServiceFees`), shown beside each payout
+  ("AI Coach Service Fee for August 2026", "Stripe fees (paid by you) settled in August 2026").
+  The statement labels the settlement fees "Stripe fees (paid by you)", returns
+  `stripeFeesMinor`, names each fee posted in the month by the month it is for
+  (`aiCoachServiceFees`) and says for how many of the month's payments, refunds and disputes
+  Stripe's fee has been read (`stripeFeesRead`).
+- **Marketing** text is unchanged (`apps/web/components/marketing/*`, `packages/contracts`
+  marketing content and the llms files are not touched).
 
-- One screen at `/admin/platform-finance` (admin and finance roles, fresh MFA, audited) with a
-  period picker (month, quarter, year to date, custom; Dubai time) and a CSV per tab:
-  profit and loss (platform revenue by product, direct costs by feature and provider, gross
-  profit and margin; each cost line priced, estimated or unpriced, "incomplete" when a source has
-  no data), trainers (one row each: payments, commission, domain profit, costs charged back, AI
-  and voice cost, contribution and margin, cost per paying member; flags for negative
-  contribution), features and products, providers (estimate against invoice), domains (price
-  paid, registrar cost, profit per order, renewals below cost), payouts across trainers.
-- Domain profit from the USD web-address ledger, and the registrar prepaid balance.
-- A monthly summary table rebuilt by the worker so the screen does not read every workspace per
-  request.
-- Full ledger export across trainers and a cost export for any date range.
+## Phase B: the Platform finance screen (delivered, stage 2026-09-28t)
 
-## Phase C: costs not recorded yet
+- **Screen** `/admin/platform-finance` (`apps/web/components/platform-finance.tsx`, linked from
+  the governance links next to Business metrics): period picker (month, quarter, year to date,
+  custom up to 36 months; Asia/Dubai), four tiles (income, costs with the estimated part, profit
+  and margin, flags) and tabs: Profit and loss (every income and cost line per month and for the
+  period, profit, margin, then a monthly summary with the change on the month before, the rate
+  used, estimated cost, unpriced calls, the AI Coach Service Fee owed by trainers and when the
+  month's summary was built, and notes; the month in progress is marked "to date"), Trainers
+  (contribution per trainer,
+  lowest first), Features, Providers (estimated, reconciled, unpriced, invoiced), Domains (per
+  currency and per order, registrar charges and the registrar's balance with "Check registrar
+  balance"), Payouts across trainers, and Cost against income. Every tab downloads as CSV, plus
+  the full ledger and every cost row for the period. "Rebuild summary" rebuilds the period.
+- **Income** (AED, cash basis): commission on subscriptions, upfront programmes, the voice
+  add-on and 1:1 sessions (booking fee), affiliate settlements, trainers' domain payments for an
+  order (USD converted at the month's rate; money paid for no open order is owed back and not
+  counted), the AI Coach Service Fee as far as it was received (it is deducted from the
+  trainer's earnings, so a fee their earnings do not cover is owed, shown apart, and counts in
+  the month later earnings cover it), other costs charged to trainers and the Stripe fees
+  trainers paid at settlement. **Costs**: AI provider, voice provider, Stripe fees (Stripe's fee
+  on each payment, refund and dispute of the month, as read from Stripe; a payment not read yet
+  is estimated at the Stripe fee settings and the note says for how many), payout bank fees and
+  platform costs (phase C), domain registrar cost, provider plan and invoice charges (phase C),
+  and refunds and disputes (commission returned, domain refunds and dispute losses). Each cost
+  line shows its estimated part, and "estimated cost" adds them all (AI and voice priced at
+  estimates, Stripe fees not read yet, platform costs awaiting their invoice). **Profit** is
+  income less costs; unpriced calls are counted apart ("about AED X, not included"), and a month
+  without a reviewed rate says so.
+- **Per trainer**: gross, platform income (net commission, the AI Coach Service Fee received,
+  costs charged, domain payments), the fee still owed, AI and voice cost, domain profit,
+  contribution (income less commission returned, domain refunds, losses and registrar cost, and
+  AI and voice cost), margin, cost per paying member-month, Stripe fees and payouts; flags for
+  negative contribution, cost without income (a finished month's AI and voice cost with no AI
+  Coach Service Fee charged for it and no other income from the trainer that month; the month in
+  progress, and last month until its fee is posted, are not flagged), AI Coach Service Fee owed
+  (earnings did not cover it), usage not yet charged (a finished month other than the last with
+  usage and no AI Coach Service Fee posted), unpriced usage and domains below cost. No budget
+  limits.
+- **Summary** (migration 075): `platform_finance_months` holds each trainer workspace's figures
+  per Dubai month (`workspaceMonths` in `apps/api/src/platform-pnl.ts`: ledger lines grouped by
+  source and account, domain orders, cost rows by feature and provider, paying members, payouts,
+  the usage statement, Stripe's fees read and estimated, the AI Coach Service Fee received and
+  owed), rebuilt by the worker every hour for this and last month, once a day for the last 13
+  months (the last 24 on its first daily pass), right after an operation changes a month's
+  figures (an invoice import, pricing a provider's month, an estimate or reconciliation, a usage
+  statement, adjustments, Stripe fees read) and by "Rebuild summary"; `platform_finance_runs`
+  records every run with its scope (also the later phases' jobs). Months the summary has not
+  covered are named on the screen, never shown as zero, and each month shows when it was built. Both tables are service-only (grants in the migration and
+  `infra/runtime-role.sql`, classified in `scripts/verify-runtime-access.mjs`).
+- **Access**: `/api/v1/admin/platform-finance` (GET), `/rebuild`, `/registrar-balance` (POST) and
+  `/export/:tab.csv`: admin and finance platform roles with a fresh authenticator; every read,
+  rebuild, balance check and export writes an `admin_operations_audit` row. Trainers get 403.
 
-- A platform ledger for costs that belong to no trainer (servers, email plan, provider plans, app
-  store accounts, registrar top-ups, the main domain), also closing the two known ledger gaps
-  (domain receivable never settled, no registrar top-up entry).
-- Provider invoices and correction entries per trainer and feature (priced rows stay immutable;
-  corrections are new entries), including the difference for months already charged.
-- Stripe fee per charge, refund and dispute (domain sales and dispute fees included), and a
-  suggested split of each Stripe payout; then the Stripe fee decision can become a setting.
-- Bank fee per trainer payout; email cost per message and the plan fee.
-- Per-provider voice price rows in the price table (phase A keeps voice rates in the provider
-  settings).
-- Migration numbers are allocated when built (072 and 073 are used; 071 belongs to domain
-  pricing).
+## Phase C: costs not recorded before (delivered, stage 2026-09-28u)
 
-## Phase D: automation
+Migration 076 (service-only tables, grants in the migration and `infra/runtime-role.sql`,
+classified in `scripts/verify-runtime-access.mjs`); screen: Platform finance → "Platform costs"
+tab (`apps/web/components/platform-finance-costs.tsx`) and a bank-fee form on the Payouts tab.
 
-- DigitalOcean billing import with a new read-only billing token the owner creates and stores as a
-  secret (the credentials pasted in earlier chat must not be used; the job changes no
-  DigitalOcean resource; depends on the separately assigned deployment work).
-- Budgets per platform or trainer, per category and month, and alerts: spend spikes, budgets
-  reached, negative contribution two months running, costs unpriced too long, domain renewals
-  below cost, low registrar balance, invoice differences over 5%, daily limits hit.
-- Trends, and optionally spreading programme and yearly domain income over their term (owner
-  decision).
+- **Platform cost ledger** (`platform_costs`, `apps/api/src/platform-costs.ts`): costs that
+  belong to no trainer, by the Dubai month they are for: servers, the email plan, provider plans,
+  provider invoice charges not attributed to calls, registrar top-ups, payout bank fees, app store
+  accounts, the platform domain, other. Amount in AED or USD with a receipt reference; append-only
+  (a mistake is corrected by a reversal entry, `POST .../costs/:id/reverse`, once); every entry
+  has an idempotency key (`manual:<intent>`, `recurring:<id>:<month>`,
+  `payout-fee:<payout>` (then `:<n>` for a fee recorded after a reversal),
+  `invoice:<provider>:<reference>:plan|remainder`, DigitalOcean's in phase D). Registrar top-ups
+  are prepayments: the Domains tab shows USD top-ups less every registrar charge at its USD cost
+  (orders quoted in AED journal the charge in AED but record the USD cost) as the registrar's
+  book balance next to the balance the registrar reports; they are not costs in the profit and
+  loss (each domain's registrar charge is).
+- **Recurring costs** (`platform_recurring_costs`): a monthly amount from a first month, until a
+  last month is set; the worker enters each month once (up to the last 12 months on its first
+  pass).
+- **Provider invoices** (`provider_invoices`, `apps/api/src/provider-invoices.ts`,
+  `POST /api/v1/admin/platform-finance/invoices`): a CSV (`cost_usd`, optional `request_id`,
+  `kind` usage or plan, `description`) or JSON (`{ "lines": [...] }`, optional `totalUsd` that
+  must equal the lines) export, at most 1 MB and 10,000 lines, imported once per provider and
+  reference (the same content again returns the recorded import; other content is refused).
+  Lines naming a provider request reconcile that call; the usage total then prices the month's
+  remaining estimated calls in proportion to their estimates (the phase A provider pricing, with
+  its guards); with no calls left to price, usage the calls do not account for becomes a
+  "provider invoice charges" platform cost; plan lines become a "provider plan" cost. The
+  Providers tab compares each provider's call cost with the invoiced usage and plan fees.
+- **Corrections for months already charged**: posted usage statements are never rewritten. For
+  every workspace charged for the month, `postUsageCorrections` computes what its priced usage
+  comes to now at that statement's own rate, markup and complimentary rule (a statement posted
+  before markups existed was at cost; one that charged nothing, and so has no journal, follows
+  today's settings), less what was charged (the statement plus earlier
+  adjustments), and posts the difference once per reference as a journal
+  `usage-adjustment:<month>:<hash of the reference>` (the key and the notification carry a hash,
+  never the invoice reference, which may name the provider; the reference stays in the journal's
+  data, which trainers never see; debit or credit of the trainer's payable balance against
+  `platform_cost_recovery`), described "AI Coach Service Fee adjustment", with an owner
+  notification ("AI Coach Service Fee adjustment: AED X more / back for <month>. … shown on your
+  <month posted> statement."). It runs after
+  every invoice import and on request ("Post adjustments", `POST .../usage-corrections`). The
+  statement adds it to the AI Coach Service Fee of the month it posts (cash basis); months with
+  unpriced calls are skipped.
+- **Stripe's fee per payment** (`stripe_fees`, `apps/api/src/stripe-fees.ts`): each charge,
+  refund and dispute's balance transaction (fee, fee details, net, exchange rate, settlement
+  currency), keyed by balance transaction, read after every Stripe webhook for that workspace
+  (best effort, not in the webhook's result) and by an hourly sweep of the last 90 days (at most
+  50 Stripe reads a run; "Read Stripe fees now"). A dispute is read again once it closes as won
+  (its second balance transaction reinstates the funds), and a dispute webhook reads that
+  dispute whatever was recorded (a domain payment's dispute has no ledger entry unless lost).
+  Read-only Stripe calls (`charges.retrieve`, `refunds.retrieve`, `disputes.retrieve`,
+  `paymentIntents.retrieve` with `expand`). The profit and loss counts, per month, the fees read
+  for the month's payments, refunds and disputes (domain payment fees included) and an estimate
+  for payments not read yet (never a partial sum; see Phase B); the sweep rebuilds the months it
+  read fees for. Trainers see Stripe's fee on their month's member payments, refunds and
+  disputes on the statement (`stripeFeesOnPayments`, with `stripeFeesRead`; domain payment fees
+  are the platform's). The Stripe mock (`tests/e2e/mocks/stripe.ts`) now gives charges, refunds and
+  disputes balance transactions (2.9% + AED 1, +2% conversion, a mock AED 55 dispute fee).
+- **Payout bank fees**: `POST .../payout-fees` (one per payout at a time, only for a payout
+  sent to the bank; after its reversal the correct fee can be recorded), a platform cost shown
+  against the payout (net of reversals, whatever month it was entered in); not charged to the
+  trainer.
+- **Email cost**: delivered email jobs per workspace and month are counted in the summary; the
+  profit and loss prices them at "Email cost per delivered message (USD)" (Settings → Platform
+  finance, default 0: only the email plan, entered as a recurring cost, counts).
+- **Not done**: a suggested split of each Stripe payout by workspace (settlements stay entered by
+  hand); per-provider voice price rows (voice prices stay in the provider settings).
+
+## Phase D: automation (delivered, stage 2026-09-28v)
+
+Migration 077 (service-only tables, grants in the migration and `infra/runtime-role.sql`,
+classified in the runtime verifier).
+
+- **DigitalOcean billing import** (`packages/providers/src/digitalocean-billing.ts`,
+  `apps/api/src/digitalocean-costs.ts`). Settings → "DigitalOcean billing" (encrypted token,
+  never in Git; project, default "GymMembership"; "Import daily", default on; a read-only
+  connection check lists the team's projects and confirms the project). The owner approved using
+  the existing DigitalOcean token (28 September 2026). The adapter sends GET only (no other
+  method exists in it) to `/v2/customers/my/invoices`, `/v2/customers/my/invoices/{uuid}`,
+  `/v2/projects`, `/v2/projects/{id}/resources`, `/v2/droplets/{id}`, `/v2/volumes/{id}`, and
+  never echoes the token. The token is team-wide and other projects share the bill, so:
+  - the configured project must exist in the team: otherwise the import fails (and raises the
+    import alert) instead of importing every invoice as costing nothing;
+  - each final monthly invoice is read once per project (`digitalocean_invoices`, keyed by
+    invoice and project, recorded even with none of the project's items, so a changed project
+    setting reads earlier invoices again) and only items whose `project_name` is the configured
+    project become platform costs (`platform_costs`, category server, source `digitalocean`,
+    keyed by invoice uuid, item position and a hash of the item; credits may be negative); the
+    team's own total (other, unrelated projects) is never stored or shown;
+  - the month without an invoice yet is estimated from the project's own resources
+    (`digitalocean_estimates`, recomputed on every import): each droplet hourly from its creation
+    or the month start to the month end, capped at its monthly price, +20% with weekly backups;
+    volumes USD 0.10 per GiB-month; domains free; anything else listed as not estimated. The
+    profit and loss shows the estimate (marked estimated) until the month's invoice is imported,
+    then the invoice's items only; for the month in progress it counts the cost so far (the
+    projection to the month end is in its description), beside income to date. DigitalOcean
+    invoice periods are UTC months.
+  - the worker imports once a day (a failed attempt is retried after an hour); Platform finance
+    → Platform costs → "Import now" (`POST /api/v1/admin/platform-finance/digitalocean/import`,
+    admin and finance, fresh MFA, audited) runs it at once; `GET .../digitalocean` shows the
+    invoices read, the estimates and the last run.
+- **Trends**: the Profit and loss tab shows each income and cost line's change on the month
+  before (AED and %), and the monthly summary its profit change; the API returns `trends` per
+  line.
+- **Alerts** (`apps/api/src/platform-finance-alerts.ts`, through the platform alert engine,
+  finance scope; no budget limits): `finance.cost_without_income` (a trainer's AI and voice cost
+  in one of the last three finished months with no AI Coach Service Fee charged for it and no
+  other platform income from them in that month; last month only once its fee is due),
+  `finance.service_fee_owed` (a trainer owes AI Coach Service Fee their earnings did not
+  cover),
+  `finance.usage_unpriced_aging` (calls of an ended month still unpriced after "Alert on unpriced
+  provider usage after (days)", default 7, critical after 30; estimated cost of months over 60
+  days old not confirmed by an invoice, info), `finance.digitalocean_import` (the last import
+  failed, or none succeeded for 48 hours while configured) and `finance.registrar_balance_low`
+  (the registrar's last reported balance below "Alert when the registrar balance is below
+  (USD)", default 20; critical below a quarter of it). The worker reads the registrar's balance
+  once a day when a registrar is configured (read-only).
+- **Mocks and tests**: the DigitalOcean double (`tests/e2e/mocks/digitalocean.ts`) now serves the
+  billing routes with a seeded team (the platform project with one s-2vcpu-4gb droplet and a
+  domain, an unrelated project with its own droplet, invoices carrying both); the e2e harness
+  saves the billing settings against it and its Super admin scenario imports, sweeps Stripe fees,
+  rebuilds and reads the profit and loss and exports the ledger.
+- **Live read-only smoke (28 September 2026)**: the importer ran against DigitalOcean with the
+  owner's token through a transport that refused anything but GET to the six read paths, writing
+  only to a throwaway in-memory database. 14 requests, all GET, all 200; nothing written at
+  DigitalOcean. The project GymMembership was found; the team's 10 final invoices (2025-06,
+  2025-12 and 2026-01 to 2026-08) carry no GymMembership item, as expected before September
+  2026, so nothing was imported from them. The September estimate, from the project's resources
+  (the droplet `604067976`, s-2vcpu-4gb at USD 24 a month without the backups feature, and the
+  free trainsyou.com domain), is USD 3.07 for the month (USD 1.10 so far), which the profit and
+  loss would show as an estimated platform cost until September's invoice arrives.
+- **Not done**: budgets (the owner decided against them); spreading upfront programme or yearly
+  domain income (the owner chose cash basis); reserved IPs, load balancers, databases, Spaces and
+  snapshots are listed as not estimated (none are in the project today).
+
+## Review round 1 (stage 2026-09-28w, same branch)
+
+Money, security and screen reviews of phases B-D found 30 issues (28 distinct); each was checked
+against the code. All were fixed on `core/finance-bcd` with regression tests in
+`tests/platform-finance-bcd.test.ts`, except where noted. Migration 077 changed in place (the
+branch is unmerged and 077 was never applied outside test databases).
+
+- **Cash basis for the AI Coach Service Fee.** The fee is deducted from the trainer's earnings,
+  so the profit and loss counts it when earnings cover it. Month by month over the whole ledger
+  (`workspaceMonths`): the fee owed at a month end is at most the fees owed before plus the
+  month's fees, and at most the trainer's positive payable balance then (what they owe the
+  platform); the fee received in a month is its fees less the growth of what is owed. A trainer
+  with only complimentary members is charged but pays nothing until they earn: their fee is
+  owed (a note on the month, a "Fee owed" column, the flag `service_fee_owed` and the alert
+  `finance.service_fee_owed`), and becomes income in the month later earnings cover it. This is
+  our reading of the owner's cash-basis decision, not a new owner decision.
+- **Cost against income.** A month's own fee (posted after it ends) matches its usage, so
+  `cost_without_income` fires only for a finished month whose usage was charged nothing and that
+  brought no other income; the month in progress, and last month until its fee is posted, are
+  not flagged. The alert looks at the last three finished months.
+- **Stripe fees.** Never a partial sum: per month, the fees read from Stripe for the month's
+  payments, refunds and disputes plus an estimate (the Stripe fee settings) for payments not
+  read yet, with a note "read from Stripe for X of Y"; refunds and disputes not read yet count
+  as nothing and are counted in the note. Settlement fees are income (recovered from trainers),
+  no longer a fallback cost. A dispute closed as won is read again for its reinstatement, a
+  dispute webhook reads that dispute whatever was recorded, and fees of a domain dispute with
+  no ledger entry are counted. The trainer's statement says "payments, refunds and disputes"
+  and how many were read.
+- **Summary freshness.** Operations that change a past month rebuild it at once (invoice
+  import, provider month pricing, estimate, reconciliation, usage statement, adjustments,
+  Stripe fees read; `refreshSummary`, best effort after the operation's transaction); the
+  worker adds a daily pass over the last 13 months; each month shows when it was built.
+- **Estimates and the month in progress.** Every cost line carries its estimated part (AI and
+  voice at estimates, Stripe fees not read, platform costs awaiting their invoice, including
+  DigitalOcean's estimate), and "estimated cost" adds them. The month in progress is labelled
+  "to date", counts DigitalOcean's cost so far (not the month-end projection), and raises no
+  cost-without-income warning (platform costs without income that month are a note).
+  Declined: recurring monthly costs stay in full from the first day of the month (plans are
+  billed in full up front); the in-progress note says so.
+- **Domains and payouts.** A domain payment for no open order (booked to the refund liability)
+  and its refund are not domain income or cost. A payout's bank fee can be recorded again after
+  its reversal, and the Payouts tab shows the fee net of reversals. The registrar book is in
+  USD: AED-quoted orders count at their recorded USD cost.
+- **Trainer data.** Events: the platform's pricing and reconciliation events are not listed to
+  the workspace and cost, provider and rate fields are removed from the others. Adjustment
+  source keys and notification keys carry a hash of the invoice reference. The trainer ledger
+  CSV has only the trainer's line of each fee journal (no `platform_cost_recovery`). A personal
+  export's usage rows carry id, task and time only (migration 061's helper unchanged).
+- **DigitalOcean.** A project missing from the team fails the import (and raises the import
+  alert); invoices are recorded per project, so a changed project setting reads earlier
+  invoices again; the team's total is neither stored nor shown.
+- **Invoice import.** At most 50 CSV columns; a row wider than the header is refused (trailing
+  empty fields allowed); rows are read by column position.
+- **Trainer screens.** Fees are named by the month they are for: the statement lists "Fee for
+  July 2026", the notice names the statement it is on, the payout shows "AI Coach Service Fee
+  for August 2026" (the fee deducted from that month's payout) and "Stripe fees (paid by you)
+  settled in August 2026", and the Payments card includes later adjustments of each month. The
+  Financial activity table has a "Deducted from your earnings" column (the fee, its adjustments,
+  Stripe's fee at settlement, other charges); the settlement row no longer shows the settled
+  gross. Analytics revenue shows AED amounts. Staff see the fee terms and the booking fee on the
+  paid-session form (not the commission bands); a failed fee-terms read is retried. The offer
+  estimate announces one short summary to screen readers once typing pauses. The complimentary
+  access form says their usage is included in the AI Coach Service Fee.
+- **Platform finance screen.** Tables scroll inside their region at 390 px (`.table-scroll`
+  in `globals.css`, which also fixes the older users); tabs have one tab stop with arrow keys,
+  Home and End and one panel id; income and costs are separate row groups; money has the
+  currency code everywhere ("USD 24.00", "AED 12.30"; provider costs keep four decimals); the
+  income tile lists its lines; the flags tile says "N warnings, M notes"; the payout bank-fee
+  form has visible labels; a rejected reversal reason or last month says why.

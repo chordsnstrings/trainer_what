@@ -109,8 +109,11 @@ Deployment stays separately assigned.
 6. **Super admin → Settings → Web addresses and registrar**: registrar Namecheap; API user,
    API key (stored encrypted), account username, whitelisted client IPv4; keep "Use the Namecheap
    test environment" on for the rehearsal; registrant contact of the platform company
-   (organization required); the price rule in USD (step 5.00, ending 4.99, cap 100.00) and the
-   suggested endings in order (default `com,fit,fitness,coach,training,ae,club,pro,app,me`; see
+   (organization required); the price rule in USD (step 5.00, ending 4.99, cap 100.00), the
+   minimum margin (4.00) and Stripe's fee estimates (2.9% card, 1% international card, USD 0.28
+   fixed, 1% currency conversion, and the switch **Stripe account holds a USD balance**, off; see
+   "Minimum margin and renewal display" below) and the suggested endings in order (default
+   `com,fit,fitness,coach,training,club,pro,app,me`, no `.ae` since stage 2026-09-28s; see
    "Prices in USD and suggestions" below; the AED margin and USD→AED rate settings are gone);
    optionally the server IPv4 for domain DNS. Run **Test connection** (it reads the balance only),
    then switch **Enable automatic purchases and renewals** on and test again: the settings only
@@ -177,13 +180,17 @@ Deployment stays separately assigned.
   is now reserved keep `/coach/<slug>` and get no subdomain until they change it.
 - **Own domain.** Search a name (or a full domain); since stage 2026-09-28q the answer shows
   the typed name's status (available, taken or not offered) and the available names on the
-  suggested endings, each with its first-year price and yearly renewal price in USD, nothing
-  over USD 100 a year (see "Prices in USD and suggestions"). Names in an early-access phase
-  (Namecheap `EapFee`) are not offered; premium names only within the cap. Choosing one shows
-  both prices again with an explicit "I agree to pay USD … now and USD … every year after,
-  renewed automatically"; paying opens Stripe Checkout (subscription, the trainer is the
-  customer). If the price changed since the search, the order is refused with the new prices and
-  must be confirmed again.
+  suggested endings, each with its first-year price and yearly renewal price in USD side by
+  side, both the full price paid, nothing over USD 100 a year (see "Prices in USD and
+  suggestions"). Whenever the renewal costs more than the first year a note says so
+  (highlighted when it is at least twice the first year or USD 20 more), in the search, the
+  confirmation, on Stripe's page, on the order card and in the renewal notices (stage
+  2026-09-28s and its review round 1). Names in an
+  early-access phase (Namecheap `EapFee`) are not offered; premium names only within the cap.
+  Choosing one shows both prices again with an explicit "I agree to pay USD … now and USD …
+  every year after, renewed automatically"; paying opens Stripe Checkout (subscription, the
+  trainer is the customer). If the price changed since the search, the order is refused with the
+  new prices and must be confirmed again.
 - **Live progress** on the same page (refreshed every 5 s while in progress): Paid →
   Registered → DNS set up → Security certificate → Live, with the next yearly charge date and
   the registration end date. A step waiting for the platform shows "The platform team is
@@ -423,8 +430,9 @@ answered with an error) or `unknown` (network, timeout, non-200, unreadable body
 ### Notification templates (registered in `message-templates.ts`)
 
 `web-address-live`, `web-address-renewed`, `web-address-renewal-failed`,
-`web-address-renewal-reminder`, `web-address-lapsed`, `web-address-refunded` (trainer, account
-category, so the built-in text is always kept).
+`web-address-renewal-upcoming` (stage 2026-09-28s), `web-address-renewal-reminder`,
+`web-address-lapsed`, `web-address-refunded` (trainer, account category, so the built-in text is
+always kept).
 
 ## Routes
 
@@ -440,7 +448,7 @@ category, so the built-in text is always kept).
 | `POST /api/v1/web-address/orders/:id/cancel` | Owner | Unpaid checkout only; expires the Stripe session |
 | `POST /api/v1/web-address/orders/:id/renewal` | Owner, fresh MFA | `{enabled}` → Stripe `cancel_at_period_end` |
 | `GET /api/v1/admin/web-addresses` | Super admin, fresh MFA | Operator view (orders with `attention`, `needsReconciliation` and `costAlert`) |
-| `GET /api/v1/admin/web-addresses/prices` | Super admin, fresh MFA | Every allowed ending: state, registrar costs, trainer prices, margin before Stripe fees |
+| `GET /api/v1/admin/web-addresses/prices` | Super admin, fresh MFA | Every allowed ending: state, registrar costs, trainer prices, and per year Stripe's estimated card and conversion fees, the net margin and whether the minimum margin raised the price; the rule |
 | `POST /api/v1/admin/web-addresses/prices/refresh` | Super admin, fresh MFA | `{reason}`; asks the registrar again within the call budget; audited |
 | `POST /api/v1/admin/web-addresses/:id/{reconcile,retry,refund}` | Super admin, fresh MFA | `{reason}`; manual fallbacks (reconcile answers `ran: false` while another run holds the order; retry also accepts a held purchase's new registrar cost and clears a cost alert) |
 | `POST /api/v1/admin/web-addresses/:id/record` | Super admin, fresh MFA | `{reason}`; records a registration or renewal made at the registrar by hand; 409 `NOT_RECORDED` with the reason |
@@ -995,7 +1003,9 @@ lapse, reconciliation and DNS on DigitalOcean.
 
 ### The price rule
 
-- **Formula.** For the first year and for the renewal separately: registrar one-year cost in USD
+- **Formula.** (Extended by stage 2026-09-28s: a price that would leave less than USD 4 after
+  Stripe's estimated fees moves up one step; see "Minimum margin and renewal display".) For the
+  first year and for the renewal separately: registrar one-year cost in USD
   (ICANN fee included), rounded up to the next multiple of USD 5, plus USD 4.99. Integer cents
   only (`markupPriceCents` in `packages/domain/src/web-address.ts`): 11.00 → 19.99,
   11.48 → 19.99, 15.00 → 19.99, 15.01 → 24.99, 18.68 → 24.99, 20.00 → 24.99, 20.01 → 29.99. A
@@ -1017,7 +1027,9 @@ lapse, reconciliation and DNS on DigitalOcean.
   34.18 → 9.99 / 39.99; `.app` 11.18 / 23.18 → 19.99 / 29.99; `.me` 10.98 / 23.98 → 19.99 /
   29.99; `.ae` has no API price at Namecheap (not offered). Several endings have a low first
   year and a much higher renewal; trainers see both before paying. Registrar promotions change;
-  the cache refreshes daily.
+  the cache refreshes daily. With the minimum margin (stage 2026-09-28s, live prices read again
+  the same day) `.training` renews at 64.99, `.pro` at 44.99 and `.coach` at 109.99 (still
+  hidden); see the table in "Minimum margin and renewal display".
 
 ### Suggestions
 
@@ -1033,8 +1045,10 @@ lapse, reconciliation and DNS on DigitalOcean.
   laylastrength.com. Accented and Arabic letters are not supported yet." No variations of the
   name are generated.
 - **Endings.** `WEB_ADDRESS_TLDS`, in order, operator-editable (at most 20; default
-  `com,fit,fitness,coach,training,ae,club,pro,app,me`; the old default `com,net,org,co` is read
-  as the new default). Only these endings and the operator's `WEB_ADDRESS_EXTRA_TLDS` ("Other
+  `com,fit,fitness,coach,training,club,pro,app,me` since stage 2026-09-28s, when the owner
+  removed `.ae`; the old defaults `com,net,org,co` and
+  `com,fit,fitness,coach,training,ae,club,pro,app,me` are read as the new default, and an
+  operator may still add `ae` to either list). Only these endings and the operator's `WEB_ADDRESS_EXTRA_TLDS` ("Other
   endings sold when a trainer types them", empty by default, at most 20) can be bought, in the
   search and at checkout. A typed ending outside both lists is answered `not_offered` without
   asking the registrar (no price call, no stored row), so an adult, protest or local-presence
@@ -1162,12 +1176,11 @@ lapse, reconciliation and DNS on DigitalOcean.
   ending's current renewal cost is compared with the renewal price the trainer pays; a rise
   past it is recorded the same way ("now asks USD … for the next renewal"), so the owner can
   act before the charge. Re-pricing a running Stripe subscription is not built.
-- **Margin note for the owner.** The rule's margin over cost is between USD 4.99 and 9.98 per
-  year. On charges near USD 100, Stripe's percentage and fixed fee plus currency conversion can
-  approach that, so an ending whose cost sits on a step boundary (for example exactly 95.00 →
-  99.99) may earn little or nothing after fees. The operator prices panel shows the margin
-  before fees per ending; changing the rule (a minimum margin, a percentage, or a lower cap) is
-  an owner decision.
+- **Margin note for the owner.** Superseded by the owner's decision of 28 September 2026 (stage
+  2026-09-28s): every price keeps at least USD 4 after Stripe's estimated fees, see "Minimum
+  margin and renewal display". Before it, the margin over cost was between USD 4.99 and 9.98
+  per year before fees, and a cost on a step boundary (95.00 → 99.99) earned nothing after
+  fees.
 
 ### Migration 071 (`packages/db/migrations/071_domain_pricing_usd.sql`)
 
@@ -1247,6 +1260,188 @@ A first sandbox run of 17 files failed one test in `web-address-suggestions` (th
 - Not run: the e2e harness (its core web address expectations were updated only), the full
   PGlite and PostgreSQL suites, `next build`, a browser or 390 px check, anything on the live
   server, Stripe live or test mode.
+
+## Minimum margin and renewal display (stage 2026-09-28s, branch `core/domain-margin`)
+
+Owner decisions of 28 September 2026 (domains 1-4): trainers see the first-year and the
+next-year renewal price, both including the platform's commission, with a clear note when the
+renewal is much dearer, repeated at checkout and in renewal reminders; at least USD 4 margin after
+Stripe's fee and its currency conversion fee, for the first year and the renewal, moving up to
+the next x.99 step when the rounding leaves less; Stripe's conversion fee counted unless a Super
+admin switch says the Stripe account holds a USD balance; fee parameters are Super admin settings
+with documented defaults; no `.ae` in the default endings. Based on `integrate/round2` `e99968d`;
+no migration (the rule is stored in each order's quote JSON, as before).
+
+### The rule
+
+`domainPrice(costCents, rule)` in `packages/domain/src/web-address.ts`, in integer cents:
+
+1. The owner's rounding: `ceil(cost / step) × step + ending` (`markupPriceCents`, unchanged).
+2. Stripe's estimated fees on that price (`stripeFeeEstimate`): card
+   `ceil(price × (card % + international %))` plus the fixed fee, Stripe Billing
+   `ceil(price × Billing %)` (every domain charge is a subscription invoice, review round 1),
+   and currency conversion `ceil(price × conversion %)`, zero when the account holds a USD
+   balance.
+3. Net margin = price − registrar cost − fees. While it is below the minimum, the price moves up
+   one step (19.99 → 24.99 → 29.99 …; the ending stays .99). The walk starts just below the
+   smallest step count that can suffice (percentages are at most 60% together), so it takes a
+   few iterations whatever the settings; a test compares it with a plain step-by-step walk for
+   thousands of costs and four rules.
+4. The cap is applied afterwards: a price moved over USD 100 hides the name (the cap stays on
+   the trainer's price).
+
+Defaults (Super admin → Settings → Web addresses and registrar), with the assumption behind each:
+
+| Setting | Default | Why |
+| --- | --- | --- |
+| `WEB_ADDRESS_MIN_MARGIN_USD` Minimum margin per year after Stripe's fees | 4.00 | Owner decision (0-1000) |
+| `WEB_ADDRESS_STRIPE_PERCENT` Stripe card fee | 2.9% | Stripe UAE standard pricing, "2.9% + AED1.00 per successful transaction for domestic cards" (stripe.com/ae/pricing, read 28 September 2026) |
+| `WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT` Extra for international cards | 1.0% | Same page, "+ 1% for international cards"; assumed for every charge, so a trainer paying with a foreign card still leaves the minimum (set 0 to assume UAE cards) |
+| `WEB_ADDRESS_STRIPE_FIXED_USD` Fixed fee per charge | 0.28 | AED 1.00 at 3.6725 = 0.2723, rounded up |
+| `WEB_ADDRESS_STRIPE_BILLING_PERCENT` Stripe Billing fee | 0.7% | Stripe Billing pay-as-you-go, "0.7% of Billing volume … Includes Billing transactions processed on and off Stripe. Excludes one-off invoices." (stripe.com/ae/billing/pricing, read 28 September 2026). Domains are sold as yearly subscriptions (Checkout in subscription mode; the first year is the first subscription invoice, each renewal a recurring one), so it applies to both years. Added in review round 1 |
+| `WEB_ADDRESS_STRIPE_CONVERSION_PERCENT` Currency conversion fee | 1.0% | Same page, "+ 1% if currency conversion is required": trainers pay in USD, the account settles in AED |
+| `WEB_ADDRESS_STRIPE_USD_BALANCE` Stripe account holds a USD balance | off | When on, the conversion fee is not counted (the owner opens a USD balance in the Stripe dashboard) |
+
+Percentages 0-15 with at most two decimals, the fixed fee 0-10 USD, whole cents everywhere;
+saving anything else is refused, and an invalid rule from the server environment turns purchases
+off (`WEB_ADDRESS_DISABLED`) as before. Not included in the estimate: VAT that Stripe may charge on
+its fees, dispute fees and refunds (a refunded charge keeps Stripe's fee). These are estimates to
+keep the margin; the actual Stripe fee per charge is recorded in platform finance phase C
+(stage 2026-09-28u, `stripe_fees`, where domain charges count as product `domain`).
+
+Worked examples with the defaults (the unit tests assert each one; fees are card + fixed +
+Stripe Billing + conversion):
+
+| Registrar cost | Rounded price | Fees at that price | Left | Trainer price | Net margin |
+| --- | --- | --- | --- | --- | --- |
+| 14.90 (first year) | 19.99 | 0.78 + 0.28 + 0.14 + 0.20 = 1.40 | 3.69 | **24.99** (one step up) | 8.40 |
+| 11.48 (`.com` first year) | 19.99 | 1.40 | 7.11 | **19.99** | 7.11 |
+| 18.68 (`.com` renewal) | 24.99 | 0.98 + 0.28 + 0.18 + 0.25 = 1.69 | 4.62 | **24.99** | 4.62 |
+| 14.59 / 14.60 | 19.99 | 1.40 | 4.00 / 3.99 | 19.99 / **24.99** | 4.00 / 8.70 |
+| 19.30 / 19.31 (renewal) | 24.99 | 1.69 | 4.00 / 3.99 | 24.99 / **29.99** | 4.00 / 8.72 |
+| 95.00 | 99.99 | 3.90 + 0.28 + 0.70 + 1.00 = 5.88 | −0.89 | 109.99 (104.99 would leave 3.82), **hidden** (over the cap) | |
+
+With a USD balance (no conversion fee) 19.99 covers costs up to 14.79 (4.00 left); 14.90 moves
+to 24.99 (19.99 would leave 3.89). Before review round 1 the estimate left out Stripe Billing's
+fee, so costs from 14.60 to 14.73 were priced 19.99 while really leaving 3.86-3.99.
+
+**Live Namecheap prices with the new rule** (read-only `users.getPricing`, 28 September 2026,
+stage 2026-09-28s; one year, ICANN fee included; fees and net margin first year / renewal).
+The costs are from that live check; the fees and margins were recomputed offline with Stripe
+Billing's 0.7% in review round 1 (no new registrar call). No trainer price changed:
+
+| Ending | Cost | Trainer price | Stripe fees | Net margin | Raised | Note |
+| --- | --- | --- | --- | --- | --- | --- |
+| `.com` | 11.48 / 18.68 | 19.99 / 24.99 | 1.40 / 1.69 | 7.11 / 4.62 | no | plain |
+| `.fit` | 3.18 / 46.18 | 9.99 / 54.99 | 0.84 / 3.37 | 5.97 / 5.44 | no | highlighted (5.5 times) |
+| `.fitness` | 3.68 / 55.18 | 9.99 / 64.99 | 0.84 / 3.93 | 5.47 / 5.88 | no | highlighted (6.5 times) |
+| `.coach` | 12.18 / 96.18 | 19.99 / 109.99 | 1.40 / 6.44 | 6.41 / 7.37 | renewal +1; **hidden** (over the cap) | |
+| `.training` | 9.18 / 54.18 | 14.99 / 64.99 | 1.13 / 3.93 | 4.68 / 6.88 | renewal +1 | highlighted (4.3 times) |
+| `.club` | 5.18 / 25.18 | 14.99 / 34.99 | 1.13 / 2.25 | 8.68 / 7.56 | no | highlighted (2.3 times) |
+| `.pro` | 3.68 / 34.18 | 9.99 / 44.99 | 0.84 / 2.81 | 5.47 / 8.00 | renewal +1 | highlighted (4.5 times) |
+| `.app` | 11.18 / 23.18 | 19.99 / 29.99 | 1.40 / 1.96 | 7.41 / 4.85 | no | plain (USD 10 more) |
+| `.me` | 10.98 / 23.98 | 19.99 / 29.99 | 1.40 / 1.96 | 7.61 / 4.05 | no | plain (USD 10 more) |
+
+`.ae` is still not sold through Namecheap's API ("no one-year price"). With a USD balance no
+offered price changes (`.coach`'s renewal stays 109.99, hidden).
+
+### Where the rule applies
+
+- **Search, quote and checkout** (`apps/api/src/web-addresses.ts`): the rule is read from the
+  settings (`pricing()`), and every quote stores the complete rule in `quote.priceRule`.
+- **Purchase and renewal cost guard** (`costOverPrice` in `web-address-orders.ts`): a registrar
+  cost is "over" when its price by the order's stored rule, margin included, is above what the
+  trainer pays, so with the defaults a `.com` first year paid at 19.99 is held from a cost of
+  14.60 (not 15.01 as before) and a renewal paid at 24.99 is flagged from 19.31. Orders quoted
+  before this stage stored only the step, ending and cap; `storedPriceRule` reads them with no
+  fees and no minimum, so their guard is exactly as it was; a rule stored without
+  `billingFeeBp` counts no Billing fee.
+- **Operator price table** (Integration operations → Web addresses → "Registrar prices per
+  ending"): per ending and year, the trainer's price (marked "raised for margin" when the
+  minimum moved it), Stripe's estimated card, Billing and conversion fees, the net margin and
+  the margin before fees; above the table, the rule in one sentence. `GET
+  /api/v1/admin/web-addresses/prices` returns `firstYear` and `renewal` objects
+  (`priceMinor`, `costMinor`, `grossMarginMinor`, `cardFeeMinor`, `billingFeeMinor`,
+  `conversionFeeMinor`, `netMarginMinor`, `raisedForMargin`) and the full `rule`; the older `firstYearMarginMinor` and
+  `renewalMarginMinor` (before fees) stay.
+- **Trainers never see** the cost, fees, margin or rule (moat test unchanged: no key named
+  cost, usd, margin, rate or rule reaches a trainer).
+
+### What trainers see
+
+- **Search results, confirmation and order card** (`apps/web/components/web-address.tsx`):
+  "First year USD 19.99" and "Renewal, every year after USD 24.99" side by side; when the renewal
+  costs more, `renewalPriceNote` adds a short, relative note that does not repeat the two prices
+  shown beside it: "Note: the renewal is USD 5.00 more a year than the first year." or, when the
+  renewal is at least twice the first year or USD 20 more (`.fitness` 9.99 → 64.99), the
+  highlighted "Note: the renewal is much higher: 6.5 times the first year, USD 55.00 more a
+  year." Review round 1 raised the highlight threshold from "USD 10 or 50% more", which
+  highlighted 7 of the 8 offered endings (a 1.5 times renewal looked like a 6.5 times one); with
+  the live prices 5 of 8 are highlighted and `.com`, `.app` and `.me` keep the plain note. The
+  intro says both prices are the full price and that some endings cost much more to renew. The
+  confirmation says the price includes "our service". The two "How the domain works" radio
+  labels keep their text in one element, so the flex row no longer splits "Forward to my
+  <host> address" into three narrow columns at 390 px (an older layout bug fixed in review
+  round 1).
+- **Stripe Checkout**: `custom_text.submit.message` above the pay button: "First year USD 19.99
+  today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web
+  address." plus the same note. The text is stored in the order's `evidence.checkout.note` when
+  the order is created, so returning to an open checkout replays identical parameters; orders
+  created before this stage replay without it.
+- **Notices** (in-app and email): the live notice names the renewal price and, until the first
+  renewal, the note; the renewal-payment-failed and grace reminders name the renewal price (and
+  the note until the first renewal; the payment-failed notice gained the note in review round
+  1). New **`web-address-renewal-upcoming`**: 14 days before the yearly charge
+  (`UPCOMING_RENEWAL_NOTICE_DAYS`; the charge is 30 days before expiry), once per registration
+  period, every year, while renewal is on, the subscription runs and the renewal is not paid.
+  The charge date is `renewalChargeAt`: the date recorded when billing was aligned
+  (`evidence.nextRenewalChargeAt`), moved by whole years into the year before the current
+  expiry, because Stripe charges on that date every year while each renewal moves the expiry a
+  year on; each completed renewal also stores the next year's date. Before review round 1 the
+  recorded date was never moved on, so from the second year the notice was never sent and the
+  order card and the "turn renewal back on until" grace text named last year's date:
+  "On 2027-08-29 we charge USD 24.99 to your card for another year of laylastrength.com, renewed
+  automatically. [note] You can turn renewal off in Web address before that date." The worker
+  comes back when it is due; the notice key is merged into `notices` in SQL so a grace notice
+  written in the same visit is kept.
+
+### Files (stage 2026-09-28s)
+
+`packages/domain/src/web-address.ts` (rule, fees, `domainPrice`, `domainPriceDetails`,
+`storedPriceRule`, `renewalIncrease`, `renewalPriceNote`, `percentBasisPoints`, endings),
+`packages/providers/src/configuration.ts` (seven settings with Stripe Billing's fee from review
+round 1, validation, setup notes, superseded endings), `apps/api/src/web-addresses.ts` (rule
+from settings, operator table, Checkout note, order card charge date),
+`apps/api/src/web-address-orders.ts` (cost guard, notices, upcoming notice, `renewalChargeAt`),
+`apps/api/src/message-templates.ts`, `apps/web/components/web-address.tsx`,
+`apps/web/components/web-address-operations.tsx`, `apps/web/app/web-address.css`; tests
+`web-address-pricing`, `-registrar`, `-suggestions`, `-orders`, `-web`, `-moat`; e2e mock
+settings (`tests/e2e/mocks/index.ts`), the Stripe double keeps `custom_text`, and the core
+scenario's expectations (`.fitness` renewal 49.99, the Checkout text).
+
+### Checks actually run for this stage
+
+Recorded in `docs/COMPLETION_STAGES.md`, stage 2026-09-28s. The checks on the merged tree, with
+platform finance B-D (full PGlite and PostgreSQL suites, e2e harness, build, brand check), are in
+stage 2026-09-28x.
+
+## Domain profit and the registrar balance (platform finance, stages 2026-09-28t to 28v)
+
+Operators see domain profit on Platform finance → Domains (`docs/features/platform-finance.md`):
+per currency and per order, what the trainer paid, what was refunded, what the registrar charged
+(the `web-address-registrar:` journals) and the profit, with orders the registrar charged more
+than the price kept flagged "below cost". Registrar top-ups are recorded as platform costs
+(category "Registrar top-up", a prepayment), so the screen shows top-ups less registrar charges as
+the registrar's book balance next to the balance the registrar reports ("Check registrar
+balance", and read daily by the worker when a registrar is configured; read-only). The book is
+in US dollars, like the registrar's balance: an order quoted in AED journals its registrar
+charge in AED at the quote's rate, and counts at the USD cost that journal records (review
+round 1, stage 2026-09-28w). A payment for no open order (booked to the refund liability) and
+its refund are not domain income or cost. The alert
+`finance.registrar_balance_low` fires below "Alert when the registrar balance is below (USD)"
+(Settings → Platform finance, default 20). Trainers never see any of this. The domain price rule
+is the domain margin track's ("Minimum margin and renewal display" above, stage
+2026-09-28s); both tracks are merged into the PR #4 branch (stage 2026-09-28x).
 
 ## Checks actually run (local, 28 September 2026, in this worktree)
 

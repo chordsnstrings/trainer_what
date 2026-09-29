@@ -614,6 +614,12 @@ input[type="range"] {
 .table-wrap {
   overflow: auto;
 }
+/* A labelled, focusable table region: a wide table scrolls inside it, never
+   the page (390 px phones). */
+.table-scroll {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
 table {
   width: 100%;
   border-collapse: collapse;

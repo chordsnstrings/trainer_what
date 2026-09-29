@@ -215,7 +215,7 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
   await r.step(T, "Search for a domain", `${layla.slug}: the name on every suggested ending in one registrar request, USD first-year and renewal prices, taken and over-USD-100 names left out, without naming the registrar`, async () => {
     const nc = ctx.mocks.namecheap;
     // Someone holds laylastrength.fit; laylastrength.coach is a premium name
-    // over the USD 100 limit; the double does not sell .ae.
+    // over the USD 100 limit; .ae is not suggested (and the double does not sell it).
     nc.taken.add("laylastrength.fit");
     nc.premium.set("laylastrength.coach", "250.00");
     // Ending prices come from the registrar once a day (the worker keeps
@@ -235,12 +235,14 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     assert.equal(again.status, 200, again.text);
     assert.ok(nc.commands("domains.check").length <= checks + 1, "at most one availability request for every ending");
     assert.deepEqual(search.body.requested, { domain: "laylastrength.com", status: "available" });
-    // Owner's rule: the cost rounded up to USD 5, plus USD 4.99.
+    // Owner's rule: the cost rounded up to USD 5, plus USD 4.99, then one
+    // step up while less than USD 4 is left after Stripe's estimated fees
+    // (.fitness renews at 39.16: 44.99 would leave 3.34, so 49.99).
     assert.deepEqual(
       search.body.results.map((x: any) => [x.domain, x.firstYearPriceMinor, x.renewalPriceMinor, x.currency]),
       [
         ["laylastrength.com", 1999, 2499, "USD"],
-        ["laylastrength.fitness", 1499, 4499, "USD"],
+        ["laylastrength.fitness", 1499, 4999, "USD"],
         ["laylastrength.training", 1499, 4499, "USD"],
         ["laylastrength.club", 999, 2499, "USD"],
         ["laylastrength.pro", 999, 2999, "USD"],
@@ -276,6 +278,11 @@ async function webAddressPurchase(ctx: E2EContext, layla: TrainerSeed): Promise<
     assert.equal(paid.invoice.amount_paid, 1999);
     assert.equal(paid.invoice.currency, "usd");
     assert.equal(paid.subscription.items.data[0].price.unit_amount, 2499);
+    // Both prices again on Stripe's page, with the note that the renewal is dearer.
+    assert.equal(
+      paid.session.custom_text?.submit?.message,
+      "First year USD 19.99 today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web address. Note: the renewal is USD 5.00 more a year than the first year.",
+    );
     purchase = { orderId: created.orderId, domain: found.domain, subscriptionId: paid.subscription.id };
     const view = await t.request("GET", `/api/v1/web-address/orders/${created.orderId}`);
     assertNoRegistrar(view.text, "order view");

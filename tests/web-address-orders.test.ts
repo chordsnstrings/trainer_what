@@ -13,9 +13,11 @@ import { createDatabase, elevated, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { processStripeEvent } from "../apps/api/src/stripe-events.ts";
 import {
+  costOverPrice,
   processWebAddressOrder,
   processWebAddressOrders,
   platformHosts,
+  renewalChargeAt,
   sameHostSet,
   type WebAddressDeps,
 } from "../apps/api/src/web-address-orders.ts";
@@ -620,6 +622,14 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
   );
   const session = stripe.sessions.values().next().value;
   assert.equal(session.amount_total, FIRST, "USD 19.99 due today");
+  // Both prices again above Stripe's pay button, with the renewal note
+  // (owner decision, 28 September 2026: trainers know before paying).
+  assert.deepEqual(checkout.params.custom_text, {
+    submit: {
+      message:
+        "First year USD 19.99 today, then USD 24.99 every year, renewed automatically until you turn renewal off in Web address. Note: the renewal is USD 5.00 more a year than the first year.",
+    },
+  });
   assert.equal(checkout.params.metadata.purpose, "web_address");
   // Neutral Stripe wording: never the registrar (owner decision, 28 Sep 2026).
   assert.equal(
@@ -702,8 +712,18 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
     (await request("/public/host", { host: "www.layla.com" })).json().tenantId,
     layla.tenantId,
   );
-  assert.ok(
-    (await notices(layla.tenantId)).some((n) => n.dedupe_key.endsWith(":live")),
+  const live = (await notices(layla.tenantId)).find((n) =>
+    n.dedupe_key.endsWith(":live"),
+  );
+  assert.ok(live);
+  // The renewal price, and the note that it is dearer than the first year.
+  assert.match(
+    live.body,
+    /renews every year at USD 24\.99; the next renewal is before \d{4}-\d{2}-\d{2}\./,
+  );
+  assert.match(
+    live.body,
+    /Note: the renewal is USD 5\.00 more a year than the first year\.$/,
   );
 
   // The next visit moves the yearly charge to 30 days before expiry.
@@ -1026,6 +1046,138 @@ test("yearly renewal: the paid invoice renews at the registrar, a lost answer is
   );
 });
 
+test("each renewal moves the recorded yearly charge date on a year with the expiry", async () => {
+  // The two renewals above ran for real; nothing here is edited by hand.
+  // Billing was aligned to 30 days before the first expiry, and Stripe
+  // charges on that date every year.
+  const renewed = await order(layla.tenantId, laylaOrder.id);
+  assert.equal(renewed.renewal_status, "renewed");
+  const expires = Date.parse(renewed.expires_at);
+  const charge = new Date(expires - 30 * 86400000).toISOString();
+  assert.equal(
+    renewed.evidence.nextRenewalChargeAt,
+    charge,
+    "the stored date is this period's, not the first year's",
+  );
+  assert.equal(renewalChargeAt(renewed), Date.parse(charge));
+  // The trainer's order card names this period's charge.
+  const card = await request(`/web-address/orders/${laylaOrder.id}`, {
+    cookie: layla.cookie,
+  });
+  assert.equal(card.statusCode, 200, card.body);
+  assert.equal(card.json().nextRenewalChargeAt, charge);
+});
+
+test("renewalChargeAt: the aligned billing date in the current registration year", () => {
+  const at = (expires: string, recorded?: string) =>
+    renewalChargeAt({
+      expires_at: expires,
+      evidence: recorded ? { nextRenewalChargeAt: recorded } : {},
+    });
+  const iso = (ms: number | null) =>
+    ms === null ? null : new Date(ms).toISOString();
+  // First year: as recorded.
+  assert.equal(
+    iso(at("2027-09-28T00:00:00Z", "2027-08-29T00:00:00Z")),
+    "2027-08-29T00:00:00.000Z",
+  );
+  // Renewed twice while the date stayed at the first year's (orders renewed
+  // before the date moved on): this period's charge, not a past one.
+  assert.equal(
+    iso(at("2029-09-28T00:00:00Z", "2027-08-29T00:00:00Z")),
+    "2029-08-29T00:00:00.000Z",
+  );
+  // Charged early (alignment was late): the same day every year.
+  assert.equal(
+    iso(at("2028-09-28T00:00:00Z", "2027-09-20T10:30:00Z")),
+    "2028-09-20T10:30:00.000Z",
+  );
+  // A date after the expiry (the expiry corrected back) moves back.
+  assert.equal(
+    iso(at("2027-09-28T00:00:00Z", "2028-08-29T00:00:00Z")),
+    "2027-08-29T00:00:00.000Z",
+  );
+  // 29 February becomes the 28th in other years, as Stripe does.
+  assert.equal(
+    iso(at("2029-03-30T00:00:00Z", "2028-02-29T00:00:00Z")),
+    "2029-02-28T00:00:00.000Z",
+  );
+  assert.equal(
+    iso(at("2032-03-30T00:00:00Z", "2028-02-29T00:00:00Z")),
+    "2032-02-29T00:00:00.000Z",
+  );
+  // Not aligned yet, or no expiry: nothing recorded to go by.
+  assert.equal(at("2027-09-28T00:00:00Z"), null);
+  assert.equal(at("", "2027-08-29T00:00:00Z"), null);
+});
+
+test("two weeks before the yearly charge the trainer is told its date and price, once a period, in later years too", async () => {
+  // A later year as orders renewed before the date moved on still hold it:
+  // the expiry is 40 days away and the date recorded at alignment is a
+  // year old, so this period's charge is in 10 days. Renewed once already
+  // (above), so the first-year note is not repeated.
+  const DAY = 86400000;
+  const expires = new Date(Date.now() + 40 * DAY);
+  const charge = new Date(Date.now() + 10 * DAY);
+  const yearBefore = (date: Date) => {
+    const d = new Date(date);
+    d.setUTCFullYear(d.getUTCFullYear() - 1);
+    return d.toISOString();
+  };
+  await db.tenant(worker(layla.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=$2,evidence=evidence||$3::jsonb WHERE id=$1",
+      [
+        laylaOrder.id,
+        expires,
+        JSON.stringify({ nextRenewalChargeAt: yearBefore(charge) }),
+      ],
+    ),
+  );
+  await step(layla.tenantId, laylaOrder.id);
+  await step(layla.tenantId, laylaOrder.id);
+  const upcoming = (await notices(layla.tenantId)).filter((n) =>
+    n.dedupe_key.includes(":upcoming:"),
+  );
+  assert.equal(upcoming.length, 1, "once per registration period");
+  assert.equal(upcoming[0].title, "Your domain renews soon");
+  assert.equal(
+    upcoming[0].body,
+    `On ${charge.toISOString().slice(0, 10)} we charge USD 24.99 to your card for another year of layla.com, renewed automatically. You can turn renewal off in Web address before that date.`,
+  );
+  const row = await order(layla.tenantId, laylaOrder.id);
+  assert.ok(row.notices[`${expires.toISOString().slice(0, 10)}:upcoming`]);
+  // The order card shows the same date, not last year's.
+  const card = await request(`/web-address/orders/${laylaOrder.id}`, {
+    cookie: layla.cookie,
+  });
+  assert.equal(card.json().nextRenewalChargeAt, charge.toISOString());
+  // More than two weeks before the charge nothing is sent yet, and the
+  // worker comes back when it is due.
+  const later = new Date(Date.now() + 80 * DAY);
+  await db.tenant(worker(layla.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET expires_at=$2,evidence=evidence||$3::jsonb WHERE id=$1",
+      [
+        laylaOrder.id,
+        new Date(later.getTime() + 30 * DAY),
+        JSON.stringify({ nextRenewalChargeAt: yearBefore(later) }),
+      ],
+    ),
+  );
+  const waiting = await step(layla.tenantId, laylaOrder.id);
+  assert.equal(
+    (await notices(layla.tenantId)).filter((n) =>
+      n.dedupe_key.includes(":upcoming:"),
+    ).length,
+    1,
+  );
+  assert.ok(
+    Date.parse(waiting.next_attempt_at) <= later.getTime() - 14 * DAY + 60000,
+    "the worker returns when the notice is due",
+  );
+});
+
 test("failed renewal payment: grace notices, then lapse back to the subdomain; renewal can be turned off", async () => {
   const row = await order(layla.tenantId, laylaOrder.id);
   await stripeEvent("invoice.payment_failed", {
@@ -1037,11 +1189,16 @@ test("failed renewal payment: grace notices, then lapse back to the subdomain; r
     (await order(layla.tenantId, laylaOrder.id)).billing_status,
     "past_due",
   );
-  assert.ok(
-    (await notices(layla.tenantId)).some((n) =>
-      n.dedupe_key.includes(":payment-failed:in_failed_1"),
-    ),
+  const failedNotice = (await notices(layla.tenantId)).find((n) =>
+    n.dedupe_key.includes(":payment-failed:in_failed_1"),
   );
+  assert.ok(failedNotice);
+  // Renewed before: the renewal price only, no first-year note.
+  assert.match(
+    failedNotice!.body,
+    /the yearly renewal of USD 24\.99 for layla\.com/,
+  );
+  assert.doesNotMatch(failedNotice!.body, /Note:/);
 
   const off = await request(`/web-address/orders/${laylaOrder.id}/renewal`, {
     method: "POST",
@@ -1672,6 +1829,11 @@ test("renewal switch: an older Stripe event never undoes the trainer's choice; n
   );
   assert.ok(notice);
   assert.match(notice!.body, /https:\/\/nour-strength\.trainsyou\.example/);
+  // Not renewed yet: the price, and the note that the renewal is dearer.
+  assert.match(
+    notice!.body,
+    /the yearly renewal of USD 24\.99 for .*\. Note: the renewal is USD 5\.00 more a year than the first year\.$/,
+  );
   assert.doesNotMatch(notice!.body, /https:\/\/nour\.trainsyou/);
 });
 
@@ -2131,17 +2293,51 @@ test("an order quoted in AED before USD pricing keeps its price, checkout, payme
 });
 
 test("no web address notice sent to a trainer names the registrar or its cost", async () => {
-  let seen = 0;
-  for (const who of [layla, omar, sara])
+  let seen = 0,
+    priced = 0;
+  for (const who of [layla, omar, sara]) {
+    // The only amounts a notice may carry are the trainer's own prices
+    // (the renewal price and, in the renewal note, the first year's).
+    const quotes = await db.tenant(worker(who.tenantId), (tx) =>
+      tx.query<{ quote: any }>(
+        "SELECT quote FROM domain_orders WHERE mode='automatic'",
+      ),
+    );
+    const own = new Set(
+      quotes.flatMap(({ quote }) =>
+        [
+          quote?.firstYearPriceMinor,
+          quote?.renewalPriceMinor,
+          quote?.priceMinor,
+        ]
+          .filter((n) => Number.isInteger(n))
+          .map((n: number) => (n / 100).toFixed(2)),
+      ),
+    );
     for (const notice of await notices(who.tenantId)) {
       seen++;
-      assert.doesNotMatch(
-        notice.title + " " + notice.body,
-        /namecheap|registrar|usd|cost/i,
-        notice.dedupe_key,
-      );
+      const text = notice.title + " " + notice.body;
+      assert.doesNotMatch(text, /namecheap|registrar|cost/i, notice.dedupe_key);
+      for (const [, amount] of text.matchAll(/USD (\d+\.\d{2})/g)) {
+        priced++;
+        // Differences in the renewal note are the trainer's prices too.
+        const difference = [...own].some((a) =>
+          [...own].some(
+            (b) =>
+              (Math.round(Number(a) * 100) - Math.round(Number(b) * 100)) /
+                100 ===
+              Number(amount),
+          ),
+        );
+        assert.ok(
+          own.has(amount) || difference,
+          `${notice.dedupe_key}: USD ${amount} is not one of the trainer's prices`,
+        );
+      }
     }
+  }
   assert.ok(seen >= 3, "the scenario sent notices");
+  assert.ok(priced >= 1, "notices name the renewal price");
 });
 
 test("trainer-facing finance never carries the registrar's cost; operators still see it", async () => {
@@ -2339,4 +2535,52 @@ test("a renewal cost rise is flagged two months ahead and when charged; the doma
     /charged USD 30\.18 for the renewal/,
   );
   mock.prices.com = saved;
+});
+
+test("the cost guard keeps the minimum margin; orders quoted before it keep their plain rule", () => {
+  const quoted = (priceRule: object) => ({
+    quote: {
+      currency: "USD",
+      firstYearPriceMinor: 1999,
+      renewalPriceMinor: 2499,
+      registerUsd: "11.4800",
+      renewUsd: "18.6800",
+      priceRule,
+    },
+  });
+  const full = quoted({
+    stepCents: 500,
+    endingCents: 499,
+    capCents: 10000,
+    minMarginCents: 400,
+    cardFeeBp: 290,
+    internationalFeeBp: 100,
+    fixedFeeCents: 28,
+    billingFeeBp: 70,
+    conversionFeeBp: 100,
+    usdBalance: false,
+  });
+  // Up to 14.59 the USD 19.99 paid still leaves USD 4 after Stripe's fees
+  // (Stripe Billing's 0.7% included).
+  assert.equal(costOverPrice(full as any, "register", "14.59"), false);
+  assert.equal(costOverPrice(full as any, "register", "14.60"), true);
+  // A rule stored without Stripe Billing's fee keeps its own boundary.
+  const { billingFeeBp: _, ...noBilling } = (full as any).quote.priceRule;
+  assert.equal(
+    costOverPrice(quoted(noBilling) as any, "register", "14.73"),
+    false,
+  );
+  assert.equal(
+    costOverPrice(quoted(noBilling) as any, "register", "14.74"),
+    true,
+  );
+  // An order quoted before the minimum margin stored only the rounding: its
+  // guard holds only past the USD 5 step, as before.
+  const plain = quoted({ stepCents: 500, endingCents: 499, capCents: 10000 });
+  assert.equal(costOverPrice(plain as any, "register", "14.74"), false);
+  assert.equal(costOverPrice(plain as any, "register", "15.00"), false);
+  assert.equal(costOverPrice(plain as any, "register", "15.01"), true);
+  // Renewal 18.68 → 24.99 keeps USD 4.62; up to 19.30 keeps USD 4.00.
+  assert.equal(costOverPrice(full as any, "renew", "19.30"), false);
+  assert.equal(costOverPrice(full as any, "renew", "19.31"), true);
 });

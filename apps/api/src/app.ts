@@ -158,7 +158,10 @@ import { processStripeEvent } from "./stripe-events.ts";
 import { registerGovernance } from "./governance.ts";
 import { registerBusinessMetrics } from "./business-metrics.ts";
 import { registerPlatformFinance } from "./platform-finance.ts";
+import { registerPlatformPnl } from "./platform-pnl.ts";
+import { captureFeesAfterWebhook, type StripeFeeClient } from "./stripe-fees.ts";
 import { VOICE_TASK_SQL } from "./cost-accounting.ts";
+import { ledgerItem } from "./finance-statements.ts";
 import { registerPlatformAlerts } from "./platform-alerts.ts";
 import {
   ACCOUNT_LOCKED_SQLSTATE,
@@ -712,6 +715,12 @@ export async function buildApp(
   registerGovernance(app, db, identity);
   registerBusinessMetrics(app, db, identity);
   registerPlatformFinance(app, db, identity);
+  registerPlatformPnl(
+    app,
+    db,
+    identity,
+    options.providers?.stripe as unknown as (() => StripeFeeClient) | undefined,
+  );
   registerPlatformAlerts(app, db, identity);
   app.get("/health", async () => ({ status: "ok", service: "trainer-api" }));
   app.get("/api/v1/health", async () => ({ status: "ok" }));
@@ -2162,19 +2171,30 @@ export async function buildApp(
         // trainer's ledger (docs/features/web-addresses.md).
         // Each line carries its journal's currency: AED, or USD for the
         // trainer's own web address payments and refunds (migration 071).
-        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' ORDER BY j.created_at,l.account",
+        // The AI Coach Service Fee is one line, its effect on the trainer's
+        // balance: the platform's own side of it is not the trainer's ledger.
+        "SELECT j.id,j.source_key,j.created_at,l.account,l.amount_minor,j.currency FROM journals j JOIN journal_lines l ON l.journal_id=j.id AND l.tenant_id=j.tenant_id WHERE j.source_key NOT LIKE 'web-address-registrar:%' AND NOT ((j.source_key LIKE 'usage:%' OR j.source_key LIKE 'usage-adjustment:%') AND l.account<>'trainer_payable') ORDER BY j.created_at,l.account",
       ),
     );
     reply
       .header("Content-Type", "text/csv")
       .header("Content-Disposition", 'attachment; filename="ledger.csv"');
-    const cell = (v: any) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+    // Quoted, and a leading formula character is neutralized for spreadsheets.
+    const cell = (v: any) => {
+      const text = String(v instanceof Date ? v.toISOString() : (v ?? ""));
+      const safe =
+        /^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)
+          ? "'" + text
+          : text;
+      return '"' + safe.replace(/"/g, '""') + '"';
+    };
     return [
-      "journal_id,source_key,created_at,account,amount_minor,currency",
+      "journal_id,source_key,item,created_at,account,amount_minor,currency",
       ...rows.map((r) =>
         [
           r.id,
           r.source_key,
+          ledgerItem(String(r.source_key)),
           r.created_at,
           r.account,
           r.amount_minor,
@@ -2568,6 +2588,18 @@ export async function buildApp(
         [stripeEvent.id],
       ),
     );
+    // Stripe's fee of this workspace's new payments, refunds and disputes
+    // (read-only, best effort; the hourly sweep catches anything missed).
+    // The isolated test runner reads fees only through a Stripe double.
+    const feeClient = options.providers?.stripe
+      ? (options.providers.stripe() as unknown as StripeFeeClient)
+      : process.env.NODE_TEST_CONTEXT
+        ? null
+        : (stripe as unknown as StripeFeeClient);
+    if (feeClient)
+      void captureFeesAfterWebhook(db, feeClient, stripeEvent).catch(() => {
+        console.error("Stripe fee capture after a webhook needs the sweep");
+      });
     return reply.send({ received: true });
   });
   app.addHook("onClose", async () => {

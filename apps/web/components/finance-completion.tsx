@@ -1,6 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { money } from "@trainer/domain";
+/** "July 2026" for a YYYY-MM month. */
+const monthName = (period: string) =>
+  new Date(period + "-15T00:00:00Z").toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 async function request(url: string, body?: unknown) {
   const response = await fetch("/api/v1" + url, {
     method: body ? "POST" : "GET",
@@ -352,8 +359,12 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
     grossMinor: "Gross collections",
     refundsMinor: "Refunds",
     commissionMinor: "Net platform commission",
-    processingFeesMinor: "Payment processing fees",
-    usageMinor: "AI and voice usage",
+    processingFeesMinor: tenant
+      ? "Stripe fees (paid by the trainer)"
+      : "Stripe fees (paid by you)",
+    usageMinor: tenant
+      ? "AI Coach Service Fee (AI and voice usage with markup)"
+      : "AI Coach Service Fee",
     allocatedCostsMinor: "Allocated charges",
     payoutsMinor: "Bank payouts",
     payoutReturnsMinor: "Returned bank payouts",
@@ -492,7 +503,53 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
                 </p>
               ));
             })()}
-          <h3>Provider usage</h3>
+          {!tenant && data.aiCoachServiceFees?.length > 0 && (
+            <>
+              <h3 id="statement-service-fee">AI Coach Service Fee on this statement</h3>
+              <p className="muted">
+                A month&apos;s fee is posted after that month ends, so this
+                statement shows the fee for an earlier month.
+              </p>
+              <ul aria-labelledby="statement-service-fee">
+                {data.aiCoachServiceFees.map((f: any, i: number) => (
+                  <li key={i}>
+                    {f.adjustment ? "Adjustment of the fee for " : "Fee for "}
+                    {f.period ? monthName(f.period) : "an earlier month"}:{" "}
+                    <span dir="ltr">{money(f.amountMinor)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {!tenant && (
+            <p>
+              Stripe's card fees are paid by you: they are deducted from your
+              earnings when Stripe settles your members' payments, and shown
+              above as Stripe fees.
+              {data.stripeFeesOnPayments?.length > 0 && (
+                <>
+                  {" "}
+                  Stripe's fee on this month's payments, refunds and disputes
+                  {data.stripeFeesRead
+                    ? ` (read from Stripe for ${data.stripeFeesRead.read} of ${data.stripeFeesRead.sources})`
+                    : ""}
+                  :{" "}
+                  {data.stripeFeesOnPayments
+                    .map((f: any) =>
+                      new Intl.NumberFormat("en-AE", {
+                        style: "currency",
+                        currency: f.currency,
+                        currencyDisplay: "code",
+                        maximumFractionDigits: 2,
+                      }).format(f.feeMinor / 100),
+                    )
+                    .join(" + ")}
+                  .
+                </>
+              )}
+            </p>
+          )}
+          {data.usageCost && <h3>Provider usage</h3>}
           {data.usageCost && (
             <p>
               USD {data.usageCost.costUsd.toFixed(4)} priced
@@ -515,7 +572,7 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
               )}
             </p>
           )}
-          {!data.usage.length ? (
+          {!data.usage ? null : !data.usage.length ? (
             <p>No recorded usage this month.</p>
           ) : (
             data.usage.map((r: any, i: number) => (

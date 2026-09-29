@@ -12,14 +12,18 @@ const A = "Super admin" as const;
 const T = "Trainers" as const;
 const FX = "3.6725";
 
-/** PostgreSQL-compatible round(sum(cost_usd) * fx * 100) using exact decimals. */
-function usageChargeMinor(costs: Array<string | number | null>, fx = FX) {
+/**
+ * PostgreSQL-compatible round(sum(cost_usd) * fx * (100 + markup)) using exact
+ * decimals: the AI Coach Service Fee, with the owner's default 100% markup
+ * (28 September 2026).
+ */
+function usageChargeMinor(costs: Array<string | number | null>, fx = FX, markupPercent = 100) {
   const scaled = (value: string, places: number) => {
     const [whole, fraction = ""] = value.split(".");
     return BigInt(whole + fraction.padEnd(places, "0").slice(0, places));
   };
   const sum = costs.reduce<bigint>((acc, c) => acc + scaled(String(c ?? "0"), 8), 0n);
-  const product = sum * scaled(fx, 4) * 100n; // scale 1e12
+  const product = sum * scaled(fx, 4) * BigInt(100 + markupPercent); // scale 1e12
   const unit = 10n ** 12n;
   return Number((product + unit / 2n) / unit);
 }
@@ -38,6 +42,7 @@ export async function operatorScenarios(ctx: E2EContext) {
   if (sara) await monthCloseAndPayout(ctx, sara);
   else r.skip(A, "Month close", "month close and payout", "sara-mobility did not launch");
   if (layla) await domains(ctx, layla);
+  await platformFinance(ctx);
   await r.step(A, "Infrastructure observer", "API and worker observations are reported", async () => {
     const infra = await admin.get("/api/v1/admin/infrastructure");
     assert.ok(JSON.stringify(infra).includes("worker"), JSON.stringify(infra).slice(0, 300));
@@ -46,6 +51,46 @@ export async function operatorScenarios(ctx: E2EContext) {
     const security = await admin.get("/api/v1/admin/operations/security");
     assert.ok(security.rows.length > 0);
     assert.ok(security.summary.operators.some((o: any) => o.platform_role === "admin" && o.mfa_enabled));
+  });
+}
+
+/**
+ * Platform finance (docs/features/platform-finance.md, phases B-D): the
+ * DigitalOcean billing import against the double, Stripe's fee per payment
+ * from the Stripe double's balance transactions, the profit and loss built
+ * from the summary and the full ledger export.
+ */
+async function platformFinance(ctx: E2EContext) {
+  const { admin, reporter: r } = ctx;
+  const month = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 7);
+  await admin.stepUp();
+  await r.step(A, "Platform finance", "DigitalOcean billing: only the platform project's items; this month estimated from its droplet", async () => {
+    const result = await admin.post("/api/v1/admin/platform-finance/digitalocean/import", {});
+    assert.equal(result.projectFound, true);
+    // The worker's daily import may have read the invoices first: check what is recorded.
+    const status = await admin.get("/api/v1/admin/platform-finance/digitalocean");
+    assert.ok(status.invoices.length >= 2, JSON.stringify(status.invoices));
+    assert.ok(status.invoices.every((i: any) => i.project_items === 0), "earlier invoices hold only another project's items");
+    assert.ok(result.estimate?.projectedUsd > 0, JSON.stringify(result.estimate));
+    return `estimate USD ${result.estimate.projectedUsd} for ${result.estimate.month}`;
+  });
+  await r.step(A, "Platform finance", "Stripe's fee per payment is read from the balance transactions", async () => {
+    const swept = await admin.post("/api/v1/admin/platform-finance/stripe-fees/sweep", {});
+    const costs = await admin.get(`/api/v1/admin/platform-finance/costs?from=${previousPeriod()}&to=${month}`);
+    assert.ok(costs.stripeFees.count > 0, JSON.stringify(swept));
+    return `${costs.stripeFees.count} fee record(s)`;
+  });
+  await r.step(A, "Platform finance", "profit and loss per month with the AI Coach Service Fee, costs and the ledger export", async () => {
+    await admin.post("/api/v1/admin/platform-finance/rebuild", { from: previousPeriod(), to: month });
+    const pnl = await admin.get(`/api/v1/admin/platform-finance?from=${previousPeriod()}&to=${month}`);
+    assert.deepEqual(pnl.summary.missingMonths, []);
+    assert.ok(pnl.months[0].income.some((l: any) => l.key === "aiCoachServiceFee"));
+    assert.ok(pnl.platformCosts.some((c: any) => c.vendor === "DigitalOcean" && c.estimated), "DigitalOcean estimate counted");
+    assert.ok(pnl.trainers.length > 0);
+    const ledger = await admin.request("GET", `/api/v1/admin/platform-finance/export/ledger.csv?from=${previousPeriod()}&to=${month}`);
+    assert.equal(ledger.status, 200);
+    assert.match(ledger.text, /^tenant_id,workspace,month,created_at,journal_id,source_key/);
+    return `${pnl.trainers.length} trainer(s), profit AED ${(pnl.total.profitMinor / 100).toFixed(2)}`;
   });
 }
 
@@ -118,12 +163,19 @@ async function monthCloseAndPayout(ctx: E2EContext, trainer: TrainerSeed) {
   await r.step(A, "AI usage cost reconciliation", `${trainer.slug}: every model call is priced from recorded token usage`, async () => {
     const finance = await admin.get(base);
     assert.equal(finance.unresolvedUsage.length, 0, "no reserved or unknown usage");
-    costs = (await trainer.client.get("/api/v1/bootstrap")).costs;
-    assert.ok(costs.length > 0 && costs.every((c: any) => c.cost_usd !== null), "all usage priced");
-    return `${costs.length} priced model calls`;
+    // Trainers see what ran, never its provider cost (owner decision).
+    const listed = (await trainer.client.get("/api/v1/bootstrap")).costs;
+    assert.ok(listed.length > 0, "usage recorded");
+    assert.ok(listed.every((c: any) => !("cost_usd" in c) && !("provider" in c)), "no provider cost on the trainer's list");
+    const byStatus = finance.usageByStatus as any[];
+    assert.ok(byStatus.every((s: any) => ["recorded", "reconciled", "estimated"].includes(s.status)), "all usage priced");
+    costs = byStatus.map((s: any) => s.cost_usd);
+    return `${listed.length} priced model calls`;
   });
   await r.step(A, "Monthly AI usage statements", `${trainer.slug}: usage statement for ${period}`, async () => {
-    const chargeMinor = usageChargeMinor(costs.map((c: any) => c.cost_usd));
+    const chargeMinor = usageChargeMinor(costs);
+    const preview = await admin.get(`${base}/usage-preview?period=${period}`);
+    assert.equal(preview.usage.markupPercent, 100, "the AI Coach Service Fee carries the 100% markup");
     const statement = await admin.post(`${base}/usage-statements`, {
       period,
       fxAedPerUsd: Number(FX),

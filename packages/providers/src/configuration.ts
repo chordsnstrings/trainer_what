@@ -205,6 +205,15 @@ export function integrationCapability(
       approved: configured && config.WEB_ADDRESS_PURCHASES_ENABLED === "true",
     };
   }
+  if (id === "digitalocean_billing") {
+    const configured = has("DO_BILLING_TOKEN");
+    return {
+      configured,
+      approved:
+        configured &&
+        (config.DO_BILLING_IMPORT_ENABLED ?? "true").trim() !== "false",
+    };
+  }
   if (id === "dns_hosting") {
     // The registrar's own DNS needs nothing; DigitalOcean needs its token.
     const configured =
@@ -572,7 +581,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Exchange rate and usage-charge rules behind the Super admin's cost and profit figures.",
     setupNotes:
-      "These record operator decisions (docs/features/platform-finance.md). Every default keeps the behaviour the platform had before these settings existed. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
+      "These record the owner's finance decisions of 28 September 2026 (docs/features/platform-finance.md): AI and voice usage charged to trainers with a 100% markup as the \"AI Coach Service Fee\", complimentary members' usage charged to their trainer, Stripe fees paid by the trainer and shown to them plainly, income counted when it is received, and no budget limits. A month's reviewed exchange rate, recorded under Platform finance, always takes precedence over the default rate.",
     fields: [
       field("FINANCE_USD_TO_AED", "Default USD to AED rate", "number", {
         defaultValue: "3.6725",
@@ -583,8 +592,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "Markup on AI and voice usage charged to trainers (%)",
         "number",
         {
-          defaultValue: "0",
-          help: "Owner decision pending. 0 charges trainers at cost, as today. 0 to 100. Applies to usage statements posted after the change.",
+          defaultValue: "100",
+          help: "Owner decision (28 September 2026): 100, so trainers pay twice the provider cost. Trainers see the charge only as one line, \"AI Coach Service Fee\", with the amount (markup included). 0 to 1000. Applies to usage statements posted after the change; statements already posted keep their charge.",
         },
       ),
       field(
@@ -597,7 +606,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
             { value: "trainer", label: "The trainer (in the monthly usage charge)" },
             { value: "platform", label: "The platform (left out of the usage charge)" },
           ],
-          help: "Owner decision pending. The trainer pays today. Applies to usage statements posted after the change.",
+          help: "Owner decision (28 September 2026): the trainer. Applies to usage statements posted after the change.",
         },
       ),
       field(
@@ -607,6 +616,60 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         {
           defaultValue: "false",
           help: "Off (today's behaviour): automatic month close waits until an operator reconciles unresolved provider calls from the invoice, or estimates them (Payments and payouts: Estimate unpriced usage). On: calls whose outcome was never confirmed are priced at their stored estimate, or the average of the same feature and model, and charged at that estimate; a later invoice correction does not change a usage charge already posted. Calls that answered are always priced at their estimate when made, and calls never sent cost nothing.",
+        },
+      ),
+      field(
+        "FINANCE_EMAIL_USD_PER_MESSAGE",
+        "Email cost per delivered message (USD)",
+        "number",
+        {
+          defaultValue: "0",
+          help: "The email provider's price per message, counted for every delivered email in the Platform finance profit and loss. 0 counts only the email plan, entered as a recurring platform cost. 0 to 1, up to six decimals.",
+        },
+      ),
+      field(
+        "FINANCE_REGISTRAR_LOW_BALANCE_USD",
+        "Alert when the registrar balance is below (USD)",
+        "number",
+        {
+          defaultValue: "20",
+          help: "Platform alert (finance) when the registrar's last reported balance is below this; critical below a quarter of it. The balance is read daily and by Check registrar balance.",
+        },
+      ),
+      field(
+        "FINANCE_UNPRICED_ALERT_DAYS",
+        "Alert on unpriced provider usage after (days)",
+        "number",
+        {
+          defaultValue: "7",
+          help: "Platform alert when provider calls of an ended month are still unpriced this many days after it ended (critical after 30). No budget limits apply: costs are compared with income instead.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_FEE_PERCENT",
+        "Stripe card fee shown to trainers (%)",
+        "number",
+        {
+          defaultValue: "2.9",
+          help: "Trainers pay Stripe's fees (owner decision, 28 September 2026). Used for the estimate trainers see before they set a price: Stripe's standard UAE rate for cards issued in the UAE (2.9% plus a fixed fee, stripe.com/ae/pricing). 0 to 20. The actual fee of each payment comes from Stripe.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_FEE_FIXED_AED",
+        "Stripe fixed fee per payment shown to trainers (AED)",
+        "number",
+        {
+          defaultValue: "1.00",
+          help: "The fixed part of Stripe's fee per successful card payment in the estimate (AED 1.00 on Stripe's standard UAE pricing). 0 to 20, at most two decimals.",
+        },
+      ),
+      field(
+        "FINANCE_STRIPE_INTERNATIONAL_PERCENT",
+        "Extra Stripe fee for cards issued outside the UAE (%)",
+        "number",
+        {
+          defaultValue: "1",
+          help: "Shown to trainers as the extra a card issued abroad can cost on top of the standard fee (1% on Stripe's standard UAE pricing). 0 to 20.",
         },
       ),
     ],
@@ -1031,7 +1094,7 @@ INTEGRATION_CATALOG.push({
   description:
     "Trainer subdomains and yearly domains bought, set up and renewed automatically.",
   setupNotes:
-    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending: with the defaults a USD 11.48 cost is USD 19.99 and a USD 18.68 cost is USD 24.99. A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
+    "The connection check reads the registrar account balance only; no domain is bought. Namecheap accepts API calls only from the whitelisted client IPv4 address (this server's public address) and only after API access is enabled on the account. Keep the test environment switched on until the owner approves live purchases. Owner decision (28 September 2026): the registrant of every domain bought here is always the platform company entered below, with WHOIS privacy always requested; trainers are never the registrant, and there is no self-service transfer out or authorisation code for them (operators handle an exceptional request manually at the registrar). Trainers and members never see the registrar's name or cost: they see only the first-year and yearly renewal price, in USD (owner decision, 28 September 2026). Each price is the registrar's one-year USD cost (registration for the first year, renewal for the renewal; the premium price for a premium name) rounded up to the next multiple of the price step, plus the price ending; if that leaves less than the minimum margin (USD 4.00) after the registrar's cost and Stripe's estimated fees (card percentage, the international card extra, the fixed fee, Stripe Billing's fee on the subscription charge and, unless the Stripe account holds a USD balance, the currency conversion fee), it moves up one price step at a time until it does: with the defaults a USD 11.48 cost is USD 19.99, a USD 18.68 cost is USD 24.99 and a USD 14.90 cost is USD 24.99 (19.99 would leave USD 3.69). A name whose first-year or renewal price is over the price cap is never offered. A search checks the typed name and the name under every suggested ending, in the order given, in one registrar request; only the suggested endings and the other allowed endings can be bought, and protected brand names never on any ending. Registrar prices per ending are cached for 24 hours (an ending the registrar says it does not sell for an hour; a refused request, such as a client address that is not whitelisted, is never cached) and asked again at checkout and before every purchase. Stripe: a domain checkout creates a once-only coupon for a first year cheaper than the renewal, so a restricted Stripe key needs write access to Checkout Sessions, Coupons, Subscriptions and Refunds, and read access to Invoices, Payment Intents and Charges. Subdomains use PLATFORM_ROOT_DOMAIN in the server's runtime settings, not this page.",
   fields: [
     field("WEB_ADDRESS_REGISTRAR", "Registrar", "select", {
       required: true,
@@ -1151,16 +1214,83 @@ INTEGRATION_CATALOG.push({
     }),
     field("WEB_ADDRESS_PRICE_ENDING_USD", "Price ending (USD)", "number", {
       defaultValue: "4.99",
-      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 15.00 is 19.99.",
+      help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 14.59 is 19.99 (from 14.60 the minimum margin below moves it to 24.99).",
     }),
     field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
       defaultValue: "100.00",
       help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
     }),
+    field(
+      "WEB_ADDRESS_MIN_MARGIN_USD",
+      "Minimum margin per year after Stripe's fees (USD)",
+      "number",
+      {
+        defaultValue: "4.00",
+        help: "What each first-year and renewal price must leave after the registrar's cost and Stripe's estimated fees below. When the rounded price leaves less, it moves up one price step at a time (19.99 to 24.99) until it does. Owner decision: at least USD 4.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_PERCENT",
+      "Stripe card fee (%)",
+      "number",
+      {
+        defaultValue: "2.9",
+        help: "Stripe's percentage per card charge (UAE standard pricing: 2.9% + AED 1.00). 0 to 15, at most two decimals. Used only to keep the minimum margin; Stripe charges its own fee.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT",
+      "Stripe extra for international cards (%)",
+      "number",
+      {
+        defaultValue: "1.0",
+        help: "Stripe adds 1% for a card issued outside the UAE. Counted for every charge so a foreign card still leaves the minimum margin; set 0 to assume UAE cards only. 0 to 15.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_FIXED_USD",
+      "Stripe fixed fee per charge (USD)",
+      "number",
+      {
+        defaultValue: "0.28",
+        help: "Stripe's AED 1.00 per charge in US dollars (1 / 3.6725 = 0.2723, rounded up). 0 to 10.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_BILLING_PERCENT",
+      "Stripe Billing fee (%)",
+      "number",
+      {
+        defaultValue: "0.7",
+        help: "Every domain charge is a Stripe subscription invoice (the first year and each yearly renewal), and Stripe Billing's pay-as-you-go pricing takes 0.7% of that volume (stripe.com/ae/billing/pricing). 0 to 15, at most two decimals; set 0 only on a Billing plan without a volume fee.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT",
+      "Stripe currency conversion fee (%)",
+      "number",
+      {
+        defaultValue: "1.0",
+        help: "Trainers pay domains in USD; an account that settles in AED pays Stripe's conversion fee on each charge (1% on UAE pricing). 0 to 15. Not counted when the account holds a USD balance.",
+      },
+    ),
+    field(
+      "WEB_ADDRESS_STRIPE_USD_BALANCE",
+      "Stripe account holds a USD balance",
+      "boolean",
+      {
+        defaultValue: "false",
+        help: "Turn on once a USD balance is open in the Stripe dashboard (Balances, add a currency): USD charges then stay in USD and the conversion fee is left out of the margin. Prices are recalculated for new searches and orders only.",
+      },
+    ),
     field("WEB_ADDRESS_TLDS", "Suggested endings, in order", "text", {
-      defaultValue: "com,fit,fitness,coach,training,ae,club,pro,app,me",
-      // The earlier default (offered endings before 28 September 2026).
-      supersededValues: ["com,net,org,co"],
+      defaultValue: "com,fit,fitness,coach,training,club,pro,app,me",
+      // Earlier defaults: the endings offered before 28 September 2026, and
+      // the list with .ae (removed by the owner the same day).
+      supersededValues: [
+        "com,net,org,co",
+        "com,fit,fitness,coach,training,ae,club,pro,app,me",
+      ],
       help: "Comma-separated, at most 20. A search suggests the trainer's name under each of these, available names first. Only these endings and the other allowed endings below can be bought.",
     }),
     field(
@@ -1230,6 +1360,37 @@ INTEGRATION_CATALOG.push({
     field("DNS_RECORD_TTL", "Record TTL (seconds)", "number", {
       defaultValue: "1800",
     }),
+  ],
+});
+
+/** DigitalOcean billing for the platform's server costs (platform finance phase D). */
+INTEGRATION_CATALOG.push({
+  id: "digitalocean_billing",
+  name: "DigitalOcean billing",
+  category: "platform",
+  implemented: true,
+  description:
+    "Imports the platform's server costs from DigitalOcean into Platform finance, once a day.",
+  setupNotes:
+    "Read-only: the import only reads invoices, projects, their resources and droplet and volume sizes; it never creates, changes or deletes anything at DigitalOcean. A DigitalOcean token reaches its whole team, and other projects may share the bill, so only invoice items of the project named here become platform costs. DigitalOcean splits costs by project only on final monthly invoices, so the current month is an estimate from that project's resources (droplets hourly up to their monthly price, backups +20%, volumes USD 0.10 per GiB-month) until its invoice arrives. The token needs read access to billing, projects, droplets and volumes (the owner approved using the existing token on 28 September 2026). Credentials stay in these encrypted settings, never in the repository.",
+  fields: [
+    field("DO_BILLING_TOKEN", "DigitalOcean API token (read)", "secret", {
+      required: true,
+      help: "A personal access token that can read billing, projects, droplets and volumes.",
+    }),
+    field("DO_BILLING_PROJECT", "Project to import", "text", {
+      defaultValue: "GymMembership",
+      help: "Only invoice items and resources of this DigitalOcean project count as platform costs.",
+    }),
+    field(
+      "DO_BILLING_IMPORT_ENABLED",
+      "Import daily",
+      "boolean",
+      {
+        defaultValue: "true",
+        help: "The worker imports once a day; Platform finance → Platform costs → Import now runs it at once.",
+      },
+    ),
   ],
 });
 
@@ -1469,12 +1630,77 @@ export function validateIntegrationValues(
           `${entry.label} must be from 0.01 to 1000 with at most two decimals`,
         );
       if (
+        key === "WEB_ADDRESS_MIN_MARGIN_USD" &&
+        !(cents >= 0 && cents <= 100000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1000 with at most two decimals`,
+        );
+      if (
+        key === "WEB_ADDRESS_STRIPE_FIXED_USD" &&
+        !(cents >= 0 && cents <= 1000)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 10 with at most two decimals`,
+        );
+      if (
+        (key === "WEB_ADDRESS_STRIPE_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_BILLING_PERCENT" ||
+          key === "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT") &&
+        !(
+          /^\d{1,2}(\.\d{1,2})?$/.test(text) &&
+          Number(text) >= 0 &&
+          Number(text) <= 15
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a percentage from 0 to 15 with at most two decimals`,
+        );
+      if (
         key === "FINANCE_USD_TO_AED" &&
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
-      if (key === "FINANCE_USAGE_MARKUP_PERCENT" && Number(text) > 100)
-        throw new ConfigurationError(`${entry.label} must be from 0 to 100`);
+      if (
+        key === "FINANCE_USAGE_MARKUP_PERCENT" &&
+        !(Number(text) >= 0 && Number(text) <= 1000)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 0 to 1000`);
+      if (
+        (key === "FINANCE_STRIPE_FEE_PERCENT" ||
+          key === "FINANCE_STRIPE_INTERNATIONAL_PERCENT") &&
+        !(/^\d{1,2}(\.\d{1,3})?$/.test(text) && Number(text) <= 20)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 20 with at most three decimals`,
+        );
+      if (key === "DO_BILLING_PROJECT" && !(text.length >= 1 && text.length <= 175))
+        throw new ConfigurationError(`${entry.label} must be a DigitalOcean project name (1 to 175 characters)`);
+      if (
+        key === "FINANCE_REGISTRAR_LOW_BALANCE_USD" &&
+        !(/^\d{1,6}(\.\d{1,2})?$/.test(text) && Number(text) <= 100000)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 0 to 100000 US dollars`);
+      if (
+        key === "FINANCE_UNPRICED_ALERT_DAYS" &&
+        !(/^\d{1,2}$/.test(text) && Number(text) >= 1 && Number(text) <= 90)
+      )
+        throw new ConfigurationError(`${entry.label} must be a whole number of days from 1 to 90`);
+      if (
+        key === "FINANCE_EMAIL_USD_PER_MESSAGE" &&
+        !(/^\d(\.\d{1,6})?$/.test(text) && Number(text) <= 1)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 1 with at most six decimals`,
+        );
+      if (
+        key === "FINANCE_STRIPE_FEE_FIXED_AED" &&
+        !(/^\d{1,2}(\.\d{1,2})?$/.test(text) && Number(text) <= 20)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 20 with at most two decimals`,
+        );
       if (
         key === "MODEL_PROVIDER" &&
         !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())
@@ -1936,6 +2162,30 @@ export async function testIntegration(
             error instanceof RegistrarError && error.outcome === "definitive"
               ? `Namecheap refused the check: ${error.message}. Check the API user, key, username and that this server's IPv4 address is whitelisted.`
               : "Namecheap could not be reached. No domain was bought.",
+          checkedAt,
+        };
+      }
+    }
+    if (id === "digitalocean_billing") {
+      const { DigitalOceanBilling } = await import("./digitalocean-billing.ts");
+      try {
+        // Read-only: lists the team's projects and finds the configured one.
+        const client = new DigitalOceanBilling(fields.DO_BILLING_TOKEN);
+        const projects = await client.projects();
+        const name = (fields.DO_BILLING_PROJECT || "GymMembership").trim().toLowerCase();
+        const found = projects.some((p) => p.name.trim().toLowerCase() === name);
+        return {
+          status: found ? "verified" : "failed",
+          message: found
+            ? `DigitalOcean billing access verified; the project was found among ${projects.length} project${projects.length === 1 ? "" : "s"} of the team. Only its invoice items and resources are imported.`
+            : "The token works, but no project with this name was found in its team.",
+          checkedAt,
+          details: { projectsVisible: projects.length, projectFound: found },
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          message: `DigitalOcean billing could not be read: ${(error as Error).message}`.slice(0, 300),
           checkedAt,
         };
       }

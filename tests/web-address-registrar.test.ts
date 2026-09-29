@@ -25,6 +25,7 @@ import {
   testIntegration,
   validateIntegrationValues,
   integrationCapability,
+  integrationDefinition,
   READ_ONLY_CHECK_BEFORE_APPROVAL,
 } from "../packages/providers/src/configuration.ts";
 import { trainerDomainPrices } from "../packages/domain/src/web-address.ts";
@@ -338,6 +339,21 @@ test("the Super admin connection check reads the balance only and reports the en
     { WEB_ADDRESS_PRICE_CAP_USD: "0" },
     { WEB_ADDRESS_PRICE_CAP_USD: "5000" },
     { WEB_ADDRESS_TLDS: Array.from({ length: 21 }, (_, i) => "e" + "x".repeat(i + 1)).join(",") },
+    // The minimum margin and Stripe's fee estimates (owner decisions,
+    // 28 September 2026): whole cents and percentages to two decimals.
+    { WEB_ADDRESS_MIN_MARGIN_USD: "-1" },
+    { WEB_ADDRESS_MIN_MARGIN_USD: "4.001" },
+    { WEB_ADDRESS_MIN_MARGIN_USD: "1000.01" },
+    { WEB_ADDRESS_STRIPE_PERCENT: "15.01" },
+    { WEB_ADDRESS_STRIPE_PERCENT: "2.999" },
+    { WEB_ADDRESS_STRIPE_PERCENT: "-1" },
+    { WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT: "abc" },
+    { WEB_ADDRESS_STRIPE_CONVERSION_PERCENT: "20" },
+    { WEB_ADDRESS_STRIPE_BILLING_PERCENT: "0.705" },
+    { WEB_ADDRESS_STRIPE_BILLING_PERCENT: "16" },
+    { WEB_ADDRESS_STRIPE_FIXED_USD: "10.01" },
+    { WEB_ADDRESS_STRIPE_FIXED_USD: "0.275" },
+    { WEB_ADDRESS_STRIPE_USD_BALANCE: "maybe" },
   ])
     assert.throws(() => validateIntegrationValues("web_addresses", bad), JSON.stringify(bad));
   assert.doesNotThrow(() =>
@@ -345,8 +361,47 @@ test("the Super admin connection check reads the balance only and reports the en
       WEB_ADDRESS_PRICE_STEP_USD: "5.00",
       WEB_ADDRESS_PRICE_ENDING_USD: "4.99",
       WEB_ADDRESS_PRICE_CAP_USD: "100",
+      WEB_ADDRESS_MIN_MARGIN_USD: "4.00",
+      WEB_ADDRESS_STRIPE_PERCENT: "2.9",
+      WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT: "1",
+      WEB_ADDRESS_STRIPE_FIXED_USD: "0.28",
+      WEB_ADDRESS_STRIPE_BILLING_PERCENT: "0.7",
+      WEB_ADDRESS_STRIPE_CONVERSION_PERCENT: "0",
+      WEB_ADDRESS_STRIPE_USD_BALANCE: "true",
+      // An operator may still add .ae to the suggested endings.
       WEB_ADDRESS_TLDS: "com,fit,fitness,coach,training,ae,club,pro,app,me,co.uk",
     }),
+  );
+  // Defaults documented in the settings; a list saved with the earlier
+  // default that still had .ae reads as the new default without .ae.
+  const defs = Object.fromEntries(
+    integrationDefinition("web_addresses").fields.map((f) => [f.key, f]),
+  );
+  assert.equal(defs.WEB_ADDRESS_TLDS.defaultValue, "com,fit,fitness,coach,training,club,pro,app,me");
+  assert.ok(
+    defs.WEB_ADDRESS_TLDS.supersededValues!.includes(
+      "com,fit,fitness,coach,training,ae,club,pro,app,me",
+    ),
+  );
+  assert.deepEqual(
+    [
+      "WEB_ADDRESS_MIN_MARGIN_USD",
+      "WEB_ADDRESS_STRIPE_PERCENT",
+      "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT",
+      "WEB_ADDRESS_STRIPE_FIXED_USD",
+      "WEB_ADDRESS_STRIPE_BILLING_PERCENT",
+      "WEB_ADDRESS_STRIPE_CONVERSION_PERCENT",
+      "WEB_ADDRESS_STRIPE_USD_BALANCE",
+    ].map((key) => [key, defs[key].defaultValue, !!defs[key].help]),
+    [
+      ["WEB_ADDRESS_MIN_MARGIN_USD", "4.00", true],
+      ["WEB_ADDRESS_STRIPE_PERCENT", "2.9", true],
+      ["WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT", "1.0", true],
+      ["WEB_ADDRESS_STRIPE_FIXED_USD", "0.28", true],
+      ["WEB_ADDRESS_STRIPE_BILLING_PERCENT", "0.7", true],
+      ["WEB_ADDRESS_STRIPE_CONVERSION_PERCENT", "1.0", true],
+      ["WEB_ADDRESS_STRIPE_USD_BALANCE", "false", true],
+    ],
   );
   // The AED margin and exchange rate settings are gone: prices are in USD.
   assert.throws(

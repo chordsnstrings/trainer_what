@@ -2,7 +2,7 @@ import { type Actor, type Tx, event, putRecord } from "@trainer/db";
 import { z } from "zod";
 import { journal, financeSummary } from "./finance.ts";
 import { monthCutoff } from "./finance-operations.ts";
-import type { MonthRate } from "./cost-accounting.ts";
+import { AI_COACH_SERVICE_FEE, type MonthRate } from "./cost-accounting.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 export const allocationSchema = z
@@ -228,7 +228,10 @@ export async function financialStatement(
       totals.commissionMinor -= Number(entry.data.commissionReversalMinor ?? 0);
     } else if (entry.source_key.startsWith("stripe-settlement:"))
       totals.processingFeesMinor += Number(entry.data.feeMinor ?? 0);
-    else if (entry.source_key.startsWith("usage:"))
+    else if (
+      entry.source_key.startsWith("usage:") ||
+      entry.source_key.startsWith("usage-adjustment:")
+    )
       totals.usageMinor += payable;
     else if (entry.source_key.startsWith("allocated-cost:"))
       totals.allocatedCostsMinor += payable;
@@ -292,7 +295,7 @@ export async function financialStatement(
         }
       : {}),
   };
-  return {
+  const statement = {
     period,
     currency: "AED",
     start: start.toISOString(),
@@ -300,21 +303,92 @@ export async function financialStatement(
     totals,
     revenue,
     disputes,
-    usageCost,
-    usageByFeature,
     webAddresses: webAddressSummary(webAddressFigures, options.platformView),
-    entries: options.platformView
-      ? entries
-      : entries.filter(
-          (entry: any) =>
-            !entry.source_key.startsWith("web-address-registrar:"),
-        ),
     allocations,
-    usage,
     close: close ?? null,
     // The trainer's statement never carries the registrar's cost.
     current: await financeSummary(tx, {
       platformView: options.platformView === true,
     }),
   };
+  if (options.platformView)
+    return { ...statement, usageCost, usageByFeature, entries, usage };
+  // The trainer's own statement (owner decisions, 28 September 2026): the
+  // usage charge is one line, "AI Coach Service Fee", with its amount (markup
+  // included); provider costs, calls and features are never shown. Stripe's
+  // fees, which the trainer pays, are named plainly.
+  return {
+    ...statement,
+    aiCoachServiceFeeMinor: totals.usageMinor,
+    // A month's fee is posted after the month ends, so this statement shows
+    // earlier months' fees: each one is named by the month it is for.
+    aiCoachServiceFees: entries
+      .filter(
+        (entry: any) =>
+          entry.source_key.startsWith("usage:") ||
+          entry.source_key.startsWith("usage-adjustment:"),
+      )
+      .map((entry: any) => ({
+        period: entry.data?.period ?? null,
+        adjustment: entry.source_key.startsWith("usage-adjustment:"),
+        amountMinor: lineSum(entry, "trainer_payable"),
+      })),
+    stripeFeesMinor: totals.processingFeesMinor,
+    entries: entries
+      .filter(
+        (entry: any) => !entry.source_key.startsWith("web-address-registrar:"),
+      )
+      .map(trainerEntry),
+  };
+}
+/**
+ * A ledger entry as the trainer sees it: the usage charge and its later
+ * adjustments carry only their name, month and amount.
+ */
+export function trainerEntry(entry: any) {
+  const key = String(entry.source_key ?? "");
+  if (key.startsWith("usage:") || key.startsWith("usage-adjustment:"))
+    return {
+      ...entry,
+      description:
+        AI_COACH_SERVICE_FEE +
+        (key.startsWith("usage-adjustment:") ? " adjustment" : ""),
+      data: {
+        period: entry.data?.period ?? null,
+        amountMinor:
+          entry.data?.chargeMinor ?? entry.data?.differenceMinor ?? null,
+      },
+    };
+  // A settlement's gross is the members' payments already listed; what the
+  // trainer pays in it is Stripe's fee.
+  if (key.startsWith("stripe-settlement:"))
+    return {
+      ...entry,
+      description: "Stripe fees (paid by you) and bank settlement",
+      data: { feeMinor: Number(entry.data?.feeMinor ?? 0) },
+    };
+  return entry;
+}
+
+/** A plain name for a ledger entry, by its source, for trainer exports. */
+export function ledgerItem(sourceKey: string) {
+  const items: Array<[string, string]> = [
+    ["usage-adjustment:", AI_COACH_SERVICE_FEE + " adjustment"],
+    ["usage:", AI_COACH_SERVICE_FEE],
+    ["stripe-settlement:", "Stripe fees and bank settlement"],
+    ["stripe-debit:", "Stripe balance debit"],
+    ["stripe-invoice:", "Member payment"],
+    ["stripe-programme:", "Programme payment"],
+    ["booking-charge:", "1:1 session payment"],
+    ["stripe-refund:", "Refund"],
+    ["booking-refund:", "Session refund"],
+    ["dispute-reserve:", "Card dispute held"],
+    ["dispute-resolution:", "Card dispute resolved"],
+    ["allocated-cost:", "Other charge"],
+    ["payout-return:", "Returned payout"],
+    ["payout:", "Payout"],
+    ["web-address-", "Web address"],
+    ["affiliate-", "Affiliate"],
+  ];
+  return items.find(([prefix]) => sourceKey.startsWith(prefix))?.[1] ?? "Other";
 }
