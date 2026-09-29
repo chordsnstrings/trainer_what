@@ -316,6 +316,29 @@ export async function nutritionMaterial(tx: Tx) {
     snapshot,
   };
 }
+/** Keys sorted at every level: a pin read back from JSONB has its keys reordered. */
+const sortedKeys = (value: any): any =>
+  Array.isArray(value)
+    ? value.map(sortedKeys)
+    : value && typeof value === "object"
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((k) => [k, sortedKeys(value[k])]),
+        )
+      : value;
+/** Why an activated release no longer matches the current material. */
+function nutritionPinChange(pinned: any) {
+  const current = nutritionModelIdentity();
+  if (hash(sortedKeys(pinned)) === hash(sortedKeys(current)))
+    return "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available.";
+  if (pinned?.base !== current.base || pinned?.model !== current.model)
+    return "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+  if (pinned?.promptVersion === current.promptVersion)
+    // Same model and instructions: the request style or reasoning effort changed.
+    return "The AI model's request style or reasoning effort changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+  return "The nutrition assistant's instructions were updated after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.";
+}
 export async function nutritionReadiness(tx: Tx) {
   const setup = await latest(tx, "nutrition_setup"),
     material = await nutritionMaterial(tx),
@@ -363,12 +386,7 @@ export async function nutritionReadiness(tx: Tx) {
   } else if (release.data.digest !== material.digest)
     // The release stays pinned to its evaluated digest; delivery waits for requalification.
     gaps.push(
-      hash(release.data.model) === hash(nutritionModelIdentity())
-        ? "Teaching, recipes or ingredient facts changed after activation. New automatic weeks and swaps pause until you evaluate and activate the updated knowledge; delivered plans stay available."
-        : release.data.model?.base === nutritionModelIdentity().base &&
-            release.data.model?.model === nutritionModelIdentity().model
-          ? "The nutrition assistant's instructions were updated after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available."
-          : "The model connection changed after activation. New automatic weeks and swaps pause until you evaluate and activate again; delivered plans stay available.",
+      nutritionPinChange(release.data.model),
     );
   const configured =
     !!runtimeConfig().MODEL_API_KEY &&

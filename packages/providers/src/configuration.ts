@@ -10,8 +10,8 @@ import {
   sandboxResolver,
 } from "./sandbox.ts";
 import {
+  describeModelRequest,
   modelTimeoutMultiplier,
-  resolveModelRequestStyle,
   validTimeoutMultiplier,
 } from "./model-request.ts";
 
@@ -708,24 +708,35 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
           { value: "classic", label: "Classic (max_tokens and temperature)" },
           {
             value: "reasoning",
-            label: "Reasoning (max_completion_tokens, no temperature)",
+            label:
+              "Reasoning (max_completion_tokens; temperature only for models that accept it)",
           },
         ],
-        help: "OpenAI GPT-5 and later, the o-series and chat-latest refuse max_tokens and most refuse a set temperature; automatic sends them max_completion_tokens with the same limit and no temperature. Other models (GPT-4.1, GPT-4o, ModelArk Seed, DeepSeek and GLM) get the classic request. With automatic, a provider answer that refuses one of these parameters is retried once in the other style and the style that worked is used from then on; choose a style to send exactly that one.",
+        help: "OpenAI GPT-5 and later, the o-series and chat-latest refuse max_tokens and most refuse a set temperature; automatic sends them max_completion_tokens with the same limit, and the task's temperature only to gpt-5.1, gpt-5.2 and gpt-5.4 (with mini and nano), which accept it while no reasoning effort other than none is sent. Other models (GPT-4.1, GPT-4o, ModelArk Seed, DeepSeek and GLM) get the classic request. With automatic, a provider answer that refuses one of these parameters is retried once in the other style and the style that worked is used from then on; choose a style to send exactly that one. Changing the style or the reasoning effort needs new coaching, plan and nutrition evaluations before automatic delivery resumes.",
       }),
       field(
         "MODEL_REASONING_EFFORT",
         "Reasoning effort (reasoning style only)",
         "select",
         {
+          defaultValue: "auto",
           options: [
-            { value: "none", label: "none" },
-            { value: "minimal", label: "minimal" },
+            {
+              value: "auto",
+              label:
+                "Automatic (low for GPT-5, GPT-5 mini and nano and the o-series; not sent to others)",
+            },
+            { value: "omit", label: "Not sent (the provider's default)" },
+            { value: "none", label: "none (GPT-5.1 and later only)" },
+            {
+              value: "minimal",
+              label: "minimal (gpt-5, gpt-5-mini and gpt-5-nano only)",
+            },
             { value: "low", label: "low" },
             { value: "medium", label: "medium" },
             { value: "high", label: "high" },
           ],
-          help: "Leave unselected to send none (the provider's default). Reasoning counts inside the output limit: a lower effort leaves more of it for the answer and is faster. Not every model accepts every level (minimal: GPT-5; none: GPT-5.1 and later); a refused level fails the call.",
+          help: "Reasoning counts inside each task's output limit: a lower effort leaves more of it for the answer and is faster. Automatic sends low to gpt-5, gpt-5-mini, gpt-5-nano, o1, o3, o3-mini and o4-mini, whose own default (medium) used the whole limit on many tasks in the September 2026 retest, and sends nothing to other models (the provider's default; gpt-5.1 and later reason little by default). If the provider refuses the automatic level, the call is retried once without it. A chosen level is sent exactly: not every model accepts every level (none: GPT-5.1 and later only; minimal: gpt-5, gpt-5-mini and gpt-5-nano only), and a refused chosen level fails every AI call until it is changed. The connection check warns about a level these models do not accept.",
         },
       ),
       field(
@@ -2464,9 +2475,11 @@ export async function testIntegration(
             "The selected model was not present in the provider model list. No generation was attempted.",
           checkedAt,
         };
-      // The request style calls will start with: the setting, a style this
-      // process learned from a refused parameter, or the model ID.
-      const plan = resolveModelRequestStyle(
+      // The request calls will start with: the style (the setting, a style
+      // this process learned from a refused parameter, or the model ID) and
+      // the reasoning effort, with a warning for a chosen effort the model ID
+      // is not documented to accept.
+      const plan = describeModelRequest(
         fields.MODEL_BASE_URL,
         fields.MODEL_NAME,
         fields,
@@ -2480,6 +2493,11 @@ export async function testIntegration(
           model: fields.MODEL_NAME,
           requestStyle: plan.style,
           requestStyleSource: plan.source,
+          reasoningEffort: plan.reasoningEffort ?? "not_sent",
+          reasoningEffortSource: plan.reasoningEffortSource,
+          ...(plan.reasoningEffortWarning
+            ? { reasoningEffortWarning: plan.reasoningEffortWarning }
+            : {}),
           timeLimitMultiplier: modelTimeoutMultiplier(fields),
         },
       };

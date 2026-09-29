@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { integrationStatus, providerSandboxStatus } from "@trainer/providers";
 import { z } from "zod";
-import { resolveModelRequestStyle } from "../../../packages/providers/src/model-request.ts";
+import { describeModelRequest } from "../../../packages/providers/src/model-request.ts";
 import {
   INTEGRATION_CATALOG,
   testIntegration,
@@ -629,22 +629,17 @@ export function platformSettingsRoutes(
       // Network calls never hold a database transaction or receive unsaved fields.
       try {
         const values = configuredValues(def, snapshot);
-        // The AI model's request style is the app's own decision, never
-        // provider text: the setting, a learned style or the model ID.
-        if (def.id === "model") {
-          const plan = resolveModelRequestStyle(
-            values.MODEL_BASE_URL ?? "",
-            values.MODEL_NAME ?? "",
-            values,
-          );
-          note = ` Calls use the ${plan.style} request style (${
-            {
-              setting: "chosen in these settings",
-              learned: "learned after a refused parameter",
-              model_name: "from the model ID",
-            }[plan.source]
-          }).`;
-        }
+        // The AI model's request style and reasoning effort are the app's
+        // own decision, never provider text: the settings, a style learned in
+        // this process or the model ID (describeModelRequest).
+        if (def.id === "model")
+          note =
+            " " +
+            describeModelRequest(
+              values.MODEL_BASE_URL ?? "",
+              values.MODEL_NAME ?? "",
+              values,
+            ).note;
         const capability = integrationCapability(def.id, values);
         const result =
           capability &&

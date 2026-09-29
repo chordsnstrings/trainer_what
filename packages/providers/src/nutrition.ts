@@ -2,7 +2,11 @@ import { z } from "zod";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ModelOutputInvalid, ProviderUnavailable } from "./index.ts";
 import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
-import { familyTimeoutMs, modelReplyJson } from "./model-request.ts";
+import {
+  familyTimeoutMs,
+  modelReplyJson,
+  modelRequestPin,
+} from "./model-request.ts";
 import {
   createPromptRefs,
   promptRefsInstruction,
@@ -24,12 +28,20 @@ export type NutritionTask =
   | "nutrition_policy"
   | "nutrition_recipe"
   | "nutrition_evaluation";
+/**
+ * What a nutrition release pins about the model. `request` is present
+ * whenever the request differs from the default classic one (modelRequestPin),
+ * so changing the request style or reasoning effort pauses automatic weeks
+ * until the knowledge is evaluated and activated again.
+ */
 export function nutritionModelIdentity() {
   const config = runtimeConfig();
+  const request = modelRequestPin(config);
   return {
     base: config.MODEL_BASE_URL ?? null,
     model: config.MODEL_NAME ?? null,
     promptVersion: NUTRITION_PROMPT_VERSION,
+    ...(request ? { request } : {}),
   };
 }
 /**

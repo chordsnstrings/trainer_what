@@ -117,8 +117,10 @@ export function modelAccounting(
             usage.priceVersion,
             usage.requestId,
             // The row's pricing inputs, plus the reasoning tokens inside the
-            // output and the request style that answered (a retry after a
-            // refused parameter names it): docs/features/model-gateway.md.
+            // output and the request that answered: its style, where the
+            // style came from (refusal_retry after a refused parameter, which
+            // is named) and the reasoning effort it sent:
+            // docs/features/model-gateway.md.
             JSON.stringify({
               ...usage.pricing,
               ...(usage.reasoning ? { reasoningTokens: usage.reasoning } : {}),
@@ -128,6 +130,9 @@ export function modelAccounting(
                     requestStyleSource: usage.request.source,
                     ...(usage.request.retriedAfterRefusal
                       ? { refusedParameter: usage.request.retriedAfterRefusal }
+                      : {}),
+                    ...(usage.request.reasoningEffort
+                      ? { reasoningEffort: usage.request.reasoningEffort }
                       : {}),
                   }
                 : {}),

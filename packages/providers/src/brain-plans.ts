@@ -21,6 +21,7 @@ import {
   familyTimeoutMs,
   modelCallBudget,
   modelReplyJson,
+  modelRequestPin,
 } from "./model-request.ts";
 import {
   createPromptRefs,
@@ -56,8 +57,15 @@ function score(query: Set<string>, text: string) {
 const byScore = <T extends { id: string }>(rows: Array<T & { score: number }>) =>
   rows.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
+/**
+ * What a plan qualification pins about the model. `request` is present
+ * whenever the request differs from the default classic one (modelRequestPin),
+ * so changing the request style or reasoning effort needs a new
+ * qualification before plans are delivered automatically.
+ */
 export function planModelPin() {
   const config = runtimeConfig();
+  const request = modelRequestPin(config);
   return {
     endpoint: config.MODEL_BASE_URL ?? null,
     model: config.MODEL_NAME ?? null,
@@ -66,6 +74,7 @@ export function planModelPin() {
     validatorVersion: planValidatorVersion,
     confidenceVersion: planConfidenceVersion,
     retrieval: planRetrievalPolicy,
+    ...(request ? { request } : {}),
   };
 }
 export const planModelConfigured = () => {
@@ -249,6 +258,21 @@ export function planGenerationBudget(
       config,
     ),
   };
+}
+/**
+ * How long a brain_plan job holds its worker lease: the longest model call
+ * such a job makes (the largest programme draft, 7 days a week for 53 weeks,
+ * or a weekly adjustment), at the configured model's time limit, plus 90 s
+ * for the transactions before and after it. A second claim during the call
+ * would find the generation still generating, mark it interrupted and hand a
+ * paid reply to the trainer. Classic 257 s, reasoning 390 s by default.
+ */
+export function brainPlanLeaseSeconds(config: RuntimeConfig = runtimeConfig()) {
+  const longest = Math.max(
+    planGenerationBudget({ daysPerWeek: 7, weeks: 53 }, config).timeoutMs,
+    modelCallBudget("plan_adaptation", config).timeoutMs,
+  );
+  return Math.ceil(longest / 1000) + 90;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**

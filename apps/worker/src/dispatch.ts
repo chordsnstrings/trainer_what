@@ -6,6 +6,7 @@ import { executePushDelivery } from "./push-delivery.ts";
 import { executeNutritionJob } from "../../api/src/nutrition-schedule.ts";
 import { nutritionWeekLeaseSeconds } from "../../../packages/providers/src/nutrition.ts";
 import { executeBrainPlanJob } from "../../api/src/brain-plans.ts";
+import { brainPlanLeaseSeconds } from "../../../packages/providers/src/brain-plans.ts";
 
 type Handler = (db: Database, tenantId: string, job: any) => Promise<any>;
 export type JobHandlers = {
@@ -34,10 +35,11 @@ const NUTRITION_BACKOFF =
   "now()+least(interval '15 minutes'*power(2,least(greatest(attempts,1),10)-1),interval '6 hours')";
 
 /**
- * Claims one due job with a two-minute lease (a weekly meal plan: its model
- * timeout plus a margin); the returned row carries the CAS
- * token. A suspended workspace claims only critical account and safety emails
- * and transactional money confirmations (payment and refund notices), since
+ * Claims one due job with a two-minute lease (a weekly meal plan or a Brain
+ * plan job: its longest model call at the configured model's time limit,
+ * plus a margin); the returned row carries the CAS token. A suspended
+ * workspace claims only critical account and safety emails and
+ * transactional money confirmations (payment and refund notices), since
  * billing continues; its other jobs stay pending until reinstatement.
  */
 export async function claimJob(
@@ -51,10 +53,11 @@ export async function claimJob(
       [options.criticalEmailOnly === true],
     );
     if (!j) return null;
-    // A weekly meal plan's model call may take longer than two minutes; its
-    // lease covers the call's timeout so no second worker claims it meanwhile.
+    // A weekly meal plan's or a Brain plan's model call may take longer than
+    // two minutes (up to 300 s for a reasoning model); its lease covers the
+    // call's time limit so no second worker claims it meanwhile.
     const [claimed] = await tx.query(
-      `UPDATE jobs SET leased_until=now()+CASE WHEN kind='nutrition_week' THEN interval '${nutritionWeekLeaseSeconds()} seconds' ELSE interval '2 minutes' END,attempts=attempts+1 WHERE id=$1 RETURNING *`,
+      `UPDATE jobs SET leased_until=now()+CASE WHEN kind='nutrition_week' THEN interval '${nutritionWeekLeaseSeconds()} seconds' WHEN kind='brain_plan' THEN interval '${brainPlanLeaseSeconds()} seconds' ELSE interval '2 minutes' END,attempts=attempts+1 WHERE id=$1 RETURNING *`,
       [j.id],
     );
     return claimed;
