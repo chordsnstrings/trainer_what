@@ -97,12 +97,48 @@ const RESUME = has(
 );
 const REPEAT = has(
   "repeat|again|say\\s+again|what|pardon|sorry|come\\s+again|(?:didn'?t|did\\s+not)\\s+(?:hear|catch|get)\\s+(?:you|that|it)|" +
-    "اعد|اعيد|كرر|عيد|مره\\s+ثانيه|مره\\s+اخري|شنو|ايش|وش|وشو|شو|ماذا|(?:ما|لم)\\s*(?:سمعت|اسمع|فهمت|افهم)\\p{L}*",
+    "اعد|اعيد|كرر|عيد|مره\\s+ثانيه|مره\\s+اخري|شنو|ايش|وش|وشو|شو|ماذا|ما\\s+التالي|(?:ما|لم)\\s*(?:سمعت|اسمع|فهمت|افهم)\\p{L}*",
 );
 // Only explicit completion words finish a set.
-const COMPLETE = has(
+const COMPLETE_WORDS =
   "done|finished|finish|complete|completed|that'?s\\s+it|that\\s+is\\s+it|did\\s+it|made\\s+it|nailed\\s+it|" +
-    "تم|تمت|خلاص|خلصنا|انتهيت|انتهينا|(?:خلصت|كملت|اكملت|انهيت|انجزت)(?:ها|ه)?|سويتها|سويته",
+  "تم|تمت|خلاص|خلصنا|انتهيت|انتهينا|(?:خلصت|كملت|اكملت|انهيت|انجزت)(?:ها|ه)?|سويتها|سويته";
+const COMPLETE = has(COMPLETE_WORDS);
+// A negation said before a command word in the same clause (no punctuation
+// between, a few words at most): "I never made it", "it wasn't done", "I
+// didn't get it done", "not quite made it", "ما تم", "مو خلاص"; "I'm not
+// ready", "I can't continue", "don't skip", "مو مستعد", "لست مستعدة", "ما ابي
+// نكمل". Arabic "لا" and "لن" negate a verb ("لا تبدا", "لن أكمل"), never a
+// past completion or a word like "جاهز" ("لا، خلصت" is "no, I finished").
+const NEGATION_EN =
+  "not|never|almost|nearly|no\\s+longer|nowhere\\s+near|far\\s+from|unable\\s+to|" +
+  "isn'?t|aren'?t|wasn'?t|weren'?t|ain'?t|haven'?t|hasn'?t|hadn'?t|don'?t|doesn'?t|didn'?t|can'?t|couldn'?t|won'?t|" +
+  "wouldn'?t|shouldn'?t|(?:do|does|did|can|will)\\s+not|cannot";
+const NEGATION_FILLER_EN =
+  "i|i'?m|am|we|we'?re|are|it|it'?s|is|was|that|this|the|set|one|really|quite|yet|fully|totally|completely|even|all|" +
+  "actually|been|able|to|want|wanna|feel|feeling|think|gonna|going|be|like|just|sure|get|got|gotten|keep|any|more|anymore|so|for|close|with|through|them";
+const NEGATION_AR = "ما|مو|مب|مش|لست|لسنا|ماني|مانيب|ليس|غير";
+const NEGATION_FILLER_AR =
+  "انا|اني|ني|نيب|بعد|للحين|لسا|لسه|الحين|ابي|ابغي|ابغا|ابا|اريد|نبي|نبغي|نريد|ودي|قادر|قادره|قادرين|اقدر|نقدر|" +
+  "استطيع|نستطيع|راح|رح|هو|هي|كله|كلها|ابد|ابدا|يعني";
+const negatedArabic = (negators: string, words: string) =>
+  "(?:" + negators + ")\\s+(?:(?:" + NEGATION_FILLER_AR + ")\\s+){0,2}(?:" + words + ")";
+const negation = (words: string) =>
+  "(?:" + NEGATION_EN + ")\\s+(?:(?:" + NEGATION_FILLER_EN + ")\\s+){0,3}(?:" + words + ")|" +
+  negatedArabic(NEGATION_AR, words);
+const [NEGATED_COMPLETE, NEGATED_COMPLETE_ALL] = hasAndEvery(negation(COMPLETE_WORDS));
+// Carrying on or skipping, negated: the member is not ready, so the session
+// pauses (it never moves on). Also "ready? no" and "هيا لا", said last.
+const FLOW_VERBS_AR =
+  "كمل|كملي|نكمل|اكمل|تكمل|استمر|نستمر|ابدا|نبدا|تبدا|تبدي|[نات]?تخطي\\p{L}*|[نات]?تجاوز\\p{L}*|ت?طوف\\p{L}*";
+const FLOW_WORDS =
+  "resume|continue|carry\\s+on|go\\s+on|keep\\s+going|ready|start|begin|proceed|let'?s\\s+go|go|next|skip|pass|move\\s+on|" +
+  FLOW_VERBS_AR +
+  "|جاهز|جاهزه|جاهزين|مستعد|مستعده|مستعدين|يلا|يالله|هيا";
+const NEGATED_FLOW = has(negation(FLOW_WORDS) + "|" + negatedArabic("لا|لن", FLOW_VERBS_AR));
+const FLOW_THEN_NO = new RegExp(
+  B + "(?:" + FLOW_WORDS + ")" + E + "[\\s,.!?،؟]*(?:no|nope|nah|not\\s+yet|لا)[\\s.!?؟]*$",
+  "iu",
 );
 // "Thank you" is polite, not a request, and it is also what the speech model
 // returns for noise or a reply it could not read ("Thank you." for Arabic
@@ -123,26 +159,29 @@ const NEGATED_ACK = new RegExp(
   "giu",
 );
 // A set that was not done, said in the past tense: "I didn't do the last one",
-// "couldn't finish it", "I missed that set", "I missed 3 reps", "لم أكمل",
-// "لم أستطع إكمالها", "ما قدرت", "ما سويتها", "ما خلصتها".
+// "couldn't finish it", "I never made it", "I almost made it", "it wasn't
+// done", "I missed that set", "I missed 3 reps", "لم أكمل", "لم أستطع
+// إكمالها", "لم يتم", "ما قدرت", "ما سويتها", "ما خلصتها".
 const NOT_DONE_WORDS =
-  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|was\\s+not\\s+able\\s+to|failed\\s+to|never)\\s+(?:(?:really|even|actually|quite|fully|get\\s+to|manage\\s+to)\\s+)?(?:do|finish|complete|manage|make|get\\s+through)\\p{L}*|" +
+  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|was\\s+not\\s+able\\s+to|failed\\s+to|never)\\s+(?:(?:really|even|actually|quite|fully|get\\s+to|manage\\s+to)\\s+)?(?:do|did|finish|complete|manage|make|made|nail|get\\s+through|get\\s+(?:it|them|that|this|all)\\s+(?:done|finished))\\p{L}*|" +
+  "(?:almost|nearly|not\\s+quite)\\s+(?:made|did|nailed|managed)|" +
+  "(?:wasn'?t|was\\s+not|weren'?t|were\\s+not)\\s+(?:(?:quite|really|fully|even|properly)\\s+)?(?:done|finished|complete|completed)|" +
   "(?:missed|skipped)\\s+(?:(?:the|that|this|my)\\s+)?(?:last|previous|final|one|set|it|round|rep|reps)|" +
   "(?:missed|skipped)\\s+(?:\\p{N}+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a\\s+couple|a\\s+few)(?:\\s+(?:of\\s+)?(?:them|reps?|repetitions?))?|" +
-  "[وف]?لم\\s*(?:ا|ن)?(?:كمل|نه|نهي|قم|فعل|عمل|سو|سوي|خلص|نجز)\\p{L}*|" +
+  "[وف]?لم\\s*(?:ا|ن)?(?:كمل|نه|نهي|قم|فعل|عمل|سو|سوي|خلص|نجز)\\p{L}*|[وف]?لم\\s*(?:يتم|تتم)|" +
   // Modern Standard "I could not (complete)": لم أستطع، لم أتمكن من، لم أقدر
   // على، ما استطعت. Gulf present "ما اقدر" stays a load complaint (TOO_HEAVY).
   "(?:[وف]?لم\\s*(?:استطع|اتمكن|اقدر|نستطع|نتمكن|نقدر)|[وف]?ما\\s*(?:استطعت|استطعنا|تمكنت|تمكنا))\\p{L}*(?:\\s*(?:من|علي))?(?:\\s*(?:اكمال|انهاء|اتمام|اداء|فعل|عمل)\\p{L}*)?|" +
   "[وف]?(?:ما|مب|مو)\\s*(?:قدرت|اقدرت|قدرنا)(?:\\s*(?:ا|ن)?(?:كمل|خلص|سوي|سو|نهي|رفع|شيل)\\p{L}*)?|" +
   "[وف]?(?:ما|مب)\\s*(?:سويت|سوينا)\\p{L}*|" +
-  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت)(?:ها|ه)";
+  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت|انجزت)(?:ها|ه)";
 const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(NOT_DONE_WORDS);
 // Still going, not a report: "not done yet", "I'm not finished", "almost
 // there", "ما خلصت", "لسا ما خلصت", "لم أنته بعد". The completion word in it
 // never logs a set.
 const NOT_YET_WORDS =
   "(?:not|isn'?t|i'?m\\s+not|am\\s+not)\\s+(?:(?:quite|yet|really|fully)\\s+)?(?:done|finished|complete|completed|there)|" +
-  "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|almost\\s+(?:done|there|finished)|" +
+  "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|(?:almost|nearly)\\s+(?:done|there|finished)|" +
   "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)";
 const [NOT_YET, NOT_YET_ALL] = hasAndEvery(NOT_YET_WORDS);
 // "I can't do 10", "ما اقدر اكمل ثلاث": the present-tense complaint (a
@@ -163,9 +202,10 @@ const NEGATED_CLAUSE = new RegExp(
 );
 // A reply that says the set is still under way ("yet", "still", "لسا").
 const STILL = has("yet|still|لسا|لسه|للحين|باقي|بعدني|مازلت|ما\\s*زلت|لازلت|لا\\s*زلت|بعد");
-// A reply that points back to an earlier set.
+// A reply that points back to an earlier set: "the last one", "آخر وحدة",
+// "المجموعة الأخيرة".
 const REFERS_BACK = has(
-  "last|previous|earlier|before|الاخير|الاخيره|السابق|السابقه|فات|فاتت|قبل",
+  "last|previous|earlier|before|اخر|الاخير|الاخيره|السابق|السابقه|فات|فاتت|قبل",
 );
 // The instruction form of a command ("say done when you finish") is the
 // trainer's prompt, not a reply. Pain is read before this is removed.
@@ -191,35 +231,52 @@ const TENS: Record<string, number> = {
 const TEEN_UNITS: Record<string, number> = { احد: 1, احدي: 1, اثنا: 2, اثني: 2, اثنتا: 2, اثنتي: 2 };
 const TEN_WORDS = new Set(["عشر", "عشره"]);
 // "One" is also a pronoun ("the last one", "this one", "next one", "one
-// more"): after these words, or before these, it is not a rep count.
+// more", "آخر واحدة", "هذي واحدة", "واحدة ثانية"): after these words, or
+// before these, it is not a rep count.
+const ONE_WORDS = new Set(["one", "واحد", "واحده"]);
 const ONE_AFTER = new Set([
   "the", "this", "that", "last", "next", "first", "second", "third", "previous", "final", "other",
   "another", "each", "every", "any", "which", "same", "no", "a", "big", "hard", "easy", "heavy",
   "tough", "good", "new", "little", "wrong", "right",
+  "اخر", "اول", "هذي", "هذه", "ذي", "هاذي", "هاي", "هذا", "ذا", "هاذا", "ذاك", "ذيك", "هذيك", "كل", "اي", "نفس",
 ]);
-const ONE_BEFORE = new Set(["more", "of", "moment", "sec", "time", "thing", "again", "left"]);
-// "The last two (reps)", "the last few", "the final reps" are reps of a set,
-// not an earlier set: they never make a reply point back. "The last one" is
-// the previous set, and "the last 2 sets" points back too.
+const ONE_BEFORE = new Set([
+  "more", "of", "moment", "sec", "time", "thing", "again", "left",
+  "ثانيه", "ثاني", "زياده", "كمان", "اخري",
+]);
+// "The last two (reps)", "the last few", "the final reps", "آخر ثنتين",
+// "آخر تكرارين", "التكرارات الأخيرة" are reps of a set, not an earlier set:
+// they never make a reply point back. "The last one" ("آخر وحدة") is the
+// previous set, and "the last 2 sets" ("آخر مجموعتين") points back too.
+const numberWords = (script: RegExp) =>
+  [...Object.keys(UNITS), ...Object.keys(TENS)]
+    .filter((w) => script.test(w) && (UNITS[w] ?? TENS[w]) > 1)
+    .join("|");
 const LAST_REPS = new RegExp(
   B +
-    "(?:last|final)\\s+(?:[2-9٢-٩]|\\p{N}{2,}|" +
-    [...Object.keys(UNITS), ...Object.keys(TENS)]
-      .filter((w) => /^[a-z]+$/.test(w) && (UNITS[w] ?? TENS[w]) > 1)
-      .join("|") +
+    "(?:(?:last|final)\\s+(?:[2-9٢-٩]|\\p{N}{2,}|" +
+    numberWords(/^[a-z]+$/) +
     "|few|couple|reps?|repetitions?)" +
     E +
     "(?!\\s+(?:sets?|rounds?|exercises?)" +
     E +
-    ")",
+    ")|اخر\\s+(?:[2-9٢-٩]|\\p{N}{2,}|" +
+    numberWords(/^\p{Script=Arabic}+$/u) +
+    "|تكرار\\p{L}*|عدات|عدتين)" +
+    E +
+    "(?!\\s+(?:مجموع|جول|تمرين)\\p{L}*)|(?:ال)?(?:تكرار\\p{L}*|عدات)\\s+(?:ال)?اخير\\p{L}*)",
   "giu",
 );
 const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
 const westernDigits = (text: string) =>
   text.replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10));
-// A number is a rep count unless it names a set or exercise ("set 1 of 3") or
-// a load or time ("60 kilograms", "30 seconds").
-const NOT_REPS_BEFORE = new Set(["set", "sets", "of", "exercise", "round", "number", "مجموعه", "من"]);
+// A number is a rep count unless it names a set or exercise ("set 1 of 3"),
+// points at reps rather than counting them ("the last two were hard", "آخر
+// ثنتين كانت صعبة") or is a load or time ("60 kilograms", "30 seconds").
+const NOT_REPS_BEFORE = new Set([
+  "set", "sets", "of", "exercise", "round", "number", "مجموعه", "من",
+  "last", "final", "first", "اخر", "اول",
+]);
 const NOT_REPS_AFTER =
   /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|sets?|rounds?|كيلو|كيلوغرام|كيلوجرام|ثانيه|ثواني|دقيقه|دقائق|دقايق|مجموعه|مجموعات|جوله|جولات)$/u;
 /** A number word, also after a joined Arabic "and"/"with" ("وعشرين", "بثماني"). */
@@ -269,7 +326,7 @@ function spokenNumber(folded: string): number | null {
       } else if (value < 10 && next === "و" && after in TENS) {
         value += TENS[after];
         width = 3;
-      } else if (t === "one" && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) {
+      } else if (ONE_WORDS.has(t) && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) {
         continue;
       }
     }
@@ -289,11 +346,13 @@ function spokenNumber(folded: string): number | null {
  * `safetySignal`, which also reads Arabic) always wins; the server re-screens
  * every transcript with the trainer's published policy as well. Plain
  * acknowledgements never complete a set (a negated one, "not okay" or "مو
- * زين", is not an acknowledgement), a negated completion ("I didn't finish",
- * "not done yet", "ما خلصت") never logs one, a number inside a negated clause
- * ("I didn't do the last 2 reps", "ما سويت آخر ثنتين", "I can't do 10") is
- * never a rep count, and a rep count wins over "heavy" in the same reply (the
- * heaviness is kept as a flag).
+ * زين", is not an acknowledgement), a negated or hedged completion ("I didn't
+ * finish", "I never made it", "I almost did it", "not done yet", "ما خلصت",
+ * "ما تم") never logs one, a negated request to carry on ("I'm not ready",
+ * "مو مستعد", "don't skip") pauses and never moves on, a number inside a
+ * negated clause ("I didn't do the last 2 reps", "ما سويت آخر ثنتين", "I
+ * can't do 10") is never a rep count, and a rep count wins over "heavy" in
+ * the same reply (the heaviness is kept as a flag).
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
@@ -304,15 +363,22 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   const folded = screened.replace(INSTRUCTION, " ");
   const effort = folded.replace(NEGATED_EFFORT, " ");
   const heavy = TOO_HEAVY.test(effort);
-  const skip = SKIP.test(folded),
-    pause = PAUSE.test(folded);
+  // Not ready, or not carrying on ("I'm not ready", "I can't continue", "don't
+  // skip", "مو مستعد", "ما نكمل", "هيا لا"): the session pauses. It never
+  // resumes, skips or moves on.
+  const notReady = NEGATED_FLOW.test(folded) || FLOW_THEN_NO.test(folded);
+  const skip = !notReady && SKIP.test(folded),
+    pause = notReady || PAUSE.test(folded);
   // A negated completion is never a completion. Said in the past tense it is a
   // report for the trainer; "not yet" or "still" means the set is under way.
   const negatedDone = NOT_DONE.test(folded),
-    notYet = NOT_YET.test(folded);
+    notYet = NOT_YET.test(folded) || NEGATED_COMPLETE.test(folded);
   const still = (negatedDone || notYet) && STILL.test(folded);
   const notDone = !still && (negatedDone || (notYet && REFERS_BACK.test(folded)));
-  const completion = folded.replace(NOT_DONE_ALL, " ").replace(NOT_YET_ALL, " ");
+  const completion = folded
+    .replace(NEGATED_COMPLETE_ALL, " ")
+    .replace(NOT_DONE_ALL, " ")
+    .replace(NOT_YET_ALL, " ");
   // A number inside a negated clause is what was not done, never a count.
   const reps = spokenNumber(folded.replace(NEGATED_CLAUSE, " "));
   if (reps !== null && reps <= 200 && !skip && !pause)

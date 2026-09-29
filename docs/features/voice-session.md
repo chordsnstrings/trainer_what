@@ -353,6 +353,44 @@ Found by reading the chain and by the live transcripts:
   speech model returned for a reply it could not read ("Thank you." for Arabic "ثمان تكرارات"
   read as English), so it never earns the help line.
 
+Review round 2 of this branch (same day):
+
+- A negated or hedged completion logged the set at the full target. This branch had added "did
+  it", "made it" and "nailed it" as completion words, so "I never made it", "I almost made it",
+  "I nearly made it", "I never did it", "I almost did it", "I never nailed it" and "not quite made
+  it" each **logged the set** (on the base they were the help line). The same happened with words
+  that were completions before this branch: "it wasn't done", "wasn't finished", "nowhere near
+  done", "nearly done", "ما تم", "ما تمت", "ما انجزت", "مو خلاص". Now past-tense forms ("never
+  did/made/nailed", "almost/nearly/not quite made/did", "wasn't done", "didn't get it done", "لم
+  يتم", "ما انجزتها") are `not_done`, and any completion word after a negation in the same clause
+  (no punctuation between, at most three English or two Arabic filler words such as "it", "quite",
+  "بعد") is not a completion: the reply is a still-going acknowledgement ("I haven't made it",
+  "nearly done", "ما تم", "مو خلاص"). Arabic "لا" does not negate a completion ("لا خلصت" is "no,
+  I finished"). "Did it", "made it", "nailed it", "barely made it", "ما شاء الله خلصت" and "ما في
+  ألم خلصت" still complete the set.
+- A negated request to carry on moved the session on. This branch had added "مستعد", "جاهزه",
+  "نكمل", "هيا" and "التالي" to the carry-on words without negation, so "مو مستعد", "لست مستعدة",
+  "مب جاهزه", "ما ني مستعد", "ما نكمل", "ما ابي نكمل" and "هيا لا" **resumed**: in a rest the
+  next set started at once, in the set-up set 1 started. The English forms ("I'm not ready", "I
+  can't continue", "I can't go on", "don't start yet", "I don't want to continue") resumed on the
+  base too, and "don't skip" and "I'm not ready for the next exercise" skipped. A carry-on or skip
+  word after a negation in the same clause (English negations, and Arabic "ما/مو/مب/مش/لست/ماني/
+  ليس/غير"; "لا" and "لن" only before a verb: "لا تبدا", "لن أكمل", "لا تتخطى"), or followed by a
+  final "no"/"لا" ("ready? no", "هيا لا"), is now a **pause**: the rest clock stops and nothing
+  starts until the member says to carry on. Gulf "ما اكمل" (I'm not carrying on) was a silent
+  acknowledgement and is now a pause; "ما اقدر اكمل" stays a load complaint. "What's next" in
+  Arabic ("ما التالي") repeats the prompt, like English "what's next".
+- "آخر وحدة" / "آخر واحدة" (the last one, the usual Gulf and MSA form) did not point back, so in a
+  set "ما سويت آخر وحدة" named the current, unlogged set instead of the set just logged, and the
+  member was not told to correct the log. "آخر" now points back, except before a rep number or
+  "تكرار" ("آخر ثنتين", "آخر تكرارين"), which are reps of the set, and "التكرارات الأخيرة" no
+  longer points back either. "واحد/واحدة" after "آخر", "هذي", "هذا", "كل", "نفس"... or before
+  "ثانية", "كمان"... is a pronoun, not a count: "آخر واحدة كانت ثقيلة" and "هذي واحدة صعبة"
+  logged **a set of 1 rep** (on the base too; the Arabic of "the last one was too heavy") and are
+  now too heavy; "آخر واحدة ما سويتها" logged 1 rep and is now `not_done` pointing back. A number
+  after "last", "first", "آخر" or "أول" is never a count ("the last two were hard" logged 2 reps,
+  "the first 5 were easy" logged 5).
+
 ### "Not done" in the runner
 
 `not_done` never logs, never skips and never moves the session on. The runner says "Noted. Your
@@ -437,8 +475,23 @@ one line; lines past a kind's limit, non-text items and unknown keys are dropped
 none of the kinds is still refused. Every line still goes through `checkedSuggestions` and the
 trainer's review; nothing is spoken until the trainer saves it. With the trial's raw answers
 (regression tests): Opus and Sonnet T2 are accepted with Arabic lines; Haiku T2 gives four
-lines; Haiku T1 and T3 are still refused. The payload carries no IDs, so no short references
-(`prompt-refs`) are needed here.
+lines. The payload carries no IDs, so no short references (`prompt-refs`) are needed here.
+
+Review round 2: Haiku T1 put the kinds under `suggestions` with other names ("opening", "warmUp",
+"coolDown", "signOff"). The reader now also takes a known other name of a kind (compared without
+case, spaces, dashes or underscores: opening/welcome/greeting for intro, sign-off/closing/farewell
+for finish, warm-up, cool-down, encouragements) and, only when the top level has no kind, the
+kinds one level down under `suggestions`. Haiku T1 is now read (all five kinds, six lines; none
+fails the checks). Haiku T3 (`{"wording", "script", "emotion"}`: one line with no kind) is
+still refused, because reading a kind from it would be a guess. The prompt contract (the five keys, each a list, and the
+limits 4/4/8/4/4) is pinned by `tests/voice-session.test.ts` on the system prompt actually sent.
+Not done: the three Haiku voice wording tasks were **not re-run** against v2 (this worktree has no
+model provider configured), so whether Haiku now follows the stated keys is unverified; only its
+recorded T1 and T2 answers are known to be read. The call still sends `response_format: {type:
+"json_object"}`, not a JSON schema: no model call in the app sends a schema (they all send
+`json_object` to an OpenAI-compatible endpoint), and schema support differs by provider (one that
+refuses the parameter would fail the call outright); the lenient reader, the line checks and the
+trainer's review already cover a wrong shape.
 
 ### Live check of the whole chain (29 September 2026)
 
@@ -577,6 +630,37 @@ After the review fixes (numbers in a negated clause, negated acknowledgements, "
 Not run after the review fixes: the live Cartesia chain, `next build`, the e2e harness and a
 browser check.
 
+After review round 2 (negated and hedged completions, negated carry-on and skip, "آخر وحدة" and
+Arabic "one", the lenient reader's other names), same day and worktree:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `tests/voice-talkback.test.ts`: 23/23 (3 new tests with parser and runner cases; the trial test
+  now reads Haiku T1). `tests/voice-session.test.ts` pins the five keys of the prompt and reads a
+  nested answer through the route.
+- Related files together (`voice-talkback`, `voice-session-domain`, `voice-session`,
+  `voice-clones`, `programme-voice`, `integrations-completion`, `e2e-harness-mocks`): 107/107.
+- Whole PGlite suite: 1,129 tests, 1,128 pass, 0 fail, 1 skipped.
+- `/opt/tools/pg-sandbox.sh 56592` with `voice-session`, `voice-talkback`, `voice-clones`,
+  `programme-voice`, `integrations-completion`, `voice-session-domain`: 68 migrations,
+  `runtimeAccess: verified` (44 scoped tables, 46 helpers), 96 tests pass,
+  `PG_SELECTED_FAILED_FILES=0` (also on port 56591 before the last change).
+- Parser outputs before and after on every quoted string of the voice test files and the live
+  transcripts (1,261 strings): 52 changed, all of them the new review cases; none of the 48 live
+  transcripts changed. A corpus of 166 ordinary replies (completions, counts, carry-on, skip,
+  pause, effort, acknowledgements in English and Arabic, with "no pain", "ما في ألم", "ما شاء
+  الله", "ما عليه" before them) changed only for "I'm not ready", "not ready yet" and "I can't
+  continue".
+- Mutation check: 16 breaks (no past-tense "did/made/nail", no hedged past, no "wasn't done", no
+  negated-completion rule, the negated completion not removed, "لا" negating a completion, no
+  negated carry-on rule, no final "no", skip not held back, no "لا/لن" before a verb, "آخر" not
+  pointing back, Arabic "one" read as a count, no Arabic "last N reps" rule, a number after
+  "last" read as a count, no other names for kinds, no nested kinds) each failed at least one
+  test; files restored after each. (Run before the name lookup became a `Map`, which also stops
+  keys such as "constructor" from matching; tested.)
+
+Not run after round 2: the live Cartesia chain, the Haiku voice wording tasks, `next build`, the
+e2e harness and a browser check.
+
 ### Still not done
 
 - **Arabic code lines.** Every number, set, rest and safety line (the code-owned lines and the
@@ -599,6 +683,13 @@ browser check.
   the session for the trainer to review); none was seen.
 - Two exercises with the same name share set logs (the workout log keys sets by exercise name).
 - ink-whisper returns "Thank you." for noise; it is now ignored as an acknowledgement.
+- Negation is read only in the same clause and within a few words (review round 2): "I don't think
+  that I am really ready" (four words between) still resumes, and punctuation in a transcript
+  ends the clause. On-device recognition adds no punctuation, so "not sure I'm done" is read as
+  a negated completion (an acknowledgement; the member says "done" again), where "not sure, done"
+  completes the set. Pausing on "I'm not
+  ready" means the member must say "resume" to go on; "not now" / "مو الحين" still earn the help
+  line.
 - Not live-tested: a Pro clone, a real browser (microphone, echo, playback), iOS background audio,
   and per-clone credit charges (the usage endpoint needs an admin key).
 
