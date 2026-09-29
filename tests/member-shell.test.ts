@@ -224,7 +224,7 @@ test("the member frame: a tab bar with one current tab, back on sub-pages, no dr
   assert.match(
     tabbar,
     // "is-arriving": the tab moved to plays its microanimation once.
-    /<a class="member-tab(?: is-arriving)?" aria-current="page" href="\/app">/,
+    /<a data-tab="today" class="member-tab(?: is-arriving)?" aria-current="page" href="\/app">/,
   );
   assert.doesNotMatch(today, /class="member-back/);
   assert.doesNotMatch(today, /Open navigation|Close navigation|mobile-menu/);
@@ -419,7 +419,13 @@ test("the stylesheet is phone first and safe-area aware", async () => {
   assert.match(css, /env\(safe-area-inset-bottom/);
   assert.match(css, /env\(safe-area-inset-top/);
   assert.match(css, /overscroll-behavior-y: contain/);
-  assert.match(css, /prefers-reduced-motion/);
+  // Motion lives in app/motion.css (tests/motion-css.test.ts); this file
+  // keeps layout only.
+  assert.doesNotMatch(css, /(^|[;{\s])(animation|transition)(-[a-z]+)?\s*:/m);
+  assert.match(
+    await source("apps/web/app/motion.css"),
+    /@media \(prefers-reduced-motion: no-preference\)/,
+  );
   // Member fields are 16 px (no iOS zoom).
   assert.match(
     css,

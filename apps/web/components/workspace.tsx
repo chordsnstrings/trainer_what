@@ -69,8 +69,15 @@ import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
 import { MemberShell, MoreScreen } from "./member-shell";
-import { BottomSheet, NumberStepper, StickyActionBar } from "./phone-ui";
-import { prefersReducedMotion } from "./motion";
+import {
+  BottomSheet,
+  DrawnCheck,
+  NumberStepper,
+  ProgressRing,
+  StickyActionBar,
+  Toast,
+} from "./phone-ui";
+import { haptic, prefersReducedMotion } from "./motion";
 import { MemberLanguage } from "./document-direction";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
 import {
@@ -91,7 +98,11 @@ import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
-import { ProgrammeToday, ProgrammeTimeline } from "./programme-today";
+import {
+  ProgrammeToday,
+  ProgrammeTimeline,
+  WorkoutComplete,
+} from "./programme-today";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
 import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
@@ -1003,7 +1014,8 @@ export default function Workspace({
               </button>
             </div>
           )}
-          {success && (
+          {/* Members get a toast above the bottom bars instead (MemberShell). */}
+          {success && !subscriber && (
             <div className="notice success" role="status">
               <Check size={17} />
               {success}
@@ -1334,6 +1346,13 @@ export default function Workspace({
           supportEmail={state.platform?.supportEmail}
           refreshing={loading}
           offline={!online}
+          toast={
+            success ? (
+              <Toast key={success} onDone={() => setSuccess("")}>
+                {success}
+              </Toast>
+            ) : null
+          }
           onSignOut={() => void signOut()}
           footerNote={
             state.environment === "development" ? (
@@ -2950,6 +2969,10 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     [painText, setPainText] = useState(""),
     [restUntil, setRestUntil] = useState<number | null>(null),
     [restLeft, setRestLeft] = useState(0),
+    // The prescribed rest, for the ring counting it down.
+    [restTotal, setRestTotal] = useState(0),
+    // Finished on this screen: the completion moment shows once.
+    [finished, setFinished] = useState(false),
     // The set logged last on this screen: it confirms itself once
     // (phone-first.css "Motion") and the next set comes into view.
     [justLogged, setJustLogged] = useState<string | null>(null);
@@ -3076,11 +3099,22 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   const finishBlocked =
     queued > 0 ||
     rejected.some((r) => r.item.path === `/workouts/${workout.id}/sets`);
-  const finish = () =>
+  const finish = () => {
+    haptic();
     void action(
       () => api(`/workouts/${workout.id}/finish`, "POST", {}),
       t("completed"),
-    );
+    ).then((result) => {
+      if (result === null) return;
+      setFinished(true);
+      // The completion moment is at the top of the workout.
+      window.scrollTo({
+        top: 0,
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+      });
+    });
+  };
+  const allSets = exercises.flatMap(({ sets }) => sets);
   const restText =
     restLeft > 0 ? t("rest", { time: formatCountdown(restLeft, locale) }) : "";
   return (
@@ -3092,6 +3126,12 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         detail={t("detail")}
         action={<Badge>{workoutStatusText(workout.status, t)}</Badge>}
       />
+      {finished && workout.status === "completed" && (
+        <WorkoutComplete
+          done={allSets.filter((s) => s.done).length}
+          total={allSets.length}
+        />
+      )}
       {active && (
         <div className="workout-modes">
           <Link className="button secondary" href={`/app/guided/${workout.id}`}>
@@ -3250,12 +3290,15 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   },
                 }));
                 setJustLogged(row.logicalKey);
+                haptic();
                 requestAnimationFrame(revealNextSet);
                 localStorage.setItem(key, JSON.stringify(pending));
                 setQueued(pending.length);
                 // The prescribed rest starts as soon as the set is logged.
-                if (ex.restSeconds > 0)
+                if (ex.restSeconds > 0) {
+                  setRestTotal(ex.restSeconds);
                   setRestUntil(Date.now() + ex.restSeconds * 1000);
+                }
                 await sync();
                 const stillPending = readList<WorkoutQueueItem>(
                   localStorage,
@@ -3273,7 +3316,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 <strong>{t("setN", { n: row.set })}</strong>
                 {row.done && (
                   <span className="set-logged">
-                    <Check size={16} aria-hidden="true" />
+                    {/* Drawn once when this set was just logged. */}
+                    <DrawnCheck />
                     {row.pending
                       ? locale === "en"
                         ? QUEUED_LABEL
@@ -3400,6 +3444,11 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           note={
             restText ? (
               <span role="timer" aria-live="off">
+                <ProgressRing
+                  value={restTotal ? restLeft / restTotal : 0}
+                  size={24}
+                  ticking
+                />
                 {restText}
                 {next
                   ? t("nextAfterRest", { exercise: next.ex.name, set: next.set })

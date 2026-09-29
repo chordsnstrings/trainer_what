@@ -2,8 +2,7 @@
    the "New version ready" toast, the install card, row and sheet steps,
    the notifications prompt and the offline indicator in the top bar.
    Mobile first (min-width queries only), logical properties only, the
-   shared tokens; no animations of its own (the bottom sheet keeps its
-   shared motion). */
+   shared tokens; their movement is in app/motion.css. */
 
 /* The installed app's first paint takes the coach's surface colour (the
    launch script in app/layout.tsx), so it matches the launch screen. */
@@ -69,6 +68,12 @@
   color: var(--ink);
   font-size: 13px;
   font-weight: 550;
+}
+/* The connection came back: the same pill in the success colours for a
+   moment, then it fades out (app/motion.css). */
+.member-offline.is-back-online {
+  background: var(--success-bg);
+  border-color: var(--success-line);
 }
 
 /* ------------------------------------------------------------------ */

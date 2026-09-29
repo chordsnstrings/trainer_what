@@ -67,6 +67,15 @@ export default defineMessages(
     displayText:
       "Choose how the app looks. Your coach’s website and sign-in pages on this device follow the same choice.",
     appearance: "Appearance",
+    // Motion (docs/features/motion.md)
+    motion: "Motion",
+    motionSystem: "Match this device",
+    motionSystemDetail:
+      "Animations follow your phone or computer setting.",
+    motionReduce: "Reduce motion",
+    motionReduceDetail:
+      "Screens stay still: nothing slides, grows or bounces.",
+    motionSaved: "Motion preference saved on this device.",
     // Privacy requests
     privacyRequests: "Your privacy requests",
     privacyRequestsText:
@@ -167,6 +176,12 @@ export default defineMessages(
     displayText:
       "اختيار مظهر التطبيق. يتبع موقع مدربك وصفحات تسجيل الدخول على هذا الجهاز الاختيار نفسه.",
     appearance: "المظهر",
+    motion: "الحركة",
+    motionSystem: "مطابقة هذا الجهاز",
+    motionSystemDetail: "تتبع الحركة إعداد هاتفك أو جهاز الكمبيوتر.",
+    motionReduce: "تقليل الحركة",
+    motionReduceDetail: "تبقى الشاشات ثابتة: لا انزلاق ولا تكبير ولا ارتداد.",
+    motionSaved: "تم حفظ تفضيل الحركة على هذا الجهاز.",
     privacyRequests: "طلبات الخصوصية الخاصة بك",
     privacyRequestsText:
       "يُتابَع محو الحساب محليًا وتنظيف بيانات المزوّدين والنسخ الاحتياطية بشكل منفصل. تخضع السجلات المالية وسجلات الموافقة المحتفظ بها لسياسة الاحتفاظ المعمول بها.",

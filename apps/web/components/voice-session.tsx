@@ -5,6 +5,8 @@
 // for spoken replies and performs the effects: set logs go through the same
 // device queue as the workout page, pain opens the existing safety hold.
 import { queuedSummary } from "./pwa";
+import { ProgressRing, Skeleton } from "./phone-ui";
+import { Mic } from "lucide-react";
 import { formatDate } from "../lib/format";
 import type { Translator } from "../lib/i18n/core";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
@@ -295,7 +297,9 @@ export function VoiceSessionRunner({
   if (!loaded)
     return (
       <div className="stack voice-session">
-        <p role="status">{t("loading")}</p>
+        <section className="card">
+          <Skeleton label={t("loading")} lines={4} block />
+        </section>
       </div>
     );
   const startedWorkout =
@@ -1173,11 +1177,22 @@ function Runner({
         )}
         {clock !== null && (
           <p className="voice-clock" aria-hidden="true" dir="ltr">
+            {/* Rest counts down on a ring (docs/features/motion.md "k"). */}
+            {state.phase === "rest" && ex?.restSeconds > 0 && (
+              <ProgressRing
+                value={clock / ex.restSeconds}
+                size={32}
+                ticking
+              />
+            )}
             {Math.floor(clock / 60)}:{String(clock % 60).padStart(2, "0")}
           </p>
         )}
         <p className="voice-prompt" aria-live="polite">
-          {prompt}
+          {/* Each new cue fades in; the live region itself stays put. */}
+          <span className="voice-cue is-new" key={prompt}>
+            {prompt}
+          </span>
         </p>
         <audio ref={player} preload="none" hidden />
         {changed ? (
@@ -1346,12 +1361,19 @@ function Runner({
             </div>
           ) : (
             <div className="stack">
-              <p role="status">
-                {listening === "device"
-                  ? t("listeningDevice")
-                  : t("listeningService")}
-                {heard && ` ${t("heard", { text: `“${heard}”` })}`}
-              </p>
+              {/* A calm breathing ring while listening (a live state). */}
+              <div className="listening">
+                <span className="listening-ring" aria-hidden="true">
+                  <span className="listening-ring-pulse" />
+                  <Mic size={20} />
+                </span>
+                <p role="status">
+                  {listening === "device"
+                    ? t("listeningDevice")
+                    : t("listeningService")}
+                  {heard && ` ${t("heard", { text: `“${heard}”` })}`}
+                </p>
+              </div>
               <button className="button secondary" onClick={() => setListening("off")}>
                 {t("stopListening")}
               </button>

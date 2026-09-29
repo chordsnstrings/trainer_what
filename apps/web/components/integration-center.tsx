@@ -7,7 +7,12 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
-import { BottomSheet, FileInput, StickyActionBar } from "./phone-ui";
+import {
+  BottomSheet,
+  FileInput,
+  ProgressRing,
+  StickyActionBar,
+} from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { WebAddressCenter } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
@@ -676,8 +681,18 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
             </>
           }
         >
-          <p dir="auto">{segment.text}</p>
+          {/* Each exercise's cue fades in when it changes. */}
+          <p dir="auto" className="guided-cue is-new" key={index}>
+            {segment.text}
+          </p>
           <p className="guided-timer" role="timer" aria-live="polite">
+            {rest > 0 && segment.restSeconds > 0 && (
+              <ProgressRing
+                value={rest / segment.restSeconds}
+                size={28}
+                ticking
+              />
+            )}
             {rest > 0 ? restText : t("gReady")}
           </p>
           <div className="guided-controls">

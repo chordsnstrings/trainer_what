@@ -134,7 +134,7 @@ test("the bar: two equal 48 px choices, a real Close button and a real privacy l
   );
   assert.match(
     html,
-    /<aside class="acquisition-consent consent-bar" aria-label="Optional analytics">/,
+    /<aside class="acquisition-consent consent-bar" data-audience="people" aria-label="Optional analytics">/,
   );
   // The spacer after the page reserves the bar's height.
   assert.match(html, /^<div class="consent-bar-space" aria-hidden="true"/);
@@ -316,10 +316,10 @@ test("phone-first styles: the bar sits above the member app's bottom chrome and 
   const sheet = rule(css, ".consent-sheet");
   assert.match(sheet, /inset-block: auto 0;/);
   assert.match(sheet, /overscroll-behavior: contain;/);
-  assert.match(
-    css,
-    /@media \(prefers-reduced-motion: no-preference\) \{\s*\.consent-sheet\[open\]/,
-  );
+  // Its movement (and the bar's) lives in app/motion.css, inside the
+  // no-preference query (tests/motion-css.test.ts).
+  assert.doesNotMatch(css, /(^|[;{\s])animation(-name)?\s*:/m);
+  assert.match(await web("app/motion.css"), /\.consent-sheet\[open\] \{\s*animation:/);
   // The old marketing-only bar rules are gone.
   assert.doesNotMatch(await web("app/marketing.css"), /\.consent-bar/);
 });

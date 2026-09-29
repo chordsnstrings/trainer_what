@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { BottomSheet } from "./phone-ui";
+import { MOTION, firstView, prefersReducedMotion } from "./motion";
 import {
   OFFLINE_STATE_KEY,
   SW_MESSAGES,
@@ -215,11 +216,22 @@ export function AppUpdateToast({
   onReload: () => void;
 }) {
   const [later, setLater] = useState(false),
+    [leaving, setLeaving] = useState(false),
     [blocked, setBlocked] = useState(false);
   const t = useT("pwa");
+  useEffect(() => {
+    if (!leaving) return;
+    const gone = window.setTimeout(() => setLater(true), MOTION.fast + 40);
+    return () => window.clearTimeout(gone);
+  }, [leaving]);
   if (later || !showUpdateToast({ waiting, path })) return null;
   return (
-    <div className="app-update-toast" role="status" data-fixed-ui>
+    <div
+      className={"app-update-toast" + (leaving ? " is-leaving" : "")}
+      role="status"
+      data-fixed-ui
+      inert={leaving || undefined}
+    >
       <p>
         <strong>{t("newVersion")}</strong>
         {blocked && <span>{t("saveFirst")}</span>}
@@ -238,7 +250,9 @@ export function AppUpdateToast({
         type="button"
         className="icon-button app-update-later"
         aria-label={t("later")}
-        onClick={() => setLater(true)}
+        onClick={() =>
+          prefersReducedMotion() ? setLater(true) : setLeaving(true)
+        }
       >
         <X size={18} aria-hidden="true" />
       </button>
@@ -583,11 +597,21 @@ export function InstallCard({
   const visits = useVisits(tenantId, userId),
     consent = useConsentAnswered();
   const keys = installKeys(tenantId, userId);
-  const [dismissed, setDismissed] = useState(true);
+  const [dismissed, setDismissed] = useState(true),
+    // "Not now": the card sinks away, then leaves the page.
+    [leaving, setLeaving] = useState(false),
+    // It rises in only the first time it shows in this tab.
+    [arriving, setArriving] = useState(false);
   useEffect(() => setDismissed(!!read(keys.dismissed)), [keys.dismissed]);
+  useEffect(() => {
+    if (!leaving) return;
+    const gone = window.setTimeout(() => setDismissed(true), MOTION.base + 40);
+    return () => window.clearTimeout(gone);
+  }, [leaving]);
   const dismiss = () => {
     write(keys.dismissed, new Date().toISOString());
-    setDismissed(true);
+    if (prefersReducedMotion()) setDismissed(true);
+    else setLeaving(true);
   };
   const visible =
     !!route &&
@@ -598,12 +622,20 @@ export function InstallCard({
       visits,
       loggedSession,
     });
+  useEffect(() => {
+    if (visible && firstView("install-card")) setArriving(true);
+  }, [visible]);
   return (
     <>
       {visible && (
         <section
-          className="card install-card"
+          className={
+            "card install-card" +
+            (arriving ? " is-new" : "") +
+            (leaving ? " is-leaving" : "")
+          }
           aria-labelledby="install-card-title"
+          inert={leaving || undefined}
         >
           <span className="install-card-icon" aria-hidden="true">
             <Smartphone size={22} />

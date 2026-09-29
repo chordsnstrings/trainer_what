@@ -16,15 +16,6 @@
       var(--member-keyboard-inset)
   );
   --member-gutter: 16px;
-  /* Motion tokens (components/motion.ts mirrors them; "Motion" below). */
-  --motion-press: 90ms;
-  --motion-fast: 140ms;
-  --motion-enter: 240ms;
-  --motion-slide: 280ms;
-  --motion-exit: 180ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 :root:has(.member-shell) {
   --member-tabbar-height: calc(64px + env(safe-area-inset-bottom, 0px));
@@ -98,10 +89,10 @@
   -webkit-backdrop-filter: saturate(1.4) blur(10px);
   backdrop-filter: saturate(1.4) blur(10px);
 }
-/* A thin bar while the page refreshes in place: a short segment that
-   travels along the bottom edge in the reading direction (still, in the
-   middle, with reduced motion). The segment moves by background position,
-   so nothing ever sticks out of the bar and scrolls the page sideways. */
+/* A thin bar while the page refreshes in place: a soft segment in the
+   middle of the bottom edge that breathes wider and narrower (app/motion.css;
+   still with reduced motion). It only ever scales inside its own width, so
+   nothing sticks out of the bar and scrolls the page sideways. */
 .member-topbar[data-refreshing]::after {
   content: "";
   position: absolute;
@@ -115,18 +106,7 @@
     var(--brand-primary, var(--green)) 70%,
     transparent
   );
-  background-repeat: no-repeat;
-  background-size: 40% 100%;
-  background-position-x: 50%;
-  transform: scaleX(var(--inline-sign, 1));
-}
-@keyframes member-refresh {
-  from {
-    background-position-x: -67%;
-  }
-  to {
-    background-position-x: 167%;
-  }
+  transform: scaleX(0.6);
 }
 .member-back {
   display: inline-flex;
@@ -243,7 +223,6 @@
 }
 .member-tab-icon {
   position: relative;
-  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -251,24 +230,28 @@
   block-size: 30px;
   border-radius: 15px;
 }
-/* The current tab's pill sits behind the icon so it can grow in on its own
-   ("Motion" below) while the icon keeps its size. */
+/* The current tab's pill sits behind every icon of the bar (pills at
+   z-index 0, icons at 1, badges at 2, all in the bar's stacking context),
+   so it can slide across from the tab you left (app/motion.css,
+   components/member-shell.tsx) without covering another tab's icon. */
 .member-tab-icon::before {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   border-radius: inherit;
   background: var(--brand-tint, var(--mint));
   opacity: 0;
-  transform: scaleX(0.5);
+}
+.member-tab-icon > svg {
+  position: relative;
+  z-index: 1;
 }
 .member-tab[aria-current="page"] .member-tab-icon {
   color: var(--brand-on-tint, var(--ink));
 }
 .member-tab[aria-current="page"] .member-tab-icon::before {
   opacity: 1;
-  transform: none;
 }
 .member-tab-label {
   max-inline-size: 100%;
@@ -278,6 +261,7 @@
 }
 .member-badge {
   position: absolute;
+  z-index: 2;
   inset-block-start: -4px;
   inset-inline-end: 4px;
   min-inline-size: 18px;
@@ -957,6 +941,27 @@
   outline: 3px solid var(--focus, #171917);
   outline-offset: 2px;
 }
+/* The value and, over it, the old value rolling away after a press. */
+.stepper-value {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-inline-size: 0;
+}
+.stepper-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 600;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+}
 .stepper .stepper-field input.stepper-input {
   flex: 1;
   inline-size: 100%;
@@ -1456,22 +1461,11 @@
   scroll-margin-block: 72px calc(var(--member-bottom-inset) + 16px);
 }
 
-/* ------------------------------------------------------------------ */
-/* Motion: small, quick microanimations (components/motion.ts)          */
-/* ------------------------------------------------------------------ */
-/* Every animation and transform transition below is inside
-   (prefers-reduced-motion: no-preference): with reduced motion the app is
-   the same, only still. Presses answer in 90 ms and spring back; things
-   arriving take 240-280 ms and ease out; leaving takes 180 ms. Only
-   transform and opacity move, so nothing reflows the page. */
+/* Motion lives in app/motion.css (docs/features/motion.md): tokens, every
+   animation and transition, and the reduced-motion rules. This file keeps
+   layout only. */
 
-/* Touch devices: a hover lift would stick after a tap. */
-@media (hover: none) {
-  :is(.member-shell, .public, .coach-website, .bottom-sheet)
-    .button:hover:not(:disabled) {
-    transform: none;
-  }
-}
+/* Hover tints for pointers that hover (a tap never leaves one behind). */
 @media (hover: hover) {
   .more-link:hover {
     background: color-mix(in srgb, var(--brand-tint, var(--mint)) 50%, transparent);
@@ -1481,327 +1475,270 @@
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  /* Presses: buttons dip slightly and spring back on release. */
-  :is(.member-shell, .public, .coach-website, .bottom-sheet)
-    :is(.button, .stepper-button, .icon-button),
-  :where(.member-shell .member-content) button:not([class]),
-  .file-input-button {
-    transition:
-      background-color var(--motion-fast) ease,
-      border-color var(--motion-fast) ease,
-      color var(--motion-fast) ease,
-      box-shadow var(--motion-fast) ease,
-      transform var(--motion-enter) var(--ease-spring);
-  }
-  :is(.member-shell, .public, .coach-website, .bottom-sheet)
-    :is(.button, .icon-button):active:not(:disabled),
-  :where(.member-shell .member-content) button:not([class]):active:not(:disabled),
-  .file-input-control:active .file-input-button {
-    transform: scale(0.97);
-    transition-duration: var(--motion-press);
-    transition-timing-function: var(--ease-out);
-  }
-  .stepper-button:active:not(:disabled) {
-    transform: scale(0.9);
-    transition-duration: var(--motion-press);
-    transition-timing-function: var(--ease-out);
-  }
-  .file-input.is-disabled .file-input-button,
-  :is(.member-shell, .bottom-sheet) :is(.button, button):disabled {
-    transform: none;
-  }
-
-  /* Tab bar: the pill grows in behind the icon of the tab you move to
-     (is-arriving: a different tab from the previous page), the icon pops
-     once, a press dips the icon, colours cross-fade. */
-  .member-tab {
-    -webkit-tap-highlight-color: transparent;
-    transition: color var(--motion-fast) ease;
-  }
-  .member-tab-icon {
-    transition: transform var(--motion-enter) var(--ease-spring);
-  }
-  .member-tab:active .member-tab-icon {
-    transform: scale(0.88);
-    transition-duration: var(--motion-press);
-    transition-timing-function: var(--ease-out);
-  }
-  .member-tab-icon::before {
-    transition:
-      opacity var(--motion-fast) ease,
-      transform var(--motion-slide) var(--ease-out);
-  }
-  .member-tab.is-arriving[aria-current="page"] .member-tab-icon::before {
-    animation: member-pill-in var(--motion-slide) var(--ease-spring);
-  }
-  .member-tab.is-arriving[aria-current="page"] .member-tab-icon > svg {
-    animation: member-icon-pop var(--motion-slide) var(--ease-spring);
-  }
-  /* The unread badge pops when the count goes up (re-keyed per count). */
-  .member-badge.is-new {
-    animation: member-badge-pop 360ms var(--ease-spring);
-  }
-
-  /* Top bar: a new title slides in from the reading direction's end, the
-     back button fades in when it appears, the refresh segment travels. */
-  .member-topbar-title,
-  .member-topbar-coach {
-    animation: member-title-in var(--motion-enter) var(--ease-out);
-  }
-  .member-back.is-arriving {
-    animation: member-fade-in var(--motion-enter) var(--ease-out);
-  }
-  .member-back {
-    transition:
-      background-color var(--motion-fast) ease,
-      transform var(--motion-enter) var(--ease-spring);
-  }
-  .member-back:active,
-  .member-topbar-me:active .avatar {
-    transform: scale(0.9);
-    transition-duration: var(--motion-press);
-  }
-  .member-topbar-me .avatar {
-    transition: transform var(--motion-enter) var(--ease-spring);
-  }
-  .member-topbar[data-refreshing]::after {
-    animation:
-      member-fade-in var(--motion-fast) ease-out 120ms backwards,
-      member-refresh 1.1s ease-in-out infinite;
-  }
-
-  /* More: rows tint on press, the icon tile dips, the chevron nudges
-     toward where the row leads. */
-  .more-link {
-    -webkit-tap-highlight-color: transparent;
-    transition: background-color var(--motion-fast) ease;
-  }
-  .more-icon {
-    transition: transform var(--motion-enter) var(--ease-spring);
-  }
-  .more-link:active .more-icon {
-    transform: scale(0.9);
-    transition-duration: var(--motion-press);
-  }
-  .more-chevron {
-    transition: translate var(--motion-enter) var(--ease-out);
-  }
-  .more-link:active .more-chevron {
-    translate: calc(3px * var(--inline-sign, 1)) 0;
-  }
-
-  /* Sticky action bar: slides up from behind the tab bar when it appears. */
-  .sticky-action-bar {
-    animation: member-bar-in var(--motion-slide) var(--ease-out);
-  }
-
-  /* Bottom sheet: slides up with the page dimming behind it; slides away
-     faster when closed (BottomSheet sets data-closing, then closes). */
-  .bottom-sheet[open] {
-    animation: member-sheet-up var(--motion-slide) var(--ease-out);
-  }
-  .bottom-sheet[open]::backdrop {
-    animation: member-fade-in var(--motion-enter) ease-out;
-  }
-  .bottom-sheet[open][data-closing] {
-    animation: member-sheet-down var(--motion-exit) var(--ease-in) forwards;
-  }
-  .bottom-sheet[open][data-closing]::backdrop {
-    animation: member-fade-out var(--motion-exit) ease-in forwards;
-  }
-
-  /* Tabs: the underline grows from the centre; colours cross-fade. */
-  .scroll-tabs [role="tab"] {
-    transition: color var(--motion-fast) ease;
-  }
-  .scroll-tabs [role="tab"]::after {
-    transition: transform var(--motion-enter) var(--ease-out);
-  }
-
-  /* Notices and alerts arrive instead of popping into place. */
-  .member-shell :is(.notice, .control-reason[role="status"]) {
-    animation: member-drop-in var(--motion-enter) var(--ease-out);
-  }
-  /* A disclosure's content unfolds. */
-  .member-shell details[open] > :not(summary) {
-    animation: member-drop-in var(--motion-enter) var(--ease-out);
-  }
-  /* Ticking a box answers with a small pop (only the box you just ticked:
-     boxes already ticked when a page opens stay still). */
-  :is(.member-shell, .bottom-sheet)
-    input:is([type="checkbox"], [type="radio"]):checked:focus {
-    animation: member-check-pop 260ms var(--ease-spring);
-  }
-  /* The "scroll for more" cue fades in when columns are hidden. */
-  .responsive-table-cue {
-    animation: member-fade-in var(--motion-enter) ease-out;
-  }
-
-  /* Workout: a set you just logged glows once and its check pops. */
-  .member-shell .set-row.just-logged {
-    position: relative;
-    isolation: isolate;
-  }
-  .member-shell .set-row.just-logged::before {
-    content: "";
-    position: absolute;
-    inset-block: 4px;
-    inset-inline: -8px;
-    z-index: -1;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--success, #2f7a4f) 14%, transparent);
-    opacity: 0;
-    animation: member-glow 900ms var(--ease-out);
-  }
-  .set-row.just-logged .set-logged {
-    animation: member-fade-in var(--motion-enter) ease-out;
-  }
-  .set-row.just-logged .set-logged > svg {
-    animation: member-check-in 420ms var(--ease-spring);
-  }
-  /* A rest timer that just started settles in. */
-  .sticky-action-note [role="timer"] {
-    animation: member-fade-in var(--motion-enter) ease-out;
-  }
+/* ------------------------------------------------------------------ */
+/* Motion pieces: static layout (their movement is in app/motion.css)   */
+/* ------------------------------------------------------------------ */
+/* Disclosures: a chevron at the row's end that turns when open, and a
+   single block inside opens to its height (grid rows 0fr to 1fr). */
+.member-shell summary {
+  position: relative;
+  display: block;
+  list-style: none;
+  padding-inline-end: 28px;
 }
-@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
-  .member-sidenav nav a {
-    transition:
-      background-color var(--motion-fast) ease,
-      color var(--motion-fast) ease;
-  }
-  .member-sidenav nav a svg {
-    transition: transform var(--motion-enter) var(--ease-spring);
-  }
-  .member-sidenav nav a:active svg {
-    transform: scale(0.88);
-    transition-duration: var(--motion-press);
-  }
-  .member-sidenav nav a.active.is-arriving svg {
-    animation: member-icon-pop var(--motion-slide) var(--ease-spring);
-  }
+.member-shell .set-note summary {
+  display: flex;
 }
-/* From 768 px the sheet is a centred dialog: it rises and scales in. */
-@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
-  .bottom-sheet[open] {
-    animation-name: member-dialog-in;
-  }
-  .bottom-sheet[open][data-closing] {
-    animation-name: member-dialog-out;
+.member-shell summary::-webkit-details-marker {
+  display: none;
+}
+.member-shell summary::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 8px;
+  inset-block-start: 50%;
+  inline-size: 8px;
+  block-size: 8px;
+  border-block-end: 2px solid currentColor;
+  border-inline-end: 2px solid currentColor;
+  transform: translateY(-75%) rotate(calc(45deg * var(--inline-sign, 1)));
+}
+.member-shell details[open] > summary::after {
+  transform: translateY(-25%) rotate(calc(225deg * var(--inline-sign, 1)));
+}
+.member-shell details:has(> summary:first-child + :last-child)::details-content {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+.member-shell details[open]:has(> summary:first-child + :last-child)::details-content {
+  grid-template-rows: 1fr;
+}
+.member-shell details > summary:first-child + :last-child {
+  min-block-size: 0;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
+
+/* Loading skeletons: soft blocks in place of "Loading…" (the shimmer is a
+   live state; still with reduced motion). */
+.skeleton {
+  display: grid;
+  gap: 10px;
+}
+.skeleton-line {
+  position: relative;
+  overflow: hidden;
+  block-size: 14px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.skeleton-line.is-title {
+  block-size: 22px;
+  inline-size: 55%;
+}
+.skeleton-line.is-short {
+  inline-size: 70%;
+}
+.skeleton-line.is-block {
+  block-size: 44px;
+  border-radius: 10px;
+}
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--white) 55%, transparent),
+    transparent
+  );
+  transform: translateX(calc(-100% * var(--inline-sign, 1)));
+}
+
+/* Toasts: small, above the tab bar and any action bar and the analytics
+   bar; they never cover the screen's primary action. */
+.member-toast {
+  position: fixed;
+  z-index: 50;
+  inset-inline: var(--member-gutter, 16px);
+  inset-block-end: calc(
+    var(--member-bottom-inset, 0px) + var(--consent-bar-block-size, 0px) + 12px
+  );
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 48px;
+  padding-block: 10px;
+  padding-inline: 14px;
+  background: var(--ink);
+  color: var(--white);
+  border-radius: var(--radius, 10px);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 18%, transparent);
+  font-size: 15px;
+  pointer-events: none;
+}
+.member-toast svg {
+  flex: none;
+}
+@media (min-width: 768px) {
+  .member-toast {
+    inset-inline: auto var(--member-gutter, 16px);
+    inline-size: 360px;
   }
 }
 
-@keyframes member-fade-in {
-  from {
-    opacity: 0;
-  }
+/* A drawn check (SVG stroke) and progress rings. */
+.drawn-check {
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
 }
-@keyframes member-fade-out {
-  to {
-    opacity: 0;
-  }
+.drawn-check-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
 }
-@keyframes member-drop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
+.progress-ring {
+  flex: none;
+  display: block;
 }
-@keyframes member-title-in {
-  from {
-    opacity: 0;
-    transform: translateX(calc(12px * var(--inline-sign, 1)));
-  }
+.progress-ring-track,
+.progress-ring-value {
+  fill: none;
+  stroke-width: 3;
 }
-@keyframes member-pill-in {
-  from {
-    opacity: 0;
-    transform: scaleX(0.4);
-  }
+.progress-ring-track {
+  stroke: color-mix(in srgb, currentColor 18%, transparent);
 }
-@keyframes member-icon-pop {
-  0% {
-    transform: scale(0.84);
-  }
-  55% {
-    transform: scale(1.1);
-  }
-  100% {
-    transform: none;
-  }
+.progress-ring-value {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
 }
-@keyframes member-badge-pop {
-  0% {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  60% {
-    opacity: 1;
-    transform: scale(1.2);
-  }
-  100% {
-    transform: none;
-  }
+/* The ring starts at the top and runs in the reading direction. */
+.progress-ring-arc {
+  transform: rotate(-90deg) scaleY(var(--inline-sign, 1));
+  transform-origin: 50% 50%;
 }
-@keyframes member-bar-in {
-  from {
-    opacity: 0.4;
-    transform: translateY(100%);
-  }
+.sticky-action-note [role="timer"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-@keyframes member-sheet-up {
-  from {
-    transform: translateY(100%);
-  }
+
+/* The completion moment after Finish. */
+.workout-complete {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
 }
-@keyframes member-sheet-down {
-  to {
-    transform: translateY(100%);
-  }
+.workout-complete-badge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 64px;
+  block-size: 64px;
+  color: var(--success, #2f7a4f);
 }
-@keyframes member-dialog-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.97);
-  }
+.workout-complete-badge > .progress-ring {
+  position: absolute;
+  inset: 0;
 }
-@keyframes member-dialog-out {
-  to {
-    opacity: 0;
-    transform: translateY(12px) scale(0.97);
-  }
+.workout-complete-badge > .drawn-check {
+  inline-size: 28px;
+  block-size: 28px;
 }
-@keyframes member-check-pop {
-  0% {
-    transform: scale(0.8);
-  }
-  60% {
-    transform: scale(1.12);
-  }
-  100% {
-    transform: none;
-  }
+.workout-complete h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
 }
-@keyframes member-check-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.3) rotate(-12deg);
-  }
-  60% {
-    opacity: 1;
-    transform: scale(1.2);
-  }
-  100% {
-    transform: none;
-  }
+.workout-complete p {
+  margin: 0;
 }
-@keyframes member-glow {
-  0%,
-  35% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
+.workout-complete-stats {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+.workout-complete-stats div {
+  display: grid;
+  gap: 2px;
+}
+.workout-complete-stats dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.workout-complete-stats dd {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* Chat: a message on its way, and the digital coach typing. */
+.chat-message.is-sending {
+  opacity: 0.6;
+}
+.chat-sending {
+  font-size: 13px;
+  color: var(--muted);
+}
+.chat-typing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-block: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.chat-typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--client-bubble, var(--mint));
+}
+.chat-typing-dot {
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+/* Listening: a calm ring around the microphone. */
+.listening {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.listening-ring {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  color: var(--brand-link, var(--ink));
+}
+.listening-ring-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand-primary, var(--green)) 18%, transparent);
+}
+.listening-ring svg {
+  position: relative;
+}
+.guided-timer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }

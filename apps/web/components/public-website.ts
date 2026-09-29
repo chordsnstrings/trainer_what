@@ -11,8 +11,11 @@ import {
 } from "../document-language";
 import {
   DEFAULT_COLOR_SCHEME,
+  DEFAULT_MOTION_CHOICE,
+  MEMBER_MOTION_COOKIE,
   MEMBER_SCHEME_COOKIE,
   parseColorScheme,
+  parseMotionChoice,
 } from "../color-scheme";
 
 // Server-only helpers shared by the root layout and the catch-all page. The
@@ -85,5 +88,17 @@ export async function memberColorScheme() {
   return (
     parseColorScheme(jar.get(MEMBER_SCHEME_COOKIE)?.value) ??
     DEFAULT_COLOR_SCHEME
+  );
+}
+
+/**
+ * The member's "Reduce motion" choice on this device (color-scheme.ts):
+ * "reduce" puts data-reduce-motion="on" on <html> from the first paint.
+ */
+export async function memberMotionChoice() {
+  const jar = await cookies();
+  return (
+    parseMotionChoice(jar.get(MEMBER_MOTION_COOKIE)?.value) ??
+    DEFAULT_MOTION_CHOICE
   );
 }

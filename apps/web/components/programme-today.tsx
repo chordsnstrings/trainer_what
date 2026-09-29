@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { formatDate, formatDateRange, formatNumber } from "../lib/format";
 import type { Locale } from "../lib/i18n/core";
+import { CountUp, DrawnCheck, Meter, ProgressRing, Skeleton } from "./phone-ui";
+import { MOTION } from "./motion";
 
 /** The subscriber's day-by-day programme view and its timeline (docs/features/programme.md). */
 async function api(path: string, method = "GET", body?: unknown) {
@@ -162,18 +164,14 @@ function Nutrition({ n }: { n: any }) {
         {tr("kcalValue", { value: goal ? `${kcal} / ${goal}` : kcal })}
       </h3>
       {goal ? (
-        <div
-          className="programme-meter"
-          role="progressbar"
-          aria-label={tr("caloriesLabel")}
-          aria-valuemin={0}
-          aria-valuemax={goal}
-          aria-valuenow={Math.min(kcal, goal)}
-        >
-          <span
-            style={{ inlineSize: `${Math.min(100, (kcal / goal) * 100)}%` }}
-          />
-        </div>
+        // Grows from zero when first seen, and from the last value shown
+        // when a meal was logged since (docs/features/motion.md "g").
+        <Meter
+          value={kcal}
+          max={goal}
+          label={tr("caloriesLabel")}
+          memoryKey="today:kcal"
+        />
       ) : (
         <p className="muted">{tr("noTarget")}</p>
       )}
@@ -229,8 +227,8 @@ export function ProgrammeToday() {
     );
   if (!data)
     return (
-      <section className="card programme-today" aria-busy="true">
-        <p className="muted">{t("loading")}</p>
+      <section className="card programme-today">
+        <Skeleton label={t("loading")} lines={4} block />
       </section>
     );
   const p = data.programme;
@@ -271,18 +269,12 @@ export function ProgrammeToday() {
           <span className="badge">{t("rollingBlocks", { count: p.of })}</span>
         )}
       </div>
-      <div
-        className="programme-meter"
-        role="progressbar"
-        aria-label={t("progressLabel")}
-        aria-valuemin={0}
-        aria-valuemax={p.of}
-        aria-valuenow={p.day}
-      >
-        <span
-          style={{ inlineSize: `${Math.min(100, (p.day / p.of) * 100)}%` }}
-        />
-      </div>
+      <Meter
+        value={p.day}
+        max={p.of}
+        label={t("progressLabel")}
+        memoryKey="today:programme"
+      />
       {data.planState === "ended" ? null : (
         <div className="programme-columns">
           <div className="programme-tile">
@@ -340,7 +332,13 @@ export function ProgrammeToday() {
             <div className="programme-stats">
               <div>
                 <span className="small-label">{t("streak")}</span>
-                <strong>{formatNumber(progress.streak, locale)}</strong>
+                <strong>
+                  <CountUp
+                    value={progress.streak}
+                    format={(v) => formatNumber(v, locale)}
+                    memoryKey="today:streak"
+                  />
+                </strong>
               </div>
               <div>
                 <span className="small-label">{t("adherence")}</span>
@@ -407,8 +405,8 @@ export function ProgrammeTimeline() {
     );
   if (!data)
     return (
-      <section className="card" aria-busy="true">
-        <p className="muted">{t("loadingProgramme")}</p>
+      <section className="card">
+        <Skeleton label={t("loadingProgramme")} lines={5} />
       </section>
     );
   const p = data.programme;
@@ -487,6 +485,77 @@ export function ProgrammeTimeline() {
           {t("backToToday")}
         </Link>
       </p>
+    </section>
+  );
+}
+
+/**
+ * The short completion moment after Finish (docs/features/motion.md "f"):
+ * the ring fills to the share of sets logged, the check draws and the
+ * streak counts up, over --motion-emphasis. No confetti. With reduced
+ * motion everything shows at its final state.
+ */
+export function WorkoutComplete({
+  done,
+  total,
+}: {
+  done: number;
+  total: number;
+}) {
+  const t = useT("workout"),
+    locale = useLocale();
+  const [streak, setStreak] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    api("/programme/today" + zoneQuery()).then(
+      (d) => {
+        if (live && d?.programme && typeof d?.progress?.streak === "number")
+          setStreak(d.progress.streak);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <section
+      className="card workout-complete is-new"
+      aria-labelledby="workout-complete-title"
+    >
+      <span className="workout-complete-badge">
+        <ProgressRing value={total ? done / total : 1} from={0} size={64} />
+        <DrawnCheck draw emphasis />
+      </span>
+      <div>
+        <h2 id="workout-complete-title" role="status">
+          {t("doneTitle")}
+        </h2>
+        <p className="muted">{t("doneText")}</p>
+      </div>
+      <dl className="workout-complete-stats">
+        <div>
+          <dt>{t("doneSets")}</dt>
+          <dd>
+            {t("doneSetsValue", {
+              done: formatNumber(done, locale),
+              total: formatNumber(total, locale),
+            })}
+          </dd>
+        </div>
+        {streak !== null && streak > 0 && (
+          <div>
+            <dt>{t("doneStreak")}</dt>
+            <dd>
+              <CountUp
+                value={streak}
+                duration={MOTION.emphasis}
+                format={(v) => t("streakDays", { count: v })}
+              />
+            </dd>
+          </div>
+        )}
+      </dl>
     </section>
   );
 }

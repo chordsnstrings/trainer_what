@@ -423,3 +423,41 @@ export function allMemberDestinations(options: MemberNavOptions) {
     seen.set(d.id, d);
   return [...seen.values()];
 }
+
+/**
+ * How a move between two member pages animates (docs/features/motion.md,
+ * "Screen transitions"): "forward" slides the new page in from the inline
+ * end (a sub-page opening), "back" reverses it (returning up the back
+ * chain), "tab" crossfades (another tab, or a page beside this one), "none"
+ * is the same page or the first one shown.
+ */
+export type NavDirection = "forward" | "back" | "tab" | "none";
+export function navDirection(
+  from: string | null | undefined,
+  to: string,
+  options: MemberNavOptions,
+): NavDirection {
+  if (!from) return "none";
+  const a = clean(from),
+    b = clean(to);
+  if (a === b) return "none";
+  /** The pages above a page, nearest first (its back button's chain). */
+  const chain = (p: string) => {
+    const up: string[] = [];
+    for (let q = memberBackTarget(p, options); q && up.length < 5; ) {
+      up.push(q);
+      q = memberBackTarget(q, options);
+    }
+    return up;
+  };
+  const above = chain(a),
+    below = chain(b);
+  if (above.includes(b)) return "back";
+  if (below.includes(a)) return "forward";
+  // A tab tapped from anywhere, or two pages side by side: a crossfade.
+  if (!below.length) return "tab";
+  if (below.length > above.length) return "forward";
+  if (below.length < above.length && activeTab(a, options) === activeTab(b, options))
+    return "back";
+  return "tab";
+}

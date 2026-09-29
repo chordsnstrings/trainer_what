@@ -10,6 +10,7 @@ export default defineMessages(
       other: ", # unread messages",
     },
     offline: "Offline",
+    backOnline: "Back online",
     offlineDetail:
       ". Workouts and meals you log are saved on this phone and sync when you are back online.",
     profileSignedInAs: "Profile and settings, signed in as {name}",
@@ -41,6 +42,7 @@ export default defineMessages(
       other: "، # رسالة غير مقروءة",
     },
     offline: "غير متصل",
+    backOnline: "عاد الاتصال",
     offlineDetail:
       ". التمارين والوجبات التي تسجلها تُحفظ على هذا الهاتف وتُزامَن عند عودة الاتصال.",
     profileSignedInAs: "الملف الشخصي والإعدادات، تم تسجيل الدخول باسم {name}",

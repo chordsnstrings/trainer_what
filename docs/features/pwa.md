@@ -113,6 +113,21 @@ offline screen follows the same appearance (`member-neutral` wrapper).
   menu steps; after Chromium's prompt is accepted, "<coach> is on your home
   screen" with the notifications offer.
 
+### Motion (docs/features/motion.md)
+
+- The "New version ready" toast slides up and fades in; "Later" slides it
+  away before it is removed.
+- The install card on Today rises in the first time it shows in a tab;
+  "Not now" sinks it away, then removes it.
+- The top bar's "Offline" pill drops in when the connection goes; when it
+  returns, the pill turns into "Back online" (English and Arabic) for about
+  two seconds and fades out.
+- A member's "Saved" confirmations are toasts above the tab bar, the action
+  bar and the analytics bar; they slide up and dismiss themselves after
+  four seconds and never take taps.
+- With reduced motion (the device's or the member's "Reduce motion"
+  choice) all of these appear and go at once.
+
 ## Service worker (`apps/web/public/sw.js`)
 
 - **Versioned by release.** `next.config.ts` makes one id per build (the

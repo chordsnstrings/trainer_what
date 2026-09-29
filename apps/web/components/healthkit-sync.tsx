@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
 import healthMessages from "../lib/i18n/messages/health";
+import { Skeleton } from "./phone-ui";
 import { formatDate, formatDateTime, formatNumber, formatTime } from "../lib/format";
 
 // Automatic Apple Health sync through the HealthKit companion app. The
@@ -192,7 +193,7 @@ export function HealthKitSyncView({
         </p>
       )}
       {!status ? (
-        <p className="muted">{t("loading")}</p>
+        <Skeleton label={t("loading")} lines={2} />
       ) : !status.available ? (
         <p>
           <span className="badge amber">{t("notAvailable")}</span>{" "}

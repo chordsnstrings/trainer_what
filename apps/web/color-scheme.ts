@@ -54,3 +54,33 @@ export function themeColorsFor(
     { media: "(prefers-color-scheme: dark)", color: colors.dark },
   ];
 }
+
+// The member's "Reduce motion" choice (docs/features/motion.md), beside the
+// appearance in Profile and settings > Display preferences. "system" follows
+// the device's reduced-motion setting; "reduce" keeps every subscriber
+// surface still on this device. It is a device choice (like the device
+// setting it stands in for), mirrored into a cookie so the root layout puts
+// data-reduce-motion="on" on <html> before the first paint.
+export const MOTION_CHOICES = ["system", "reduce"] as const;
+export type MotionChoice = (typeof MOTION_CHOICES)[number];
+export const DEFAULT_MOTION_CHOICE: MotionChoice = "system";
+export const MEMBER_MOTION_COOKIE = "trainer_member_motion";
+
+export function parseMotionChoice(value: unknown): MotionChoice | null {
+  return typeof value === "string" &&
+    (MOTION_CHOICES as readonly string[]).includes(value)
+    ? (value as MotionChoice)
+    : null;
+}
+/** A `Set-Cookie` value for the motion choice (client or server). */
+export function motionCookie(choice: MotionChoice, secure: boolean) {
+  return `${MEMBER_MOTION_COOKIE}=${choice}; Path=/; Max-Age=${COLOR_SCHEME_COOKIE_MAX_AGE}; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+/** Reads the motion choice from a `Cookie` header or `document.cookie`. */
+export function motionFromCookieHeader(header: string | null | undefined) {
+  for (const part of (header ?? "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === MEMBER_MOTION_COOKIE) return parseMotionChoice(rest.join("="));
+  }
+  return null;
+}

@@ -269,3 +269,7 @@
 .display-preferences .notice {
   margin-block: 12px 0;
 }
+/* Motion sits under Appearance in the same card (docs/features/motion.md). */
+.member-shell fieldset.motion-choice {
+  margin-block-start: 20px;
+}

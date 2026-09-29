@@ -1,10 +1,17 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { Field } from "./field";
 import { leaveSession } from "./offline-queue";
 import { AuthPage } from "./auth-page";
-import { StickyActionBar } from "./phone-ui";
+import { DrawnCheck, StickyActionBar } from "./phone-ui";
+import { EASE, MOTION, inlineSign, playMotion } from "./motion";
 import { SocialSignIn } from "./social-sign-in";
 import {
   JoiningClosedNote,
@@ -189,6 +196,9 @@ export function AccountJoinForm({
     [busy, setBusy] = useState(false);
   const t = useT("join"),
     locale = useLocale();
+  // Switching between "I'm new here" and "I already have an account" slides
+  // the fields in from the side of the choice (docs/features/motion.md "l").
+  const fields = useRef<HTMLDivElement>(null);
   const plan = legalPlan(legal);
   const open = gateOpen && plan.open;
   const accepted = acceptanceGiven(plan, agreed);
@@ -235,8 +245,21 @@ export function AccountJoinForm({
             setMode(next);
             setNeedCode(false);
             setError("");
+            const toward = next === "existing" ? 1 : -1;
+            playMotion(
+              fields.current,
+              [
+                {
+                  opacity: 0,
+                  transform: `translateX(${16 * toward * inlineSign(fields.current)}px)`,
+                },
+                { opacity: 1, transform: "none" },
+              ],
+              { duration: MOTION.base, easing: EASE.out },
+            );
           }}
         />
+        <div className="join-fields" ref={fields}>
         <p className="muted join-form-note">
           {mode === "new" ? newNote : t("existingNote")}
         </p>
@@ -306,6 +329,7 @@ export function AccountJoinForm({
             </Field>
           </>
         )}
+        </div>
         {open ? (
           <LegalAcceptance plan={plan} checked={agreed} onChange={setAgreed} />
         ) : (
@@ -966,6 +990,7 @@ export function CoachSwitcher({
     >
       {joined && (
         <p className="notice success" role="status">
+          <DrawnCheck draw emphasis />
           {t("joinedCoach", { name: here?.name ?? t("yourNewCoach") })}{" "}
           {coaches.length > 1 ? t("othersStillHere") : ""}
         </p>

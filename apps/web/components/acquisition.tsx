@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { Rich, useLocale, useT } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
 import consentMessages from "../lib/i18n/messages/consent";
+import { MOTION, prefersReducedMotion } from "./motion";
 
 type Permission = {
   granted: boolean;
@@ -291,6 +292,7 @@ export function ConsentBar({
   error = "",
   onChoose,
   locale = "en",
+  leaving = false,
 }: {
   audience: keyof typeof CONSENT_BAR_TEXT;
   busy?: boolean;
@@ -298,6 +300,12 @@ export function ConsentBar({
   onChoose: (answer: AnalyticsAnswer) => void;
   /** The marketing site (trainers) is always English. */
   locale?: Locale;
+  /**
+   * Answered: the bar slides away (subscriber pages, app/motion.css) and is
+   * then removed. It takes no taps and is hidden from assistive technology
+   * while it goes.
+   */
+  leaving?: boolean;
 }) {
   const t = translator(consentMessages, audience === "trainers" ? "en" : locale);
   const bar = useRef<HTMLElement>(null);
@@ -329,8 +337,11 @@ export function ConsentBar({
       />
       <aside
         ref={bar}
-        className="acquisition-consent consent-bar"
+        className={"acquisition-consent consent-bar" + (leaving ? " is-leaving" : "")}
+        data-audience={audience}
         aria-label={t("optionalAnalytics")}
+        aria-hidden={leaving || undefined}
+        inert={leaving || undefined}
       >
         <div className="consent-bar-inner">
           <div className="consent-bar-copy">
@@ -562,8 +573,33 @@ export function AcquisitionConsent({
   const locale = marketing ? "en" : pageLocale;
   const { permission, choice, busy, error, choose } = useAnalyticsConsent();
   const [scrolled, setScrolled] = useState(false),
-    [sheetOpen, setSheetOpen] = useState(false);
+    [sheetOpen, setSheetOpen] = useState(false),
+    [leaving, setLeaving] = useState(false);
   const asking = asksForAnalytics(permission, choice);
+  const bar = showsConsentBar({
+    permission,
+    choice,
+    marketing,
+    scrolled,
+    sheetOpen,
+  });
+  // After an answer on a subscriber page the bar slides away and is then
+  // removed from the page (docs/features/motion.md "j"); on the marketing
+  // site, and with reduced motion, it goes at once.
+  // Decided while rendering, so the bar never leaves the page for a frame
+  // before it slides away.
+  const [barShown, setBarShown] = useState(false);
+  if (bar && !barShown) setBarShown(true);
+  if (bar && leaving) setLeaving(false);
+  if (!bar && barShown) {
+    setBarShown(false);
+    if (!marketing && !prefersReducedMotion()) setLeaving(true);
+  }
+  useEffect(() => {
+    if (!leaving) return;
+    const gone = window.setTimeout(() => setLeaving(false), MOTION.base + 40);
+    return () => window.clearTimeout(gone);
+  }, [leaving]);
   // The deferred prompt on a marketing page waits for the first scroll.
   useEffect(() => {
     if (!asking || !marketing || scrolled) return;
@@ -597,23 +633,17 @@ export function AcquisitionConsent({
       : path === "/trainer/onboarding"
         ? "onboarding-welcome"
         : null;
-  const bar = showsConsentBar({
-    permission,
-    choice,
-    marketing,
-    scrolled,
-    sheetOpen,
-  });
   return (
     <>
       {permission.granted && slot && <ExperimentCopy key={slot} slot={slot} />}
-      {bar && (
+      {(bar || leaving) && (
         <ConsentBar
           audience={marketing ? "trainers" : "people"}
           busy={busy}
           error={error}
           onChoose={(answer) => void choose(answer)}
           locale={locale}
+          leaving={!bar && leaving}
         />
       )}
       {sheetOpen && (

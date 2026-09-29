@@ -270,14 +270,4 @@
     padding-inline: 48px;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .consent-sheet[open] {
-    animation: consent-sheet-in var(--ty-duration-ui) ease-out;
-  }
-  @keyframes consent-sheet-in {
-    from {
-      opacity: 0;
-      transform: translateY(16px);
-    }
-  }
-}
+/* The sheet's and the bar's movement is in app/motion.css. */

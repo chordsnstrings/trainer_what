@@ -217,49 +217,14 @@ from the next field, and unclassed buttons styled as secondary buttons
 
 ## Motion (microanimations)
 
-Owner direction (29 September 2026): "polish and incorporate
-microanimations that allow the user to feel interactive ... not too heavy -
-simple microanimations that actually make it feel more interactive."
-
-Rules: small and quick; only `transform` and `opacity` move (colours
-cross-fade, the refresh segment moves by background position), so nothing
-reflows; presses answer in 90 ms and spring back; arrivals take 240-280 ms
-and ease out; leaving takes 180 ms; nothing loops except progress; nothing
-delays input or focus. Every animation and transform transition sits inside
-`@media (prefers-reduced-motion: no-preference)` and every scripted one goes
-through `playMotion`, which does nothing with reduced motion: then the app
-is the same, only still (a sheet closes at once). Directional movement
-multiplies by `--inline-sign`, so it mirrors right to left. The trainer
-workspace and the marketing site are not animated by this.
-
-Tokens (`phone-first.css` `:root`, mirrored by `MOTION` and `EASE` in
-`components/motion.ts`): `--motion-press` 90 ms, `--motion-fast` 140 ms,
-`--motion-enter` 240 ms, `--motion-slide` 280 ms, `--motion-exit` 180 ms,
-`--ease-out`, `--ease-in`, `--ease-spring` (a small overshoot for
-confirmations).
-
-| Where | What moves |
-| ----- | ---------- |
-| Buttons (member app, sign-in and joining pages, coach website, sheets) | Dip to 97 % on press and spring back; steppers' plus and minus dip further. Touch screens never keep the hover lift after a tap. |
-| Bottom tab bar | The pill grows in behind the icon of the tab you move to and the icon pops once; a press dips the icon; colours cross-fade. Only when the tab changed (`shellChanges`): moving within a tab replays nothing. |
-| Unread badge | Pops in when the count goes up, not on every page. |
-| Top bar | The new page's title slides in from the reading direction's end; the back button fades in when it first appears; the refresh segment travels. |
-| Page content | Each new page settles in block by block (`playArrival`: fade and an 8 px rise, 28 ms apart, the first five staggered). The frame stays still. |
-| More | Rows tint on press, the icon tile dips, the chevron nudges toward where the row leads. |
-| Side navigation (1024 px and up) | Hover and current colours cross-fade; the new current item's icon pops. |
-| `StickyActionBar` | Slides up from behind the tab bar when it appears. |
-| `BottomSheet` | Slides up over a fading dim (a centred dialog rises and scales in from 768 px); slides away faster before it closes (`data-closing`), then returns focus. A grab handle marks it as a sheet (closing stays the button, Escape or the dim, never a swipe). |
-| `NumberStepper` | The number ticks the way it changed: up for more, down for less. |
-| `FileInput` | The chosen file names fade in. |
-| `ScrollTabs` | The underline grows from the tab's centre; the new panel settles in; the row scrolls the tab into view smoothly. |
-| Workout | A set you just logged glows once and its check pops; the next set to log scrolls into view (clear of the top and sticky bars); a rest timer fades in. |
-| Notices, disclosures, check boxes | Notices drop in; a `details` body unfolds; a box you tick pops (boxes already ticked when a page opens stay still). |
-
-For other tracks: use the tokens in new CSS and put movement inside the
-no-preference query; play scripted motion with `playMotion` (never
-`element.animate` directly); mark any fixed element you render inside page
+Moved to **docs/features/motion.md** (the plan, tokens, catalogue, budget
+and checks). The shell and the shared controls keep their microanimations
+there; all movement lives in `app/motion.css` and `components/motion.ts`.
+For other tracks: put movement in `app/motion.css` inside the
+no-preference query with the `--motion-*`/`--ease-*` tokens, play scripted
+motion with `playMotion`, and mark fixed elements rendered inside page
 content with `data-fixed-ui` (or use `StickyActionBar`), so `playArrival`
-never moves it with its parent.
+never moves them with their parent.
 
 ## Public, joining and sign-in pages
 
@@ -268,8 +233,8 @@ and around the member app. Styles are in `app/subscriber-public.css`
 (sign-in, joining, legal, paused coaching, footer), `app/coach-site.css`
 (a coach's website) and `app/coach-directory.css`, all mobile first with
 `min-width` queries only (the website editor keeps one older
-`max-width` rule of its own). No new motion was added; buttons, the sticky
-bar and sheets keep the shared microanimations.
+`max-width` rule of its own). Their motion (the website hero, membership
+cards, the joining fields, the success check) is in docs/features/motion.md.
 
 - **Frame** (`components/public-pages.tsx`, moved out of `workspace.tsx`):
   sign-in, recovery, email-link, joining and legal pages render in
@@ -407,12 +372,8 @@ bar and sheets keep the shared microanimations.
   website (one action, no repeated intro, empty states), legal pages,
   leaving (bottom sheet, one-time confirmation) and the mobile-first
   stylesheets.
-- `tests/member-motion.test.ts`: the motion tokens match between CSS and
-  `motion.ts`; durations stay short; outside the no-preference query the
-  stylesheet has no animation or transition at all; every animation names
-  keyframes that exist and keyframes move only transform and opacity; the
-  arrival skips and enters fixed UI; `shellChanges`; nothing plays without
-  a browser or with reduced motion; the sheet's close sequence.
+- `tests/member-motion.test.ts` and `tests/motion-css.test.ts`: see
+  docs/features/motion.md, "Checks".
 - `npm run test:phone` also opens the app with reduced motion and fails if
   a tab tap or opening a sheet starts any animation, or if Escape does not
   close the sheet at once. It waits for finite animations to finish before

@@ -13,16 +13,21 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { CirclePause, Monitor, Moon, Sun } from "lucide-react";
 import { brandDarkPalette, resolveBrandDesign } from "@trainer/contracts";
 import {
   DEFAULT_COLOR_SCHEME,
+  DEFAULT_MOTION_CHOICE,
   colorSchemeCookie,
   colorSchemeFromCookieHeader,
+  motionCookie,
+  motionFromCookieHeader,
   parseColorScheme,
   themeColorsFor,
   type ColorSchemeChoice,
+  type MotionChoice,
 } from "../color-scheme";
+import { REDUCE_MOTION_ATTRIBUTE, withViewTransition } from "./motion";
 
 let current: ColorSchemeChoice | null = null;
 const listeners = new Set<() => void>();
@@ -50,6 +55,40 @@ export function useColorScheme(
   serverValue: ColorSchemeChoice = DEFAULT_COLOR_SCHEME,
 ) {
   return useSyncExternalStore(subscribe, read, () => serverValue);
+}
+
+/**
+ * The member's "Reduce motion" choice on this device (docs/features/motion.md).
+ * "reduce" sets data-reduce-motion="on" on <html>, which app/motion.css and
+ * prefersReducedMotion() treat like the device setting.
+ */
+let motionChoice: MotionChoice | null = null;
+const motionListeners = new Set<() => void>();
+function readMotion(): MotionChoice {
+  motionChoice ??=
+    motionFromCookieHeader(document.cookie) ?? DEFAULT_MOTION_CHOICE;
+  return motionChoice;
+}
+function subscribeMotion(listener: () => void) {
+  motionListeners.add(listener);
+  return () => motionListeners.delete(listener);
+}
+/** Applies the motion choice to the page at once and mirrors it on this device. */
+export function rememberMotionChoice(choice: MotionChoice) {
+  document.cookie = motionCookie(choice, location.protocol === "https:");
+  const root = document.documentElement;
+  if (choice === "reduce") root.setAttribute(REDUCE_MOTION_ATTRIBUTE, "on");
+  else root.removeAttribute(REDUCE_MOTION_ATTRIBUTE);
+  if (choice === motionChoice) return;
+  motionChoice = choice;
+  for (const listener of motionListeners) listener();
+}
+export function useMotionChoice() {
+  return useSyncExternalStore(
+    subscribeMotion,
+    readMotion,
+    () => DEFAULT_MOTION_CHOICE,
+  );
 }
 
 type Preferences = { data: Record<string, unknown>; version: number };
@@ -205,11 +244,18 @@ export function DisplayPreferences() {
     [status, setStatus] = useState<{
       text: string;
       tone: "success" | "error";
-    } | null>(null);
+    } | null>(null),
+    // The radio answers the tap at once; the colours follow a frame later
+    // inside the crossfade.
+    [picked, setPicked] = useState<ColorSchemeChoice | null>(null);
+  useEffect(() => setPicked(null), [choice]);
   async function choose(next: ColorSchemeChoice) {
     if (next === choice || busy) return;
+    setPicked(next);
     const previous = choice;
-    rememberColorScheme(next);
+    // Colours crossfade over --motion-base, only for this change the member
+    // made (app/motion.css "Theme"); instant with reduced motion.
+    withViewTransition("theme", () => rememberColorScheme(next));
     setBusy(true);
     setStatus(null);
     try {
@@ -226,6 +272,7 @@ export function DisplayPreferences() {
       );
       setStatus({ text: t("displaySaved"), tone: "success" });
     } catch {
+      setPicked(null);
       rememberColorScheme(previous);
       setStatus({ text: t("displayFailed"), tone: "error" });
     } finally {
@@ -244,7 +291,7 @@ export function DisplayPreferences() {
               type="radio"
               name="appearance"
               value={option.value}
-              checked={choice === option.value}
+              checked={(picked ?? choice) === option.value}
               onChange={() => void choose(option.value)}
             />
             <span className="appearance-option-icon">{option.icon}</span>
@@ -263,6 +310,68 @@ export function DisplayPreferences() {
           {status.text}
         </p>
       )}
+      <MotionPreference />
     </section>
+  );
+}
+
+const MOTION_OPTIONS: Array<{
+  value: MotionChoice;
+  label: "motionSystem" | "motionReduce";
+  detail: "motionSystemDetail" | "motionReduceDetail";
+  icon: ReactNode;
+}> = [
+  {
+    value: "system",
+    label: "motionSystem",
+    detail: "motionSystemDetail",
+    icon: <Monitor size={20} aria-hidden="true" />,
+  },
+  {
+    value: "reduce",
+    label: "motionReduce",
+    detail: "motionReduceDetail",
+    icon: <CirclePause size={20} aria-hidden="true" />,
+  },
+];
+
+/**
+ * Display preferences > Motion: follow the device, or keep every screen
+ * still on this device. Applies at once; saved on this device.
+ */
+export function MotionPreference() {
+  const choice = useMotionChoice();
+  const t = useT("prefs");
+  const [saved, setSaved] = useState(false);
+  return (
+    <>
+      <fieldset className="appearance-choice motion-choice">
+        <legend>{t("motion")}</legend>
+        {MOTION_OPTIONS.map((option) => (
+          <label className="appearance-option" key={option.value}>
+            <input
+              type="radio"
+              name="motion"
+              value={option.value}
+              checked={choice === option.value}
+              onChange={() => {
+                rememberMotionChoice(option.value);
+                setSaved(true);
+              }}
+            />
+            <span className="appearance-option-icon">{option.icon}</span>
+            <span className="appearance-option-text">
+              <strong>{t(option.label)}</strong>
+              <small>{t(option.detail)}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      {saved && (
+        <p className="notice success" role="status">
+          {t("motionSaved")}
+        </p>
+      )}
+    </>
   );
 }

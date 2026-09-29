@@ -1,6 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
 import { useT } from "../lib/i18n/react";
+import { useInvalidShake } from "./motion";
 
 /**
  * The phone-first frame of the sign-in, recovery, email-link and joining
@@ -22,6 +23,8 @@ export function AuthPage({
   /** A joining form with a little more room from 768 px. */
   wide?: boolean;
 }) {
+  // The first invalid field after a submit shakes (docs/features/motion.md).
+  useInvalidShake();
   return (
     <main className={`auth-page${wide ? " is-wide" : ""}`} id="main">
       <header className="auth-page-heading">

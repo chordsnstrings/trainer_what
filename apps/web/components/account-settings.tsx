@@ -7,6 +7,7 @@ import {
   type AccountError,
 } from "./account-request";
 import { LeaveTrainer } from "./membership-exit";
+import { Skeleton } from "./phone-ui";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { formatDateTime } from "../lib/format";
 
@@ -186,7 +187,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
     return (
       <section className="card" aria-busy="true">
         <h2>{t("accountSettings")}</h2>
-        <p className="muted">{t("loadingAccount")}</p>
+        <Skeleton label={t("loadingAccount")} lines={3} />
       </section>
     );
   const methods = account.providers.filter((p) => p.enabled || p.linked);

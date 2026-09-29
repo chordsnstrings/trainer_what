@@ -589,7 +589,8 @@ test("the root layout renders <html lang dir> from the resolved document languag
   );
   assert.match(layout, /const \{ lang, dir \} = await documentLanguage\(\);/);
   // The brand typeface adds its CSS variable class (next/font).
-  assert.match(layout, /<html\s+lang=\{lang\}\s+dir=\{dir\}(\s+className=\{[^}]+\})?(\s+suppressHydrationWarning)?\s*>/);
+  // (The member's "Reduce motion" choice may add data-reduce-motion.)
+  assert.match(layout, /<html\s+lang=\{lang\}\s+dir=\{dir\}(\s+className=\{[^}]+\})?(\s+data-reduce-motion=\{[^}]+\})?(\s+suppressHydrationWarning)?\s*>/);
   const server = await readFile(
     new URL("../apps/web/components/public-website.ts", import.meta.url),
     "utf8",
@@ -627,7 +628,7 @@ test("the Arabic member shell: translated tabs in the same order, mirrored by di
     [
       ...html
         .slice(html.indexOf('class="member-tabbar"'))
-        .matchAll(/<a class="member-tab[^"]*"[^>]*href="([^"]+)"/g),
+        .matchAll(/<a [^>]*class="member-tab[^"]*"[^>]*href="([^"]+)"/g),
     ].map((m) => m[1]);
   const arabic = shell("ar"),
     english = shell("en");

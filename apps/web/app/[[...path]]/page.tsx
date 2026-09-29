@@ -2,6 +2,7 @@ import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { cache } from "react";
+import { MemberPageTransition } from "../../components/member-shell";
 import type { Metadata, Viewport } from "next";
 import {
   documentLanguage,
@@ -338,6 +339,22 @@ export default async function Page({
   }
   const platform = await publicPlatform();
   const { coachSlug } = await requestOrigin();
+  // Member pages move between each other with a View Transition
+  // (docs/features/motion.md "c"); the boundary sits around the workspace.
+  if (path[0] === "app")
+    return (
+      <MemberPageTransition>
+        <Workspace
+          platform={{
+            name: platform.name,
+            initials: platform.initials,
+            registrationOpen: platform.registrationOpen,
+          }}
+          coachSlug={coachSlug}
+          colorScheme={await memberColorScheme()}
+        />
+      </MemberPageTransition>
+    );
   return (
     <Workspace
       platform={{

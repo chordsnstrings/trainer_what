@@ -150,6 +150,14 @@ async function pageEnd(page) {
 /** The first prompt, before an answer: slim, reachable and covering nothing. */
 async function assertConsentBar(page, label) {
   await page.locator(".consent-bar").waitFor();
+  // On subscriber pages the bar slides up (app/motion.css): measure it once
+  // it has arrived.
+  await page
+    .locator(".consent-bar")
+    .evaluate((el) =>
+      Promise.all(el.getAnimations().map((animation) => animation.finished)),
+    )
+    .catch(() => {});
   const layout = await consentLayout(page);
   const { bar, viewport } = layout;
   assert.ok(bar, `${label}: the analytics bar must show before an answer`);

@@ -15,26 +15,35 @@
  * - ResponsiveTable: stacked cards on phones, a contained scroll with a
  *   visible cue from 768 px, in either reading direction.
  * - ScrollTabs: tabs that scroll sideways on phones instead of wrapping.
+ * - Toast, Skeleton, DrawnCheck, ProgressRing, CountUp, Meter: small pieces
+ *   whose movement follows docs/features/motion.md.
  */
 import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Minus, Paperclip, Plus, X } from "lucide-react";
+import { Check, Minus, Paperclip, Plus, X } from "lucide-react";
 import { useT } from "../lib/i18n/react";
 import {
   EASE,
   MOTION,
+  countUp,
   playArrival,
   playMotion,
   prefersReducedMotion,
+  ringKeyframes,
+  rollOutKeyframes,
   tickKeyframes,
+  useMeterMotion,
   useMotionOnChange,
+  whenFirstInView,
 } from "./motion";
 
 /* ------------------------------------------------------------------ */
@@ -245,7 +254,7 @@ export function BottomSheet({
       if (prefersReducedMotion()) return finish();
       // Slide away first (phone-first.css), then close and return focus.
       el.dataset.closing = "";
-      closing.current = window.setTimeout(finish, MOTION.exit + 40);
+      closing.current = window.setTimeout(finish, MOTION.base + 40);
     }
   }, [open]);
   useEffect(() => {
@@ -357,7 +366,7 @@ export function FileInput({
       { opacity: 0, transform: "translateY(-4px)" },
       { opacity: 1, transform: "none" },
     ],
-    { duration: MOTION.enter, easing: EASE.out },
+    { duration: MOTION.base, easing: EASE.out },
   );
   return (
     <div className={"file-input" + (disabled ? " is-disabled" : "")}>
@@ -483,18 +492,31 @@ export function NumberStepper({
   );
   const labelId = useId(),
     inputId = useId(),
-    input = useRef<HTMLInputElement>(null);
+    input = useRef<HTMLInputElement>(null),
+    ghost = useRef<HTMLSpanElement>(null);
   const value = parseStepperValue(text);
   const limits = { min, max: max ?? Infinity, step };
   const set = (next: number | null) => {
     setText(next == null ? "" : String(next));
     onValueChange?.(next);
   };
-  // A press moves the number the way it changed: up for more, down for less.
+  // A press rolls the number the way it changed: the old value leaves (up
+  // for more, down for less) as the new one comes in from the other side.
   const press = (direction: 1 | -1) => {
     const next = stepValue(value, direction, limits);
     if (next === value) return;
+    const old = text;
     set(next);
+    if (prefersReducedMotion()) return;
+    const leaving = ghost.current;
+    if (leaving && old) {
+      leaving.textContent = old;
+      playMotion(leaving, rollOutKeyframes(direction), {
+        duration: MOTION.fast,
+        easing: EASE.in,
+        fill: "forwards",
+      });
+    }
     playMotion(input.current, tickKeyframes(direction), {
       duration: MOTION.fast,
       easing: EASE.out,
@@ -516,28 +538,32 @@ export function NumberStepper({
           <Minus size={20} aria-hidden="true" />
         </button>
         <span className="stepper-field">
-          <input
-            ref={input}
-            id={inputId}
-            className="stepper-input"
-            name={name}
-            type="text"
-            inputMode={decimal ? "decimal" : "numeric"}
-            autoComplete="off"
-            enterKeyHint={enterKeyHint}
-            aria-label={inputLabel}
-            value={text}
-            disabled={disabled}
-            onChange={(event) => {
-              setText(event.target.value);
-              onValueChange?.(parseStepperValue(event.target.value));
-            }}
-            onBlur={() => {
-              // Normalise "12,5" to "12.5" so the form reads a number.
-              if (value != null && String(value) !== text)
-                setText(String(value));
-            }}
-          />
+          <span className="stepper-value">
+            {/* The old value rolling away after a press (motion only). */}
+            <span className="stepper-ghost" aria-hidden="true" ref={ghost} />
+            <input
+              ref={input}
+              id={inputId}
+              className="stepper-input"
+              name={name}
+              type="text"
+              inputMode={decimal ? "decimal" : "numeric"}
+              autoComplete="off"
+              enterKeyHint={enterKeyHint}
+              aria-label={inputLabel}
+              value={text}
+              disabled={disabled}
+              onChange={(event) => {
+                setText(event.target.value);
+                onValueChange?.(parseStepperValue(event.target.value));
+              }}
+              onBlur={() => {
+                // Normalise "12,5" to "12.5" so the form reads a number.
+                if (value != null && String(value) !== text)
+                  setText(String(value));
+              }}
+            />
+          </span>
           {unit && (
             <span className="stepper-unit" aria-hidden="true">
               {unit}
@@ -795,6 +821,281 @@ export function ScrollTabs({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Toast                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A short confirmation ("Saved") above the tab bar, the action bar and the
+ * analytics bar. It slides up and fades in, stays for `duration`, then
+ * slides away and calls onDone (docs/features/motion.md "e"). It never
+ * takes taps, so it cannot cover a control.
+ */
+export function Toast({
+  children,
+  onDone,
+  duration = 4000,
+}: {
+  children: ReactNode;
+  onDone: () => void;
+  duration?: number;
+}) {
+  const [leaving, setLeaving] = useState(false);
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => {
+    let gone = 0;
+    const leave = window.setTimeout(() => {
+      if (prefersReducedMotion()) return done.current();
+      setLeaving(true);
+      gone = window.setTimeout(() => done.current(), MOTION.fast + 40);
+    }, duration);
+    return () => {
+      window.clearTimeout(leave);
+      window.clearTimeout(gone);
+    };
+  }, [duration]);
+  return (
+    <div
+      className={"member-toast" + (leaving ? " is-leaving" : "")}
+      role="status"
+      data-fixed-ui
+    >
+      <Check size={18} aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Skeleton                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A loading placeholder in the shape of what is coming (a title and a few
+ * lines, optionally a block), with a soft shimmer that is still with
+ * reduced motion. `label` is read to screen readers ("Loading your day").
+ */
+export function Skeleton({
+  label,
+  lines = 3,
+  block = false,
+  className,
+}: {
+  label: string;
+  lines?: number;
+  block?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={"skeleton" + (className ? " " + className : "")}
+      role="status"
+      aria-busy="true"
+    >
+      <span className="sr-only">{label}</span>
+      <span className="skeleton-line is-title" aria-hidden="true" />
+      {Array.from({ length: Math.max(0, lines - 1) }, (_, index) => (
+        <span
+          key={index}
+          className={
+            "skeleton-line" + (index === lines - 2 ? " is-short" : "")
+          }
+          aria-hidden="true"
+        />
+      ))}
+      {block && <span className="skeleton-line is-block" aria-hidden="true" />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* DrawnCheck and ProgressRing                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A check mark drawn as an SVG stroke. `draw` draws it once when it mounts
+ * (a logged set, a finished workout, joining a coach); `emphasis` takes the
+ * longer celebration timing. Decorative: say what happened in text.
+ */
+export function DrawnCheck({
+  draw = false,
+  emphasis = false,
+  className,
+}: {
+  draw?: boolean;
+  emphasis?: boolean;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={
+        "drawn-check" +
+        (draw ? " is-drawing" : "") +
+        (emphasis ? " is-emphasis" : "") +
+        (className ? " " + className : "")
+      }
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path className="drawn-check-path" d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
+    </svg>
+  );
+}
+
+/**
+ * A ring that shows a share (0-1): the rest timer counting down, a workout
+ * filling up. It starts at the top and runs in the reading direction.
+ * `from` animates the ring from that share when it first shows (the
+ * completion moment); `ticking` smooths each small change (a countdown).
+ * Decorative: the value is in the text beside it.
+ */
+export function ProgressRing({
+  value,
+  from,
+  size = 28,
+  ticking = false,
+  className,
+}: {
+  value: number;
+  from?: number;
+  size?: number;
+  ticking?: boolean;
+  className?: string;
+}) {
+  const arc = useRef<SVGCircleElement>(null);
+  const share = Math.max(0, Math.min(1, value));
+  useLayoutEffect(() => {
+    const el = arc.current;
+    if (!el || from === undefined || from === share) return;
+    return whenFirstInView(el, () => {
+      playMotion(el, ringKeyframes(from, share), {
+        duration: MOTION.progress,
+        easing: EASE.out,
+      });
+    });
+    // Plays once, when the ring first shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <svg
+      className={"progress-ring" + (className ? " " + className : "")}
+      width={size}
+      height={size}
+      viewBox="0 0 36 36"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g className="progress-ring-arc">
+        <circle className="progress-ring-track" cx="18" cy="18" r="15" />
+        <circle
+          ref={arc}
+          className={"progress-ring-value" + (ticking ? " is-ticking" : "")}
+          cx="18"
+          cy="18"
+          r="15"
+          pathLength={1}
+          style={{ strokeDashoffset: 1 - share } as CSSProperties}
+        />
+      </g>
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* CountUp and Meter                                                    */
+/* ------------------------------------------------------------------ */
+
+/** What each keyed number showed last in this tab. */
+const countMemory = new Map<string, number>();
+
+/**
+ * A number that counts up once, from `from` (0 by default) to `value`, the
+ * first time it is seen. With `memoryKey` it counts only the first time in
+ * this tab, and later only when the value changed (from the old value);
+ * with reduced motion it simply shows `value`. The final text is always in
+ * the page for screen readers and tests (it is written before and after
+ * the count).
+ */
+export function CountUp({
+  value,
+  from = 0,
+  format = String,
+  duration = MOTION.progress,
+  memoryKey,
+}: {
+  value: number;
+  from?: number;
+  format?: (value: number) => string;
+  duration?: number;
+  memoryKey?: string;
+}) {
+  const el = useRef<HTMLSpanElement>(null);
+  const fmt = useRef(format);
+  fmt.current = format;
+  useLayoutEffect(() => {
+    const node = el.current;
+    let start = from;
+    if (memoryKey) {
+      const last = countMemory.get(memoryKey);
+      countMemory.set(memoryKey, value);
+      if (last !== undefined) start = last;
+    }
+    if (!node || prefersReducedMotion() || start === value) return;
+    let cancel = () => {};
+    const stop = whenFirstInView(node, () => {
+      cancel = countUp(node, start, value, (v) => fmt.current(v), duration);
+    });
+    return () => {
+      stop();
+      cancel();
+    };
+    // Counts once, when first seen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <span ref={el}>{format(value)}</span>;
+}
+
+/**
+ * A progress bar whose fill grows from zero the first time it is seen and
+ * moves from the last value shown when it changes (`memoryKey`), by scaleX
+ * over a fill already drawn at its value (no layout change).
+ */
+export function Meter({
+  value,
+  max,
+  label,
+  className = "programme-meter",
+  memoryKey,
+}: {
+  value: number;
+  max: number;
+  label: string;
+  className?: string;
+  memoryKey?: string;
+}) {
+  const fill = useRef<HTMLSpanElement>(null);
+  const ratio = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  useMeterMotion(fill, ratio, memoryKey);
+  return (
+    <div
+      className={className}
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={Math.min(value, max)}
+    >
+      <span
+        ref={fill}
+        className="motion-meter-fill"
+        style={{ inlineSize: `${ratio * 100}%` }}
+      />
     </div>
   );
 }

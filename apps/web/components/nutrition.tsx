@@ -7,7 +7,8 @@ import {
   humanize,
 } from "../lib/format";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { ScrollTabs, tabPanelProps } from "./phone-ui";
+import { ScrollTabs, Skeleton, tabPanelProps } from "./phone-ui";
+import { useArrivals } from "./motion";
 import { Field } from "./field";
 import {
   useCallback,
@@ -2313,8 +2314,20 @@ export function NutritionSubscriber({
     );
     refreshQueue();
   }
+  // A meal logged while this screen is open slides into the diary.
+  const freshLogs = useArrivals(
+    (r.data?.records ?? [])
+      .filter((x: any) => x.kind === "nutrition_log")
+      .map((x: any) => x.id),
+    !!r.data,
+  );
   const d = r.data;
-  if (!d) return <Notice>{r.error || t("loading")}</Notice>;
+  if (!d)
+    return r.error ? (
+      <Notice>{r.error}</Notice>
+    ) : (
+      <Skeleton label={t("loading")} lines={4} block />
+    );
   const plan =
       d.records.find(
         (x: any) => x.kind === "nutrition_plan" && x.id === selectedPlan,
@@ -2839,7 +2852,10 @@ export function NutritionSubscriber({
                     ),
                 )
                 .map((x: any) => (
-                  <details key={x.id}>
+                  <details
+                    key={x.id}
+                    className={freshLogs.has(x.id) ? "motion-arrive" : undefined}
+                  >
                     <summary>
                       {formatDate(x.data.date, { locale, fallback: x.data.date })}{" "}
                       · <bdi>{x.data.name}</bdi> ·{" "}

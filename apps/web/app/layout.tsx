@@ -2,7 +2,10 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AcquisitionConsent } from "../components/acquisition";
 import { LAUNCH_COLOUR_SCRIPT } from "../components/pwa";
-import { documentLanguage } from "../components/public-website";
+import {
+  documentLanguage,
+  memberMotionChoice,
+} from "../components/public-website";
 import { LocaleProvider } from "../lib/i18n/react";
 import { publicPlatform } from "../components/marketing/platform";
 import {
@@ -38,6 +41,9 @@ import "./pwa.css";
 import "./appearance.css";
 import "./marketing.css";
 import "./analytics-consent.css";
+// Motion for subscriber surfaces: tokens, every animation and transition,
+// and the reduced-motion rules (docs/features/motion.md).
+import "./motion.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
@@ -134,6 +140,9 @@ export default async function Layout({
   // after sign-in; see components/document-direction.tsx and pageLanguage in
   // document-language.ts for the precedence).
   const { lang, dir } = await documentLanguage();
+  // The member's "Reduce motion" choice on this device keeps every
+  // subscriber surface still from the first paint (app/motion.css).
+  const reduceMotion = (await memberMotionChoice()) === "reduce";
   return (
     // The launch script may set the member app's first-paint colour on
     // <html> before React hydrates (docs/features/pwa.md).
@@ -141,6 +150,7 @@ export default async function Layout({
       lang={lang}
       dir={dir}
       className={fontVariables}
+      data-reduce-motion={reduceMotion ? "on" : undefined}
       suppressHydrationWarning
     >
       <head>

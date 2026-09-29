@@ -8,6 +8,7 @@ import { TrainerTheme, CoachIdentity } from "./trainer-design";
 import { resolveBrandDesign } from "@trainer/contracts";
 import { AtSign, Mail, MessageCircle, PlayCircle } from "lucide-react";
 import { StickyActionBar } from "./phone-ui";
+import { useInvalidShake } from "./motion";
 import { SubscriberFooter } from "./subscriber-footer";
 import { coachAppLinks } from "./app-routes";
 import { InquirySource } from "./lead-analytics";
@@ -909,6 +910,13 @@ function SiteCover({ src }: { src: string }) {
 }
 
 /**
+ * The website's hero rises in once per visit (app/motion.css,
+ * docs/features/motion.md "l"); moving between the website's pages and back
+ * keeps it still. Browser memory only (the server never sets it).
+ */
+let heroShown = false;
+
+/**
  * A coach's public website, phone first (docs/features/phone-first.md,
  * "Coach website"): a compact header with the coach's identity and a
  * sideways-scrolling page row, one column of content with 16 px gutters,
@@ -935,6 +943,12 @@ export function CoachWebsite({
   colorScheme?: ColorSchemeChoice;
 }) {
   const scheme = useColorScheme(colorScheme);
+  // The Design Studio preview (a trainer screen) stays still.
+  const [heroSeen] = useState(() => heroShown || preview);
+  useInvalidShake();
+  useEffect(() => {
+    heroShown = true;
+  }, []);
   const [data, setData] = useState<any>(initialData ?? null),
     [message, setMessage] = useState(""),
     [sent, setSent] = useState(false),
@@ -1091,7 +1105,10 @@ export function CoachWebsite({
       <main id="main">
         {!section && (
           <>
-            <section className="site-hero">
+            <section
+              className="site-hero"
+              data-seen={heroSeen ? "" : undefined}
+            >
               <SiteCover src={design.coverUrl} />
               <p className="eyebrow">
                 {tenant.theme?.category || t("personalCoaching")}

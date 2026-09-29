@@ -67,7 +67,15 @@ identifier). After it:
   analytics" in one equal style (or "Withdraw analytics consent"), and a
   48 px Close. Escape, Close and a tap on the backdrop close it; closing it
   before any answer counts as Close. Its opening motion respects
-  `prefers-reduced-motion`.
+  `prefers-reduced-motion` and the member's "Reduce motion" choice
+  (`app/motion.css`, docs/features/motion.md).
+- Motion of the bar (subscriber pages only; the marketing site's bar is
+  unchanged): it slides up when it first shows; after any answer it slides
+  away (200 ms, taking no taps and hidden from assistive technology while it
+  goes) and is then removed from the page, so nothing about analytics stays
+  behind. With reduced motion it goes at once. The consent check and the
+  motion check (`npm run test:motion`) both assert the bar is gone from the
+  page after an answer.
 - Profile > Privacy in the member app (`/app/profile#privacy`, the card
   "Privacy and your data"): "Optional site analytics" shows "On for this
   browser." or "Off for this browser." and one button, "Turn on analytics"

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
 import { PREFERENCES_SAVED_EVENT } from "./appearance";
+import { Skeleton } from "./phone-ui";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { formatDateTime, timeZoneChoices } from "../lib/format";
 
@@ -256,7 +257,11 @@ export function NotificationInbox() {
           {error}
         </p>
       )}
-      {loading && <p role="status">{t("loadingNotifications")}</p>}
+      {loading && (
+        <section className="card">
+          <Skeleton label={t("loadingNotifications")} lines={3} />
+        </section>
+      )}
       {!loading && !error && !rows.length && (
         <section className="card">
           <p>{t("caughtUp")}</p>

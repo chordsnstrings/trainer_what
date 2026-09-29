@@ -11,11 +11,14 @@
  */
 import Link from "next/link";
 import {
+  ViewTransition,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentType,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   Bell,
@@ -25,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Cloud,
   CloudOff,
   CreditCard,
   Dumbbell,
@@ -44,7 +48,16 @@ import {
 import { CoachIdentity } from "./trainer-design";
 import { CoachSwitcher } from "./joining";
 import { useKeyboardInset } from "./phone-ui";
-import { playArrival } from "./motion";
+import {
+  EASE,
+  MOTION,
+  firstView,
+  playArrival,
+  playMotion,
+  prefersReducedMotion,
+  supportsViewTransitions,
+  useInvalidShake,
+} from "./motion";
 import { setAppBadge } from "./pwa";
 import { InstallAppRow } from "./pwa-ui";
 import { useLocale, useT } from "../lib/i18n/react";
@@ -56,6 +69,7 @@ import {
   memberPageTitle,
   memberTabs,
   moreGroups,
+  navDirection,
   sideNavigation,
   unreadCoachMessages,
   type MemberIcon,
@@ -96,10 +110,16 @@ export const MEMBER_ICONS: Record<MemberIcon, IconType> = {
  * tab you moved to, a higher unread count, a back button that was not there.
  * Browser memory only (written in an effect).
  */
-const shownBefore = { tab: "", destination: "", unread: 0, back: false };
+const shownBefore = {
+  tab: "",
+  destination: "",
+  unread: 0,
+  back: false,
+  path: "",
+};
 /** What changed since the previous page, for the shell's microanimations. */
 export function shellChanges(
-  before: typeof shownBefore,
+  before: Omit<typeof shownBefore, "path">,
   now: { tab: string; destination: string | null; unread: number; back: boolean },
 ) {
   return {
@@ -108,6 +128,80 @@ export function shellChanges(
     unread: now.unread > before.unread,
     back: now.back && !before.back,
   };
+}
+
+/** One key per screen (ids folded), for entry animations on first view only. */
+export function screenKey(path: string) {
+  return path
+    .split(/[?#]/)[0]
+    .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "/:id")
+    .replace(/\/+$/, "");
+}
+
+/**
+ * The current tab's pill slides across from the tab you left: measured, so
+ * it travels the real distance in either reading direction, and played on
+ * the pill (a transform only). The new icon pops once (motion.css).
+ */
+function useTabIndicator(
+  bar: RefObject<HTMLElement | null>,
+  from: string,
+  to: string,
+) {
+  useLayoutEffect(() => {
+    if (!from || from === to || prefersReducedMotion()) return;
+    const root = bar.current;
+    if (!root || getComputedStyle(root).display === "none") return;
+    const icon = (id: string) =>
+      root.querySelector<HTMLElement>(`[data-tab="${id}"] .member-tab-icon`);
+    const before = icon(from),
+      after = icon(to);
+    if (!before || !after) return;
+    const dx =
+      before.getBoundingClientRect().left - after.getBoundingClientRect().left;
+    if (!dx) return;
+    playMotion(
+      after,
+      [{ transform: `translateX(${dx}px)` }, { transform: "none" }],
+      {
+        duration: MOTION.base,
+        easing: EASE.inOut,
+        pseudoElement: "::before",
+      },
+    );
+  }, [bar, from, to]);
+}
+
+/**
+ * The offline pill in the top bar, and "Back online" for a moment after the
+ * connection returns (it then fades out and is removed).
+ */
+function useConnectionPill(offline: boolean) {
+  const [backOnline, setBackOnline] = useState<"" | "shown" | "leaving">("");
+  const was = useRef(offline);
+  useEffect(() => {
+    const before = was.current;
+    was.current = offline;
+    if (offline) {
+      setBackOnline("");
+      return;
+    }
+    if (!before) return;
+    setBackOnline("shown");
+    const leave = window.setTimeout(
+      () => setBackOnline(prefersReducedMotion() ? "" : "leaving"),
+      2400,
+    );
+    const gone = window.setTimeout(
+      () => setBackOnline(""),
+      2400 + MOTION.base + 40,
+    );
+    return () => {
+      window.clearTimeout(leave);
+      window.clearTimeout(gone);
+    };
+  }, [offline]);
+  return backOnline;
 }
 
 function initialOf(name: string) {
@@ -195,6 +289,8 @@ export type MemberShellProps = {
   refreshing?: boolean;
   /** No connection: a small indicator in the top bar. */
   offline?: boolean;
+  /** A short confirmation ("Saved") shown above the bottom bars. */
+  toast?: ReactNode;
   onSignOut: () => void;
   children: ReactNode;
 };
@@ -210,22 +306,20 @@ export function MemberShell({
   footerNote,
   refreshing = false,
   offline = false,
+  toast,
   onSignOut,
   children,
 }: MemberShellProps) {
   useKeyboardInset();
   useExternalLinksOutsideApp();
+  useInvalidShake();
   const locale = useLocale(),
     t = useT("shell"),
     common = useT("common"),
     navText = useT("nav");
   nav = { ...nav, locale };
-  // A new page settles in (a short fade and rise, block by block); the frame
-  // around it stays still. Skipped with reduced motion (motion.ts).
-  const main = useRef<HTMLElement>(null);
-  useEffect(() => {
-    playArrival(main.current);
-  }, [path]);
+  const page = useRef<HTMLDivElement>(null),
+    tabbar = useRef<HTMLElement>(null);
   const unread = useUnreadChat(path, messages, user.tenantId, user.userId);
   // The installed app's icon shows unread coach messages, where supported.
   useEffect(() => setAppBadge(unread), [unread]);
@@ -242,11 +336,36 @@ export function MemberShell({
     unread,
     back: !!back,
   });
+  // Screen transitions (docs/features/motion.md "c"): each member page sits
+  // in a React <ViewTransition> (MemberPageTransition, placed by the page
+  // route around the workspace); a move between pages crossfades (another
+  // tab) or slides 16 px from the inline end (a sub-page; back reverses).
+  // The direction goes on <html data-vt> here, during the commit, before
+  // the browser styles the transition. The frame stays still (motion.css).
+  const direction = navDirection(before.path, path, nav);
+  useLayoutEffect(() => {
+    document.documentElement.dataset.vt = "nav-" + direction;
+  }, [direction, path]);
+  // A screen's first view in this tab: its blocks settle in, 30 ms apart.
+  // Without View Transitions, any other new page fades in instead.
+  useEffect(() => {
+    const el = page.current;
+    if (!el) return;
+    if (firstView("screen:" + screenKey(path))) playArrival(el);
+    else if (direction !== "none" && !supportsViewTransitions())
+      playMotion(el, [{ opacity: 0 }, { opacity: 1 }], {
+        duration: MOTION.fast,
+        easing: EASE.out,
+      });
+  }, [path, direction]);
+  useTabIndicator(tabbar, before.tab, tab);
+  const connection = useConnectionPill(offline);
   useEffect(() => {
     shownBefore.tab = tab;
     shownBefore.destination = current ?? "";
     shownBefore.unread = unread;
     shownBefore.back = !!back;
+    shownBefore.path = path;
   });
   const unreadLabel = unread > 0 ? t("unread", { count: unread }) : "";
   // A higher count pops the badge (keyed by the count, so it pops again).
@@ -347,13 +466,24 @@ export function MemberShell({
               <CoachIdentity name={tenant.name} theme={tenant.theme} compact />
             </Link>
           )}
-          {offline && (
+          {offline ? (
             <span className="member-offline" role="status">
               <CloudOff size={16} aria-hidden="true" />
               {t("offline")}
               <span className="sr-only">{t("offlineDetail")}</span>
             </span>
-          )}
+          ) : connection ? (
+            <span
+              className={
+                "member-offline is-back-online" +
+                (connection === "leaving" ? " is-leaving" : "")
+              }
+              role="status"
+            >
+              <Cloud size={16} aria-hidden="true" />
+              {t("backOnline")}
+            </span>
+          ) : null}
           <Link
             href="/app/profile"
             className="member-topbar-me"
@@ -364,13 +494,10 @@ export function MemberShell({
             </span>
           </Link>
         </header>
-        <main
-          id="member-main"
-          className="member-content"
-          tabIndex={-1}
-          ref={main}
-        >
-          {children}
+        <main id="member-main" className="member-content" tabIndex={-1}>
+            <div className="member-page" ref={page}>
+              {children}
+            </div>
           {footerNote}
         </main>
         <footer className="member-footer">
@@ -381,7 +508,11 @@ export function MemberShell({
           <Link href="/privacy">{common("privacyPolicy")}</Link>
         </footer>
       </div>
-      <nav className="member-tabbar" aria-label={t("mainNavigation")}>
+      <nav
+        className="member-tabbar"
+        aria-label={t("mainNavigation")}
+        ref={tabbar}
+      >
         {tabs.map((item) => {
           const Icon = MEMBER_ICONS[item.icon];
           const active = item.id === tab;
@@ -389,6 +520,7 @@ export function MemberShell({
             <Link
               key={item.id}
               href={item.href}
+              data-tab={item.id}
               className={
                 "member-tab" +
                 (active && changed.tab ? " is-arriving" : "")
@@ -407,6 +539,7 @@ export function MemberShell({
           );
         })}
       </nav>
+      {toast}
     </>
   );
 }
@@ -479,5 +612,24 @@ export function MoreScreen({
         </ul>
       </section>
     </div>
+  );
+}
+
+/**
+ * The View Transition boundary around one member page
+ * (docs/features/motion.md "c"). The page route puts it around the whole
+ * workspace for /app addresses: Next renders a new page there, so React
+ * sees the old page leave and the new one arrive within the navigation.
+ * (A boundary inside the workspace is not seen by React in this app's
+ * navigations: measured in the motion check.) Only page content moves; the
+ * frame is named and held still in app/motion.css. With reduced motion the
+ * page swaps at once.
+ */
+export function MemberPageTransition({ children }: { children: ReactNode }) {
+  const motion = prefersReducedMotion() ? "none" : "member-page";
+  return (
+    <ViewTransition enter={motion} exit={motion} update="none" default="none">
+      {children}
+    </ViewTransition>
   );
 }

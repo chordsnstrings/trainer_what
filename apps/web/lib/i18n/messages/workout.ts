@@ -107,6 +107,13 @@ export default defineMessages(
     gLogSets: "Log my sets",
     gConcern: "Pain or a safety concern",
     gExample: "For example: my lower back hurts when I bend",
+    // The completion moment after Finish (docs/features/motion.md "f").
+    doneTitle: "Workout done",
+    doneText: "Nice work. Your coach can see how it went.",
+    doneSets: "Sets logged",
+    doneSetsValue: "{done} of {total}",
+    doneStreak: "Streak",
+    streakDays: { one: "# day", other: "# days" },
   },
   {
     status_active: "قيد التنفيذ",
@@ -225,5 +232,18 @@ export default defineMessages(
     gLogSets: "تسجيل مجموعاتي",
     gConcern: "ألم أو مخاوف تتعلق بالسلامة",
     gExample: "مثلًا: أشعر بألم أسفل الظهر عند الانحناء",
+    doneTitle: "اكتمل التمرين",
+    doneText: "أحسنت. يستطيع مدربك رؤية كيف سار التمرين.",
+    doneSets: "المجموعات المسجّلة",
+    doneSetsValue: "{done} من {total}",
+    doneStreak: "أيام متتالية",
+    streakDays: {
+      zero: "# يوم",
+      one: "يوم واحد",
+      two: "يومان",
+      few: "# أيام",
+      many: "# يومًا",
+      other: "# يوم",
+    },
   },
 );

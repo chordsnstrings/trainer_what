@@ -106,7 +106,10 @@ badges, notices, disabled buttons (muted text on the card, dashed edge),
 meters, the workout log, the guided and voice-led runners and meal logging.
 Shadows under the tab bar and action bar use `--shadow-ink` (black in dark,
 never a light glow). Focus rings: members keep the white-and-black double
-ring, which shows on any surface. No motion was added or changed.
+ring, which shows on any surface. Changing the appearance in Display
+preferences crossfades the page's colours over 200 ms (a View Transition,
+opacity only; instant with reduced motion); the radio itself answers the
+tap at once (docs/features/motion.md, "m").
 
 ## Browser colour and installed app
 
