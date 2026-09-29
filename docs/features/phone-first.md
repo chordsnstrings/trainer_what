@@ -289,8 +289,11 @@ never moves it with its parent.
   bar now covers the navigation those cards duplicate.
 - The analytics preferences control is the consent track (`ui/consent`);
   it should position itself with `--member-bottom-inset`.
-- Dark mode and translated Arabic copy for member screens, coach website
-  and joining pages, public legal pages, meal logging and barcode review
-  copy, notification and support labels, membership and checkout states,
-  and the offline and workspace-unavailable screens are listed for their
-  own tracks.
+- Translated Arabic copy for member screens, coach website and joining
+  pages, public legal pages, meal logging and barcode review copy,
+  notification and support labels, membership and checkout states, and the
+  offline and workspace-unavailable screens are listed for their own
+  tracks.
+- Dark mode is `docs/features/dark-mode.md` (branch `ui/dark`): the shell
+  and every control above follow the member's Light, Dark or System choice
+  through the same tokens; new subscriber CSS must use tokens only.

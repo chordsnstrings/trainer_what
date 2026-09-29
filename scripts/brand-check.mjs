@@ -14,7 +14,10 @@
 // steps on the first screen at 390x844 and 1440x900), and a reduced-motion,
 // animation, right-to-left and word-count pass. It
 // also checks that a subscriber's member app and a coach website show their
-// trainer's branding, never the platform's. Start it through
+// trainer's branding, never the platform's, follow the device into dark mode
+// with every text at AA, and set the trainer's browser colour for each
+// scheme (docs/features/dark-mode.md; scripts/dark-check.mjs covers every
+// member screen at phone size). Start it through
 // scripts/run-brand-check.mjs, which seeds data and starts the servers.
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
@@ -691,20 +694,48 @@ try {
           if (m.platformUi || m.anyBrandAsset)
             fail(label, "shows the platform identity on a trainer-branded surface");
           if (m.overflow > 1) fail(label, `horizontal overflow of ${m.overflow}px`);
-          // The browser colour is the trainer's in both schemes: every
-          // theme-color copy (the root layout has one per scheme) changes.
+          // Subscriber surfaces follow the device (docs/features/dark-mode.md):
+          // in dark the page is dark and every text reaches AA against it.
+          if (scheme === "dark") {
+            const surface = await memberPage.evaluate(() => {
+              const el = document.querySelector("[data-color-scheme]");
+              return el
+                ? { choice: el.getAttribute("data-color-scheme"), colorScheme: getComputedStyle(el).colorScheme }
+                : null;
+            });
+            if (surface?.choice !== "system" || surface.colorScheme !== "dark")
+              fail(label, `does not follow the dark device: ${JSON.stringify(surface)}`);
+            if (m.low.length)
+              fail(label, `${m.low.length} low-contrast text in dark: ${m.low.slice(0, 5).join("; ")}`);
+          }
+          // The browser colour is the trainer's: the Design Studio primary in
+          // light and the dark top bar colour in dark, one copy per scheme,
+          // never the platform's paper and ink.
           const unified = () => {
             const metas = [...document.querySelectorAll("meta[name='theme-color']")];
+            const of = (word) =>
+              metas.find((meta) => (meta.getAttribute("media") ?? "").includes(word))
+                ?.getAttribute("content")
+                ?.toLowerCase();
+            const light = of("light"),
+              dark = of("dark");
+            const lum = (hex) => {
+              const n = parseInt(hex.slice(1), 16);
+              const f = (v) => {
+                const c = v / 255;
+                return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+              };
+              return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
+            };
             return (
-              metas.length > 0 &&
-              metas.every(
-                (meta) =>
-                  !meta.getAttribute("media") &&
-                  meta.getAttribute("content") === metas[0].getAttribute("content"),
-              ) &&
-              !["#f3f4f0", "#171917"].includes(
-                metas[0].getAttribute("content").toLowerCase(),
-              )
+              metas.length === 2 &&
+              !!light &&
+              !!dark &&
+              /^#[0-9a-f]{6}$/.test(light) &&
+              /^#[0-9a-f]{6}$/.test(dark) &&
+              !["#f3f4f0", "#171917"].includes(light) &&
+              !["#f3f4f0", "#171917"].includes(dark) &&
+              lum(dark) < 0.05
             );
           };
           await memberPage

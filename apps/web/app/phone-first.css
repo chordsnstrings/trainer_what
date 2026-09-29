@@ -218,7 +218,7 @@
   );
   background: var(--white);
   border-block-start: 1px solid var(--line);
-  box-shadow: 0 -6px 20px color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: 0 -6px 20px color-mix(in srgb, var(--shadow-ink, var(--ink)) 6%, transparent);
 }
 :root[data-keyboard="open"] .member-tabbar {
   display: none;
@@ -703,7 +703,7 @@
   );
   background: color-mix(in srgb, var(--white) 96%, transparent);
   border-block-start: 1px solid var(--line);
-  box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--shadow-ink, var(--ink)) 8%, transparent);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }

@@ -9,6 +9,8 @@ import { coachAppLinks } from "./app-routes";
 import { InquirySource } from "./lead-analytics";
 import { PageLanguage } from "./document-direction";
 import { parseLanguage, type Language } from "../document-language";
+import type { ColorSchemeChoice } from "../color-scheme";
+import { useColorScheme } from "./appearance";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -827,13 +829,20 @@ export function CoachWebsite({
   path = "",
   preview = false,
   language,
+  colorScheme,
 }: {
   initialData?: any;
   path?: string;
   preview?: boolean;
   /** The document language the server resolved for this public page. */
   language?: Language;
+  /**
+   * The visitor's appearance choice on this device (the server's cookie).
+   * The public website follows it; the Design Studio preview stays light.
+   */
+  colorScheme?: ColorSchemeChoice;
 }) {
+  const scheme = useColorScheme(colorScheme);
   const [data, setData] = useState<any>(initialData ?? null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -889,6 +898,7 @@ export function CoachWebsite({
       theme={tenant.theme}
       className="coach-website"
       language={pageLanguage}
+      colorScheme={preview ? undefined : scheme}
     >
       {!preview && <PageLanguage language={pageLanguage} />}
       <header className="site-header">

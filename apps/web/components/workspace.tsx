@@ -76,6 +76,13 @@ import { MemberShell, MoreScreen } from "./member-shell";
 import { BottomSheet, NumberStepper, StickyActionBar } from "./phone-ui";
 import { prefersReducedMotion } from "./motion";
 import { MemberLanguage } from "./document-direction";
+import {
+  DisplayPreferences,
+  MemberAppearance,
+  useColorScheme,
+  useSubscriberThemeColor,
+} from "./appearance";
+import type { ColorSchemeChoice } from "../color-scheme";
 import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
@@ -519,6 +526,7 @@ function PlainShell({
   children: ReactNode;
   className?: string;
   theme?: unknown;
+  colorScheme?: ColorSchemeChoice;
 }) {
   return <div className={className}>{children}</div>;
 }
@@ -548,13 +556,30 @@ let memberStateCache: State | null = null;
 export default function Workspace({
   platform = defaultPlatform,
   coachSlug = null,
+  colorScheme,
 }: {
   platform?: WorkspacePlatform;
   /** Set on a trainer's own domain or subdomain (x-trainer-site-slug). */
   coachSlug?: string | null;
+  /** The member's appearance mirrored on this device (the server's cookie). */
+  colorScheme?: ColorSchemeChoice;
 }) {
   const path = usePathname(),
     router = useRouter();
+  // Subscriber surfaces follow the member's Light, Dark or System choice
+  // (components/appearance.tsx); the trainer workspace keeps the device's.
+  const scheme = useColorScheme(colorScheme);
+  // The member app's first-load, unavailable and suspended screens come
+  // before the coach's brand is known: they follow the choice with the
+  // neutral dark palette (app/appearance.css).
+  const memberScreen = (screen: ReactNode) =>
+    path === "/app" || path.startsWith("/app/") ? (
+      <div className="member-neutral" data-color-scheme={scheme}>
+        {screen}
+      </div>
+    ) : (
+      screen
+    );
   const [state, setState] = useState<State | null>(() =>
       path.startsWith("/app") && memberStateCache?.user.role === "subscriber"
         ? memberStateCache
@@ -704,6 +729,7 @@ export default function Workspace({
         path={path}
         platform={platform}
         coachSlug={coachSlug}
+        colorScheme={scheme}
         onAuthenticated={async () => {
           await load();
           const s = await api("/bootstrap").catch(async (e) => {
@@ -725,7 +751,7 @@ export default function Workspace({
       />
     );
   if (suspended)
-    return (
+    return memberScreen(
       <WorkspaceSuspended
         onSignOut={async () => {
           await api("/auth/logout", "POST", {});
@@ -735,7 +761,7 @@ export default function Workspace({
       />
     );
   if (!loading && !state && bootstrapError)
-    return (
+    return memberScreen(
       <main className="loading-screen" style={{ padding: 24 }}>
         <section
           className="card"
@@ -764,7 +790,7 @@ export default function Workspace({
   // A member keeps the app frame while a page refreshes (the top bar shows
   // the refresh); the full-screen loader is only for the first load.
   if (!state || (loading && state.user.role !== "subscriber"))
-    return (
+    return memberScreen(
       <main className="loading-screen">
         {/* Neutral: a member app may carry its trainer's brand, which is
             not known until the workspace has loaded. */}
@@ -1181,8 +1207,17 @@ export default function Workspace({
           );
   if (subscriber)
     return (
-      <TrainerTheme className="workspace member-shell" theme={state.tenant.theme}>
+      <TrainerTheme
+        className="workspace member-shell"
+        theme={state.tenant.theme}
+        colorScheme={scheme}
+      >
         <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+        <MemberAppearance
+          member={`${state.user.tenantId}:${state.user.userId}`}
+          theme={state.tenant.theme}
+          choice={scheme}
+        />
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
         <MemberShell
           path={path}
@@ -4546,6 +4581,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       )}
       {!intakePage && (
       <div className="two-columns">
+        {sub && <DisplayPreferences />}
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
@@ -4935,12 +4971,15 @@ function Public({
   path,
   platform,
   coachSlug,
+  colorScheme,
   onAuthenticated,
 }: {
   path: string;
   platform: WorkspacePlatform;
   /** The trainer whose own domain or subdomain serves this page, if any. */
   coachSlug: string | null;
+  /** Coach-branded pages follow the member's appearance choice. */
+  colorScheme: ColorSchemeChoice;
   onAuthenticated: () => Promise<void>;
 }) {
   const [error, setError] = useState(""),
@@ -4978,10 +5017,15 @@ function Public({
   }, [path]);
   const coach = !!siteSlug;
   const Shell = coach ? TrainerTheme : PlainShell;
+  // The platform's own pages stay light (docs/features/brand.md); a coach's
+  // sign-in and joining pages follow the member's choice, browser colour
+  // included.
+  useSubscriberThemeColor(store?.trainer?.theme, colorScheme, coach);
   return (
     <Shell
       className={coach ? "public" : "public platform-ui"}
       theme={store?.trainer?.theme}
+      colorScheme={coach ? colorScheme : undefined}
     >
       <PublicHeader
         path={path}

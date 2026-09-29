@@ -434,7 +434,8 @@ test("the stylesheet is phone first and safe-area aware", async () => {
 
 test("the member app is installed-app ready and wired into the workspace", async () => {
   const page = await source("apps/web/app/[[...path]]/page.tsx");
-  assert.match(page, /path\[0\] === "app" \? \{ viewportFit: "cover" \}/);
+  // The member app also names its colour schemes (docs/features/dark-mode.md).
+  assert.match(page, /path\[0\] === "app"\s*\?\s*\{ viewportFit: "cover"/);
   const workspace = await source("apps/web/components/workspace.tsx");
   assert.match(workspace, /<MemberShell/);
   assert.match(workspace, /path === "\/app\/more" && subscriber/);

@@ -22,6 +22,8 @@ import {
 } from "./message-templates.ts";
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
+/** Follow the device, or always light or dark. */
+export const appearanceSchema = z.enum(["system", "light", "dark"]);
 export const notificationPreferencesSchema = z
   .object({
     email: z.boolean().default(true),
@@ -32,6 +34,9 @@ export const notificationPreferencesSchema = z
     inquiries: z.boolean().default(true),
     // Template locale; English copy is the fallback for any missing translation.
     language: z.enum(["en", "ar"]).default("en"),
+    // The member app's appearance (docs/features/dark-mode.md): follow the
+    // device, or always light or dark. Mirrored into a cookie by the app.
+    theme: appearanceSchema.default("system"),
     quietStart: z.number().int().min(0).max(1439).default(1320),
     quietEnd: z.number().int().min(0).max(1439).default(480),
     timezone: z
@@ -557,6 +562,29 @@ export function registerNotifications(
           [a.tenantId, a.userId, JSON.stringify(b.data)],
         )
       )[0];
+    });
+  });
+  // The appearance choice alone (Profile and settings > Display): merged
+  // into the member's preferences in one statement, so it never needs the
+  // version the notification form holds and never overwrites its fields.
+  app.put("/api/v1/preferences/appearance", async (req) => {
+    const a = identity(req),
+      b = z.object({ theme: appearanceSchema }).strict().parse(req.body);
+    return db.tenant(a, async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":notifications:" + a.userId,
+      ]);
+      const [saved] = await tx.query(
+        "INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET data=notification_preferences.data||excluded.data,version=notification_preferences.version+1,updated_at=now() RETURNING data,version",
+        [a.tenantId, a.userId, JSON.stringify({ theme: b.theme })],
+      );
+      return {
+        data: {
+          ...notificationPreferencesSchema.parse(saved.data ?? {}),
+          marketing: await marketingConsent(tx, a.userId),
+        },
+        version: saved.version,
+      };
     });
   });
   app.get("/api/v1/notifications", async (req) => {
