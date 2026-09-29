@@ -106,7 +106,7 @@ Other members: `refs.payload` (send this), `resolve(token)`, `resolveAll(tokens)
    | `modelDecision` | `evidenceIds` |
    | `generateTrainingPlan`, `proposePlanAdaptation` | `evidenceIds` (wired in `core/fix-plans`: `R` rules, `X` cases, `P` reviewed examples, `T` templates, `ID` the twin snapshot; see `docs/features/brain-plans.md`) |
    | `compileTrainerRules` | `sourceIds` |
-   | `nutritionModel` tasks | the identifier fields of the task's schema: `recipeId`, `recipeIds`, `foodId`, `caseIds`, `caseId`, `sourceIds`, `scenarioId`, `expectedCaseId` |
+   | `nutritionModel` tasks | wired on branch `core/fix-nutrition` (`nutritionIdKeys`, prompt version `nutrition-cases-v3`, see `docs/features/nutrition-model.md`): week `recipeId`, `caseIds`; recipe draft `foodId`; policy `sourceIds`; evaluation `scenarioId`, `caseIds`, `caseId`, `recipeId`, `foodId`. Kinds: `M` recipes, `G` ingredient facts, `X` teaching cases, `S` sources, `Q` held-out scenarios, `ID` anything else |
 
 6. **Keep references away from subscribers.** Text a subscriber sees (for example
    `modelDecision`'s `message`) should be decoded with `inText: false` or not at all; each call

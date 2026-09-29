@@ -72,6 +72,19 @@ export function calculateCoachTarget(
     );
   return kcal;
 }
+/**
+ * The daily range for one macronutrient goal (grams): the goal plus or minus
+ * the coach's macro tolerance (at least 1 g), rounded inward to 0.1 g. The
+ * meal-week prompt states exactly this range, and validateClientTargets
+ * compares each day's total rounded to 0.1 g against it.
+ */
+export function macroRange(goal: number, tolerancePercent: number) {
+  const allowance = Math.max(1, (goal * tolerancePercent) / 100);
+  return {
+    min: Math.max(0, Math.ceil((goal - allowance) * 10 - 1e-9) / 10),
+    max: Math.floor((goal + allowance) * 10 + 1e-9) / 10,
+  };
+}
 export function validateClientTargets(
   view: { days: Array<{ totals: Record<string, number | null> }> },
   target: NutritionTarget | null,
@@ -80,11 +93,15 @@ export function validateClientTargets(
   for (const day of view.days)
     for (const key of ["protein", "carbohydrate", "fat"] as const) {
       const goal = target[key];
+      const range =
+        goal === null ? null : macroRange(goal, target.macroTolerancePercent);
+      const total =
+        day.totals[key] === null
+          ? null
+          : Math.round(day.totals[key]! * 10) / 10;
       if (
-        goal !== null &&
-        (day.totals[key] === null ||
-          Math.abs(day.totals[key]! - goal) >
-            Math.max(1, (goal * target.macroTolerancePercent) / 100))
+        range !== null &&
+        (total === null || total < range.min || total > range.max)
       )
         throw new NutritionBlocked(
           "MACRO_POLICY",

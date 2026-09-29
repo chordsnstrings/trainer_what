@@ -281,9 +281,15 @@ export const nutritionEvaluationSchema = z
   })
   .strict();
 export class NutritionBlocked extends Error {
+  /**
+   * `message` is shown to the client and the coach; `detail`, when given, is
+   * extra context for the coach only (for example which meal slot has no
+   * suitable recipe, or the model's stated reason for declining a week).
+   */
   constructor(
     public code: string,
     message: string,
+    public detail?: string,
   ) {
     super(message);
     this.name = "NutritionBlocked";
@@ -292,6 +298,20 @@ export class NutritionBlocked extends Error {
 const block = (code: string, message: string): never => {
   throw new NutritionBlocked(code, message);
 };
+/**
+ * The whole-kcal daily range a planned day must fall in: the target plus or
+ * minus the coach's tolerance, rounded inward. The meal-week prompt states
+ * exactly this range and validateNutritionWeek compares each day's total,
+ * rounded to whole kcal as clients see it, against it, so a day the model
+ * keeps inside the stated range is never rejected for rounding alone.
+ */
+export function dailyKcalRange(target: number, tolerancePercent: number) {
+  const allowance = (target * tolerancePercent) / 100;
+  return {
+    min: Math.ceil(target - allowance - 1e-9),
+    max: Math.floor(target + allowance + 1e-9),
+  };
+}
 // Arabic letter variants written interchangeably (alef/hamza carriers, waw and yeh
 // hamza, alef maqsura, Persian yeh and keheh, ta marbuta). Letters only, so it is
 // also safe on regex sources: escapes such as \s and \w are left untouched.
@@ -361,6 +381,17 @@ const clinicalTerms = [
   "epilep(?:sy|tic)",
   "phenylketonuria|pku",
   "medications?|prescription",
+  // Bone density conditions (the trial's "Osteopenia; takes vitamin D").
+  "osteopor(?:osis|otic)|osteopeni(?:a|c)|(?:low )?bone (?:density|loss|mass)",
+  // Vitamin and mineral supplementation, deficiencies and anaemia. Protein
+  // powders and creatine are not listed; plain "supplement" is not either.
+  "(?:multi)?vitamins?|vit\\.? ?[abcdek]\\d{0,2}|b12|folic acid",
+  "(?:iron|calcium|potassium|magnesium|zinc) (?:supplements?|tablets?|pills?|injections?|infusions?|drips?)",
+  "deficien(?:cy|cies|t)|anaemi(?:a|c)|anemi(?:a|c)",
+  // Fasting and Ramadan meal timing: the week's slots assume daytime meals, so
+  // a client who eats only at suhoor and iftar (the trial's T3S02) goes to the
+  // coach. "fast food" and "breakfast" do not match.
+  "fasting|fasted|ramadh?an|ramzan|suhoor|suhur|sahur|sehri|sohour|iftaa?r",
   // Arabic (folded): diabetes, insulin, GLP-1 brands, blood pressure, kidney, liver,
   // cancer/chemotherapy, pregnancy/breastfeeding, eating disorders, gut, gout, PCOS,
   // bariatric surgery, heart, thyroid, epilepsy and medicines.
@@ -377,6 +408,13 @@ const clinicalTerms = [
   "سيلياك|داء (?:ال)?بطني|داء (?:ال)?زلاقي|كرون|قولون (?:ال)?(?:تقرحي|عصبي)",
   "نقرس|تكيس (?:ال)?مبايض|(?:تكميم|ربط|قص) (?:ال)?معدة|تحويل (?:ال)?مسار",
   "(?:امراض|مرض|قصور) (?:ال)?قلب|جلطة|غدة (?:ال)?درقية|صرع|دواء|ادوية",
+  // Bone density (osteoporosis, osteopenia), vitamins and mineral tablets,
+  // anaemia. Bare "نقص" is not listed: "نقص الوزن" is weight loss.
+  "(?:هشاشة|ترقق|لين|كثافة) (?:ال)?عظام",
+  "فيتامينا?ت?|(?:حبوب|اقراص|ابر|حقن) (?:ال)?(?:حديد|كالسيوم|فيتامين)|فقر (?:ال)?دم|انيميا",
+  // Fasting and Ramadan meal timing (Gulf spellings included). "فطور" and
+  // "افطار" also mean breakfast, so they are not listed.
+  "رمضان|صيام|صائم|صائمة|صايم|صايمة|صوم|[اتين]صوم|سحور|[اتين]?تسحر",
 ];
 const clinicalPattern = termPattern(clinicalTerms);
 /** Clinical, medication or life-stage terms found in free text (English and Arabic). */
@@ -846,7 +884,8 @@ export function validateNutritionWeek(input: {
 }) {
   const { week, policy, profile, weekStart } = input;
   const base = nutritionTarget(policy, profile),
-    target = input.targetKcal ?? base;
+    target = input.targetKcal ?? base,
+    range = dailyKcalRange(target, policy.tolerancePercent);
   if (target < policy.minKcal || target > policy.maxKcal)
     block("TARGET_LIMIT", "The calorie target is outside the coach's limits.");
   if (new Set(week.days.map((d) => d.offset)).size !== 7)
@@ -944,8 +983,8 @@ export function validateNutritionWeek(input: {
             100;
       if (
         total.kcal === null ||
-        Math.abs(total.kcal - target) >
-          (target * policy.tolerancePercent) / 100 + 0.01
+        Math.round(total.kcal) < range.min ||
+        Math.round(total.kcal) > range.max
       )
         block(
           "CALORIE_POLICY",
@@ -989,6 +1028,8 @@ const explanationPattern = termPattern([
 // Matched against folded text, so Arabic ta marbuta is written as ه.
 const dosePattern =
   /\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|μg|iu|units?|ملغ|ملجم|مجم|ميكروغرام|وحده|وحدات)(?![\p{L}\p{N}])/iu;
+const identifierPattern =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const contactPattern =
   /(?:https?:\/\/|www\.)|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+\.\p{L}{2,}|(?<![\p{L}\p{N}])[a-z0-9-]+\.(?:com|net|org|io|ae|co|info|app|health|me|ly|link)(?![\p{L}\p{N}])|\+\d[\d\s().-]{6,}\d|(?<!\d)0\d(?:[\s.-]?\d){7,}/iu;
 const calorieUnit =
@@ -1015,7 +1056,8 @@ const phrase = (s: string) =>
   " ";
 /**
  * Free text reaches the subscriber only after deterministic checks: no clinical,
- * medication or supplement terms, dosages, links or contact details, calorie
+ * medication or supplement terms, dosages, links or contact details, record
+ * identifiers, calorie
  * numbers that disagree with the validated week, or catalog recipes outside the
  * week. Otherwise a neutral explanation is generated from the validated data.
  */
@@ -1036,6 +1078,9 @@ export function nutritionExplanation(input: {
     issues.push("clinical_or_supplement_advice");
   if (dosePattern.test(text)) issues.push("dosage");
   if (contactPattern.test(text)) issues.push("link_or_contact");
+  // Record identifiers (a model's references decode to these) mean nothing
+  // to a client.
+  if (identifierPattern.test(text)) issues.push("identifier");
   const allowed = [
     input.targetKcal,
     ...input.days.flatMap((d) => [
