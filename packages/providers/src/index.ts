@@ -8,6 +8,7 @@ import {
 } from "./configuration.ts";
 export * from "./configuration.ts";
 export * from "./sandbox.ts";
+export * from "./prompt-refs.ts";
 import { sandboxOverride } from "./sandbox.ts";
 import { oidcClientConfig } from "./oidc.ts";
 export type {
