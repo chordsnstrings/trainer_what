@@ -2120,6 +2120,41 @@ test("review regression: the pregnancy stage is the number next to the pregnancy
     to: 27,
   });
   assert.ok(cautioned("أنا حامل"), "an unknown Arabic stage is cautioned");
+  // A trimester that is over is not that trimester: "past the first
+  // trimester" once read as weeks 1 to 13 and silenced the caution.
+  assert.ok(!cautioned("pregnant, first trimester"));
+  assert.ok(!cautioned("pregnant, going through the first trimester"));
+  for (const over of [
+    "pregnant, past the first trimester",
+    "pregnant, just finished the first trimester",
+    "pregnant, after the first trimester",
+    "pregnant, out of the 1st trimester",
+    "حامل، بعد الثلث الأول من الحمل",
+    "حامل، تجاوزت الثلث الأول",
+  ]) {
+    assert.deepEqual(pregnancyStage(over), { from: 14, to: 42 }, over);
+    assert.ok(cautioned(over), over);
+  }
+  assert.deepEqual(pregnancyStage("pregnant, past the second trimester"), {
+    from: 28,
+    to: 42,
+  });
+  // The end of the first trimester straddles week 13, so it is cautioned.
+  assert.deepEqual(pregnancyStage("pregnant, end of the first trimester"), {
+    from: 12,
+    to: 14,
+  });
+  assert.ok(cautioned("حامل في نهاية الثلث الأول"));
+  // A stated week still narrows it; one that contradicts it is unknown.
+  assert.equal(
+    pregnancyWeek("pregnant, past the first trimester, 16 weeks"),
+    16,
+  );
+  assert.equal(
+    pregnancyStage("pregnant, past the first trimester, 10 weeks"),
+    null,
+  );
+  assert.ok(cautioned("pregnant, past the first trimester, 10 weeks"));
 });
 
 /** Claude Opus 5.5's Arabic T2S03 draft (a home dumbbell plan), trimmed to what the tests read. */

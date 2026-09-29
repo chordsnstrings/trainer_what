@@ -1088,6 +1088,22 @@ const TRIMESTER: Array<[RegExp, [number, number]]> = [
   [/\b(?:second|2nd)\s+trimester\b|الثلث\s+الثاني\s+(?:من\s+)?(?:ال)?حمل/u, [14, 27]],
   [/\b(?:third|3rd)\s+trimester\b|الثلث\s+الثالث\s+(?:من\s+)?(?:ال)?حمل/u, [28, 42]],
 ];
+// A trimester that is over or ending, matched (and removed) before the plain
+// trimesters: "past the first trimester" or "بعد الثلث الأول" is week 14 or
+// later, not the first trimester; "end of the first trimester" is weeks 12
+// to 14. Either way the lying-position caution is not suppressed.
+const TRIMESTER_OVER = String.raw`(?:\b(?:past|after|beyond|finished|completed|out[ \t]+of|done[ \t]+with)[ \t]+(?:(?:the|my|her)[ \t]+)?|(?<!\p{L})(?:بعد|تجاوزت|تجاوزنا|تجاوز|تخطيت|انهيت|انتهيت[ \t]+من|انتهي|انتهت|خرجت[ \t]+من)[ \t]+)`;
+const TRIMESTER_END = String.raw`(?:\bend[ \t]+of[ \t]+(?:(?:the|my|her)[ \t]+)?|(?<!\p{L})(?:في[ \t]+)?نهايه[ \t]+)`;
+const TRIMESTER_NAMES: Array<[string, number]> = [
+  [String.raw`(?:(?:first|1st)[ \t]+trimester\b|الثلث[ \t]+الاول(?!\p{L}))`, 13],
+  [String.raw`(?:(?:second|2nd)[ \t]+trimester\b|الثلث[ \t]+الثاني(?!\p{L}))`, 27],
+];
+const TRIMESTER_PASSED: Array<[RegExp, (end: number) => [number, number], number]> = TRIMESTER_NAMES.flatMap(
+  ([name, end]) => [
+    [new RegExp(TRIMESTER_OVER + name, "gu"), (e: number) => [e + 1, 42] as [number, number], end],
+    [new RegExp(TRIMESTER_END + name, "gu"), (e: number) => [e - 1, e + 1] as [number, number], end],
+  ],
+);
 const stageRange = (m: RegExpExecArray): [number, number] | null => {
   const [, week1, week2, months, monthNumber, ordinal] = m;
   const week = Number(week1 ?? week2);
@@ -1101,13 +1117,19 @@ const stageRange = (m: RegExpExecArray): [number, number] | null => {
 /**
  * The pregnancy stage in the member's own words, as a range of weeks: only a
  * week or month count right next to a pregnancy term counts ("Knee surgery 6
- * weeks ago; pregnant, 24 weeks" is week 24), and a trimester anywhere.
+ * weeks ago; pregnant, 24 weeks" is week 24), and a trimester anywhere ("past
+ * the first trimester" is week 14 or later).
  * Null when no stage is given or the stated stages disagree (an unknown
  * stage, which is cautioned).
  */
 export function pregnancyStage(text: string): { from: number; to: number } | null {
   const ranges: Array<[number, number]> = [];
-  for (const line of stageText(text).split(/\n/)) {
+  for (let line of stageText(text).split(/\n/)) {
+    for (const [re, range, end] of TRIMESTER_PASSED)
+      line = line.replace(re, () => {
+        ranges.push(range(end));
+        return " ";
+      });
     for (const [re, range] of TRIMESTER) if (re.test(line)) ranges.push(range);
     for (const term of line.matchAll(STAGE_TERM)) {
       const after = line.slice(term.index + term[0].length),

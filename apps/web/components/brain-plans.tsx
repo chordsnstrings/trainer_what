@@ -470,7 +470,7 @@ function ReviewItem({
       {item.held?.length > 0 && (
         <details>
           <summary>
-            Held at this week&rsquo;s values before the Brain proposed changes
+            Next week held at this week&rsquo;s values
           </summary>
           <ul className="plan-reasons">
             {item.held.map((h: any) => (

@@ -509,6 +509,10 @@ in the trainer's queue with a validator error, and approving it as-is was refuse
   only from a week or month count next to a pregnancy term ("pregnant, 24 weeks", "24 weeks
   pregnant", "week 30 of pregnancy", "5 months pregnant", "حامل في الأسبوع ٢٢", "الأسبوع ٢٤ من
   الحمل", "الشهر الخامس"), or a trimester anywhere; limitations and goal are read separately.
+  A trimester that is over is not that trimester: "past", "after", "beyond", "finished",
+  "completed", "out of" or "done with the first trimester", "بعد" or "تجاوزت الثلث الأول" is week
+  14 or later (cautioned), and "end of the first trimester" / "نهاية الثلث الأول" is weeks 12 to
+  14 (cautioned); "going through the first trimester" is still the first trimester.
   Another duration ("knee surgery 6 weeks ago; pregnant, 24 weeks", "back pain for 3 weeks") no
   longer hides the stage, and stages that disagree are an unknown stage, which is cautioned. A
   month count may run into the next trimester, so "3 months" is cautioned. Arabic pregnancy is
@@ -524,8 +528,9 @@ in the trainer's queue with a validator error, and approving it as-is was refuse
     work, pace, effort and rest only when both use the same measure). So the
     plan's own progression (a higher `loadFactor` or `volumeFactor`, a lower `rirDelta`) does not
     reach the member either; a deload stays as planned. What was lowered is stored on the
-    adjustment (`held`, with `progressionHold`) and shown on the review item ("Held at this week's
-    values"); `baseline` keeps the planned week for the diff and a spot-check withdrawal.
+    adjustment (`held`, with `progressionHold`) and shown on the review item ("Next week held at
+    this week's values"); `baseline` keeps the planned week for the diff and a spot-check
+    withdrawal.
   - The reasons and the held week are sent to the model (`progressionHold`, `nextWeek`), and
     `adaptationDirectionIssues` turns anything made harder than the held week into a validation
     error, so the adjustment goes to the trainer (live and in qualification): more load, sets, reps,
@@ -535,7 +540,8 @@ in the trainer's queue with a validator error, and approving it as-is was refuse
     were delivered automatically; now it is an error. Review cases: RIR 2→1 with rest 120→30 s,
     a run from 7:00 to 2:30/km at hard effort, and a plan with `loadFactor` 1 → 1.05 whose higher
     week-2 loads went out after a harder week, all passed before.
-  - Pain still skips the model entirely (unchanged).
+  - Pain still skips the model entirely; when progression is also held, the trainer's draft is
+    the held week (not the planned one), so approving it as-is adds nothing harder.
 - The adaptation prompt says so explicitly: next week is already held, keep it or make it easier,
   and names every lever (load, sets, reps, duration, distance, pace, effort, RIR, rest, swaps); it
   explains that logged reps in reserve below the prescription means harder than planned, and that
@@ -582,20 +588,36 @@ release, so the version names were kept.
   5 s/km at 0%); `heldWeek` on the reviewer's plan with rising load and volume factors (held
   values, the change list, the planned week untouched, restoring the planned numbers is an
   increase, a deload kept, a moved exercise held at the week's hardest); pregnancy stages (the
-  reviewer's strings, months, conflicts, Arabic digits and forms, "زيادة الحمل" not a pregnancy);
+  reviewer's strings, months, conflicts, Arabic digits and forms, "زيادة الحمل" not a pregnancy,
+  "past the first trimester" and "بعد الثلث الأول" cautioned);
   Opus's Arabic T2S03 draft getting Arabic neutral wording; the workout log's distance and load
   input steps (read from `workspace.tsx`); one-rep timed work in Opus T2S03 and the trial's T3
   template, not in heavy singles or lifts that share a word.
-- `tests/brain-plans.test.ts` (4 new database tests): an endurance plan end to end (references in
+- `tests/brain-plans.test.ts` (5 new database tests): an endurance plan end to end (references in
   the prompt, approval, planned sessions per week with scaled rounds, the member view, a timed round
   logged with its seconds, an adaptation that sees time and changes a duration); T1S07 end to end
   (the hold reaches the model with next week already held at week 1's loads; the plan's higher
   week-2 loads do not reach the member; the held changes and the planned baseline are stored;
   increases anyway go to the trainer and nothing reaches the member); a plan with a Plank written
   as 1 rep held for the trainer with a warning and approved as written; a summary with health
-  language replaced, held, shown to the trainer with the original, and approved as-is.
+  language replaced, held, shown to the trainer with the original, and approved as-is; a pain
+  report after a harder week (model not called) whose trainer draft is the held week, with the
+  planned baseline kept and approval delivering week 1's loads.
 
 ## Checks actually run
+
+Review follow-up (`core/fix-plans`, 29 September 2026: a trimester that is over, the held week as
+the trainer's draft on the pain path):
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `brain-plans-timed`, `brain-plans`, `prompt-refs`, `e2e-harness-mocks`, `coaching-runtime` and
+  `programme-review`, one process each on PGlite: 106 tests, 106 pass; `brain-plans-timed` again
+  after Prettier: 28/28. The new database test fails with the pain-path draft set back to the
+  planned week ("the trainer's draft is the held week").
+- `/opt/tools/pg-sandbox.sh 56583 <worktree> tests/brain-plans.test.ts
+  tests/coaching-runtime.test.ts tests/programme-review.test.ts`: runtime access verified (68
+  migrations), 30 + 9 + 7 tests pass, `PG_SELECTED_FAILED_FILES=0`.
+- Not run: the whole suite, `next build`, the e2e harness, a browser check, the model trial.
 
 Review round of the model trial fixes (`core/fix-plans`, 29 September 2026):
 
