@@ -97,7 +97,8 @@ test("English replies: 'one' as a pronoun is not a rep count; a negated completi
     ["next one", "resume"],
     ["the next one", "resume"],
     ["done with this one", "done"],
-    ["one more", "unknown"],
+    // One rep still to do: asked again (review VT-R7), never a count.
+    ["one more", "ack"],
     ["one more set", "unknown"],
     // Still a count.
     ["one", "reps:1"],

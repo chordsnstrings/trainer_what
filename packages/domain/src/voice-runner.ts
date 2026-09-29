@@ -70,21 +70,44 @@ const PAIN = has(
     "(?:انا\\s*(?:مو|مب|مش)|لست|ماني|مانيب)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)|(?:مو|مب|مش)\\s*بخير|" +
     "(?:احس|حاس|حاسس|حاسه|اشعر)\\s*(?:اني|انني|بنفسي)?\\s*(?:مو|مب|مش|لست|غير|ماني)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)",
 );
-// Gulf "تعبان" ("I'm unwell", also "worn out") and the Gulf pain words as
-// OpenAI's transcribers write them in Latin letters: in the retest (29
-// September 2026) "My back يعورني" came back from every OpenAI model as "My
-// back yawrni" / "yaourni" / "yaurni" / "iauurni" and never stopped the
-// session. Not after a negation ("مو تعبان", "ma yawrni"). "تعبت" (I got
-// tired) and English "tired" are not stops.
+// Gulf pain words as OpenAI's transcribers write them in Latin letters: in
+// the retest (29 September 2026) "My back يعورني" came back from every OpenAI
+// model as "My back yawrni" / "yaourni" / "yaurni" / "iauurni" and never
+// stopped the session. Gulf "تعبان" ("worn out", also "unwell") stops only in
+// an unwell phrase: with an intensifier ("تعبان مرة / وايد / حيل", "مرة
+// تعبان"), after "I feel" ("حاس اني تعبان", "أحس إني تعبان") or after a
+// joint, the back, chest or head ("ركبتي تعبانة", "ظهري تعبان"). Bare
+// "تعبان" is "tired" in the gym ("خلصت بس تعبان", "تعبان شوي", "والله
+// تعبان"), like English "tired", which is not a stop either: the member
+// hears the help line, which names pain (trainer decision pending, see
+// docs/features/voice-session.md). "مريض" after "I (feel)" and "مرضان"
+// ("sick") stop. Latin "alam" (ألم) stops only as the whole reply or with a
+// pain context ("3indi alam", "alam fi rukbati", "my back alam"); it is also
+// a surname ("Thanks Alam"). None after a negation, also with an intensifier
+// between ("مو تعبان", "مو وايد تعبان", "ma yawrni", "ما احس اني تعبان").
+const UNWELL_INTENSE_AR = "مره|مرره|وايد|واجد|حيل|كثير|جدا|بقوه",
+  UNWELL_INTENSE_LATIN = "marr?ah?|wa+y(?:e|i)d|wa+jid|7eil|heil|jidd?an|jedd?an|kthee?r|ktee?r|kathee?r";
+const TA3BAN = "ta(?:3|')?a?ba+n(?:a|ah|eh|ha)?";
 const UNWELL = new RegExp(
-  "(?<!(?:مو|مب|مش|ما|ماني|مانيب|لست|غير|ليس|not|no|never|ma|mu|mo|mob|mub|mb|mish|mesh|mani)\\s+)" +
+  "(?<!(?:مو|مب|مش|ما|ماني|مانيب|لست|غير|ليس|not|no|never|ma|mu|mo|mob|mub|mb|mish|mesh|mani)\\s+(?:(?:" +
+    UNWELL_INTENSE_AR + "|" + UNWELL_INTENSE_LATIN + "|so|very|that|really|too)\\s+)?)" +
     "(?<![\\p{L}\\p{N}'])(?:" +
-    "تعبان|تعبانه|" +
-    "ta(?:3|')?a?ba+n(?:a|ah|eh|ha)?|" +
+    // تعبان in an unwell phrase.
+    "تعبان(?:ه)?\\s+(?:" + UNWELL_INTENSE_AR + "|مو\\s+طبيعي)|(?:" + UNWELL_INTENSE_AR + ")\\s+تعبان(?:ه)?|" +
+    "(?:احس|حاس|حاسه|حاسس|اشعر|شاعر|شاعره)\\s+(?:(?:اني|انني|بنفسي|نفسي|اني\\s+شوي|شوي)\\s+)?(?:تعبان|مريض|مرضان)(?:ه)?|" +
+    "[وب]?(?:ال)?(?:ركب|ظهر|ضهر|كتف|رقب|صدر|راس|كاحل|ورك|معصم|كوع|مفصل|قلب)\\p{L}*\\s+(?:شوي\\s+)?تعبان(?:ه)?|" +
+    "(?:انا|اني|صرت|صاير|صايره)\\s+(?:شوي\\s+)?(?:مريض|مريضه)|مرضان|مرضانه|" +
+    TA3BAN + "\\s+(?:" + UNWELL_INTENSE_LATIN + ")|(?:" + UNWELL_INTENSE_LATIN + ")\\s+" + TA3BAN + "|" +
+    "(?:a7(?:e|i)?s|ah(?:e|i)s|7as+|has+|7as+es|has+es)\\s+(?:(?:inn?(?:i|y)|enn?i)\\s+)?" + TA3BAN + "|" +
     // يعورني / عورني / يوجعني
     "y(?:a|e)?(?:3|')?(?:a|o|u|w)+(?:e|i)?r{1,2}(?:e|i)?n(?:i|e|y|ee)|i(?:a|e)(?:a|o|u|w)+r{1,2}n(?:i|e|y)|ya(?:o|u|w)+(?:ri|ni)|" +
-    "3?aw+a?r+n(?:i|y)|(?:y|i|t)?(?:o|u|w)+ja3?n(?:i|y|ee)|alam" +
-    ")(?![\\p{L}\\p{N}])",
+    "3?aw+a?r+n(?:i|y)|(?:y|i|t)?(?:o|u|w)+ja3?n(?:i|y|ee)|" +
+    // alam (ألم) with a pain context.
+    "(?:(?:3|')?(?:i|e|a)ndi|f(?:i|ee)ni|a7(?:e|i)?s|ah(?:e|i)s|7as+|has+|back|knee|shoulder|chest|neck|hip|ankle|wrist|elbow|leg|arm|head|foot|" +
+    "(?:dh|th|z)ahri|ruk(?:b|u)ati|ki?tfi|chitfi|sadri|ra'?si)[\\s,.]+b?alam|" +
+    "alam\\s+(?:fi|fe|fee|in|b|bi|bil|shad(?:ee|i)d|qawi|gawi|kbee?r|ka?bee?r|ra?hee?b|ya?zeed)" +
+    ")(?![\\p{L}\\p{N}])|" +
+    "^\\s*(?:(?:ah+|oh+|ya|aa+h)\\s+)?alam(?:\\s+alam)?[\\s.!?,]*$",
   "iu",
 );
 const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|تقيل|تقيله|صعب|صعبه",
@@ -140,21 +163,37 @@ const COMPLETE_WORDS =
 const COMPLETE = has(COMPLETE_WORDS);
 // Said with a hedge, a completion or a count is uncertain, and uncertain
 // replies never log a set: "almost done", "about 8", "I think I'm done",
+// "just about done", "basically done", "done-ish", "hopefully done",
 // "تقريباً خلصت", "يعني خلصت", "شبه خلصت", "كدت أنتهي", "يمكن خلصت", "حوالي
 // عشر", "باقي ثنتين". Modern Standard and Gulf, with or without diacritics
-// (the text is folded first). The reply is an acknowledgement instead: during
-// a set the member is asked again ("say done when you finish, or tell me how
+// (the text is folded first), and with the conjunction "و" or "ف" joined to
+// the hedge as it is in running speech ("وتقريباً خلصت", "خلصت وباقي
+// ثنتين", "فيمكن خلصت"). The reply is an acknowledgement instead: during a
+// set the member is asked again ("say done when you finish, or tell me how
 // many reps").
 const HEDGE_NUMBER =
   "\\p{N}+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty";
+const HEDGE_DONE = "(?:done|finished|there|through|complete|completed)";
+// Not followed by sets: "باقي مجموعتين", "ضل لي ثلاث مجموعات" (sets left).
+const NOT_SETS_AHEAD_AR =
+  "(?!\\s+(?:(?:لي|لنا)\\s+)?(?:[\\p{L}\\p{N}]+\\s+)?(?:ال)?(?:مجموع|جول|تمرين|تمارين|سيت|ستات|سيتات)\\p{L}*)";
 const HEDGE = has(
   "almost|nearly|approximately|roughly|more\\s+or\\s+less|sort\\s+of|sorta|kind\\s+of|kinda|maybe|perhaps|probably|possibly|" +
     "i\\s+think|i\\s+guess|i\\s+believe|i\\s+suppose|not\\s+sure|unsure|pretty\\s+much|mostly|partly|partially|half|halfway|" +
+    // Synonyms of "almost done" and of a hope: "just about done", "close to
+    // done", "all but done", "practically done", "done-ish" (read "done ish"),
+    // "done I hope", "hopefully done", "should be done". A hope or "should be"
+    // about the load is feedback, not a hedge ("the next set should be
+    // lighter", "hopefully the next one is lighter").
+    "practically|virtually|basically|essentially|technically|i\\s+reckon|ish|" +
+    "(?:hopefully|i\\s+hope|should\\s+be|must\\s+be)\\s+(?:(?:i'?m|i\\s+am|that'?s|it'?s|we'?re|all|it\\s+is)\\s+)?(?:" + HEDGE_DONE + "|it|over|" + HEDGE_NUMBER + ")|" +
+    "(?:hopefully|i\\s+hope(?:\\s+so)?)[\\s.!?,]*$|" +
+    "as\\s+good\\s+as|all\\s+but|(?:just\\s+)?about\\s+" + HEDGE_DONE + "|close\\s+to\\s+" + HEDGE_DONE + "|" +
     "(?:about|around|like|close\\s+to|up\\s+to|over|under|at\\s+least)\\s+(?:" + HEDGE_NUMBER + ")|(?:" + HEDGE_NUMBER + ")\\s+or\\s+(?:so|more|less)|" +
     "ta(?:q|2|'|k)?r(?:i|ee)ban|ya(?:3|')?a?ni|" +
-    "(?:بال)?تقريب\\p{L}*|يعني|شبه|[يتان]?كاد(?:ت|وا)?|كدت|كدنا|[او]?وشك\\p{L}*|شارف\\p{L}*|قربت|قربنا|" +
-    "يمكن|ربما|احتمال|اظن|اعتقد|اتوقع|حوالي|بحدود|نص|نصف|نصها|نصه|باقي|" +
-    "(?:مو|مش|مب|لست|ماني|غير)\\s*متاكد\\p{L}*|ما\\s*ادري|مادري|مدري",
+    "[وف]?(?:(?:بال)?تقريب\\p{L}*|يعني|شبه|[يتان]?كاد(?:ت|وا)?|كدت|كدنا|[او]?وشك\\p{L}*|شارف\\p{L}*|قربت|قربنا|" +
+    "يمكن|ممكن|ربما|احتمال|اظن|اعتقد|اتوقع|حوالي|بحدود|نص|نصف|نصها|نصه|باقي" + NOT_SETS_AHEAD_AR + "|" +
+    "(?:مو|مش|مب|لست|ماني|غير)\\s*متاكد\\p{L}*|ما\\s*ادري|مادري|مدري)",
 );
 // A negation said before a command word in the same clause (no punctuation
 // between, a few words at most): "I never made it", "it wasn't done", "I
@@ -342,13 +381,67 @@ const LAST_REPS = new RegExp(
 const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
 const westernDigits = (text: string) =>
   text.replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10));
-// A number is a rep count unless it names a set or exercise ("set 1 of 3"),
-// points at reps rather than counting them ("the last two were hard", "آخر
-// ثنتين كانت صعبة") or is a load or time ("60 kilograms", "30 seconds").
+// A set that was not fully done, or reps still to do: "done except 2",
+// "done, missing 2", "done, 2 short", "2 to go", "2 left", "3 more and done",
+// "didn't get the last rep", "failed the last one", "did 10 minus 1",
+// "خلصت الا وحدة", "ناقص وحدة", "خلصت بدون ثنتين", "ما عدا وحدة", "غير
+// ثنتين", "وبقى ثنتين", "ضل ثنتين", "فاتتني وحدة", "بس ثنتين وأخلص", "ثنتين
+// بعد". The numbers in it are what was missed or is left, never a count; a
+// completion with it is not one (the member is asked again); a count said
+// before it is uncertain ("did 10 but missed 1", "سويت عشر الا وحدة"); a
+// count said after it, in its own clause, is what was done ("missing 2, did
+// 3"). "2 more sets" and "2 sets left" are sets, not reps.
+const EN_QTY =
+  "\\p{N}+|" + numberWords(/^[a-z]+$/) + "|one|a\\s+couple(?:\\s+of)?|couple|a\\s+few|few|some|several";
+const AR_QTY =
+  "\\p{N}+|[وب]?(?:" + numberWords(/^\p{Script=Arabic}+$/u) + "|واحد|واحده|وحده|وحد)|تكرار\\p{L}*|عدات|عده|عدتين";
+const DEFICIT_WORDS =
+  "except|excluding|minus|missing|" +
+  "(?:without|w\\/o)\\s+(?:the\\s+|my\\s+)?(?:last\\s+|final\\s+)?(?:" + EN_QTY + "|reps?|them)|" +
+  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|failed\\s+to)\\s+(?:get|hit|make)\\s+(?:the\\s+|my\\s+)?(?:last|final|all|every|" + EN_QTY + ")|" +
+  "(?:missed|skipped|failed|dropped)\\s+(?:(?:the|my|a)\\s+)?(?:last|final|reps?|" + EN_QTY + ")|" +
+  // "8 left, 8 right" and "left side" are the sides of unilateral work.
+  "(?:" + EN_QTY + ")\\s+(?:more\\s+)?(?:reps?\\s+)?(?:short|to\\s+go|remaining|less|fewer|" +
+  "left(?!\\s+(?:side|leg|arm|hand|foot|knee|hip|shoulder))(?![\\s\\S]*(?<![\\p{L}\\p{N}])right(?![\\p{L}\\p{N}])))|" +
+  "short\\s+(?:by\\s+)?(?:" + EN_QTY + ")|" +
+  "(?:" + EN_QTY + ")\\s+more(?!\\s+(?:sets?|rounds?|exercises?|times?)(?![\\p{L}\\p{N}]))|" +
+  "[وف]?(?:الا|عدا|ناقص\\p{L}*|نقص(?:ت|ني|تني|ه|ها)?|ينقص\\p{L}*|فات(?:ني|تني|وني|تنا|نا))|" +
+  // "باقي / بقى / ضل ثنتين" (two left), not "باقي مجموعتين" (two sets left).
+  // "ف" is never joined to "ضل": "فضل" is "favour" ("من فضلك", please).
+  "(?:[وف]?(?:باقي|باقيه|بقي|بقت|بقالي|بقيلي|باقيلي)|و?(?:ضل|ظل|ضلت|ظلت|ضايل\\p{L}*))" +
+  NOT_SETS_AHEAD_AR + "|" +
+  "[وف]?(?:بدون|غير)\\s+(?:ال)?(?:اخر\\s+)?(?:" + AR_QTY + ")|" +
+  // "ثنتين بعد" (two more) said last, "ثنتين وأخلص / وبخلص" (two and I finish).
+  "(?:" + AR_QTY + ")\\s+(?:بعد(?=\\s*(?:$|[,.;:!?،؛؟]))|[وف]?(?:ب|ا|ن|با|بن)(?:خلص|كمل|نتهي|نهي)\\p{L}*)";
+const DEFICIT = has(DEFICIT_WORDS);
+// The deficit with what it governs, up to punctuation or a word that starts
+// what was done ("missing 2, did 3").
+const DEFICIT_CLAUSE = new RegExp(B + "(?:" + DEFICIT_WORDS + ")(?:(?!" + CLAUSE_BREAK + ")[\\s\\S])*", "giu");
+// A number is a rep count unless it names a set or exercise ("set 1 of 3",
+// "المجموعة 2", "التمرين 2", "رقم 2"), a position ("2 of 3", "٢ من ٣",
+// "1/3"), points at reps rather than counting them ("the last two were hard",
+// "آخر ثنتين كانت صعبة") or is a load or time ("60 kilograms", "30 seconds").
+// Arabic words are also looked up without a joined article or "و"/"ب"/"ف".
 const NOT_REPS_BEFORE = new Set([
-  "set", "sets", "of", "exercise", "round", "number", "مجموعه", "من",
+  "set", "sets", "of", "exercise", "exercises", "round", "rounds", "number",
+  "مجموعه", "مجموعات", "تمرين", "تمارين", "ست", "سيت", "جوله", "جولات", "رقم", "من",
   "last", "final", "first", "اخر", "اول",
 ]);
+const notRepsBefore = (word: string) =>
+  NOT_REPS_BEFORE.has(word) || NOT_REPS_BEFORE.has(word.replace(/^(?:[وبف]?ال|[وبف])(?=\p{L}{2,}$)/u, ""));
+// "2 of 3", "2 out of 3", "٢ من ٣": a position, not a count.
+const POSITION_OF = new Set(["of", "من"]);
+// Between two numbers, a range or a correction: "8 or 9", "8 to 10", "between
+// 8 and 10", "8, no, 6", "8, actually 6", "12 I mean 10", "ثمان أو تسع",
+// "عشر، لا ثمان", "ثمان، قصدي ست". Such a count is uncertain.
+const RANGE_OR_CORRECTION = new Set([
+  "or", "to", "till", "until", "through", "thru", "and", "no", "not", "nope", "actually", "mean", "meant", "sorry",
+  "rather", "wait", "correction", "او", "ولا", "لا", "قصدي", "اقصد", "قصدت", "بل", "عفوا", "الي", "لين", "حتي",
+]);
+// Words that may stand between a completion word and its count ("did them
+// all 8", "خلصت يا كوتش ثمان"). Any other word between them breaks the tie:
+// "done except 2", "did heavy 2", "خلصت الا 2" are not counts.
+const TIE_FILLER = new Set(["it", "them", "all", "between", "coach", "captain", "يا", "كوتش", "كابتن", "والله", "كلها", "كله", "بين"]);
 const NOT_REPS_AFTER =
   /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|hours?|hrs?|sets?|rounds?|exercises?|left|remaining|more|extra|less|fewer|كيلو|كيلوز|كيلوات|كيلس|كيلوغرام|كيلوجرام|كجم|ثانيه|ثواني|دقيقه|دقائق|دقايق|ساعه|ساعات|مجموعه|مجموعات|جوله|جولات|تمرين|تمارين|ست|سيت|ستات|سيتات|زياده|اكثر|اقل|باقي|باقيه)$/u;
 // A count must be tied to the set. It is a rep count only when a rep word
@@ -374,8 +467,9 @@ const COUNT_FILLER = new Set([
   "um", "uh", "er", "erm", "hmm", "mm", "ok", "okay", "so", "coach", "yes", "yeah", "yep", "right", "alright", "well", "please", "ya",
   "يا", "كوتش", "كابتن", "اوكي", "اوك", "تمام", "طيب", "ايه", "ايوه", "ايوا", "نعم", "اي", "زين", "والله",
 ]);
-// An effort word just before a number word: "ثقيل واحد", "heavy one", "hard
-// two" are not counts unless a rep word follows ("heavy, 6 reps").
+// An effort word just before a number, a word or digits: "ثقيل واحد", "heavy
+// one", "hard two", "heavy 1", "ثقيل 1" (a misheard "وايد") are not counts
+// unless a rep word follows ("heavy, 6 reps").
 const EFFORT_BEFORE = new Set([
   "heavy", "hard", "tough", "much", "difficult", "ثقيل", "ثقيله", "تقيل", "تقيله", "صعب", "صعبه", "وايد", "واجد", "جدا", "مره", "كثير",
 ]);
@@ -388,8 +482,10 @@ function numberWord(token: string): { value: number; tens: boolean } | null {
   }
   return null;
 }
+// "1/3" is read as "1 of 3" (a position).
 const countTokens = (text: string) =>
   westernDigits(text)
+    .replace(/(\p{N})\s*\/\s*(?=\p{N})/gu, "$1 of ")
     .split(/[^\p{L}\p{N}'%]+/u)
     .filter(Boolean);
 /**
@@ -422,41 +518,67 @@ function numberAt(tokens: string[], i: number): { value: number; width: number; 
   if (ONE_WORDS.has(t) && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) return null;
   return { value: word.value, width: 1, digits: false };
 }
+type SpokenCount = { value: number | null; ambiguous: boolean; said: boolean };
 /**
- * The rep count of a reply: the first number tied to the set (see REP_UNIT).
- * `clause` is the reply with negated clauses removed; `whole` is the reply.
+ * The rep count of a reply: the first number tied to the set (see REP_UNIT),
+ * and whether it is uncertain (`ambiguous`): another tied count with a
+ * different value ("did 8, did 6"), or another number next to it or joined to
+ * it by a range or a correction ("8 or 9", "8 to 10", "8, no, 6", "12 I mean
+ * 10", "ثمان أو تسع", "عشر، لا ثمان", "ثمان، قصدي ست"). Loads, times, sets,
+ * positions ("2 of 3") and a number just after an effort word are never
+ * candidates. `said` when the reply has a candidate number at all, tied or
+ * not ("I did around ten"). `clause` is the reply with negated clauses
+ * removed; `whole` is the reply.
  */
-function spokenCount(clause: string, whole: string): number | null {
+function spokenCount(clause: string, whole: string): SpokenCount {
   const tokens = countTokens(clause);
   const content = countTokens(whole).filter((t) => !COUNT_FILLER.has(t));
+  const candidates: Array<{ value: number; start: number; end: number; tied: boolean }> = [];
   for (let i = 0; i < tokens.length; i++) {
     const n = numberAt(tokens, i);
     if (!n) continue;
+    const end = i + n.width;
     const prev = tokens[i - 1] ?? "",
-      next = tokens[i + n.width] ?? "";
+      next = tokens[end] ?? "";
     const unit = n.unit ?? next;
-    const skip = () => {
-      i += n.width - 1;
-    };
-    // A set, an exercise, a load or a time ("set 1 of 3", "60 kilograms").
-    if (NOT_REPS_BEFORE.has(prev) || (unit && NOT_REPS_AFTER.test(unit))) {
-      skip();
+    // "2 of 3", "2 out of 3", "٢ من ٣", "1/3": a position; neither is a count.
+    const of = POSITION_OF.has(next) ? end : next === "out" && tokens[end + 1] === "of" ? end + 1 : -1;
+    const total = of >= 0 && !n.unit ? numberAt(tokens, of + 1) : null;
+    if (total) {
+      i = of + total.width;
+      continue;
+    }
+    // A set, an exercise, a load or a time ("set 1 of 3", "المجموعة 2", "60 kilograms").
+    if (notRepsBefore(prev) || (unit && NOT_REPS_AFTER.test(unit))) {
+      i = end - 1;
       continue;
     }
     const repWord = REP_UNIT.test(unit);
-    if (!n.digits && EFFORT_BEFORE.has(prev) && !repWord) {
-      skip();
+    if (EFFORT_BEFORE.has(prev) && !repWord) {
+      i = end - 1;
       continue;
     }
+    // Up to two filler words between the reporting word and the count.
+    let before = i - 1;
+    while (before >= i - 2 && TIE_FILLER.has(tokens[before] ?? "")) before--;
     const reported =
       COUNT_BEFORE.test(prev) ||
       (prev === "was" && WAS_SUBJECT.has(tokens[i - 2] ?? "")) ||
-      (!!tokens[i - 2] && COUNT_BEFORE.test(tokens[i - 2]) && !numberAt(tokens, i - 1));
+      (before < i - 1 && COUNT_BEFORE.test(tokens[before] ?? ""));
     const alone = content.length === n.width && numberAt(content, 0)?.value === n.value;
-    if (repWord || reported || (!n.unit && COUNT_AFTER.test(next)) || alone) return n.value;
-    skip();
+    candidates.push({ value: n.value, start: i, end, tied: repWord || reported || (!n.unit && COUNT_AFTER.test(next)) || alone });
+    i = end - 1;
   }
-  return null;
+  const first = candidates.find((c) => c.tied);
+  if (!first) return { value: null, ambiguous: false, said: candidates.length > 0 };
+  const joined = (a: { start: number; end: number }, b: { start: number; end: number }) => {
+    const between = a.end <= b.start ? tokens.slice(a.end, b.start) : tokens.slice(b.end, a.start);
+    return !between.length || between.some((t) => RANGE_OR_CORRECTION.has(t));
+  };
+  const ambiguous = candidates.some(
+    (c) => c !== first && c.value !== first.value && (c.tied || joined(first, c)),
+  );
+  return { value: first.value, ambiguous, said: true };
 }
 
 /**
@@ -472,9 +594,14 @@ function spokenCount(clause: string, whole: string): number | null {
  * can't do 10") is never a rep count, and a rep count wins over "heavy" in
  * the same reply (the heaviness is kept as a flag). A set is logged only from
  * an unambiguous completion: a hedged completion or count ("almost done",
- * "about 8", "تقريباً خلصت", "يعني خلصت") is an acknowledgement, a number is a
- * count only when it is tied to the set ("did 10", "10 reps", "سويت عشر", or
- * the number alone), and "خلص" / "خلاص" alone are not completions.
+ * "about 8", "تقريباً خلصت", "وتقريباً خلصت", "يعني خلصت") is an
+ * acknowledgement, so is a completion with reps missed or still to do ("done
+ * except 2", "2 to go", "خلصت الا وحدة", "خلصت وباقي ثنتين") and a count that
+ * is a range, is corrected or comes before a deficit ("8 or 9", "did 8, no,
+ * 6", "did 10 but missed 1"); a number is a count only when it is tied to the
+ * set ("did 10", "10 reps", "سويت عشر", or the number alone), never a set or a
+ * position ("خلصت المجموعة 2", "done, 2 of 3") or a number just after an
+ * effort word ("heavy 1"); and "خلص" / "خلاص" alone are not completions.
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
@@ -505,10 +632,25 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
     .replace(INTENT_ALL, " ");
   // Uncertain: never a completion or a count.
   const hedged = HEDGE.test(folded);
-  // A number inside a negated clause is what was not done, never a count.
-  const reps = spokenCount(folded.replace(NEGATED_CLAUSE, " "), folded);
-  if (reps !== null && reps <= 200 && !hedged && !skip && !pause)
+  // Reps missed or still to do ("done except 2", "2 to go", "خلصت الا وحدة",
+  // "بس ثنتين وأخلص"): a completion with it is not one.
+  const deficitAt = folded.search(DEFICIT),
+    deficit = deficitAt >= 0;
+  // A number inside a negated clause or a deficit is what was not done, never
+  // a count ("I didn't do the last 2", "done except 2", "خلصت بدون ثنتين").
+  const clause = folded.replace(NEGATED_CLAUSE, " ");
+  const counted = spokenCount(deficit ? clause.replace(DEFICIT_CLAUSE, " ") : clause, folded);
+  const reps = counted.value;
+  // A count is uncertain when it is a range or corrected ("8 or 9", "did 8,
+  // no, 6", "سويت عشر، لا ثمان") or said before a deficit ("did 10 but missed
+  // 1", "سويت عشر الا وحدة"): the member is asked again.
+  const uncertain =
+    reps !== null &&
+    (counted.ambiguous ||
+      (deficit && spokenCount(folded.slice(0, deficitAt).replace(NEGATED_CLAUSE, " "), folded).value !== null));
+  if (reps !== null && reps <= 200 && !hedged && !uncertain && !skip && !pause)
     return heavy ? { type: "reps", reps, heavy: true } : { type: "reps", reps };
+  if (uncertain && !heavy && !skip && !pause) return { type: "ack" };
   if (notDone)
     return {
       type: "not_done",
@@ -520,7 +662,7 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (skip) return { type: "skip" };
   if (pause) return { type: "pause" };
   if (REPEAT.test(folded)) return { type: "repeat" };
-  if (hedged && (reps !== null || COMPLETE.test(completion))) return { type: "ack" };
+  if (deficit || (hedged && (counted.said || COMPLETE.test(completion)))) return { type: "ack" };
   if (COMPLETE.test(completion)) return { type: "done" };
   if (RESUME.test(folded)) return { type: "resume" };
   if (ACK.test(folded.replace(NEGATED_ACK, " ")) || notYet || negatedDone || intent) return { type: "ack" };
@@ -557,36 +699,49 @@ export function readingsToScreen(transcripts: string[]): Array<{ transcript: str
     .filter((r) => r.transcript);
 }
 
-// Arabic words that are pain only in a phrase. "ألم" is also the question
-// particle ("didn't...?"): "I didn't finish that set." read as Arabic was "ألم
-// أنه لا ينفع هذا المنزل" and stopped the session for pain (retest). "آلام" is
-// also "إلامَ" (to what), "إصابة" also "it hit".
-const AMBIGUOUS_PAIN = new Set(["الم", "الام", "اصابه"]);
-const PAIN_CONTEXT_BEFORE = new Set([
-  "عندي", "فيني", "فيه", "في", "احس", "اشعر", "حاس", "حاسه", "حاسس", "لدي", "يوجد", "جاني", "جاتني", "صار", "اعاني",
-  "من", "مع", "شعرت", "حسيت",
+// Arabic words that are pain in every position but one. "ألم" is also the
+// question particle ("didn't...?"): "I didn't finish that set." read as
+// Arabic was "ألم أنه لا ينفع هذا المنزل" and stopped the session for pain
+// (retest). "آلام" is also "إلامَ" (to what?), and "إصابة" also a hit ("إصابة
+// الهدف").
+const QUESTION_PAIN = new Set(["الم", "الام"]);
+const TARGET_PAIN = "اصابه";
+// After the particle: "أنّ" ("ألم أنه", as the retest read it) or a verb in
+// the imperfect ("ألم أقل", "ألم تر", "ألم يكن", "ألم نشرح", "إلام تنظر").
+const PARTICLE_CONJUNCTION = new Set(["ان", "انه", "انها", "انك", "انكم", "انهم", "انني", "اننا"]);
+// Words that start like an imperfect verb but are not one.
+const NOT_A_VERB = new Set([
+  "انا", "انت", "انتي", "انتم", "احنا", "نحن", "اي", "ايه", "ايش", "يا", "يعني", "تحت", "يمين", "يسار", "نص",
+  "اليوم", "امس", "ايد", "ايدي", "يد", "يدي", "يده", "تو", "توه", "ترا", "ترى", "تري",
 ]);
-const PAIN_CONTEXT_AFTER =
-  /^(?:في|فيه|شديد|شديده|قوي|قويه|حاد|حاده|كبير|فظيع|مره|وايد|جدا|ب\p{L}{2,}|(?:ال)?(?:ركب|ظهر|كتف|صدر|راس|رقب|بطن|ذراع|يد|ايد|رجل|ساق|قدم|كاحل|ورك|معصم|فخذ|كوع|مفصل|عضل|اسفل|ضهر)\p{L}*)$/u;
+const imperfectVerb = (w: string) => /^[اتين]\p{L}{1,6}$/u.test(w) && !w.startsWith("ال") && !NOT_A_VERB.has(w);
+// "إصابة الهدف / المرمى / السلة": a hit, not an injury.
+const TARGET_SENSE = /^(?:ال)?(?:هدف|اهداف|مرمي|كره|سله|شباك|نقطه|نقاط|رميه)$/u;
+// A pain context anywhere in the clause keeps the word: a body part (with a
+// joined article or "ب"/"ل"/"و"/"ف"), an intensity, a location or a verb that
+// describes pain ("ألم يزيد", "ألم تحت الركبة", "ألم ينزل لرجلي").
+const PAIN_CONTEXT =
+  /^(?:[وبلف]?(?:ال)?(?:ركب|ظهر|ضهر|كتف|صدر|راس|رقب|بطن|ذراع|ايد|يد|رجل|ريل|ساق|قدم|كاحل|ورك|معصم|فخذ|كوع|مفصل|عضل|اسفل|قلب|ضلع|خصر|حوض|رسغ|اصبع|اصابع)\p{L}*|شديد|شديده|قوي|قويه|حاد|حاده|كبير|كبيره|فظيع|رهيب|مره|وايد|جدا|خفيف|خفيفه|بسيط|مفاجي|مستمر|يزيد|يزداد|زاد|يزيدني|يوجع\p{L}*|يعور\p{L}*|ينبض|يقتل\p{L}*|يذبح\p{L}*|يطعن\p{L}*|ينزل|نازل|يمتد|يطلع|تحت|فوق|يمين|يسار|جنب|هنا|هني|عندي|فيني|احس|اشعر|حاس|حاسه|حاسس|اعاني|شعرت|حسيت|جاني|جاتني|لدي|يوجد)$/u;
 const READING_FILLER = new Set(["يا", "اه", "اي", "ايه", "اوه", "اخ", "اح", "اييي", "والله", "كوتش", "كابتن"]);
 /**
  * The text an other-language reading is screened with (the trainer's policy,
- * the code floor and the runner's own stop list): folded, with an ambiguous
- * pain word removed unless it is a pain phrase, that is the whole reading
- * ("ألم", "آه ألم"), carries an article or clitic ("الألم", "بألم"), or has a
- * pain context next to it ("عندي ألم", "ألم في ركبتي", "ألم شديد"). Every
- * other red flag is screened as in the reply-language reading ("My back
- * يعورني", "أشعر بدوار"), and the reply-language reading is screened unchanged.
+ * the code floor and the runner's own stop list): folded, with "ألم" / "آلام"
+ * removed only where it is the question particle, that is followed in the
+ * same clause by "أنّ" or a verb in the imperfect ("ألم أنه", "ألم أقل لك",
+ * "ألم تر", "إلام تنظر") with no pain context in the clause, and "إصابة" only
+ * where it is a hit ("إصابة الهدف"). Everywhere else they stay and stop the
+ * session: "ألم", "ألم رهيب", "ظهري ألم", "ألم، وقف", "ألم stop", "ألم قاعد
+ * يزيد", "إصابة خفيفة", "ألم يزيد". Every other red flag is screened as in the
+ * reply-language reading ("My back يعورني", "أشعر بدوار"), and the
+ * reply-language reading is screened unchanged.
  */
 export function otherReadingScreenText(transcript: string): string {
   const folded = screeningText(String(transcript ?? ""));
   const parts = folded.split(/([^\p{L}\p{N}]+)/u);
-  const words = parts.filter((_, k) => k % 2 === 0 && parts[k]);
-  if (words.filter((w) => !READING_FILLER.has(w)).every((w) => AMBIGUOUS_PAIN.has(w))) return folded;
-  // Neighbouring words in the same clause (punctuation ends a clause).
-  const near = (k: number, step: number) => {
+  // The words of the clause around part k, in order (punctuation ends a clause).
+  const clause = (k: number, step: number) => {
     const out: string[] = [];
-    for (let j = k + step; j >= 0 && j < parts.length && out.length < 2; j += step) {
+    for (let j = k + step; j >= 0 && j < parts.length; j += step) {
       if (j % 2 === 1) {
         if (/[.,;:!?،؛؟]/u.test(parts[j])) break;
         continue;
@@ -597,11 +752,13 @@ export function otherReadingScreenText(transcript: string): string {
   };
   return parts
     .map((part, k) => {
-      if (k % 2 === 1 || !AMBIGUOUS_PAIN.has(part)) return part;
-      const phrase =
-        near(k, -1).some((w) => PAIN_CONTEXT_BEFORE.has(w)) ||
-        near(k, 1).some((w) => PAIN_CONTEXT_AFTER.test(w));
-      return phrase ? part : " ";
+      if (k % 2 === 1) return part;
+      const after = clause(k, 1).filter((w) => !READING_FILLER.has(w));
+      if (part === TARGET_PAIN) return after.length && TARGET_SENSE.test(after[0]) ? " " : part;
+      if (!QUESTION_PAIN.has(part) || !after.length) return part;
+      const particle = PARTICLE_CONJUNCTION.has(after[0]) || imperfectVerb(after[0]);
+      const painContext = [...clause(k, -1), ...after].some((w) => PAIN_CONTEXT.test(w));
+      return particle && !painContext ? " " : part;
     })
     .join("");
 }

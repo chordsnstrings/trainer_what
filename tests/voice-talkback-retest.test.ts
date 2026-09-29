@@ -343,10 +343,12 @@ test("retest 4: the other-language reading stops the session only for a pain phr
     "My back yawni.",
     "My back y3awrni",
     "rukbati tooja3ni",
-    "ana ta3ban",
-    "I'm ta3baan",
-    "انا تعبان",
-    "تعبانة",
+    // "تعبان" in an unwell phrase (review VT-R8): bare "تعبان" is "tired".
+    "ana ta3ban marra",
+    "a7es inni ta3ban",
+    "انا تعبان مرة",
+    "حاس اني تعبان",
+    "تعبانة وايد",
   ]) {
     assert.equal(parseVoiceCommand(heard).type, "pain", heard);
     assert.deepEqual(routeAtSetOne([heard, "مي باك"]).pain, true, heard);
@@ -502,4 +504,211 @@ test("every transcription of the retest (1,080 results): no unsafe log, no false
     "أشوري بدوا",
     "البحر يعورم",
   ].sort());
+});
+
+// ---------------------------------------------------------------------------
+// Review of the retest fixes (VT-R1 to VT-R9): paraphrase tables per rule,
+// each asserted at the runner (set 1 of 3 x 5, and of 3 x 10): nothing is
+// logged, or exactly the count said.
+// ---------------------------------------------------------------------------
+/** Asserts that none of `replies` logs a set or stops the session, at a set of 5 and of 10. */
+function neverLogs(replies: string[], label: string) {
+  for (const reply of replies)
+    for (const target of [5, 10]) {
+      const r = effectAtSetOne(reply, target);
+      assert.equal(r.logged, null, `${label}: "${reply}" at ${target} logged (${JSON.stringify(r.command)})`);
+      assert.equal(r.pain, false, `${label}: "${reply}" stopped the session`);
+    }
+}
+const asksAgainAt = (reply: string) => asksAgain(effectAtSetOne(reply).effects);
+
+test("review VT-R1: every Arabic hedge, bare or with the conjunction و / ف joined, never logs", () => {
+  const hedges = [
+    "تقريبا", "تقريباً", "تقريبًا", "بالتقريب", "يعني", "يعنى", "شبه", "كدت", "قربت", "يمكن", "ممكن", "ربما",
+    "احتمال", "أظن", "أعتقد", "أتوقع", "حوالي", "بحدود", "نص", "نصف", "باقي", "مو متأكد", "ما أدري", "مدري",
+  ];
+  const replies: string[] = [];
+  for (const hedge of hedges)
+    for (const prefix of ["", "و", "ف"]) {
+      const h = prefix + hedge;
+      replies.push(`${h} خلصت`, `خلصت ${h}`, `${h} سويت ثمان`, `سويت ثمان ${h}`);
+    }
+  neverLogs(replies, "hedge");
+  // The retest review's exact forms, and the member is asked again.
+  for (const reply of ["وتقريبا خلصت", "وتقريباً خلصت", "ويمكن خلصت", "وشبه خلصت", "ويعني خلصت", "خلصت وتقريبا", "خلصت وباقي ثنتين", "خلصت وباقي وحدة", "فيمكن خلصت", "خلصت، باقي 2"]) {
+    assert.equal(parseVoiceCommand(reply).type, "ack", reply);
+    assert.ok(asksAgainAt(reply), reply);
+  }
+  // A hedged count asks again rather than earning the help line.
+  for (const reply of ["حوالي عشر", "تقريباً ثمان", "almost 8", "maybe 10", "8 or so", "I did around ten"])
+    assert.equal(parseVoiceCommand(reply).type, "ack", reply);
+  // Not hedges: "من فضلك" (please) and a plain completion or count still log.
+  for (const [reply, logged] of [["خلصت", 5], ["من فضلك خلصت", 5], ["خلصت، من فضل", 5], ["سويت ثمان", 8], ["خلصت، باقي مجموعتين", 5]] as const)
+    assert.equal(effectAtSetOne(reply).logged, logged, reply);
+});
+
+test("review VT-R3: a reply that says reps were missed or are left never logs them or the target", () => {
+  neverLogs(
+    [
+      // English: except, minus, short, missing, without, to go, left, didn't get, failed.
+      "done except 2", "done, missing 2", "done, 2 short", "done, 2 to go", "just 2 to go", "done except the last two",
+      "done, didn't get the last rep", "did 10 but missed 1", "did 10 minus 1", "done, 2 left", "done, 2 reps left",
+      "done, one rep short", "done, short by one", "done, failed the last rep", "done without the last two",
+      "done, couldn't get the last one", "done, 2 remaining", "I did 8, 2 more to go", "done, missing one",
+      "done minus one", "finished except one", "done, a couple short", "I've done 8 more.",
+      // Arabic: الا، ناقص، بدون، ما عدا، غير، بقى، ضل، فاتني، "بس N وأخلص / بعد".
+      "خلصت الا 2", "خلصت الا وحدة", "خلصت إلا وحدة", "خلصت بدون ثنتين", "خلصت بدون آخر وحدة", "بس ثنتين وأخلص",
+      "بس ثنتين بعد", "ثنتين بعد", "خلصت وبقى ثنتين", "خلصت بقي ثنتين", "خلصت، ضل ثنتين", "خلصت وضل وحدة",
+      "خلصت ناقص وحدة", "خلصت ناقصني وحدة", "خلصت ما عدا وحدة", "خلصت عدا ثنتين", "خلصت غير وحدة",
+      "خلصت بس فاتتني وحدة", "خلصت فاتني ثنتين", "سويت عشر الا وحده", "سويت ثمان وباقي ثنتين", "باقي لي ثنتين",
+      "ثنتين وبخلص",
+    ],
+    "deficit",
+  );
+  // Asked again (not the help line): the member can say the count.
+  for (const reply of ["done except 2", "خلصت الا وحدة", "just 2 to go", "بس ثنتين وأخلص", "did 10 but missed 1", "سويت عشر الا وحده"]) {
+    assert.equal(parseVoiceCommand(reply).type, "ack", reply);
+    assert.ok(asksAgainAt(reply), reply);
+  }
+  // Said as a report of a missed set it is still "not done".
+  assert.equal(parseVoiceCommand("I missed 3 reps").type, "not_done");
+  // A count said after the deficit, in its own clause, is what was done.
+  for (const [reply, logged] of [
+    ["missing 2, did 3", 3],
+    ["خلصت الا وحدة، سويت أربع", 4],
+    ["I didn't do the last one, 8 reps", 8],
+    // Not deficits: "after the rest", the side of unilateral work.
+    ["سويت ثمان بعد الراحة", 8],
+    ["done, 8 reps left side", 8],
+  ] as const)
+    assert.equal(effectAtSetOne(reply).logged, logged, reply);
+  // Sets still to do are not reps: a completion stays one.
+  for (const reply of ["done, 2 more sets", "done, one more set to go", "خلصت، باقي مجموعتين", "خلصت بدون راحة", "done, 2 sets left"])
+    assert.equal(effectAtSetOne(reply).logged, 5, reply);
+  // The tie between a completion word and a count allows only fillers.
+  for (const [reply, reps] of [["did all 8", 8], ["did them all 8", 8], ["خلصت يا كوتش ثمان", 8], ["done coach 8", 8]] as const)
+    assert.deepEqual(parseVoiceCommand(reply), { type: "reps", reps }, reply);
+});
+
+test("review VT-R4: a set, exercise or position number is never a rep count", () => {
+  for (const reply of [
+    "خلصت المجموعة 2", "خلصت المجموعه 2", "خلصت بالمجموعة 2", "خلصت التمرين 2", "خلصت الست 2", "خلصت السيت 2",
+    "خلصت الجولة 2", "خلصت رقم 2", "خلصت ٢ من ٣", "done, 2 of 3", "finished 1 of 3", "done 1/3", "done, 2 out of 3",
+    "done with set 2", "set 2 done", "done, exercise 1", "خلصت المجموعة 1 من 3",
+    // The completion word after the number would tie it: still a set.
+    "المجموعة 2 خلصت", "التمرين 2 خلصت", "رقم 2 خلصت", "الست 2 خلصت", "بالمجموعة 2 خلصت",
+  ]) {
+    // "Done" logs the target; the number is never the count.
+    for (const target of [5, 10]) assert.equal(effectAtSetOne(reply, target).logged, target, `${reply} at ${target}`);
+    assert.equal(parseVoiceCommand(reply).type, "done", reply);
+  }
+  // Without a completion word a position alone logs nothing.
+  neverLogs(["2 of 3", "المجموعة 2", "8 out of 10"], "position");
+});
+
+test("review VT-R5: a number just after an effort word is not a count, in digits too", () => {
+  for (const reply of [
+    "الوزن ثقيل 1", "خلصت، ثقيل 1", "done, heavy 1", "did heavy 2", "heavy 1", "صعب 2", "that was hard 1", "خلصت صعب ٢",
+    // A word after the number that would tie it ("done", "خلاص", "بس").
+    "heavy 1 done", "ثقيل 1 خلاص", "صعب 2 بس", "ثقيل وايد 1 خلصت",
+  ]) {
+    const got = parseVoiceCommand(reply);
+    assert.notEqual(got.type, "reps", `${reply}: ${JSON.stringify(got)}`);
+    const r = effectAtSetOne(reply);
+    assert.equal(r.logged, null, reply);
+    assert.ok(!r.effects.some((e) => e.type === "outcome" && e.outcome.type === "too_heavy_kept" && e.outcome.reps === 1), reply);
+  }
+  // With a rep word, or reported, the count stands with the heavy flag.
+  assert.deepEqual(parseVoiceCommand("heavy, 6 reps"), { type: "reps", reps: 6, heavy: true });
+  assert.deepEqual(parseVoiceCommand("heavy, did 6"), { type: "reps", reps: 6, heavy: true });
+  assert.deepEqual(parseVoiceCommand("ثقيل، سويت 6"), { type: "reps", reps: 6, heavy: true });
+});
+
+test("review VT-R6: a range or a corrected count is asked again", () => {
+  const replies = [
+    "did 8 or 9", "سويت ثمان أو تسع", "سويت ثمان او تسع", "did 8, no, 6", "did 8, actually 6", "سويت ثمان، قصدي ست",
+    "سويت عشر، لا ثمان", "I did 12 I mean 10", "did 8 to 10", "did between 8 and 10", "8 or 9 reps", "did 8, sorry, 6",
+    "سويت ثمان وتسع", "did 8, did 6", "8 9 10 done", "سويت بين ثمان وعشر",
+  ];
+  neverLogs(replies, "range or correction");
+  for (const reply of ["did 8 or 9", "سويت عشر، لا ثمان", "I did 12 I mean 10", "did 8, actually 6"]) {
+    assert.equal(parseVoiceCommand(reply).type, "ack", reply);
+    assert.ok(asksAgainAt(reply), reply);
+  }
+  // One count, said twice or with a load, stands.
+  for (const [reply, logged] of [
+    ["did 8, 8 reps", 8],
+    ["Done, ten reps at sixty kilos.", 10],
+    ["10 ربز في 60 كيلوز", 10],
+    ["هل ست؟ سويت ثمان", 8],
+    ["no pain, did 8", 8],
+    ["لا، سويت ثمان", 8],
+  ] as const)
+    assert.equal(effectAtSetOne(reply, 10).logged, logged, reply);
+});
+
+test("review VT-R7: English synonyms of 'almost done', hopes and 'N more and done' never log", () => {
+  neverLogs(
+    [
+      "just about done", "I'm about done", "about done", "close to done", "close to finished", "all but done",
+      "practically done", "virtually done", "basically done", "essentially done", "technically done", "done-ish",
+      "done ish", "8-ish", "done I hope", "hopefully done", "should be done", "that should be it", "must be done",
+      "as good as done", "3 more and done", "one more and done", "two more then done", "2 more to go",
+      "about there", "just about finished", "I reckon I'm done",
+    ],
+    "synonym",
+  );
+  // Not hedges: "about time", "close to failure", "barely", and a hope or
+  // "should be" about the load (feedback).
+  for (const reply of [
+    "done, about time", "Done, close to failure", "I barely made it", "done, 2 more sets",
+    "done, the next set should be lighter", "done, hopefully the next one is lighter", "Done. I hope that's okay.",
+  ])
+    assert.equal(effectAtSetOne(reply).logged, 5, reply);
+});
+
+test("review VT-R2: pain said in Arabic in the other reading stops the session in every position", () => {
+  // Each stopped the session at 0c9569d and not on the first fix (an
+  // English-reply member reporting pain in Arabic: only the Arabic reading
+  // can catch it).
+  for (const other of [
+    "ألم رهيب", "ألم خفيف", "ألم كثير", "ظهري ألم", "ركبتي ألم", "ألم، وقف", "ألم وقف", "ألم stop", "ألم مفاجئ",
+    "ألم قاعد يزيد", "ألم مو طبيعي", "إصابة خفيفة", "ألم يزيد", "ألم تحت الركبة", "ألم ينزل لرجلي", "ألم يا كوتش",
+    "ألم اليوم", "ألم انا", "آلام", "آلام قوية", "إصابة", "إصابة بالركبة", "عندي إصابة", "ألم أحس فيه",
+    "ألم في الظهر", "ألم شديد", "ألم يمين", "ألم يدي",
+  ]) {
+    const got = routeAtSetOne(["It was fine.", other]);
+    assert.deepEqual([got.outcome, got.pain], ["held", true], other);
+  }
+  // Only the question particle (followed by "أنّ" or an imperfect verb, no
+  // pain context) and "إصابة الهدف" are dropped.
+  for (const other of ["ألم أنه لا ينفع هذا المنزل", "ألم تر أنه خلص", "ألم أقل لك", "ألم يكن هذا المنزل", "إلام تنظر", "إصابة الهدف سهلة", "ألم تسمع", "ألم نقل"]) {
+    const got = routeAtSetOne(["Done.", other]);
+    assert.deepEqual([got.outcome, got.pain], ["acted", false], other);
+  }
+  // The question particle with a pain context is kept.
+  for (const other of ["ألم يكن ظهري يوجعني", "ألم تر ركبتي"])
+    assert.equal(routeAtSetOne(["Done.", other]).pain, true, other);
+  assert.equal(otherReadingScreenText("ألم رهيب"), "الم رهيب");
+});
+
+test("review VT-R8: bare 'تعبان' (tired) and the name 'Alam' do not stop; unwell phrases do", () => {
+  for (const reply of [
+    "خلصت بس تعبان", "سويت عشر بس تعبان", "تعبان شوي", "والله تعبان", "تعبان", "انا تعبان", "تعبانة", "ana ta3ban",
+    "I'm ta3baan", "Done, coach Alam", "Thanks Alam", "Done, Mr Alam", "مو وايد تعبان", "مو تعبان مرة",
+    "ما احس اني تعبان", "رجولي تعبانة",
+  ])
+    assert.notEqual(parseVoiceCommand(reply).type, "pain", reply);
+  // At the runner the rest of the reply is read as usual.
+  assert.equal(effectAtSetOne("خلصت بس تعبان").logged, 5);
+  assert.equal(effectAtSetOne("سويت عشر بس تعبان", 10).logged, 10);
+  assert.ok(effectAtSetOne("تعبان").effects.some((e) => e.type === "say" && /pain/.test(e.text)), "the help line names pain");
+  for (const reply of [
+    "تعبان مرة", "تعبان وايد", "مرة تعبان", "حيل تعبان", "حاس اني تعبان", "أحس إني تعبان", "احس اني شوي تعبان",
+    "أشعر أنني تعبانة", "ركبتي تعبانة", "ظهري تعبان", "انا مريض", "حاس اني مريض", "مرضان", "ta3ban marra",
+    "a7es inni ta3ban", "alam", "Alam!", "ah alam", "3indi alam", "alam fi rukbati", "my back alam", "My back, alam.",
+  ]) {
+    assert.equal(parseVoiceCommand(reply).type, "pain", reply);
+    assert.equal(effectAtSetOne(reply).pain, true, reply);
+  }
 });
