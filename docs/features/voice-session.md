@@ -122,6 +122,22 @@ optional on-device speech commands).
   exceeded. "Too heavy" in the rest after an exercise's final set is noted for the trainer
   (`too_heavy_kept`) and never changes the finished or the next exercise.
 
+- **Timed and distance work** (29 September 2026, `core/fix-plans`; see
+  `docs/features/brain-plans.md` "Model trial fixes"): a plan exercise with `durationSeconds` or
+  `distanceMeters` (sets are rounds) is voiced as rounds. `planExercises` accepts it without reps
+  (reps 0), the setup line says "3 rounds of 30 seconds, hard effort" (or "20 minutes, easy
+  effort" for one continuous bout, with a pace when given) and each round line says "Round 2 of 3.
+  30 seconds. The clock starts now. Say done if you stop early." The runner starts the round's
+  clock (`workLeft`) when that prompt has been spoken, cues "Ten seconds." (rounds of 20 s or
+  more) and "Three. Two. One.", then plays the shared clip "Time." (`time_up`, new) and logs the
+  round (`log_set` with `reps: 0` and `durationSeconds`), then rests or moves on (no rest after a
+  continuous bout). "Done" ends a round early and logs the seconds it lasted; a pause stops the
+  clock and "resume" carries on from where it stopped ("Resuming. Go."). A distance round waits
+  for "done" (a spoken number is not reps there) and logs `distanceMeters`. The on-screen status
+  shows the time left. `scriptIssues` also compares duration, distance, pace and effort; rep lines
+  are unchanged, so `voice-session-script-v1` stays and stored scripts remain valid. The shared
+  clip set is now 122 (numbers 1–100 and 22 phrases).
+
 ### Data (migration `065_voice_sessions.sql`)
 
 - `voice_session_styles` (per workspace, versioned; coaching team only), with `suggestions`
@@ -339,5 +355,8 @@ loading are untested in a real browser.
   trained).
 - Adjustments are limited to one load reduction per exercise within the trainer's rule (off by
   default); the runner never raises load, reps or sets.
+- A timed round is timed by the page's clock from the end of its prompt; a distance round is not
+  measured (the member says done and the prescribed distance is logged). Time or distance logs
+  cannot yet be corrected on the workout log's correction form (reps, load and RIR only).
 - The session plays in the trainer's voice only while the page is open; iOS background audio
   and screen-lock behaviour were not tested.

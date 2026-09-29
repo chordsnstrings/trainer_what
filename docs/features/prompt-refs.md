@@ -104,7 +104,7 @@ Other members: `refs.payload` (send this), `resolve(token)`, `resolveAll(tokens)
    | --- | --- |
    | `selectCoachAction` | `actionId`, `evidenceIds` |
    | `modelDecision` | `evidenceIds` |
-   | `generateTrainingPlan`, `proposePlanAdaptation` | `evidenceIds` |
+   | `generateTrainingPlan`, `proposePlanAdaptation` | `evidenceIds` (wired in `core/fix-plans`: `R` rules, `X` cases, `P` reviewed examples, `T` templates, `ID` the twin snapshot; see `docs/features/brain-plans.md`) |
    | `compileTrainerRules` | `sourceIds` |
    | `nutritionModel` tasks | the identifier fields of the task's schema: `recipeId`, `recipeIds`, `foodId`, `caseIds`, `caseId`, `sourceIds`, `scenarioId`, `expectedCaseId` |
 

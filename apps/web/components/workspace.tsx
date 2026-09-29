@@ -99,6 +99,12 @@ import {
   usesBrandIdentity,
 } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
+import {
+  formatDistance,
+  formatDuration,
+  prescriptionText,
+  workMeasure,
+} from "../../../packages/domain/src/prescription.ts";
 import { WorkspaceGovernance } from "./workspace-governance";
 import { BusinessMetrics } from "./business-metrics";
 import { PlatformFinance } from "./platform-finance";
@@ -2554,10 +2560,7 @@ function Programs({ state, records, action, busy }: ViewProps) {
                 </span>
                 <div>
                   <strong>{x.name}</strong>
-                  <small>
-                    {x.sets} × {x.reps} · {x.loadKg ? `${x.loadKg} kg · ` : ""}
-                    {x.restSeconds}s rest
-                  </small>
+                  <small>{prescriptionText(x, { rir: false })}</small>
                 </div>
               </div>
             ))}
@@ -2659,6 +2662,17 @@ function useListedOrFetchedWorkout(
       ? { workout: mine.workout, sets: mine.sets }
       : { workout: undefined, sets: [] as any[] };
 }
+/** A logged set: its reps, or the time or distance of a round. */
+const loggedWorkText = (body: {
+  reps: number;
+  durationSeconds?: number;
+  distanceMeters?: number;
+}) =>
+  typeof body.durationSeconds === "number"
+    ? formatDuration(body.durationSeconds)
+    : typeof body.distanceMeters === "number"
+      ? formatDistance(body.distanceMeters)
+      : `${body.reps} reps`;
 function Workout({ state, records, action, busy, path }: ViewProps) {
   const workoutId = path.split("/").pop() ?? "";
   const listedWorkout = records("workout").find((w) => w.id === workoutId);
@@ -2797,7 +2811,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             {rejected.map((entry) => (
               <li key={entry.item.body.eventKey}>
                 {entry.item.body.exercise} · set {entry.item.body.set} ·{" "}
-                {entry.item.body.reps} reps · {entry.item.body.loadKg} kg —{" "}
+                {loggedWorkText(entry.item.body)} · {entry.item.body.loadKg} kg —{" "}
                 {entry.failure.message}{" "}
                 <button
                   className="text-button"
@@ -2849,11 +2863,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               <h2>{ex.name}</h2>
             </div>
             <span className="muted">
-              {ex.sets} × {ex.reps} · {ex.restSeconds}s rest
+              {prescriptionText(ex, { rir: false })}
             </span>
           </div>
           <p className="muted">{ex.cue}</p>
           {Array.from({ length: ex.sets }, (_, set) => {
+            // Timed and distance rounds log the time or distance done (reps 0).
+            const measure = workMeasure(ex);
             const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
             const pendingHere = readList<WorkoutQueueItem>(
                 localStorage,
@@ -2884,8 +2900,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                       notes: String(f.get("notes") || ""),
                       exercise: ex.name,
                       set: set + 1,
-                      reps: Number(f.get("reps")),
+                      reps: measure === "reps" ? Number(f.get("reps")) : 0,
                       loadKg: Number(f.get("load")),
+                      ...(measure === "time"
+                        ? { durationSeconds: Number(f.get("duration")) }
+                        : measure === "distance"
+                          ? { distanceMeters: Number(f.get("distance")) }
+                          : {}),
                     };
                   const endpoint = `/workouts/${workout.id}/sets`;
                   const { notes: _notes, ...setLog } = body,
@@ -2918,7 +2939,9 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   await sync();
                 }}
               >
-                <span>Set {set + 1}</span>
+                <span>
+                  {measure === "reps" ? "Set" : "Round"} {set + 1}
+                </span>
                 <label>
                   <input
                     type="number"
@@ -2927,22 +2950,50 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     defaultValue={ex.loadKg}
                     min={0}
                     max={500}
-                    step={0.5}
+                    step="any"
                   />
                   <small>kg</small>
                 </label>
-                <label>
-                  <input
-                    type="number"
-                    name="reps"
-                    aria-label={`${ex.name} set ${set + 1} reps`}
-                    defaultValue={ex.reps}
-                    min={0}
-                    max={200}
-                    step={1}
-                  />
-                  <small>reps</small>
-                </label>
+                {measure === "time" ? (
+                  <label>
+                    <input
+                      type="number"
+                      name="duration"
+                      aria-label={`${ex.name} round ${set + 1} seconds`}
+                      defaultValue={ex.durationSeconds}
+                      min={0}
+                      max={36000}
+                      step={1}
+                    />
+                    <small>seconds</small>
+                  </label>
+                ) : measure === "distance" ? (
+                  <label>
+                    <input
+                      type="number"
+                      name="distance"
+                      aria-label={`${ex.name} round ${set + 1} metres`}
+                      defaultValue={ex.distanceMeters}
+                      min={0}
+                      max={200000}
+                      step={1}
+                    />
+                    <small>metres</small>
+                  </label>
+                ) : (
+                  <label>
+                    <input
+                      type="number"
+                      name="reps"
+                      aria-label={`${ex.name} set ${set + 1} reps`}
+                      defaultValue={ex.reps}
+                      min={0}
+                      max={200}
+                      step={1}
+                    />
+                    <small>reps</small>
+                  </label>
+                )}
                 <label>
                   <input
                     aria-label={`${ex.name} set ${set + 1} repetitions in reserve`}

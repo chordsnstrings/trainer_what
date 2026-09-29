@@ -7,10 +7,13 @@ import {
   formatLoad,
   numberClipKeys,
   reducedLoad,
+  spokenWork,
+  timedExercise,
   type ScriptLine,
   type SessionScript,
   type VoiceAdjustmentRules,
 } from "./voice-session.ts";
+import { formatDistance, formatDuration, workMeasure } from "./prescription.ts";
 
 // ---------------------------------------------------------------------------
 // Spoken replies.
@@ -250,6 +253,11 @@ export type RunnerState = {
   set: number;
   restRemaining: number;
   setElapsed: number;
+  /**
+   * Seconds left in a timed round (a hold, an interval, a continuous bout).
+   * Null until the round's prompt has been spoken and the clock started.
+   */
+  workLeft?: number | null;
   targets: SetTarget[][];
   logged: string[];
   skipped: string[];
@@ -265,8 +273,12 @@ export type RunnerEffect =
       exerciseIndex: number;
       exercise: string;
       set: number;
+      /** 0 for a round of timed or distance work. */
       reps: number;
       loadKg: number;
+      /** The time a timed round lasted, or the distance of a distance round. */
+      durationSeconds?: number;
+      distanceMeters?: number;
     }
   | { type: "report_pain"; description: string }
   | { type: "outcome"; outcome: RunnerOutcome }
@@ -293,6 +305,7 @@ export function initialRunnerState(script: SessionScript): RunnerState {
     set: 1,
     restRemaining: 0,
     setElapsed: 0,
+    workLeft: null,
     targets: script.exercises.map((ex) =>
       Array.from({ length: ex.sets }, () => ({ reps: ex.reps, loadKg: ex.loadKg })),
     ),
@@ -328,6 +341,23 @@ function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: nu
   const form = set >= 2 && ex.form.length ? ex.form[(set - 2) % ex.form.length] : null;
   if (t.reps === ex.reps && t.loadKg === ex.loadKg)
     return say([ex.setLines[set - 1], form]);
+  if (workMeasure(ex) !== "reps") {
+    // A lighter load for a loaded carry or hold: the round and the new load.
+    const load = numberClipKeys(t.loadKg);
+    return {
+      type: "say",
+      items: [
+        { clip: set === ex.sets ? "last_set" : "next_set" },
+        ...(load ? [...load, "kilograms"] : ["check_screen"]).map((clip) => ({ clip })),
+        ...(timedExercise(ex) ? [{ clip: "go" }] : []),
+        ...(form ? [{ line: form.id }] : []),
+      ],
+      text: [`Round ${set} of ${ex.sets}. ${spokenWork(ex, t.loadKg)}.${timedExercise(ex) ? " Go." : " Say done when you finish."}`, form?.text]
+        .filter(Boolean)
+        .join(" "),
+      wait: true,
+    };
+  }
   const reps = numberClipKeys(t.reps),
     load = t.loadKg > 0 ? numberClipKeys(t.loadKg) : [];
   const clips = [
@@ -349,7 +379,7 @@ function beginExercise(ctx: RunnerContext, s: RunnerState, exercise: number): [R
 }
 function beginSet(ctx: RunnerContext, s: RunnerState, exercise: number, set: number, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
   return [
-    { ...s, phase: "set", exercise, set, restRemaining: 0, setElapsed: 0 },
+    { ...s, phase: "set", exercise, set, restRemaining: 0, setElapsed: 0, workLeft: null },
     [...lead, setPrompt(ctx, s, exercise, set)],
   ];
 }
@@ -392,23 +422,44 @@ function stopForPain(s: RunnerState, transcript: string): [RunnerState, RunnerEf
     ],
   ];
 }
-function logSet(ctx: RunnerContext, s: RunnerState, reps: number): [RunnerState, RunnerEffect[]] {
+function logSet(
+  ctx: RunnerContext,
+  s: RunnerState,
+  reps: number,
+  work: { durationSeconds?: number; distanceMeters?: number } = {},
+  lead: RunnerEffect[] = [],
+): [RunnerState, RunnerEffect[]] {
   const ex = ctx.script.exercises[s.exercise];
   const t = s.targets[s.exercise][s.set - 1];
   const k = key(s.exercise, s.set);
-  if (s.logged.includes(k)) return afterSet(ctx, s, [], true);
-  const logged: RunnerState = { ...s, logged: [...s.logged, k], encouragement: s.encouragement + 1 };
+  if (s.logged.includes(k)) return afterSet(ctx, { ...s, workLeft: null }, lead, true);
+  const logged: RunnerState = { ...s, workLeft: null, logged: [...s.logged, k], encouragement: s.encouragement + 1 };
   const enc = ex.encouragement.length ? ex.encouragement[s.encouragement % ex.encouragement.length] : null;
   return afterSet(
     ctx,
     logged,
     [
-      { type: "log_set", exerciseIndex: s.exercise, exercise: ex.name, set: s.set, reps, loadKg: t.loadKg },
+      ...lead,
+      { type: "log_set", exerciseIndex: s.exercise, exercise: ex.name, set: s.set, reps, loadKg: t.loadKg, ...work },
       outcome({ type: "set_logged", exercise: s.exercise, set: s.set, reps, toKg: t.loadKg }),
       say([enc], enc ? [] : ["logged"], enc ? [] : ["Logged."], false),
     ],
     true,
   );
+}
+/**
+ * A round of timed or distance work is done: a timed round logs the seconds it
+ * lasted (all of them when the clock ran out or never started), a distance
+ * round its prescribed distance. Reps are 0.
+ */
+function finishRound(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
+  const ex = ctx.script.exercises[s.exercise];
+  if (timedExercise(ex)) {
+    const full = ex.durationSeconds!;
+    const lasted = typeof s.workLeft === "number" ? Math.max(0, full - s.workLeft) : full;
+    return logSet(ctx, s, 0, { durationSeconds: lasted }, lead);
+  }
+  return logSet(ctx, s, 0, { distanceMeters: ex.distanceMeters! }, lead);
 }
 /** "Too heavy": one reduction of the next set's load within the trainer's rule. */
 function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: number): [RunnerState, RunnerEffect[]] {
@@ -470,6 +521,9 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       const back = s.resume ?? "set";
       const resumed: RunnerState = { ...s, phase: back, resume: undefined };
       if (back === "set") {
+        // A timed round whose clock had started carries on from where it stopped.
+        if (timedExercise(ctx.script.exercises[s.exercise]) && typeof s.workLeft === "number")
+          return [resumed, [phrase("resuming", "Resuming."), phrase("go", "Go.")]];
         const [, effects] = beginSet(ctx, resumed, s.exercise, s.set);
         return [resumed, [phrase("resuming", "Resuming."), ...effects]];
       }
@@ -492,7 +546,10 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
     return [s, [phrase("help", "Say done, a number of reps, too heavy, pause, skip or pain.")]];
   // An acknowledgement never moves the session on; during a set it earns a hint.
   if (event.type === "command" && event.command.type === "ack")
-    return [s, s.phase === "set" ? [sayDone()] : []];
+    return [
+      s,
+      s.phase === "set" && workMeasure(ctx.script.exercises[s.exercise]) === "reps" ? [sayDone()] : [],
+    ];
   const ex = ctx.script.exercises[s.exercise];
   switch (s.phase) {
     case "ready":
@@ -523,16 +580,38 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
         }
       }
       return [s, []];
-    case "set":
-      if (event.type === "tick") return [{ ...s, setElapsed: s.setElapsed + Math.max(0, event.seconds) }, []];
+    case "set": {
+      const measure = workMeasure(ex);
+      if (event.type === "tick") {
+        const elapsed = { ...s, setElapsed: s.setElapsed + Math.max(0, event.seconds) };
+        // The clock of a timed round: ten seconds, three-two-one, then time.
+        if (measure !== "time" || typeof s.workLeft !== "number") return [elapsed, []];
+        const before = s.workLeft,
+          after = Math.max(0, before - Math.max(0, event.seconds));
+        const next = { ...elapsed, workLeft: after };
+        if (after === 0) return finishRound(ctx, next, [phrase("time_up", "Time.")]);
+        const cues: RunnerEffect[] = [];
+        if (ex.durationSeconds! >= 20 && before > 10 && after <= 10) cues.push(phrase("ten_seconds", "Ten seconds."));
+        if (before > 3 && after <= 3) cues.push(phrase("countdown", "Three. Two. One."));
+        return [next, cues];
+      }
+      // The round's prompt has been spoken: the clock starts.
+      if (event.type === "prompt_done") {
+        if (measure === "time" && typeof s.workLeft !== "number")
+          return [{ ...s, workLeft: ex.durationSeconds!, setElapsed: 0 }, []];
+        return [s, []];
+      }
       if (event.type !== "command") return [s, []];
       switch (event.command.type) {
         // Only an explicit completion or a rep count logs the set.
         case "done":
+          if (measure !== "reps") return finishRound(ctx, s);
           return logSet(ctx, s, s.targets[s.exercise][s.set - 1].reps);
         case "resume":
-          return [s, [sayDone()]];
+          return [s, measure === "reps" ? [sayDone()] : []];
         case "reps": {
+          // A number means reps only for rep work; a round is simply done.
+          if (measure !== "reps") return finishRound(ctx, s);
           const reps = Math.max(0, Math.min(200, Math.round(event.command.reps)));
           if (!event.command.heavy) return logSet(ctx, s, reps);
           // "6 reps but it was heavy": the reps are logged as said, and the
@@ -553,11 +632,12 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
           return [s, [setPrompt(ctx, s, s.exercise, s.set)]];
         case "skip": {
           if (!ctx.rules.allowSkip) return [s, [phrase("no_skip", "Your trainer's plan keeps this part. Say pain if something hurts.")]];
-          const skipped = { ...s, skipped: [...s.skipped, key(s.exercise, s.set)] };
+          const skipped = { ...s, workLeft: null, skipped: [...s.skipped, key(s.exercise, s.set)] };
           return afterSet(ctx, skipped, [phrase("skipped", "Skipped."), outcome({ type: "skipped_set", exercise: s.exercise, set: s.set })], false);
         }
       }
       return [s, []];
+    }
     case "rest":
       if (event.type === "tick") {
         const before = s.restRemaining,
@@ -609,8 +689,16 @@ export function runnerStatus(ctx: RunnerContext, s: RunnerState) {
       return "Warming up.";
     case "setup":
       return `${ex.name}: getting ready.`;
-    case "set":
-      return `${ex.name}, set ${s.set} of ${ex.sets}: ${t.reps} reps${t.loadKg > 0 ? ` at ${formatLoad(t.loadKg)} kg` : ""}.`;
+    case "set": {
+      const load = t.loadKg > 0 ? ` at ${formatLoad(t.loadKg)} kg` : "";
+      const measure = workMeasure(ex);
+      if (measure === "reps") return `${ex.name}, set ${s.set} of ${ex.sets}: ${t.reps} reps${load}.`;
+      const round = ex.sets > 1 ? `, round ${s.set} of ${ex.sets}` : "";
+      if (measure === "distance") return `${ex.name}${round}: ${formatDistance(ex.distanceMeters!)}${load}.`;
+      return typeof s.workLeft === "number"
+        ? `${ex.name}${round}: ${formatDuration(s.workLeft)} left.`
+        : `${ex.name}${round}: ${formatDuration(ex.durationSeconds!)}${load}.`;
+    }
     case "rest":
       return `Resting: ${s.restRemaining} seconds left.`;
     case "cooldown":

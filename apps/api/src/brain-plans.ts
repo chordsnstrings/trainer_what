@@ -32,6 +32,12 @@ import {
   validateAdaptedWeek,
   validatePlan,
   planTextIssues,
+  adaptationDirectionIssues,
+  heldWeek,
+  neutralPlanText,
+  oneRepTimedWork,
+  progressionHolds,
+  workFields,
   type AdaptationWeek,
   type ExpandedExercise,
   type PlanDraft,
@@ -435,7 +441,8 @@ function toProgramExercise(
   return {
     name: entry?.name ?? e.name,
     sets: Math.min(10, e.sets),
-    reps: e.reps,
+    // Reps, or a duration or distance per set (with its pace and effort).
+    ...workFields(e),
     restSeconds: e.restSeconds,
     loadKg: e.loadKg,
     rir: e.rir,
@@ -458,7 +465,7 @@ const planTexts = (d: Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions"
 const fromProgramExercise = (e: any): ExpandedExercise => ({
   name: e.name,
   sets: e.sets,
-  reps: e.reps,
+  ...workFields(e),
   loadKg: e.loadKg ?? 0,
   rir: e.rir ?? 2,
   restSeconds: e.restSeconds ?? 90,
@@ -880,6 +887,8 @@ const NOT_SENT_CODES = new Set([
   "MODEL_USER_LIMIT",
   "MODEL_NOT_CONFIGURED",
   "PLAN_CONTEXT_TOO_LARGE",
+  // The request could not be given unambiguous short references: nothing was sent.
+  "PROMPT_REFS_UNSAFE",
 ]);
 /**
  * Records a model failure. A worker job refused before dispatch stays
@@ -975,16 +984,49 @@ export async function generateMemberPlan(
       await event(tx, a, "brain.plan_failed", gen.id);
       return { status: "failed", generationId: gen.id };
     }
-    return routeProgramme(tx, a, gen, result.draft, {
+    const neutral = neutralPlanText(result.draft);
+    return routeProgramme(tx, a, gen, neutral.draft, {
       prepared: p,
       settings,
       material,
       modelPin: result.pin,
       usage,
-      holds: p.trigger === "manual" ? manualHolds(current, p.previousProgramId) : [],
+      holds: [
+        ...(p.trigger === "manual" ? manualHolds(current, p.previousProgramId) : []),
+        ...neutralTextHolds(neutral.replaced),
+        ...oneRepTimedHolds(neutral.draft),
+      ],
+      replacedText: neutral.replaced,
     });
   });
 }
+/**
+ * A plan whose health wording was replaced goes to the trainer: the plan may
+ * be fine, but the model thought about a condition the intake may not show.
+ */
+const neutralTextHolds = (replaced: Array<{ field: string }>) => {
+  const where = [
+    ...new Set(
+      replaced.map((r) =>
+        r.field.endsWith(".label") ? "session labels" : r.field.endsWith(".focus") ? "week focus" : r.field,
+      ),
+    ),
+  ];
+  return where.length
+    ? [`The Brain's ${where.join(", ")} mentioned health details, so neutral wording replaced it; check the plan suits the subscriber`]
+    : [];
+};
+/**
+ * A model plan that writes a walk, run, interval, hold or carry as one rep
+ * (the way the trainer's templates store it) goes to the trainer: the member
+ * would see "1 x 1" and the session length would be under-counted.
+ */
+const oneRepTimedHolds = (draft: PlanDraft) => {
+  const found = oneRepTimedWork(draft.sessions);
+  return found.length
+    ? [`The Brain wrote ${found.slice(0, 5).join(", ")} as 1 rep; timed or distance work needs a time or distance, so check ${found.length === 1 ? "it" : "them"} before the plan goes out`]
+    : [];
+};
 async function routeProgramme(
   tx: Tx,
   a: Actor,
@@ -997,6 +1039,8 @@ async function routeProgramme(
     modelPin: unknown;
     usage: unknown;
     holds: string[];
+    /** The model's withheld wording (staff-only), when neutral wording replaced it. */
+    replacedText?: Array<{ field: string; text: string }>;
   },
 ) {
   const p = ctx.prepared,
@@ -1049,6 +1093,7 @@ async function routeProgramme(
     qualified: qualification.qualified,
     qualificationId: qualification.passingId,
     mode: settings.mode,
+    ...(ctx.replacedText?.length ? { replacedText: ctx.replacedText } : {}),
   };
   if (route === "automatic") {
     const delivered = await deliverProgramme(tx, a, {
@@ -1131,8 +1176,8 @@ async function weekOutcomes(tx: Tx, userId: string, current: any[], today: strin
       const key = normalizeTerm(e.name);
       const row = exercises.get(key) ?? {
         exercise: e.name,
-        prescribed: { sets: 0, reps: e.reps, loadKg: e.loadKg, rir: e.rir },
-        logged: { sets: 0, reps: 0, maxLoadKg: 0, rirTotal: 0, rirCount: 0 },
+        prescribed: { sets: 0, ...workFields(e), loadKg: e.loadKg, rir: e.rir },
+        logged: { sets: 0, reps: 0, maxLoadKg: 0, rirTotal: 0, rirCount: 0, seconds: 0, secondsCount: 0, meters: 0, metersCount: 0 },
       };
       row.prescribed.sets += e.sets;
       row.prescribed.loadKg = Math.max(row.prescribed.loadKg, e.loadKg ?? 0);
@@ -1147,6 +1192,15 @@ async function weekOutcomes(tx: Tx, userId: string, current: any[], today: strin
     if (typeof set.data.rir === "number") {
       row.logged.rirTotal += set.data.rir;
       row.logged.rirCount++;
+    }
+    // Timed and distance rounds log what was done.
+    if (typeof set.data.durationSeconds === "number") {
+      row.logged.seconds += set.data.durationSeconds;
+      row.logged.secondsCount++;
+    }
+    if (typeof set.data.distanceMeters === "number") {
+      row.logged.meters += set.data.distanceMeters;
+      row.logged.metersCount++;
     }
   }
   const completed = current.filter((s) => s.status === "completed").length;
@@ -1175,6 +1229,8 @@ async function weekOutcomes(tx: Tx, userId: string, current: any[], today: strin
         averageReps: r.logged.sets ? Math.round((r.logged.reps / r.logged.sets) * 10) / 10 : null,
         maxLoadKg: r.logged.maxLoadKg,
         averageRir: r.logged.rirCount ? Math.round((r.logged.rirTotal / r.logged.rirCount) * 10) / 10 : null,
+        ...(r.logged.secondsCount ? { averageDurationSeconds: Math.round(r.logged.seconds / r.logged.secondsCount) } : {}),
+        ...(r.logged.metersCount ? { averageDistanceMeters: Math.round(r.logged.meters / r.logged.metersCount) } : {}),
       },
     })),
   };
@@ -1242,7 +1298,15 @@ export async function adaptMemberPlan(
       library: material.library,
     });
     const reference = await loadReference(tx, userId, material.library);
-    const nextSessions = expandedSessions(next);
+    const nextSessions = expandedSessions(next),
+      currentSessions = expandedSessions(current);
+    // After missed sessions, nothing logged or a harder-than-planned week,
+    // next week is held at no more than this week's values before the model
+    // sees it: the plan's own progression does not go out either.
+    const progressionHold = progressionHolds(outcomes);
+    const held = progressionHold.length
+      ? heldWeek(nextSessions, currentSessions)
+      : { sessions: nextSessions, changes: [] };
     const data = {
       type: "adaptation",
       subscriberId: userId,
@@ -1254,7 +1318,9 @@ export async function adaptMemberPlan(
       inputs: { intakeId: ready.intake.id, profile, segment, programId: program.id, week: options.week, timezone, outcomes },
       inputsDigest: hash({ program: program.id, week: options.week, outcomes, next: next.map((n) => [n.id, n.version]) }),
       retrieval: retrieval.trace,
-      currentWeek: expandedSessions(current).map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
+      currentWeek: currentSessions.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
+      progressionHold,
+      ...(held.changes.length ? { held: held.changes } : {}),
       baseline: { sessions: nextSessions.map((s) => ({ plannedSessionId: s.plannedSessionId, version: next.find((n) => n.id === s.plannedSessionId)!.version, sessionKey: s.sessionKey, exercises: s.exercises })) },
       requestedBy: a.userId,
       error: null,
@@ -1292,9 +1358,10 @@ export async function adaptMemberPlan(
         settings,
         retrieval,
         outcomes,
+        progressionHold,
         loadReference: reference,
-        current: expandedSessions(current),
-        next: nextSessions,
+        current: currentSessions,
+        next: held.sessions,
         program,
       },
     };
@@ -1310,6 +1377,7 @@ export async function adaptMemberPlan(
         currentWeek: p.current.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
         nextWeek: p.next.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
         outcomes: p.outcomes,
+        progressionHold: p.progressionHold,
         bounds: p.settings.bounds,
         material: p.retrieval.material,
       },
@@ -1354,6 +1422,9 @@ export async function adaptMemberPlan(
       { profile: p.profile, library: material.library, bounds: settings.bounds, evidenceIds: p.retrieval.evidenceIds, loadReference: p.loadReference },
     );
     validation.errors.unshift(...applied.errors);
+    // Nothing harder than the held week after missed sessions, nothing logged
+    // or a harder-than-planned week (p.next is already held at this week's values).
+    validation.errors.push(...adaptationDirectionIssues(p.next, applied.sessions, p.progressionHold));
     const outside = result.proposal.evidenceIds.filter((e) => !p.retrieval.evidenceIds.has(e));
     if (outside.length) validation.errors.push("The adjustment cites material outside the trainer's Brain");
     const confidence = planConfidence({
@@ -1774,12 +1845,14 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
     validation: PlanValidation,
     confidence: ReturnType<typeof planConfidence>,
     extra: Record<string, unknown>,
+    holds: string[] = [],
   ) => {
     const decision = planRoute({
       type,
       mode: "automatic",
       qualified: true,
       safety: [],
+      holds,
       confidence,
       validation,
       equipment: scenario.data.profile.equipment,
@@ -1830,7 +1903,9 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
       outcomes.push({ scenarioId: scenario.id, type: "programme", expected: scenario.data.expected, route: "review", passed: expectedReview, gate: "model_output", errors: result.errors.slice(0, 5) });
       continue;
     }
-    const validation = validatePlan(result.draft, {
+    // Scored like a live plan: health wording is replaced and held for the trainer.
+    const neutral = neutralPlanText(result.draft);
+    const validation = validatePlan(neutral.draft, {
       profile,
       library: material.library,
       bounds: settings.bounds,
@@ -1842,11 +1917,16 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
       ruleCoverage: ruleCoverage(segment, ruleTexts(material)),
       caseCoverage: caseCoverage(segment, learningRows(material)),
       validation,
-      selfConfidence: result.draft.selfConfidence,
-      uncertainties: result.draft.uncertainties,
+      selfConfidence: neutral.draft.selfConfidence,
+      uncertainties: neutral.draft.uncertainties,
       threshold: settings.threshold,
     });
-    outcomes.push(scored(scenario, "programme", validation, confidence, { retrieval: retrieval.trace }));
+    outcomes.push(
+      scored(scenario, "programme", validation, confidence, { retrieval: retrieval.trace }, [
+        ...neutralTextHolds(neutral.replaced),
+        ...oneRepTimedHolds(neutral.draft),
+      ]),
+    );
   }
   for (const scenario of adaptations) {
     const profile: PlanProfile = scenario.data.profile;
@@ -1879,15 +1959,19 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
       loggedSets: Math.round(logged.reduce((n, e) => n + e.sets, 0) * o.adherence),
       exercises: logged.map((e) => ({
         exercise: e.name,
-        prescribed: { sets: e.sets, reps: e.reps, loadKg: e.loadKg, rir: e.rir },
+        prescribed: { sets: e.sets, ...workFields(e), loadKg: e.loadKg, rir: e.rir },
         logged: {
           sets: Math.round(e.sets * o.adherence),
-          averageReps: o.adherence > 0 ? e.reps : null,
+          averageReps: o.adherence > 0 ? (e.reps ?? 0) : null,
           maxLoadKg: o.adherence > 0 ? e.loadKg : 0,
           averageRir: o.adherence > 0 ? Math.max(0, e.rir + (o.rirDelta ?? 0)) : null,
+          ...(o.adherence > 0 && e.durationSeconds ? { averageDurationSeconds: e.durationSeconds } : {}),
+          ...(o.adherence > 0 && e.distanceMeters ? { averageDistanceMeters: e.distanceMeters } : {}),
         },
       })),
     };
+    const hold = progressionHolds(outcomesInput);
+    const next = hold.length ? heldWeek(week, week).sessions : week;
     const segment = planSegment(profile);
     const retrieval = retrievalFor(profile, "adaptation");
     const result = await proposePlanAdaptation(
@@ -1895,8 +1979,9 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
         profile: { experience: profile.experience, daysPerWeek: profile.daysPerWeek, equipment: profile.equipment, goal: profile.goal },
         week: 2,
         currentWeek: week.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
-        nextWeek: week.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
+        nextWeek: next.map(({ sessionKey, exercises }) => ({ sessionKey, exercises })),
         outcomes: outcomesInput,
+        progressionHold: hold,
         bounds: settings.bounds,
         material: retrieval.material,
       },
@@ -1906,7 +1991,7 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
       outcomes.push({ scenarioId: scenario.id, type: "adaptation", expected: scenario.data.expected, route: "review", passed: expectedReview, gate: "model_output", errors: result.errors.slice(0, 5) });
       continue;
     }
-    const applied = applyAdaptation(week, result.proposal.changes);
+    const applied = applyAdaptation(next, result.proposal.changes);
     const reference = new Map(references);
     for (const e of logged) reference.set(normalizeTerm(e.name), e.loadKg);
     const validation = validateAdaptedWeek(
@@ -1915,6 +2000,7 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
       { profile, library: material.library, bounds: settings.bounds, evidenceIds: retrieval.evidenceIds, loadReference: reference },
     );
     validation.errors.unshift(...applied.errors);
+    validation.errors.push(...adaptationDirectionIssues(next, applied.sessions, hold));
     if (result.proposal.evidenceIds.some((e) => !retrieval.evidenceIds.has(e)))
       validation.errors.push("The adjustment cites material outside the trainer's Brain");
     const confidence = planConfidence({
@@ -2158,8 +2244,13 @@ const generationView = (row: any, names: Map<string, string>) => ({
   draft: row.data.draft ?? null,
   edited: row.data.edited ?? null,
   diff: row.data.diff ?? null,
+  // The model's own wording that neutral wording replaced (staff only).
+  replacedText: row.data.replacedText ?? null,
   proposal: row.data.proposal ?? null,
   currentWeek: row.data.currentWeek ?? null,
+  // Why next week may not go up, and what was held at this week's values.
+  progressionHold: row.data.progressionHold ?? [],
+  held: row.data.held ?? [],
   inputs: row.data.inputs
     ? {
         profile: row.data.inputs.profile,

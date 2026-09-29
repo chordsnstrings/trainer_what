@@ -5,6 +5,7 @@
 // the web runner reads them.
 import { z } from "zod";
 import { cueIssues, MARKUP, phraseIssues, type PhraseIssue } from "./text-screen.ts";
+import { EFFORTS, spokenDistance, spokenDuration, workMeasure } from "./prescription.ts";
 // The free-wording checks live in text-screen.ts (shared with Brain plans).
 export { cueIssues, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 
@@ -41,8 +42,16 @@ export type ScriptLine = {
 };
 export type PlanExercise = {
   name: string;
+  /** Sets of rep work; rounds of timed or distance work. */
   sets: number;
+  /** Reps per set; 0 for timed or distance work. */
   reps: number;
+  /** Work per round of timed work (the runner keeps the clock). */
+  durationSeconds?: number;
+  /** Distance per round of distance work (the member says done). */
+  distanceMeters?: number;
+  paceSecondsPerKm?: number;
+  effort?: string;
   loadKg: number;
   restSeconds: number;
   rir: number;
@@ -184,8 +193,14 @@ export function planExercises(program: any): PlanExercise[] {
     throw new PlanError("This workout has no plan a voice session can follow.");
   return list.map((ex: any) => {
     const name = String(ex?.name ?? "").trim();
+    // Timed work (a hold, an interval, a continuous run) and distance work
+    // have no reps: the runner times a round or waits for "done".
+    const measure = workMeasure(ex ?? {});
     const sets = count(ex?.sets, 1, 10),
-      reps = count(ex?.reps, 1, 100),
+      reps = measure === "reps" ? count(ex?.reps, 1, 100) : 0,
+      durationSeconds = measure === "time" ? count(ex?.durationSeconds, 5, 7200) : null,
+      distanceMeters = measure === "distance" ? count(ex?.distanceMeters, 10, 50000) : null,
+      pace = ex?.paceSecondsPerKm == null ? null : count(ex.paceSecondsPerKm, 120, 1200),
       loadKg = count(ex?.loadKg, 0, 500, 0),
       restSeconds = count(ex?.restSeconds ?? ex?.rest, 0, 600, 60),
       rir = count(ex?.rir, 0, 10, 2);
@@ -197,18 +212,26 @@ export function planExercises(program: any): PlanExercise[] {
       !Number.isInteger(sets) ||
       reps === null ||
       !Number.isInteger(reps) ||
+      (measure === "time" && (durationSeconds === null || !Number.isInteger(durationSeconds))) ||
+      (measure === "distance" && (distanceMeters === null || !Number.isInteger(distanceMeters))) ||
       loadKg === null ||
       restSeconds === null ||
       !Number.isInteger(restSeconds) ||
       rir === null
     )
       throw new PlanError(
-        "An exercise in this workout is missing its sets, reps or rest, so it cannot be voiced.",
+        "An exercise in this workout is missing its sets, reps, time or distance, or its rest, so it cannot be voiced.",
       );
     return {
       name,
       sets,
       reps,
+      ...(measure === "time" ? { durationSeconds: durationSeconds! } : {}),
+      ...(measure === "distance" ? { distanceMeters: distanceMeters! } : {}),
+      ...(measure !== "reps" && pace !== null && Number.isInteger(pace) ? { paceSecondsPerKm: pace } : {}),
+      ...(measure !== "reps" && typeof ex?.effort === "string" && (EFFORTS as readonly string[]).includes(ex.effort)
+        ? { effort: ex.effort as string }
+        : {}),
       loadKg: Math.round(loadKg * 100) / 100,
       restSeconds,
       rir,
@@ -228,12 +251,36 @@ export function restPhrase(seconds: number) {
 }
 const target = (reps: number, loadKg: number) =>
   `${reps} reps${loadKg > 0 ? ` at ${formatLoad(loadKg)} kilograms` : ""}`;
+/** One round of timed or distance work, spoken: "1 minute", "500 metres at 16 kilograms". */
+export function spokenWork(ex: PlanExercise, loadKg = ex.loadKg) {
+  const work =
+    workMeasure(ex) === "time"
+      ? spokenDuration(ex.durationSeconds!)
+      : spokenDistance(ex.distanceMeters!);
+  return `${work}${loadKg > 0 ? ` at ${formatLoad(loadKg)} kilograms` : ""}`;
+}
+/** Effort and pace of timed or distance work: ", easy effort, pace 6 minutes 30 seconds per kilometre". */
+const effortAndPace = (ex: PlanExercise) =>
+  (ex.effort ? `, ${ex.effort} effort` : "") +
+  (ex.paceSecondsPerKm ? `, pace ${spokenDuration(ex.paceSecondsPerKm)} per kilometre` : "");
+/** Whether the runner keeps the clock for this exercise's rounds. */
+export const timedExercise = (ex: PlanExercise) => workMeasure(ex) === "time";
 /** The exact code-owned wording; validation compares against it. */
 export const codeLines = {
   setup: (ex: PlanExercise, index: number, total: number) =>
-    `${index === total - 1 && total > 1 ? "Last exercise" : `Exercise ${index + 1} of ${total}`}: ${ex.name}. ${ex.sets} ${ex.sets === 1 ? "set" : "sets"} of ${target(ex.reps, ex.loadKg)}.`,
+    `${index === total - 1 && total > 1 ? "Last exercise" : `Exercise ${index + 1} of ${total}`}: ${ex.name}. ${
+      workMeasure(ex) === "reps"
+        ? `${ex.sets} ${ex.sets === 1 ? "set" : "sets"} of ${target(ex.reps, ex.loadKg)}`
+        : `${ex.sets === 1 ? "" : `${ex.sets} rounds of `}${spokenWork(ex)}${effortAndPace(ex)}`
+    }.`,
   set: (ex: PlanExercise, set: number) =>
-    `Set ${set} of ${ex.sets}. ${target(ex.reps, ex.loadKg)}. Say done when you finish, or tell me how many reps you did.`,
+    workMeasure(ex) === "reps"
+      ? `Set ${set} of ${ex.sets}. ${target(ex.reps, ex.loadKg)}. Say done when you finish, or tell me how many reps you did.`
+      : `${ex.sets === 1 ? "" : `Round ${set} of ${ex.sets}. `}${spokenWork(ex)}. ${
+          timedExercise(ex)
+            ? "The clock starts now. Say done if you stop early."
+            : "Say done when you finish."
+        }`,
   rest: (ex: PlanExercise) =>
     ex.restSeconds > 0
       ? `Rest ${restPhrase(ex.restSeconds)}.`
@@ -439,6 +486,10 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
       s.name !== ex.name ||
       s.sets !== ex.sets ||
       s.reps !== ex.reps ||
+      s.durationSeconds !== ex.durationSeconds ||
+      s.distanceMeters !== ex.distanceMeters ||
+      s.paceSecondsPerKm !== ex.paceSecondsPerKm ||
+      s.effort !== ex.effort ||
       s.loadKg !== ex.loadKg ||
       s.restSeconds !== ex.restSeconds
     ) {
@@ -503,6 +554,7 @@ export const SHARED_PHRASES: Record<string, string> = {
   next_set: "Next set.",
   last_set: "Last set.",
   go: "Go.",
+  time_up: "Time.",
   ten_seconds: "Ten seconds.",
   countdown: "Three. Two. One.",
   logged: "Logged.",

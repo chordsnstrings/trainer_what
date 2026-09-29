@@ -53,9 +53,12 @@ export const setSchema = z
     eventKey: z.string().uuid(),
     exercise: z.string().min(1).max(100),
     set: z.number().int().min(1).max(20),
+    // A round of timed or distance work logs reps 0 with the time or distance done.
     reps: z.number().int().min(0).max(200),
     loadKg: z.number().min(0).max(500),
     rir: z.number().min(0).max(10).optional(),
+    durationSeconds: z.number().int().min(0).max(36000).optional(),
+    distanceMeters: z.number().int().min(0).max(200000).optional(),
   })
   .strict();
 /** Trainer-set programme length bounds (days). `null` means rolling blocks of the Brain default. */

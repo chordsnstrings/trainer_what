@@ -1,6 +1,12 @@
 "use client";
 import { Field } from "./field";
 import { useEffect, useState } from "react";
+import {
+  EFFORTS,
+  prescriptionText,
+  workMeasure,
+  type WorkMeasure,
+} from "../../../packages/domain/src/prescription.ts";
 
 /**
  * Trainer Brain plans (docs/features/brain-plans.md): the trainer's review
@@ -34,13 +40,50 @@ const label = (value: string) => value.replaceAll("_", " ");
 
 type ExerciseRow = {
   name: string;
+  /** Sets of rep work; rounds of timed or distance work. */
   sets: number;
-  reps: number;
+  /** Exactly one of reps, durationSeconds and distanceMeters. */
+  reps?: number;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  paceSecondsPerKm?: number;
+  effort?: string;
   loadKg: number;
   rir: number;
   restSeconds: number;
   cue: string;
   alternatives: string[];
+};
+/** Switches an exercise to another measure, keeping a sensible amount of work. */
+function withMeasure(e: ExerciseRow, measure: WorkMeasure): ExerciseRow {
+  const {
+    reps: _r,
+    durationSeconds: _d,
+    distanceMeters: _m,
+    paceSecondsPerKm,
+    effort,
+    ...rest
+  } = e;
+  if (measure === "reps")
+    return { ...rest, reps: 10, restSeconds: Math.max(rest.restSeconds, 30) };
+  return {
+    ...rest,
+    ...(measure === "time" ? { durationSeconds: 60 } : { distanceMeters: 1000 }),
+    ...(paceSecondsPerKm ? { paceSecondsPerKm } : {}),
+    ...(effort ? { effort } : {}),
+  };
+}
+
+const HELD_FIELDS: Record<string, string> = {
+  loadKg: "load kg",
+  sets: "sets",
+  reps: "reps",
+  durationSeconds: "seconds",
+  distanceMeters: "metres",
+  paceSecondsPerKm: "pace s/km",
+  effort: "effort",
+  rir: "RIR",
+  restSeconds: "rest s",
 };
 
 function ExerciseRows({
@@ -54,18 +97,17 @@ function ExerciseRows({
   onChange?: (next: ExerciseRow[]) => void;
   legend: string;
 }) {
+  const replace = (i: number, next: ExerciseRow) =>
+    onChange?.(exercises.map((e, j) => (j === i ? next : e)));
   const patch = (i: number, key: keyof ExerciseRow, value: unknown) =>
-    onChange?.(exercises.map((e, j) => (j === i ? { ...e, [key]: value } : e)));
+    replace(i, { ...exercises[i], [key]: value });
   if (!onChange)
     return (
       <ul className="plan-exercises">
         {exercises.map((e) => (
           <li key={e.name}>
             <strong>{e.name}</strong>{" "}
-            <span className="muted">
-              {e.sets} × {e.reps} · {e.loadKg} kg · RIR {e.rir} · rest{" "}
-              {e.restSeconds}s
-            </span>
+            <span className="muted">{prescriptionText(e)}</span>
           </li>
         ))}
       </ul>
@@ -73,52 +115,94 @@ function ExerciseRows({
   return (
     <fieldset className="plan-editor-session">
       <legend>{legend}</legend>
-      {exercises.map((e, i) => (
-        <div className="plan-exercise-row" key={i}>
-          <Field label="Exercise">
-            <select
-              value={e.name}
-              onChange={(event) => patch(i, "name", event.target.value)}
-            >
-              {[...new Set([e.name, ...names])].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {(
-            [
-              ["sets", "Sets", 1, 10, 1],
-              ["reps", "Reps", 1, 30, 1],
-              ["loadKg", "Load kg", 0, 500, 0.5],
-              ["rir", "RIR", 0, 5, 1],
-              ["restSeconds", "Rest s", 15, 600, 5],
-            ] as const
-          ).map(([key, text, min, max, step]) => (
-            <Field key={key} label={text}>
-              <input
-                type="number"
-                min={min}
-                max={max}
-                step={step}
-                value={e[key]}
-                onChange={(event) =>
-                  patch(i, key, Number(event.target.value))
-                }
-              />
+      {exercises.map((e, i) => {
+        const measure = workMeasure(e);
+        type NumberField = [keyof ExerciseRow, string, number, number, number];
+        const work: NumberField =
+          measure === "time"
+            ? ["durationSeconds", "Seconds each", 5, 7200, 5]
+            : measure === "distance"
+              ? ["distanceMeters", "Metres each", 10, 50000, 10]
+              : ["reps", "Reps", 1, 30, 1];
+        const fields: NumberField[] = [
+          ["sets", measure === "reps" ? "Sets" : "Rounds", 1, 10, 1],
+          work,
+          ["loadKg", "Load kg", 0, 500, 0.5],
+          ["rir", "RIR", 0, 5, 1],
+          // No rest only for one continuous bout; the validator checks it.
+          ["restSeconds", "Rest s", measure === "reps" ? 15 : 0, 600, 5],
+        ];
+        return (
+          <div className="plan-exercise-row" key={i}>
+            <Field label="Exercise">
+              <select
+                value={e.name}
+                onChange={(event) => patch(i, "name", event.target.value)}
+              >
+                {[...new Set([e.name, ...names])].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
             </Field>
-          ))}
-          <button
-            type="button"
-            className="text-button"
-            disabled={exercises.length <= 1}
-            onClick={() => onChange(exercises.filter((_, j) => j !== i))}
-          >
-            Remove
-          </button>
-        </div>
-      ))}
+            <Field label="Measure">
+              <select
+                value={measure}
+                onChange={(event) =>
+                  replace(i, withMeasure(e, event.target.value as WorkMeasure))
+                }
+              >
+                <option value="reps">Reps</option>
+                <option value="time">Time</option>
+                <option value="distance">Distance</option>
+              </select>
+            </Field>
+            {fields.map(([key, text, min, max, step]) => (
+              <Field key={key} label={text}>
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  step={step}
+                  value={Number(e[key] ?? 0)}
+                  onChange={(event) =>
+                    patch(i, key, Number(event.target.value))
+                  }
+                />
+              </Field>
+            ))}
+            {measure !== "reps" && (
+              <Field label="Effort">
+                <select
+                  value={e.effort ?? ""}
+                  onChange={(event) =>
+                    replace(i, {
+                      ...e,
+                      effort: event.target.value || undefined,
+                    })
+                  }
+                >
+                  <option value="">Not set</option>
+                  {EFFORTS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <button
+              type="button"
+              className="text-button"
+              disabled={exercises.length <= 1}
+              onClick={() => onChange(exercises.filter((_, j) => j !== i))}
+            >
+              Remove
+            </button>
+          </div>
+        );
+      })}
       <button
         type="button"
         className="button secondary"
@@ -351,6 +435,18 @@ function ReviewItem({
           Your bounds reject this draft: {item.validation.errors.slice(0, 4).join("; ")}
         </p>
       )}
+      {item.replacedText?.length > 0 && (
+        <details>
+          <summary>The Brain&rsquo;s own wording, replaced before the member sees it</summary>
+          <ul className="plan-reasons">
+            {item.replacedText.map((r: any) => (
+              <li key={r.field}>
+                <strong>{r.field}</strong>: {r.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {item.inputs?.profile && (
         <p className="muted">
           {label(item.inputs.profile.experience)} · {item.inputs.profile.daysPerWeek}{" "}
@@ -365,6 +461,27 @@ function ReviewItem({
           {item.inputs.outcomes.dueSessions} sessions completed ·{" "}
           {item.inputs.outcomes.loggedSets} sets logged
         </p>
+      )}
+      {item.progressionHold?.length > 0 && (
+        <p className="muted">
+          No increase next week: {item.progressionHold.join("; ")}.
+        </p>
+      )}
+      {item.held?.length > 0 && (
+        <details>
+          <summary>
+            Held at this week&rsquo;s values before the Brain proposed changes
+          </summary>
+          <ul className="plan-reasons">
+            {item.held.map((h: any) => (
+              <li key={`${h.sessionKey}:${h.exercise}:${h.field}`}>
+                Session {h.sessionKey} · {h.exercise}:{" "}
+                {HELD_FIELDS[h.field] ?? h.field} {String(h.from)} →{" "}
+                {String(h.to)}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {!editing && item.draft && programme && (
         <ProgrammeDraft draft={item.draft} names={names} />
@@ -577,27 +694,44 @@ function SettingsCard({
   );
 }
 
-/** "A: Goblet squat, 3x10 @ 20 kg, RIR 2" per line into scenario sessions. */
+/**
+ * "A: Goblet squat, 3x10 @ 20 kg, RIR 2" per line into scenario sessions;
+ * timed and distance work add a unit: "B: Easy run, 1x20 min",
+ * "B: Run intervals, 6x60 s", "C: Row, 4x500 m" (sets are rounds, and one
+ * continuous bout has no rest).
+ */
 function parseScenarioWeek(text: string) {
   const sessions = new Map<string, any[]>();
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
     const m =
-      /^([A-G])\s*:\s*(.+?)\s*,\s*(\d+)\s*[x×]\s*(\d+)(?:\s*@\s*(\d+(?:\.\d+)?)\s*kg)?(?:\s*,\s*RIR\s*(\d))?$/i.exec(
+      /^([A-G])\s*:\s*(.+?)\s*,\s*(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds?|min|mins|minutes?|m|metres?|meters?|km)?(?:\s*@\s*(\d+(?:\.\d+)?)\s*kg)?(?:\s*,\s*RIR\s*(\d))?$/i.exec(
         line,
       );
-    if (!m) throw new Error(`Write each exercise as "A: Goblet squat, 3x10 @ 20 kg, RIR 2" (${line})`);
+    if (!m) throw new Error(`Write each exercise as "A: Goblet squat, 3x10 @ 20 kg, RIR 2" or "B: Easy run, 1x20 min" (${line})`);
     const key = m[1].toUpperCase();
+    const sets = Number(m[3]),
+      amount = Number(m[4]),
+      unit = (m[5] ?? "").toLowerCase();
+    const work = !unit
+      ? { reps: Math.round(amount) }
+      : /^(s|sec)/.test(unit)
+        ? { durationSeconds: Math.round(amount) }
+        : unit.startsWith("min")
+          ? { durationSeconds: Math.round(amount * 60) }
+          : unit === "km"
+            ? { distanceMeters: Math.round(amount * 1000) }
+            : { distanceMeters: Math.round(amount) };
     sessions.set(key, [
       ...(sessions.get(key) ?? []),
       {
         name: m[2],
-        sets: Number(m[3]),
-        reps: Number(m[4]),
-        loadKg: Number(m[5] ?? 0),
-        rir: Number(m[6] ?? 2),
-        restSeconds: 90,
+        sets,
+        ...work,
+        loadKg: Number(m[6] ?? 0),
+        rir: Number(m[7] ?? 2),
+        restSeconds: unit && sets === 1 ? 0 : 90,
         cue: "",
         alternatives: [],
       },
@@ -787,7 +921,7 @@ function QualificationCard({
           </Field>
         </div>
         {type === "adaptation" && (
-          <Field label="The prescribed week (one exercise per line, e.g. A: Goblet squat, 3x10 @ 20 kg, RIR 2)">
+          <Field label="The prescribed week (one exercise per line, e.g. A: Goblet squat, 3x10 @ 20 kg, RIR 2 or B: Easy run, 1x20 min)">
             <textarea name="week" rows={4} required maxLength={4000} />
           </Field>
         )}

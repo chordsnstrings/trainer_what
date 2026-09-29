@@ -251,8 +251,12 @@ async function generate(coach: any, client: any) {
   assert.equal(r.statusCode, 200, r.body);
   return r.json();
 }
-/** Completes every session of a programme week with each set at the prescribed load and RIR. */
-async function logWeek(coach: any, client: any, programId: string, week: number) {
+/**
+ * Completes every session of a programme week with each set at the prescribed
+ * load and RIR (shifted by `rirDelta`: negative is harder than planned); a
+ * timed or distance round logs its time or distance.
+ */
+async function logWeek(coach: any, client: any, programId: string, week: number, rirDelta = 0) {
   await asWorker(coach, async (tx) => {
     const rows = await tx.query("SELECT * FROM records WHERE kind='planned_session' AND data->>'programId'=$1 AND (data->>'week')::int=$2", [programId, week]);
     for (const s of rows) {
@@ -262,7 +266,15 @@ async function logWeek(coach: any, client: any, programId: string, week: number)
         for (let set = 1; set <= e.sets; set++)
           await tx.query("INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data) VALUES($1,$2,$3,$4,$5,$6)", [
             randomUUID(), coach.tenantId, client.userId, workout.id, randomUUID(),
-            JSON.stringify({ exercise: e.name, set, reps: e.reps, loadKg: e.loadKg, rir: e.rir }),
+            JSON.stringify({
+              exercise: e.name,
+              set,
+              reps: e.reps ?? 0,
+              loadKg: e.loadKg,
+              rir: Math.max(0, e.rir + rirDelta),
+              ...(e.durationSeconds ? { durationSeconds: e.durationSeconds } : {}),
+              ...(e.distanceMeters ? { distanceMeters: e.distanceMeters } : {}),
+            }),
           ]);
     }
   });
@@ -451,10 +463,10 @@ test("confidence is deterministic, explained and raised by similar reviewed plan
 test("the e2e rule responder answers both prompt kinds with schema-valid output, and long programmes get a larger budget", () => {
   const body = (system: string, input: any) => ({ messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }] });
   const retrieval = retrievePlanMaterial({ tenantId: "t", segment: planSegment({ goal: "Build strength", experience: "beginner", daysPerWeek: 3, equipment: "Dumbbells, bench" }), goal: "Build strength", rules: [], cases: [], learning: [], templates: [], library });
-  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v2.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
+  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v3.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
   assert.equal(plan.kind, "plan_generation");
   assert.deepEqual(validatePlan(plan.content as PlanDraft, ctx).errors, []);
-  const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v1.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
+  const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v2.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
   assert.equal(adaptation.kind, "plan_adaptation");
   assert.deepEqual((adaptation.content as any).changes, []);
   const short = planGenerationBudget({ daysPerWeek: 3, weeks: 4 }),
@@ -484,7 +496,7 @@ test("supervised generation goes to review with its audit record, and approval d
   const gen = await generation(r.generationId, coach.tenantId);
   assert.equal(gen.status, "pending_review");
   assert.equal(gen.owner_user_id, client.userId);
-  assert.equal(gen.data.promptVersion, "brain-plan-v2");
+  assert.equal(gen.data.promptVersion, "brain-plan-v3");
   assert.match(gen.data.inputsDigest, /^[0-9a-f]{64}$/);
   assert.ok(gen.data.brainReleaseId);
   assert.equal(gen.data.inputs.programmeDays, 14);
@@ -1249,4 +1261,216 @@ test("held-out evaluation grades content: guarantees, approval claims, drug advi
   assert.deepEqual(restated("Following your coach's guidance: when all squat sets are done with two reps in reserve, add 10 kg next session."), ["altered_numbers"]);
   assert.deepEqual(restated("Schedule six sessions a week."), ["altered_numbers"]);
   assert.deepEqual(restated("Add 2.5 kg, twice as often as your coach says."), ["altered_numbers"]);
+});
+
+// ---------------------------------------------------------------------------
+// After the September 2026 model trial (core/fix-plans): timed and distance
+// work end to end, the no-increase gate after a harder week, neutral wording
+// for a summary withheld for health language, and short evidence references.
+
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const timed = (name: string, extra: any) => ({ name, sets: 1, loadKg: 0, rir: 3, restSeconds: 0, cue: "", alternatives: [], ...extra });
+/** The trial's endurance coach (T3S01): run-walk intervals, a circuit and a steady run, as the v3 contract asks. */
+const runnerPlan = (input: any) => ({
+  title: "First 5 km",
+  summary: "Run-walk intervals, a strength circuit and a steady run each week.",
+  sessions: [
+    { key: "A", label: "Run-walk intervals", weekday: 1, exercises: [timed("Brisk walk", { durationSeconds: 300, effort: "easy" }), timed("Run intervals", { sets: 6, durationSeconds: 60, restSeconds: 90, rir: 2, effort: "hard" })] },
+    { key: "B", label: "Strength circuit", weekday: 3, exercises: [timed("Goblet squat", { sets: 3, reps: 10, loadKg: 10, rir: 3, restSeconds: 90 }), timed("Plank", { sets: 3, durationSeconds: 30, restSeconds: 60, rir: 2 })] },
+    { key: "C", label: "Steady run", weekday: 5, exercises: [timed("Easy run", { durationSeconds: 1200, paceSecondsPerKm: 420, effort: "easy" })] },
+  ],
+  weeks: [1, 2].map((week) => ({ week, focus: week === 1 ? "Settle into running" : "A little more running", volumeFactor: week === 1 ? 1 : 1.1, loadFactor: 1, rirDelta: 0, deload: false })),
+  selfConfidence: 0.8,
+  uncertainties: [],
+  evidenceIds: [input.material.rules[0].id],
+});
+async function runnerCoach(label: string) {
+  const coach = await newCoach(label);
+  for (const exercise of [
+    { name: "Brisk walk", equipment: ["bodyweight"], cue: "Brisk pace, you can still talk" },
+    { name: "Easy run", equipment: ["bodyweight"], cue: "Conversational pace" },
+    { name: "Run intervals", equipment: ["bodyweight"], cue: "Hard but controlled, walk the recoveries" },
+  ]) {
+    const r = await req("/training/exercises", "POST", { sets: 1, reps: 1, restSeconds: 60, loadKg: 0, rir: 2, ...exercise }, coach);
+    assert.equal(r.statusCode, 200, r.body);
+  }
+  return coach;
+}
+
+test("an endurance plan with timed rounds and a continuous run is generated from short references, approved, shown, logged by time and adjusted by time", async () => {
+  const coach = await runnerCoach("endurance");
+  const client = await member(coach, "Runner Client", { goal: "Lose fat and run my first 5 km" }, { programmeDays: 14 });
+  override = (body) => {
+    const { kind, input } = classifyPrompt(body);
+    return kind === "plan_generation" ? runnerPlan(input) : undefined;
+  };
+  let r;
+  try {
+    r = await generate(coach, client);
+  } finally {
+    override = undefined;
+  }
+  // The model saw references, never a UUID, and cited R1.
+  const sent = prompts.at(-1)!;
+  assert.equal(sent.kind, "plan_generation");
+  assert.ok(!UUID_ANYWHERE.test(JSON.stringify(sent.input)), "no UUID reaches the model");
+  assert.equal(sent.input.material.rules[0].id, "R1");
+  assert.equal(r.status, "pending_review", JSON.stringify(r));
+  const gen = await generation(r.generationId, coach.tenantId);
+  assert.deepEqual(gen.data.validation.errors, []);
+  assert.deepEqual(gen.data.draft.evidenceIds, [gen.data.retrieval.rules[0]], "R1 is stored as the rule's own ID");
+  // Minutes of timed work: 5 + 6 + 1.5 + 20 in week 1; each round 10% longer (to 5 s) in week 2.
+  assert.deepEqual(gen.data.validation.metrics.weeklyWorkMinutes, [32.5, 35.8]);
+  const approved = await req(`/brain/plans/${gen.id}/review`, "POST", { action: "approve", version: gen.version }, coach);
+  assert.equal(approved.statusCode, 200, approved.body);
+  const [program] = await assigned(coach, client.userId);
+  const sessions = await asWorker(coach, (tx) => tx.query("SELECT id,data FROM records WHERE kind='planned_session' AND data->>'programId'=$1 ORDER BY data->>'date'", [program.id]));
+  const byWeek = (week: number, key: string) => sessions.find((s: any) => s.data.week === week && s.data.sessionKey === key)!.data.program.exercises;
+  // Week 1 as written; week 2's volume factor lengthens each round (to 5 s) and keeps the rounds.
+  assert.deepEqual(byWeek(1, "A").map((e: any) => [e.name, e.sets, e.durationSeconds, e.restSeconds, e.reps]), [["Brisk walk", 1, 300, 0, undefined], ["Run intervals", 6, 60, 90, undefined]]);
+  assert.deepEqual(byWeek(2, "A")[1].durationSeconds, 65);
+  assert.deepEqual([byWeek(2, "C")[0].durationSeconds, byWeek(2, "C")[0].paceSecondsPerKm, byWeek(2, "C")[0].effort], [1320, 420, "easy"]);
+  assert.deepEqual(byWeek(1, "B").map((e: any) => [e.name, e.reps ?? null, e.durationSeconds ?? null]), [["Goblet squat", 10, null], ["Plank", null, 30]]);
+  // The member's plan view carries the time and distance fields.
+  const mine = (await req("/brain/plans/mine", "GET", undefined, client)).json();
+  assert.ok(mine.upcoming.some((s: any) => s.exercises.some((e: any) => e.name === "Easy run" && e.durationSeconds >= 1200)));
+  // A timed round is logged with the time it lasted (reps 0).
+  const planned = sessions.find((s: any) => s.data.week === 1 && s.data.sessionKey === "A")!;
+  const workout = await req("/workouts/start", "POST", { programId: program.id, plannedSessionId: planned.id }, client);
+  assert.equal(workout.statusCode, 200, workout.body);
+  const round = await req(`/workouts/${workout.json().id}/sets`, "POST", { eventKey: randomUUID(), exercise: "Run intervals", set: 1, reps: 0, loadKg: 0, durationSeconds: 55 }, client);
+  assert.equal(round.statusCode, 200, round.body);
+  assert.equal(round.json().data.durationSeconds, 55);
+  await req(`/workouts/${workout.json().id}/finish`, "POST", {}, client);
+  // The week is logged; the adaptation sees prescribed and logged time, and changes a duration.
+  await asWorker(coach, (tx) => tx.query("UPDATE records SET status='planned' WHERE id=$1", [planned.id]));
+  await logWeek(coach, client, program.id, 1);
+  override = (body) => {
+    const { kind } = classifyPrompt(body);
+    return kind === "plan_adaptation"
+      ? { changes: [{ sessionKey: "C", exercise: "Easy run", durationSeconds: 1200 }], reason: "Hold the steady run one more week.", selfConfidence: 0.8, uncertainties: [], evidenceIds: ["R1"] }
+      : undefined;
+  };
+  let adapted;
+  try {
+    adapted = await adaptMemberPlan(db, worker(coach.tenantId), client.userId, { programId: program.id, week: 2 });
+  } finally {
+    override = undefined;
+  }
+  const adaptInput = prompts.at(-1)!.input;
+  const run = adaptInput.outcomes.exercises.find((e: any) => e.exercise === "Easy run");
+  assert.deepEqual([run.prescribed.durationSeconds, run.logged.averageDurationSeconds], [1200, 1200]);
+  assert.deepEqual(adaptInput.progressionHold, []);
+  assert.equal(adapted.status, "pending_review", JSON.stringify(adapted));
+  const ag = await generation(adapted.generationId!, coach.tenantId);
+  assert.deepEqual(ag.data.validation.errors, []);
+  assert.equal(ag.data.draft.sessions.find((s: any) => s.sessionKey === "C").exercises[0].durationSeconds, 1200);
+  const applied = await req(`/brain/plans/${ag.id}/review`, "POST", { action: "approve", version: ag.version }, coach);
+  assert.equal(applied.statusCode, 200, applied.body);
+  const after = await asWorker(coach, (tx) => tx.query("SELECT data FROM records WHERE kind='planned_session' AND data->>'programId'=$1 AND (data->>'week')::int=2 AND data->>'sessionKey'='C'", [program.id]));
+  assert.equal(after[0].data.program.exercises[0].durationSeconds, 1200);
+});
+
+test("trial regression T1S07: after a harder-than-planned week the model is told to hold, the plan's own progression is held too, and a load increase anyway goes to the trainer", async () => {
+  const coach = await qualifiedCoach("harder");
+  const client = await member(coach, "Harder Week Client", {}, { programmeDays: 28 });
+  assert.equal((await generate(coach, client)).status, "delivered");
+  const [program] = await assigned(coach, client.userId);
+  // Every set logged one rep in reserve below the prescription.
+  await logWeek(coach, client, program.id, 1, -1);
+  const week1 = await weekLoads(coach, program.id, 1);
+  const baseline = await weekLoads(coach, program.id, 2);
+  assert.ok(baseline.some((kg, i) => kg > week1[i]), "the plan's week 2 has a higher load factor");
+  // The model double follows the hold: no changes.
+  const held = await adaptMemberPlan(db, worker(coach.tenantId), client.userId, { programId: program.id, week: 2 });
+  const input = prompts.at(-1)!.input;
+  assert.match(input.progressionHold.join(), /the week was harder than planned/);
+  // The model saw next week already held at this week's loads (review finding: not "as planned").
+  assert.deepEqual(input.nextWeek.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), week1);
+  assert.equal(held.status, "delivered", JSON.stringify(held));
+  assert.deepEqual(await weekLoads(coach, program.id, 2), week1, "the plan's higher week-2 loads did not reach the member");
+  const hg = await generation(held.generationId!, coach.tenantId);
+  assert.match(hg.data.progressionHold.join(), /the week was harder than planned/);
+  assert.ok(hg.data.held.some((c: any) => c.field === "loadKg" && c.from > c.to), JSON.stringify(hg.data.held));
+  assert.deepEqual(hg.data.baseline.sessions.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), baseline, "the planned week is kept for the trainer's diff");
+  // Seed 2.0 Pro read "RIR 1 against 2" as spare capacity and raised every load.
+  await logWeek(coach, client, program.id, 2, -1);
+  const week3 = await weekLoads(coach, program.id, 3);
+  override = (body) => {
+    const { kind, input } = classifyPrompt(body);
+    if (kind !== "plan_adaptation") return undefined;
+    const changes = input.nextWeek.flatMap((s: any) => s.exercises.filter((e: any) => e.loadKg > 0).map((e: any) => ({ sessionKey: s.sessionKey, exercise: e.name, loadKg: e.loadKg + 1 })));
+    return { changes, reason: "Average RIR is below the target, so there is capacity to progress.", selfConfidence: 0.92, uncertainties: [], evidenceIds: ["R1"] };
+  };
+  let raised;
+  try {
+    raised = await adaptMemberPlan(db, worker(coach.tenantId), client.userId, { programId: program.id, week: 3 });
+  } finally {
+    override = undefined;
+  }
+  assert.equal(raised.status, "pending_review", JSON.stringify(raised));
+  const rg = await generation(raised.generationId!, coach.tenantId);
+  assert.ok(rg.data.validation.errors.some((e: string) => /^Next week raises .* although the week was harder than planned/.test(e)), rg.data.validation.errors.join("\n"));
+  assert.equal(rg.data.route, "review");
+  assert.deepEqual(await weekLoads(coach, program.id, 3), week3, "nothing reached the member");
+});
+
+test("review regression (trial T3 template, Opus T2S03): a plan that writes a hold as 1 rep goes to the trainer, who may approve it as written", async () => {
+  const coach = await qualifiedCoach("onerep");
+  const client = await member(coach, "One Rep Client");
+  override = (body) => {
+    if (classifyPrompt(body).kind !== "plan_generation") return undefined;
+    const plan: any = ruleBasedAnswer(body).content;
+    const last = plan.sessions[plan.sessions.length - 1];
+    last.exercises = [
+      ...last.exercises.filter((e: any) => e.name !== "Plank").slice(0, 3),
+      { name: "Plank", sets: 3, reps: 1, loadKg: 0, rir: 3, restSeconds: 60, cue: "", alternatives: [] },
+    ];
+    return plan;
+  };
+  let r;
+  try {
+    r = await generate(coach, client);
+  } finally {
+    override = undefined;
+  }
+  assert.equal(r.status, "pending_review", JSON.stringify(r));
+  const gen = await generation(r.generationId, coach.tenantId);
+  assert.deepEqual(gen.data.validation.errors, []);
+  assert.ok(gen.data.validation.warnings.includes("Plank is written as 1 rep: timed or distance work needs a duration or distance"), gen.data.validation.warnings.join("\n"));
+  assert.ok(gen.data.routeReasons.some((x: string) => /^The Brain wrote Plank as 1 rep; timed or distance work needs a time or distance/.test(x)), gen.data.routeReasons.join("\n"));
+  const approved = await req(`/brain/plans/${gen.id}/review`, "POST", { action: "approve", version: gen.version }, coach);
+  assert.equal(approved.statusCode, 200, approved.body);
+});
+
+test("trial regression (Opus and Sonnet): a summary withheld for health language is replaced, held for the trainer, and can be approved as-is", async () => {
+  const coach = await qualifiedCoach("neutral");
+  const client = await member(coach, "Neutral Summary Client");
+  const summary = "Three gentle sessions. Your doctor cleared exercise, so stop and contact your doctor if anything feels wrong.";
+  override = (body) => {
+    if (classifyPrompt(body).kind !== "plan_generation") return undefined;
+    const plan: any = ruleBasedAnswer(body).content;
+    plan.summary = summary;
+    return plan;
+  };
+  let r;
+  try {
+    r = await generate(coach, client);
+  } finally {
+    override = undefined;
+  }
+  // Without the replacement this plan's only problem would have been its summary.
+  assert.equal(r.status, "pending_review", JSON.stringify(r));
+  const gen = await generation(r.generationId, coach.tenantId);
+  assert.deepEqual(gen.data.validation.errors, []);
+  assert.deepEqual(gen.data.replacedText, [{ field: "summary", text: summary }]);
+  assert.match(gen.data.draft.summary, /^3 sessions a week for 4 weeks \(/);
+  assert.ok(gen.data.routeReasons.some((x: string) => /^The Brain's summary mentioned health details, so neutral wording replaced it/.test(x)), gen.data.routeReasons.join("\n"));
+  const queued = (await workspace(coach)).queue.find((q: any) => q.id === gen.id);
+  assert.deepEqual(queued.replacedText, [{ field: "summary", text: summary }], "the trainer sees the original wording");
+  const approved = await req(`/brain/plans/${gen.id}/review`, "POST", { action: "approve", version: gen.version }, coach);
+  assert.equal(approved.statusCode, 200, approved.body);
+  const [program] = await assigned(coach, client.userId);
+  assert.equal(program.data.summary, gen.data.draft.summary);
+  assert.doesNotMatch(JSON.stringify(program.data), /doctor/);
 });
