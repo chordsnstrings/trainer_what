@@ -55,6 +55,7 @@ import {
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
 import { HeroFlow } from "./hero-flow";
+import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
 import type { PublicPlatform } from "./platform";
 import {
@@ -1144,6 +1145,14 @@ function StandardPage({ page, platform, origin }: Ctx) {
               />
               {section.note && <p className="fine-print muted">{t(section.note)}</p>}
             </section>
+          ) : page.path === "/how-it-works" &&
+            section.id === "steps" &&
+            journeyAvailable(platform) ? (
+            // The coach-to-subscriber journey player, with the same heading
+            // and steps (components/marketing/journey.tsx).
+            <div key={section.id}>
+              <Journey section={section} platform={platform} t={t} />
+            </div>
           ) : (
             <div key={section.id}>
               <Section section={section} t={t} />
@@ -1454,6 +1463,8 @@ function Home({ page, platform }: Ctx) {
           <HeroFlow platform={platform} t={t} />
         </div>
       </section>
+      {/* The whole workflow, coach to subscriber, once a coach can launch. */}
+      {journeyAvailable(platform) && <JourneyBand platform={platform} t={t} />}
       <HomeSection
         page={page}
         id="subscribers"
