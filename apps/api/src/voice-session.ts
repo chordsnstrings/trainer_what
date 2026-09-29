@@ -50,7 +50,11 @@ import {
   type SessionScript,
   type VoiceStyle,
 } from "../../../packages/domain/src/voice-session.ts";
-import { parseVoiceCommand, replyTranscript } from "../../../packages/domain/src/voice-runner.ts";
+import {
+  parseVoiceCommand,
+  readingsToScreen,
+  replyTranscript,
+} from "../../../packages/domain/src/voice-runner.ts";
 import type { SpeechLanguage } from "../../../packages/domain/src/speech-language.ts";
 import { memberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
@@ -614,12 +618,16 @@ const unheard = () =>
   fail(502, "SPEECH_UNCONFIRMED", "Your reply could not be heard. Say it again or use the buttons.");
 /**
  * Screens a spoken reply and opens the safety hold for pain or a red flag.
- * `transcripts` are one reply as heard (a device transcript, or the server's
- * transcripts in the member's reply language and the other language): each is
- * screened with the trainer's published policy and the code floor, so pain
- * said in either language stops the session. Otherwise the reply to act on is
- * the reply-language transcript, or the other one when only that one was
- * understood (`replyTranscript`).
+ * `transcripts` are one reply as heard, in order: a device transcript, or the
+ * server's reading in the member's reply language (first, possibly empty)
+ * and then in the other language. Each is screened with the trainer's
+ * published policy and the code floor, so pain said in either language stops
+ * the session; the other-language reading is screened for pain phrases, not
+ * for a word that is also something else ("ألم" as the question particle,
+ * `otherReadingScreenText`). Otherwise only the reply-language reading is
+ * acted on (`replyTranscript`): nothing is ever logged, skipped or moved on
+ * from the other reading, and a reply-language reading that was not
+ * understood asks again.
  */
 async function heldByScreen(
   tx: Tx,
@@ -627,17 +635,16 @@ async function heldByScreen(
   session: any,
   transcripts: string[],
 ) {
-  const heard = transcripts.map((t) => t.trim()).filter(Boolean);
   let flagged: { transcript: string; screen: Awaited<ReturnType<typeof screenForSafety>> } | null = null;
-  for (const transcript of heard) {
-    const screen = await screenForSafety(tx, transcript);
-    if (screen.hold || parseVoiceCommand(transcript).type === "pain") {
+  for (const { transcript, screened } of readingsToScreen(transcripts)) {
+    const screen = await screenForSafety(tx, screened);
+    if (screen.hold || parseVoiceCommand(screened).type === "pain") {
       flagged = { transcript, screen };
       break;
     }
   }
   if (!flagged) {
-    const transcript = replyTranscript(heard);
+    const transcript = replyTranscript(transcripts);
     return { transcript, command: parseVoiceCommand(transcript), trainingHeld: false };
   }
   const { transcript, screen } = flagged;
@@ -1116,12 +1123,14 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
             })
             .catch(() => {});
       }
-      // The reply language's transcript first, then the other language's.
+      // The reply language's transcript first, then the other language's; a
+      // failed or empty reading keeps its place, so the other reading is never
+      // taken for the reply-language one.
       const transcripts = heard.map((h) => h?.text ?? "");
-      // When the reply-language reading failed, the other reading (for speech
-      // in the reply language often unrelated words, live check) is screened
-      // for pain only and never acted on: without pain the member is asked to
-      // say it again, as when every reading fails.
+      // The other reading (for speech in the reply language often unrelated
+      // words, live check and retest) is screened for pain only and never acted
+      // on. When the reply-language reading failed, without pain the member is
+      // asked to say it again, as when every reading fails.
       const replyHeard = !!heard[0];
       if (!transcripts.some(Boolean)) {
         if (!replyHeard) throw unheard();
@@ -1132,7 +1141,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         const session = await ownSession(tx, a, reservation.session.id);
         return heldByScreen(tx, a, session, transcripts);
       });
-      if (!replyHeard && !result.trainingHeld) throw unheard();
+      // The reply-language reading failed or heard nothing while the other
+      // heard words: without pain, the member says it again.
+      if ((!replyHeard || !transcripts[0].trim()) && !result.trainingHeld) throw unheard();
       return result;
     },
   );

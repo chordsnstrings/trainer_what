@@ -22,6 +22,15 @@ fixes after the first live run of the whole chain against Cartesia (a real Quick
 English and Arabic, spoken replies through ink-whisper, the parser and the runner). See "Talk-back
 and language (29 September 2026)" below.
 
+Update 29 September 2026, later (branch `fix/voice-talkback`, base `0c9569d`): talk-back safety
+after the retest of the whole voice chain against every available transcriber (1,080 replies).
+One rule is enforced everywhere: a set is logged only from an unambiguous completion in the
+member's own reply language; anything uncertain asks again or does nothing, and never logs. See
+"Talk-back safety after the retest" below; it replaces the rule that acted on the other-language
+reading when the reply-language reading was not understood. A review of that branch (VT-R1 to
+VT-R10) found gaps in the same rule and a weakening of Arabic pain screening; both are fixed in
+"Review of the retest fixes" below.
+
 ## Plan (written before implementation)
 
 Today a member can only ask for one fixed sentence per exercise in the trainer's voice
@@ -462,7 +471,9 @@ including the English word "pain" the safety line asks for) was **not stopped**.
   both). ElevenLabs detects the language itself and is read once.
 - Every reading is screened (trainer policy and code floor, `heldByScreen`): pain in either
   opens the hold and stops the session.
-- Otherwise the reply-language reading is acted on, or the other reading when only that one was
+- (Replaced after the retest, see "Talk-back safety after the retest": only the reply-language
+  reading is ever acted on, and the other reading is screened for pain phrases.) Otherwise the
+  reply-language reading is acted on, or the other reading when only that one was
   understood (`replyTranscript`: the first reading was unknown or a bare acknowledgement).
 - When the reply-language reading fails and the other succeeds (review of this branch), the
   other reading is screened for pain (and opens the hold when flagged) but never acted on: the
@@ -696,7 +707,8 @@ e2e harness and a browser check.
   but not how many reps were missed (the number is ambiguous: "the last 2" is the missed count,
   "I didn't do 8" is the target). Present-tense "I can't do 10" earns the help line, not "too
   heavy".
-- The other-language reading is screened for pain too. In the live readings it never produced a
+- (Fixed after the retest: the other reading is screened for pain phrases, not a bare "ألم".)
+  The other-language reading is screened for pain too. In the live readings it never produced a
   red flag from a reply that had none (a translation such as "لا ألم" could, and would then stop
   the session for the trainer to review); none was seen.
 - Two exercises with the same name share set logs (the workout log keys sets by exercise name).
@@ -710,6 +722,291 @@ e2e harness and a browser check.
   line.
 - Not live-tested: a Pro clone, a real browser (microphone, echo, playback), iOS background audio,
   and per-clone credit charges (the usage endpoint needs an admin key).
+
+## Talk-back safety after the retest (29 September 2026)
+
+Branch `fix/voice-talkback` (base `0c9569d`). The retest (scratchpad `brain-retest/voice`,
+`voice-summary.md`) voiced 40 member replies (English, Modern Standard Arabic, Gulf and
+code-switched; done, counts, negated, hedged, not done, pain, pause, skip, effort) in two voices,
+under three levels of gym noise, and read them with Cartesia ink-whisper through the app's
+two-language route and with every OpenAI transcriber (`gpt-transcribe`, `gpt-4o-transcribe`,
+`gpt-4o-mini-transcribe`, `whisper-1`, once, and `gpt-transcribe` twice through the route): 1,080
+results. The app then logged sets it should not have. The rule now enforced: **a set is logged
+only from an unambiguous completion in the member's own reply language; anything uncertain asks
+again or does nothing, and never logs.** Pain said in either language still stops the session.
+
+What changed (`packages/domain/src/voice-runner.ts`, `apps/api/src/voice-session.ts`,
+`apps/web/components/voice-session.tsx`):
+
+1. **Hedges never log** (retest finding 1). Gulf "تقريباً خلصت" (almost finished) logged the set at
+   the target with every transcriber. A hedge anywhere in the reply now turns a completion or a
+   count into an acknowledgement (during a set the member hears "say done when you finish the
+   set, or tell me how many reps you did"): Arabic "تقريباً / تقريبا / تقريبًا / بالتقريب",
+   "يعني", "شبه", "كاد / كادت / كدت", "أوشك / على وشك", "شارف", "قربت", "يمكن", "ربما", "أظن",
+   "أعتقد", "حوالي", "بحدود", "نص / نصف", "باقي", "مو متأكد", "ما أدري / مدري"; English "almost",
+   "nearly", "approximately", "roughly", "maybe", "probably", "I think", "I guess", "not sure",
+   "sort of", "kind of", "pretty much", "mostly", "half", and "about / around / like / over / up
+   to / at least" before a number or "8 or so". The text is folded first, so diacritics, alef
+   forms, alef maqsura and ta marbuta ("يعنى", "شبة") are read alike; transliterated "taqriban"
+   and "ya3ni" too. "كدت أكملها" (I almost finished it), like "I almost made it", is `not_done`.
+   "Barely made it" and "close to failure" still complete.
+2. **Nothing is acted on from the other-language reading** (finding 2). Cartesia read Gulf
+   "طوفها" (skip it) as "طوفا" in Arabic and "2." in English, and the route acted on "2." and
+   logged a set of 2 reps. `replyTranscript` now always returns the reply-language reading; the
+   other reading is only screened for pain. When the reply-language reading is not understood the
+   member is asked again (the help line, or "say done" in a set); when it failed or heard nothing
+   while the other heard words, the route answers 502 `SPEECH_UNCONFIRMED` ("say it again"). The
+   route also kept the readings in place: before, an empty reply-language reading was dropped and
+   the other reading took its place and was acted on in full. A member whose reply language is
+   English and who counts in Arabic ("ثمان تكرارات" read as "Thank you.") is asked again and
+   should choose العربية under "I reply in" (or tap).
+3. **A number is a count only when tied to the set** (finding 4, and the rule for counts):
+   followed by a rep word ("10 reps", "ثمان تكرارات", "8 ربز"), just after a word that reports
+   it ("did 10", "سويت عشر", "just one", "that was one", "sawwait 12", "ست بس"), or the whole
+   reply ("Eight.", "٨", "twenty five", "اثنا عشر"). A number word right after an effort word
+   ("ثقيل واحد", "heavy one", "too hard, two") is never a count unless a rep word follows. So
+   "الوزن ثقيل واحد" (misheard "وايد") is too heavy, "ما خمسة" (misheard "ما خلصت"), "ما تقدر
+   تكمل ثلاث ست", "أعطى 12", "the weight was 20" and "I got 2 left" log nothing, and "هل ست؟
+   سويت ثمان" logs 8, not 6. "ست / سيت" after a number is "set", "ساعات" hours, "left / more /
+   remaining / باقي" what is left. Digits written into a word ("5alast") are not a number.
+   **Implausible counts are asked again** (`plausibleReps`, in the runner): a heard count must be
+   at least 1 and at most one and a half times the target or five more, whichever is larger,
+   never more than twice it (a set of 5 allows 1 to 10, of 10 allows 1 to 15, of 20 allows 1 to
+   30). "سويت عشر" read as "تسعة عشر" (19) is asked again for a set of 5 or 10. A count typed on
+   the runner's screen (`typed: true`) is not checked. The member who really did more says
+   "done" (the target is logged) and corrects the log on the workout page.
+4. **The other reading drops "ألم" only as the question particle** (finding 3; rule inverted after
+   review VT-R2). "I didn't finish that set." read as Arabic was "ألم أنه لا ينفع هذا المنزل":
+   "ألم" there is the question particle ("didn't...?"), and the session stopped and opened a
+   training hold. `otherReadingScreenText` now removes "ألم" / "آلام" from the other reading only
+   where it is that particle: followed in the same clause by "أنّ" ("ألم أنه") or a verb in the
+   imperfect ("ألم أقل", "ألم تر", "ألم يكن", "إلام تنظر"), with no pain context in the clause (a
+   body part, an intensity, a location or a pain verb: "ألم يزيد", "ألم تحت الركبة", "ألم يكن
+   ظهري يوجعني" are kept). "إصابة" is removed only as a hit ("إصابة الهدف"). In every other
+   position they stay and stop the session. The first version of this fix did the opposite (it
+   removed the word unless a pain context from a short list sat next to it), and that weakened
+   pain screening: "ألم رهيب", "ألم خفيف", "ظهري ألم", "ألم، وقف", "ألم stop", "ألم قاعد
+   يزيد", "إصابة خفيفة" and others stopped the session at `0c9569d` and no longer did (for a
+   member who replies in English and reports pain in Arabic, the Arabic reading is the only one
+   that can catch it). The sentence "True pain is not weakened" written then was wrong; it is
+   true now: every such phrase stops the session again (tests "review VT-R2"). Every other red
+   flag and the trainer's policy terms are screened as before, and the reply-language reading is
+   screened unchanged. Code-switched "My back يعورني" and its Latin transliterations stop the
+   session read once or twice.
+   **Transliterated Gulf pain** (the runner's own stop list, `UNWELL`): "yawrni", "yaourni",
+   "yaurni", "yaurne", "iauurni", "yauri", "yawni", "y3awrni" (يعورني), "awarni" (عورني),
+   "yooja3ni", "tooja3ni" (يوجعني), not after a negation ("ma yawrni"). Every OpenAI model had
+   returned "My back يعورني" in Latin letters and never stopped the session. Also "البدوار"
+   (misheard "بدوار", dizziness) stops. Gulf "تعبان" and Latin "alam" were narrowed after review
+   VT-R8 (see "Review of the retest fixes", R8): they stop only in an unwell or pain phrase.
+   **Transliterated Gulf completions**: "khalast", "5alast" (خلصت), "khalasna", "kammalt",
+   "sawwaitha" complete a set; "sawwait" ties a count; "ma khalast" is still going, "ma
+   sawwaitha" not done. "So wait, twelve" (how OpenAI wrote "سويت twelve") stays a pause.
+5. **"خلص" and "خلاص" alone are not a completion** (finding 6; trainer decision). "خلاص" is also
+   "stop" or "enough", and a hurried "خلص" may be the start of anything; the member hears the
+   help line and says "خلصت", "done" or a count. With a completion or a count they are fine
+   ("خلاص خلصت", "ثمان خلاص"), and "مو خلاص" is still "not finished". Before this branch "خلاص"
+   alone completed the set.
+6. Found while checking the rule on English: a completion still to come or asked about logged
+   the set: "I need to finish", "I have to complete 8", "let me finish", "I'll finish", "I'm
+   going to finish", "done soon", "done in a sec", "am I done?". These are acknowledgements now
+   and their number is not a count. Arabic future forms ("لازم أخلص", "راح أخلص", "بخلص") were
+   never completion words.
+
+Replaying all 1,080 retest results through the fixed code (the route's rules with the default
+policy, then the runner at set 1 of Back Squat 3 x 5 at 60 kg, as the retest did): **0 unsafe
+logs** (before: 3 to 5 per transcriber set-up, 32 in all), **0 false stops** (before: 1), 0 wrong
+counts from a count said (before: 3; "done" with the count unheard still logs the target), no
+missed pain for either two-reading route, missed pain 15 in all (before: 25), and correct actions
+up (Cartesia route 82.5% to 85.0%, `gpt-transcribe` twice 90.0% to 90.8%, `gpt-transcribe` once
+with the member's language 87.5% to 90.0%). The pain still missed by single readings (14
+distinct transcripts, 15 results) carry no pain word in any script ("My back yawned.", "Мой бак? Я ору.", "أشوري بدوا"):
+only a second reading can catch them, which is why a provider that is read once should be read
+twice for members who code-switch. Some replies that were acted on before now ask again (a
+count in an untied sentence, "Hallas.", a reply understood only in the other language): that is
+the rule's cost.
+
+Parser outputs before and after on 2,093 strings (every quoted string of the voice test files,
+the retest scripts and every retest transcript): the changes are the cases above; the rest are
+test labels, SQL and chat messages whose numbers are no longer read as counts, and "ركبتي تعبانة"
+(my knee is sore), which now stops a voice session (the chat floor still does not hold it).
+
+Tests: `tests/voice-talkback-retest.test.ts` (every example of the retest summary with the exact
+transcripts; a table over all 40 scripts at a set of 5 and of 10 and through the route with the
+reply reading failing; every one of the 1,080 transcriptions, `tests/voice-talkback-retest-fixtures.ts`,
+asserting no unsafe log, no wrong count, no false stop and no missed pain for two readings),
+`tests/voice-clones.test.ts` (the route with the Cartesia double: "طوفا" / "2.", the "ألم" false
+stop, an empty reply reading, "تقريباً خلصت", a device transcript, "My back yawrni." / "مي باك
+يعورني"), and updated expectations in `tests/voice-talkback.test.ts` ("خلاص" alone; only the reply
+reading is acted on).
+
+### Checks actually run (`fix/voice-talkback`, 29 September 2026)
+
+Node 24.19, worktree `.claude/worktrees/fix-voice-talkback` with its own `node_modules`.
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `tests/voice-talkback-retest.test.ts`: 8/8. `tests/voice-clones.test.ts`: 28/28 (1 new).
+- Every test file that imports the voice modules, together (`voice-talkback`,
+  `voice-talkback-retest`, `voice-session-domain`, `voice-session`, `voice-clones`,
+  `safety-floor`, `brain-plans-timed`, `programme-voice`, `integrations-completion`,
+  `marketing-site`, `onboarding-completion`, `platform`, `programme-billing`,
+  `programme-review`, `programme-stripe-mock`, `e2e-harness-mocks`): 245/245, run on the final
+  code.
+- Whole PGlite suite (`node --import tsx --test tests/*.test.ts`): 1,245 tests, 1,244 pass, 0
+  fail, 1 skipped. Started before the last two edits (one duplicate token removed from the Latin
+  negation list, "mb" added; two tests strengthened), after which the voice files above were
+  run again.
+- Replay of all 1,080 retest results through the fixed code (scratchpad script mirroring the
+  route; the same check is in the test file): the numbers above.
+- Parser outputs before (the base, `0c9569d`) and after on 2,093 strings: see above.
+- Mutation check: 14 deliberate breaks (no hedge rule, acting on the other reading, untied
+  counts, no effort-word rule, every count plausible, no pain-phrase rule for the other reading,
+  no transliterated pain, "خلاص" completing, no intent rule twice, digits in words read as
+  numbers, typed counts checked, a blank reply reading acted on in the route, the other reading
+  screened raw in the route) each failed at least one test; the files were restored after each.
+
+**Not run:** `/opt/tools/pg-sandbox.sh` (PostgreSQL with the restricted runtime role) and the
+e2e harness (`scripts/e2e/run.mjs`, which covers the transcribe route). On this machine
+`/dev/null` had been replaced by a regular file owned by root, so `initdb` as the `postgres`
+user fails ("cannot create /dev/null: Permission denied") before any migration; a workaround
+was not permitted in this session. Both must be run where `/dev/null` is a device. Also not
+run: `next build`, a live re-run of the retest against the fixed code, the Haiku voice wording
+tasks, and a browser check of the runner.
+
+Not done: an OpenAI speech-to-text provider (the retest's recommendation; the app has ElevenLabs
+and Cartesia only), a hint on the runner when a reply sounded like the other language, a live
+re-run of the retest against the fixed code, and a browser check of the runner.
+
+## Review of the retest fixes (VT-R1 to VT-R10, 29 September 2026)
+
+Branch `fix/voice-talkback`, on top of `3b78a4a`. A review replayed paraphrases of the retest
+replies at the runner (set 1 of Back Squat 3 x 5) and found that the rule "a set is logged only
+from an unambiguous completion" still had gaps, and that the other-reading pain rule had weakened
+Arabic pain screening. Every finding was first reproduced on the branch with the reviewer's exact
+strings (all reproduced), then fixed in `packages/domain/src/voice-runner.ts`:
+
+- **R1, hedges with a joined conjunction.** Every Arabic hedge now also matches with "و" or "ف"
+  joined, as in running speech: "وتقريباً خلصت", "ويمكن خلصت", "وشبه خلصت", "ويعني خلصت",
+  "خلصت وتقريبا", "فيمكن خلصت" ask again. "باقي" (with or without "و") is a hedge except before
+  sets ("خلصت، باقي مجموعتين" is a completion with two sets left). "ممكن" (maybe) was added. A
+  hedged count ("حوالي عشر", "almost 8", "8 or so") now asks again instead of earning the help
+  line.
+- **R3, reps missed or still to do** (this pre-dated the branch). A deficit detector
+  (`DEFICIT_WORDS`) reads "except", "excluding", "minus", "missing", "N short", "short by N", "N to
+  go", "N left" (not "left side" or "8 left, 8 right"), "N remaining", "N less", "N more" (not "N
+  more sets"), "without the last N", "didn't / couldn't get the last", "missed / failed / skipped
+  N", and Arabic "الا / إلا", "عدا / ما عدا", "ناقص / ناقصني", "نقص", "فاتني / فاتتني", "باقي /
+  بقى / ضل / ظل" before a number (not before sets; "ف" is never joined to "ضل", which would read
+  "من فضلك"), "بدون / غير + N", "N بعد" said last and "N وأخلص / وبخلص". Its numbers are never a
+  count; a completion with it is not one ("done except 2", "خلصت الا وحدة", "خلصت وبقى ثنتين",
+  "just 2 to go", "بس ثنتين وأخلص" ask again); a count said before it is uncertain ("did 10 but
+  missed 1", "سويت عشر الا وحده", "did 10 minus 1" ask again); a count said after it, in its own
+  clause, is what was done ("missing 2, did 3" logs 3). A missed set said as a report ("I missed
+  3 reps") is still `not_done`. The tie between a completion word and a later number now allows
+  only filler words between them ("did all 8", "did them all 8", "خلصت يا كوتش ثمان", "done coach
+  8"); any other word breaks it, so "done except 2", "done, missing 2" and "did heavy 2" are not
+  counts. "one more" alone now asks again (it was the help line).
+- **R4, set, exercise and position numbers.** Set words are looked up without a joined article or
+  "و" / "ب" / "ف", and "التمرين", "الست", "السيت", "الجولة", "رقم", "exercises", "rounds" were
+  added: "خلصت المجموعة 2", "المجموعة 2 خلصت", "خلصت التمرين 2", "خلصت رقم 2" are completions
+  and log the target, never 2. "N of M", "N out of M", "N من M" and "N/M" are a position: neither
+  number is a count ("done, 2 of 3", "finished 1 of 3", "done 1/3" log the target; "8 out of 10"
+  alone logs nothing).
+- **R5, an effort word before digits.** A number right after an effort word is not a count in
+  digits either ("done, heavy 1", "خلصت، ثقيل 1", "heavy 1 done", "ثقيل 1 خلاص" are too heavy,
+  never a set of 1 rep with the heavy flag). "heavy, 6 reps" and "heavy, did 6" still log 6.
+- **R6, ranges and corrections.** `spokenCount` now collects every candidate count. When another
+  tied count has a different value ("did 8, did 6"), or another number is next to it or joined to
+  it by "or / أو / to / till / and / between" or a correction ("no", "not", "actually", "I mean",
+  "sorry", "rather", "wait", "لا", "قصدي", "أقصد", "بل", "ولا"), the count is uncertain and the
+  member is asked again: "did 8 or 9", "سويت ثمان أو تسع", "did 8, no, 6", "did 8, actually 6",
+  "سويت ثمان، قصدي ست", "سويت عشر، لا ثمان", "I did 12 I mean 10", "did 8 to 10", "did between 8
+  and 10", "سويت ثمان وتسع". A count said twice ("did 8, 8 reps") or with a load stands, and an
+  untied number in another clause does not make it uncertain ("هل ست؟ سويت ثمان" still logs 8).
+- **R7, English synonyms of "almost done".** "just about / about done", "close to done", "all but",
+  "as good as", "practically", "virtually", "basically", "essentially", "technically", "-ish"
+  ("done-ish", "8-ish") and "I reckon" are hedges, and so are "hopefully", "I hope", "should be"
+  and "must be" next to a completion or a number or said last ("done I hope", "hopefully done",
+  "should be done", "that should be it"); about the load they are feedback ("done, the next set
+  should be lighter" still completes). "N more and done" is a deficit. "done, about time" and
+  "Done, close to failure" still complete.
+- **R2, Arabic pain in the other reading.** See item 4 of "Talk-back safety after the retest":
+  the rule is inverted, and every phrase the review listed stops the session again.
+- **R8, "تعبان" and "alam" (trainer decision pending).** The first fix made bare Gulf "تعبان" and
+  Latin "alam" stop the session and open a training hold. In the gym "تعبان" is mostly "tired" or
+  "worn out" (English "tired" is not a stop, and the coaching chat already reads "تعبانة من
+  الدوام" as fatigue), and "Alam" is a surname, so "خلصت بس تعبان" (done but tired) stopped the
+  session without logging the set, as did "تعبان شوي", "والله تعبان", "Done, coach Alam" and
+  "Thanks Alam"; a negation was only checked right before the word ("مو وايد تعبان" stopped). Now
+  "تعبان" stops only in an unwell phrase: with an intensifier ("تعبان مرة / وايد / حيل / جداً",
+  "مرة تعبان"), after "I feel" ("حاس اني تعبان", "أحس إني تعبان", "أشعر أنني تعبانة", "a7es inni
+  ta3ban"), or after a joint, the back, chest or head ("ركبتي تعبانة", "ظهري تعبان"; not "رجولي
+  تعبانة", tired legs). "مريض" after "I" or "I feel" ("انا مريض", "حاس اني مريض") and "مرضان"
+  (sick) stop too; these stopped nothing before. Latin "alam" stops only as the whole reply ("alam",
+  "ah alam") or with a pain context ("3indi alam", "alam fi rukbati", "my back alam", "alam
+  shadeed"). A negation also blocks the phrase with an intensifier between ("مو وايد تعبان", "ما
+  احس اني تعبان"). **The trade-off:** bare "انا تعبان", "تعبانة" and "ana ta3ban" no longer stop the
+  session (they did on `3b78a4a`, not at `0c9569d`); a member who means "I'm ill" and says only
+  that hears the help line, which names pain ("Say done, a number of reps, too heavy, pause, skip
+  or pain"), and the server still screens every transcript with the trainer's policy. The
+  alternative the review offered, a bare "تعبان" noted for the trainer without stopping, needs a
+  new outcome type in the runner, the API schema and the page, and was not built. The trainer
+  should confirm which behaviour they want; restoring the stop for bare "تعبان" is one alternative
+  in `UNWELL`.
+- **R9, tests.** `tests/voice-talkback-retest.test.ts` gained a paraphrase table per rule, each
+  asserted at the runner at a set of 5 and of 10 (nothing logged, or exactly the count said):
+  every Arabic hedge bare and with "و" / "ف" before and after a completion and a count (R1, 288
+  replies); deficits and remaining reps in English and Arabic with controls for sets left, "left
+  side", "بعد الراحة" and a count after the deficit (R3); set, exercise and position numbers with
+  the tying word on either side (R4); effort words before digits (R5); ranges and corrections
+  (R6); English synonyms (R7); a pain-phrase table for the other reading, with the particle forms
+  that are still dropped (R2); and the "تعبان" / "alam" stops and non-stops (R8).
+  `tests/voice-talkback.test.ts`: "one more" now asks again.
+- **R10, PostgreSQL sandbox and e2e harness.** Still not run: see below.
+
+Not the same as the reviewer's probe: the probe expects "خلصت المجموعة 2", "خلصت التمرين 2",
+"done, 2 of 3" and "finished 1 of 3" to log nothing. They are completions ("I finished set 2"),
+so they log the target like "done"; the set or position number is never the count, which is what
+the finding asked for. The probe's other seven tests pass.
+
+### Checks actually run (review round, 29 September 2026)
+
+Node 24.19, worktree `.claude/worktrees/fix-voice-talkback`.
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: exit 0.
+- `tests/voice-talkback-retest.test.ts`, `tests/voice-talkback.test.ts`,
+  `tests/voice-session-domain.test.ts`: 54/54 (8 new tests).
+- The 16 test files that import the voice modules (as listed above for the first fix): 253/253.
+- The reviewer's probe file (`review-vt/probe-runner.test.ts`): 7/8; the one failing test is the
+  difference described above.
+- Mutation check: 23 deliberate breaks, one at a time (no clitic prefix; no English synonyms; no
+  hope hedges; no "about / close to done"; no deficit detector; any word ties a count; deficit numbers kept; a
+  count before a deficit not uncertain; "ف" joined to "ضل"; "بعد" anywhere; "left side" as
+  "left"; no article stripping for set words; no "N of M"; "1/3" not read as "of"; the effort rule
+  for number words only; no range or correction check; a hedged untied number earning the help
+  line; the old other-reading rule; every "إصابة" dropped; the particle dropped without the
+  pain-context check; bare "تعبان" stopping; bare "alam" stopping; unwell phrases not stopping):
+  each failed at least one test; the file was restored after each.
+- Parser outputs on 2,678 strings (the test files, the e2e scenario, the retest scripts and every
+  retest transcript), the branch before this round against after: the changes are the cases above
+  and non-reply strings (a SQL line and "PROVIDER_VOICE_MISSING" read "missing" and ask again).
+- Replay of all 1,080 retest results (route rules with the default policy, then the runner):
+  identical before and after this round, 0 unsafe logs and 0 false stops in every set-up; correct
+  actions Cartesia route 85.0%, `gpt-transcribe` route 90.8%, `gpt-transcribe` with the member's
+  language 90.0%. The 8 "wrong" results are "done" logging the target where the transcriber lost
+  the count ("So weight twelve"), none a count said wrongly.
+- The e2e scenario's voice replies checked against the parser directly: "eight reps" is reps 8,
+  "done" is done, "I have sharp pain in my knee" is pain.
+- The whole PGlite suite (`node --import tsx --test tests/*.test.ts`) on the final code: 1,253
+  tests, 1,252 pass, 0 fail, 1 skipped (the one that needs real PostgreSQL connections).
+
+**Not run (R10):** `/opt/tools/pg-sandbox.sh 56810` on `voice-session` and `voice-clones` was
+attempted and failed before any migration: `initdb` as the `postgres` user printed "cannot create
+/dev/null: Permission denied" 25 times and exited 1, because `/dev/null` on this machine is a
+regular file owned by root (still so at 23:20 UTC). `node scripts/e2e/run.mjs --rebuild
+--pg-port=56811` was attempted and failed in `startPostgres` at the same `initdb` step, before the
+build (exit 1). Both must be run where `/dev/null` is a device before merging. Also not run: `next
+build`, a live re-run of the retest, and a browser check of the runner.
 
 ## Checks actually run
 

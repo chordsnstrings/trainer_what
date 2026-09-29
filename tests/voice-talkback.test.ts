@@ -97,7 +97,8 @@ test("English replies: 'one' as a pronoun is not a rep count; a negated completi
     ["next one", "resume"],
     ["the next one", "resume"],
     ["done with this one", "done"],
-    ["one more", "unknown"],
+    // One rep still to do: asked again (review VT-R7), never a count.
+    ["one more", "ack"],
     ["one more set", "unknown"],
     // Still a count.
     ["one", "reps:1"],
@@ -170,7 +171,9 @@ test("Arabic replies, Modern Standard and Gulf: completion, counts, effort, flow
     // Completion.
     ["خلصت", "done"],
     ["خلصتها", "done"],
-    ["خلاص", "done"],
+    // "خلاص" alone is not a completion (trainer decision after the retest:
+    // it is also "stop" or "enough"); the member hears the help line.
+    ["خلاص", "unknown"],
     ["خلصنا", "done"],
     ["تمت", "done"],
     ["انتهيت", "done"],
@@ -335,20 +338,24 @@ test("pain wins in every language; the runner's extra stops only ever add stops"
   assert.equal(parseVoiceCommand("no pain, done").type, "done");
 });
 
-test("a reply transcribed in both languages: the understood one is used", () => {
+test("a reply transcribed in both languages: only the reply-language reading is acted on", () => {
   // Live pairs (member's reply language first). Arabic "ثمان تكرارات" read as
   // English was "Thank you."; English "No pain, all good, done." read as
-  // Arabic was "لا يزال، كل جيد، جيد".
-  assert.equal(replyTranscript(["Thank you.", "ثمان تكرارات"]), "ثمان تكرارات");
+  // Arabic was "لا يزال، كل جيد، جيد". Before the retest (29 September 2026)
+  // the other reading was acted on when the first was not understood, and
+  // "طوفا" / "2." logged a set of 2 reps: now the member is asked again
+  // (tests/voice-talkback-retest.test.ts).
+  assert.equal(replyTranscript(["Thank you.", "ثمان تكرارات"]), "Thank you.");
   assert.equal(
     replyTranscript(["No pain, all good, done.", "لا يزال، كل جيد، جيد"]),
     "No pain, all good, done.",
   );
   assert.equal(
     replyTranscript(['"No, I\'m not in the sleep."', "ما في ألم خلصت"]),
-    "ما في ألم خلصت",
+    '"No, I\'m not in the sleep."',
   );
-  assert.equal(replyTranscript(["", "خلصت"]), "خلصت");
+  assert.equal(replyTranscript(["", "خلصت"]), "");
+  assert.equal(replyTranscript(["طوفا", "2."]), "طوفا");
   assert.equal(replyTranscript(["okay", "أوكي"]), "okay");
   // Both understood: the reply language wins. This is the limit the reply
   // language choice on the runner is for: Gulf "الوزن ثقيل وايد" read as
