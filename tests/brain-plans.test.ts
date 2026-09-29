@@ -1415,6 +1415,32 @@ test("trial regression T1S07: after a harder-than-planned week the model is told
   assert.deepEqual(await weekLoads(coach, program.id, 3), week3, "nothing reached the member");
 });
 
+test("review follow-up: a pain report after a harder week sends the trainer the held week, not the plan's progression, and approving it as-is adds nothing harder", async () => {
+  const coach = await qualifiedCoach("heldpain");
+  const client = await member(coach, "Held Pain Client", {}, { programmeDays: 28 });
+  assert.equal((await generate(coach, client)).status, "delivered");
+  const [program] = await assigned(coach, client.userId);
+  await logWeek(coach, client, program.id, 1, -1);
+  const week1 = await weekLoads(coach, program.id, 1);
+  const baseline = await weekLoads(coach, program.id, 2);
+  assert.ok(baseline.some((kg, i) => kg > week1[i]), "the plan's week 2 has a higher load factor");
+  await asWorker(coach, (tx) => putRecord(tx, worker(coach.tenantId), "training_hold", { reason: "Knee pain", resolvedBy: coach.userId }, { ownerId: client.userId, status: "resolved" }));
+  const callsBefore = calls.length;
+  const pain = await adaptMemberPlan(db, worker(coach.tenantId), client.userId, { programId: program.id, week: 2 });
+  assert.equal(pain.status, "skipped", JSON.stringify(pain));
+  assert.equal((pain as any).reason, "safety_review");
+  assert.equal(calls.length, callsBefore, "the model is not called");
+  const gen = await generation(pain.generationId!, coach.tenantId);
+  assert.match(gen.data.progressionHold.join(), /the week was harder than planned/);
+  assert.deepEqual(gen.data.draft.sessions.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), week1, "the trainer's draft is the held week");
+  assert.ok(gen.data.held.some((c: any) => c.field === "loadKg" && c.from > c.to), JSON.stringify(gen.data.held));
+  assert.deepEqual(gen.data.baseline.sessions.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), baseline);
+  assert.deepEqual(await weekLoads(coach, program.id, 2), baseline, "nothing reached the member before the trainer decided");
+  const approved = await req(`/brain/plans/${gen.id}/review`, "POST", { action: "approve", version: gen.version }, coach);
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.deepEqual(await weekLoads(coach, program.id, 2), week1);
+});
+
 test("review regression (trial T3 template, Opus T2S03): a plan that writes a hold as 1 rep goes to the trainer, who may approve it as written", async () => {
   const coach = await qualifiedCoach("onerep");
   const client = await member(coach, "One Rep Client");

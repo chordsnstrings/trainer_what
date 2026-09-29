@@ -1335,9 +1335,10 @@ export async function adaptMemberPlan(
     };
     if (safety.length) {
       // A limitation, red flag or recent pain report skips the model: the
-      // trainer decides next week personally.
+      // trainer decides next week personally, starting from the held week
+      // when progression is held (approving as-is adds nothing harder).
       const generationId = await write("pending_review", {
-        draft: { sessions: nextSessions.map(({ plannedSessionId, sessionKey, exercises }) => ({ plannedSessionId, sessionKey, exercises })) },
+        draft: { sessions: held.sessions.map(({ plannedSessionId, sessionKey, exercises }) => ({ plannedSessionId, sessionKey, exercises })) },
         safety,
         route: "review",
         routeReasons: safety.map((s) => "Safety: " + s),
