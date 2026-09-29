@@ -303,6 +303,7 @@ export function VoiceSessionStyle() {
                   {t.skipped_set || t.skipped_exercise
                     ? ` · ${(t.skipped_set ?? 0) + (t.skipped_exercise ?? 0)} skipped`
                     : ""}
+                  {t.not_done ? ` · ${t.not_done} “not done” to review` : ""}
                   {t.pain ? " · pain reported" : ""}
                 </li>
               );

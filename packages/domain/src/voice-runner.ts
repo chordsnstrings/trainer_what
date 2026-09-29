@@ -16,7 +16,7 @@ import {
 import { formatDistance, formatDuration, workMeasure } from "./prescription.ts";
 
 // ---------------------------------------------------------------------------
-// Spoken replies.
+// Spoken replies (English, Modern Standard Arabic and Gulf Arabic).
 // ---------------------------------------------------------------------------
 export type VoiceCommand =
   | { type: "done" }
@@ -30,29 +30,54 @@ export type VoiceCommand =
   | { type: "ack" }
   | { type: "skip" }
   | { type: "repeat" }
+  /**
+   * The member says a set was not done ("I didn't do the last one", "لم أكمل
+   * المجموعة الأخيرة", "ما سويتها"). Nothing is logged and nothing moves on:
+   * it is noted for the trainer. `previous` when the reply points back to an
+   * earlier set; `heavy` when it also said the weight was too heavy.
+   */
+  | { type: "not_done"; previous?: boolean; heavy?: boolean }
   | { type: "pain"; transcript: string }
   | { type: "unknown" };
 
 const B = "(?:^|[^\\p{L}\\p{N}])",
   E = "(?![\\p{L}\\p{N}])";
 const has = (alternatives: string) => new RegExp(B + "(?:" + alternatives + ")" + E, "iu");
+/** A test (`has`) and a replace-all pattern for the same words. */
+const hasAndEvery = (alternatives: string) =>
+  [has(alternatives), new RegExp(B + "(?:" + alternatives + ")" + E, "giu")] as const;
+// Replies are matched after `screeningText` folding: Arabic hamza, madda, ta
+// marbuta (ة -> ه), alef maqsura (ى -> ي) and diacritics are written one way.
+//
 // Reported discomfort beyond the code floor's red flags. Pain, hurt, injury,
 // dizziness and fainting (with routine negations such as "no pain") are read
-// by `safetySignal`, in English and Arabic.
+// by `safetySignal`, in English and Arabic. This list only ever adds stops:
+// when a reply might mean the member is unwell, the session stops and the
+// trainer is told.
 const PAIN = has(
-  "ouch|ow|twinge|tweaked|cramp\\p{L}*|feel(?:ing)?\\s+sick|nause\\p{L}*|something\\s+(?:is\\s+)?wrong",
+  "ouch|ow|twinge|tweaked|cramp\\p{L}*|feel(?:ing)?\\s+sick|nause\\p{L}*|something\\s+(?:is\\s+)?wrong|" +
+    "throw(?:ing)?\\s+up|vomit\\p{L}*|puk(?:e|ing)|chest\\s+(?:feels?\\s+|is\\s+)?tight|feel(?:ing)?\\s+unwell|" +
+    "(?:i'?m|i\\s+am|i\\s+feel|feeling)\\s+not\\s+(?:okay|ok|alright|all\\s+right|well|good|right)|" +
+    "(?:don'?t|do\\s+not)\\s+feel\\s+(?:okay|ok|well|good|right)|not\\s+feeling\\s+(?:okay|ok|well|good|right)|" +
+    // Arabic: dizziness (MSA), nausea, vomiting, cramp or spasm, "something is
+    // wrong", and "I am not well" in the first person.
+    "[وب]?(?:ال)?دوار|[وب]?(?:ال)?غثيان|(?:ب|راح\\s*)?[ا]?ستفرغ\\p{L}*|[ا]?تقيا\\p{L}*|ترجيع|شد\\s*عضلي|[وب]?(?:ال)?تشنج\\p{L}*|" +
+    "(?:في|فيه)?\\s*شي(?:ء)?\\s*(?:غلط|خطا)|" +
+    "(?:انا\\s*(?:مو|مب|مش)|لست|ماني|مانيب)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)|(?:مو|مب|مش)\\s*بخير|" +
+    "(?:احس|حاس|حاسس|حاسه|اشعر)\\s*(?:اني|انني|بنفسي)?\\s*(?:مو|مب|مش|لست|غير|ماني)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)",
 );
-const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|صعب|صعبه",
-  EFFORT_EASY = "easy|light|سهل|سهله|خفيف";
+const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|تقيل|تقيله|صعب|صعبه",
+  EFFORT_EASY = "easy|light|سهل|سهله|خفيف|خفيفه";
 const TOO_HEAVY = has(
-  "too\\s+heavy|heavy|too\\s+hard|too\\s+much|can'?t\\s+(?:lift|do\\s+it|finish|manage)|cannot\\s+(?:lift|finish)|struggling|ثقيل|ثقيله|صعب|صعبه",
+  "too\\s+heavy|heavy|too\\s+hard|too\\s+much|can'?t\\s+(?:lift|do\\s+it|finish|manage)|cannot\\s+(?:lift|finish)|struggling|" +
+    "ثقيل|ثقيله|تقيل|تقيله|صعب|صعبه|(?:ما|لا|مب|مو)\\s*(?:اقدر|استطيع|اقدرش)\\s*(?:ارفع|اشيل|احمل|اكمل)\\p{L}*",
 );
-const TOO_EASY = has("too\\s+(?:easy|light)|easy|light|سهل|سهله|خفيف");
-// "Not heavy", "it's not too heavy", "wasn't that hard": negated effort words
-// are removed before the too-heavy and too-easy checks.
+const TOO_EASY = has("too\\s+(?:easy|light)|easy|light|سهل|سهله|خفيف|خفيفه");
+// "Not heavy", "it's not too heavy", "wasn't that hard", "مو ثقيل وايد": negated
+// effort words are removed before the too-heavy and too-easy checks.
 const NEGATED_EFFORT = new RegExp(
   B +
-    "(?:not|isn'?t|wasn'?t|never|مو|مش|ما|ليس|مب)\\s+(?:(?:that|so|too|very|really|it'?s|it|is|was|feel|feels|felt|at\\s+all)\\s+){0,3}(?:" +
+    "(?:not|isn'?t|wasn'?t|never|مو|مش|ما|ليس|مب|غير)\\s+(?:(?:that|so|too|very|really|it'?s|it|is|was|feel|feels|felt|at\\s+all|هو|هي|وايد|واجد|جدا|كثير|مره|مرره|ذاك|هذا)\\s+){0,3}(?:" +
     EFFORT_HEAVY +
     "|" +
     EFFORT_EASY +
@@ -60,16 +85,91 @@ const NEGATED_EFFORT = new RegExp(
     E,
   "giu",
 );
-const SKIP = has("skip|next\\s+exercise|pass|move\\s+on|تخطى|تخطي|تجاوز|التالي");
-const PAUSE = has("pause|wait|hold\\s+on|stop|break|one\\s+moment|hang\\s+on|توقف|وقف|انتظر|لحظه");
+// "Next exercise" and "التمرين التالي" skip; a plain "next" or "التالي" is a
+// request to carry on, in both languages.
+const SKIP = has(
+  "skip|next\\s+exercise|pass|move\\s+on|[نا]?تخطي\\p{L}*|[نا]?تجاوز\\p{L}*|طوف(?:ها|ه)?|التمرين\\s+التالي",
+);
+const PAUSE = has(
+  "pause|wait|hold\\s+on|stop|break|one\\s+moment|hang\\s+on|توقف|وقف|انتظر|انتظري|لحظه|استني|استنا|اصبر|اصبري|مهلا",
+);
 // Asking to carry on. Never a set completion.
-const RESUME = has("resume|continue|carry\\s+on|go\\s+on|ready|start|let'?s\\s+go|go|next|كمل|استمر|جاهز|يلا|ابدا");
-const REPEAT = has("repeat|again|say\\s+again|what|pardon|sorry|اعد|كرر|عيد");
+const RESUME = has(
+  "resume|continue|carry\\s+on|go\\s+on|ready|start|let'?s\\s+go|go|next|" +
+    "كمل|كملي|نكمل|استمر|جاهز|جاهزه|مستعد|مستعده|يلا|يالله|هيا|ابدا|نبدا|التالي",
+);
+const REPEAT = has(
+  "repeat|again|say\\s+again|what|pardon|sorry|come\\s+again|(?:didn'?t|did\\s+not)\\s+(?:hear|catch|get)\\s+(?:you|that|it)|" +
+    "اعد|اعيد|كرر|عيد|مره\\s+ثانيه|مره\\s+اخري|شنو|ايش|وش|وشو|شو|ماذا|(?:ما|لم)\\s*(?:سمعت|اسمع|فهمت|افهم)\\p{L}*",
+);
 // Only explicit completion words finish a set.
 const COMPLETE = has(
-  "done|finished|finish|complete|completed|that'?s\\s+it|that\\s+is\\s+it|تم|خلصت|انتهيت|خلاص",
+  "done|finished|finish|complete|completed|that'?s\\s+it|that\\s+is\\s+it|did\\s+it|made\\s+it|nailed\\s+it|" +
+    "تم|تمت|خلاص|خلصنا|انتهيت|انتهينا|(?:خلصت|كملت|اكملت|انهيت|انجزت)(?:ها|ه)?|سويتها|سويته",
 );
-const ACK = has("yes|yeah|yep|yup|ok|okay|sure|alright|all\\s+right|got\\s+it|fine|right|نعم|اوكي|تمام|طيب");
+// "Thank you" is polite, not a request, and it is also what the speech model
+// returns for noise or a reply it could not read ("Thank you." for Arabic
+// "ثمان تكرارات" read as English, live check): it never earns the help line.
+const ACK = has(
+  "yes|yeah|yep|yup|ok|okay|sure|alright|all\\s+right|got\\s+it|fine|right|thank\\s+you|thanks|" +
+    "نعم|اوكي|اوك|تمام|طيب|زين|حاضر|ماشي|اكيد|ايوه|ايوا|ان\\s*شاء\\s*الله|انشالله|شكرا|مشكور|مشكوره|يعطيك\\s+العافيه",
+);
+// "Not okay", "not fine", "مو زين", "مب تمام": a negated acknowledgement is
+// not one. It is removed before the acknowledgement check, so on its own it
+// earns the help line, which names pain ("I'm not okay" and "انا مو تمام"
+// already stop the session through PAIN).
+const NEGATED_ACK = new RegExp(
+  B +
+    "(?:not|isn'?t|wasn'?t|ain'?t|مو|مب|مش|ما|ليس|لست|غير)\\s+(?:(?:so|very|really|that|too|all|feeling|هو|هي|وايد|واجد|جدا|مره|كثير)\\s+){0,2}" +
+    "(?:okay|ok|fine|alright|all\\s+right|good|great|right|sure|زين|زينه|تمام|ماشي|كويس|كويسه|طيب|اوكي|اوك|بخير)" +
+    E,
+  "giu",
+);
+// A set that was not done, said in the past tense: "I didn't do the last one",
+// "couldn't finish it", "I missed that set", "I missed 3 reps", "لم أكمل",
+// "لم أستطع إكمالها", "ما قدرت", "ما سويتها", "ما خلصتها".
+const NOT_DONE_WORDS =
+  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|was\\s+not\\s+able\\s+to|failed\\s+to|never)\\s+(?:(?:really|even|actually|quite|fully|get\\s+to|manage\\s+to)\\s+)?(?:do|finish|complete|manage|make|get\\s+through)\\p{L}*|" +
+  "(?:missed|skipped)\\s+(?:(?:the|that|this|my)\\s+)?(?:last|previous|final|one|set|it|round|rep|reps)|" +
+  "(?:missed|skipped)\\s+(?:\\p{N}+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a\\s+couple|a\\s+few)(?:\\s+(?:of\\s+)?(?:them|reps?|repetitions?))?|" +
+  "[وف]?لم\\s*(?:ا|ن)?(?:كمل|نه|نهي|قم|فعل|عمل|سو|سوي|خلص|نجز)\\p{L}*|" +
+  // Modern Standard "I could not (complete)": لم أستطع، لم أتمكن من، لم أقدر
+  // على، ما استطعت. Gulf present "ما اقدر" stays a load complaint (TOO_HEAVY).
+  "(?:[وف]?لم\\s*(?:استطع|اتمكن|اقدر|نستطع|نتمكن|نقدر)|[وف]?ما\\s*(?:استطعت|استطعنا|تمكنت|تمكنا))\\p{L}*(?:\\s*(?:من|علي))?(?:\\s*(?:اكمال|انهاء|اتمام|اداء|فعل|عمل)\\p{L}*)?|" +
+  "[وف]?(?:ما|مب|مو)\\s*(?:قدرت|اقدرت|قدرنا)(?:\\s*(?:ا|ن)?(?:كمل|خلص|سوي|سو|نهي|رفع|شيل)\\p{L}*)?|" +
+  "[وف]?(?:ما|مب)\\s*(?:سويت|سوينا)\\p{L}*|" +
+  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت)(?:ها|ه)";
+const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(NOT_DONE_WORDS);
+// Still going, not a report: "not done yet", "I'm not finished", "almost
+// there", "ما خلصت", "لسا ما خلصت", "لم أنته بعد". The completion word in it
+// never logs a set.
+const NOT_YET_WORDS =
+  "(?:not|isn'?t|i'?m\\s+not|am\\s+not)\\s+(?:(?:quite|yet|really|fully)\\s+)?(?:done|finished|complete|completed|there)|" +
+  "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|almost\\s+(?:done|there|finished)|" +
+  "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)";
+const [NOT_YET, NOT_YET_ALL] = hasAndEvery(NOT_YET_WORDS);
+// "I can't do 10", "ما اقدر اكمل ثلاث": the present-tense complaint (a
+// too-heavy report, TOO_HEAVY) with the count it could not reach.
+const CANNOT_WORDS =
+  "(?:can'?t|cannot|can\\s+not|unable\\s+to)\\s+(?:do|finish|complete|manage|make|get\\s+through|lift)\\p{L}*|" +
+  "(?:ما|لا|مب|مو)\\s*(?:اقدر|استطيع|اقدرش)\\s*(?:ارفع|اشيل|احمل|اكمل|اسوي|اخلص)\\p{L}*";
+// A negated clause with what it governs, up to punctuation or a word that
+// starts what was done instead ("but", "only", "did 6", "بس", "سويت"). A
+// number in it is what the member did NOT do ("I didn't do the last 2 reps",
+// "ما سويت آخر ثنتين", "I can't do 10"), so it is never a rep count; a count
+// after it still is ("I didn't finish, did 6", "I didn't do 8, only 6").
+const CLAUSE_BREAK =
+  "[,.;:!?،؛؟]|(?<![\\p{L}\\p{N}'])(?:but|only|just|so|and|then|instead|did|[وف]?(?:بس|لكن|بل|فقط|سويت|قمت|عملت))(?![\\p{L}\\p{N}])";
+const NEGATED_CLAUSE = new RegExp(
+  B + "(?:" + NOT_DONE_WORDS + "|" + NOT_YET_WORDS + "|" + CANNOT_WORDS + ")(?:(?!" + CLAUSE_BREAK + ")[\\s\\S])*",
+  "giu",
+);
+// A reply that says the set is still under way ("yet", "still", "لسا").
+const STILL = has("yet|still|لسا|لسه|للحين|باقي|بعدني|مازلت|ما\\s*زلت|لازلت|لا\\s*زلت|بعد");
+// A reply that points back to an earlier set.
+const REFERS_BACK = has(
+  "last|previous|earlier|before|الاخير|الاخيره|السابق|السابقه|فات|فاتت|قبل",
+);
 // The instruction form of a command ("say done when you finish") is the
 // trainer's prompt, not a reply. Pain is read before this is removed.
 const INSTRUCTION = new RegExp(B + "say\\s+(?!again" + E + ")(?:[\\p{L}']+)", "giu");
@@ -80,11 +180,43 @@ const UNITS: Record<string, number> = {
   واحد: 1, واحده: 1, اثنين: 2, اثنان: 2, ثنتين: 2, ثلاث: 3, ثلاثه: 3, اربع: 4, اربعه: 4,
   خمس: 5, خمسه: 5, ست: 6, سته: 6, سبع: 7, سبعه: 7, ثمان: 8, ثماني: 8, ثمانيه: 8,
   تسع: 9, تسعه: 9, عشر: 10, عشره: 10,
+  // Gulf teens, said as one word.
+  احدعش: 11, اثنعش: 12, ثنعش: 12, ثلطعش: 13, ثلاثطعش: 13, ثلثطعش: 13, ثلتعش: 13,
+  اربعطعش: 14, اربعتعش: 14, خمسطعش: 15, خمستعش: 15, سطعش: 16, ستطعش: 16, ستعش: 16,
+  سبعطعش: 17, سبعتعش: 17, ثمنطعش: 18, ثمانطعش: 18, ثمنتعش: 18, تسعطعش: 19, تسعتعش: 19,
 };
 const TENS: Record<string, number> = {
   twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
-  عشرين: 20, ثلاثين: 30, اربعين: 40, خمسين: 50,
+  عشرين: 20, عشرون: 20, ثلاثين: 30, ثلاثون: 30, اربعين: 40, اربعون: 40, خمسين: 50, خمسون: 50,
+  ستين: 60, ستون: 60, سبعين: 70, سبعون: 70, ثمانين: 80, ثمانون: 80, تسعين: 90, تسعون: 90,
 };
+// MSA teens are two words, the unit first: "اثنا عشر" (12), "ثلاثة عشر" (13).
+const TEEN_UNITS: Record<string, number> = { احد: 1, احدي: 1, اثنا: 2, اثني: 2, اثنتا: 2, اثنتي: 2 };
+const TEN_WORDS = new Set(["عشر", "عشره"]);
+// "One" is also a pronoun ("the last one", "this one", "next one", "one
+// more"): after these words, or before these, it is not a rep count.
+const ONE_AFTER = new Set([
+  "the", "this", "that", "last", "next", "first", "second", "third", "previous", "final", "other",
+  "another", "each", "every", "any", "which", "same", "no", "a", "big", "hard", "easy", "heavy",
+  "tough", "good", "new", "little", "wrong", "right",
+]);
+const ONE_BEFORE = new Set(["more", "of", "moment", "sec", "time", "thing", "again", "left"]);
+// "The last two (reps)", "the last few", "the final reps" are reps of a set,
+// not an earlier set: they never make a reply point back. "The last one" is
+// the previous set, and "the last 2 sets" points back too.
+const LAST_REPS = new RegExp(
+  B +
+    "(?:last|final)\\s+(?:[2-9٢-٩]|\\p{N}{2,}|" +
+    [...Object.keys(UNITS), ...Object.keys(TENS)]
+      .filter((w) => /^[a-z]+$/.test(w) && (UNITS[w] ?? TENS[w]) > 1)
+      .join("|") +
+    "|few|couple|reps?|repetitions?)" +
+    E +
+    "(?!\\s+(?:sets?|rounds?|exercises?)" +
+    E +
+    ")",
+  "giu",
+);
 const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
 const westernDigits = (text: string) =>
   text.replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10));
@@ -92,7 +224,16 @@ const westernDigits = (text: string) =>
 // a load or time ("60 kilograms", "30 seconds").
 const NOT_REPS_BEFORE = new Set(["set", "sets", "of", "exercise", "round", "number", "مجموعه", "من"]);
 const NOT_REPS_AFTER =
-  /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|sets?|rounds?|كيلو|كيلوغرام|ثانيه|ثواني|دقيقه|دقائق)$/u;
+  /^(?:kg|kgs|kilo|kilos|kilogram|kilograms|lb|lbs|pound|pounds|percent|%|seconds?|secs?|minutes?|mins?|sets?|rounds?|كيلو|كيلوغرام|كيلوجرام|ثانيه|ثواني|دقيقه|دقائق|دقايق|مجموعه|مجموعات|جوله|جولات)$/u;
+/** A number word, also after a joined Arabic "and"/"with" ("وعشرين", "بثماني"). */
+function numberWord(token: string): { value: number; tens: boolean } | null {
+  for (const t of [token, /^[وبف]\p{L}{2,}$/u.test(token) ? token.slice(1) : null]) {
+    if (!t) continue;
+    if (t in TENS) return { value: TENS[t], tens: true };
+    if (t in UNITS) return { value: UNITS[t], tens: false };
+  }
+  return null;
+}
 function spokenNumber(folded: string): number | null {
   const tokens = westernDigits(folded)
     .split(/[^\p{L}\p{N}'%]+/u)
@@ -103,15 +244,38 @@ function spokenNumber(folded: string): number | null {
       width = 1,
       unit: string | undefined;
     const digits = /^(\d{1,3})(\p{L}*)$/u.exec(t);
+    const word = digits ? null : numberWord(t);
     if (digits) {
       value = Number(digits[1]);
       unit = digits[2] || undefined;
-    } else if (t in TENS) {
+    } else if (t in TEEN_UNITS && TEN_WORDS.has(tokens[i + 1] ?? "")) {
+      value = TEEN_UNITS[t] + 10;
+      width = 2;
+    } else if (word?.tens) {
+      // "twenty five"
       const next = tokens[i + 1];
       const units = next && next in UNITS && UNITS[next] < 10 ? UNITS[next] : 0;
-      value = TENS[t] + units;
+      value = word.value + units;
       if (units) width = 2;
-    } else if (t in UNITS) value = UNITS[t];
+    } else if (word) {
+      value = word.value;
+      const next = tokens[i + 1] ?? "",
+        after = tokens[i + 2] ?? "";
+      if (value < 10 && TEN_WORDS.has(next)) {
+        // "ثلاثة عشر" (13)
+        value += 10;
+        width = 2;
+      } else if (value < 10 && next.startsWith("و") && numberWord(next)?.tens) {
+        // "خمسة وعشرين" (25): the unit, then "and" with the tens.
+        value += numberWord(next)!.value;
+        width = 2;
+      } else if (value < 10 && next === "و" && after in TENS) {
+        value += TENS[after];
+        width = 3;
+      } else if (t === "one" && (ONE_AFTER.has(tokens[i - 1] ?? "") || ONE_BEFORE.has(next))) {
+        continue;
+      }
+    }
     if (value === null) continue;
     unit ??= tokens[i + width];
     if (NOT_REPS_BEFORE.has(tokens[i - 1] ?? "") || (unit && NOT_REPS_AFTER.test(unit))) {
@@ -127,8 +291,12 @@ function spokenNumber(folded: string): number | null {
  * Maps one spoken reply to a command. Pain and red-flag wording (the code floor
  * `safetySignal`, which also reads Arabic) always wins; the server re-screens
  * every transcript with the trainer's published policy as well. Plain
- * acknowledgements never complete a set, and a rep count wins over "heavy" in
- * the same reply (the heaviness is kept as a flag).
+ * acknowledgements never complete a set (a negated one, "not okay" or "مو
+ * زين", is not an acknowledgement), a negated completion ("I didn't finish",
+ * "not done yet", "ما خلصت") never logs one, a number inside a negated clause
+ * ("I didn't do the last 2 reps", "ما سويت آخر ثنتين", "I can't do 10") is
+ * never a rep count, and a rep count wins over "heavy" in the same reply (the
+ * heaviness is kept as a flag).
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
@@ -141,18 +309,54 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   const heavy = TOO_HEAVY.test(effort);
   const skip = SKIP.test(folded),
     pause = PAUSE.test(folded);
-  const reps = spokenNumber(folded);
+  // A negated completion is never a completion. Said in the past tense it is a
+  // report for the trainer; "not yet" or "still" means the set is under way.
+  const negatedDone = NOT_DONE.test(folded),
+    notYet = NOT_YET.test(folded);
+  const still = (negatedDone || notYet) && STILL.test(folded);
+  const notDone = !still && (negatedDone || (notYet && REFERS_BACK.test(folded)));
+  const completion = folded.replace(NOT_DONE_ALL, " ").replace(NOT_YET_ALL, " ");
+  // A number inside a negated clause is what was not done, never a count.
+  const reps = spokenNumber(folded.replace(NEGATED_CLAUSE, " "));
   if (reps !== null && reps <= 200 && !skip && !pause)
     return heavy ? { type: "reps", reps, heavy: true } : { type: "reps", reps };
+  if (notDone)
+    return {
+      type: "not_done",
+      ...(REFERS_BACK.test(folded.replace(LAST_REPS, " ")) ? { previous: true } : {}),
+      ...(heavy ? { heavy: true } : {}),
+    };
   if (heavy) return { type: "too_heavy" };
   if (TOO_EASY.test(effort)) return { type: "too_easy" };
   if (skip) return { type: "skip" };
   if (pause) return { type: "pause" };
   if (REPEAT.test(folded)) return { type: "repeat" };
-  if (COMPLETE.test(folded)) return { type: "done" };
+  if (COMPLETE.test(completion)) return { type: "done" };
   if (RESUME.test(folded)) return { type: "resume" };
-  if (ACK.test(folded)) return { type: "ack" };
+  if (ACK.test(folded.replace(NEGATED_ACK, " ")) || notYet || negatedDone) return { type: "ack" };
   return { type: "unknown" };
+}
+
+/**
+ * The transcript to act on when one reply was transcribed in both languages.
+ * Cartesia's batch model is told the language and cannot detect it, and a
+ * reply in the other language comes back as unrelated words (live check, 29
+ * September 2026: Arabic "ألم" read as English was "I"; English "Pain." read
+ * as Arabic was "أمي"). The first transcript is in the member's reply
+ * language; another is used only when the first was not understood (unknown,
+ * or a bare acknowledgement, which never acts) and that one was. Pain and red
+ * flags are screened in every transcript before this, so a pain report in
+ * either language always stops the session.
+ */
+export function replyTranscript(transcripts: string[]): string {
+  const heard = transcripts.map((t) => String(t ?? "").trim());
+  const quiet = (t: string) => !t || ["unknown", "ack"].includes(parseVoiceCommand(t).type);
+  const first = heard[0] ?? "";
+  if (quiet(first)) {
+    const understood = heard.slice(1).find((t) => !quiet(t));
+    if (understood) return understood;
+  }
+  return first || heard.find(Boolean) || "";
 }
 
 // ---------------------------------------------------------------------------
@@ -237,12 +441,16 @@ export type RunnerOutcome = {
     | "skipped_exercise"
     | "paused"
     | "pain"
-    | "completed";
+    | "completed"
+    /** The member said a set was not done; the trainer reviews it. */
+    | "not_done";
   exercise?: number;
   set?: number;
   fromKg?: number;
   toKg?: number;
   reps?: number;
+  /** For "not_done": whether the runner had logged that set. */
+  logged?: boolean;
 };
 export type RunnerState = {
   phase: RunnerPhase;
@@ -494,6 +702,59 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
 }
 
 /**
+ * The set a "not done" reply is about: the one just finished during a rest (or
+ * the cool-down), the one before the current set when the reply points back
+ * ("the last one"), otherwise the current set. Null before any set.
+ */
+function referencedSet(ctx: RunnerContext, s: RunnerState, previous: boolean) {
+  const exercises = ctx.script.exercises;
+  const before = (exercise: number, set: number) =>
+    set > 1
+      ? { exercise, set: set - 1 }
+      : exercise > 0
+        ? { exercise: exercise - 1, set: exercises[exercise - 1].sets }
+        : null;
+  const current = { exercise: s.exercise, set: s.set };
+  switch (s.phase === "paused" ? s.resume : s.phase) {
+    case "rest":
+      return current;
+    case "set":
+      return previous ? (before(s.exercise, s.set) ?? current) : current;
+    case "setup":
+      return previous ? before(s.exercise, 1) : null;
+    case "cooldown": {
+      const last = exercises.length - 1;
+      return last >= 0 ? { exercise: last, set: exercises[last].sets } : null;
+    }
+    default:
+      return null;
+  }
+}
+/**
+ * "I didn't do the last one": nothing is logged, nothing is skipped and the
+ * session does not move on. The trainer is told which set the member means
+ * (`not_done`, with `logged` when the runner had logged it: the member
+ * corrects that log on the workout page). "Too heavy" in the same reply is
+ * handled as its own command.
+ */
+function notDone(
+  ctx: RunnerContext,
+  s: RunnerState,
+  command: Extract<VoiceCommand, { type: "not_done" }>,
+): [RunnerState, RunnerEffect[]] {
+  const ref = referencedSet(ctx, s, command.previous === true);
+  const record = outcome({
+    type: "not_done",
+    ...(ref ? { exercise: ref.exercise, set: ref.set, logged: s.logged.includes(key(ref.exercise, ref.set)) } : {}),
+  });
+  if (command.heavy && ["set", "rest", "setup"].includes(s.phase)) {
+    const [next, heavy] = stepRunner(ctx, s, { type: "command", command: { type: "too_heavy" } });
+    return [next, [...(heavy.some((e) => e.type === "say") ? [] : [noted()]), ...heavy, record]];
+  }
+  return [s, [noted(), record]];
+}
+
+/**
  * One transition. Returns the next state and the effects to perform in order.
  * Unknown or out-of-phase events leave the state unchanged.
  */
@@ -516,6 +777,8 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
     if (s.phase !== "ready") return [s, []];
     return [{ ...s, phase: "intro" }, [say(ctx.script.intro), outcome({ type: "started" })]];
   }
+  if (event.type === "command" && event.command.type === "not_done")
+    return s.phase === "ready" ? [s, []] : notDone(ctx, s, event.command);
   if (s.phase === "paused") {
     if (event.type === "command" && ["resume", "done"].includes(event.command.type)) {
       const back = s.resume ?? "set";

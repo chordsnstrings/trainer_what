@@ -116,6 +116,21 @@ async function onDeviceRecognition(lang: string) {
     return false;
   }
 }
+/** The language spoken replies are recognised in; "" follows the app. */
+type ReplyLanguage = "" | "en" | "ar";
+const REPLY_LANGUAGE_KEY = "voice-reply-language";
+/** A per-device choice; unreadable storage falls back to the app's language. */
+function savedReplyLanguage(): ReplyLanguage {
+  try {
+    const value = localStorage.getItem(REPLY_LANGUAGE_KEY);
+    return value === "en" || value === "ar" ? value : "";
+  } catch {
+    return "";
+  }
+}
+function appLanguage() {
+  return (typeof document !== "undefined" && document.documentElement.lang) || "en-US";
+}
 function speechType(mime: string) {
   const base = mime.split(";")[0];
   return ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"].includes(base)
@@ -449,7 +464,13 @@ function Runner({
     [repsDraft, setRepsDraft] = useState(""),
     [transcriptionConsent, setTranscriptionConsent] = useState(false),
     [clipCount, setClipCount] = useState(0),
-    [changed, setChanged] = useState(false);
+    [changed, setChanged] = useState(false),
+    // The language the member replies in: "" follows the app's language.
+    [replyLanguage, setReplyLanguage] = useState<ReplyLanguage>(savedReplyLanguage);
+  const replyLanguageRef = useRef(replyLanguage);
+  replyLanguageRef.current = replyLanguage;
+  const recognitionLang =
+    replyLanguage === "ar" ? "ar-AE" : replyLanguage === "en" ? "en-US" : appLanguage();
   const clips = useRef(new Map<string, string>());
   const player = useRef<HTMLAudioElement | null>(null);
   const speaking = useRef(false);
@@ -698,6 +719,14 @@ function Runner({
             break;
           case "outcome":
             outcomes.current.push(effect.outcome);
+            // "I didn't do the last one": the trainer is told; a set already
+            // logged stays logged until the member corrects it.
+            if (effect.outcome.type === "not_done")
+              setNotice(
+                effect.outcome.logged
+                  ? "Noted for your trainer. That set was already logged: if you did not do it, correct it on the workout log."
+                  : "Noted for your trainer.",
+              );
             if (outcomes.current.length >= 10) void flush();
             break;
           case "finished":
@@ -833,8 +862,8 @@ function Runner({
   const transcriptRef = useRef(handleTranscript);
   transcriptRef.current = handleTranscript;
   useEffect(() => {
-    void onDeviceRecognition(document.documentElement.lang || "en-US").then(setDeviceSpeech);
-  }, []);
+    void onDeviceRecognition(recognitionLang).then(setDeviceSpeech);
+  }, [recognitionLang]);
   useEffect(() => {
     if (listening !== "device") return;
     const Ctor = recognitionConstructor();
@@ -843,7 +872,7 @@ function Runner({
     recognition.processLocally = true;
     recognition.continuous = true;
     recognition.interimResults = false;
-    recognition.lang = document.documentElement.lang || "en-US";
+    recognition.lang = recognitionLang;
     let active = true,
       running = false,
       restart: ReturnType<typeof setTimeout> | null = null;
@@ -889,7 +918,7 @@ function Runner({
         recognition.abort();
       } catch {}
     };
-  }, [listening]);
+  }, [listening, recognitionLang]);
   useEffect(() => {
     if (listening !== "server") return;
     let stream: MediaStream | null = null,
@@ -962,7 +991,12 @@ function Runner({
               api<{ transcript: string; command: VoiceCommand; trainingHeld: boolean }>(
                 `/voice-sessions/${session.id}/transcribe`,
                 "POST",
-                { audio, type, durationMs: Math.min(15000, Math.max(200, Math.round(duration))) },
+                {
+                  audio,
+                  type,
+                  durationMs: Math.min(15000, Math.max(200, Math.round(duration))),
+                  ...(replyLanguageRef.current ? { language: replyLanguageRef.current } : {}),
+                },
               )
                 .then((r) =>
                   transcriptRef.current(r.transcript, { command: r.command, trainingHeld: r.trainingHeld, sincePlaybackMs }),
@@ -1241,8 +1275,27 @@ function Runner({
       {running && (
         <section className="card" aria-labelledby="voice-replies">
           <h2 id="voice-replies">Spoken replies</h2>
+          <label className="voice-reply-language">
+            <span>I reply in</span>{" "}
+            <select
+              value={replyLanguage}
+              onChange={(e) => {
+                const value = e.target.value as ReplyLanguage;
+                setReplyLanguage(value);
+                try {
+                  localStorage.setItem(REPLY_LANGUAGE_KEY, value);
+                } catch {}
+              }}
+            >
+              <option value="">the app's language</option>
+              <option value="en">English</option>
+              <option value="ar" lang="ar">العربية</option>
+            </select>
+          </label>
           <p className="muted">
-            Say “done”, a number of reps, “too heavy”, “pause” or “pain”.
+            Say “done”, a number of reps, “too heavy”, “pause”, “I didn't do
+            it” or “pain”, or in Arabic{" "}
+            <span lang="ar" dir="rtl">«خلصت»، «ثقيل»، «وقف»، «ما سويتها»، «ألم»</span>.
             While your trainer's voice is speaking, replies are not heard: tap
             a button instead. The buttons always work.
           </p>

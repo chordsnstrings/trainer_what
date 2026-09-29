@@ -6,11 +6,14 @@
 import { z } from "zod";
 import { cueIssues, MARKUP, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 import { EFFORTS, spokenDistance, spokenDuration, workMeasure } from "./prescription.ts";
+import { speechLanguage, type SpeechLanguage } from "./speech-language.ts";
 // The free-wording checks live in text-screen.ts (shared with Brain plans).
 export { cueIssues, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 
 export const VOICE_SCRIPT_VERSION = "voice-session-script-v1";
-export const VOICE_SUGGESTION_PROMPT_VERSION = "voice-session-suggestions-v1";
+// v2 (29 September 2026): the prompt states the exact keys and how many lines
+// each may hold, and the answer is read leniently (readVoiceSuggestions).
+export const VOICE_SUGGESTION_PROMPT_VERSION = "voice-session-suggestions-v2";
 /** The spoken safety line is code-owned and always part of the intro. */
 export const VOICE_SAFETY_LINE =
   "If anything hurts, or you feel dizzy or unwell, say pain or tap Stop and I will stop the session and tell your trainer.";
@@ -34,6 +37,16 @@ export type LineKind =
  * Model wording is never spoken without the trainer's approval.
  */
 export type LineOwner = "code" | "trainer";
+/**
+ * The language a script line is synthesised in. Code-owned lines (setup, set,
+ * rest, the safety line, and the shared clips) are English templates, even
+ * when an exercise name in them is Arabic: their numbers and words are read
+ * as English until Arabic templates exist. The trainer's own phrases and plan
+ * cues are spoken in their own language (`speechLanguage`).
+ */
+export function lineLanguage(line: { owner: LineOwner; text: string }): SpeechLanguage {
+  return line.owner === "code" ? "en" : speechLanguage(line.text);
+}
 export type ScriptLine = {
   id: string;
   kind: LineKind;
@@ -296,16 +309,52 @@ export const codeLines = {
  */
 export const SUGGESTION_FIELDS = ["intro", "warmup", "encouragement", "cooldown", "finish"] as const;
 export type SuggestionField = (typeof SUGGESTION_FIELDS)[number];
+/** How many suggested lines of each kind are kept (the prompt says so too). */
+export const SUGGESTION_LIMITS: Record<SuggestionField, number> = {
+  intro: 4,
+  warmup: 4,
+  encouragement: 8,
+  cooldown: 4,
+  finish: 4,
+};
 export const voiceSuggestionsSchema = z
   .object({
-    intro: z.array(z.string().max(400)).max(4).optional(),
-    warmup: z.array(z.string().max(400)).max(4).optional(),
-    encouragement: z.array(z.string().max(400)).max(8).optional(),
-    cooldown: z.array(z.string().max(400)).max(4).optional(),
-    finish: z.array(z.string().max(400)).max(4).optional(),
+    intro: z.array(z.string().max(400)).max(SUGGESTION_LIMITS.intro).optional(),
+    warmup: z.array(z.string().max(400)).max(SUGGESTION_LIMITS.warmup).optional(),
+    encouragement: z.array(z.string().max(400)).max(SUGGESTION_LIMITS.encouragement).optional(),
+    cooldown: z.array(z.string().max(400)).max(SUGGESTION_LIMITS.cooldown).optional(),
+    finish: z.array(z.string().max(400)).max(SUGGESTION_LIMITS.finish).optional(),
   })
   .strict();
 export type VoiceSuggestions = z.infer<typeof voiceSuggestionsSchema>;
+/**
+ * The model's suggestions, read leniently. In the model trial (29 September
+ * 2026) the answers for a bilingual trainer from two providers were refused
+ * whole because one kind had five lines where four are kept, and a third
+ * provider answered one line per kind as a plain string. Here each known kind
+ * may be a list or one line; lines past the kind's limit, non-text items and
+ * unknown keys are dropped. Nothing read here is spoken: every line still goes
+ * through `checkedSuggestions` and the trainer's review. Null when the answer
+ * holds none of the kinds (the caller reports the answer as not usable).
+ */
+export function readVoiceSuggestions(content: unknown): VoiceSuggestions | null {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return null;
+  const read: VoiceSuggestions = {};
+  let found = false;
+  for (const field of SUGGESTION_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(content, field)) continue;
+    const value = (content as Record<string, unknown>)[field];
+    const list = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+    const lines = list
+      .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+      .filter((line) => line.length <= 400)
+      .slice(0, SUGGESTION_LIMITS[field]);
+    if (!lines.length) continue;
+    read[field] = lines;
+    found = true;
+  }
+  return found ? read : null;
+}
 /** The suggestions that pass every wording check and are not already in the style. */
 export function checkedSuggestions(raw: VoiceSuggestions, style: VoiceStyle) {
   const accepted: Record<SuggestionField, string[]> = {
@@ -336,21 +385,35 @@ export type RejectedLine = {
  * from the trainer's saved phrases when they pass the checks, then a safe
  * default for the tone. Nothing the model wrote is spoken unless the trainer
  * approved it into the style.
+ *
+ * `language` is the member's language. A bilingual trainer's phrases in that
+ * language are used first, and phrases in the other language only when the
+ * trainer wrote none of that kind in it, so a member does not hear the
+ * trainer's English and Arabic lines mixed. Each line is spoken in its own
+ * language (`speechLanguage`, docs/features/trainer-voice.md).
  */
 export function buildSessionScript(input: {
   title: string;
   exercises: PlanExercise[];
   style?: VoiceStyle;
+  language?: SpeechLanguage;
 }): { script: SessionScript; rejected: RejectedLine[] } {
   const style = input.style ?? defaultVoiceStyle();
   const defaults = DEFAULTS[style.tone];
   const rejected: RejectedLine[] = [];
+  const prefer = (texts: string[]) => {
+    if (!input.language) return texts;
+    const own = texts.filter((text) => speechLanguage(text) === input.language);
+    return own.length ? own : texts;
+  };
   const accept = (texts: string[] | undefined) =>
-    (texts ?? []).map((t) => String(t).trim()).filter((text) => {
-      const issues = phraseIssues(text);
-      if (issues.length) rejected.push({ source: "trainer", text, issues });
-      return !issues.length;
-    });
+    prefer(
+      (texts ?? []).map((t) => String(t).trim()).filter((text) => {
+        const issues = phraseIssues(text);
+        if (issues.length) rejected.push({ source: "trainer", text, issues });
+        return !issues.length;
+      }),
+    );
   const pick = (trainer: string[], fallback: string[]) => {
     const fromTrainer = accept(trainer);
     if (fromTrainer.length)
