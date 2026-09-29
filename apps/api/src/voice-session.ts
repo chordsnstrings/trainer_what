@@ -21,6 +21,10 @@ import {
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { modelCompletion } from "../../../packages/providers/src/model-accounting.ts";
 import {
+  modelCallBudget,
+  modelReplyJson,
+} from "../../../packages/providers/src/model-request.ts";
+import {
   generateTrainerVoice,
   speechToTextContract,
   transcribeSpeech,
@@ -504,8 +508,9 @@ async function brainSuggestions(db: Database, a: Actor, style: VoiceStyle) {
         temperature: 0.4,
       },
       modelAccounting(db, a, "voice_session_suggestions"),
+      { timeoutMs: modelCallBudget("voice_suggestions", config).timeoutMs },
     );
-    content = JSON.parse(String(payload?.choices?.[0]?.message?.content ?? "null"));
+    content = modelReplyJson(payload);
   } catch (e: any) {
     if (e?.statusCode && e.statusCode < 500) throw e;
     throw fail(502, "MODEL_UNCONFIRMED", "The Brain could not suggest wording now. Try again later.");

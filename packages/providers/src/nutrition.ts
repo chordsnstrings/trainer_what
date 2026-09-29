@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ModelOutputInvalid, ProviderUnavailable } from "./index.ts";
-import { runtimeConfig } from "./configuration.ts";
+import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
+import { familyTimeoutMs, modelReplyJson } from "./model-request.ts";
 import {
   createPromptRefs,
   promptRefsInstruction,
@@ -37,11 +38,14 @@ export function nutritionModelIdentity() {
  * an evaluation grows with its scenarios (each is a decision with a worked
  * meal). The time allows about 10 ms per budgeted token after a 30 s start:
  * the trial's Seed replies needed up to 49 s for a week and 36 s for a
- * six-scenario evaluation, over the old 30 s default.
+ * six-scenario evaluation, over the old 30 s default. It is multiplied for the
+ * configured model's family (AI model settings; 1 for classic models, so their
+ * limits are unchanged) within the 300 s cap.
  */
 export function nutritionBudget(
   task: NutritionTask,
   size: { scenarios?: number } = {},
+  config: RuntimeConfig = runtimeConfig(),
 ) {
   const maxTokens =
     task === "nutrition_evaluation"
@@ -50,16 +54,31 @@ export function nutritionBudget(
           Math.max(12000, 4000 + 550 * Math.max(0, size.scenarios ?? 0)),
         )
       : 12000;
-  return { maxTokens, timeoutMs: Math.min(300000, 30000 + maxTokens * 10) };
+  return {
+    maxTokens,
+    timeoutMs: familyTimeoutMs(
+      Math.min(300000, 30000 + maxTokens * 10),
+      config,
+    ),
+  };
 }
 /**
  * How long a weekly meal-plan attempt holds its job lease and counts as
  * running: the week's model timeout plus 90 s for the transactions before
  * and after the call. The worker's claim, the manual job and the request
- * record all use it, so no second attempt starts while one is in flight.
+ * record all use it, so no second attempt starts while one is in flight. It
+ * follows the configured model's time limit (nutritionWeekLeaseSeconds);
+ * this constant is the classic-model value (multiplier 1).
  */
-export const NUTRITION_WEEK_LEASE_SECONDS =
-  Math.ceil(nutritionBudget("nutrition_week").timeoutMs / 1000) + 90;
+export function nutritionWeekLeaseSeconds(
+  config: RuntimeConfig = runtimeConfig(),
+) {
+  return (
+    Math.ceil(nutritionBudget("nutrition_week", {}, config).timeoutMs / 1000) +
+    90
+  );
+}
+export const NUTRITION_WEEK_LEASE_SECONDS = nutritionWeekLeaseSeconds({});
 /** Output fields that must name an identifier the request showed. */
 export const nutritionIdKeys: Record<NutritionTask, string[]> = {
   nutrition_week: ["recipeId", "caseIds"],
@@ -158,7 +177,7 @@ export async function nutritionModel<T>(
   );
   let raw: unknown;
   try {
-    raw = JSON.parse(payload.choices?.[0]?.message?.content ?? "null");
+    raw = modelReplyJson(payload);
   } catch {
     throw new ModelOutputInvalid(INVALID);
   }

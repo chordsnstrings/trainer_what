@@ -16,7 +16,12 @@ import {
   type PlanSegment,
 } from "../../domain/src/brain-plans.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
-import { runtimeConfig } from "./configuration.ts";
+import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
+import {
+  familyTimeoutMs,
+  modelCallBudget,
+  modelReplyJson,
+} from "./model-request.ts";
 import {
   createPromptRefs,
   promptRefsInstruction,
@@ -225,17 +230,24 @@ function modelConfig() {
  * Output budget and time for one programme draft. The draft is compact (one
  * session shape plus one row per week), so it grows with sessions a week,
  * exercises and weeks; a 53-week, 7-day programme needs far more than a
- * 4-week one.
+ * 4-week one. The time is multiplied for the configured model's family (AI
+ * model settings; 1 for classic models, so their limits are unchanged).
  */
-export function planGenerationBudget(input: {
-  daysPerWeek: number;
-  weeks: number;
-}) {
+export function planGenerationBudget(
+  input: {
+    daysPerWeek: number;
+    weeks: number;
+  },
+  config: RuntimeConfig = runtimeConfig(),
+) {
   const days = Math.max(1, Math.min(7, Math.round(input.daysPerWeek) || 1));
   const weeks = Math.max(1, Math.min(53, Math.round(input.weeks) || 1));
   return {
     maxTokens: Math.min(16000, Math.max(6000, 2000 + days * 12 * 110 + weeks * 70)),
-    timeoutMs: Math.min(240000, 45000 + days * 6000 + weeks * 1500),
+    timeoutMs: familyTimeoutMs(
+      Math.min(240000, 45000 + days * 6000 + weeks * 1500),
+      config,
+    ),
   };
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -267,7 +279,7 @@ async function complete(
   refs: PromptRefs,
   maxTokens: number,
   accounting: ModelAccounting,
-  timeoutMs = 60000,
+  timeoutMs: number,
 ) {
   const config = modelConfig();
   // The encoded payload is what the model sees (and is shorter than the original).
@@ -295,7 +307,7 @@ async function complete(
   );
   let content: unknown = null;
   try {
-    content = JSON.parse(payload.choices?.[0]?.message?.content ?? "null");
+    content = modelReplyJson(payload);
   } catch {
     content = null;
   }
@@ -461,7 +473,14 @@ export async function proposePlanAdaptation(
     ...input,
     progressionHold: input.progressionHold ?? [],
   });
-  const { content, usage } = await complete(planAdaptationSystem(), refs, 3000, accounting);
+  const budget = modelCallBudget("plan_adaptation", runtimeConfig());
+  const { content, usage } = await complete(
+    planAdaptationSystem(),
+    refs,
+    budget.maxTokens!,
+    accounting,
+    budget.timeoutMs,
+  );
   const reply = decodeReply(refs, unwrapReply(content, "changes"), "proposal", ["reason", "uncertainties"]);
   const parsed = reply.errors.length ? null : adaptationProposalSchema.safeParse(reply.value);
   const errors = reply.errors.length

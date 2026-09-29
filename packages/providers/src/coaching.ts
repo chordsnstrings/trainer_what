@@ -3,6 +3,7 @@ import { allowedModelEvidence } from "@trainer/domain";
 import { coachingPromptVersion } from "../../domain/src/coaching-completion.ts";
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { runtimeConfig } from "./configuration.ts";
+import { modelCallBudget, modelReplyJson } from "./model-request.ts";
 import { ModelOutputInvalid } from "./index.ts";
 import { createPromptRefs, promptRefsInstruction } from "./prompt-refs.ts";
 import {
@@ -86,6 +87,7 @@ export async function selectCoachAction(
       ),
       { statusCode: 409 },
     );
+  const budget = modelCallBudget("coach_selection", config);
   const { payload, usage } = await modelCompletion(
     config.MODEL_BASE_URL,
     config.MODEL_API_KEY,
@@ -99,10 +101,11 @@ export async function selectCoachAction(
         { role: "user", content: prompt },
       ],
       response_format: { type: "json_object" },
-      max_tokens: 800,
+      max_tokens: budget.maxTokens,
       temperature: 0,
     },
     accounting,
+    { timeoutMs: budget.timeoutMs },
   );
   // A malformed answer, evidence outside the release or an unavailable
   // action is withheld like any invalid model output (usage stays recorded);
@@ -116,7 +119,7 @@ export async function selectCoachAction(
     // reference-shaped word in it ("sets x8", "vitamin K2") is left as written
     // instead of withholding a grounded selection.
     const decoded = refs.decode(
-      JSON.parse(payload.choices?.[0]?.message?.content ?? "null"),
+      modelReplyJson(payload),
       { idKeys: ["actionId", "evidenceIds"] },
     );
     if (decoded.issues.some((issue) => issue.path[0] !== "reason"))

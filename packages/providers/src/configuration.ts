@@ -9,6 +9,11 @@ import {
   sandboxOverride,
   sandboxResolver,
 } from "./sandbox.ts";
+import {
+  modelTimeoutMultiplier,
+  resolveModelRequestStyle,
+  validTimeoutMultiplier,
+} from "./model-request.ts";
 
 export type RuntimeConfig = Record<string, string | undefined>;
 const runtime = new AsyncLocalStorage<RuntimeConfig>();
@@ -693,6 +698,54 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       field("MODEL_PROVIDER", "Provider name for cost records", "text", {
         help: "Recorded on every AI cost row, for example openai, anthropic or openrouter. Leave blank to use the name read from the API address. Lower-case letters, digits, dots, dashes and underscores.",
       }),
+      field("MODEL_REQUEST_STYLE", "Request style", "select", {
+        defaultValue: "auto",
+        options: [
+          {
+            value: "auto",
+            label: "Automatic (from the model ID; one retry if a parameter is refused)",
+          },
+          { value: "classic", label: "Classic (max_tokens and temperature)" },
+          {
+            value: "reasoning",
+            label: "Reasoning (max_completion_tokens, no temperature)",
+          },
+        ],
+        help: "OpenAI GPT-5 and later, the o-series and chat-latest refuse max_tokens and most refuse a set temperature; automatic sends them max_completion_tokens with the same limit and no temperature. Other models (GPT-4.1, GPT-4o, ModelArk Seed, DeepSeek and GLM) get the classic request. With automatic, a provider answer that refuses one of these parameters is retried once in the other style and the style that worked is used from then on; choose a style to send exactly that one.",
+      }),
+      field(
+        "MODEL_REASONING_EFFORT",
+        "Reasoning effort (reasoning style only)",
+        "select",
+        {
+          options: [
+            { value: "none", label: "none" },
+            { value: "minimal", label: "minimal" },
+            { value: "low", label: "low" },
+            { value: "medium", label: "medium" },
+            { value: "high", label: "high" },
+          ],
+          help: "Leave unselected to send none (the provider's default). Reasoning counts inside the output limit: a lower effort leaves more of it for the answer and is faster. Not every model accepts every level (minimal: GPT-5; none: GPT-5.1 and later); a refused level fails the call.",
+        },
+      ),
+      field(
+        "MODEL_TIMEOUT_MULTIPLIER",
+        "Time limit multiplier, classic request style",
+        "number",
+        {
+          defaultValue: "1",
+          help: "Multiplies each AI task's time limit (chat 30 s, plans 69 to 240 s, meal weeks 150 s and so on) for models sent the classic request. 1 keeps the standard limits; raise it for slow thinking models such as DeepSeek V4 Pro or GLM-5.2. 1 to 10; no call waits longer than 300 s.",
+        },
+      ),
+      field(
+        "MODEL_REASONING_TIMEOUT_MULTIPLIER",
+        "Time limit multiplier, reasoning request style",
+        "number",
+        {
+          defaultValue: "2",
+          help: "The same for models sent the reasoning request (GPT-5 and later, o-series), which think before answering. 1 to 10; no call waits longer than 300 s. Meal-week leases follow the longer limit.",
+        },
+      ),
       field(
         "MODEL_VISION_ENABLED",
         "Selected model supports image input",
@@ -1702,6 +1755,14 @@ export function validateIntegrationValues(
           `${entry.label} must be from 0 to 20 with at most two decimals`,
         );
       if (
+        (key === "MODEL_TIMEOUT_MULTIPLIER" ||
+          key === "MODEL_REASONING_TIMEOUT_MULTIPLIER") &&
+        !validTimeoutMultiplier(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be from 1 to 10 with at most two decimals`,
+        );
+      if (
         key === "MODEL_PROVIDER" &&
         !/^[a-z0-9][a-z0-9._-]{0,59}$/.test(text.toLowerCase())
       )
@@ -2403,12 +2464,24 @@ export async function testIntegration(
             "The selected model was not present in the provider model list. No generation was attempted.",
           checkedAt,
         };
+      // The request style calls will start with: the setting, a style this
+      // process learned from a refused parameter, or the model ID.
+      const plan = resolveModelRequestStyle(
+        fields.MODEL_BASE_URL,
+        fields.MODEL_NAME,
+        fields,
+      );
       return {
         status: "verified",
         message:
           "API access and selected model verified without generating content. Coach evaluations must verify output quality separately.",
         checkedAt,
-        details: { model: fields.MODEL_NAME },
+        details: {
+          model: fields.MODEL_NAME,
+          requestStyle: plan.style,
+          requestStyleSource: plan.source,
+          timeLimitMultiplier: modelTimeoutMultiplier(fields),
+        },
       };
     }
     if (id === "email" || id === "lean") {

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
 import { integrationStatus, providerSandboxStatus } from "@trainer/providers";
 import { z } from "zod";
+import { resolveModelRequestStyle } from "../../../packages/providers/src/model-request.ts";
 import {
   INTEGRATION_CATALOG,
   testIntegration,
@@ -624,9 +625,26 @@ export function platformSettingsRoutes(
         return row;
       });
       let status: TestResult["status"] = "failed";
+      let note = "";
       // Network calls never hold a database transaction or receive unsaved fields.
       try {
         const values = configuredValues(def, snapshot);
+        // The AI model's request style is the app's own decision, never
+        // provider text: the setting, a learned style or the model ID.
+        if (def.id === "model") {
+          const plan = resolveModelRequestStyle(
+            values.MODEL_BASE_URL ?? "",
+            values.MODEL_NAME ?? "",
+            values,
+          );
+          note = ` Calls use the ${plan.style} request style (${
+            {
+              setting: "chosen in these settings",
+              learned: "learned after a refused parameter",
+              model_name: "from the model ID",
+            }[plan.source]
+          }).`;
+        }
         const capability = integrationCapability(def.id, values);
         const result =
           capability &&
@@ -646,7 +664,8 @@ export function platformSettingsRoutes(
       const result: TestResult = {
         status,
         message: {
-          verified: "Credentials verified with a read-only provider request.",
+          verified:
+            "Credentials verified with a read-only provider request." + note,
           validated:
             "Configuration validated locally. Review the connection notes for live verification requirements.",
           unavailable:

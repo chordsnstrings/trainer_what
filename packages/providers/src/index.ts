@@ -1,4 +1,5 @@
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
+import { modelCallBudget, modelReplyJson } from "./model-request.ts";
 import { createHash } from "node:crypto";
 import {
   runtimeConfig,
@@ -18,6 +19,17 @@ export type {
   ModelUsage,
 } from "./model-accounting.ts";
 export { modelProviderName } from "./model-accounting.ts";
+export {
+  MODEL_CALL_BUDGETS,
+  modelCallBudget,
+  modelFamily,
+  modelReplyJson,
+  modelRequestStyleSetting,
+  requestStyleForModel,
+  resolveModelRequestStyle,
+  unwrapJsonFence,
+  type ModelRequestStyle,
+} from "./model-request.ts";
 import Stripe from "stripe";
 import {
   decisionSchema,
@@ -241,6 +253,7 @@ export async function modelDecision(
     },
     { kinds: [{ prefix: "EV", ids: evidence.map((e) => e.id) }] },
   );
+  const budget = modelCallBudget("coach_decision", runtimeConfig());
   const { payload, usage } = await modelCompletion(
     base,
     key,
@@ -252,13 +265,14 @@ export async function modelDecision(
         { role: "user", content: JSON.stringify(refs.payload) },
       ],
       response_format: { type: "json_object" },
-      max_tokens: 2500,
+      max_tokens: budget.maxTokens,
       temperature: 0.2,
     },
     accounting,
+    { timeoutMs: budget.timeoutMs },
   );
   try {
-    const raw = JSON.parse(payload.choices?.[0]?.message?.content ?? "null");
+    const raw = modelReplyJson(payload) as any;
     const decoded = refs.decode(raw, { idKeys: ["evidenceIds"] });
     if (!decoded.ok)
       throw new Error("Model cited an identifier it was not shown");
@@ -449,13 +463,14 @@ export async function compileTrainerRules(
     MODEL_NAME: model,
   } = runtimeConfig();
   if (!base || !key || !model) throw new ProviderUnavailable("model");
+  const budget = modelCallBudget("rule_compilation", runtimeConfig());
   const { payload, usage } = await modelCompletion(
     base,
     key,
     model,
     {
       model,
-      max_tokens: 5000,
+      max_tokens: budget.maxTokens,
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
@@ -468,6 +483,7 @@ export async function compileTrainerRules(
       ],
     },
     accounting,
+    { timeoutMs: budget.timeoutMs },
   );
   try {
     const result = z
@@ -483,7 +499,7 @@ export async function compileTrainerRules(
           .max(12),
       })
       .strict()
-      .parse(JSON.parse(payload.choices?.[0]?.message?.content ?? "null"));
+      .parse(modelReplyJson(payload));
     const allowed = new Set(input.map((r) => r.id));
     for (const item of [...result.rules, ...result.conflicts])
       if (
