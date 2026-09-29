@@ -27,4 +27,6 @@ The ModelArk models answered each chat case twice; the "Chat correct" and "Safet
 
 1. **Grounding check.** `groundedSelection` (`apps/api/src/coaching-runtime.ts`) delivers an action automatically only when `evidenceIds` contains the chosen action's own ID and one of its rule IDs. Every model, Claude included, put the action ID only in `actionId`. As a result, none of the correct routine answers would be delivered automatically; they would all go to the trainer. The same check scores trainer scenario evaluations.
 2. **Arabic.** The action filter matches English words only, so Arabic requests never reach the model for an automatic reply.
+
+Findings 1 and 2 are addressed on branch `core/fix-chat` (not merged): the selector's chosen `actionId` now counts as citing the action and the prompt states the evidence contract (`coach-action-selector-v3`), and Arabic request terms, Arabic replies and Arabic held-out questions are supported. See `docs/features/coaching-chat.md`.
 3. **Plan time limits.** The limits for these plans (about 69–87 s) are shorter than GLM-5.3-Flash and DeepSeek V4 Pro need (about 80 s). Seed 2.0 Pro (about 42 s) fits.

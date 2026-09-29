@@ -246,10 +246,13 @@ test("the model receives only retrieved reviewed text and cannot cite omitted ev
         record: async () => {},
       };
     const result = await selectCoachAction(data, accounting);
+    // Only the retrieved case is sent, under its short reference (X1).
     assert.deepEqual(
       prompt.examples.map((e: any) => e.id),
-      [approved.id],
+      ["X1"],
     );
+    assert.equal(prompt.examples[0].data.scenario, approved.data.scenario);
+    assert.ok(!JSON.stringify(prompt).includes(approved.id));
     assert.doesNotMatch(
       JSON.stringify(prompt),
       /PRIVATE_RAW_OUTCOME|coaching_feedback_outcome/,

@@ -213,6 +213,7 @@ import {
   ProviderUnavailable,
   integrationStatus,
   modelDecision,
+  coachDecisionPromptVersion,
   MODEL_EVIDENCE_LIMIT,
   compileTrainerRules,
   requireCommerce,
@@ -1634,6 +1635,7 @@ export async function buildApp(
           total: outcomes.length,
           passed: outcomes.filter((x) => x.passed).length,
           rulesDigest: digest,
+          promptVersion: coachDecisionPromptVersion,
         },
         { status: outcomes.every((x) => x.passed) ? "passed" : "failed" },
       );
