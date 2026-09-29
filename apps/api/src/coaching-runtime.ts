@@ -12,12 +12,16 @@ import {
 import { safetySignal } from "@trainer/domain";
 import {
   canonicalCoaching,
+  coachActionInputSchema,
+  coachActionReply,
   coachActionSchema,
   coachingActions,
   coachingFactsSchema,
+  coachingTermText,
   teachingCaseSchema,
   eligibleCoachAction,
   effectiveWorkoutSets,
+  groundedCoachSelection,
   addTrainingDays,
   type CoachingFacts,
 } from "../../../packages/domain/src/coaching-completion.ts";
@@ -35,13 +39,19 @@ import { reviseExercise, scheduleProgram } from "./training-programs.ts";
 const id = z.string().uuid();
 const hash = (value: any) =>
   createHash("sha256").update(canonicalCoaching(value)).digest("hex");
+/**
+ * Comparison text for held-out and teaching questions: letters and digits of
+ * every script (coachingTermText), with standalone numbers as "#". Arabic
+ * questions used to fold to "", so any two were "copies" and an empty stored
+ * prompt was "contained" in every outcome context. Comparisons therefore
+ * recompute this from the stored question text, never trusting a stored
+ * normalizedPrompt, and empty text never matches.
+ */
 const normalizePrompt = (value: string) =>
-  value
-    .toLowerCase()
-    .replace(/\b\d+\b/g, "#")
-    .replace(/[^a-z0-9#]+/g, " ")
-    .trim();
+  coachingTermText(value).replace(/(^| )\d+(?= |$)/g, "$1#");
+const contains = (text: string, part: string) => !!part && text.includes(part);
 function nearDuplicate(a: string, b: string) {
+  if (!a || !b) return false;
   if (a === b) return true;
   const grams = (s: string) => {
     const words = s.split(" ");
@@ -305,14 +315,20 @@ function candidates(
     ),
   );
 }
-function groundedSelection(selection: any, action: any) {
-  return (
-    !!action &&
-    !selection.requiresHumanReview &&
-    selection.evidenceIds.includes(action.id) &&
-    action.data.evidenceIds.some((e: string) =>
-      selection.evidenceIds.includes(e),
-    )
+/**
+ * Eligible actions that also have an approved reply in the member's language
+ * (coachActionReply). Only these are offered for automatic selection and
+ * qualification: a member who writes in Arabic is never sent an English reply
+ * automatically, and without an Arabic reply the request becomes a reviewed
+ * draft. Trainer review paths use candidates() and choose themselves.
+ */
+function deliverable(
+  material: Awaited<ReturnType<typeof runtimeMaterial>>,
+  request: string,
+  facts: CoachingFacts,
+) {
+  return candidates(material, request, facts).filter(
+    (a) => !!coachActionReply(a.data, request),
   );
 }
 async function applyAction(
@@ -322,10 +338,17 @@ async function applyAction(
   action: any,
   facts: CoachingFacts,
   material: Awaited<ReturnType<typeof runtimeMaterial>>,
+  request: string,
 ) {
   let effect: any = null,
     detail = "";
   const userId = decision.owner_user_id;
+  // A reviewer may approve an action without Arabic wording for an Arabic
+  // request; the trainer's main reply is then the approved text.
+  const reply = coachActionReply(action.data, request) ?? {
+    text: action.data.response,
+    arabic: false,
+  };
   if (action.data.type === "program_build") {
     const template = material.templates.find(
       (t) => t.id === action.data.templateId,
@@ -344,7 +367,9 @@ async function applyAction(
     );
     await scheduleProgram(tx, a, program, facts.currentDate, "Asia/Dubai");
     effect = { programId: program.id };
-    detail = ` Your ${program.data.title} plan is ready in Training.`;
+    detail = reply.arabic
+      ? ` خطة ${program.data.title} جاهزة لك في قسم التدريب.`
+      : ` Your ${program.data.title} plan is ready in Training.`;
   } else if (
     action.data.type === "progression" ||
     action.data.type === "substitution"
@@ -369,8 +394,12 @@ async function applyAction(
     effect = { programId: next.id };
     detail =
       action.data.type === "progression"
-        ? ` Your next ${action.data.exercise} prescription is ${replacement.loadKg} kg.`
-        : ` Your plan now uses ${replacement.name} for this exercise.`;
+        ? reply.arabic
+          ? ` الحمل الجديد لتمرين ${action.data.exercise} في حصتك القادمة: ${replacement.loadKg} كغ.`
+          : ` Your next ${action.data.exercise} prescription is ${replacement.loadKg} kg.`
+        : reply.arabic
+          ? ` أصبحت خطتك تستخدم ${replacement.name} لهذا التمرين.`
+          : ` Your plan now uses ${replacement.name} for this exercise.`;
   } else if (action.data.type === "schedule") {
     const session = await record(tx, facts.nextSession!.id, "planned_session"),
       date = addTrainingDays(session.data.date, action.data.daysOffset);
@@ -387,9 +416,11 @@ async function applyAction(
       ],
     );
     effect = { plannedSessionId: session.id, date };
-    detail = ` Your next session is now scheduled for ${date}.`;
+    detail = reply.arabic
+      ? ` موعد حصتك القادمة الآن ${date}.`
+      : ` Your next session is now scheduled for ${date}.`;
   }
-  return { effect, message: action.data.response + detail };
+  return { effect, message: reply.text + detail };
 }
 export async function approveQualifiedDecision(
   tx: Tx,
@@ -423,7 +454,15 @@ export async function approveQualifiedDecision(
       409,
       "The proposed action no longer meets the coach's boundaries",
     );
-  const result = await applyAction(tx, a, decision, action, facts, material);
+  const result = await applyAction(
+    tx,
+    a,
+    decision,
+    action,
+    facts,
+    material,
+    decision.data.request,
+  );
   await tx.query(
     "UPDATE records SET data=data||$2::jsonb,updated_at=now() WHERE id=$1",
     [decision.id, JSON.stringify(result)],
@@ -445,25 +484,31 @@ export async function confirmCoachingTeaching(
     a.tenantId + ":brain",
   ]);
   const normalized = normalizePrompt(b.scenario);
-  const heldOut = await tx.query(
-    "SELECT data->>'normalizedPrompt' AS prompt FROM records WHERE kind='coaching_scenario'",
-  );
+  const heldOut = (
+    await tx.query(
+      "SELECT data->>'prompt' AS prompt FROM records WHERE kind='coaching_scenario'",
+    )
+  ).map((r) => normalizePrompt(r.prompt ?? ""));
   if (
     heldOut.some(
-      (r) =>
-        nearDuplicate(r.prompt, normalized) ||
+      (prompt) =>
+        nearDuplicate(prompt, normalized) ||
         (b.outcomeContext &&
-          (nearDuplicate(r.prompt, normalizePrompt(b.outcomeContext)) ||
-            normalizePrompt(b.outcomeContext).includes(r.prompt))),
+          (nearDuplicate(prompt, normalizePrompt(b.outcomeContext)) ||
+            contains(normalizePrompt(b.outcomeContext), prompt))),
     )
   )
     throw fail(
       409,
       "This question is held out for evaluation and cannot become training material",
     );
-  const conflicts = await tx.query(
-    "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' AND data->>'normalizedPrompt'=$1",
-    [normalized],
+  const conflicts = (
+    await tx.query(
+      "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' ORDER BY created_at,id",
+    )
+  ).filter(
+    (c) =>
+      !!normalized && normalizePrompt(c.data.scenario ?? "") === normalized,
   );
   if (
     conflicts.some(
@@ -545,12 +590,12 @@ export async function coachingFeedbackRegression(
   const independent = (scenario: any) =>
     !!teaching &&
     !nearDuplicate(
-      scenario.data.normalizedPrompt,
+      normalizePrompt(scenario.data.prompt ?? ""),
       normalizePrompt(teaching.data.scenario),
     ) &&
     (!sourcePrompt ||
       !nearDuplicate(
-        scenario.data.normalizedPrompt,
+        normalizePrompt(scenario.data.prompt ?? ""),
         normalizePrompt(sourcePrompt),
       ));
   const selected = scenarios.filter((row) => scenarioIds.includes(row.id));
@@ -711,8 +756,11 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
   });
   app.post("/api/v1/brain/coaching-actions", async (req) => {
     const a = owner(req),
-      b = coachActionSchema.parse(req.body);
-    if (safetySignal(b.response))
+      b = coachActionInputSchema.parse(req.body);
+    if (
+      safetySignal(b.response) ||
+      (b.responseAr && safetySignal(b.responseAr))
+    )
       throw fail(
         400,
         "Safety and medical responses require personal review; keep automatic responses within routine training",
@@ -808,18 +856,21 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       );
       const normalizedPrompt = normalizePrompt(b.prompt);
       const existing = await tx.query(
-        "SELECT data->>'normalizedPrompt' AS prompt,data->>'outcomeContext' AS outcome_context FROM records WHERE kind IN ('coaching_scenario','coaching_teaching')",
+        "SELECT CASE WHEN kind='coaching_scenario' THEN data->>'prompt' ELSE data->>'scenario' END AS prompt,data->>'outcomeContext' AS outcome_context FROM records WHERE kind IN ('coaching_scenario','coaching_teaching')",
       );
       if (
         existing.some(
           (r) =>
-            nearDuplicate(r.prompt, normalizedPrompt) ||
+            nearDuplicate(normalizePrompt(r.prompt ?? ""), normalizedPrompt) ||
             (r.outcome_context &&
               (nearDuplicate(
                 normalizePrompt(r.outcome_context),
                 normalizedPrompt,
               ) ||
-                normalizePrompt(r.outcome_context).includes(normalizedPrompt))),
+                contains(
+                  normalizePrompt(r.outcome_context),
+                  normalizedPrompt,
+                ))),
         )
       )
         throw fail(
@@ -929,7 +980,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
       material.scenarios.filter(
         (s) =>
           s.data.category === "unsupported" &&
-          candidates(material, s.data.prompt, s.data.facts).length > 0,
+          deliverable(material, s.data.prompt, s.data.facts).length > 0,
       ).length < 2
     )
       throw fail(
@@ -955,13 +1006,16 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         });
         continue;
       }
-      const eligible = candidates(material, c.prompt, c.facts);
+      const eligible = deliverable(material, c.prompt, c.facts);
       if (!eligible.length) {
         outcomes.push({
           scenarioId: scenario.id,
           passed: !c.expectedActionId,
           actionId: null,
-          gate: "code_boundary",
+          // An action matched, but has no wording in the scenario's language.
+          gate: candidates(material, c.prompt, c.facts).length
+            ? "reply_language"
+            : "code_boundary",
         });
         continue;
       }
@@ -993,7 +1047,7 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         continue;
       }
       const action = eligible.find((r) => r.id === result.selection.actionId),
-        accepted = groundedSelection(result.selection, action)
+        accepted = groundedCoachSelection(result.selection, action)
           ? action!.id
           : null;
       outcomes.push({
@@ -1138,7 +1192,7 @@ export async function tryQualifiedCoaching(
     )
       return undefined;
     const facts = await coachingFacts(tx, a.userId),
-      eligible = candidates(material, request, facts);
+      eligible = deliverable(material, request, facts);
     if (!eligible.length) return undefined;
     return { material, runtime, facts, eligible, factsDigest: hash(facts) };
   });
@@ -1215,7 +1269,7 @@ export async function tryQualifiedCoaching(
         409,
         "The evaluated coaching context changed; the response was withheld",
       );
-    const action = candidates(material, request, facts).find(
+    const action = deliverable(material, request, facts).find(
       (r) => r.id === generated.selection.actionId,
     );
     // The follower's scope cannot read takeovers, decisions or exceptions:
@@ -1225,15 +1279,15 @@ export async function tryQualifiedCoaching(
       "SELECT member_takeover_active() AS takeover",
     );
     const automatic =
-      groundedSelection(generated.selection, action) &&
+      groundedCoachSelection(generated.selection, action) &&
       !takeover &&
       runtime.data.mode === "automatic";
     const proposal = {
       type: action?.data.type ?? "escalation",
       request,
-      message:
-        action?.data.response ??
-        "This request needs your trainer's personal judgment.",
+      message: action
+        ? coachActionReply(action.data, request)!.text
+        : "This request needs your trainer's personal judgment.",
       reason: generated.selection.reason,
       evidenceIds: generated.selection.evidenceIds,
       requiresHumanReview: !automatic,
@@ -1272,7 +1326,15 @@ export async function tryQualifiedCoaching(
     // The automatic decision is stored once, already delivered, with the
     // result of the action it applied.
     const decision = { id: randomUUID(), owner_user_id: a.userId };
-    const result = await applyAction(tx, a, decision, action!, facts, material);
+    const result = await applyAction(
+      tx,
+      a,
+      decision,
+      action!,
+      facts,
+      material,
+      request,
+    );
     await putPrivateRecord(
       tx,
       a,

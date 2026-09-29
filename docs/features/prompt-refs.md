@@ -1,8 +1,15 @@
 # Short identifier references in model requests (work package `core/fix-refs`, task F0)
 
 Status: helper implemented on branch `core/fix-refs` (`packages/providers/src/prompt-refs.ts`,
-re-exported from `@trainer/providers`). It is **not yet wired into any model call**: the call-site
-tracks do that. No model, provider or live server was used.
+re-exported from `@trainer/providers`). It is **not yet wired into any model call** on that branch:
+the call-site tracks do that. No model, provider or live server was used.
+
+Wired on branch `core/fix-chat` (task F1, `docs/features/coaching-chat.md`):
+
+| Call | Kinds (prefix: identifiers) | `idKeys` | Prompt version |
+| --- | --- | --- | --- |
+| `selectCoachAction` | `K`: actions, `R`: rules, `X`: teaching cases; `ID` for identifiers inside facts | `actionId`, `evidenceIds` | `coach-action-selector-v3` |
+| `modelDecision` | `EV`: evidence items; `ID` for identifiers inside evidence data | `evidenceIds` (a reference or UUID in the member-facing `message` is invalid output) | `coach-decision-v1` |
 
 ## Why
 
