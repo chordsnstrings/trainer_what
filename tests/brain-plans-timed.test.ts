@@ -8,12 +8,16 @@
 // calls-seed.jsonl). No database and no real model.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   adaptationDirectionIssues,
   adaptationProposalSchema,
   applyAdaptation,
   expandPlan,
+  heldWeek,
   neutralPlanText,
+  oneRepTimedWork,
+  planLanguage,
   planDraftSchema,
   planExerciseSchema,
   planLibrary,
@@ -22,6 +26,7 @@ import {
   planTextIssues,
   planValidatorVersion,
   positionCautions,
+  pregnancyStage,
   pregnancyWeek,
   progressionHolds,
   sessionMinutes,
@@ -1489,6 +1494,7 @@ test("the plan prompt is v3 with the timed-work contract, member wording, safety
     "durationSeconds (per set) for timed work",
     "one continuous bout is sets 1 with restSeconds 0",
     "Never put a time or distance into reps and never use reps of 0",
+    "a template walk, run, ride, row, interval, hold or carry written as 1 rep stands for one bout or round: prescribe it with durationSeconds or distanceMeters, never as 1 rep",
     "total timed work, total distance and each exercise's work rise by at most bounds.maxWeeklyVolumeIncreasePct",
     "rirDelta is a whole number",
     "Leave out every exercise that the subscriber's limitations or the trainer's rules exclude",
@@ -1626,7 +1632,10 @@ test("the adaptation prompt is v2: it carries the code's progression hold, keeps
   const system = planAdaptationSystem();
   for (const phrase of [
     "Trainer Brain plan adaptation brain-plan-adapt-v2.",
-    "Never increase load, sets, reps, duration or distance when progressionHold lists a reason",
+    "When progressionHold lists a reason",
+    "nextWeek has already been held at no more than this week's values",
+    "no more load, sets, reps, duration or distance, no faster pace, no higher effort, no fewer reps in reserve, no shorter rest and no exercise swap",
+    "a pace may speed up by at most bounds.maxWeeklyVolumeIncreasePct",
     "logged reps in reserve below the prescription",
     "change reps only for rep work, durationSeconds only for timed work",
     "never with one the trainer's rules exclude",
@@ -1683,5 +1692,686 @@ test("the adaptation prompt is v2: it carries the code's progression hold, keeps
   assert.match(
     miscopy.result.errors[0],
     /^Model output: evidenceIds\.0 malformed uuid/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review round (core/fix-plans): the hold covers every way of making a week
+// harder and the plan's own progression; pregnancy stages, Arabic neutral
+// wording, logging a prescribed distance, and template walks written as 1 rep.
+
+/** A week of rep work, a continuous run with a pace and effort, and effort-only intervals. */
+const mixedWeek = (): Array<{
+  plannedSessionId: string;
+  sessionKey: string;
+  exercises: ExpandedExercise[];
+}> => [
+  {
+    plannedSessionId: "m",
+    sessionKey: "A",
+    exercises: [
+      {
+        ...ex("Goblet Squat", {
+          sets: 3,
+          reps: 5,
+          loadKg: 12,
+          rir: 2,
+          restSeconds: 120,
+        }),
+        alternatives: ["Bodyweight Squat"],
+      } as ExpandedExercise,
+      {
+        ...ex("Easy Run", {
+          durationSeconds: 1200,
+          paceSecondsPerKm: 420,
+          effort: "easy",
+        }),
+        alternatives: ["Brisk Walk"],
+      } as ExpandedExercise,
+      ex("Run Intervals", {
+        sets: 6,
+        durationSeconds: 60,
+        restSeconds: 90,
+        rir: 2,
+        effort: "moderate",
+      }) as ExpandedExercise,
+    ],
+  },
+];
+const intermediate = {
+  experience: "intermediate" as const,
+  daysPerWeek: 3,
+  equipment: "Outdoor running, dumbbells",
+};
+const harderWeek = () =>
+  progressionHolds({
+    adherence: 1,
+    loggedSets: 10,
+    exercises: [
+      {
+        exercise: "Goblet Squat",
+        prescribed: { sets: 3, rir: 2 },
+        logged: { sets: 3, averageRir: 0.5 },
+      },
+    ],
+  });
+const adaptedErrors = (
+  week: ReturnType<typeof mixedWeek>,
+  changes: Parameters<typeof applyAdaptation>[1],
+  bounds: PlanBounds = T3_BOUNDS,
+) => {
+  const applied = applyAdaptation(week, changes);
+  assert.deepEqual(applied.errors, []);
+  return {
+    applied,
+    validation: validateAdaptedWeek(
+      week.map((s) => ({ key: s.sessionKey, exercises: s.exercises })),
+      applied.sessions.map((s) => ({
+        key: s.sessionKey,
+        exercises: s.exercises,
+      })),
+      { profile: intermediate, library, bounds },
+    ),
+  };
+};
+
+test("review regression: after a harder week, fewer reps in reserve, shorter rest, a faster pace, a higher effort, a new pace or a swap is an increase that goes to the trainer", () => {
+  const holds = harderWeek();
+  assert.deepEqual(holds, [
+    "the week was harder than planned (Goblet Squat logged fewer reps in reserve than prescribed)",
+  ]);
+  const week = mixedWeek();
+  // The reviewer's case: nothing numeric rises, every change makes the week harder.
+  const { applied, validation } = adaptedErrors(week, [
+    { sessionKey: "A", exercise: "Goblet Squat", rir: 1, restSeconds: 30 },
+    {
+      sessionKey: "A",
+      exercise: "Easy Run",
+      paceSecondsPerKm: 150,
+      effort: "hard",
+    },
+    { sessionKey: "A", exercise: "Run Intervals", paceSecondsPerKm: 300 },
+  ]);
+  assert.deepEqual(adaptationDirectionIssues(week, applied.sessions, holds), [
+    "Next week raises Goblet Squat (session A: fewer reps in reserve, shorter rest); Easy Run (session A: faster pace, higher effort); Run Intervals (session A: a pace target) although the week was harder than planned (Goblet Squat logged fewer reps in reserve than prescribed)",
+  ]);
+  // The pace lever is bounded with or without a hold: 7:00/km to 2:30/km in one week is refused.
+  assert.ok(
+    validation.errors.includes(
+      "Next week: Easy Run pace speeds up from 7:00 /km to 2:30 /km (limit +10%)",
+    ),
+    validation.errors.join("\n"),
+  );
+  // Swapping in an alternative after a harder week is the trainer's call.
+  const swap = applyAdaptation(week, [
+    {
+      sessionKey: "A",
+      exercise: "Goblet Squat",
+      replaceWith: "Bodyweight Squat",
+    },
+  ]);
+  assert.match(
+    adaptationDirectionIssues(week, swap.sessions, holds)[0],
+    /^Next week raises Goblet Squat \(session A: swapped for Bodyweight Squat\) although/,
+  );
+  // Making the week easier on every lever is fine.
+  const easier = adaptedErrors(week, [
+    {
+      sessionKey: "A",
+      exercise: "Goblet Squat",
+      rir: 3,
+      restSeconds: 150,
+      loadKg: 10,
+    },
+    {
+      sessionKey: "A",
+      exercise: "Easy Run",
+      paceSecondsPerKm: 450,
+      durationSeconds: 1080,
+    },
+    { sessionKey: "A", exercise: "Run Intervals", effort: "easy", sets: 5 },
+  ]);
+  assert.deepEqual(
+    adaptationDirectionIssues(week, easier.applied.sessions, holds),
+    [],
+  );
+  assert.deepEqual(easier.validation.errors, []);
+  // Without a hold the direction is the model's to choose (inside the bounds).
+  assert.deepEqual(adaptationDirectionIssues(week, applied.sessions, []), []);
+});
+
+test("review regression: a pace speeds up by at most the weekly limit, and always by 5 s/km", () => {
+  const week = mixedWeek();
+  const pace = (paceSecondsPerKm: number, bounds: PlanBounds = T3_BOUNDS) =>
+    adaptedErrors(
+      week,
+      [{ sessionKey: "A", exercise: "Easy Run", paceSecondsPerKm }],
+      bounds,
+    ).validation.errors.filter((e) => /pace/.test(e));
+  // 7:00/km at +10% speed is 6:21.8/km.
+  assert.deepEqual(pace(382), []);
+  assert.deepEqual(pace(381), [
+    "Next week: Easy Run pace speeds up from 7:00 /km to 6:21 /km (limit +10%)",
+  ]);
+  const flat = { ...T3_BOUNDS, maxWeeklyVolumeIncreasePct: 0 };
+  assert.deepEqual(pace(415, flat), []);
+  assert.equal(pace(414, flat).length, 1);
+  // A slower pace is never limited.
+  assert.deepEqual(pace(600), []);
+});
+
+test("review regression: after a missed or harder week the plan's own progression is held at this week's values, not only the model's additions", () => {
+  // The reviewer's plan: volume 1, 1.1, 1.2; load 1, 1.05, 1.1; week 2 also one rep in reserve less.
+  const draft = planDraftSchema.parse({
+    title: "Strength and running",
+    summary: "",
+    sessions: [
+      {
+        key: "A",
+        label: "Strength and run",
+        weekday: 1,
+        exercises: [
+          ex("Goblet Squat", {
+            sets: 3,
+            reps: 5,
+            loadKg: 12,
+            rir: 2,
+            restSeconds: 120,
+          }),
+          ex("Easy Run", {
+            durationSeconds: 1200,
+            paceSecondsPerKm: 420,
+            effort: "easy",
+          }),
+        ],
+      },
+    ],
+    weeks: [1, 1.1, 1.2].map((volumeFactor, i) => ({
+      week: i + 1,
+      focus: "Build",
+      volumeFactor,
+      loadFactor: [1, 1.05, 1.1][i],
+      rirDelta: i === 1 ? -1 : 0,
+      deload: false,
+    })),
+    selfConfidence: 0.8,
+  });
+  const [w1, w2] = expandPlan(draft);
+  const current = w1.sessions.map((s) => ({
+    sessionKey: s.key,
+    exercises: s.exercises,
+  }));
+  const planned = w2.sessions.map((s) => ({
+    plannedSessionId: "p",
+    sessionKey: s.key,
+    exercises: s.exercises,
+  }));
+  assert.deepEqual(
+    planned[0].exercises.map((e) => [
+      e.name,
+      e.sets,
+      e.loadKg,
+      e.rir,
+      e.durationSeconds ?? null,
+    ]),
+    [
+      ["Goblet Squat", 3, 12.5, 1, null],
+      ["Easy Run", 1, 0, 2, 1320],
+    ],
+  );
+  const holds = progressionHolds({
+    adherence: 0.67,
+    loggedSets: 5,
+    exercises: [
+      {
+        exercise: "Goblet Squat",
+        prescribed: { sets: 3, rir: 2 },
+        logged: { sets: 3, averageRir: 1 },
+      },
+    ],
+  });
+  assert.equal(holds.length, 2);
+  // Before: comparing with the planned week found nothing to stop.
+  assert.deepEqual(
+    adaptationDirectionIssues(
+      planned,
+      applyAdaptation(planned, []).sessions,
+      holds,
+    ),
+    [],
+  );
+  const held = heldWeek(planned, current);
+  assert.deepEqual(
+    held.sessions[0].exercises.map((e) => [
+      e.name,
+      e.sets,
+      e.loadKg,
+      e.rir,
+      e.durationSeconds ?? null,
+    ]),
+    [
+      ["Goblet Squat", 3, 12, 2, null],
+      ["Easy Run", 1, 0, 3, 1200],
+    ],
+  );
+  assert.deepEqual(held.changes, [
+    {
+      sessionKey: "A",
+      exercise: "Goblet Squat",
+      field: "loadKg",
+      from: 12.5,
+      to: 12,
+    },
+    { sessionKey: "A", exercise: "Goblet Squat", field: "rir", from: 1, to: 2 },
+    { sessionKey: "A", exercise: "Easy Run", field: "rir", from: 2, to: 3 },
+    {
+      sessionKey: "A",
+      exercise: "Easy Run",
+      field: "durationSeconds",
+      from: 1320,
+      to: 1200,
+    },
+  ]);
+  assert.equal(
+    planned[0].exercises[0].loadKg,
+    12.5,
+    "the planned week is not changed in place",
+  );
+  // A compliant model (no changes) now delivers the held week; putting the planned numbers back is an increase.
+  assert.deepEqual(
+    adaptationDirectionIssues(
+      held.sessions,
+      applyAdaptation(held.sessions, []).sessions,
+      holds,
+    ),
+    [],
+  );
+  const restored = applyAdaptation(held.sessions, [
+    { sessionKey: "A", exercise: "Goblet Squat", loadKg: 12.5, rir: 1 },
+    { sessionKey: "A", exercise: "Easy Run", durationSeconds: 1320 },
+  ]);
+  assert.match(
+    adaptationDirectionIssues(held.sessions, restored.sessions, holds)[0],
+    /^Next week raises Goblet Squat \(session A: loadKg, fewer reps in reserve\); Easy Run \(session A: durationSeconds\) although sessions were missed this week and the week was harder than planned/,
+  );
+  // An easier planned week (a deload) is kept as planned.
+  const deload = heldWeek(
+    [
+      {
+        sessionKey: "A",
+        exercises: current[0].exercises.map((e) => ({
+          ...e,
+          sets: Math.min(e.sets, 2),
+          loadKg: e.loadKg * 0.9,
+          rir: e.rir + 1,
+          ...(e.durationSeconds ? { durationSeconds: 900 } : {}),
+        })),
+      },
+    ],
+    current,
+  );
+  assert.deepEqual(deload.changes, []);
+  // A faster pace, higher effort or shorter rest in the planned week is held too;
+  // an exercise moved to another session is held at this week's hardest.
+  const moved = heldWeek(
+    [
+      {
+        sessionKey: "B",
+        exercises: [
+          { ...current[0].exercises[0], restSeconds: 60, loadKg: 20 },
+          {
+            ...current[0].exercises[1],
+            paceSecondsPerKm: 360,
+            effort: "hard" as const,
+          },
+        ],
+      },
+    ],
+    current,
+  );
+  assert.deepEqual(
+    moved.changes.map((c) => [c.exercise, c.field, c.to]),
+    [
+      ["Goblet Squat", "loadKg", 12],
+      ["Goblet Squat", "restSeconds", 120],
+      ["Easy Run", "paceSecondsPerKm", 420],
+      ["Easy Run", "effort", "easy"],
+    ],
+  );
+  // A different measure is not compared round for round: only load and reps in reserve are held.
+  const remeasured = heldWeek(
+    [
+      {
+        sessionKey: "A",
+        exercises: [
+          {
+            ...current[0].exercises[1],
+            durationSeconds: undefined,
+            distanceMeters: 5000,
+            sets: 2,
+            restSeconds: 60,
+            rir: 2,
+          },
+        ],
+      },
+    ],
+    current,
+  );
+  assert.deepEqual(
+    remeasured.changes.map((c) => [c.field, c.to]),
+    [["rir", 3]],
+  );
+});
+
+test("review regression: the pregnancy stage is the number next to the pregnancy term; conflicting or missing stages are cautioned; Arabic 'the load' is not a pregnancy", () => {
+  const sessions = [
+    { exercises: [{ name: "Glute Bridge" }, { name: "Dumbbell Floor Press" }] },
+  ];
+  const cautioned = (limitations: string, goal?: string) =>
+    positionCautions({ limitations, ...(goal ? { goal } : {}) }, sessions)
+      .length > 0;
+  // Another duration earlier in the text no longer hides the stage.
+  assert.deepEqual(
+    pregnancyStage("Knee surgery 6 weeks ago; pregnant, 24 weeks"),
+    { from: 24, to: 24 },
+  );
+  assert.ok(cautioned("Knee surgery 6 weeks ago; pregnant, 24 weeks"));
+  assert.equal(
+    pregnancyWeek("C-section 10 weeks ago, pregnant again 20 weeks"),
+    20,
+  );
+  assert.ok(cautioned("C-section 10 weeks ago, pregnant again 20 weeks"));
+  assert.equal(
+    pregnancyWeek("Pregnant (24 weeks), physio for 8 wks for back"),
+    24,
+  );
+  assert.equal(pregnancyWeek("24 weeks pregnant, knee pain for 3 weeks"), 24);
+  assert.equal(pregnancyWeek("week 30 of pregnancy"), 30);
+  assert.equal(pregnancyWeek("30 weeks into my pregnancy"), 30);
+  // A duration that is not the pregnancy's is an unknown stage (cautioned), not week 3.
+  assert.equal(pregnancyWeek("Pregnant; back pain for 3 weeks"), null);
+  assert.ok(cautioned("Pregnant; back pain for 3 weeks"));
+  // A number in the goal is not the stage in the limitations.
+  assert.ok(cautioned("Pregnant", "Run 5 km in 10 weeks"));
+  // Conflicting stages are unknown.
+  assert.equal(pregnancyStage("pregnant, 10 weeks, second trimester"), null);
+  assert.ok(cautioned("pregnant, 10 weeks, second trimester"));
+  // Months: a whole month count may run into the next trimester, so month 3 is cautioned.
+  assert.deepEqual(pregnancyStage("5 months pregnant"), { from: 22, to: 26 });
+  assert.ok(!cautioned("2 months pregnant"));
+  assert.ok(cautioned("3 months pregnant"));
+  assert.ok(!cautioned("Pregnant, 10 weeks"));
+  // Arabic: "knee pain when the load increases" is not a pregnancy.
+  assert.ok(!cautioned("ألم في الركبة عند زيادة الحمل"));
+  assert.equal(pregnancyStage("ألم في الركبة عند زيادة الحمل"), null);
+  // Arabic stages, with Arabic-Indic digits.
+  assert.equal(pregnancyWeek("حامل في الأسبوع ٢٢"), 22);
+  assert.ok(cautioned("حامل في الأسبوع ٢٢"));
+  assert.equal(pregnancyWeek("الأسبوع ٢٤ من الحمل"), 24);
+  assert.ok(cautioned("الأسبوع ٢٤ من الحمل"));
+  assert.ok(!cautioned("حامل، الأسبوع 10"));
+  assert.deepEqual(pregnancyStage("حامل في الشهر الخامس"), {
+    from: 18,
+    to: 22,
+  });
+  assert.ok(!cautioned("حامل بالشهر الثاني"));
+  assert.deepEqual(pregnancyStage("الثلث الثاني من الحمل"), {
+    from: 14,
+    to: 27,
+  });
+  assert.ok(cautioned("أنا حامل"), "an unknown Arabic stage is cautioned");
+});
+
+/** Claude Opus 5.5's Arabic T2S03 draft (a home dumbbell plan), trimmed to what the tests read. */
+const opusT2S03 = (): PlanDraft =>
+  planDraftSchema.parse({
+    title: "قوة ولياقة في المنزل: 3 أيام بالدمبل",
+    summary:
+      "برنامج منزلي لمدة 4 أسابيع، 3 حصص في الأسبوع (الاثنين، الأربعاء، الجمعة)، كل حصة أقل من 45 دقيقة باستخدام الدمبل ووزن الجسم، مبني على قالب القوة المنزلية لكوتش ليلى.",
+    sessions: [
+      {
+        key: "A",
+        label: "جسم كامل أ",
+        weekday: 1,
+        exercises: [
+          {
+            name: "Brisk Walk",
+            sets: 1,
+            reps: 1,
+            loadKg: 0,
+            rir: 3,
+            restSeconds: 60,
+          },
+          {
+            name: "Goblet Squat",
+            sets: 2,
+            reps: 10,
+            loadKg: 8,
+            rir: 3,
+            restSeconds: 90,
+          },
+          {
+            name: "Glute Bridge",
+            sets: 2,
+            reps: 12,
+            loadKg: 0,
+            rir: 3,
+            restSeconds: 60,
+          },
+        ],
+      },
+      {
+        key: "B",
+        label: "جسم كامل ب",
+        weekday: 3,
+        exercises: [
+          {
+            name: "Brisk Walk",
+            sets: 1,
+            reps: 1,
+            loadKg: 0,
+            rir: 3,
+            restSeconds: 60,
+          },
+          {
+            name: "Push-Up",
+            sets: 2,
+            reps: 10,
+            loadKg: 0,
+            rir: 3,
+            restSeconds: 60,
+          },
+        ],
+      },
+      {
+        key: "C",
+        label: "جسم كامل ج",
+        weekday: 5,
+        exercises: [
+          {
+            name: "Goblet Squat",
+            sets: 2,
+            reps: 10,
+            loadKg: 8,
+            rir: 3,
+            restSeconds: 90,
+          },
+          {
+            name: "Side Plank from Knees",
+            sets: 2,
+            reps: 1,
+            loadKg: 0,
+            rir: 3,
+            restSeconds: 45,
+          },
+        ],
+      },
+    ],
+    weeks: [
+      {
+        week: 1,
+        focus: "تعلّم الحركات بجهد مريح (RIR 3)",
+        volumeFactor: 1,
+        loadFactor: 1,
+        rirDelta: 0,
+        deload: false,
+      },
+      {
+        week: 2,
+        focus: "أضف تكراراً واحداً لكل مجموعة",
+        volumeFactor: 1.05,
+        loadFactor: 1,
+        rirDelta: 0,
+        deload: false,
+      },
+      {
+        week: 3,
+        focus: "أضف تكراراً آخر لكل مجموعة",
+        volumeFactor: 1.1,
+        loadFactor: 1,
+        rirDelta: 0,
+        deload: false,
+      },
+      {
+        week: 4,
+        focus: "أسبوع خفيف للاستشفاء",
+        volumeFactor: 0.5,
+        loadFactor: 1,
+        rirDelta: 1,
+        deload: true,
+      },
+    ],
+    selfConfidence: 0.8,
+  });
+
+test("review regression (Opus T2S03, Arabic): neutral wording for an Arabic plan is written in Arabic", () => {
+  const draft = opusT2S03();
+  assert.equal(planLanguage(draft), "ar");
+  assert.equal(planLanguage(runWalkPlan()), "en");
+  // The reviewer's case: the real Arabic draft plus "this is not a treatment for any condition".
+  const summary = draft.summary + " هذا ليس علاج لأي حالة.";
+  assert.ok(
+    planTextIssues({ ...draft, summary }, library).some((i) =>
+      /^Summary cannot be shown to the subscriber \(medical\)$/.test(i.message),
+    ),
+  );
+  const neutral = neutralPlanText({ ...draft, summary });
+  assert.deepEqual(neutral.replaced, [{ field: "summary", text: summary }]);
+  assert.equal(
+    neutral.draft.summary,
+    "3 حصص في الأسبوع لمدة 4 أسابيع (الاثنين والأربعاء والجمعة): جسم كامل أ وجسم كامل ب وجسم كامل ج. الأسبوع 4 أسبوع أخف.",
+  );
+  assert.doesNotMatch(
+    neutral.draft.summary,
+    /\p{Script=Latin}/u,
+    "no English words in the Arabic summary",
+  );
+  assert.deepEqual(
+    planTextIssues(neutral.draft, library).filter((i) =>
+      i.message.startsWith("Summary"),
+    ),
+    [],
+  );
+  // Title, a label and a week focus with health words: Arabic replacements.
+  const all = neutralPlanText({
+    ...draft,
+    title: "خطة علاج الركبة",
+    sessions: draft.sessions.map((s, i) =>
+      i === 0 ? { ...s, label: "جلسة علاج طبيعي" } : s,
+    ),
+    weeks: draft.weeks.map((w) =>
+      w.week === 4 || w.week === 2 ? { ...w, focus: "علاج وتعافي" } : w,
+    ),
+  });
+  assert.deepEqual(
+    all.replaced.map((r) => r.field),
+    ["sessions.A.label", "weeks.2.focus", "weeks.4.focus", "title"],
+  );
+  assert.deepEqual(
+    [
+      all.draft.title,
+      all.draft.sessions[0].label,
+      all.draft.weeks[1].focus,
+      all.draft.weeks[3].focus,
+    ],
+    ["خطة تدريب لمدة 4 أسابيع", "الحصة A", "الأسبوع 2", "أسبوع أخف"],
+  );
+  // English plans keep the English wording.
+  assert.equal(
+    neutralPlanText({ ...runWalkPlan(), title: "Rehab plan for your knee" })
+      .draft.title,
+    "4-week training plan",
+  );
+});
+
+test("review regression: a prescribed distance or load can be logged as prescribed (no step the browser refuses)", async () => {
+  const source = await readFile(
+    new URL("../apps/web/components/workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const input = (name: string) => {
+    const at = source.indexOf(`name="${name}"`);
+    assert.ok(at > 0, name);
+    return source.slice(at, source.indexOf("/>", at));
+  };
+  // Distances are whole metres (the schema) but not multiples of 10: 1609 m stays 1609 m in an unscaled week.
+  const draft = runWalkPlan([1, 1.1, 1.15, 0.7]);
+  draft.sessions[2].exercises[1] = ex("Easy Run", {
+    distanceMeters: 1609,
+  }) as any;
+  const mile = expandPlan(planDraftSchema.parse(draft))[0].sessions[2]
+    .exercises[1];
+  assert.equal(mile.distanceMeters, 1609);
+  assert.match(input("distance"), /step=\{1\}/);
+  // Loads may be any decimal (a 1.25 kg jump, an adjustment's 61.25 kg).
+  assert.match(input("load"), /step="any"/);
+  assert.match(input("duration"), /step=\{1\}/);
+});
+
+test("review regression (Opus T2S03, trial T3 template): walks, intervals and holds written as 1 rep are flagged and the plan goes to the trainer", () => {
+  assert.deepEqual(oneRepTimedWork(opusT2S03().sessions), [
+    "Brisk Walk",
+    "Side Plank from Knees",
+  ]);
+  // The trial's T3 template (brain-full/lib/trainers.mts): sets and reps only.
+  const template = [
+    { name: "Brisk Walk", sets: 1, reps: 1 },
+    { name: "Run Intervals", sets: 6, reps: 1 },
+    { name: "Plank", sets: 3, reps: 1 },
+  ];
+  assert.deepEqual(oneRepTimedWork([{ exercises: template }]), [
+    "Brisk Walk",
+    "Run Intervals",
+    "Plank",
+  ]);
+  // Heavy singles and lifts that share a word are rep work.
+  assert.deepEqual(
+    oneRepTimedWork([
+      {
+        exercises: [
+          { name: "Back Squat", sets: 5, reps: 1 },
+          { name: "Hang Clean", sets: 5, reps: 1 },
+          { name: "Walking Lunge", sets: 3, reps: 1 },
+          { name: "Plank Row", sets: 3, reps: 1 },
+          { name: "Brisk Walk", sets: 1, reps: 10 },
+          { name: "Brisk Walk", sets: 1, durationSeconds: 600 },
+        ],
+      },
+    ]),
+    [],
+  );
+  // In the validator it is a warning (the trainer may approve it); the live route holds the plan (tests/brain-plans.test.ts).
+  const draft = runWalkPlan();
+  draft.sessions[0].exercises[0] = ex("Brisk Walk", {
+    reps: 1,
+    restSeconds: 60,
+  }) as any;
+  const v = validatePlan(planDraftSchema.parse(draft), ctx);
+  assert.deepEqual(v.errors, []);
+  assert.ok(
+    v.warnings.includes(
+      "Brisk Walk is written as 1 rep: timed or distance work needs a duration or distance",
+    ),
+    v.warnings.join("\n"),
   );
 });

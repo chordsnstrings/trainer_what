@@ -5,6 +5,7 @@ import {
   EFFORTS,
   formatDistance,
   formatDuration,
+  formatPace,
   measureCount,
   totalMeters,
   totalSeconds,
@@ -519,9 +520,10 @@ const distanceWork = (sessions: Array<{ exercises: ExpandedExercise[] }>) =>
   sessions.reduce((sum, s) => sum + s.exercises.reduce((n, e) => n + totalMeters(e), 0), 0);
 /**
  * The smallest weekly rise the progression limit always allows, like the one
- * set that rep work may always add: 30 seconds of timed work, 100 metres.
+ * set that rep work may always add: 30 seconds of timed work, 100 metres, a
+ * pace 5 seconds per kilometre faster.
  */
-export const MIN_WORK_STEP = Object.freeze({ seconds: 30, meters: 100 });
+export const MIN_WORK_STEP = Object.freeze({ seconds: 30, meters: 100, paceSecondsPerKm: 5 });
 export type PlanCheckContext = {
   /** Limitations and goal, when given, add position cautions (pregnancy) as warnings. */
   profile: Pick<PlanProfile, "experience" | "daysPerWeek" | "equipment"> &
@@ -673,6 +675,24 @@ function checkTransition(
           result.errors.push(`${where}: ${e.name} rises from ${format(p)} to ${format(value)} (limit +${pct}%)`);
       }
   }
+  // A faster pace is harder work: each exercise's speed rises by at most the
+  // same weekly limit (always at least 5 s/km faster).
+  const fastest = new Map<string, number>();
+  for (const s of previous)
+    for (const e of s.exercises)
+      if (workMeasure(e) !== "reps" && typeof e.paceSecondsPerKm === "number") {
+        const key = normalizeTerm(e.name);
+        fastest.set(key, Math.min(fastest.get(key) ?? Infinity, e.paceSecondsPerKm));
+      }
+  for (const s of next)
+    for (const e of s.exercises) {
+      const p = fastest.get(normalizeTerm(e.name));
+      if (p === undefined || workMeasure(e) === "reps" || typeof e.paceSecondsPerKm !== "number") continue;
+      if (e.paceSecondsPerKm < Math.min(p - MIN_WORK_STEP.paceSecondsPerKm, p / (1 + pct / 100)) - 1e-9)
+        result.errors.push(
+          `${where}: ${e.name} pace speeds up from ${formatPace(p)} to ${formatPace(e.paceSecondsPerKm)} (limit +${pct}%)`,
+        );
+    }
   const prior = new Map<string, number>();
   for (const s of previous)
     for (const e of s.exercises) {
@@ -790,15 +810,19 @@ export function planTextIssues(
  * Replaces model wording that the member-text screen withholds only for
  * health language (a diagnosis, condition, medication, doctor or therapy in
  * the title, summary, a week focus or a session label) with neutral wording
- * written by code from the plan itself, so a valid plan is not discarded for
- * its description. Links, contact details, approval claims and guarantees are
- * not replaced: they stay validation errors. Cues are not touched (automatic
- * deliveries use the trainer's library cues). The caller routes a plan with
- * replacements to the trainer and keeps the original wording on the staff
- * record; nothing about the member's safety routing changes.
+ * written by code from the plan itself, in the plan's own language (Arabic
+ * when the draft's wording is mostly Arabic, else English), so a valid plan
+ * is not discarded for its description. Links, contact details, approval
+ * claims and guarantees are not replaced: they stay validation errors. Cues
+ * are not touched (automatic deliveries use the trainer's library cues). The
+ * caller routes a plan with replacements to the trainer and keeps the
+ * original wording on the staff record; nothing about the member's safety
+ * routing changes.
  */
 export function neutralPlanText<T extends Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions">>(draft: T) {
   const replaced: Array<{ field: string; text: string }> = [];
+  const language = planLanguage(draft),
+    words = NEUTRAL_WORDING[language];
   const healthOnly = (text: string) => {
     const issues = proseIssues(text);
     return issues.length > 0 && issues.every((i) => i === "medical");
@@ -806,38 +830,79 @@ export function neutralPlanText<T extends Pick<PlanDraft, "title" | "summary" | 
   const sessions = draft.sessions.map((s) => {
     if (!healthOnly(s.label)) return s;
     replaced.push({ field: `sessions.${s.key}.label`, text: s.label });
-    return { ...s, label: `Session ${s.key}` };
+    return { ...s, label: words.session(s.key) };
   });
   const weeks = draft.weeks.map((w) => {
     if (!healthOnly(w.focus)) return w;
     replaced.push({ field: `weeks.${w.week}.focus`, text: w.focus });
-    return { ...w, focus: w.deload ? "Lighter week" : `Week ${w.week}` };
+    return { ...w, focus: w.deload ? words.lighter : words.week(w.week) };
   });
   let title = draft.title;
   if (healthOnly(title)) {
     replaced.push({ field: "title", text: title });
-    title = `${draft.weeks.length}-week training plan`;
+    title = words.title(draft.weeks.length);
   }
   let summary = draft.summary;
   if (summary && healthOnly(summary)) {
     replaced.push({ field: "summary", text: summary });
-    summary = neutralSummary({ weeks, sessions });
+    summary = neutralSummary({ weeks, sessions }, language);
   }
   return { draft: { ...draft, title, summary, weeks, sessions } as T, replaced };
 }
-const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-/** "3 sessions a week for 4 weeks (Monday, Wednesday and Friday): Full body A, Full body B and Full body C. Week 4 is a lighter week." */
-export function neutralSummary(draft: Pick<PlanDraft, "weeks" | "sessions">) {
-  const list = (items: string[]) =>
-    items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-  const n = draft.sessions.length,
-    w = draft.weeks.length;
-  const days = [...draft.sessions].sort((a, b) => a.weekday - b.weekday).map((s) => WEEKDAY_NAMES[s.weekday] ?? "");
-  const labels = draft.sessions.map((s) => (proseIssues(s.label).length ? `Session ${s.key}` : s.label));
+/**
+ * The language of the draft's own member-facing wording: Arabic when its
+ * title, summary, labels and week focus have more Arabic than Latin letters.
+ */
+export function planLanguage(draft: Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions">): "ar" | "en" {
+  const text = [draft.title, draft.summary, ...draft.sessions.map((s) => s.label), ...draft.weeks.map((w) => w.focus)].join(" ");
+  const arabic = text.match(/\p{Script=Arabic}/gu)?.length ?? 0,
+    latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
+  return arabic > latin ? "ar" : "en";
+}
+// Arabic counts: 1 and 2 have their own forms, 3 to 10 take the plural, 11
+// and more the singular.
+const arCount = (n: number, one: string, two: string, few: string, many: string) =>
+  n === 1 ? one : n === 2 ? two : n <= 10 ? `${n} ${few}` : `${n} ${many}`;
+const NEUTRAL_WORDING = {
+  en: {
+    session: (key: string) => `Session ${key}`,
+    week: (n: number) => `Week ${n}`,
+    lighter: "Lighter week",
+    title: (weeks: number) => `${weeks}-week training plan`,
+    days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    list: (items: string[]) =>
+      items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`,
+    schedule: (sessions: number, weeks: number) =>
+      `${sessions} session${sessions === 1 ? "" : "s"} a week for ${weeks} week${weeks === 1 ? "" : "s"}`,
+    lighterWeeks: (list: string, count: number) =>
+      `Week${count === 1 ? "" : "s"} ${list} ${count === 1 ? "is a lighter week" : "are lighter weeks"}.`,
+  },
+  ar: {
+    session: (key: string) => `الحصة ${key}`,
+    week: (n: number) => `الأسبوع ${n}`,
+    lighter: "أسبوع أخف",
+    title: (weeks: number) => `خطة تدريب لمدة ${arCount(weeks, "أسبوع واحد", "أسبوعين", "أسابيع", "أسبوعًا")}`,
+    days: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"],
+    list: (items: string[]) => items.map((x, i) => (i ? `و${x}` : x)).join(" "),
+    schedule: (sessions: number, weeks: number) =>
+      `${arCount(sessions, "حصة واحدة", "حصتان", "حصص", "حصة")} في الأسبوع لمدة ${arCount(weeks, "أسبوع واحد", "أسبوعين", "أسابيع", "أسبوعًا")}`,
+    lighterWeeks: (list: string, count: number) =>
+      count === 1 ? `الأسبوع ${list} أسبوع أخف.` : `الأسابيع ${list} أسابيع أخف.`,
+  },
+} as const;
+/**
+ * "3 sessions a week for 4 weeks (Monday, Wednesday and Friday): Full body A,
+ * Full body B and Full body C. Week 4 is a lighter week." In Arabic: "3 حصص
+ * في الأسبوع لمدة 4 أسابيع (الاثنين والأربعاء والجمعة): ... الأسبوع 4 أسبوع أخف."
+ */
+export function neutralSummary(draft: Pick<PlanDraft, "weeks" | "sessions">, language: "ar" | "en" = "en") {
+  const words = NEUTRAL_WORDING[language];
+  const days = [...draft.sessions].sort((a, b) => a.weekday - b.weekday).map((s) => words.days[s.weekday] ?? "");
+  const labels = draft.sessions.map((s) => (proseIssues(s.label).length ? words.session(s.key) : s.label));
   const lighter = draft.weeks.filter((x) => x.deload).map((x) => String(x.week));
   return [
-    `${n} session${n === 1 ? "" : "s"} a week for ${w} week${w === 1 ? "" : "s"} (${list(days)}): ${list(labels)}.`,
-    lighter.length ? `Week${lighter.length === 1 ? "" : "s"} ${list(lighter)} ${lighter.length === 1 ? "is a lighter week" : "are lighter weeks"}.` : "",
+    `${words.schedule(draft.sessions.length, draft.weeks.length)} (${words.list(days)}): ${words.list(labels)}.`,
+    lighter.length ? words.lighterWeeks(words.list(lighter), lighter.length) : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -902,7 +967,7 @@ export function validatePlan(
     if (reference) checkTransition(reference, week.sessions, ctx, where, result);
     if (!week.deload) reference = week.sessions;
   }
-  result.warnings.push(...positionCautions(ctx.profile, draft.sessions));
+  result.warnings.push(...positionCautions(ctx.profile, draft.sessions), ...oneRepTimedWarnings(draft.sessions));
   return finish(
     result,
     draft.sessions.flatMap((s) => s.exercises.map((e) => e.name)),
@@ -926,7 +991,7 @@ export function validateAdaptedWeek(
   // A swapped-in alternative has no load this week to compare against.
   checkStartLoads(next, names(current), ctx, "Next week", result);
   if (current.length) checkTransition(current, next, ctx, "Next week", result);
-  result.warnings.push(...positionCautions(ctx.profile, next));
+  result.warnings.push(...positionCautions(ctx.profile, next), ...oneRepTimedWarnings(next));
   return finish(
     result,
     next.flatMap((s) => s.exercises.map((e) => e.name)),
@@ -935,9 +1000,54 @@ export function validateAdaptedWeek(
 }
 
 // ---------------------------------------------------------------------------
+// Timed work written as one rep
+
+// Timed or distance work by name: walks, runs, rides, rows, swims, intervals,
+// holds, hangs and carries. Lifts that share a word (a walking lunge, a hang
+// clean, a plank row) are not matched.
+const TIMED_NAME =
+  /\b(walks?|walking|runs?|running|jog\w*|sprints?|sprinting|planks?|holds?|hangs?|wall sits?|carry|carries|intervals?|cycl\w*|bikes?|biking|ride|riding|swim\w*|skipping|jump rope|elliptical|stairs?|treadmill|rowing|rower|erg|march\w*|crawls?|sled\w*|hik\w*|shuttles?)\b/;
+const REP_NAME = /\b(lunges?|cleans?|snatch\w*|jerks?|swings?|rows?)\b/;
+/**
+ * Exercises whose name is timed or distance work but which are prescribed as
+ * one rep: the trainer's templates and library store only sets and reps, so
+ * a copied "Brisk Walk, 1 x 1" would be shown as one rep, voiced as "1 set of
+ * 1 reps" and counted as seconds toward the session-length limit.
+ */
+export function oneRepTimedWork(sessions: Array<{ exercises: Array<PrescribedWork & { name: string }> }>) {
+  return [
+    ...new Set(
+      sessions.flatMap((s) =>
+        s.exercises
+          .filter((e) => {
+            const n = plainName(e.name);
+            return workMeasure(e) === "reps" && e.reps === 1 && TIMED_NAME.test(n) && !REP_NAME.test(n);
+          })
+          .map((e) => e.name),
+      ),
+    ),
+  ];
+}
+const oneRepTimedWarnings = (sessions: Array<{ exercises: Array<PrescribedWork & { name: string }> }>) => {
+  const found = oneRepTimedWork(sessions);
+  return found.length
+    ? [
+        `${found.slice(0, 5).join(", ")} ${found.length === 1 ? "is" : "are"} written as 1 rep: timed or distance work needs a duration or distance`,
+      ]
+    : [];
+};
+
+// ---------------------------------------------------------------------------
 // Pregnancy positions (a caution for the trainer's review, never a model call)
 
-const PREGNANT = /\b(pregnan\p{L}*|expecting a baby|trimester)|حامل|الحمل/iu;
+// Pregnancy terms, matched on stageText(). Arabic uses only unambiguous forms:
+// حامل / حبلى, or الحمل with a week, month or trimester count ("الأسبوع 22
+// من الحمل"); bare الحمل also means "the load" ("زيادة الحمل").
+const AR_COUNT = String.raw`(?:ال)?(?:اسبوع|اسابيع|اسبوعا|شهر|اشهر|شهور|ثلث)`;
+const PREGNANT = new RegExp(
+  String.raw`\b(?:pregnan\p{L}*|expecting a baby|trimester|gestation\p{L}*)|(?<!\p{L})[وف]?(?:حامل|حامله|حبلي|حوامل)(?!\p{L})|${AR_COUNT}(?:[ \t]+[^\s]+){0,2}[ \t]+(?:من|في)[ \t]+(?:ال)?حمل(?!\p{L})`,
+  "u",
+);
 // Exercises done lying on the back or front. After the first trimester the
 // trainer checks them; incline and seated variations are not matched.
 const LYING =
@@ -945,18 +1055,80 @@ const LYING =
 const UPRIGHT = /\b(incline|seated|standing|side lying)\b/;
 const plainName = (name: string) =>
   name.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+/** Lower case, Western digits, and Arabic letters without hamza, taa marbuta or diacritic variants. */
+const stageText = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[ً-ْـ]/g, "");
+const AR_ORDINALS = ["الاول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع"];
+const AR_ORDINAL = `(${AR_ORDINALS.join("|")})`;
+// A stage stated right next to a pregnancy term: "pregnant, 24 weeks",
+// "24 weeks pregnant", "week 30 of pregnancy", "5 months pregnant",
+// "حامل في الأسبوع 22", "الشهر الخامس من الحمل". Groups: week, week, month
+// count, month number, month count, Arabic ordinal month.
+const EN_STAGE = String.raw`(?:(?:week|wk)[ \t]*(\d{1,2})\b|(\d{1,2})[ \t]*(?:weeks?|wks?|w)\b(?![ \t]*ago)|(\d{1,2})[ \t]*(?:months?|mos?)\b(?![ \t]*ago))`;
+const AR_STAGE = String.raw`(?:(?:ال)?اسبوع[ \t]*(?:رقم[ \t]*)?(\d{1,2})|(\d{1,2})[ \t]*(?:اسبوع|اسابيع|اسبوعا)(?!\p{L})|(\d{1,2})[ \t]*(?:شهر|اشهر|شهور)(?!\p{L})|(?:ال)?شهر[ \t]*(\d{1,2})|(?:ال)?شهر[ \t]+${AR_ORDINAL})`;
+const STAGE_AFTER = [
+  new RegExp(String.raw`^(?:[ \t,:(~–—-]|\b(?:about|around|approx(?:imately)?|roughly|at|now|currently|again|in|for|and|is|am)\b)*${EN_STAGE}`, "u"),
+  new RegExp(String.raw`^[ \t،,:(-]*(?:(?:الان|حاليا|تقريبا)[ \t]+)?(?:في[ \t]+|ب)?${AR_STAGE}`, "u"),
+];
+const STAGE_BEFORE = [
+  new RegExp(String.raw`${EN_STAGE}[ \t,]*(?:\b(?:into|of|in)[ \t]+)?(?:\b(?:my|the|her|this)[ \t]+)?$`, "u"),
+  new RegExp(String.raw`${AR_STAGE}[ \t]+(?:من|في)[ \t]+$`, "u"),
+];
+const STAGE_TERM = /\b(?:pregnan\p{L}*|gestation\p{L}*|expecting a baby)|(?<!\p{L})[وف]?(?:حامل|حامله|حبلي|حوامل|الحمل)(?!\p{L})/gu;
+const TRIMESTER: Array<[RegExp, [number, number]]> = [
+  [/\b(?:first|1st)\s+trimester\b|الثلث\s+الاول\s+(?:من\s+)?(?:ال)?حمل/u, [1, 13]],
+  [/\b(?:second|2nd)\s+trimester\b|الثلث\s+الثاني\s+(?:من\s+)?(?:ال)?حمل/u, [14, 27]],
+  [/\b(?:third|3rd)\s+trimester\b|الثلث\s+الثالث\s+(?:من\s+)?(?:ال)?حمل/u, [28, 42]],
+];
+const stageRange = (m: RegExpExecArray): [number, number] | null => {
+  const [, week1, week2, months, monthNumber, ordinal] = m;
+  const week = Number(week1 ?? week2);
+  if (week1 !== undefined || week2 !== undefined) return week >= 1 && week <= 42 ? [week, week] : null;
+  // "5 months pregnant": at least 5 full months, up to a month more.
+  if (months !== undefined) return [Math.round(Number(months) * 4.35), Math.round(Number(months) * 4.35) + 4];
+  // "the fifth month": the weeks of that month.
+  const k = monthNumber !== undefined ? Number(monthNumber) : AR_ORDINALS.indexOf(ordinal ?? "") + 1;
+  return k >= 1 && k <= 10 ? [Math.round((k - 1) * 4.35) + 1, Math.round(k * 4.35)] : null;
+};
 /**
- * Pregnancy weeks in the member's own words: "22 weeks", "week 22",
- * "second trimester". Null when the text gives no stage.
+ * The pregnancy stage in the member's own words, as a range of weeks: only a
+ * week or month count right next to a pregnancy term counts ("Knee surgery 6
+ * weeks ago; pregnant, 24 weeks" is week 24), and a trimester anywhere.
+ * Null when no stage is given or the stated stages disagree (an unknown
+ * stage, which is cautioned).
  */
-export function pregnancyWeek(text: string): number | null {
-  const t = text.toLowerCase();
-  if (/\b(second|2nd)\s+trimester\b/.test(t)) return 14;
-  if (/\b(third|3rd)\s+trimester\b/.test(t)) return 28;
-  if (/\b(first|1st)\s+trimester\b/.test(t)) return 1;
-  const m = /\b(\d{1,2})\s*(?:weeks?|wks?)\b|\bweek\s+(\d{1,2})\b/.exec(t);
-  return m ? Number(m[1] ?? m[2]) : null;
+export function pregnancyStage(text: string): { from: number; to: number } | null {
+  const ranges: Array<[number, number]> = [];
+  for (const line of stageText(text).split(/\n/)) {
+    for (const [re, range] of TRIMESTER) if (re.test(line)) ranges.push(range);
+    for (const term of line.matchAll(STAGE_TERM)) {
+      const after = line.slice(term.index + term[0].length),
+        before = line.slice(0, term.index);
+      for (const m of [...STAGE_AFTER.map((re) => re.exec(after)), ...STAGE_BEFORE.map((re) => re.exec(before))]) {
+        const range = m && stageRange(m);
+        if (range) ranges.push(range);
+      }
+    }
+  }
+  if (!ranges.length) return null;
+  const from = Math.max(...ranges.map((r) => r[0])),
+    to = Math.min(...ranges.map((r) => r[1]));
+  return from <= to ? { from, to } : null;
 }
+/**
+ * Pregnancy weeks in the member's own words ("22 weeks", "week 22", "second
+ * trimester"): the earliest week the stated stage allows. Null when the text
+ * gives no stage or the stages disagree.
+ */
+export const pregnancyWeek = (text: string) => pregnancyStage(text)?.from ?? null;
 /**
  * Warnings for a pregnant member past the first trimester (or at an unknown
  * stage): exercises usually done lying on the back or front. The code safety
@@ -967,10 +1139,11 @@ export function positionCautions(
   profile: Partial<Pick<PlanProfile, "limitations" | "goal">>,
   sessions: Array<{ exercises: Array<{ name: string }> }>,
 ) {
-  const text = [profile.limitations ?? "", profile.goal ?? ""].join(" ");
-  if (!PREGNANT.test(text)) return [];
-  const week = pregnancyWeek(text);
-  if (week !== null && week <= 13) return [];
+  // One line each: a number in the goal is not next to a pregnancy term in the limitations.
+  const text = [profile.limitations ?? "", profile.goal ?? ""].join("\n");
+  if (!PREGNANT.test(stageText(text))) return [];
+  const stage = pregnancyStage(text);
+  if (stage && stage.to <= 13) return [];
   const lying = [
     ...new Set(
       sessions.flatMap((s) =>
@@ -1027,37 +1200,133 @@ export function progressionHolds(outcomes: WeekOutcomes) {
     holds.push(`the week was harder than planned (${harder.slice(0, 5).join(", ")} logged fewer reps in reserve than prescribed)`);
   return holds;
 }
-/** What the proposal raises against the planned week: load, sets, reps, duration or distance per exercise. */
+const EFFORT_RANK: Record<string, number> = { easy: 0, moderate: 1, hard: 2 };
+const effortRank = (effort?: string | null) =>
+  effort && effort in EFFORT_RANK ? EFFORT_RANK[effort] : null;
+/**
+ * How one exercise is harder than its reference: more load, sets, reps,
+ * duration or distance, a faster (or newly set) pace, a higher effort, fewer
+ * reps in reserve, shorter rest between sets or rounds, or another exercise.
+ */
+function harderThan(reference: ExpandedExercise, e: ExpandedExercise) {
+  if (normalizeTerm(reference.name) !== normalizeTerm(e.name)) return [`swapped for ${e.name}`];
+  const out: string[] = (["loadKg", "sets", "reps", "durationSeconds", "distanceMeters"] as const).filter(
+    (k) => typeof e[k] === "number" && typeof reference[k] === "number" && e[k]! > reference[k]! + 1e-9,
+  );
+  const pace = reference.paceSecondsPerKm;
+  if (typeof e.paceSecondsPerKm === "number" && !(typeof pace === "number" && e.paceSecondsPerKm >= pace))
+    out.push(typeof pace === "number" ? "faster pace" : "a pace target");
+  const effort = effortRank(e.effort);
+  if (effort !== null && effort > (effortRank(reference.effort) ?? 0)) out.push("higher effort");
+  if (e.rir < reference.rir) out.push("fewer reps in reserve");
+  if (e.sets > 1 && e.restSeconds < reference.restSeconds) out.push("shorter rest");
+  return out;
+}
+/** What the proposal makes harder than the reference week, per exercise (matched by session and position). */
 export function adaptationIncreases(
-  planned: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
+  reference: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
   adapted: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
 ) {
   const out: string[] = [];
   for (const s of adapted) {
-    const before = planned.find((p) => p.sessionKey === s.sessionKey);
+    const before = reference.find((p) => p.sessionKey === s.sessionKey);
     s.exercises.forEach((e, i) => {
       const b = before?.exercises[i];
       if (!b) return;
-      const raised = (["loadKg", "sets", "reps", "durationSeconds", "distanceMeters"] as const).filter(
-        (k) => typeof e[k] === "number" && typeof b[k] === "number" && e[k]! > b[k]! + 1e-9,
-      );
-      if (raised.length) out.push(`${e.name} (session ${s.sessionKey}: ${raised.join(", ")})`);
+      const harder = harderThan(b, e);
+      if (harder.length) out.push(`${b.name} (session ${s.sessionKey}: ${harder.join(", ")})`);
     });
   }
   return out;
 }
 /**
- * Increases proposed after a week that holds progression back. Pushed onto
- * the adjustment's validation errors (live and in qualification), so it goes
- * to the trainer instead of the member.
+ * Next week held at no more than this week's values, for a week that holds
+ * progression back: each exercise keeps the lower load, sets and reps,
+ * duration or distance, the slower pace, the lower effort, the higher reps in
+ * reserve and the longer rest of the planned week and this week (the same
+ * session's exercise, else the hardest of that exercise this week). The
+ * plan's own progression (a higher load or volume factor next week) does not
+ * reach the member after a missed or harder-than-planned week; what was
+ * lowered is listed for the trainer.
+ */
+export function heldWeek<S extends { sessionKey: string; exercises: ExpandedExercise[] }>(
+  planned: S[],
+  current: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
+) {
+  const same = new Map<string, ExpandedExercise>(),
+    any = new Map<string, ExpandedExercise>();
+  for (const s of current)
+    for (const e of s.exercises) {
+      const key = normalizeTerm(e.name);
+      same.set(`${s.sessionKey}:${key}`, e);
+      const prior = any.get(key);
+      any.set(key, !prior ? e : hardest(prior, e));
+    }
+  const changes: Array<{ sessionKey: string; exercise: string; field: string; from: unknown; to: unknown }> = [];
+  const sessions = planned.map((s) => ({
+    ...s,
+    exercises: s.exercises.map((planned) => {
+      const key = normalizeTerm(planned.name);
+      const ref = same.get(`${s.sessionKey}:${key}`) ?? any.get(key);
+      if (!ref) return planned;
+      const e: ExpandedExercise = { ...planned };
+      const set = <K extends keyof ExpandedExercise>(field: K, value: ExpandedExercise[K]) => {
+        if (value === e[field]) return;
+        changes.push({ sessionKey: s.sessionKey, exercise: e.name, field, from: e[field], to: value });
+        e[field] = value;
+      };
+      set("loadKg", Math.min(e.loadKg, ref.loadKg));
+      set("rir", Math.max(e.rir, ref.rir));
+      // Sets, rest and the work itself compare only within one measure.
+      if (workMeasure(e) === workMeasure(ref)) {
+        set("sets", Math.min(e.sets, ref.sets));
+        for (const k of ["reps", "durationSeconds", "distanceMeters"] as const)
+          if (typeof e[k] === "number" && typeof ref[k] === "number") set(k, Math.min(e[k]!, ref[k]!));
+        if (typeof e.paceSecondsPerKm === "number" && typeof ref.paceSecondsPerKm === "number")
+          set("paceSecondsPerKm", Math.max(e.paceSecondsPerKm, ref.paceSecondsPerKm));
+        const effort = effortRank(e.effort),
+          was = effortRank(ref.effort);
+        if (effort !== null && was !== null && effort > was) set("effort", ref.effort);
+        if (e.sets > 1) set("restSeconds", Math.max(e.restSeconds, ref.restSeconds));
+      }
+      return e;
+    }),
+  }));
+  return { sessions, changes };
+}
+/** The harder of two prescriptions of one exercise, field by field. */
+function hardest(a: ExpandedExercise, b: ExpandedExercise): ExpandedExercise {
+  const max = (x?: number, y?: number) => (typeof x === "number" && typeof y === "number" ? Math.max(x, y) : (x ?? y));
+  const min = (x?: number, y?: number) => (typeof x === "number" && typeof y === "number" ? Math.min(x, y) : (x ?? y));
+  if (workMeasure(a) !== workMeasure(b)) return a;
+  return {
+    ...a,
+    loadKg: Math.max(a.loadKg, b.loadKg),
+    sets: Math.max(a.sets, b.sets),
+    ...(a.reps !== undefined ? { reps: max(a.reps, b.reps) } : {}),
+    ...(a.durationSeconds !== undefined ? { durationSeconds: max(a.durationSeconds, b.durationSeconds) } : {}),
+    ...(a.distanceMeters !== undefined ? { distanceMeters: max(a.distanceMeters, b.distanceMeters) } : {}),
+    ...(a.paceSecondsPerKm !== undefined || b.paceSecondsPerKm !== undefined
+      ? { paceSecondsPerKm: min(a.paceSecondsPerKm, b.paceSecondsPerKm) }
+      : {}),
+    ...((effortRank(b.effort) ?? -1) > (effortRank(a.effort) ?? -1) ? { effort: b.effort } : {}),
+    rir: Math.min(a.rir, b.rir),
+    restSeconds: Math.min(a.restSeconds, b.restSeconds),
+  };
+}
+/**
+ * Anything made harder after a week that holds progression back, against the
+ * held week (heldWeek: next week at no more than this week's values). Pushed
+ * onto the adjustment's validation errors (live and in qualification), so it
+ * goes to the trainer instead of the member.
  */
 export function adaptationDirectionIssues(
-  planned: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
+  held: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
   adapted: Array<{ sessionKey: string; exercises: ExpandedExercise[] }>,
   holds: string[],
 ) {
   if (!holds.length) return [];
-  const raised = adaptationIncreases(planned, adapted);
+  const raised = adaptationIncreases(held, adapted);
   return raised.length
     ? [`Next week raises ${raised.slice(0, 5).join("; ")} although ${holds.join(" and ")}`]
     : [];

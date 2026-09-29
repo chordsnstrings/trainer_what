@@ -1371,20 +1371,28 @@ test("an endurance plan with timed rounds and a continuous run is generated from
   assert.equal(after[0].data.program.exercises[0].durationSeconds, 1200);
 });
 
-test("trial regression T1S07: after a harder-than-planned week the model is told to hold, and a load increase anyway goes to the trainer", async () => {
+test("trial regression T1S07: after a harder-than-planned week the model is told to hold, the plan's own progression is held too, and a load increase anyway goes to the trainer", async () => {
   const coach = await qualifiedCoach("harder");
   const client = await member(coach, "Harder Week Client", {}, { programmeDays: 28 });
   assert.equal((await generate(coach, client)).status, "delivered");
   const [program] = await assigned(coach, client.userId);
   // Every set logged one rep in reserve below the prescription.
   await logWeek(coach, client, program.id, 1, -1);
+  const week1 = await weekLoads(coach, program.id, 1);
   const baseline = await weekLoads(coach, program.id, 2);
+  assert.ok(baseline.some((kg, i) => kg > week1[i]), "the plan's week 2 has a higher load factor");
   // The model double follows the hold: no changes.
   const held = await adaptMemberPlan(db, worker(coach.tenantId), client.userId, { programId: program.id, week: 2 });
   const input = prompts.at(-1)!.input;
   assert.match(input.progressionHold.join(), /the week was harder than planned/);
+  // The model saw next week already held at this week's loads (review finding: not "as planned").
+  assert.deepEqual(input.nextWeek.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), week1);
   assert.equal(held.status, "delivered", JSON.stringify(held));
-  assert.deepEqual(await weekLoads(coach, program.id, 2), baseline);
+  assert.deepEqual(await weekLoads(coach, program.id, 2), week1, "the plan's higher week-2 loads did not reach the member");
+  const hg = await generation(held.generationId!, coach.tenantId);
+  assert.match(hg.data.progressionHold.join(), /the week was harder than planned/);
+  assert.ok(hg.data.held.some((c: any) => c.field === "loadKg" && c.from > c.to), JSON.stringify(hg.data.held));
+  assert.deepEqual(hg.data.baseline.sessions.flatMap((s: any) => s.exercises.map((e: any) => e.loadKg)), baseline, "the planned week is kept for the trainer's diff");
   // Seed 2.0 Pro read "RIR 1 against 2" as spare capacity and raised every load.
   await logWeek(coach, client, program.id, 2, -1);
   const week3 = await weekLoads(coach, program.id, 3);
@@ -1405,6 +1413,34 @@ test("trial regression T1S07: after a harder-than-planned week the model is told
   assert.ok(rg.data.validation.errors.some((e: string) => /^Next week raises .* although the week was harder than planned/.test(e)), rg.data.validation.errors.join("\n"));
   assert.equal(rg.data.route, "review");
   assert.deepEqual(await weekLoads(coach, program.id, 3), week3, "nothing reached the member");
+});
+
+test("review regression (trial T3 template, Opus T2S03): a plan that writes a hold as 1 rep goes to the trainer, who may approve it as written", async () => {
+  const coach = await qualifiedCoach("onerep");
+  const client = await member(coach, "One Rep Client");
+  override = (body) => {
+    if (classifyPrompt(body).kind !== "plan_generation") return undefined;
+    const plan: any = ruleBasedAnswer(body).content;
+    const last = plan.sessions[plan.sessions.length - 1];
+    last.exercises = [
+      ...last.exercises.filter((e: any) => e.name !== "Plank").slice(0, 3),
+      { name: "Plank", sets: 3, reps: 1, loadKg: 0, rir: 3, restSeconds: 60, cue: "", alternatives: [] },
+    ];
+    return plan;
+  };
+  let r;
+  try {
+    r = await generate(coach, client);
+  } finally {
+    override = undefined;
+  }
+  assert.equal(r.status, "pending_review", JSON.stringify(r));
+  const gen = await generation(r.generationId, coach.tenantId);
+  assert.deepEqual(gen.data.validation.errors, []);
+  assert.ok(gen.data.validation.warnings.includes("Plank is written as 1 rep: timed or distance work needs a duration or distance"), gen.data.validation.warnings.join("\n"));
+  assert.ok(gen.data.routeReasons.some((x: string) => /^The Brain wrote Plank as 1 rep; timed or distance work needs a time or distance/.test(x)), gen.data.routeReasons.join("\n"));
+  const approved = await req(`/brain/plans/${gen.id}/review`, "POST", { action: "approve", version: gen.version }, coach);
+  assert.equal(approved.statusCode, 200, approved.body);
 });
 
 test("trial regression (Opus and Sonnet): a summary withheld for health language is replaced, held for the trainer, and can be approved as-is", async () => {

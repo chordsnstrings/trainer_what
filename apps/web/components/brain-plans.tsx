@@ -74,6 +74,18 @@ function withMeasure(e: ExerciseRow, measure: WorkMeasure): ExerciseRow {
   };
 }
 
+const HELD_FIELDS: Record<string, string> = {
+  loadKg: "load kg",
+  sets: "sets",
+  reps: "reps",
+  durationSeconds: "seconds",
+  distanceMeters: "metres",
+  paceSecondsPerKm: "pace s/km",
+  effort: "effort",
+  rir: "RIR",
+  restSeconds: "rest s",
+};
+
 function ExerciseRows({
   exercises,
   names,
@@ -449,6 +461,27 @@ function ReviewItem({
           {item.inputs.outcomes.dueSessions} sessions completed ·{" "}
           {item.inputs.outcomes.loggedSets} sets logged
         </p>
+      )}
+      {item.progressionHold?.length > 0 && (
+        <p className="muted">
+          No increase next week: {item.progressionHold.join("; ")}.
+        </p>
+      )}
+      {item.held?.length > 0 && (
+        <details>
+          <summary>
+            Held at this week&rsquo;s values before the Brain proposed changes
+          </summary>
+          <ul className="plan-reasons">
+            {item.held.map((h: any) => (
+              <li key={`${h.sessionKey}:${h.exercise}:${h.field}`}>
+                Session {h.sessionKey} · {h.exercise}:{" "}
+                {HELD_FIELDS[h.field] ?? h.field} {String(h.from)} →{" "}
+                {String(h.to)}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {!editing && item.draft && programme && (
         <ProgrammeDraft draft={item.draft} names={names} />

@@ -2950,7 +2950,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     defaultValue={ex.loadKg}
                     min={0}
                     max={500}
-                    step={0.5}
+                    step="any"
                   />
                   <small>kg</small>
                 </label>
@@ -2976,7 +2976,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                       defaultValue={ex.distanceMeters}
                       min={0}
                       max={200000}
-                      step={10}
+                      step={1}
                     />
                     <small>metres</small>
                   </label>

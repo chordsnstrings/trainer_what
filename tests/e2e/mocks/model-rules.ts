@@ -490,7 +490,7 @@ export function planAdaptation(input: any) {
     return { changes: [], reason: "Too few sessions were completed to progress.", selfConfidence: 0.6, uncertainties: ["Low adherence this week"], evidenceIds: rules[0] ? [rules[0].id] : [] };
   // The application's progression hold (missed sessions, a harder week): no increases.
   if (Array.isArray(input?.progressionHold) && input.progressionHold.length)
-    return { changes: [], reason: "Next week stays as planned: " + input.progressionHold.join("; ") + ".", selfConfidence: 0.7, uncertainties: [], evidenceIds: rules[0] ? [rules[0].id] : [] };
+    return { changes: [], reason: "Next week stays at this week's values: " + input.progressionHold.join("; ") + ".", selfConfidence: 0.7, uncertainties: [], evidenceIds: rules[0] ? [rules[0].id] : [] };
   const changes: any[] = [];
   for (const row of outcomes.exercises ?? []) {
     if (!row.logged?.sets || row.logged.sets < row.prescribed.sets) continue;
