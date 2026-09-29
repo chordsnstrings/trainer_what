@@ -9,14 +9,20 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { clipFingerprint } from "../apps/api/src/voice-session.ts";
-import { guidedAudioFingerprint } from "../apps/api/src/integrations-completion.ts";
+import {
+  guidedAudioFingerprint,
+  guidedSegmentLanguage,
+} from "../apps/api/src/integrations-completion.ts";
 import { speechLanguage } from "../packages/domain/src/speech-language.ts";
 import {
   buildSessionScript,
   checkedSuggestions,
+  codeLines,
+  lineLanguage,
   planExercises,
   readVoiceSuggestions,
   scriptIssues,
+  spokenLines,
   voiceStyleSchema,
   SUGGESTION_LIMITS,
   VOICE_SUGGESTION_PROMPT_VERSION,
@@ -224,6 +230,81 @@ test("Arabic replies, Modern Standard and Gulf: completion, counts, effort, flow
   }
 });
 
+test("a number inside a negated clause is never a rep count; a count said after it still is", () => {
+  // Review of F5: each of these logged a set with the number the member did
+  // NOT do (the rep count was read before "not done").
+  const cases: Array<[string, string]> = [
+    ["I didn't do the last 2 reps", "not_done"],
+    ["I couldn't do the last two reps", "not_done"],
+    ["I missed 3 reps", "not_done"],
+    ["I missed a couple of reps", "not_done"],
+    ["couldn't finish the last 3", "not_done"],
+    ["I did not complete 10", "not_done"],
+    ["ما سويت آخر ثنتين", "not_done"],
+    ["ما قدرت اكمل آخر ثلاث", "not_done"],
+    ["لم أستطع إكمال آخر تكرارين", "not_done"],
+    // Present tense: a load complaint, or the help line; never a count.
+    ["ما اقدر اكمل ثلاث", "too_heavy"],
+    ["I can't do 10", "unknown"],
+    // Still going: the number is the target, not a count.
+    ["I haven't finished 8 yet", "ack"],
+    // What was done instead is still logged as said.
+    ["I didn't do 8, only 6", "reps:6"],
+    ["I didn't finish, did 6", "reps:6"],
+    ["I didn't finish did 6", "reps:6"],
+    ["I didn't do the last two reps I did six", "reps:6"],
+    ["I can't do 8, only 6", "reps:6"],
+    ["ما قدرت اكمل بس سويت ست", "reps:6"],
+    ["ما سويت آخر ثنتين، سويت ست", "reps:6"],
+    ["I didn't do the last one, 8 reps", "reps:8"],
+  ];
+  for (const [text, want] of cases) {
+    const got = parseVoiceCommand(text);
+    assert.equal(
+      want.includes(":") ? kind(got) : got.type,
+      want,
+      `${text}: ${JSON.stringify(got)}`,
+    );
+  }
+  // "The last two reps" are reps of this set, not the set before; "the last
+  // one" and "the last 2 sets" still point back.
+  assert.deepEqual(parseVoiceCommand("I didn't do the last 2 reps"), { type: "not_done" });
+  assert.deepEqual(parseVoiceCommand("skipped the last few reps"), { type: "not_done" });
+  assert.deepEqual(parseVoiceCommand("I didn't do the last one"), { type: "not_done", previous: true });
+  assert.deepEqual(parseVoiceCommand("I didn't do the last 2 sets"), { type: "not_done", previous: true });
+});
+
+test("Modern Standard Arabic 'I could not': لم أستطع، لم أتمكن من، لم أقدر على، ما استطعت", () => {
+  for (const [text, want] of [
+    ["لم أستطع إكمال المجموعة الأخيرة", { type: "not_done", previous: true }],
+    ["لم أتمكن من إكمال المجموعة", { type: "not_done" }],
+    ["لم أقدر على إكمالها", { type: "not_done" }],
+    ["ما استطعت", { type: "not_done" }],
+    ["لم أستطع", { type: "not_done" }],
+    // As in English: "I couldn't finish that set".
+    ["I couldn't finish that set", { type: "not_done" }],
+    // Gulf present tense stays a load complaint.
+    ["ما اقدر اكمل", { type: "too_heavy" }],
+  ] as const)
+    assert.deepEqual(parseVoiceCommand(text), want, text);
+});
+
+test("a negated acknowledgement is not one: 'مو زين' and 'not okay' earn the help line, which names pain", () => {
+  for (const text of ["مو زين", "مب زين", "مو زين أبد", "مو تمام", "مب ماشي", "not okay", "not fine", "I'm not sure", "الوزن مو زين"])
+    assert.equal(parseVoiceCommand(text).type, "unknown", text);
+  for (const text of ["زين", "تمام", "ماشي", "okay", "الوزن زين"])
+    assert.equal(parseVoiceCommand(text).type, "ack", text);
+  // In a set: before the review "مو زين" earned only "say done".
+  const { say } = runner();
+  for (const text of ["مو زين", "مب زين"]) {
+    const effects = say(text);
+    assert.ok(
+      effects.some((e) => e.type === "say" && e.items.some((i) => "clip" in i && i.clip === "help") && /pain/.test(e.text)),
+      text + ": " + JSON.stringify(effects),
+    );
+  }
+});
+
 test("pain wins in every language; the runner's extra stops only ever add stops", () => {
   for (const text of [
     "أشعر بألم في ركبتي",
@@ -238,6 +319,10 @@ test("pain wins in every language; the runner's extra stops only ever add stops"
     "ماني زين",
     "مو بخير",
     "احس اني مو زين",
+    // "I'm not okay" in Gulf Arabic: an acknowledgement before the review.
+    "انا مو تمام",
+    "ماني تمام",
+    "احس اني مو تمام",
     "I'm not okay",
     "I don't feel well",
     "I think I'm going to throw up",
@@ -399,6 +484,20 @@ test("'not done' during a set: the current set, or the one before when the reply
   assert.equal(run.state.targets[0][1].loadKg, 54);
 });
 
+test("'I didn't do the last two reps' in a set logs nothing and notes the current set, in English and Gulf Arabic", () => {
+  for (const text of ["I didn't do the last two reps", "ما سويت آخر ثنتين", "I missed 3 reps"]) {
+    const { run, say } = runner();
+    // Before the review: log_set {set: 1, reps: 2} and on to the rest.
+    const effects = say(text);
+    assert.deepEqual(logs(effects), [], text);
+    assert.deepEqual(outcomes(effects), [{ type: "not_done", exercise: 0, set: 1, logged: false }], text);
+    assert.equal(run.state.phase, "set", text);
+    assert.equal(run.state.set, 1, text);
+    // The count said afterwards is logged as said.
+    assert.deepEqual(logs(say("six")).map((e: any) => [e.set, e.reps]), [[1, 6]], text);
+  }
+});
+
 test("'not done' before the session starts does nothing; while paused it is noted and the pause holds", () => {
   const script = buildSessionScript({
     title: "Lower body",
@@ -504,11 +603,11 @@ test("audio made when every line was sent as English is never reused for an Arab
       .digest("hex");
   // English clips keep their fingerprint, so audio already made is still reused.
   assert.equal(
-    clipFingerprint(voice, pricing, "Set 1 of 3. 8 reps at 60 kilograms."),
+    clipFingerprint(voice, pricing, "Set 1 of 3. 8 reps at 60 kilograms.", "en"),
     before("Set 1 of 3. 8 reps at 60 kilograms."),
   );
   assert.notEqual(
-    clipFingerprint(voice, pricing, "أحسنتِ، استمري"),
+    clipFingerprint(voice, pricing, "أحسنتِ، استمري", "ar"),
     before("أحسنتِ، استمري"),
   );
   // Guided audio: the same rule for a mostly Arabic segment.
@@ -530,12 +629,69 @@ test("audio made when every line was sent as English is never reused for an Arab
     "Back squat. 3 sets of 8 repetitions. Rest 60 seconds between sets.";
   const arabic = "سكوات خلفي. انزلي ببطء وحافظي على ظهرك مستقيما.";
   assert.equal(
-    guidedAudioFingerprint("workout-1", voice, english, "sonic-3.6", "price-1"),
+    guidedAudioFingerprint("workout-1", voice, english, "sonic-3.6", "price-1", "en"),
     guidedBefore(english),
   );
   assert.notEqual(
-    guidedAudioFingerprint("workout-1", voice, arabic, "sonic-3.6", "price-1"),
+    guidedAudioFingerprint("workout-1", voice, arabic, "sonic-3.6", "price-1", "ar"),
     guidedBefore(arabic),
+  );
+});
+
+test("code-owned lines stay English even with an Arabic exercise name; audio made as English is still reused", () => {
+  // Review of F5: the setup line with a long Arabic name has more Arabic than
+  // Latin letters, so it was sent to Cartesia as Arabic, template, sets and
+  // reps included.
+  const name = "تمرين الضغط على الأرض مع رفع القدمين";
+  const exercises = planExercises({
+    title: "Upper body",
+    exercises: [
+      { name: "Back squat", sets: 2, reps: 8, loadKg: 60, restSeconds: 30 },
+      { name, sets: 3, reps: 12, restSeconds: 45, cue: "انزلي ببطء وحافظي على ظهرك مستقيما." },
+    ],
+  });
+  const script = buildSessionScript({ title: "Upper body", exercises, style: bilingual, language: "ar" }).script;
+  const setup = script.exercises[1].setup;
+  assert.equal(setup.text, codeLines.setup(exercises[1], 1, 2));
+  assert.match(setup.text, /^Last exercise: تمرين الضغط/);
+  assert.equal(speechLanguage(setup.text), "ar", "by letters alone it would be Arabic");
+  assert.equal(lineLanguage(setup), "en");
+  for (const line of spokenLines(script))
+    assert.equal(
+      lineLanguage(line),
+      line.owner === "code" ? "en" : speechLanguage(line.text),
+      line.id,
+    );
+  // The trainer's Arabic cue and phrases are still spoken in Arabic.
+  assert.equal(lineLanguage(script.exercises[1].cueLine!), "ar");
+  assert.equal(lineLanguage(script.intro[0]), "ar");
+  // The fingerprint of a code line with an Arabic name is the one it had
+  // before lines carried a language (it was, and is, spoken as English).
+  const voice = { id: "voice-row", version: 3, provider: "cartesia", model: null };
+  const pricing = { model: "sonic-3.6", priceVersion: "price-1" };
+  const before = createHash("sha256")
+    .update(["voice-row", 3, "sonic-3.6", "price-1", "cartesia", setup.text].join("\n"))
+    .digest("hex");
+  assert.equal(clipFingerprint(voice, pricing, setup.text, lineLanguage(setup)), before);
+  // Guided segments: the name does not decide the language.
+  const segment = {
+    name,
+    text: `${name}. 3 sets of 12 repetitions. Rest 45 seconds between sets.`,
+  };
+  const longName = {
+    name: name + " " + name,
+    text: `${name} ${name}. 3 sets of 12 repetitions. Rest 45 seconds between sets.`,
+  };
+  assert.equal(speechLanguage(longName.text), "ar", "by letters alone it would be Arabic");
+  assert.equal(guidedSegmentLanguage(segment), "en");
+  assert.equal(guidedSegmentLanguage(longName), "en");
+  // With the trainer's long Arabic cue the segment is Arabic, as before.
+  assert.equal(
+    guidedSegmentLanguage({
+      name: "Back squat",
+      text: "Back squat. 3 sets of 8 repetitions. انزلي ببطء وحافظي على ظهرك مستقيما وثبتي قدميك على الأرض. Rest 60 seconds between sets.",
+    }),
+    "ar",
   );
 });
 

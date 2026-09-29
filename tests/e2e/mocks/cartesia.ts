@@ -66,6 +66,11 @@ export class CartesiaMock {
   /** Makes the next call of a kind answer with this HTTP status. */
   failNext: Partial<Record<"clone" | "tts" | "stt" | "dataset" | "upload" | "fineTune" | "delete", number>> = {};
   /**
+   * Makes the next transcription requested in this language answer with this
+   * HTTP status (the app reads one reply in two languages at once).
+   */
+  failNextTranscriptionIn: Partial<Record<string, number>> = {};
+  /**
    * Processes the next call of a kind and then answers 502, like an answer
    * lost on the way back (the app must reconcile by name, not send again).
    */
@@ -167,6 +172,11 @@ export class CartesiaMock {
         model = f.get("model")?.value;
       if (!file?.filename || model !== "ink-whisper") return this.problem(400, null, "file and model ink-whisper are required");
       const language = f.get("language")?.value ?? "en";
+      const failure = this.failNextTranscriptionIn[language];
+      if (failure) {
+        delete this.failNextTranscriptionIn[language];
+        return this.problem(failure, null, "Mock failure");
+      }
       // The same audio in a language it was not yet read in is the same reply.
       const audioKey = createHash("sha256").update(file.value).digest("hex");
       let reply = this.replies.get(audioKey);

@@ -60,7 +60,7 @@ const PAIN = has(
     // wrong", and "I am not well" in the first person.
     "[وب]?(?:ال)?دوار|[وب]?(?:ال)?غثيان|(?:ب|راح\\s*)?[ا]?ستفرغ\\p{L}*|[ا]?تقيا\\p{L}*|ترجيع|شد\\s*عضلي|[وب]?(?:ال)?تشنج\\p{L}*|" +
     "(?:في|فيه)?\\s*شي(?:ء)?\\s*(?:غلط|خطا)|" +
-    "(?:انا\\s*(?:مو|مب|مش)|لست|ماني|مانيب)\\s*(?:بخير|زين|زينه|كويس|كويسه)|(?:مو|مب|مش)\\s*بخير|" +
+    "(?:انا\\s*(?:مو|مب|مش)|لست|ماني|مانيب)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)|(?:مو|مب|مش)\\s*بخير|" +
     "(?:احس|حاس|حاسس|حاسه|اشعر)\\s*(?:اني|انني|بنفسي)?\\s*(?:مو|مب|مش|لست|غير|ماني)\\s*(?:بخير|زين|زينه|كويس|كويسه|تمام)",
 );
 const EFFORT_HEAVY = "heavy|hard|much|ثقيل|ثقيله|تقيل|تقيله|صعب|صعبه",
@@ -111,24 +111,55 @@ const ACK = has(
   "yes|yeah|yep|yup|ok|okay|sure|alright|all\\s+right|got\\s+it|fine|right|thank\\s+you|thanks|" +
     "نعم|اوكي|اوك|تمام|طيب|زين|حاضر|ماشي|اكيد|ايوه|ايوا|ان\\s*شاء\\s*الله|انشالله|شكرا|مشكور|مشكوره|يعطيك\\s+العافيه",
 );
-// A set that was not done, said in the past tense: "I didn't do the last one",
-// "couldn't finish it", "I missed that set", "لم أكمل", "ما قدرت", "ما سويتها",
-// "ما خلصتها".
-const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(
-  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|was\\s+not\\s+able\\s+to|failed\\s+to|never)\\s+(?:(?:really|even|actually|quite|fully|get\\s+to|manage\\s+to)\\s+)?(?:do|finish|complete|manage|make|get\\s+through)\\p{L}*|" +
-    "(?:missed|skipped)\\s+(?:(?:the|that|this|my)\\s+)?(?:last|previous|final|one|set|it|round|rep|reps)|" +
-    "[وف]?لم\\s*(?:ا|ن)?(?:كمل|نه|نهي|قم|فعل|عمل|سو|سوي|خلص|نجز)\\p{L}*|" +
-    "[وف]?(?:ما|مب|مو)\\s*(?:قدرت|اقدرت|قدرنا)(?:\\s*(?:ا|ن)?(?:كمل|خلص|سوي|سو|نهي|رفع|شيل)\\p{L}*)?|" +
-    "[وف]?(?:ما|مب)\\s*(?:سويت|سوينا)\\p{L}*|" +
-    "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت)(?:ها|ه)",
+// "Not okay", "not fine", "مو زين", "مب تمام": a negated acknowledgement is
+// not one. It is removed before the acknowledgement check, so on its own it
+// earns the help line, which names pain ("I'm not okay" and "انا مو تمام"
+// already stop the session through PAIN).
+const NEGATED_ACK = new RegExp(
+  B +
+    "(?:not|isn'?t|wasn'?t|ain'?t|مو|مب|مش|ما|ليس|لست|غير)\\s+(?:(?:so|very|really|that|too|all|feeling|هو|هي|وايد|واجد|جدا|مره|كثير)\\s+){0,2}" +
+    "(?:okay|ok|fine|alright|all\\s+right|good|great|right|sure|زين|زينه|تمام|ماشي|كويس|كويسه|طيب|اوكي|اوك|بخير)" +
+    E,
+  "giu",
 );
+// A set that was not done, said in the past tense: "I didn't do the last one",
+// "couldn't finish it", "I missed that set", "I missed 3 reps", "لم أكمل",
+// "لم أستطع إكمالها", "ما قدرت", "ما سويتها", "ما خلصتها".
+const NOT_DONE_WORDS =
+  "(?:didn'?t|did\\s+not|couldn'?t|could\\s+not|wasn'?t\\s+able\\s+to|was\\s+not\\s+able\\s+to|failed\\s+to|never)\\s+(?:(?:really|even|actually|quite|fully|get\\s+to|manage\\s+to)\\s+)?(?:do|finish|complete|manage|make|get\\s+through)\\p{L}*|" +
+  "(?:missed|skipped)\\s+(?:(?:the|that|this|my)\\s+)?(?:last|previous|final|one|set|it|round|rep|reps)|" +
+  "(?:missed|skipped)\\s+(?:\\p{N}+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a\\s+couple|a\\s+few)(?:\\s+(?:of\\s+)?(?:them|reps?|repetitions?))?|" +
+  "[وف]?لم\\s*(?:ا|ن)?(?:كمل|نه|نهي|قم|فعل|عمل|سو|سوي|خلص|نجز)\\p{L}*|" +
+  // Modern Standard "I could not (complete)": لم أستطع، لم أتمكن من، لم أقدر
+  // على، ما استطعت. Gulf present "ما اقدر" stays a load complaint (TOO_HEAVY).
+  "(?:[وف]?لم\\s*(?:استطع|اتمكن|اقدر|نستطع|نتمكن|نقدر)|[وف]?ما\\s*(?:استطعت|استطعنا|تمكنت|تمكنا))\\p{L}*(?:\\s*(?:من|علي))?(?:\\s*(?:اكمال|انهاء|اتمام|اداء|فعل|عمل)\\p{L}*)?|" +
+  "[وف]?(?:ما|مب|مو)\\s*(?:قدرت|اقدرت|قدرنا)(?:\\s*(?:ا|ن)?(?:كمل|خلص|سوي|سو|نهي|رفع|شيل)\\p{L}*)?|" +
+  "[وف]?(?:ما|مب)\\s*(?:سويت|سوينا)\\p{L}*|" +
+  "[وف]?(?:ما|مب)\\s*(?:خلصت|كملت|انهيت|اكملت)(?:ها|ه)";
+const [NOT_DONE, NOT_DONE_ALL] = hasAndEvery(NOT_DONE_WORDS);
 // Still going, not a report: "not done yet", "I'm not finished", "almost
 // there", "ما خلصت", "لسا ما خلصت", "لم أنته بعد". The completion word in it
 // never logs a set.
-const [NOT_YET, NOT_YET_ALL] = hasAndEvery(
+const NOT_YET_WORDS =
   "(?:not|isn'?t|i'?m\\s+not|am\\s+not)\\s+(?:(?:quite|yet|really|fully)\\s+)?(?:done|finished|complete|completed|there)|" +
-    "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|almost\\s+(?:done|there|finished)|" +
-    "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)",
+  "(?:haven'?t|have\\s+not|hasn'?t)\\s+(?:(?:quite|yet)\\s+)?(?:done|finished|completed)|not\\s+yet|still\\s+going|almost\\s+(?:done|there|finished)|" +
+  "[وف]?(?:ما|لم|مب|مو|مش)\\s*(?:خلصت|خلصنا|كملت|اكملت|انتهيت|انهيت|انته|انتهي|اكمل)";
+const [NOT_YET, NOT_YET_ALL] = hasAndEvery(NOT_YET_WORDS);
+// "I can't do 10", "ما اقدر اكمل ثلاث": the present-tense complaint (a
+// too-heavy report, TOO_HEAVY) with the count it could not reach.
+const CANNOT_WORDS =
+  "(?:can'?t|cannot|can\\s+not|unable\\s+to)\\s+(?:do|finish|complete|manage|make|get\\s+through|lift)\\p{L}*|" +
+  "(?:ما|لا|مب|مو)\\s*(?:اقدر|استطيع|اقدرش)\\s*(?:ارفع|اشيل|احمل|اكمل|اسوي|اخلص)\\p{L}*";
+// A negated clause with what it governs, up to punctuation or a word that
+// starts what was done instead ("but", "only", "did 6", "بس", "سويت"). A
+// number in it is what the member did NOT do ("I didn't do the last 2 reps",
+// "ما سويت آخر ثنتين", "I can't do 10"), so it is never a rep count; a count
+// after it still is ("I didn't finish, did 6", "I didn't do 8, only 6").
+const CLAUSE_BREAK =
+  "[,.;:!?،؛؟]|(?<![\\p{L}\\p{N}'])(?:but|only|just|so|and|then|instead|did|[وف]?(?:بس|لكن|بل|فقط|سويت|قمت|عملت))(?![\\p{L}\\p{N}])";
+const NEGATED_CLAUSE = new RegExp(
+  B + "(?:" + NOT_DONE_WORDS + "|" + NOT_YET_WORDS + "|" + CANNOT_WORDS + ")(?:(?!" + CLAUSE_BREAK + ")[\\s\\S])*",
+  "giu",
 );
 // A reply that says the set is still under way ("yet", "still", "لسا").
 const STILL = has("yet|still|لسا|لسه|للحين|باقي|بعدني|مازلت|ما\\s*زلت|لازلت|لا\\s*زلت|بعد");
@@ -167,6 +198,22 @@ const ONE_AFTER = new Set([
   "tough", "good", "new", "little", "wrong", "right",
 ]);
 const ONE_BEFORE = new Set(["more", "of", "moment", "sec", "time", "thing", "again", "left"]);
+// "The last two (reps)", "the last few", "the final reps" are reps of a set,
+// not an earlier set: they never make a reply point back. "The last one" is
+// the previous set, and "the last 2 sets" points back too.
+const LAST_REPS = new RegExp(
+  B +
+    "(?:last|final)\\s+(?:[2-9٢-٩]|\\p{N}{2,}|" +
+    [...Object.keys(UNITS), ...Object.keys(TENS)]
+      .filter((w) => /^[a-z]+$/.test(w) && (UNITS[w] ?? TENS[w]) > 1)
+      .join("|") +
+    "|few|couple|reps?|repetitions?)" +
+    E +
+    "(?!\\s+(?:sets?|rounds?|exercises?)" +
+    E +
+    ")",
+  "giu",
+);
 const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
 const westernDigits = (text: string) =>
   text.replace(ARABIC_DIGITS, (d) => String((d.charCodeAt(0) & 0xf) % 10));
@@ -241,9 +288,12 @@ function spokenNumber(folded: string): number | null {
  * Maps one spoken reply to a command. Pain and red-flag wording (the code floor
  * `safetySignal`, which also reads Arabic) always wins; the server re-screens
  * every transcript with the trainer's published policy as well. Plain
- * acknowledgements never complete a set, a negated completion ("I didn't
- * finish", "not done yet", "ما خلصت") never logs one, and a rep count wins over
- * "heavy" in the same reply (the heaviness is kept as a flag).
+ * acknowledgements never complete a set (a negated one, "not okay" or "مو
+ * زين", is not an acknowledgement), a negated completion ("I didn't finish",
+ * "not done yet", "ما خلصت") never logs one, a number inside a negated clause
+ * ("I didn't do the last 2 reps", "ما سويت آخر ثنتين", "I can't do 10") is
+ * never a rep count, and a rep count wins over "heavy" in the same reply (the
+ * heaviness is kept as a flag).
  */
 export function parseVoiceCommand(transcript: string): VoiceCommand {
   const raw = String(transcript ?? "").slice(0, 500);
@@ -263,13 +313,14 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   const still = (negatedDone || notYet) && STILL.test(folded);
   const notDone = !still && (negatedDone || (notYet && REFERS_BACK.test(folded)));
   const completion = folded.replace(NOT_DONE_ALL, " ").replace(NOT_YET_ALL, " ");
-  const reps = spokenNumber(folded);
+  // A number inside a negated clause is what was not done, never a count.
+  const reps = spokenNumber(folded.replace(NEGATED_CLAUSE, " "));
   if (reps !== null && reps <= 200 && !skip && !pause)
     return heavy ? { type: "reps", reps, heavy: true } : { type: "reps", reps };
   if (notDone)
     return {
       type: "not_done",
-      ...(REFERS_BACK.test(folded) ? { previous: true } : {}),
+      ...(REFERS_BACK.test(folded.replace(LAST_REPS, " ")) ? { previous: true } : {}),
       ...(heavy ? { heavy: true } : {}),
     };
   if (heavy) return { type: "too_heavy" };
@@ -279,7 +330,7 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (REPEAT.test(folded)) return { type: "repeat" };
   if (COMPLETE.test(completion)) return { type: "done" };
   if (RESUME.test(folded)) return { type: "resume" };
-  if (ACK.test(folded) || notYet || negatedDone) return { type: "ack" };
+  if (ACK.test(folded.replace(NEGATED_ACK, " ")) || notYet || negatedDone) return { type: "ack" };
   return { type: "unknown" };
 }
 

@@ -33,6 +33,7 @@ import {
   buildSessionScript,
   checkedSuggestions,
   defaultVoiceStyle,
+  lineLanguage,
   planExercises,
   readVoiceSuggestions,
   scriptIssues,
@@ -50,7 +51,7 @@ import {
   type VoiceStyle,
 } from "../../../packages/domain/src/voice-session.ts";
 import { parseVoiceCommand, replyTranscript } from "../../../packages/domain/src/voice-runner.ts";
-import { speechLanguage } from "../../../packages/domain/src/speech-language.ts";
+import type { SpeechLanguage } from "../../../packages/domain/src/speech-language.ts";
 import { memberAccess } from "./entitlements.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
 import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
@@ -322,7 +323,11 @@ async function sessionForWorkout(tx: Tx, a: Actor, workout: any, bind: boolean) 
   }
   return { session, stale: false };
 }
-/** What makes a clip reusable: voice version, model, price, provider, language and text. */
+/**
+ * What makes a clip reusable: voice version, model, price, provider, the
+ * language it is spoken in (`lineLanguage`; English for code-owned lines and
+ * shared clips) and text.
+ */
 export const clipFingerprint = (
   voice: {
     id: string;
@@ -332,6 +337,7 @@ export const clipFingerprint = (
   },
   pricing: { model: string; priceVersion: string },
   text: string,
+  language: SpeechLanguage,
 ) =>
   hash(
     [
@@ -344,7 +350,7 @@ export const clipFingerprint = (
       // A line spoken in another language than English (an Arabic phrase or
       // cue) is its own clip: audio made before lines carried their language
       // was read as English and is never reused.
-      ...(speechLanguage(text) !== "en" ? ["language:" + speechLanguage(text)] : []),
+      ...(language !== "en" ? ["language:" + language] : []),
       text,
     ].join("\n"),
   );
@@ -377,7 +383,7 @@ async function queueSessionClips(
         line.text,
         voice.id,
         voice.version,
-        clipFingerprint(voice, pricing, line.text),
+        clipFingerprint(voice, pricing, line.text, lineLanguage(line)),
         order < 12 ? 0 : 1,
         JSON.stringify({ order }),
       ],
@@ -604,6 +610,8 @@ export function summarizeOutcomes(script: SessionScript, events: Outcome[]) {
   }
   return { totals, byExercise };
 }
+const unheard = () =>
+  fail(502, "SPEECH_UNCONFIRMED", "Your reply could not be heard. Say it again or use the buttons.");
 /**
  * Screens a spoken reply and opens the safety hold for pain or a red flag.
  * `transcripts` are one reply as heard (a device transcript, or the server's
@@ -1064,8 +1072,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       // whose answer was lost is already 'unknown' (marked just before sending).
       for (const [index, usageId] of reservation.usageIds.entries())
         if (!heard[index]) await db.tenant(a, (tx) => costNotSent(tx, usageId));
-      if (!heard.some(Boolean))
-        throw fail(502, "SPEECH_UNCONFIRMED", "Your reply could not be heard. Say it again or use the buttons.");
+      if (!heard.some(Boolean)) throw unheard();
       for (const result of heard) {
         if (!result) continue;
         // Transcribed: priced now at the reserved estimate ('estimated'); the
@@ -1111,12 +1118,22 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       }
       // The reply language's transcript first, then the other language's.
       const transcripts = heard.map((h) => h?.text ?? "");
-      if (!transcripts.some(Boolean)) return { transcript: "", command: { type: "unknown" }, trainingHeld: false };
-      return db.tenant(a, async (tx) => {
+      // When the reply-language reading failed, the other reading (for speech
+      // in the reply language often unrelated words, live check) is screened
+      // for pain only and never acted on: without pain the member is asked to
+      // say it again, as when every reading fails.
+      const replyHeard = !!heard[0];
+      if (!transcripts.some(Boolean)) {
+        if (!replyHeard) throw unheard();
+        return { transcript: "", command: { type: "unknown" }, trainingHeld: false };
+      }
+      const result = await db.tenant(a, async (tx) => {
         await lockTraining(tx, a);
         const session = await ownSession(tx, a, reservation.session.id);
         return heldByScreen(tx, a, session, transcripts);
       });
+      if (!replyHeard && !result.trainingHeld) throw unheard();
+      return result;
     },
   );
   app.post("/api/v1/voice-sessions/:id/events", async (req) => {
@@ -1462,12 +1479,12 @@ export async function processVoiceSessionAudio(
         await stopSessionAudio(tx, session.id, "capped", "TRAINING_HELD");
         return null;
       }
-      const allowed = new Map(spokenLines(session.script).map((l) => [l.id, l.text]));
+      const allowed = new Map(spokenLines(session.script).map((l) => [l.id, l]));
       // The workspace's short reusable clips for this voice version.
       for (const clip of sharedClips())
         await tx.query(
           "INSERT INTO voice_session_clips(id,tenant_id,clip_key,text_content,voice_id,voice_version,fingerprint,priority,status) VALUES($1,$2,$3,$4,$5,$6,$7,2,'pending') ON CONFLICT (tenant_id,voice_id,voice_version,clip_key) WHERE session_id IS NULL DO NOTHING",
-          [randomUUID(), tenantId, clip.key, clip.text, voice.id, voice.version, clipFingerprint(voice, pricing, clip.text)],
+          [randomUUID(), tenantId, clip.key, clip.text, voice.id, voice.version, clipFingerprint(voice, pricing, clip.text, "en")],
         );
       return { voice, providerVoiceId: voice.provider_voice_id, allowed };
     });
@@ -1481,7 +1498,8 @@ export async function processVoiceSessionAudio(
     for (const clip of pending) {
       if (budget <= 0) break;
       // Only lines of the validated script (or code-owned shared phrases) are spoken.
-      if (clip.session_id && valid.allowed.get(clip.clip_key) !== clip.text_content) {
+      const line = clip.session_id ? valid.allowed.get(clip.clip_key) : undefined;
+      if (clip.session_id && line?.text !== clip.text_content) {
         await db.tenant(actor, (tx) =>
           tx.query("UPDATE voice_session_clips SET status='skipped',updated_at=now() WHERE id=$1 AND status='pending'", [clip.id]),
         );
@@ -1563,7 +1581,10 @@ export async function processVoiceSessionAudio(
               );
             });
           },
-          valid.voice,
+          // The language of the clip's fingerprint: code-owned lines and
+          // shared clips are English templates; the trainer's own phrases
+          // and cues are spoken in their own language.
+          { ...valid.voice, textLanguage: line ? lineLanguage(line) : "en" },
         );
         await db.tenant(actor, async (tx) => {
           const [voice] = await tx.query(

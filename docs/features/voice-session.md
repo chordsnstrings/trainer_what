@@ -311,11 +311,24 @@ Found by reading the chain and by the live transcripts:
   "I'm not done", "ما خلصت" (I haven't finished) all **logged the set**. Negated completions
   never complete a set now.
 - New command `not_done` for a set the member says was not done, in the past tense: "I didn't
-  do the last one", "I couldn't do it", "I missed the last one", "لم أكمل المجموعة الأخيرة",
-  "لم أقم بالمجموعة الأخيرة", "ما سويتها", "ما سويت الأخيرة", "ما خلصتها", "ما قدرت أكملها".
-  `previous` is set when the reply points back ("last", "previous", "الأخيرة", "السابقة", "اللي
-  فاتت"); `heavy` when it also says too heavy. Still-going forms ("not done yet", "almost
-  there", "لسا ما خلصت", "لم أنته بعد") are an acknowledgement: never logged, never reported.
+  do the last one", "I couldn't do it", "I missed the last one", "I missed 3 reps", "لم أكمل
+  المجموعة الأخيرة", "لم أقم بالمجموعة الأخيرة", "لم أستطع إكمال المجموعة", "لم أتمكن من
+  إكمالها", "لم أقدر على إكمالها", "ما استطعت", "ما سويتها", "ما سويت الأخيرة", "ما خلصتها",
+  "ما قدرت أكملها". `previous` is set when the reply points back ("last", "previous",
+  "الأخيرة", "السابقة", "اللي فاتت"), but not for "the last two reps", "the last few" or "the
+  last reps", which are reps of the set, not an earlier set ("the last one" and "the last 2
+  sets" still point back); `heavy` when it also says too heavy. Still-going forms ("not done
+  yet", "almost there", "لسا ما خلصت", "لم أنته بعد") are an acknowledgement: never logged,
+  never reported. Gulf present "ما اقدر اكمل" (I can't finish) stays a load complaint.
+- A number inside a negated clause is never a rep count (review of this branch): "I didn't do
+  the last 2 reps", "I couldn't do the last two reps", "couldn't finish the last 3", "I did not
+  complete 10", "ما سويت آخر ثنتين", "ما قدرت اكمل آخر ثلاث" each **logged a set** with the
+  number the member did not do. The clause (the negated verb and what it governs, up to
+  punctuation or a word that starts what was done instead: "but", "only", "just", "did", "بس",
+  "لكن", "سويت"...) is removed before the count is read, so these are `not_done`, "I can't do
+  10" earns the help line, "ما اقدر اكمل ثلاث" is too heavy and "I haven't finished 8 yet" is
+  an acknowledgement; a count said after the clause is still logged as said ("I didn't finish,
+  did 6", "I didn't do 8, only 6", "ما قدرت اكمل بس سويت ست" log 6).
 - Arabic coverage, Modern Standard and Gulf: completion (أنهيت، أكملت، كملت، خلصتها، خلصنا،
   تمت، سويتها), counts (MSA teens "اثنا عشر", "ثلاثة عشر"; unit-and-tens "خمسة وعشرون"; tens
   60-90 and the -ون forms; Gulf one-word teens "اثنعش", "خمسطعش"...; a joined "و"/"ب" as in
@@ -329,7 +342,13 @@ Found by reading the chain and by the live transcripts:
   "something is wrong" (في شي غلط) and "I am not well" in the first person ("I'm not okay",
   "I don't feel well", "انا مو زين", "ماني زين", "مو بخير", "احس اني مو زين"). This list only adds
   stops; the code floor (`safetySignal`) and the trainer's policy are unchanged. "الوزن مو زين"
-  (the weight is not good) is not a stop.
+  (the weight is not good) is not a stop. "انا مو تمام", "ماني تمام" and "احس اني مو تمام" (I'm
+  not okay) stop the session like "I'm not okay" (review of this branch: they were
+  acknowledgements).
+- A negated acknowledgement is not one: "مو زين", "مب زين", "مو تمام", "not okay", "not fine",
+  "I'm not sure" earn the help line, which names pain. Before the review the new Arabic
+  acknowledgement words made "مو زين" (not good) a silent acknowledgement, where it had been
+  unknown before this branch.
 - "Thank you" (and "شكراً", "يعطيك العافية") is an acknowledgement: polite, and also what the
   speech model returned for a reply it could not read ("Thank you." for Arabic "ثمان تكرارات"
   read as English), so it never earns the help line.
@@ -354,8 +373,16 @@ and `logged` (`outcomeSchema`).
   and Arabic plan cues. `generateTrainerVoice` now sends the line's own language when the caller
   does not fix it (`speechLanguage`, `packages/domain/src/speech-language.ts`: Arabic when a line
   has more Arabic than Latin letters). The preview line still fixes English.
-- The clip fingerprint (session clips) and the guided-audio fingerprint include the language for
-  non-English lines, so audio made the old way is never reused.
+- Code-owned lines (setup, set, rest, rest over, the safety line) and the shared clips are
+  English templates and are always sent as English (`lineLanguage`), even when an exercise name
+  in them is Arabic. Review of this branch: "Last exercise: تمرين الضغط على الأرض مع رفع القدمين.
+  3 sets of 12 reps." has more Arabic than Latin letters and was sent as Arabic, template and
+  numbers included. The worker passes the language (`textLanguage`) for every clip. A guided
+  segment's language is decided without its exercise name (`guidedSegmentLanguage`): English
+  unless the trainer's cue in it outweighs the template.
+- The clip fingerprint (session clips) and the guided-audio fingerprint take the language the
+  line is sent in and include it when it is not English, so audio made the old way is never
+  reused; a code line with an Arabic exercise name keeps its old (English) fingerprint.
 - A bilingual trainer's phrases follow the member's language: `buildSessionScript` takes the
   member's saved language (`notification_preferences.data.language`, read when a session is
   prepared) and uses the trainer's phrases of each kind in that language first; phrases in the
@@ -381,6 +408,13 @@ including the English word "pain" the safety line asks for) was **not stopped**.
   opens the hold and stops the session.
 - Otherwise the reply-language reading is acted on, or the other reading when only that one was
   understood (`replyTranscript`: the first reading was unknown or a bare acknowledgement).
+- When the reply-language reading fails and the other succeeds (review of this branch), the
+  other reading is screened for pain (and opens the hold when flagged) but never acted on: the
+  route answers 502 `SPEECH_UNCONFIRMED` and the member says it again, as when every reading
+  fails. Before the review it acted on the other reading, which for speech in the reply
+  language is often unrelated words ("It wasn't the gay light." for Gulf "too heavy"). The
+  failed reading's cost row stays `unknown` (it was sent); the other is `estimated`. A failed
+  screening reading changes nothing: the reply reading is used.
 - The runner has "I reply in" (the app's language, English or العربية), kept per device; it sets
   the on-device recognition language (`ar-AE`/`en-US`) and is sent as `language` to the
   transcribe route.
@@ -514,6 +548,35 @@ the reply-language control), and the live chain after the last changes (the "tha
 acknowledgement, the parser's non-global test patterns and the two-language transcribe route are
 covered by the tests above, using the live transcripts).
 
+After the review fixes (numbers in a negated clause, negated acknowledgements, "انا مو تمام", MSA
+"لم أستطع", English code lines, a failed reply-language reading), same day and worktree:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `tests/voice-talkback.test.ts`: 20/20 (5 new tests for the review findings).
+  `tests/voice-clones.test.ts`: 27/27 (new: a failed reading in either language, with the
+  Cartesia double failing one language; the worker sends a code line with an Arabic exercise
+  name as English). The budget check there now counts rows whose outcome is unknown at their
+  full reservation, as `voice_guidance_spent_today()` does.
+- Related PGlite files together (`e2e-harness-import-history`, `fix-keys`,
+  `integrations-completion`, `voice-clones`, `voice-session-domain`, `voice-session`,
+  `voice-talkback`, `web-address-moat`, `web-address-subdomains`, `programme-voice`,
+  `e2e-harness-mocks`, `provider-configuration`, `privacy-lifecycle`, `platform-finance`,
+  `messaging-safety-policy`): 163/163.
+- Whole PGlite suite: 1,126 tests, 1,125 pass, 0 fail, 1 skipped.
+- `/opt/tools/pg-sandbox.sh 56577` with `voice-session`, `voice-clones`,
+  `integrations-completion`, `programme-voice`, `privacy-lifecycle`, `platform-finance`,
+  `voice-talkback`: 68 migrations, `runtimeAccess: verified` (44 scoped tables, 46 helpers),
+  102 tests pass, `PG_SELECTED_FAILED_FILES=0`.
+- Parser outputs before and after on every quoted string of the voice test files (963) and the
+  180 live transcripts: the only change is "الوزن مو زين" (acknowledgement, now the help line).
+- Mutation check: nine breaks (the count read from the whole reply, no "last N reps" rule,
+  negated acknowledgements kept, no "تمام" in the first-person stop, no MSA "could not", code
+  lines by letters, the worker sending no language, acting on the screening reading, the guided
+  exercise name deciding the language) each failed at least one test; files restored after each.
+
+Not run after the review fixes: the live Cartesia chain, `next build`, the e2e harness and a
+browser check.
+
 ### Still not done
 
 - **Arabic code lines.** Every number, set, rest and safety line (the code-owned lines and the
@@ -522,10 +585,15 @@ covered by the tests above, using the live transcripts).
   English ones, an Arabic shared clip set per voice version (about 120 more clips, about 1,000
   characters), Arabic runner texts and on-screen text.
 - The runner's screen text is English.
-- A guided-audio segment that mixes an English sentence with an Arabic cue is sent in its
-  majority language (usually English); session scripts do not have this problem (one line each).
+- A guided-audio segment that mixes the English template with an Arabic cue is sent in the
+  majority language of template and cue (the exercise name does not count); session scripts do
+  not have this problem (one line each).
 - On-device recognition reads one language (the reply-language choice); only the speech service
   reads both.
+- A `not_done` reply keeps no count: "I didn't do the last 2 reps" names the set for the trainer
+  but not how many reps were missed (the number is ambiguous: "the last 2" is the missed count,
+  "I didn't do 8" is the target). Present-tense "I can't do 10" earns the help line, not "too
+  heavy".
 - The other-language reading is screened for pain too. In the live readings it never produced a
   red flag from a reply that had none (a translation such as "لا ألم" could, and would then stop
   the session for the trainer to review); none was seen.

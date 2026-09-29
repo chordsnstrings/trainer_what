@@ -159,9 +159,14 @@ value or log line; provider error text has any `sk_car_…` removed.
 - A Quick clone keeps no model of its own: it speaks with the configured `VOICE_MODEL`, so a model
   change (for example off a sunset snapshot) reaches every Quick clone.
 - Speech sends `language` as the language of the text, never the language the voice was
-  recorded in, which is used only to make the clone. Since 29 September 2026 that is each line's
-  own language (`speechLanguage`): session and guided lines were all sent as English before,
-  including the trainer's Arabic phrases and cues. The preview line is English.
+  recorded in, which is used only to make the clone. Since 29 September 2026 the trainer's own
+  phrases and cues are sent in their own language (`speechLanguage`): session and guided lines
+  were all sent as English before, including the trainer's Arabic phrases and cues. Code-owned
+  session lines (setup, set, rest, the safety line) and the shared clips are English templates
+  and are always sent as English, even with an Arabic exercise name in them (`lineLanguage`); a
+  guided segment's exercise name does not decide its language (`guidedSegmentLanguage`). The
+  preview line is English. The caller fixes the language (`textLanguage`) and the audio
+  fingerprint carries the same language.
 - After a Pro clone is ready its dataset (the trainer's raw recordings) is queued for deletion at
   Cartesia; a failed Pro clone keeps it only while trying again can help.
 - A Pro clone speaks with a dated model it was trained for (`proCloneModel`: the configured model

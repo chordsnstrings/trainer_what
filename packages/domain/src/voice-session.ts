@@ -36,6 +36,16 @@ export type LineKind =
  * Model wording is never spoken without the trainer's approval.
  */
 export type LineOwner = "code" | "trainer";
+/**
+ * The language a script line is synthesised in. Code-owned lines (setup, set,
+ * rest, the safety line, and the shared clips) are English templates, even
+ * when an exercise name in them is Arabic: their numbers and words are read
+ * as English until Arabic templates exist. The trainer's own phrases and plan
+ * cues are spoken in their own language (`speechLanguage`).
+ */
+export function lineLanguage(line: { owner: LineOwner; text: string }): SpeechLanguage {
+  return line.owner === "code" ? "en" : speechLanguage(line.text);
+}
 export type ScriptLine = {
   id: string;
   kind: LineKind;
