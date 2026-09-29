@@ -200,7 +200,8 @@ onto it, so every existing rule follows the brand:
 - Primary call to action "Teach your AI" (sign-up and the guided setup);
   "Join early access" while registration is closed. It is the Pace button
   (`button mk-cta`: Pace fill, ink text, 1 px ink edge; hover mixes 15% ink
-  into Pace, about 10:1). Hero secondary action "See how it works" (an ink
+  into Pace, about 10:1, on devices that hover; the colour change is
+  instant). Hero secondary action "See how it works" (an ink
   text link to How it works); `BRAND_COPY.secondaryAction` is kept but no
   longer shown.
 - `llms.txt` and `llms-full.txt` add the descriptor, audience, line and the
@@ -372,7 +373,10 @@ Review fixes (same stage, second pass):
 - Navigation: the current page (or the dropdown group holding it) is
   semibold with a 2 px ink underline; hover underlines (header, footer and
   breadcrumbs). The old hover colour `var(--green)` equalled ink and showed
-  nothing.
+  nothing. Since the 29 September motion pass the underline is a 1 px ink
+  bar that slides in from the inline start on hover (hover devices only)
+  and shows at once on keyboard focus; the current page keeps it at 2 px
+  ([marketing-site.md](marketing-site.md) "Sitewide microanimations").
 - Text links and the mobile Menu button are at least 44 px tall on phones.
 - The optional-analytics prompt on marketing pages is a white bottom bar
   with ink text and two equal secondary buttons, opened only after a

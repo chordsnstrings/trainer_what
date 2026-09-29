@@ -55,6 +55,7 @@ import {
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
 import { HeroFlow } from "./hero-flow";
+import { MarketingMotion } from "./motion";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -1531,6 +1532,9 @@ export function MarketingSite({ page, platform, origin }: Ctx) {
         )}
       </main>
       <MarketingFooter appName={platform.name} initials={platform.initials} />
+      {/* The section reveal (renders nothing; app/marketing.css holds the
+          motion). */}
+      <MarketingMotion path={page.path} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }}

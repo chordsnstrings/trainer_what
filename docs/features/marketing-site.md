@@ -709,6 +709,226 @@ the green "Strong case" badge on its pale tint); no dark band returns.
 Checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Merge into the PR
 #4 branch".
 
+## Sitewide microanimations (29 September 2026, `mk/motion`)
+
+Owner request: "marketing site should get microanimation revamp". This
+package builds part B of the motion storyboard (every component present at
+`c856d9d`); the coach-to-subscriber walkthrough (part A,
+`components/marketing/journey.tsx`) is a separate track. No marketing text
+was added, reworded or removed, and no layout proportion changed; the
+site stays light with Pace accents.
+
+### Rules and tokens
+
+The home relay's house rules now hold on every page: every word is real
+HTML and visible from the first paint; motion is decorative, short and
+plays once; reduced motion removes it; no metrics, counts, revenue or
+count-ups. The tokens are defined once on the marketing roots (`.mk,
+.mk-header, .mk-footer` in `app/marketing.css`), with the subscriber app
+pass's values: `--mk-dur-press` 80 ms, `--mk-dur-fast` 140 ms,
+`--mk-dur-base` 200 ms, `--mk-dur-slow` 280 ms, `--mk-dur-emphasis` 420 ms,
+`--mk-ease-out` `cubic-bezier(0.2, 0, 0, 1)`, `--mk-ease-in`
+`cubic-bezier(0.4, 0, 1, 1)`, `--mk-ease-in-out` `cubic-bezier(0.4, 0, 0.2,
+1)` and `--mk-ease-spring` `cubic-bezier(0.34, 1.4, 0.64, 1)` (success states
+only). Only transform (`translate`, `scale`, `rotate`), opacity, SVG
+`stroke-dashoffset` and a FAQ's grid rows move; colour changes (tints,
+borders, the focus ring) are instant. Hover effects sit in `@media (hover:
+hover)`; the one exception is the header menu opening on hover, which is
+behaviour, not decoration (it also opens on keyboard focus). CSS
+transitions and keyframes, one IntersectionObserver and the Web Animations
+API only: no library, no new dependency. Logical properties throughout;
+arrows nudge by `calc(3px * var(--inline-sign, 1))` and inline-start
+origins use `calc(50% - 50% * var(--inline-sign, 1))`.
+
+### What moves
+
+| Part | Motion |
+| --- | --- |
+| Buttons (`.button` in `.mk` and the header) | Press `scale: .97` on every device (80 ms in, 140 ms out); the existing 1 px lift only where the pointer hovers (cancelled under `hover: none`, so no stuck lift after a tap); the trailing arrow nudges 3 px forward (200 ms). The hover colour is instant (the storyboard's faded tint overlay was not built: see deviations). |
+| Single-line links (`.mk-link`, sign in, breadcrumbs, footer, header) | A 1 px ink bar slides in from the inline start on hover (200 ms) and shows at once on keyboard focus; the current page keeps it at 2 px, static. Links inside sentences keep their underline. |
+| Header | Its shadow fades in over the first 48 px of scrolling (a scroll-driven animation, no script; browsers without scroll timelines keep the flat header). Menus open with opacity and a 4 px rise (140 ms out, close 80 ms in); the group chevron turns. The phone menu drops in (200 ms) and its items rise 30 ms apart; it closes at once; "Menu" presses. |
+| Home relay | Unchanged sequence and delays, on the tokens: wires draw in 420 ms, the dot travels in 420 ms in-out, the row ticks pop with the spring (280 ms). The core tile's box-shadow pulse is now a Pace ring behind the mark (`::after`, scale 1 to 1.5, fading); the mark itself never scales. It ends at 2.53 s. |
+| Section reveal (`components/marketing/motion.tsx`) | Units wholly below the first screen when the page loads (home band contents; each block of an inner page; the closing panel) wait and rise 12 px into place once as they enter the view (280 ms); grid items follow 40 ms apart, at most 240 ms (cards, tiles, steps, the /get-started checklist, price anchors, band pills), the /features screens 80 ms apart. Never the hero, breadcrumbs, page heading, relay or anything on the first screen. |
+| Link cards (`.mk-tile`, home icon tiles, /features included) | Lift 2 px and a soft shadow (overlay opacity) where the pointer hovers, the icon rises with its home tile, press `scale: .99`. Static cards never move on hover. |
+| Pills and chips | No motion of their own; link pills tint instantly on hover, the related links' arrows nudge. |
+| "You stay in charge" (home) | Once, as its band is revealed: the message card rises, your AI's card follows (+140 ms), the confidence meter fills from the inline start (`scale`, its 86% width never changes), the lanes follow 80 ms apart, "Applied automatically" pops (spring) and the safety lane stamps. About 1.1 s. |
+| Economics (home) | The band pills stagger in; the address preview settles (opacity .5 to 1) once typing pauses for 120 ms. |
+| Disclosures (FAQs, the calculators' assumptions and optional numbers) | The native marker becomes a chevron at the inline end, in the space the marker took (1.06em), so every question wraps as before; it turns as the answer opens (200 ms). A FAQ answer also unfolds through its grid row (`::details-content`, 280 ms; checked in Chromium 141) and fades in; the calculators' disclosures fade and their height changes at once (their content has several children, so one grid row cannot hold it). |
+| Tables | Row hover: an instant paper tint on hover devices. |
+| Calculators | No count-up (the result is an `aria-live` region, widths would jitter, and a rolling figure dramatises an estimate). 150 ms after the last change the result figure settles (Web Animations, opacity .55 to 1 and 4 px, 200 ms) and changed rows and cells settle the same way (140 ms). Marketing pages only: the trainer workspace's follower calculator is unchanged. |
+| /demo | After a visitor picks a tab, the chosen decision rises 6 px (200 ms) and its label follows 80 ms later: the two automatic outcomes pop (spring), the hand-offs stamp. The first decision shows at once. |
+| /features screens | Reveal 80 ms apart; the ticks inside pop once. The timer never ticks and the counts never count up. |
+| /get-started | The checklist staggers in; the early-access confirmation rises (280 ms); errors appear without a shake. |
+| Closing panel, footer | The panel reveals as a section; footer links get the bar; "Analytics preferences" presses (it is now `inline-block`). |
+
+### How the reveal stays safe
+
+`MarketingMotion` (one island in `MarketingSite`, rendering nothing) adds
+`.mk-motion` to the page root only when JavaScript runs, IntersectionObserver
+exists and the visitor has not asked for reduced motion. Its observer's
+first report says where each unit starts; only a unit whose top is below
+the viewport is marked `data-mk-reveal="pending"`, and it turns `"in"` once
+it enters the view (root margin 10% from the bottom). Every hiding rule
+needs `.mk-motion`, so without JavaScript nothing is hidden; a unit that
+holds the address's `#target` never waits; printing reveals everything;
+leaving the page reveals what is left. Under reduced motion the script does
+nothing, `globals.css` stops every element's transitions and animations,
+and `marketing.css` stops the pseudo-elements and the details content box
+(which `*` does not reach), removes lifts, presses and nudges, and shows any
+unit that was waiting when the preference changed. The settle checks the
+preference itself.
+
+Two measures keep a reveal cheap to draw, found by tracing a scroll
+through /features with the CPU throttled 4x. A waiting unit is at 0.001
+opacity, not 0: it looks the same, but Chromium skips painting content at
+0 opacity, so a reveal would repaint the whole unit in one frame. A
+revealed unit and its grid items keep `translate: 0 0` (no movement), so
+the end of the rise does not tear down their layers and repaint them a
+second time. Grid items become `data-mk-item="done"` once the longest
+stagger and the rise are over, so a revealed link card lifts on hover with
+its own 200 ms timing instead of the reveal's stagger.
+
+### Deviations from the storyboard (part B)
+
+- Button hover tints are instant colour changes, not a faded overlay: the
+  storyboard's own rule is that colour changes are instant, and the
+  overlay would need a stacking context on every button and a rewrite of
+  the brand test's contrast check of the hover colour.
+- The calculators' assumptions and optional-numbers disclosures fade but do
+  not unfold (several children; storyboard D7's fallback). FAQs unfold.
+- A waiting unit is at 0.001 opacity rather than the storyboard's 0 (B5),
+  for the paint cost above; it is not visible.
+- The FAQ answer's 18 px bottom space moved from its margin into the
+  answer (a block after its text), so a closed answer folds to nothing;
+  open and closed FAQs measure the same as before (checked against a
+  `c856d9d` build at 390 and 1366 on eight pages, every FAQ open and
+  closed: the same page heights and element positions). Because the
+  chevron is at the inline end (B10), a question now starts at the inline
+  edge where the native marker used to sit, about 16 px earlier.
+- The static audit is `tests/marketing-motion-sitewide.test.ts` and the
+  browser check `scripts/marketing-motion-sitewide-check.mjs`
+  (`npm run test:marketing-motion-sitewide`), so they do not collide with
+  the walkthrough track's `marketing-motion` files.
+- The browser check runs without the API (the fallback platform facts);
+  the walkthrough's launch-ready platform state is that track's concern.
+
+### Checks for this package
+
+- `tests/marketing-motion-sitewide.test.ts` reads `marketing.css` with its
+  at-rule context and fails when a transition or keyframe moves anything
+  but transform, opacity, `stroke-dashoffset` or a disclosure's grid rows
+  (never width, height, top, left, margin and the like); when a duration or
+  easing is not a `--mk-*` token (delays are choreography and exempt, and so
+  is the scroll-driven header shadow); on an infinite animation; on the
+  spring outside the success states; on a `:hover` rule outside `@media
+  (hover: …)` (one listed exception); when motion escapes the reduced-motion
+  rules or an auto-playing keyframe sits outside `prefers-reduced-motion:
+  no-preference`; when anything is hidden without `.mk-motion`; when the
+  tokens are defined twice, differ from the agreed values or from the
+  script's copy; or when a marketing component imports an animation
+  library.
+- `tests/brand.test.ts` reads the primary action's hover colour inside
+  `@media (hover: hover)`.
+- `scripts/brand-check.mjs` scrolls every public page through once before
+  its contrast pass, so revealed sections are scanned, and fails if a
+  section never appears.
+- `scripts/marketing-motion-sitewide-check.mjs` (local Chromium, never a
+  cloud browser): /, /how-it-works, /pricing, /features and
+  /earnings-calculator at 390x844 (touch, DPR 3) and 1366x900 with the CPU
+  throttled 4x, against a build of `c856d9d` (`MOTION_BASE_DIR`): LCP
+  median of five cold loads within max(50 ms, 5%) of base and the same
+  element; CLS on load and during a scroll-through in 300 px steps no worse
+  than base; the reveal script's setup and every observer callback under
+  50 ms (timed where they run); no more long tasks while scrolling than
+  base (median run); no gross regression in blocking time on load; every
+  word visible with JavaScript off and after a scroll-through; nothing on
+  the first screen waits; reduced motion leaves nothing running, marks
+  nothing and does not settle; the FAQ opens fully; the phone menu opens.
+
+### Measured results (29 September 2026, local Chromium, this machine)
+
+The machine is a shared 4-core container that other jobs were using (load
+average 5 to 10 during every run), so single timings vary by several
+hundred ms between identical loads. Numbers are medians of five cold loads
+per page and width, the CPU throttled 4x, against a `next build` of
+`c856d9d` served the same way, loads alternating between the builds.
+
+`npm run test:marketing-motion-sitewide` (with `MOTION_BASE_DIR`), final
+run after the paint fixes:
+
+| Page and width | LCP new (base) | CLS load / scroll | Long tasks while scrolling (median run) | Reveal setup / slowest callback |
+| --- | --- | --- | --- | --- |
+| 390 `/` | 592 (636) ms | 0 / 0 (base 0 / 0) | 0 (0) | 2.6 / 16.0 ms |
+| 390 `/how-it-works` | 504 (524) ms | 0 / 0 | 0 (0) | 0.4 / 6.6 ms |
+| 390 `/pricing` | 572 (520) ms | 0 / 0 | 0 (0) | 2.3 / 25.1 ms |
+| 390 `/features` | 780 (708) ms | 0 / 0 | 0 (0) | 4.1 / 9.5 ms |
+| 390 `/earnings-calculator` | 428 (508) ms | 0 / 0 | 0 (0) | 1.9 / 8.5 ms |
+| 1366 `/` | 696 (684) ms | 0 / 0 | 0 (0) | 1.1 / 9.9 ms |
+| 1366 `/how-it-works` | 600 (452) ms | 0 / 0 | 0 (0) | 1.3 / 1.2 ms |
+| 1366 `/pricing` | 512 (496) ms | 0 / 0 | 0 (0) | 1.1 / 7.5 ms |
+| 1366 `/features` | 780 (864) ms | 0 / 0 | 0 (0) | 3.3 / 4.8 ms |
+| 1366 `/earnings-calculator` | 472 (456) ms | 0 / 0 | 0 (0) | 1.7 / 2.1 ms |
+
+The same LCP element as base on every page (the page heading, the lede or
+the calculator's answer). All of the check's own rules passed: nothing on
+the first screen, in the hero or the relay ever waited; nothing was still
+waiting or hidden after a scroll-through; every word was visible with
+JavaScript off at both widths (nothing marked, no `.mk-motion`); under
+reduced motion nothing ran, nothing was marked, the calculator did not
+settle and the FAQ opened fully; with motion the calculator settled (7
+animations), the FAQ unfolded to full height and opacity and the phone
+menu opened; no infinite animation. The run exited 1 on four comparisons
+with base: LCP at 390 `/pricing` (+52 ms), 390 `/features` (+72 ms) and
+1366 `/how-it-works` (+148 ms), and blocking time on load at 390 `/pricing`
+(490 against 367 ms). The previous run (before the paint fixes) failed on
+different pages (LCP at 390 `/earnings-calculator` and 1366
+`/how-it-works`), so each was re-measured with fifteen alternating cold
+loads per build (a separate probe, same throttling, no scrolling):
+
+| Page and width | LCP median new (base) |
+| --- | --- |
+| 1366 `/how-it-works` | 492 (444) ms |
+| 390 `/pricing` | 428 (428) ms |
+| 390 `/features` | 720 (712) ms |
+| 390 `/earnings-calculator` | 392 (392) ms |
+| 1366 `/` | 480 (452) ms |
+
+All are within the budget (max(50 ms, 5%)). On the desktop pages LCP is the
+first paint, which is about 30 to 48 ms later at 4x throttling (about 10 ms
+unthrottled); the marketing stylesheet is 1.7 KB larger gzipped (8.2 KB
+against 6.5 KB) and draws the link bars and card overlays. It has not been
+reduced further.
+
+Scroll-through long tasks: before the paint fixes the reveal produced 1 to
+3 long tasks (50 to 176 ms) per run on 1366 `/` and `/features` and 390
+`/features`, where base had none; a trace showed paint, pre-paint and
+layerisation work, not script (the reveal's own code stayed under 26 ms).
+After the fixes the median run had none on any page. Main-thread work
+during a scroll-through of 1366 `/features` is still about twice base's
+(the reveals' paint and compositing, measured by trace: roughly 1.0 s
+against 0.45 s over the whole scroll at 4x), and single runs on this busy
+machine still show the occasional long task, so this budget holds on the
+median, not on every run.
+
+Layout: against the `c856d9d` build at 390 and 1366 on eight pages (`/`,
+`/how-it-works`, `/pricing`, `/features`, `/earnings-calculator`, `/demo`,
+`/get-started`, `/follower-calculator`), every FAQ closed and then open,
+under reduced motion: the same page heights and the same position and size
+for every visible element, except the FAQ answers themselves (their 18 px
+bottom space is now inside them) and the address preview's width (the two
+servers' port numbers differ).
+
+Other checks run for this package: `npx tsc --noEmit`, `npx tsc --noEmit -p
+apps/web/tsconfig.json`, `node --import tsx --test` on
+`tests/marketing-site.test.ts`, `tests/marketing-api.test.ts`,
+`tests/logical-css.test.ts`, `tests/marketing-motion-sitewide.test.ts`,
+`tests/brand.test.ts` and `tests/branding.test.ts`, and `npm run build`;
+`git diff c856d9d` shows no change to `marketing-content.ts` or
+`marketing.ts`.
+`npm run test:brand` on the production build (`RTL_WEB_MODE=start`, its own
+ports and PGlite data) passed on 112 screens, including its scroll-through
+before the contrast pass (no section left waiting).
+
 ## Not done / next
 
 - Stage record: this package ran in parallel with others, so it does not edit
