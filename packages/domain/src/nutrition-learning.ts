@@ -151,6 +151,18 @@ export function nutritionLearning(
       "Explicit condition overlap and contradictory worked decisions; free-text semantic interpretation still needs coach judgement.",
   };
 }
+/**
+ * How far a worked meal's stated nutrients may be from the stored-fact
+ * arithmetic: the rounding the evaluation prompt allows (kcal to a whole
+ * number, grams to one decimal place, from the two-decimal ingredient grams)
+ * plus the app's own rounding to 0.01.
+ */
+export const sampleNutrientTolerance = {
+  kcal: 0.51,
+  protein: 0.051,
+  carbohydrate: 0.051,
+  fat: 0.051,
+} as const;
 export function checkNutritionSample(input: {
   sample: any;
   expected: any;
@@ -231,12 +243,17 @@ export function checkNutritionSample(input: {
     })),
     1,
   );
+  // The evaluation prompt asks for kcal to a whole number and grams to one
+  // decimal place (or finer). In the trial every worked meal that failed the
+  // old 0.01 check (572 claimed for 571.8 computed, 33.1 g for 33.09 g)
+  // differed by rounding alone.
   if (
     (Object.keys(nutrients) as Array<keyof typeof nutrients>).some((k) =>
       nutrients[k] === null
         ? sample.nutrients[k] !== null
         : sample.nutrients[k] === null ||
-          Math.abs(sample.nutrients[k]! - nutrients[k]!) > 0.01,
+          Math.abs(sample.nutrients[k]! - nutrients[k]!) >
+            sampleNutrientTolerance[k] + 1e-9,
     )
   )
     return {
@@ -378,10 +395,12 @@ export function rationaleMatches(
   cases: Array<{ id: string; data: any }>,
 ) {
   const cite = decision?.rationaleEvidence,
-    source = cases.find((c) => c.id === cite?.caseId);
+    source = cases.find((c) => c.id === cite?.caseId),
+    // System safety checks accept several teaching cases (see /evaluate).
+    accepted: string[] = scenario.acceptedCaseIds ?? [scenario.expectedCaseId];
   if (
     !source ||
-    cite.caseId !== scenario.expectedCaseId ||
+    !accepted.includes(cite.caseId) ||
     !decision.caseIds.includes(source.id) ||
     typeof cite.quote !== "string" ||
     normalized(cite.quote).length < 12 ||

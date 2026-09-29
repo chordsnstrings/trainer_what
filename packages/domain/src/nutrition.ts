@@ -280,9 +280,15 @@ export const nutritionEvaluationSchema = z
   })
   .strict();
 export class NutritionBlocked extends Error {
+  /**
+   * `message` is shown to the client and the coach; `detail`, when given, is
+   * extra context for the coach only (for example which meal slot has no
+   * suitable recipe, or the model's stated reason for declining a week).
+   */
   constructor(
     public code: string,
     message: string,
+    public detail?: string,
   ) {
     super(message);
     this.name = "NutritionBlocked";
@@ -291,6 +297,20 @@ export class NutritionBlocked extends Error {
 const block = (code: string, message: string): never => {
   throw new NutritionBlocked(code, message);
 };
+/**
+ * The whole-kcal daily range a planned day must fall in: the target plus or
+ * minus the coach's tolerance, rounded inward. The meal-week prompt states
+ * exactly this range and validateNutritionWeek compares each day's total,
+ * rounded to whole kcal as clients see it, against it, so a day the model
+ * keeps inside the stated range is never rejected for rounding alone.
+ */
+export function dailyKcalRange(target: number, tolerancePercent: number) {
+  const allowance = (target * tolerancePercent) / 100;
+  return {
+    min: Math.ceil(target - allowance - 1e-9),
+    max: Math.floor(target + allowance + 1e-9),
+  };
+}
 // Arabic letter variants written interchangeably (alef/hamza carriers, waw and yeh
 // hamza, alef maqsura, Persian yeh and keheh, ta marbuta). Letters only, so it is
 // also safe on regex sources: escapes such as \s and \w are left untouched.
@@ -816,7 +836,8 @@ export function validateNutritionWeek(input: {
 }) {
   const { week, policy, profile, weekStart } = input;
   const base = nutritionTarget(policy, profile),
-    target = input.targetKcal ?? base;
+    target = input.targetKcal ?? base,
+    range = dailyKcalRange(target, policy.tolerancePercent);
   if (target < policy.minKcal || target > policy.maxKcal)
     block("TARGET_LIMIT", "The calorie target is outside the coach's limits.");
   if (new Set(week.days.map((d) => d.offset)).size !== 7)
@@ -914,8 +935,8 @@ export function validateNutritionWeek(input: {
             100;
       if (
         total.kcal === null ||
-        Math.abs(total.kcal - target) >
-          (target * policy.tolerancePercent) / 100 + 0.01
+        Math.round(total.kcal) < range.min ||
+        Math.round(total.kcal) > range.max
       )
         block(
           "CALORIE_POLICY",
@@ -959,6 +980,8 @@ const explanationPattern = termPattern([
 // Matched against folded text, so Arabic ta marbuta is written as ه.
 const dosePattern =
   /\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|μg|iu|units?|ملغ|ملجم|مجم|ميكروغرام|وحده|وحدات)(?![\p{L}\p{N}])/iu;
+const identifierPattern =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const contactPattern =
   /(?:https?:\/\/|www\.)|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+\.\p{L}{2,}|(?<![\p{L}\p{N}])[a-z0-9-]+\.(?:com|net|org|io|ae|co|info|app|health|me|ly|link)(?![\p{L}\p{N}])|\+\d[\d\s().-]{6,}\d|(?<!\d)0\d(?:[\s.-]?\d){7,}/iu;
 const calorieUnit =
@@ -985,7 +1008,8 @@ const phrase = (s: string) =>
   " ";
 /**
  * Free text reaches the subscriber only after deterministic checks: no clinical,
- * medication or supplement terms, dosages, links or contact details, calorie
+ * medication or supplement terms, dosages, links or contact details, record
+ * identifiers, calorie
  * numbers that disagree with the validated week, or catalog recipes outside the
  * week. Otherwise a neutral explanation is generated from the validated data.
  */
@@ -1006,6 +1030,9 @@ export function nutritionExplanation(input: {
     issues.push("clinical_or_supplement_advice");
   if (dosePattern.test(text)) issues.push("dosage");
   if (contactPattern.test(text)) issues.push("link_or_contact");
+  // Record identifiers (a model's references decode to these) mean nothing
+  // to a client.
+  if (identifierPattern.test(text)) issues.push("identifier");
   const allowed = [
     input.targetKcal,
     ...input.days.flatMap((d) => [

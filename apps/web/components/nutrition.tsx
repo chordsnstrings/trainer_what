@@ -477,7 +477,11 @@ export function NutritionCoach({
             </Card>
             <PolicyForm
               key={policyDraft?.id ?? d.policy?.id ?? "new"}
-              initial={policyDraft?.data.policy ?? d.policy?.data.policy}
+              initial={
+                policyDraft?.data.policy ??
+                policyDraft?.data.partialPolicy ??
+                d.policy?.data.policy
+              }
               sourceIds={[...d.cases, ...d.sources].map((c: any) => c.id)}
               submit={submit}
             />
@@ -736,6 +740,9 @@ export function NutritionCoach({
                     {x.status}
                   </summary>
                   <p>{x.data.message}</p>
+                  {x.data.coachDetail && (
+                    <p className="muted">{x.data.coachDetail}</p>
+                  )}
                   <Link href={"/trainer/nutrition/clients/" + x.owner_user_id}>
                     Inspect client nutrition{" "}
                     <span className="bidi-mirror" aria-hidden="true">
@@ -1422,8 +1429,15 @@ function PolicyForm({
   sourceIds: string[];
   submit: (p: string, b: any, m?: string) => Promise<any>;
 }) {
+  // An incomplete compiled draft may leave a target's fields blank.
   const [targets, setTargets] = useState<any[]>(
-    initial?.targets ?? [{ goal: "", kcal: "", reason: "" }],
+    Array.isArray(initial?.targets) && initial.targets.length
+      ? initial.targets.map((t: any) => ({
+          goal: t?.goal ?? "",
+          kcal: t?.kcal ?? "",
+          reason: t?.reason ?? "",
+        }))
+      : [{ goal: "", kcal: "", reason: "" }],
   );
   return (
     <Card title="Review or enter your nutrition policy">
@@ -1493,8 +1507,17 @@ function PolicyForm({
             />
           </Field>
           {[
-            ["minAge", "Minimum client age", initial?.minAge ?? 18],
-            ["maxAge", "Maximum client age", initial?.maxAge ?? 100],
+            // A compiled draft's blank (null) stays blank for the coach to answer.
+            [
+              "minAge",
+              "Minimum client age",
+              initial?.minAge === null ? "" : (initial?.minAge ?? 18),
+            ],
+            [
+              "maxAge",
+              "Maximum client age",
+              initial?.maxAge === null ? "" : (initial?.maxAge ?? 100),
+            ],
             ["minKcal", "Lowest permitted daily kcal", initial?.minKcal],
             ["maxKcal", "Highest permitted daily kcal", initial?.maxKcal],
             [
