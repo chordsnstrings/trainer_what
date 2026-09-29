@@ -107,16 +107,20 @@ export async function generateViewport({
   params: Promise<{ path?: string[] }>;
 }): Promise<Viewport> {
   const { path = [] } = await params;
+  // The member app draws under the notch and home indicator and pads its top
+  // bar, tab bar and sticky action bars with env(safe-area-inset-*)
+  // (app/phone-first.css), which matters most once it is installed.
+  const member: Viewport = path[0] === "app" ? { viewportFit: "cover" } : {};
   const slug =
     path[0] === "coach" ? path[1] : (await requestOrigin()).coachSlug;
   if (!slug)
     return isPublicPlatformRoute("/" + path.join("/"))
       ? { themeColor: BRAND_COLORS.white, colorScheme: "light" }
-      : {};
+      : member;
   const data = await website(slug);
   return data
-    ? { themeColor: resolveBrandDesign(data.tenant.theme).primary }
-    : {};
+    ? { themeColor: resolveBrandDesign(data.tenant.theme).primary, ...member }
+    : member;
 }
 export async function generateMetadata({
   params,

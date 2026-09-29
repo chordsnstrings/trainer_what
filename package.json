@@ -20,6 +20,7 @@
     "test:browser": "node scripts/run-browser-check.mjs",
     "test:rtl": "node scripts/run-rtl-check.mjs",
     "test:brand": "node scripts/run-brand-check.mjs",
+    "test:phone": "node scripts/run-phone-check.mjs",
     "screenshots": "node scripts/capture-app-views.mjs",
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",

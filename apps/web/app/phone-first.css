@@ -1,0 +1,1809 @@
+/* Phone-first member shell and shared controls (docs/features/phone-first.md).
+   Mobile first: base rules are the 360-430 px phone layout; larger screens
+   are added with min-width queries (768 px tablet, 1024 px laptop). Only
+   subscriber surfaces use these classes; the trainer workspace keeps its
+   own shell in globals.css. Logical properties only (tests/logical-css). */
+
+/* ------------------------------------------------------------------ */
+/* Bottom insets published for fixed UI (components/phone-ui.tsx)       */
+/* ------------------------------------------------------------------ */
+:root {
+  --member-tabbar-height: 0px;
+  --member-action-bar-height: 0px;
+  --member-keyboard-inset: 0px;
+  --member-bottom-inset: calc(
+    var(--member-tabbar-height) + var(--member-action-bar-height) +
+      var(--member-keyboard-inset)
+  );
+  --member-gutter: 16px;
+  /* Motion tokens (components/motion.ts mirrors them; "Motion" below). */
+  --motion-press: 90ms;
+  --motion-fast: 140ms;
+  --motion-enter: 240ms;
+  --motion-slide: 280ms;
+  --motion-exit: 180ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+:root:has(.member-shell) {
+  --member-tabbar-height: calc(64px + env(safe-area-inset-bottom, 0px));
+  /* The installed app never rubber-bands the whole page or triggers pull to
+     refresh; inner scrollers keep their own momentum. */
+  overscroll-behavior-y: contain;
+}
+@media (min-width: 1024px) {
+  :root:has(.member-shell) {
+    --member-tabbar-height: 0px;
+  }
+}
+/* While typing, the keyboard covers the tab bar: sticky bars sit on the
+   keyboard instead. (Last, so it wins over the rules above.) */
+:root[data-keyboard="open"] {
+  --member-tabbar-height: 0px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Member shell layout                                                  */
+/* ------------------------------------------------------------------ */
+.workspace.member-shell {
+  display: block;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  background: var(--paper);
+}
+.member-shell .skip-link {
+  position: absolute;
+  inset-inline-start: 8px;
+  inset-block-start: -100px;
+  z-index: 60;
+  padding: 12px 16px;
+  background: var(--white);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+}
+.member-shell .skip-link:focus {
+  inset-block-start: calc(8px + env(safe-area-inset-top, 0px));
+}
+.member-sidenav,
+.member-footer {
+  display: none;
+}
+.member-frame {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  min-inline-size: 0;
+}
+
+/* Compact top bar: back, the page title (or the coach on Today), the member. */
+.member-topbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: calc(56px + env(safe-area-inset-top, 0px));
+  padding-block: env(safe-area-inset-top, 0px) 0;
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
+  background: color-mix(in srgb, var(--white) 94%, transparent);
+  border-block-end: 1px solid var(--line);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  backdrop-filter: saturate(1.4) blur(10px);
+}
+/* A thin bar while the page refreshes in place: a short segment that
+   travels along the bottom edge in the reading direction (still, in the
+   middle, with reduced motion). The segment moves by background position,
+   so nothing ever sticks out of the bar and scrolls the page sideways. */
+.member-topbar[data-refreshing]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -1px;
+  block-size: 2px;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    var(--brand-primary, var(--green)) 30%,
+    var(--brand-primary, var(--green)) 70%,
+    transparent
+  );
+  background-repeat: no-repeat;
+  background-size: 40% 100%;
+  background-position-x: 50%;
+  transform: scaleX(var(--inline-sign, 1));
+}
+@keyframes member-refresh {
+  from {
+    background-position-x: -67%;
+  }
+  to {
+    background-position-x: 167%;
+  }
+}
+.member-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  margin-inline-start: -10px;
+  border-radius: 50%;
+  color: var(--brand-link, var(--ink));
+  flex: none;
+}
+.member-back:active {
+  background: var(--mint);
+}
+.member-topbar-title {
+  flex: 1;
+  min-inline-size: 0;
+  margin: 0;
+  font-family: var(--brand-heading-font, inherit);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-topbar-coach {
+  flex: 1;
+  min-inline-size: 0;
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+}
+.member-topbar-coach .coach-identity small {
+  display: none;
+}
+.member-topbar-me {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  margin-inline-end: -6px;
+  flex: none;
+}
+.member-topbar-me .avatar.small {
+  margin: 0;
+}
+
+/* Page content: 16 px gutters, clear of the tab bar and any action bar. */
+.member-content {
+  flex: 1;
+  inline-size: 100%;
+  max-inline-size: 960px;
+  margin-inline: auto;
+  padding-block: 20px calc(var(--member-bottom-inset) + 28px);
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
+  min-inline-size: 0;
+}
+.member-content:focus {
+  outline: none;
+}
+.member-dev-note {
+  margin: 32px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Bottom tab bar: five destinations, icon and short label, 64 px plus the
+   home indicator. */
+.member-tabbar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding-block-end: env(safe-area-inset-bottom, 0px);
+  padding-inline: max(
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
+  background: var(--white);
+  border-block-start: 1px solid var(--line);
+  box-shadow: 0 -6px 20px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+:root[data-keyboard="open"] .member-tabbar {
+  display: none;
+}
+.member-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-block-size: 64px;
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-align: center;
+  min-inline-size: 0;
+}
+.member-tab[aria-current="page"] {
+  color: var(--brand-link, var(--ink));
+}
+.member-tab-icon {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 52px;
+  block-size: 30px;
+  border-radius: 15px;
+}
+/* The current tab's pill sits behind the icon so it can grow in on its own
+   ("Motion" below) while the icon keeps its size. */
+.member-tab-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--brand-tint, var(--mint));
+  opacity: 0;
+  transform: scaleX(0.5);
+}
+.member-tab[aria-current="page"] .member-tab-icon {
+  color: var(--brand-on-tint, var(--ink));
+}
+.member-tab[aria-current="page"] .member-tab-icon::before {
+  opacity: 1;
+  transform: none;
+}
+.member-tab-label {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-badge {
+  position: absolute;
+  inset-block-start: -4px;
+  inset-inline-end: 4px;
+  min-inline-size: 18px;
+  block-size: 18px;
+  padding-inline: 5px;
+  border-radius: 9px;
+  background: var(--ty-error, #ad3535);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* More: one grouped, one-tap list. */
+.more-title {
+  font-size: 28px;
+  margin-block-end: 20px;
+}
+.more-group {
+  margin-block-end: 24px;
+}
+.more-group h2 {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.more-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.more-list li + li {
+  border-block-start: 1px solid var(--line);
+}
+.more-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  inline-size: 100%;
+  min-block-size: 60px;
+  padding: 10px 16px;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  text-align: start;
+  font: inherit;
+}
+.more-link:active {
+  background: var(--mint);
+}
+.more-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 10px;
+  background: var(--brand-tint, var(--mint));
+  color: var(--brand-on-tint, var(--ink));
+  flex: none;
+}
+.more-text {
+  flex: 1;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.more-text strong {
+  font-size: 16px;
+  font-weight: 550;
+}
+.more-text small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.more-chevron {
+  color: var(--muted);
+  flex: none;
+}
+
+/* Laptop: full-height side navigation with one current item. */
+@media (min-width: 1024px) {
+  .workspace.member-shell {
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    align-items: start;
+  }
+  .member-sidenav {
+    position: sticky;
+    inset-block-start: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    block-size: 100vh;
+    block-size: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 24px 16px;
+    background: var(--white);
+    border-inline-end: 1px solid var(--line);
+  }
+  .member-sidenav-coach {
+    display: block;
+    padding: 4px 8px 12px;
+    border-block-end: 1px solid var(--line);
+  }
+  .member-sidenav nav {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .member-sidenav-heading {
+    margin: 0 8px 4px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--muted);
+  }
+  .member-sidenav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .member-sidenav nav a {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-block-size: 44px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .member-sidenav nav a:hover {
+    color: var(--ink);
+    background: color-mix(
+      in srgb,
+      var(--brand-tint, var(--mint)) 55%,
+      transparent
+    );
+  }
+  .member-sidenav nav a.active {
+    background: var(--brand-tint, var(--mint));
+    color: var(--brand-on-tint, var(--ink));
+    font-weight: 650;
+  }
+  .member-sidenav nav a .member-badge {
+    position: static;
+    margin-inline-start: auto;
+  }
+  .member-sidenav-me {
+    margin-block-start: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 8px 0;
+    border-block-start: 1px solid var(--line);
+    min-inline-size: 0;
+  }
+  .member-sidenav-me > span:last-child {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+  }
+  .member-sidenav-me strong {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .member-sidenav-me a {
+    font-size: 13px;
+    color: var(--brand-link, var(--ink));
+    min-block-size: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .member-signout {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-block-size: 44px;
+    padding-inline: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--brand-link, var(--ink));
+    font-weight: 550;
+  }
+  .member-topbar {
+    padding-inline: 32px;
+  }
+  .member-topbar-coach,
+  .member-topbar-me {
+    display: none;
+  }
+  /* Today has no page title on laptops: the side navigation shows the coach. */
+  .member-topbar:not(:has(.member-back)):not(:has(.member-topbar-title)) {
+    display: none;
+  }
+  .member-content {
+    padding-inline: 32px;
+    padding-block-start: 28px;
+  }
+  .member-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-block-start: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .member-tabbar {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Member controls: phone sizes first                                   */
+/* ------------------------------------------------------------------ */
+/* 16 px text in fields (no iOS zoom), 48 px tall fields, labels above. */
+.member-shell
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="color"]
+  ):not([type="file"]):not(.stepper-input),
+.member-shell select,
+.member-shell textarea {
+  font-size: 16px;
+  min-block-size: 48px;
+}
+.member-shell .field > span {
+  font-size: 14px;
+}
+.member-shell .button {
+  min-block-size: 48px;
+  padding-inline: 18px;
+  font-size: 15px;
+}
+.member-shell .button.secondary {
+  min-block-size: 44px;
+}
+.member-shell .text-button,
+.member-shell .text-link {
+  min-block-size: 44px;
+  font-size: 14px;
+}
+.member-shell .button-row {
+  gap: 12px;
+}
+/* Buttons a screen renders without a class look like secondary buttons.
+   Zero-specificity (:where) so a component's own button styles still win. */
+:where(.member-shell .member-content) button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-block-size: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--brand-link, var(--ink));
+  border-radius: var(--brand-button-radius, 6px);
+  background: transparent;
+  color: var(--brand-link, var(--ink));
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 1.3;
+}
+/* Unavailable controls stay readable (muted text on the card, dashed edge)
+   instead of fading to low contrast; put the reason beside them. */
+.member-shell button:disabled,
+.member-shell .member-content button:not([class]):disabled,
+.member-shell .button:disabled,
+.member-shell .button.secondary:disabled,
+.bottom-sheet button:disabled {
+  opacity: 1;
+  background: var(--white);
+  color: var(--muted);
+  border: 1px dashed var(--muted);
+  filter: none;
+  transform: none;
+}
+.control-reason {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+/* Checkboxes: a 22 px box at the start with its text wrapping beside it
+   (never under it), in a row at least 44 px tall. Block layout keeps links
+   and emphasis inside the label text flowing inline. */
+.member-shell label:has(> input[type="checkbox"]),
+.member-shell label:has(> input[type="radio"]) {
+  position: relative;
+  display: block;
+  min-block-size: 44px;
+  margin-block: 8px;
+  padding-block: 10px;
+  padding-inline: 34px 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+  cursor: pointer;
+}
+.member-shell label:has(> input[type="checkbox"]) > input[type="checkbox"],
+.member-shell label:has(> input[type="radio"]) > input[type="radio"] {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 11px;
+  inline-size: 22px;
+  block-size: 22px;
+  margin: 0;
+}
+/* A section heading inside a card never touches the control above it. */
+.member-shell .card > :is(h2, h3, h4):not(:first-child),
+.member-shell
+  .card
+  :is(button, .button, form, .button-row, section)
+  + :is(h2, h3, h4) {
+  margin-block-start: 28px;
+}
+/* Helper text sits under its field and clear of the next one. */
+.member-shell form small,
+.member-shell .card > small {
+  display: block;
+  margin-block: 6px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* A page heading's action never touches the text above it. */
+.member-shell .page-heading :is(p, .muted) + :is(.button, a.button) {
+  margin-block-start: 14px;
+}
+.member-shell .card h2 {
+  font-size: 21px;
+}
+.member-shell .card {
+  padding: 18px;
+  margin-block-end: 16px;
+}
+.member-shell .page-heading {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-block-end: 20px;
+}
+.member-shell .page-heading h1,
+.member-shell h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+.member-shell .two-columns,
+.member-shell .two-columns.wide-left,
+.member-shell .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.member-shell .stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.member-shell fieldset {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.member-shell legend {
+  padding-inline: 4px;
+  font-weight: 600;
+}
+@media (min-width: 768px) {
+  .member-shell .card {
+    padding: var(--brand-space, 24px);
+    margin-block-end: 20px;
+  }
+  .member-shell .page-heading {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .member-shell .page-heading h1,
+  .member-shell h1 {
+    font-size: 32px;
+  }
+  .member-shell .two-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+  .member-shell .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 20px;
+  }
+  .member-shell .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* StickyActionBar                                                      */
+/* ------------------------------------------------------------------ */
+.sticky-action-bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: calc(
+    var(--member-tabbar-height) + var(--member-keyboard-inset)
+  );
+  z-index: 35;
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
+  background: color-mix(in srgb, var(--white) 96%, transparent);
+  border-block-start: 1px solid var(--line);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+/* Inside the member app the tab bar below already clears the home
+   indicator; with the keyboard open nothing needs clearing. */
+.member-shell .sticky-action-bar,
+:root[data-keyboard="open"] .sticky-action-bar {
+  padding-block-end: 10px;
+}
+.sticky-action-note {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.sticky-action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.sticky-action-buttons > * {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 48px;
+  white-space: nowrap;
+}
+/* The primary action (last) gets the larger share. */
+.sticky-action-buttons > :last-child:not(:first-child) {
+  flex-grow: 2;
+}
+@media (min-width: 1024px) {
+  .member-shell .sticky-action-bar {
+    inset-inline-start: 264px;
+    padding-inline: 32px;
+  }
+  .sticky-action-buttons {
+    max-inline-size: 720px;
+    margin-inline: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* BottomSheet                                                          */
+/* ------------------------------------------------------------------ */
+.bottom-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  inline-size: 100%;
+  max-inline-size: 100%;
+  max-block-size: 88vh;
+  max-block-size: 88dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-start-start-radius: 16px;
+  border-start-end-radius: 16px;
+  background: var(--white, #ffffff);
+  color: var(--ink, #171917);
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.18);
+  overflow: hidden;
+}
+.bottom-sheet[open] {
+  display: flex;
+  flex-direction: column;
+}
+.bottom-sheet::backdrop {
+  background: rgb(0 0 0 / 0.42);
+}
+:root:has(.bottom-sheet[open]) {
+  overflow: hidden;
+}
+/* A grab handle: the sheet reads as a sheet (closing is the close button,
+   Escape or a tap on the dimmed page, never a swipe that could misfire). */
+.bottom-sheet-handle {
+  display: block;
+  flex: none;
+  inline-size: 36px;
+  block-size: 4px;
+  margin: 8px auto 0;
+  border-radius: 2px;
+  background: var(--line, #d9ddd5);
+}
+.bottom-sheet-panel {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  max-block-size: inherit;
+}
+.bottom-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 12px 4px;
+  padding-inline: 20px 8px;
+}
+.bottom-sheet-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 20px;
+}
+.bottom-sheet-close {
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: 50%;
+  flex: none;
+}
+.bottom-sheet-description {
+  padding-inline: 20px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.bottom-sheet-body {
+  flex: 1;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 20px 16px;
+}
+.bottom-sheet-footer {
+  display: flex;
+  gap: 8px;
+  padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-inline: 20px;
+  border-block-start: 1px solid var(--line, #d9ddd5);
+}
+.bottom-sheet-footer > * {
+  flex: 1 1 0;
+  min-block-size: 48px;
+}
+.bottom-sheet textarea,
+.bottom-sheet input:not([type="checkbox"]):not([type="radio"]),
+.bottom-sheet select {
+  font-size: 16px;
+  min-block-size: 48px;
+}
+@media (min-width: 768px) {
+  .bottom-sheet {
+    inset: 0;
+    margin: auto;
+    inline-size: min(560px, calc(100% - 48px));
+    max-block-size: min(720px, calc(100dvh - 64px));
+    border-radius: 16px;
+  }
+  .bottom-sheet-handle {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* FileInput                                                            */
+/* ------------------------------------------------------------------ */
+.file-input {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px 16px;
+  justify-items: start;
+}
+.file-input-label {
+  font-size: 14px;
+  font-weight: 550;
+}
+.file-input-hint,
+.file-input-status {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.file-input-control {
+  position: relative;
+  display: inline-flex;
+  max-inline-size: 100%;
+}
+.file-input input.file-input-native {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.file-input input.file-input-native:disabled {
+  cursor: not-allowed;
+}
+.file-input-button {
+  min-block-size: 48px;
+  gap: 8px;
+}
+.file-input-native:focus-visible + .file-input-button {
+  outline: 3px solid var(--focus, #171917);
+  outline-offset: 3px;
+}
+.file-input.is-disabled .file-input-button {
+  background: var(--white);
+  color: var(--muted);
+  border: 1px dashed var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* NumberStepper                                                        */
+/* ------------------------------------------------------------------ */
+.stepper {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.stepper-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.stepper-control {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: stretch;
+  gap: 4px;
+}
+.stepper-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  min-block-size: 48px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--brand-button-radius, 8px);
+  background: var(--white);
+  color: var(--ink);
+}
+.stepper-button:active:not(:disabled) {
+  background: var(--brand-tint, var(--mint));
+}
+.stepper-field {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  min-block-size: 48px;
+  /* A value ticking up or down stays inside the field. */
+  overflow: hidden;
+  border: 1px solid var(--field-border, var(--line));
+  border-radius: var(--brand-button-radius, 8px);
+  background: var(--white);
+}
+.stepper-field:focus-within {
+  outline: 3px solid var(--focus, #171917);
+  outline-offset: 2px;
+}
+.stepper .stepper-field input.stepper-input {
+  flex: 1;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 46px;
+  padding-block: 6px;
+  padding-inline: 4px;
+  border: 0;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  /* 16 px or more: iOS does not zoom. Three-digit reps and "102.5" fit. */
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+}
+.stepper-unit {
+  flex: none;
+  padding-inline-end: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* ResponsiveTable: cards on phones, contained scroll from 768 px        */
+/* ------------------------------------------------------------------ */
+.responsive-table {
+  position: relative;
+  min-inline-size: 0;
+}
+.responsive-table table,
+.responsive-table thead,
+.responsive-table tbody,
+.responsive-table tr,
+.responsive-table th,
+.responsive-table td {
+  display: block;
+}
+.responsive-table thead {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.responsive-table tbody {
+  display: grid;
+  gap: 10px;
+}
+.responsive-table tbody tr {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.responsive-table tbody th {
+  padding: 0 0 6px;
+  border: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  text-align: start;
+}
+.responsive-table tbody td {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 6px 0;
+  border: 0;
+  border-block-start: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  font-size: 15px;
+}
+.responsive-table tbody td::before {
+  content: attr(data-label);
+  color: var(--muted);
+  font-size: 14px;
+}
+.responsive-table-value {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.responsive-table-cue {
+  display: none;
+}
+@media (min-width: 768px) {
+  .responsive-table table {
+    display: table;
+    inline-size: 100%;
+    min-inline-size: max-content;
+  }
+  .responsive-table thead {
+    display: table-header-group;
+    position: static;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+  .responsive-table tbody {
+    display: table-row-group;
+  }
+  .responsive-table tr {
+    display: table-row;
+  }
+  .responsive-table tbody tr {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .responsive-table th,
+  .responsive-table td,
+  .responsive-table tbody td,
+  .responsive-table tbody th {
+    display: table-cell;
+    padding: 12px 14px;
+    border: 0;
+    border-block-end: 1px solid var(--line);
+    font-size: 14px;
+    white-space: nowrap;
+    text-align: start;
+  }
+  .responsive-table thead th {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+  .responsive-table tbody td::before {
+    content: none;
+  }
+  .responsive-table .is-numeric,
+  .responsive-table .is-numeric .responsive-table-value {
+    text-align: end;
+  }
+  .responsive-table-scroll {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--white);
+  }
+  .responsive-table-scroll:focus-visible {
+    outline: 3px solid var(--focus, #171917);
+    outline-offset: 2px;
+  }
+  /* Fades at the edges that still hide columns (either direction). */
+  .responsive-table[data-overflow-start]::before,
+  .responsive-table[data-overflow-end]::after {
+    content: "";
+    position: absolute;
+    inset-block: 1px;
+    inline-size: 32px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .responsive-table[data-overflow-start]::before {
+    inset-inline-start: 1px;
+    background: linear-gradient(
+      calc(90deg * var(--inline-sign, 1)),
+      var(--white),
+      transparent
+    );
+  }
+  .responsive-table[data-overflow-end]::after {
+    inset-inline-end: 1px;
+    inset-block-end: 28px;
+    background: linear-gradient(
+      calc(90deg * var(--inline-sign, 1)),
+      transparent,
+      var(--white)
+    );
+  }
+  .responsive-table-cue {
+    display: block;
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: end;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* ScrollTabs                                                           */
+/* ------------------------------------------------------------------ */
+.scroll-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin-block: 0 20px;
+  margin-inline: calc(var(--member-gutter) * -1);
+  padding-inline: var(--member-gutter);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-padding-inline: var(--member-gutter);
+  scrollbar-width: none;
+  border-block-end: 1px solid var(--line);
+}
+.scroll-tabs::-webkit-scrollbar {
+  display: none;
+}
+.scroll-tabs [role="tab"] {
+  position: relative;
+  flex: none;
+  min-block-size: 44px;
+  padding: 10px 14px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+/* The selected tab's underline grows out from its centre ("Motion"). */
+.scroll-tabs [role="tab"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10px;
+  inset-block-end: 0;
+  block-size: 3px;
+  border-radius: 3px 3px 0 0;
+  background: currentColor;
+  transform: scaleX(0);
+}
+.scroll-tabs [role="tab"][aria-selected="true"] {
+  color: var(--brand-link, var(--ink));
+  font-weight: 650;
+}
+.scroll-tabs [role="tab"][aria-selected="true"]::after {
+  transform: none;
+}
+@media (min-width: 768px) {
+  .scroll-tabs {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+}
+
+/* Fixed UI rendered outside the member shell (the analytics preferences
+   control from the root layout) sits above the tab bar and any action bar.
+   New fixed UI should use var(--member-bottom-inset) the same way. */
+:root:has(.member-shell) .acquisition-consent {
+  inset-block-end: calc(var(--member-bottom-inset) + 12px) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Workout screen (member)                                              */
+/* ------------------------------------------------------------------ */
+.member-shell .page-heading .badge {
+  align-self: flex-start;
+}
+.workout-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-block-end: 16px;
+}
+.workout-modes .button {
+  padding-inline: 10px;
+  font-size: 14px;
+}
+.workout-modes p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 14px;
+}
+.member-shell .workout-exercise {
+  padding-inline: 14px;
+}
+.member-shell .workout-exercise .card-heading {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-block-end: 8px;
+}
+.exercise-prescription {
+  font-size: 14px;
+}
+.rir-help {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--brand-tint, var(--mint));
+  color: var(--brand-on-tint, var(--ink));
+  font-size: 14px;
+  line-height: 1.45;
+}
+.member-shell .set-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  padding-block: 16px;
+  border-block-end: 1px solid var(--line);
+  font-size: 15px;
+}
+.member-shell .set-row:last-child {
+  border-block-end: 0;
+}
+.member-shell .set-row.is-done {
+  padding-block: 12px;
+}
+.set-row-head,
+.set-note {
+  grid-column: 1 / -1;
+}
+.set-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 16px;
+}
+.set-logged {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+  font-size: 15px;
+}
+.set-attention {
+  color: var(--error);
+  font-size: 15px;
+}
+.member-shell .set-row .set-log {
+  min-block-size: 48px;
+}
+.set-note summary {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--brand-link, var(--ink));
+  font-size: 15px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.set-note .field {
+  margin-block-end: 0;
+}
+.workout-finish {
+  margin-block: 8px 20px;
+}
+.workout-pain {
+  gap: 8px;
+}
+@media (min-width: 768px) {
+  .member-shell .workout-exercise {
+    padding-inline: var(--brand-space, 24px);
+  }
+  .member-shell .workout-exercise .card-heading {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .member-shell .set-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(120px, auto);
+  }
+  .workout-modes {
+    grid-template-columns: repeat(2, max-content);
+  }
+}
+
+/* Guided session (member) */
+.guided-timer {
+  margin: 12px 0;
+  font-size: 32px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.guided-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.guided-controls > .button:first-child {
+  grid-column: 1 / -1;
+}
+
+/* Session history (progress) */
+.session-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.session-history li + li {
+  border-block-start: 1px solid var(--line);
+}
+.session-history-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-block-size: 56px;
+  justify-content: center;
+  padding-block: 8px;
+  color: var(--ink);
+}
+.session-history-link span {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Meal logging (member): tap targets and spacing */
+.member-shell .capture-remove {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+.member-shell .capture-food small {
+  display: block;
+  margin-block: 4px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.member-shell .capture-nutrients {
+  margin-block-start: 12px;
+  row-gap: 4px;
+}
+.member-shell .capture-nutrients .field > span {
+  font-size: 14px;
+}
+.member-shell .capture-photo-actions {
+  flex-wrap: wrap;
+}
+.member-shell .capture-photo-actions .control-reason {
+  flex-basis: 100%;
+}
+
+/* Coaching context preferences: one column, labels above, no nested box. */
+.member-shell .context-fieldset,
+.context-fieldset {
+  min-inline-size: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+.context-fieldset fieldset {
+  margin-block: 12px;
+}
+.context-actions .button[type="submit"] {
+  flex: 1 1 100%;
+}
+
+/* Sign-in, recovery and joining pages: the way back sits apart from the
+   form's main button. */
+.auth-return {
+  margin-block: 20px 0;
+}
+.auth-return a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Disclosure rows are tap targets too. */
+.member-shell summary {
+  min-block-size: 44px;
+  padding-block: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+/* Meal plan days: one row that scrolls sideways on phones. */
+.member-shell .nutrition-days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  padding-block-end: 4px;
+}
+.member-shell .nutrition-days button {
+  flex: none;
+  min-inline-size: 56px;
+  min-block-size: 56px;
+}
+@media (min-width: 768px) {
+  .member-shell .nutrition-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    overflow: visible;
+  }
+}
+
+/* Scrolling to the next set keeps it clear of the top bar and the sticky
+   action bar. */
+.member-shell .set-row {
+  scroll-margin-block: 72px calc(var(--member-bottom-inset) + 16px);
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion: small, quick microanimations (components/motion.ts)          */
+/* ------------------------------------------------------------------ */
+/* Every animation and transform transition below is inside
+   (prefers-reduced-motion: no-preference): with reduced motion the app is
+   the same, only still. Presses answer in 90 ms and spring back; things
+   arriving take 240-280 ms and ease out; leaving takes 180 ms. Only
+   transform and opacity move, so nothing reflows the page. */
+
+/* Touch devices: a hover lift would stick after a tap. */
+@media (hover: none) {
+  :is(.member-shell, .public, .coach-website, .bottom-sheet)
+    .button:hover:not(:disabled) {
+    transform: none;
+  }
+}
+@media (hover: hover) {
+  .more-link:hover {
+    background: color-mix(in srgb, var(--brand-tint, var(--mint)) 50%, transparent);
+  }
+  .file-input-control:hover .file-input-button {
+    background: var(--mint);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Presses: buttons dip slightly and spring back on release. */
+  :is(.member-shell, .public, .coach-website, .bottom-sheet)
+    :is(.button, .stepper-button, .icon-button),
+  :where(.member-shell .member-content) button:not([class]),
+  .file-input-button {
+    transition:
+      background-color var(--motion-fast) ease,
+      border-color var(--motion-fast) ease,
+      color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease,
+      transform var(--motion-enter) var(--ease-spring);
+  }
+  :is(.member-shell, .public, .coach-website, .bottom-sheet)
+    :is(.button, .icon-button):active:not(:disabled),
+  :where(.member-shell .member-content) button:not([class]):active:not(:disabled),
+  .file-input-control:active .file-input-button {
+    transform: scale(0.97);
+    transition-duration: var(--motion-press);
+    transition-timing-function: var(--ease-out);
+  }
+  .stepper-button:active:not(:disabled) {
+    transform: scale(0.9);
+    transition-duration: var(--motion-press);
+    transition-timing-function: var(--ease-out);
+  }
+  .file-input.is-disabled .file-input-button,
+  :is(.member-shell, .bottom-sheet) :is(.button, button):disabled {
+    transform: none;
+  }
+
+  /* Tab bar: the pill grows in behind the icon of the tab you move to
+     (is-arriving: a different tab from the previous page), the icon pops
+     once, a press dips the icon, colours cross-fade. */
+  .member-tab {
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--motion-fast) ease;
+  }
+  .member-tab-icon {
+    transition: transform var(--motion-enter) var(--ease-spring);
+  }
+  .member-tab:active .member-tab-icon {
+    transform: scale(0.88);
+    transition-duration: var(--motion-press);
+    transition-timing-function: var(--ease-out);
+  }
+  .member-tab-icon::before {
+    transition:
+      opacity var(--motion-fast) ease,
+      transform var(--motion-slide) var(--ease-out);
+  }
+  .member-tab.is-arriving[aria-current="page"] .member-tab-icon::before {
+    animation: member-pill-in var(--motion-slide) var(--ease-spring);
+  }
+  .member-tab.is-arriving[aria-current="page"] .member-tab-icon > svg {
+    animation: member-icon-pop var(--motion-slide) var(--ease-spring);
+  }
+  /* The unread badge pops when the count goes up (re-keyed per count). */
+  .member-badge.is-new {
+    animation: member-badge-pop 360ms var(--ease-spring);
+  }
+
+  /* Top bar: a new title slides in from the reading direction's end, the
+     back button fades in when it appears, the refresh segment travels. */
+  .member-topbar-title,
+  .member-topbar-coach {
+    animation: member-title-in var(--motion-enter) var(--ease-out);
+  }
+  .member-back.is-arriving {
+    animation: member-fade-in var(--motion-enter) var(--ease-out);
+  }
+  .member-back {
+    transition:
+      background-color var(--motion-fast) ease,
+      transform var(--motion-enter) var(--ease-spring);
+  }
+  .member-back:active,
+  .member-topbar-me:active .avatar {
+    transform: scale(0.9);
+    transition-duration: var(--motion-press);
+  }
+  .member-topbar-me .avatar {
+    transition: transform var(--motion-enter) var(--ease-spring);
+  }
+  .member-topbar[data-refreshing]::after {
+    animation:
+      member-fade-in var(--motion-fast) ease-out 120ms backwards,
+      member-refresh 1.1s ease-in-out infinite;
+  }
+
+  /* More: rows tint on press, the icon tile dips, the chevron nudges
+     toward where the row leads. */
+  .more-link {
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color var(--motion-fast) ease;
+  }
+  .more-icon {
+    transition: transform var(--motion-enter) var(--ease-spring);
+  }
+  .more-link:active .more-icon {
+    transform: scale(0.9);
+    transition-duration: var(--motion-press);
+  }
+  .more-chevron {
+    transition: translate var(--motion-enter) var(--ease-out);
+  }
+  .more-link:active .more-chevron {
+    translate: calc(3px * var(--inline-sign, 1)) 0;
+  }
+
+  /* Sticky action bar: slides up from behind the tab bar when it appears. */
+  .sticky-action-bar {
+    animation: member-bar-in var(--motion-slide) var(--ease-out);
+  }
+
+  /* Bottom sheet: slides up with the page dimming behind it; slides away
+     faster when closed (BottomSheet sets data-closing, then closes). */
+  .bottom-sheet[open] {
+    animation: member-sheet-up var(--motion-slide) var(--ease-out);
+  }
+  .bottom-sheet[open]::backdrop {
+    animation: member-fade-in var(--motion-enter) ease-out;
+  }
+  .bottom-sheet[open][data-closing] {
+    animation: member-sheet-down var(--motion-exit) var(--ease-in) forwards;
+  }
+  .bottom-sheet[open][data-closing]::backdrop {
+    animation: member-fade-out var(--motion-exit) ease-in forwards;
+  }
+
+  /* Tabs: the underline grows from the centre; colours cross-fade. */
+  .scroll-tabs [role="tab"] {
+    transition: color var(--motion-fast) ease;
+  }
+  .scroll-tabs [role="tab"]::after {
+    transition: transform var(--motion-enter) var(--ease-out);
+  }
+
+  /* Notices and alerts arrive instead of popping into place. */
+  .member-shell :is(.notice, .control-reason[role="status"]) {
+    animation: member-drop-in var(--motion-enter) var(--ease-out);
+  }
+  /* A disclosure's content unfolds. */
+  .member-shell details[open] > :not(summary) {
+    animation: member-drop-in var(--motion-enter) var(--ease-out);
+  }
+  /* Ticking a box answers with a small pop (only the box you just ticked:
+     boxes already ticked when a page opens stay still). */
+  :is(.member-shell, .bottom-sheet)
+    input:is([type="checkbox"], [type="radio"]):checked:focus {
+    animation: member-check-pop 260ms var(--ease-spring);
+  }
+  /* The "scroll for more" cue fades in when columns are hidden. */
+  .responsive-table-cue {
+    animation: member-fade-in var(--motion-enter) ease-out;
+  }
+
+  /* Workout: a set you just logged glows once and its check pops. */
+  .member-shell .set-row.just-logged {
+    position: relative;
+    isolation: isolate;
+  }
+  .member-shell .set-row.just-logged::before {
+    content: "";
+    position: absolute;
+    inset-block: 4px;
+    inset-inline: -8px;
+    z-index: -1;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--success, #2f7a4f) 14%, transparent);
+    opacity: 0;
+    animation: member-glow 900ms var(--ease-out);
+  }
+  .set-row.just-logged .set-logged {
+    animation: member-fade-in var(--motion-enter) ease-out;
+  }
+  .set-row.just-logged .set-logged > svg {
+    animation: member-check-in 420ms var(--ease-spring);
+  }
+  /* A rest timer that just started settles in. */
+  .sticky-action-note [role="timer"] {
+    animation: member-fade-in var(--motion-enter) ease-out;
+  }
+}
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .member-sidenav nav a {
+    transition:
+      background-color var(--motion-fast) ease,
+      color var(--motion-fast) ease;
+  }
+  .member-sidenav nav a svg {
+    transition: transform var(--motion-enter) var(--ease-spring);
+  }
+  .member-sidenav nav a:active svg {
+    transform: scale(0.88);
+    transition-duration: var(--motion-press);
+  }
+  .member-sidenav nav a.active.is-arriving svg {
+    animation: member-icon-pop var(--motion-slide) var(--ease-spring);
+  }
+}
+/* From 768 px the sheet is a centred dialog: it rises and scales in. */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .bottom-sheet[open] {
+    animation-name: member-dialog-in;
+  }
+  .bottom-sheet[open][data-closing] {
+    animation-name: member-dialog-out;
+  }
+}
+
+@keyframes member-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes member-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes member-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes member-title-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(12px * var(--inline-sign, 1)));
+  }
+}
+@keyframes member-pill-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+}
+@keyframes member-icon-pop {
+  0% {
+    transform: scale(0.84);
+  }
+  55% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes member-badge-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes member-bar-in {
+  from {
+    opacity: 0.4;
+    transform: translateY(100%);
+  }
+}
+@keyframes member-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes member-sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes member-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+}
+@keyframes member-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+}
+@keyframes member-check-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes member-check-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) rotate(-12deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes member-glow {
+  0%,
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

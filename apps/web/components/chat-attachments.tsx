@@ -1,4 +1,5 @@
 "use client";
+import { FileInput } from "./phone-ui";
 import { useRef, useState } from "react";
 
 export type ChatAttachment = {
@@ -198,20 +199,22 @@ export function ChatAttachmentPicker({
         />{" "}
         I have permission to share these files in this conversation.
       </label>
-      <label className="field">
-        <span>Choose photos or PDFs</span>
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
-          multiple
-          disabled={!rights || files.length >= 5}
-          onChange={(event) => {
-            const selected = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            if (selected.length) void upload(selected);
-          }}
-        />
-      </label>
+      <FileInput
+        label="Photos or PDFs"
+        buttonLabel="Attach photos or PDFs"
+        accept="image/jpeg,image/png,image/webp,application/pdf"
+        multiple
+        disabled={!rights || files.length >= 5}
+        disabledReason={
+          files.length >= 5
+            ? "You have attached the most files one message can carry."
+            : !rights
+              ? "Tick the permission box above to attach files."
+              : undefined
+        }
+        emptyText={files.length ? "" : "No files attached yet."}
+        onFiles={(selected) => void upload(selected)}
+      />
       {uploading && <p role="status">Preparing your attachments…</p>}
       {error && <p role="alert">{error}</p>}
       <ChatAttachmentList

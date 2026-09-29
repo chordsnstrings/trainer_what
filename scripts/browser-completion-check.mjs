@@ -389,7 +389,7 @@ export async function checkCompletionFlows({
     "POST",
     () =>
       subscriber
-        .getByLabel("Choose photos or PDFs", { exact: true })
+        .getByLabel("Photos or PDFs", { exact: true })
         .setInputFiles({
           name: `synthetic-chat-${run}.pdf`,
           mimeType: "application/pdf",

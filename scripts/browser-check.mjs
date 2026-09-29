@@ -332,17 +332,17 @@ try {
   await subscriber
     .locator(".set-row")
     .first()
-    .getByRole("button", { name: "Log set", exact: true })
+    .getByRole("button", { name: "Log set 1", exact: true })
     .click();
   await subscriber
-    .getByText("1 set logs waiting to sync.", { exact: false })
+    .getByText("1 set log is waiting to sync.", { exact: false })
     .waitFor();
   await subscriber.reload({ waitUntil: "domcontentloaded" });
   await subscriber.locator(".set-row").first().waitFor();
   if (subscriber.url() !== workoutUrl)
     throw new Error("Offline reload did not preserve the workout route");
   await subscriber
-    .getByText("1 set logs waiting to sync.", { exact: false })
+    .getByText("1 set log is waiting to sync.", { exact: false })
     .waitFor();
   await subscriberContext.setOffline(false);
   await subscriber.waitForFunction(
@@ -354,7 +354,9 @@ try {
         .some((k) => JSON.parse(localStorage.getItem(k) ?? "[]").length),
   );
   await subscriber
-    .getByRole("button", { name: "Finish workout", exact: true })
+    // Sets remain, so the finish control is the page's "Finish workout now"
+    // (the sticky action bar offers the next set).
+    .getByRole("button", { name: "Finish workout now", exact: true })
     .click();
   await subscriber.getByText("Workout completed", { exact: true }).waitFor();
   await capture(subscriber, {
@@ -440,7 +442,7 @@ try {
   )
     throw new Error("Nutrition meals overflow mobile viewport");
   await subscriber
-    .getByRole("button", { name: "Weekly groceries", exact: true })
+    .getByRole("tab", { name: "Weekly groceries", exact: true })
     .click();
   await subscriber
     .getByRole("heading", { name: "One list for the week", exact: true })
@@ -459,7 +461,7 @@ try {
   });
   await subscriber.reload();
   await subscriber
-    .getByRole("button", { name: "Weekly groceries", exact: true })
+    .getByRole("tab", { name: "Weekly groceries", exact: true })
     .click();
   const persistedPantry = subscriber.getByRole("checkbox", {
     name: /^Oat mixture/,
@@ -468,7 +470,7 @@ try {
   if (!(await persistedPantry.isChecked()))
     throw new Error("Saved grocery checklist was not restored");
   await subscriber
-    .getByRole("button", { name: "Meal plan", exact: true })
+    .getByRole("tab", { name: "Meal plan", exact: true })
     .click();
   await subscriber
     .getByLabel(
@@ -505,7 +507,7 @@ try {
         .some((k) => JSON.parse(localStorage.getItem(k) ?? "[]").length),
   );
   await subscriber
-    .getByRole("button", { name: "Meal diary", exact: true })
+    .getByRole("tab", { name: "Meal diary", exact: true })
     .click();
   await subscriber.getByText(/1 meals across 1 days/).waitFor();
   // An empty replay queue must still refresh the private reference copy.
@@ -525,7 +527,7 @@ try {
   if (!refreshed.profile?.data.profile.age)
     throw new Error("Nutrition reconnect did not restore the server profile");
   await subscriber
-    .getByRole("button", { name: "Meal diary", exact: true })
+    .getByRole("tab", { name: "Meal diary", exact: true })
     .click();
   await subscriber.getByText(/1 meals across 1 days/).waitFor();
   const completionFlows = await checkCompletionFlows({

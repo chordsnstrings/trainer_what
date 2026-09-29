@@ -82,7 +82,8 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   classes.
 - **Workspace** (`components/workspace.tsx`): trainers, their team and
   operators get the lockup in the sidebar and `.platform-ui`; subscribers
-  keep `TrainerTheme` with their coach's identity. The loading screen, which
+  keep `TrainerTheme` with their coach's identity, inside the phone-first
+  member shell (`.workspace.member-shell`, docs/features/phone-first.md). The loading screen, which
   a member app also shows before it knows its trainer, now has a neutral
   indicator instead of the old "b." mark.
 - **Favicons, touch icon and manifest**: `platformIcons(name)` and

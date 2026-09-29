@@ -97,7 +97,7 @@ import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import type { PlatformDnsDeps } from "./platform-dns.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
-import { hasMemberAccess } from "./entitlements.ts";
+import { hasMemberAccess, hasNutritionAccess } from "./entitlements.ts";
 import {
   announceFollowerJoined,
   completeInvitationAcceptance,
@@ -1055,6 +1055,11 @@ export async function buildApp(
         records,
         integrations: integrationStatus(),
         ...collections,
+        // The member app's bottom tabs: Nutrition takes a tab only when this
+        // member's coaching includes it; Progress takes the slot otherwise.
+        ...(a.role === "subscriber"
+          ? { memberApp: { nutrition: await hasNutritionAccess(tx, a.userId) } }
+          : {}),
       };
     });
   });

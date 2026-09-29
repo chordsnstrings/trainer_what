@@ -72,6 +72,9 @@ import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { PasskeyLoginButton } from "./passkeys";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
+import { MemberShell, MoreScreen } from "./member-shell";
+import { BottomSheet, NumberStepper, StickyActionBar } from "./phone-ui";
+import { prefersReducedMotion } from "./motion";
 import { MemberLanguage } from "./document-direction";
 import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
@@ -388,11 +391,17 @@ function Badge({
 function Card({
   children,
   className = "",
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
-  return <section className={"card " + className}>{children}</section>;
+  return (
+    <section className={"card " + className} id={id}>
+      {children}
+    </section>
+  );
 }
 function Heading({
   eyebrow,
@@ -525,6 +534,17 @@ const defaultPlatform: WorkspacePlatform = {
   initials: appInitials(DEFAULT_PLATFORM_NAME),
   registrationOpen: true,
 };
+/**
+ * A member's last workspace state, kept in this tab's memory. Next renders
+ * this page afresh for every path, so without it each tap on a tab would
+ * blank the member app behind the full-screen loader while the bootstrap
+ * reloads. The next member page instead opens at once on this state (the
+ * top bar shows the refresh) and updates when the bootstrap answers.
+ * Members only (the trainer workspace is unchanged); set only by `load`,
+ * which runs in the browser; cleared on sign-out, 401 and suspension.
+ */
+let memberStateCache: State | null = null;
+
 export default function Workspace({
   platform = defaultPlatform,
   coachSlug = null,
@@ -535,7 +555,11 @@ export default function Workspace({
 }) {
   const path = usePathname(),
     router = useRouter();
-  const [state, setState] = useState<State | null>(null),
+  const [state, setState] = useState<State | null>(() =>
+      path.startsWith("/app") && memberStateCache?.user.role === "subscriber"
+        ? memberStateCache
+        : null,
+    ),
     [error, setError] = useState(""),
     [bootstrapError, setBootstrapError] = useState(""),
     [success, setSuccess] = useState(""),
@@ -571,6 +595,7 @@ export default function Workspace({
   const load = useCallback(async () => {
     try {
       const next = await api("/bootstrap");
+      memberStateCache = next.user.role === "subscriber" ? next : null;
       generation.current++;
       setExtra({});
       setState(next);
@@ -595,6 +620,7 @@ export default function Workspace({
     } catch (e) {
       if ((e as any).code === "WORKSPACE_SUSPENDED") {
         // A platform suspension: show its status instead of the workspace.
+        memberStateCache = null;
         setState(null);
         setBootstrapError("");
         setSuspended(true);
@@ -604,6 +630,7 @@ export default function Workspace({
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
         clearLocalData(localStorage, { keepQueues: true });
+        memberStateCache = null;
         setState(null);
         setBootstrapError("");
         if (!publicPath) router.replace("/login");
@@ -734,7 +761,9 @@ export default function Workspace({
         </section>
       </main>
     );
-  if (loading || !state)
+  // A member keeps the app frame while a page refreshes (the top bar shows
+  // the refresh); the full-screen loader is only for the first load.
+  if (!state || (loading && state.user.role !== "subscriber"))
     return (
       <main className="loading-screen">
         {/* Neutral: a member app may carry its trainer's brand, which is
@@ -808,145 +837,34 @@ export default function Workspace({
     onSaved: load,
     more,
   };
-  // Subscribers see their trainer's Design Studio brand; trainers, their
-  // team and operators work in the platform's own identity (light and dark).
-  const Shell = subscriber ? TrainerTheme : PlainShell;
+  // Subscribers see their trainer's Design Studio brand in the phone-first
+  // member shell (member-shell.tsx); trainers, their team and operators work
+  // in the platform's own identity (light and dark).
   const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
-  return (
-    <Shell
-      className={subscriber ? "workspace" : "workspace platform-ui"}
-      theme={state.tenant.theme}
-    >
-      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
-      {!path.startsWith("/admin") && (
-        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
-      )}
-      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
-        <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
-          {subscriber ? (
-            <CoachIdentity
-              name={state.tenant.name}
-              theme={state.tenant.theme}
-              compact
-            />
-          ) : (
-            <PlatformLogo name={platformName} />
-          )}
-        </Link>
-        <button
-          className="mobile-close icon-button"
-          onClick={() => setMobile(false)}
-          aria-label="Close navigation"
-        >
-          <X />
-        </button>
-        <div className="workspace-label">
-          <span className="avatar">{state.tenant.name.slice(0, 1)}</span>
-          <div>
-            <strong>{state.tenant.name}</strong>
-            <span>
-              {subscriber ? "Your coaching space" : "Your coaching business"}
-            </span>
-          </div>
-        </div>
-        <WorkspaceSwitcher
-          current={state.user.tenantId}
-          userId={state.user.userId}
-        />
-        <nav aria-label="Main navigation">
-          {items.map(([label, url, Icon]) => (
-            <Link
-              key={url}
-              className={url === activeNavUrl ? "active" : ""}
-              href={url}
-            >
-              <Icon size={18} />
-              {subscriber && url === "/app/program"
-                ? resolveBrandDesign(state.tenant.theme).programLabel
-                : label}
-              {label === "Exceptions" &&
-                openExceptionCount(state, records) > 0 && (
-                  <span className="nav-count">
-                    {openExceptionCount(state, records)}
-                  </span>
-                )}
-            </Link>
-          ))}
-          {state.user.platformRole !== "none" && (
-            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
-              <Shield size={18} />
-              Platform admin
-            </Link>
-          )}
-          {state.user.platformRole === "admin" && (
-            <Link
-              href="/admin/settings"
-              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
-            >
-              <Settings size={16} />
-              Settings & API connections
-            </Link>
-          )}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="small-label">BUILT AROUND YOU</div>
-          <p>
-            Your methods.
-            <br />
-            Your brand. Your business.
-          </p>
-          <button
-            className="text-button"
-            onClick={async () => {
-              const { tenantId, userId } = state.user;
-              const left = await leaveSession(localStorage, tenantId, userId, {
-                online: navigator.onLine,
-                post: (p, b, h) => api(p, "POST", b, h),
-                confirm: (unsynced) =>
-                  window.confirm(
-                    `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
-                  ),
-                leave: () => api("/auth/logout", "POST", {}),
-              });
-              if (left) router.push("/login");
-            }}
-          >
-            <LogOut size={15} /> Sign out
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="mobile-menu icon-button"
-              onClick={() => setMobile(true)}
-              aria-label="Open navigation"
-            >
-              <Menu />
-            </button>
-            <span className="muted">Workspace</span>
-            <ChevronRight size={14} />
-            <strong>{topTitle}</strong>
-          </div>
-          <div className="topbar-right">
-            {subscriber && (
-              <CoachSwitcher
-                current={state.user.tenantId}
-                userId={state.user.userId}
-                variant="compact"
-              />
-            )}
-            <span className="connection-dot" />
-            <span>
-              {state.tenant.published ? "Published" : "Private workspace"}
-            </span>
-            <span className="avatar small">{firstName[0]}</span>
-          </div>
-        </header>
-        <div className="content">
+  const signOut = async () => {
+    const { tenantId, userId } = state.user;
+    const left = await leaveSession(localStorage, tenantId, userId, {
+      online: navigator.onLine,
+      post: (p, b, h) => api(p, "POST", b, h),
+      confirm: (unsynced) =>
+        window.confirm(
+          `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
+        ),
+      leave: () => api("/auth/logout", "POST", {}),
+    });
+    if (left) {
+      memberStateCache = null;
+      router.push("/login");
+    }
+  };
+  const memberNav = {
+    programLabel: resolveBrandDesign(state.tenant.theme).programLabel,
+    nutrition: !!(state as any).memberApp?.nutrition,
+  };
+  const notices = (
+    <>
           <ProviderSandboxBanner mode={state.providerSandbox} />
-          {state.environment === "development" && (
+          {!subscriber && state.environment === "development" && (
             <div className="dev-banner">
               Development environment · payment connections are gated · demo
               records, when seeded, are synthetic
@@ -988,7 +906,17 @@ export default function Workspace({
               {success}
             </div>
           )}
-          {path === "/trainer/notifications" ||
+    </>
+  );
+  const page =
+    path === "/app/more" && subscriber ? (
+      <MoreScreen
+        nav={memberNav}
+        tenantId={state.user.tenantId}
+        userId={state.user.userId}
+        onSignOut={() => void signOut()}
+      />
+    ) : path === "/trainer/notifications" ||
           path === "/app/notifications" ? (
             <NotificationInbox />
           ) : path === "/admin/account-security" ? (
@@ -1250,7 +1178,158 @@ export default function Workspace({
               )}
               <Overview {...props} />
             </>
+          );
+  if (subscriber)
+    return (
+      <TrainerTheme className="workspace member-shell" theme={state.tenant.theme}>
+        <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+        <MemberShell
+          path={path}
+          tenant={state.tenant}
+          user={state.user}
+          nav={memberNav}
+          messages={records("message")}
+          workoutTitle={
+            path.startsWith("/app/workouts/")
+              ? records("workout").find((w) => w.id === path.split("/")[3])
+                  ?.data?.program?.title
+              : null
+          }
+          supportEmail={state.platform?.supportEmail}
+          refreshing={loading}
+          onSignOut={() => void signOut()}
+          footerNote={
+            state.environment === "development" ? (
+              <p className="member-dev-note">
+                Development environment: payments are switched off and demo
+                records are made up.
+              </p>
+            ) : null
+          }
+        >
+          {notices}
+          {page}
+        </MemberShell>
+      </TrainerTheme>
+    );
+  return (
+    <PlainShell className="workspace platform-ui">
+      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+      {!path.startsWith("/admin") && (
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+      )}
+      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
+        <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
+          {subscriber ? (
+            <CoachIdentity
+              name={state.tenant.name}
+              theme={state.tenant.theme}
+              compact
+            />
+          ) : (
+            <PlatformLogo name={platformName} />
           )}
+        </Link>
+        <button
+          className="mobile-close icon-button"
+          onClick={() => setMobile(false)}
+          aria-label="Close navigation"
+        >
+          <X />
+        </button>
+        <div className="workspace-label">
+          <span className="avatar">{state.tenant.name.slice(0, 1)}</span>
+          <div>
+            <strong>{state.tenant.name}</strong>
+            <span>
+              {subscriber ? "Your coaching space" : "Your coaching business"}
+            </span>
+          </div>
+        </div>
+        <WorkspaceSwitcher
+          current={state.user.tenantId}
+          userId={state.user.userId}
+        />
+        <nav aria-label="Main navigation">
+          {items.map(([label, url, Icon]) => (
+            <Link
+              key={url}
+              className={url === activeNavUrl ? "active" : ""}
+              href={url}
+            >
+              <Icon size={18} />
+              {subscriber && url === "/app/program"
+                ? resolveBrandDesign(state.tenant.theme).programLabel
+                : label}
+              {label === "Exceptions" &&
+                openExceptionCount(state, records) > 0 && (
+                  <span className="nav-count">
+                    {openExceptionCount(state, records)}
+                  </span>
+                )}
+            </Link>
+          ))}
+          {state.user.platformRole !== "none" && (
+            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
+              <Shield size={18} />
+              Platform admin
+            </Link>
+          )}
+          {state.user.platformRole === "admin" && (
+            <Link
+              href="/admin/settings"
+              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
+            >
+              <Settings size={16} />
+              Settings & API connections
+            </Link>
+          )}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="small-label">BUILT AROUND YOU</div>
+          <p>
+            Your methods.
+            <br />
+            Your brand. Your business.
+          </p>
+          <button className="text-button" onClick={() => void signOut()}>
+            <LogOut size={15} /> Sign out
+          </button>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="mobile-menu icon-button"
+              onClick={() => setMobile(true)}
+              aria-label="Open navigation"
+            >
+              <Menu />
+            </button>
+            <span className="muted">Workspace</span>
+            <ChevronRight size={14} />
+            <strong>{topTitle}</strong>
+          </div>
+          <div className="topbar-right">
+            {subscriber && (
+              <CoachSwitcher
+                current={state.user.tenantId}
+                userId={state.user.userId}
+                variant="compact"
+              />
+            )}
+            <span className="connection-dot" />
+            <span>
+              {state.tenant.published ? "Published" : "Private workspace"}
+            </span>
+            <span className="avatar small">{firstName[0]}</span>
+          </div>
+        </header>
+        <div className="content">
+          {notices}
+          {page}
         </div>
         <footer className="workspace-footer">
           <span>
@@ -1267,7 +1346,7 @@ export default function Workspace({
           <Link href="/privacy">Privacy & your data</Link>
         </footer>
       </main>
-    </Shell>
+    </PlainShell>
   );
 }
 /** A follower's name, read from the server when outside the first page. */
@@ -2659,6 +2738,34 @@ function useListedOrFetchedWorkout(
       ? { workout: mine.workout, sets: mine.sets }
       : { workout: undefined, sets: [] as any[] };
 }
+/**
+ * Brings the next set still to log into view after one is logged: smoothly,
+ * and only as far as needed (its scroll margin clears the top bar and the
+ * sticky action bar).
+ */
+function revealNextSet() {
+  document
+    .querySelector(".set-row:not(.is-done) .set-log")
+    ?.closest("form")
+    ?.scrollIntoView({
+      block: "nearest",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+}
+/** Plain words for a workout's status (the badge on the workout screen). */
+function workoutStatusText(status: string) {
+  return (
+    (
+      {
+        active: "In progress",
+        completed: "Completed",
+        safety_hold: "Paused for your coach",
+        paused: "Paused",
+        abandoned: "Ended early",
+      } as Record<string, string>
+    )[status] ?? status.replaceAll("_", " ")
+  );
+}
 function Workout({ state, records, action, busy, path }: ViewProps) {
   const workoutId = path.split("/").pop() ?? "";
   const listedWorkout = records("workout").find((w) => w.id === workoutId);
@@ -2681,6 +2788,28 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     receiptKey = keys.receipts,
     rejectedKey = keys.rejected;
   const [localDone, setLocalDone] = useState<string[]>([]);
+  // Values logged on this screen, shown until the refreshed logs arrive.
+  const [submitted, setSubmitted] = useState<
+    Record<string, { loadKg: number; reps: number; rir: number }>
+  >({});
+  const [painOpen, setPainOpen] = useState(false),
+    [painText, setPainText] = useState(""),
+    [restUntil, setRestUntil] = useState<number | null>(null),
+    [restLeft, setRestLeft] = useState(0),
+    // The set logged last on this screen: it confirms itself once
+    // (phone-first.css "Motion") and the next set comes into view.
+    [justLogged, setJustLogged] = useState<string | null>(null);
+  useEffect(() => {
+    if (!restUntil) return;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((restUntil - Date.now()) / 1000));
+      setRestLeft(left);
+      if (!left) setRestUntil(null);
+    };
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [restUntil]);
   const refreshQueue = useCallback(() => {
     setQueued(readList(localStorage, key).length);
     setLocalDone(readList<string>(localStorage, receiptKey));
@@ -2749,41 +2878,106 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         detail="Choose a program to start your session."
       />
     );
+  const active = workout.status === "active";
+  const pendingItems = readList<WorkoutQueueItem>(localStorage, key);
+  // Every set's state: logged (with the values actually saved), saved on
+  // this device, needing attention, or still to do.
+  const exercises = (workout.data.program.exercises as any[]).map(
+    (ex: any, i: number) => ({
+      ex,
+      i,
+      sets: Array.from({ length: ex.sets }, (_, set) => {
+        const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
+        const pending = pendingItems.find((p) => p.logicalKey === logicalKey);
+        const saved = loggedSets.find(
+          (s) =>
+            s.workout_id === workout.id &&
+            s.data.exercise === ex.name &&
+            s.data.set === set + 1,
+        );
+        const needsAttention = rejected.some(
+          (r) => r.item.logicalKey === logicalKey,
+        );
+        const values = saved?.data ?? pending?.body ?? submitted[logicalKey];
+        return {
+          set: set + 1,
+          logicalKey,
+          formId: `set-${i}-${set + 1}`,
+          pending: !!pending,
+          done: !!pending || !!saved || localDone.includes(logicalKey),
+          needsAttention,
+          values: values
+            ? {
+                loadKg: values.loadKg,
+                reps: values.reps,
+                rir: values.rir,
+              }
+            : null,
+        };
+      }),
+    }),
+  );
+  const next = exercises
+    .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
+    .find((s) => !s.done && !s.needsAttention);
+
+  const remaining = exercises.reduce(
+    (n, { sets }) => n + sets.filter((s) => !s.done).length,
+    0,
+  );
+  const finishBlocked =
+    queued > 0 ||
+    rejected.some((r) => r.item.path === `/workouts/${workout.id}/sets`);
+  const finish = () =>
+    void action(
+      () => api(`/workouts/${workout.id}/finish`, "POST", {}),
+      "Workout completed",
+    );
+  const restText =
+    restLeft > 0
+      ? `Rest ${Math.floor(restLeft / 60)}:${String(restLeft % 60).padStart(2, "0")}`
+      : "";
   return (
     <>
       <TrainingHoldNotice records={state.records} />
-      <WorkoutTools
-        workout={workout}
-        userId={state.user.userId}
-        onChange={async () => {
-          await action(async () => ({}), "Session updated");
-        }}
-      />
       <Heading
         eyebrow="ONE SET AT A TIME"
         title={workout.data.program.title}
-        detail="Log what you actually do. You can adjust the weight and reps for every set."
-        action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
+        detail="Log what you actually do. Change the weight and reps for any set."
+        action={<Badge>{workoutStatusText(workout.status)}</Badge>}
       />
-      {workout.status === "active" && (
-        <>
-          <Link className="text-link" href={`/app/voice-session/${workout.id}`}>
-            Start a voice-led session (hands-free, set by set)
+      {active && (
+        <div className="workout-modes">
+          <Link className="button secondary" href={`/app/guided/${workout.id}`}>
+            <Play size={16} aria-hidden="true" />
+            Guided session
           </Link>
-          <Link className="text-link" href={`/app/guided/${workout.id}`}>
-            Open guided session with exercise cues and rest timers
+          <Link
+            className="button secondary"
+            href={`/app/voice-session/${workout.id}`}
+          >
+            <MessageCircle size={16} aria-hidden="true" />
+            Voice-led session
           </Link>
-        </>
+          <p className="muted">
+            Guided shows each exercise with cues and rest timers. Voice-led
+            talks you through every set, hands-free.
+          </p>
+        </div>
       )}
       {queued > 0 && (
         <div className="notice">
-          {queued} set logs waiting to sync.{" "}
+          {queued} set {queued === 1 ? "log is" : "logs are"} waiting to sync.{" "}
           <button className="text-button" onClick={() => void sync()}>
             Sync now
           </button>
         </div>
       )}
-      {notice && <div className="notice">{notice}</div>}
+      {notice && (
+        <div className="notice" role="status">
+          {notice}
+        </div>
+      )}
       {rejected.length > 0 && (
         <div className="notice error" role="alert">
           <strong>
@@ -2841,192 +3035,293 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           </ul>
         </div>
       )}
-      {workout.data.program.exercises.map((ex: any, i: number) => (
-        <Card key={i}>
+      {exercises.map(({ ex, i, sets }) => (
+        <Card key={i} className="workout-exercise">
           <div className="card-heading">
             <div className="exercise-title">
               <span className="step-circle">{i + 1}</span>
               <h2>{ex.name}</h2>
             </div>
-            <span className="muted">
-              {ex.sets} × {ex.reps} · {ex.restSeconds}s rest
+            <span className="muted exercise-prescription">
+              <bdi dir="ltr">
+                {ex.sets} × {ex.reps}
+              </bdi>{" "}
+              reps · {ex.restSeconds} s rest
             </span>
           </div>
-          <p className="muted">{ex.cue}</p>
-          {Array.from({ length: ex.sets }, (_, set) => {
-            const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
-            const pendingHere = readList<WorkoutQueueItem>(
-                localStorage,
-                key,
-              ).some((p) => p.logicalKey === logicalKey),
-              needsAttention = rejected.some(
-                (r) => r.item.logicalKey === logicalKey,
-              );
-            const done =
-              pendingHere ||
-              localDone.includes(logicalKey) ||
-              loggedSets.some(
-                (s) =>
-                  s.workout_id === workout.id &&
-                  s.data.exercise === ex.name &&
-                  s.data.set === set + 1,
-              );
-            return (
-              <form
-                className="set-row"
-                key={set}
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget),
-                    body = {
-                      eventKey: crypto.randomUUID(),
-                      rir: Number(f.get("rir")),
-                      notes: String(f.get("notes") || ""),
-                      exercise: ex.name,
-                      set: set + 1,
-                      reps: Number(f.get("reps")),
-                      loadKg: Number(f.get("load")),
-                    };
-                  const endpoint = `/workouts/${workout.id}/sets`;
-                  const { notes: _notes, ...setLog } = body,
-                    checked = setSchema.safeParse(setLog);
-                  if (!checked.success) {
-                    setNotice(
-                      "Check this set before logging it: " +
-                        checked.error.issues
-                          .map((x) => `${x.path.join(".")} ${x.message}`)
-                          .join("; "),
-                    );
-                    return;
-                  }
-                  const pending = readList<WorkoutQueueItem>(localStorage, key);
-                  if (
-                    pending.some((p) => p.logicalKey === logicalKey) ||
-                    readList<RejectedEntry<WorkoutQueueItem>>(
-                      localStorage,
-                      rejectedKey,
-                    ).some((r) => r.item.logicalKey === logicalKey) ||
-                    localDone.includes(logicalKey)
-                  )
-                    return;
-                  pending.push({ path: endpoint, body, logicalKey });
-                  localStorage.setItem(key, JSON.stringify(pending));
-                  setQueued(pending.length);
+          {ex.cue && <p className="muted">{ex.cue}</p>}
+          <p className="rir-help">
+            <strong>Reps left (RIR)</strong> means reps in reserve: how many
+            more good reps you could still have done. Aim for {ex.rir ?? 2}.
+          </p>
+          {sets.map((row) => (
+            <form
+              className={
+                "set-row" +
+                (row.done ? " is-done" : "") +
+                (row.done && row.logicalKey === justLogged
+                  ? " just-logged"
+                  : "")
+              }
+              id={row.formId}
+              key={row.set}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!active) return;
+                const f = new FormData(e.currentTarget),
+                  body = {
+                    eventKey: crypto.randomUUID(),
+                    rir: Number(f.get("rir")),
+                    notes: String(f.get("notes") || ""),
+                    exercise: ex.name,
+                    set: row.set,
+                    reps: Number(f.get("reps")),
+                    loadKg: Number(f.get("load")),
+                  };
+                const endpoint = `/workouts/${workout.id}/sets`;
+                const { notes: _notes, ...setLog } = body,
+                  checked = setSchema.safeParse(setLog);
+                if (!checked.success) {
                   setNotice(
-                    `Set ${set + 1} saved on this device. It will sync when your connection is available.`,
+                    "Check this set before logging it: the weight, reps and reps left must be numbers in range.",
                   );
-                  await sync();
-                }}
-              >
-                <span>Set {set + 1}</span>
-                <label>
-                  <input
-                    type="number"
+                  return;
+                }
+                const pending = readList<WorkoutQueueItem>(localStorage, key);
+                if (
+                  pending.some((p) => p.logicalKey === row.logicalKey) ||
+                  readList<RejectedEntry<WorkoutQueueItem>>(
+                    localStorage,
+                    rejectedKey,
+                  ).some((r) => r.item.logicalKey === row.logicalKey) ||
+                  localDone.includes(row.logicalKey)
+                )
+                  return;
+                pending.push({ path: endpoint, body, logicalKey: row.logicalKey });
+                setSubmitted((old) => ({
+                  ...old,
+                  [row.logicalKey]: {
+                    loadKg: body.loadKg,
+                    reps: body.reps,
+                    rir: body.rir,
+                  },
+                }));
+                setJustLogged(row.logicalKey);
+                requestAnimationFrame(revealNextSet);
+                localStorage.setItem(key, JSON.stringify(pending));
+                setQueued(pending.length);
+                // The prescribed rest starts as soon as the set is logged.
+                if (ex.restSeconds > 0)
+                  setRestUntil(Date.now() + ex.restSeconds * 1000);
+                await sync();
+                const stillPending = readList<WorkoutQueueItem>(
+                  localStorage,
+                  key,
+                ).some((p) => p.logicalKey === row.logicalKey);
+                setNotice(
+                  stillPending
+                    ? `Set ${row.set} of ${ex.name} is saved on this device. It will sync when you are back online.`
+                    : `Set ${row.set} of ${ex.name} logged.`,
+                );
+              }}
+            >
+              <div className="set-row-head">
+                <strong>Set {row.set}</strong>
+                {row.done && (
+                  <span className="set-logged">
+                    <Check size={16} aria-hidden="true" />
+                    {row.pending ? "Saved on this device" : "Logged"}
+                    {row.values && (
+                      <>
+                        {": "}
+                        <bdi dir="ltr">
+                          {row.values.loadKg} kg × {row.values.reps}
+                        </bdi>{" "}
+                        reps · {row.values.rir ?? 2} left
+                      </>
+                    )}
+                  </span>
+                )}
+                {row.needsAttention && (
+                  <span className="set-attention">Needs your attention</span>
+                )}
+              </div>
+              {active && !row.done && !row.needsAttention && (
+                <>
+                  <NumberStepper
+                    label="Weight (kg)"
                     name="load"
-                    aria-label={`${ex.name} set ${set + 1} load`}
-                    defaultValue={ex.loadKg}
+                    decimal
+                    step={0.5}
                     min={0}
                     max={500}
-                    step={0.5}
+                    defaultValue={ex.loadKg}
+                    inputLabel={`${ex.name} set ${row.set} weight in kilograms`}
                   />
-                  <small>kg</small>
-                </label>
-                <label>
-                  <input
-                    type="number"
+                  <NumberStepper
+                    label="Reps"
                     name="reps"
-                    aria-label={`${ex.name} set ${set + 1} reps`}
-                    defaultValue={ex.reps}
                     min={0}
                     max={200}
-                    step={1}
+                    defaultValue={ex.reps}
+                    inputLabel={`${ex.name} set ${row.set} reps`}
                   />
-                  <small>reps</small>
-                </label>
-                <label>
-                  <input
-                    aria-label={`${ex.name} set ${set + 1} repetitions in reserve`}
+                  <NumberStepper
+                    label="Reps left (RIR)"
                     name="rir"
-                    type="number"
                     min={0}
                     max={10}
                     defaultValue={ex.rir ?? 2}
-                    required
+                    enterKeyHint="done"
+                    inputLabel={`${ex.name} set ${row.set} reps left in reserve`}
                   />
-                  <small>RIR</small>
-                </label>
-                <label>
-                  <input
-                    aria-label={`${ex.name} set ${set + 1} notes`}
-                    name="notes"
-                    maxLength={1000}
-                    placeholder="Set notes"
-                  />
-                </label>
-                <Button
-                  type="submit"
-                  secondary
-                  disabled={
-                    busy ||
-                    done ||
-                    needsAttention ||
-                    workout.status !== "active"
-                  }
-                >
-                  {needsAttention ? (
-                    "Needs attention"
-                  ) : done ? (
-                    <>
-                      <Check size={16} />
-                      {pendingHere ? "Saved offline" : "Logged"}
-                    </>
-                  ) : (
-                    "Log set"
-                  )}
-                </Button>
-              </form>
-            );
-          })}
+                  <button
+                    type="submit"
+                    className="button secondary set-log"
+                    disabled={busy}
+                  >
+                    Log set {row.set}
+                  </button>
+                  <details className="set-note">
+                    <summary>Add a note to set {row.set}</summary>
+                    <label className="field">
+                      <span>Note</span>
+                      <textarea
+                        name="notes"
+                        maxLength={1000}
+                        rows={2}
+                        enterKeyHint="done"
+                        aria-label={`${ex.name} set ${row.set} note`}
+                      />
+                    </label>
+                  </details>
+                </>
+              )}
+            </form>
+          ))}
         </Card>
       ))}
-      <div className="button-row">
-        <Button
-          disabled={
-            busy ||
-            queued > 0 ||
-            rejected.some(
-              (r) => r.item.path === `/workouts/${workout.id}/sets`,
-            ) ||
-            workout.status !== "active"
-          }
-          onClick={() =>
-            void action(
-              () => api(`/workouts/${workout.id}/finish`, "POST", {}),
-              "Workout completed",
+      {active && next && (
+        <div className="workout-finish">
+          <Button secondary disabled={busy || finishBlocked} onClick={finish}>
+            Finish workout now
+          </Button>
+          <p className="control-reason">
+            {finishBlocked
+              ? "Finishing waits until every set log on this device has synced."
+              : `${remaining} ${remaining === 1 ? "set is" : "sets are"} not logged yet. Finish now if you are done for today.`}
+          </p>
+        </div>
+      )}
+      <WorkoutTools
+        workout={workout}
+        userId={state.user.userId}
+        onChange={async () => {
+          await action(async () => ({}), "Session updated");
+        }}
+      />
+      {active && (
+        <StickyActionBar
+          label="Workout actions"
+          note={
+            restText ? (
+              <span role="timer" aria-live="off">
+                {restText}
+                {next ? ` · next: ${next.ex.name}, set ${next.set}` : ""}
+              </span>
+            ) : next ? (
+              `Next: ${next.ex.name}, set ${next.set}`
+            ) : finishBlocked ? (
+              "Waiting for set logs on this device to sync."
+            ) : (
+              "Every set is logged. Finish when you are ready."
             )
           }
         >
-          Finish workout <CheckCircle size={17} />
-        </Button>
-        <Button
-          secondary
-          disabled={busy || workout.status !== "active"}
-          onClick={() => {
-            const description = window.prompt(
-              "Describe the pain or issue. Your workout will pause for review.",
+          <button
+            type="button"
+            className="button secondary workout-pain"
+            disabled={busy}
+            onClick={() => setPainOpen(true)}
+          >
+            <AlertCircle size={18} aria-hidden="true" />
+            Report pain
+          </button>
+          {next ? (
+            <button
+              type="submit"
+              form={next.formId}
+              className="button"
+              disabled={busy}
+            >
+              Log set {next.set}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button"
+              disabled={busy || finishBlocked}
+              onClick={finish}
+            >
+              Finish workout <CheckCircle size={18} aria-hidden="true" />
+            </button>
+          )}
+        </StickyActionBar>
+      )}
+      <BottomSheet
+        open={painOpen}
+        onClose={() => setPainOpen(false)}
+        title="Report pain or a problem"
+        description="Your workout stops and your coach is told straight away. In an emergency, call your local emergency number."
+        footer={
+          <>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setPainOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="workout-pain-report"
+              className="button"
+              disabled={busy || !painText.trim()}
+            >
+              Stop workout and notify coach
+            </button>
+          </>
+        }
+      >
+        <form
+          id="workout-pain-report"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const description = painText.trim();
+            if (!description) return;
+            setPainOpen(false);
+            setPainText("");
+            void action(
+              () => api(`/workouts/${workout.id}/pain`, "POST", { description }),
+              "Workout paused. Your coach has been told.",
             );
-            if (description)
-              void action(
-                () =>
-                  api(`/workouts/${workout.id}/pain`, "POST", { description }),
-                "Workout paused for trainer review",
-              );
           }}
         >
-          <Pause size={16} />
-          Pain or an issue
-        </Button>
-      </div>
+          <label className="field">
+            <span>What happened?</span>
+            <textarea
+              data-autofocus
+              value={painText}
+              onChange={(e) => setPainText(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              required
+              enterKeyHint="send"
+              placeholder="For example: sharp pain in my left knee during the second set"
+            />
+          </label>
+        </form>
+      </BottomSheet>
     </>
   );
 }
@@ -4112,26 +4407,58 @@ function Integrations({ state, action, busy, path }: ViewProps) {
 
 function SettingsView({ state, records, action, busy, path }: ViewProps) {
   const intake = records("intake")[0]?.data ?? {},
-    sub = state.user.role === "subscriber";
+    sub = state.user.role === "subscriber",
+    // A member's coaching intake has its own page, so "Complete your
+    // coaching profile" opens the questions, not account security.
+    intakePage = sub && path === "/app/intake";
   return (
     <>
       <Heading
         eyebrow="YOUR SPACE, YOUR CHOICES"
-        title={sub ? "Your coaching profile." : "Your workspace settings."}
-        detail="Keep your information useful, your permissions clear and your data under your control."
+        title={
+          intakePage
+            ? "Your coaching profile."
+            : sub
+              ? "Profile and settings."
+              : "Your workspace settings."
+        }
+        detail={
+          intakePage
+            ? "Tell your coach about your goals, experience and limits. You can change these answers at any time."
+            : "Keep your information useful, your permissions clear and your data under your control."
+        }
       />
-      <AccountSecurity />
-      <AccountExtras />
-      <AccountSettings returnTo={sub ? "/app/profile" : "/trainer/settings"} />
-      <PersonalPrivacyStatus />
+      {!intakePage && (
+        <>
+          <AccountSecurity />
+          <AccountExtras />
+          <AccountSettings
+            returnTo={sub ? "/app/profile" : "/trainer/settings"}
+          />
+          <PersonalPrivacyStatus />
+        </>
+      )}
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
       )}
-      {sub && (
+      {sub && !intakePage && (
+        <Card>
+          <h2>Coaching profile</h2>
+          <p className="muted">
+            Your goals, experience, equipment and limits help your coach plan
+            your training.
+          </p>
+          <Link className="button secondary" href="/app/intake">
+            Review my coaching profile
+          </Link>
+        </Card>
+      )}
+      {intakePage && (
         <Card>
           <h2>Help your coach understand you</h2>
           <PlanIntakeNotice />
           <form
+            id="intake-form"
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -4155,6 +4482,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                 <input
                   type="number"
                   name="age"
+                  inputMode="numeric"
                   min={18}
                   max={100}
                   defaultValue={intake.age}
@@ -4167,7 +4495,9 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                   defaultValue={intake.experience ?? "beginner"}
                 >
                   {["beginner", "intermediate", "advanced"].map((x) => (
-                    <option key={x}>{x}</option>
+                    <option key={x} value={x}>
+                      {x[0].toUpperCase() + x.slice(1)}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -4178,6 +4508,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                 <input
                   name="days"
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={7}
                   defaultValue={intake.daysPerWeek ?? 3}
@@ -4199,17 +4530,26 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
               this information and understand that digital coaching does not
               replace medical care.
             </label>
-            <Button type="submit" disabled={busy}>
-              Save coaching profile
-            </Button>
+            {/* The page's one main action, in thumb reach. */}
+            <StickyActionBar label="Coaching profile actions">
+              <button
+                type="submit"
+                form="intake-form"
+                className="button"
+                disabled={busy}
+              >
+                Save coaching profile
+              </button>
+            </StickyActionBar>
           </form>
         </Card>
       )}
+      {!intakePage && (
       <div className="two-columns">
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
-        <Card>
+        <Card id="your-data">
           <h2>Your data</h2>
           <p className="muted">
             Download your coaching records, manage consent, or request account
@@ -4253,6 +4593,7 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
           </Button>
         </Card>
       </div>
+      )}
       {state.user.role === "owner" && (
         <Card>
           <h2>Team access</h2>

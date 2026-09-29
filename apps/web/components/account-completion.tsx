@@ -259,7 +259,7 @@ export function MagicAccess({ path }: { path: string }) {
             </button>
           </form>
         )}
-        <p>
+        <p className="auth-return">
           <a href="/login">Return to sign in</a>
         </p>
       </section>

@@ -96,9 +96,9 @@ export function ClientContext({
             void save();
           }}
         >
-          <fieldset disabled={!editable || busy}>
-            <label>
-              Communication style
+          <fieldset className="context-fieldset" disabled={!editable || busy}>
+            <label className="field">
+              <span>Communication style</span>
               <select
                 value={draft.communicationStyle}
                 onChange={(e) =>
@@ -115,8 +115,8 @@ export function ClientContext({
                 ))}
               </select>
             </label>
-            <label>
-              Communication preferences
+            <label className="field">
+              <span>Communication preferences</span>
               <textarea
                 aria-label="Communication preferences"
                 maxLength={1000}
@@ -125,11 +125,13 @@ export function ClientContext({
               />
             </label>
             {(["exerciseLikes", "exerciseDislikes"] as const).map((key) => (
-              <label key={key}>
-                {key === "exerciseLikes"
-                  ? "Exercises you enjoy"
-                  : "Exercises you prefer to avoid"}{" "}
-                (one per line)
+              <label className="field" key={key}>
+                <span>
+                  {key === "exerciseLikes"
+                    ? "Exercises you enjoy"
+                    : "Exercises you prefer to avoid"}{" "}
+                  (one per line)
+                </span>
                 <textarea
                   aria-label={
                     key === "exerciseLikes"
@@ -167,8 +169,8 @@ export function ClientContext({
                       }
                     })()}
                   </legend>
-                  <label>
-                    Type
+                  <label className="field">
+                    <span>Type</span>
                     <select
                       value={item.kind}
                       onChange={(e) =>
@@ -181,8 +183,8 @@ export function ClientContext({
                       <option value="schedule">Schedule change</option>
                     </select>
                   </label>
-                  <label>
-                    Title
+                  <label className="field">
+                    <span>Title</span>
                     <input
                       required
                       maxLength={120}
@@ -190,8 +192,8 @@ export function ClientContext({
                       onChange={(e) => update({ title: e.target.value })}
                     />
                   </label>
-                  <label>
-                    From
+                  <label className="field">
+                    <span>From</span>
                     <input
                       required
                       type="date"
@@ -199,8 +201,8 @@ export function ClientContext({
                       onChange={(e) => update({ startsOn: e.target.value })}
                     />
                   </label>
-                  <label>
-                    Through
+                  <label className="field">
+                    <span>Through</span>
                     <input
                       required
                       type="date"
@@ -209,8 +211,8 @@ export function ClientContext({
                       onChange={(e) => update({ endsOn: e.target.value })}
                     />
                   </label>
-                  <label>
-                    Timezone
+                  <label className="field">
+                    <span>Timezone</span>
                     <input
                       required
                       maxLength={80}
@@ -218,8 +220,8 @@ export function ClientContext({
                       onChange={(e) => update({ timezone: e.target.value })}
                     />
                   </label>
-                  <label>
-                    Availability
+                  <label className="field">
+                    <span>Availability</span>
                     <textarea
                       aria-label="Availability"
                       maxLength={500}
@@ -229,8 +231,8 @@ export function ClientContext({
                       }
                     />
                   </label>
-                  <label>
-                    Available equipment
+                  <label className="field">
+                    <span>Available equipment</span>
                     <textarea
                       aria-label="Available equipment"
                       maxLength={500}
@@ -259,7 +261,7 @@ export function ClientContext({
               );
             })}
             {editable && (
-              <>
+              <div className="button-row context-actions">
                 <button
                   type="button"
                   className="button secondary"
@@ -298,7 +300,7 @@ export function ClientContext({
                 <button type="submit" className="button">
                   {busy ? "Saving…" : "Save preferences"}
                 </button>
-              </>
+              </div>
             )}
           </fieldset>
           <small>

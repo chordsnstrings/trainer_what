@@ -30,6 +30,7 @@ import "./programme.css";
 import "./brain-plans.css";
 import "./voice-session.css";
 import "./web-address.css";
+import "./phone-first.css";
 import "./marketing.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the

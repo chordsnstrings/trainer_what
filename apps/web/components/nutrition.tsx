@@ -1,4 +1,5 @@
 "use client";
+import { ScrollTabs, tabPanelProps } from "./phone-ui";
 import { Field } from "./field";
 import {
   useCallback,
@@ -2353,23 +2354,20 @@ export function NutritionSubscriber({
           {d.entitled ? "Workout + nutrition" : "Nutrition membership required"}
         </span>
       </div>
-      <nav className="tabs nutrition-tabs" aria-label="Your nutrition">
-        {[
-          ["today", "Meal plan"],
-          ["groceries", "Weekly groceries"],
-          ["profile", "Food preferences"],
-          ["diary", "Meal diary"],
-          ["checkin", "Check in"],
-        ].map(([k, l]) => (
-          <button
-            key={k}
-            onClick={() => setTab(k)}
-            className={tab === k ? "selected" : ""}
-          >
-            {l}
-          </button>
-        ))}
-      </nav>
+      {/* One row that scrolls sideways on phones instead of wrapping. */}
+      <ScrollTabs
+        label="Your nutrition"
+        idPrefix="nutrition"
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { id: "today", label: "Meal plan" },
+          { id: "groceries", label: "Weekly groceries" },
+          { id: "profile", label: "Food preferences" },
+          { id: "diary", label: "Meal diary" },
+          { id: "checkin", label: "Check in" },
+        ]}
+      />
       {r.error && (
         <p className="notice error" role="alert">
           {r.error}
@@ -2453,7 +2451,11 @@ export function NutritionSubscriber({
           target={d.targets.find((t: any) => t.status === "active")}
         />
       )}
-      <fieldset className="nutrition-fieldset" disabled={r.busy}>
+      <fieldset
+        className="nutrition-fieldset"
+        disabled={r.busy}
+        {...tabPanelProps("nutrition", tab)}
+      >
         {d.records.filter((x: any) => x.kind === "nutrition_plan").length >
           1 && (
           <Field label="Meal week">

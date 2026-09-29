@@ -171,7 +171,7 @@ export function SocialSignInVerify() {
             )}
           </>
         )}
-        <p>
+        <p className="auth-return">
           <a className="text-link" href="/login">
             Return to sign in
           </a>

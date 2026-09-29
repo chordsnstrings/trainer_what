@@ -1,0 +1,416 @@
+// Phone-first check for the member app (local Chromium only; never a cloud
+// browser). Signs in as the synthetic member and visits every member screen
+// at 360x740 and 390x844 as a touch phone, and fails when:
+// - the page scrolls sideways (horizontal overflow);
+// - the bottom tab bar is missing, has no current tab (aria-current) or a
+//   tab shorter than 56 px;
+// - a control people tap is smaller than 44x44 px (links inside running
+//   text are exempt, as in WCAG 2.5.8; a checkbox counts its label);
+// - something fixed covers the tab bar or the screen's primary action;
+// - with reduced motion, anything animates (a tab tap, opening a sheet).
+// Start it through scripts/run-phone-check.mjs (npm run test:phone), which
+// seeds data and starts the servers. docs/features/phone-first.md.
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require("playwright");
+const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
+const password = process.env.DEMO_PASSWORD ?? "TrainerDemo2026!";
+const member = process.env.PHONE_CHECK_MEMBER ?? "sam.taylor@example.test";
+const executablePath =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
+  (existsSync("/opt/pw-browsers/chromium")
+    ? "/opt/pw-browsers/chromium"
+    : undefined);
+export const PHONES = [
+  { name: "360x740", width: 360, height: 740 },
+  { name: "390x844", width: 390, height: 844 },
+];
+export const MEMBER_ROUTES = [
+  "/app",
+  "/app/program",
+  "/app/timeline",
+  "/app/chat",
+  "/app/nutrition",
+  "/app/nutrition/log",
+  "/app/progress",
+  "/app/bookings",
+  "/app/twin",
+  "/app/intake",
+  "/app/wearables",
+  "/app/galleries",
+  "/app/notifications",
+  "/app/support",
+  "/app/membership",
+  "/app/profile",
+  "/app/more",
+];
+const MIN_TARGET = 44;
+const MIN_TAB = 56;
+
+const failures = [];
+const measured = [];
+const pageErrors = [];
+const fail = (label, message) => failures.push(`${label}: ${message}`);
+
+/** Everything the rules need, measured in the page. */
+function inspect({ minTarget, minTab }) {
+  const width = window.innerWidth;
+  const root = document.documentElement;
+  const visible = (el) =>
+    (typeof el.checkVisibility !== "function" ||
+      el.checkVisibility({ visibilityProperty: true })) &&
+    // The analytics preferences control belongs to the root layout
+    // (components/acquisition.tsx) and has its own check in
+    // browser-completion-check.mjs; it is dismissed before measuring.
+    !el.closest(
+      "[aria-hidden='true'], [hidden], .sr-only, .skip-link, .acquisition-consent",
+    );
+  const describe = (el) =>
+    `${el.tagName.toLowerCase()}${
+      typeof el.className === "string" && el.className
+        ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".")
+        : ""
+    } "${(el.getAttribute("aria-label") || el.textContent || el.value || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 40)}"`;
+  // Tap targets.
+  const small = [];
+  for (const el of document.querySelectorAll(
+    "a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab]",
+  )) {
+    if (!visible(el)) continue;
+    const style = getComputedStyle(el);
+    // Links inside a sentence are exempt; standalone links are not.
+    if (el.tagName === "A" && style.display === "inline") continue;
+    let target = el;
+    if (
+      el.tagName === "INPUT" &&
+      ["checkbox", "radio"].includes(el.type) &&
+      el.closest("label")
+    )
+      target = el.closest("label");
+    const r = target.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    if (r.width < minTarget - 0.5 || r.height < minTarget - 0.5)
+      small.push(
+        `${describe(el)} ${Math.round(r.width)}x${Math.round(r.height)}`,
+      );
+  }
+  // Tab bar.
+  const bar = document.querySelector(".member-tabbar");
+  const barShown = !!bar && getComputedStyle(bar).display !== "none";
+  const tabs = barShown ? [...bar.querySelectorAll("a")] : [];
+  const current = tabs.filter((t) => t.getAttribute("aria-current") === "page");
+  const shortTabs = tabs
+    .filter((t) => t.getBoundingClientRect().height < minTab - 0.5)
+    .map(describe);
+  // Hit tests: is the element (or its content) what a tap at its centre reaches?
+  const reaches = (el) => {
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2,
+      y = r.top + r.height / 2;
+    if (y < 0 || y > window.innerHeight || x < 0 || x > width) return null;
+    const hit = document.elementFromPoint(x, y);
+    // The Next.js development indicator is not part of the app.
+    if (hit?.closest?.("nextjs-portal")) return true;
+    return hit && (hit === el || el.contains(hit))
+      ? true
+      : hit
+        ? describe(hit)
+        : "nothing";
+  };
+  const coveredTabs = tabs
+    .map((t) => [describe(t), reaches(t)])
+    .filter(([, r]) => r !== true && r !== null)
+    .map(([t, r]) => `${t} under ${r}`);
+  const sticky = document.querySelector(
+    ".sticky-action-bar .sticky-action-buttons > :last-child",
+  );
+  return {
+    path: location.pathname,
+    overflow: Math.max(
+      root.scrollWidth - root.clientWidth,
+      document.body.scrollWidth - document.body.clientWidth,
+    ),
+    small,
+    barShown,
+    tabCount: tabs.length,
+    currentTabs: current.length,
+    shortTabs,
+    coveredTabs,
+    stickyPrimary: sticky ? describe(sticky) : null,
+    stickyReach: sticky ? reaches(sticky) : null,
+    loading: !!document.querySelector(".loading-screen"),
+  };
+}
+
+/** The first primary button in the page content, scrolled to the middle. */
+async function primaryCovered(page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("#member-main");
+    const primary = [
+      ...(main?.querySelectorAll(".button:not(.secondary)") ?? []),
+    ].find(
+      (el) =>
+        !el.closest(".sticky-action-bar, dialog") &&
+        (typeof el.checkVisibility !== "function" || el.checkVisibility()),
+    );
+    if (!primary) return null;
+    primary.scrollIntoView({ block: "center", inline: "nearest" });
+    const r = primary.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      r.left + r.width / 2,
+      r.top + r.height / 2,
+    );
+    if (
+      !hit ||
+      hit === primary ||
+      primary.contains(hit) ||
+      hit.closest("nextjs-portal")
+    )
+      return null;
+    const fixed = (el) => {
+      for (let n = el; n && n !== document.body; n = n.parentElement)
+        if (["fixed", "sticky"].includes(getComputedStyle(n).position))
+          return true;
+      return false;
+    };
+    return fixed(hit)
+      ? `${(primary.textContent || "").trim().slice(0, 40)} is under ${hit.tagName.toLowerCase()}.${String(hit.className).split(" ")[0]}`
+      : null;
+  });
+}
+
+async function settle(page) {
+  await page
+    .waitForFunction(() => !document.querySelector(".loading-screen"), null, {
+      timeout: 90_000,
+    })
+    .catch(() => {});
+  await page
+    .locator("h1")
+    .first()
+    .waitFor({ timeout: 60_000 })
+    .catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  // Microanimations (a page settling in, the action bar sliding up) finish
+  // before anything is measured; endless ones (a progress bar) are ignored.
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .every(
+            (a) =>
+              a.playState !== "running" ||
+              a.effect?.getComputedTiming().iterations === Infinity,
+          ),
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
+}
+
+async function reducedMotionCheck() {
+  const label = "390x844 reduced motion";
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+    reducedMotion: "reduce",
+  });
+  ctx.setDefaultNavigationTimeout(180_000);
+  ctx.setDefaultTimeout(60_000);
+  try {
+    const signIn = await ctx.request.post(base + "/api/v1/auth/login", {
+      headers: { origin: base },
+      data: { email: member, password },
+      failOnStatusCode: false,
+    });
+    if (signIn.status() !== 200)
+      throw new Error(`member sign-in answered ${signIn.status()}`);
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => pageErrors.push(`${page.url()}: ${e.message}`));
+    const moving = () =>
+      page.evaluate(() =>
+        document.getAnimations().map((a) => {
+          const t = a.effect?.target;
+          return `${a.animationName || a.transitionProperty || "script"} on ${
+            t?.className || t?.tagName || "?"
+          }`;
+        }),
+      );
+    await page.goto(base + "/app", { waitUntil: "load" });
+    await settle(page);
+    await page.locator(".member-tabbar a[href='/app/more']").tap();
+    await page.waitForURL("**/app/more");
+    await page.waitForTimeout(120);
+    let playing = await moving();
+    if (playing.length)
+      fail(label, `after a tab tap: ${playing.slice(0, 4).join("; ")}`);
+    const boot = await (
+      await ctx.request.get(base + "/api/v1/bootstrap")
+    ).json();
+    const workout = boot.records.find(
+      (r) => r.kind === "workout" && r.status === "active",
+    );
+    if (workout) {
+      await page.goto(base + `/app/workouts/${workout.id}`, {
+        waitUntil: "load",
+      });
+      await settle(page);
+      const pain = page.locator(".sticky-action-bar .workout-pain");
+      if (await pain.count()) {
+        await pain.tap();
+        await page.waitForTimeout(80);
+        playing = await moving();
+        if (playing.length)
+          fail(label, `opening a sheet: ${playing.slice(0, 4).join("; ")}`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(60);
+        if (await page.evaluate(() => !!document.querySelector("dialog[open]")))
+          fail(label, "the sheet did not close at once on Escape");
+      }
+    }
+    measured.push({ label, reducedMotion: true });
+  } catch (e) {
+    fail(label, e.message.split("\n")[0]);
+  } finally {
+    await ctx.close();
+  }
+}
+
+const browser = await chromium.launch({
+  headless: true,
+  ...(executablePath ? { executablePath } : {}),
+});
+try {
+  for (const phone of PHONES) {
+    const ctx = await browser.newContext({
+      viewport: { width: phone.width, height: phone.height },
+      isMobile: true,
+      hasTouch: true,
+      serviceWorkers: "block",
+    });
+    ctx.setDefaultNavigationTimeout(180_000);
+    ctx.setDefaultTimeout(60_000);
+    // Stay inside the normal request budget.
+    let next = 0;
+    await ctx.route("**/api/v1/**", async (route) => {
+      const now = Date.now(),
+        wait = Math.max(0, next - now);
+      next = now + wait + 500;
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      await route.continue().catch(() => {});
+    });
+    const signIn = await ctx.request.post(base + "/api/v1/auth/login", {
+      headers: { origin: base },
+      data: { email: member, password },
+      failOnStatusCode: false,
+    });
+    if (signIn.status() !== 200)
+      throw new Error(`member sign-in answered ${signIn.status()}`);
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => pageErrors.push(`${page.url()}: ${e.message}`));
+    // A workout in progress, for the workout and guided screens.
+    const boot = await (
+      await ctx.request.get(base + "/api/v1/bootstrap")
+    ).json();
+    let workout = boot.records.find(
+      (r) => r.kind === "workout" && r.status === "active",
+    );
+    const program = boot.records.find(
+      (r) => r.kind === "program" && r.status === "assigned",
+    );
+    if (!workout && program) {
+      const started = await ctx.request.post(base + "/api/v1/workouts/start", {
+        headers: { origin: base },
+        data: { programId: program.id },
+        failOnStatusCode: false,
+      });
+      if (started.ok()) workout = await started.json();
+    }
+    // Answer the analytics question once, as a member would.
+    await page.goto(base + "/app", { waitUntil: "load" });
+    await settle(page);
+    for (const name of [/without analytics/i, /^No thanks$/i]) {
+      const choice = page.getByRole("button", { name });
+      if (await choice.count().catch(() => 0))
+        await choice
+          .first()
+          .click({ timeout: 5000 })
+          .catch(() => {});
+    }
+    const routes = [
+      ...MEMBER_ROUTES,
+      ...(workout
+        ? [`/app/workouts/${workout.id}`, `/app/guided/${workout.id}`]
+        : []),
+    ];
+    if (!workout) fail(phone.name, "no workout to check (seed a program)");
+    for (const route of routes) {
+      const label = `${phone.name} ${route.replace(/[0-9a-f-]{36}/, ":id")}`;
+      try {
+        await page.goto(base + route, { waitUntil: "load" });
+        await settle(page);
+        const m = await page.evaluate(inspect, {
+          minTarget: MIN_TARGET,
+          minTab: MIN_TAB,
+        });
+        measured.push({ label, ...m });
+        if (m.loading) fail(label, "still loading");
+        if (m.path !== route) fail(label, `landed on ${m.path}`);
+        if (m.overflow > 1)
+          fail(label, `horizontal overflow of ${m.overflow}px`);
+        if (!m.barShown) fail(label, "no bottom tab bar");
+        else {
+          if (m.tabCount !== 5) fail(label, `${m.tabCount} tabs, expected 5`);
+          if (m.currentTabs !== 1)
+            fail(label, `${m.currentTabs} tabs marked aria-current="page"`);
+          if (m.shortTabs.length)
+            fail(label, `tabs under ${MIN_TAB}px: ${m.shortTabs.join("; ")}`);
+          if (m.coveredTabs.length)
+            fail(label, `covered tabs: ${m.coveredTabs.join("; ")}`);
+        }
+        if (m.small.length)
+          fail(
+            label,
+            `${m.small.length} tap target(s) under ${MIN_TARGET}px: ${m.small.slice(0, 6).join("; ")}`,
+          );
+        if (m.stickyPrimary && m.stickyReach !== true)
+          fail(
+            label,
+            `the primary action ${m.stickyPrimary} is covered by ${m.stickyReach}`,
+          );
+        const covered = await primaryCovered(page);
+        if (covered) fail(label, covered);
+      } catch (e) {
+        fail(label, e.message.split("\n")[0]);
+      }
+    }
+    await ctx.close();
+  }
+  // With reduced motion the member app is still: moving to another tab and
+  // opening a bottom sheet start no animation at all (phone-first.css
+  // "Motion", components/motion.ts).
+  await reducedMotionCheck();
+} finally {
+  await browser.close();
+  await mkdir("test-results", { recursive: true });
+  await writeFile(
+    "test-results/phone-check.json",
+    JSON.stringify({ failures, pageErrors, measured }, null, 2),
+  );
+}
+console.log(
+  `Phone check: ${measured.length} screen measurements, ${failures.length} failure(s), ${pageErrors.length} page error(s).`,
+);
+for (const f of failures) console.log("FAIL " + f);
+for (const e of pageErrors) console.log("PAGE ERROR " + e);
+if (failures.length || pageErrors.length) process.exitCode = 1;

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
+import { BottomSheet, FileInput, StickyActionBar } from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { WebAddressCenter } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
@@ -28,7 +29,13 @@ async function api(path: string, method = "GET", body?: unknown) {
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({
+  title,
+  children,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="card">
       <h2>{title}</h2>
@@ -219,7 +226,9 @@ function HealthConnections({
                 {connection?.status ??
                   (enabled
                     ? "Ready to connect"
-                    : "Awaiting provider setup and approval")}
+                    : trainer
+                      ? "Awaiting provider setup and approval"
+                      : "Not available yet")}
               </p>
               {connection?.lastSyncedAt && (
                 <p>
@@ -232,8 +241,8 @@ function HealthConnections({
                 <p>{connection.summary.message}</p>
               )}
               <p>
-                Used to display health observations and calculate deterministic
-                coaching indicators. Excluded from AI prompts and advertising.
+                Used to show your readings and to calculate simple, rule-based
+                coaching indicators. Never sent to AI or used for advertising.
               </p>
               <label>
                 <input
@@ -269,6 +278,13 @@ function HealthConnections({
                 >
                   {connection ? "Reconnect" : "Connect"}
                 </button>
+                {!enabled && (
+                  <p className="control-reason">
+                    {trainer
+                      ? "This provider is waiting for platform setup and approval."
+                      : "Your coaching space cannot connect this yet."}
+                  </p>
+                )}
               </form>
               {connection?.status === "active" && (
                 <button
@@ -311,18 +327,22 @@ function HealthConnections({
           measurement time.
         </p>
         {importsRefused && <ImportRefusedNotice trainer={trainer} />}
-        <input
-          type="file"
-          accept=".xml"
-          aria-label="Apple Health export XML"
+        <FileInput
+          label="Apple Health export"
+          hint="On your iPhone, open Health, tap your picture, then Export All Health Data. Unzip the export and choose export.xml."
+          buttonLabel="Choose export.xml"
+          accept=".xml,text/xml,application/xml"
           disabled={action.busy || importsRefused}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file)
-              void readFile(file).catch((error) =>
-                action.setMessage(error.message),
-              );
-          }}
+          disabledReason={
+            importsRefused
+              ? "Health imports are switched off for this coaching space."
+              : undefined
+          }
+          onFiles={([file]) =>
+            void readFile(file).catch((error) =>
+              action.setMessage(error.message),
+            )
+          }
         />
         {observations.length > 0 && !importsRefused && (
           <div>
@@ -577,7 +597,9 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     [running, setRunning] = useState(false),
     [audioUrl, setAudioUrl] = useState<string | null>(null),
     [voiceConsent, setVoiceConsent] = useState(false),
-    [paused, setPaused] = useState(false);
+    [paused, setPaused] = useState(false),
+    [painOpen, setPainOpen] = useState(false),
+    [painText, setPainText] = useState("");
   const player = useRef<HTMLAudioElement>(null);
   const refresh = useCallback(
       async () => setData(await api(`/guided/${workoutId}`)),
@@ -607,8 +629,24 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     return () => clearInterval(timer);
   }, [running, paused]);
   const segment = data?.segments?.[index];
+  const last = !!data && index >= data.segments.length - 1;
+  const move = (to: number) => {
+    setIndex(to);
+    setRunning(false);
+    setRest(0);
+    setAudioUrl(null);
+  };
+  const stop = (description: string) => {
+    setPaused(true);
+    setRunning(false);
+    player.current?.pause();
+    void action.run(
+      () => api(`/workouts/${workoutId}/pain`, "POST", { description }),
+      "Workout paused and your coach notified",
+    );
+  };
   return (
-    <div className="stack">
+    <div className="stack guided-session">
       <div className="page-heading">
         <h1>{data?.name ?? "Guided workout"}</h1>
         <p>
@@ -619,55 +657,65 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
       <Notice value={action.message} />
       {segment && (
         <Panel
-          title={`${index + 1} of ${data.segments.length} · ${segment.name}`}
+          title={
+            <>
+              <bdi>
+                {index + 1} of {data.segments.length}
+              </bdi>{" "}
+              · {segment.name}
+            </>
+          }
         >
           <p>{segment.text}</p>
-          <p className="metric-value" aria-live="polite">
+          <p className="guided-timer" role="timer" aria-live="polite">
             {rest > 0
-              ? `${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
+              ? `Rest ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
               : "Ready"}
           </p>
-          <button
-            disabled={paused}
-            onClick={() => {
-              setRunning(false);
-              setRest(segment.restSeconds);
-              setTimeout(() => setRunning(true), 0);
-            }}
-          >
-            Start rest timer
-          </button>
-          <button
-            onClick={() => setRunning(!running)}
-            disabled={paused || rest <= 0}
-          >
-            {running ? "Pause timer" : "Resume timer"}
-          </button>
-          <div className="button-row">
+          <div className="guided-controls">
             <button
-              disabled={paused || index === 0}
+              type="button"
+              className="button"
+              disabled={paused}
               onClick={() => {
-                setIndex(index - 1);
                 setRunning(false);
-                setRest(0);
-                setAudioUrl(null);
+                setRest(segment.restSeconds);
+                setTimeout(() => setRunning(true), 0);
               }}
+            >
+              Start rest timer
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setRunning(!running)}
+              disabled={paused || rest <= 0}
+            >
+              {running ? "Pause timer" : "Resume timer"}
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={paused || index === 0}
+              onClick={() => move(index - 1)}
             >
               Previous exercise
             </button>
             <button
-              disabled={paused || index >= data.segments.length - 1}
-              onClick={() => {
-                setIndex(index + 1);
-                setRunning(false);
-                setRest(0);
-                setAudioUrl(null);
-              }}
+              type="button"
+              className="button secondary"
+              disabled={paused || last}
+              onClick={() => move(index + 1)}
             >
               Next exercise
             </button>
           </div>
-          <hr />
+          {paused && (
+            <p className="control-reason">
+              This guide is paused. Open your workout log to continue.
+            </p>
+          )}
+          <div className="divider" />
           {data.audioAvailable ? (
             <>
               <label>
@@ -680,6 +728,8 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
                 voice.
               </label>
               <button
+                type="button"
+                className="button secondary"
                 disabled={action.busy || paused || !voiceConsent}
                 onClick={() =>
                   void action.run(async () => {
@@ -698,58 +748,138 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               >
                 Prepare trainer voice
               </button>
+              {!voiceConsent && (
+                <p className="control-reason">
+                  Tick the box above to hear your coach&apos;s voice.
+                </p>
+              )}
               {audioUrl && (
                 <audio ref={player} controls src={audioUrl} preload="none" />
               )}
             </>
           ) : (
             <p className="muted">
-              Written guidance is included. Trainer voice requires verified
-              enrollment and a membership with premium voice access.
+              This session uses written guidance. Your coach&apos;s recorded
+              voice is not available for it.
             </p>
           )}
         </Panel>
       )}
       <Panel title="Stop or report a problem">
+        <p>
+          Stop straight away if you feel pain or dizziness. Your coach is told
+          when you report it.
+        </p>
+        <div className="guided-controls">
+          <button
+            type="button"
+            className="button"
+            disabled={action.busy}
+            onClick={() => setPainOpen(true)}
+          >
+            Stop workout and notify coach
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={paused}
+            onClick={() => {
+              setPaused(true);
+              setRunning(false);
+              player.current?.pause();
+            }}
+          >
+            Pause this guide
+          </button>
+          <a className="button secondary" href={`/app/workouts/${workoutId}`}>
+            Open workout logging
+          </a>
+        </div>
+      </Panel>
+      <StickyActionBar
+        label="Guided session actions"
+        note={
+          rest > 0
+            ? `Rest ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
+            : undefined
+        }
+      >
         <button
-          onClick={() => {
-            setPaused(true);
-            setRunning(false);
-            player.current?.pause();
-          }}
+          type="button"
+          className="button secondary"
+          disabled={action.busy}
+          onClick={() => setPainOpen(true)}
         >
-          Pause this guide
+          Report pain
         </button>
-        <a className="text-link" href={`/app/workouts/${workoutId}`}>
-          Open workout logging
-        </a>
+        {last || !segment ? (
+          <a className="button" href={`/app/workouts/${workoutId}`}>
+            Log my sets
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="button"
+            disabled={paused}
+            onClick={() => move(index + 1)}
+          >
+            Next exercise
+          </button>
+        )}
+      </StickyActionBar>
+      <BottomSheet
+        open={painOpen}
+        onClose={() => setPainOpen(false)}
+        title="Report pain or a problem"
+        description="Your workout stops and your coach is told straight away. In an emergency, call your local emergency number."
+        footer={
+          <>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setPainOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="guided-pain-report"
+              className="button"
+              disabled={action.busy || painText.trim().length < 3}
+            >
+              Stop workout and notify coach
+            </button>
+          </>
+        }
+      >
         <form
+          id="guided-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = new FormData(e.currentTarget).get(
-              "description",
-            );
-            setPaused(true);
-            setRunning(false);
-            player.current?.pause();
-            void action.run(
-              () => api(`/workouts/${workoutId}/pain`, "POST", { description }),
-              "Workout paused and your coach notified",
-            );
+            const description = painText.trim();
+            if (description.length < 3) return;
+            setPainOpen(false);
+            setPainText("");
+            stop(description);
           }}
         >
-          <label>
-            Pain or a safety concern
+          <label className="field">
+            <span>Pain or a safety concern</span>
             <textarea
+              data-autofocus
               name="description"
+              value={painText}
+              onChange={(e) => setPainText(e.target.value)}
               required
               minLength={3}
               maxLength={2000}
+              rows={4}
+              enterKeyHint="send"
+              placeholder="For example: my lower back hurts when I bend"
             />
           </label>
-          <button disabled={action.busy}>Stop workout and notify coach</button>
         </form>
-      </Panel>
+      </BottomSheet>
     </div>
   );
 }

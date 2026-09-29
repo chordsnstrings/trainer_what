@@ -246,7 +246,7 @@ export function AccountRecovery({ path }: { path: string }) {
             </button>
           </form>
         )}
-        <p>
+        <p className="auth-return">
           <a className="text-link" href="/login">
             Return to sign in
           </a>

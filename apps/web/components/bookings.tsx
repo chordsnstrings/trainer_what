@@ -11,6 +11,18 @@ async function request(path: string, body?: unknown) {
   if (!r.ok) throw new Error(data.message);
   return data;
 }
+/** "Gulf Standard Time" for "Asia/Dubai": people never see a raw zone id. */
+export function zoneName(zone: string) {
+  try {
+    return (
+      new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "long" })
+        .formatToParts(new Date())
+        .find((part) => part.type === "timeZoneName")?.value ?? zone
+    );
+  } catch {
+    return zone;
+  }
+}
 const date = (value: string, zone: string) =>
   new Date(value).toLocaleString("en-GB", {
     timeZone: zone,
@@ -61,8 +73,8 @@ export function Bookings({ role }: { role: string }) {
           <p className="eyebrow">TIME WITH YOUR COACH</p>
           <h1>{sub ? "Make time for progress." : "Your coaching calendar."}</h1>
           <p className="muted">
-            Times are displayed in {zone}. Each session retains the cancellation
-            and no-show rules shown when it was offered.
+            Times are shown in {zoneName(zone)}. Each session keeps the
+            cancellation and missed-session rules shown when it was offered.
           </p>
           <a className="button secondary" href="/api/v1/bookings/calendar.ics">
             Download calendar

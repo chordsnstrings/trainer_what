@@ -293,7 +293,10 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
 
 test("platform surfaces carry .platform-ui; trainer-branded ones never show the platform identity", async () => {
   const workspace = await source("components/workspace.tsx");
-  assert.match(workspace, /subscriber \? "workspace" : "workspace platform-ui"/);
+  // Members get their trainer's brand in the member shell; everyone else
+  // works in the platform identity.
+  assert.match(workspace, /<TrainerTheme className="workspace member-shell"/);
+  assert.match(workspace, /<PlainShell className="workspace platform-ui">/);
   assert.match(workspace, /coach \? "public" : "public platform-ui"/);
   assert.match(workspace, /<PlatformLogo name=\{platformName\} \/>/);
   // The loading screen may belong to a trainer's member app: no platform mark.

@@ -258,7 +258,11 @@ Plan:
   workspace
   navigation against the right edge with the content column beside it
   (1440px) or off canvas on the right when closed and opening from the right
-  edge (390px), and mirrored public and coach website headers. Results go to
+  edge (390px), and mirrored public and coach website headers. Follower
+  screens use the phone-first member shell (docs/features/phone-first.md):
+  its side navigation must sit against the right edge at 1440px, a bottom
+  tab bar with one `aria-current` tab must show at 390px (no drawer), and a
+  sub-page's back chevron must mirror; `/app/more` is checked too. Results go to
   `test-results/rtl-check.json`. `RTL_CHECK_ONLY=sources,public,trainer,
   follower` limits a local run.
 

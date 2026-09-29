@@ -711,6 +711,13 @@ export function MealCapture() {
               >
                 Use camera
               </button>
+              {!busy && (!permitted || !settings?.barcodeEnabled) && (
+                <p className="control-reason">
+                  {!permitted
+                    ? "Scanning opens once nutrition is set up for you."
+                    : "Scanning is not available yet. Type the numbers below the bars instead."}
+                </p>
+              )}
               {camera && (
                 <button
                   type="button"
