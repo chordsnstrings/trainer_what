@@ -19,9 +19,15 @@
 //
 // It starts `next start` for this checkout's existing production build (run
 // `npm run build` first) and, with MOTION_BASE_DIR, for a built checkout of
-// the base, on local ports without the API (the marketing pages then use
-// the fallback platform facts). MOTION_NEW_URL / MOTION_BASE_URL use servers
-// that are already running instead. Without a base it compares with
+// the base, on local ports. Both read one local stub for the only API route
+// the marketing pages use, GET /api/v1/public/platform, the same one as
+// scripts/run-marketing-motion-check.mjs: by default "ready" (registration
+// open; model, payments and payouts available), so the journey player's
+// launch gate is open and / and /how-it-works are measured with the player;
+// MOTION_PLATFORM=closed answers 503 instead (the pages then use their
+// fallback platform facts and the gate stays closed). No database, provider
+// or credential. MOTION_NEW_URL / MOTION_BASE_URL use servers that are
+// already running instead (with their own API). Without a base it compares with
 // MOTION_BASELINE, a JSON file written by an earlier run (its "builds.base"),
 // or only reports. MOTION_RUNS cold loads per page and width (default 5),
 // after one untimed load per build. Results: test-results/
@@ -30,8 +36,10 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -49,6 +57,47 @@ const executablePath =
 
 await mkdir(root + "test-results", { recursive: true });
 const log = createWriteStream(root + "test-results/marketing-motion-sitewide-servers.log");
+const PLATFORM = env.MOTION_PLATFORM === "closed" ? "closed" : "ready";
+const apiPort = env.MOTION_API_PORT ?? "4931";
+let stub = null;
+/** The platform stub both servers read (see the header). */
+async function startStub() {
+  if (stub) return;
+  if (await answers(`http://127.0.0.1:${apiPort}/health`))
+    throw new Error(`port ${apiPort} answers; the check needs an unused API port (MOTION_API_PORT)`);
+  const availability = {
+    model: true,
+    nutrition: false,
+    voice: false,
+    customDomains: false,
+    payments: true,
+    payouts: true,
+    whoop: false,
+    zepp: false,
+    instagram: false,
+  };
+  stub = createServer((req, res) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (path === "/health") return res.writeHead(200).end("ok");
+    if (path === "/api/v1/public/platform" && PLATFORM === "ready") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(
+        JSON.stringify({
+          name: "trainsyou",
+          initials: "T",
+          supportEmail: null,
+          companyDetails: null,
+          registrationOpen: true,
+          coachAddressTemplate: "https://trainsyou.example/coach/{slug}",
+          availability,
+          followerModel: DEFAULT_FOLLOWER_MODEL,
+        }),
+      );
+    }
+    res.writeHead(path === "/api/v1/public/platform" ? 503 : 404).end();
+  });
+  await new Promise((resolve) => stub.listen(Number(apiPort), "127.0.0.1", resolve));
+}
 const children = [];
 const failures = [];
 const fail = (label, message) => failures.push(`${label}: ${message}`);
@@ -64,9 +113,7 @@ async function serve(dir, port) {
   const url = `http://localhost:${port}`;
   if (await answers(url)) throw new Error(`${url} is already answering; choose another port`);
   if (!existsSync(dir + "/apps/web/.next/BUILD_ID")) throw new Error(`${dir} has no production build (npm run build)`);
-  const apiPort = env.MOTION_API_PORT ?? "4931";
-  if (await answers(`http://127.0.0.1:${apiPort}/health`))
-    throw new Error(`port ${apiPort} answers; the check needs an unused API port (MOTION_API_PORT)`);
+  await startStub();
   const child = spawn(
     process.execPath,
     [dir + "/node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
@@ -171,7 +218,10 @@ function hiddenText() {
   for (const el of document.querySelectorAll("header *, main *, footer *")) {
     const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim().length > 1);
     if (!own) continue;
-    if (el.closest("details:not([open]) > :not(summary), [hidden], .mk-dropdown, .sr-only, script, style, noscript")) continue;
+    // The journey's stage is a decorative illustration (aria-hidden) whose
+    // other chapters and, on phones, other side wait at opacity 0;
+    // scripts/marketing-motion-check.mjs checks its words.
+    if (el.closest("details:not([open]) > :not(summary), [hidden], .mk-dropdown, .sr-only, .mk-walk-stage, script, style, noscript")) continue;
     if (!el.checkVisibility()) continue; // no box: a responsive or closed part
     scanned++;
     if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
@@ -466,7 +516,7 @@ const browser = await chromium.launch({
   ...(executablePath ? { executablePath } : {}),
   args: ["--disable-background-networking", "--disable-component-update"],
 });
-const results = { at: new Date().toISOString(), runs: RUNS, throttle: THROTTLE, builds: {} };
+const results = { at: new Date().toISOString(), runs: RUNS, throttle: THROTTLE, platform: PLATFORM, builds: {} };
 try {
   const newUrl = env.MOTION_NEW_URL ?? (await serve(root.replace(/\/$/, ""), env.MOTION_WEB_PORT ?? "3931"));
   const baseUrl =
@@ -563,6 +613,7 @@ try {
     try {
       process.kill(-c.pid, "SIGTERM");
     } catch {}
+  stub?.close();
   log.end();
 }
 results.failures = failures;

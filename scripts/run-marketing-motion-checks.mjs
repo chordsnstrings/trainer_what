@@ -8,11 +8,13 @@
 //    3967/4967);
 // 2. the sitewide microanimations
 //    (scripts/marketing-motion-sitewide-check.mjs, `npm run
-//    test:marketing-motion-sitewide`): no API, the default platform; with
-//    MOTION_BASE_DIR (a built checkout of the release before the motion
-//    work) or MOTION_BASELINE it also compares LCP, CLS and long tasks with
-//    that base; ports MOTION_WEB_PORT / MOTION_BASE_PORT / MOTION_API_PORT
-//    (default 3931/3932/4931).
+//    test:marketing-motion-sitewide`): the same platform stub with the
+//    launch gate open (MOTION_PLATFORM=closed for the fallback platform),
+//    so / and /how-it-works carry the player; with MOTION_BASE_DIR (a built
+//    checkout of the release before the motion work) or MOTION_BASELINE it
+//    also compares LCP, CLS and long tasks with that base; ports
+//    MOTION_WEB_PORT / MOTION_BASE_PORT / MOTION_API_PORT (default
+//    3931/3932/4931).
 // The second runs even when the first fails; the exit code is 1 when either
 // failed. The environment passes through to both.
 import { spawn } from "node:child_process";
@@ -26,7 +28,7 @@ const checks = [
   },
   {
     name: "sitewide microanimations",
-    args: ["scripts/marketing-motion-sitewide-check.mjs"],
+    args: ["--import", "tsx", "scripts/marketing-motion-sitewide-check.mjs"],
   },
 ];
 const results = [];

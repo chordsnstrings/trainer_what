@@ -2193,13 +2193,19 @@ a.mk-nav-top {
 .mk .mk-walk-btn {
   transition: scale var(--mk-dur-fast) var(--mk-ease-out);
 }
+/* The menu's press and the disclosures' unfold are the tap feedback; the
+   browser's own tap flash (blue in Chrome) is off, as for buttons and
+   links (globals.css). */
+:is(.mk, .mk-header, .mk-footer) summary {
+  -webkit-tap-highlight-color: transparent;
+}
 .mk-footer .mk-footer-prefs {
   display: inline-block;
 }
 :is(.mk, .mk-header) .button:active:not(:disabled),
 .mk-mobile-menu > summary:active,
 .mk-footer .mk-footer-prefs:active,
-.mk .mk-walk-btn:active:not(:disabled) {
+.mk .mk-walk-btn:active:not([aria-disabled="true"]) {
   scale: 0.97;
   transition-duration: var(--mk-dur-press);
   transition-timing-function: var(--mk-ease-in);

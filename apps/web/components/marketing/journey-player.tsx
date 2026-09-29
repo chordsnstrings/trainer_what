@@ -2,7 +2,12 @@
 // The coach-to-subscriber journey's only client code: the control bar, the
 // chapter clock and the root's data attributes. The stage (the mocks) and
 // the step captions are server-rendered and arrive as slots, so they never
-// enter the JavaScript bundle. React only; no animation library.
+// enter the JavaScript bundle. Each slot sits in its own <Activity> (always
+// visible): the server still sends it complete and in place, but the
+// browser hydrates it after the controls, at low priority and in small,
+// interruptible pieces instead of one long task; the wrappers are memoised,
+// so this component's re-renders never reach them. React only; no
+// animation library.
 //
 // Motion: the stage's beats are CSS keyframes (app/marketing-journey.css)
 // that run while the root carries data-run, and pause (animation-play-state)
@@ -15,8 +20,10 @@
 // are never played or paused through the API: that would detach them from
 // the style sheet, and a removed animation would keep running.
 import {
+  Activity,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -110,6 +117,8 @@ export function JourneyPlayer({
   stage,
   captions,
   foot,
+  subs,
+  subLabel,
 }: {
   variant: "full" | "compact";
   /** The id of the visible label that names the chapter buttons' group. */
@@ -123,7 +132,21 @@ export function JourneyPlayer({
   stage: ReactNode;
   captions?: ReactNode;
   foot?: ReactNode;
+  /** Compact: each chapter's subscriber line, shown under its title. */
+  subs?: string[];
+  /** Compact: the label before the subscriber line (server-rendered). */
+  subLabel?: ReactNode;
 }) {
+  // The server-rendered slots, hydrated late (see above); the same objects
+  // on every render.
+  const stageNode = useMemo(
+    () => <Activity mode="visible">{stage}</Activity>,
+    [stage],
+  );
+  const captionsNode = useMemo(
+    () => captions && <Activity mode="visible">{captions}</Activity>,
+    [captions],
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const [chapter, setChapter] = useState(0);
@@ -133,7 +156,8 @@ export function JourneyPlayer({
   // them.
   const [run, setRun] = useState(false);
   const [runKey, setRunKey] = useState(0);
-  // The visitor paused: nothing moves until Play.
+  // The visitor paused (Pause, keyboard focus, a touch on the step cards):
+  // nothing moves until Play.
   const [hold, setHold] = useState(false);
   const [ready, setReady] = useState(false);
   const [reduced, setReduced] = useState(false);
@@ -142,36 +166,46 @@ export function JourneyPlayer({
   const [hover, setHover] = useState(false);
   const [said, setSaid] = useState("");
 
-  // Soft pauses resume by themselves; the visitor's pauses do not.
-  const soft = !inView || !pageVisible || hover;
-  const clockOn = mode === "playing" && !soft;
-  const frozen = hold || (mode === "playing" && soft);
+  // Soft pauses resume by themselves; the visitor's pauses do not. Off
+  // screen or in a hidden tab everything holds; a mouse over the player only
+  // stops the chapter clock, so the chapter's beats finish and its complete
+  // picture stays while the visitor looks at it.
+  const away = !inView || !pageVisible;
+  const clockOn = mode === "playing" && !away && !hover;
+  const frozen = hold || (mode === "playing" && away);
 
   const chapterRef = useRef(chapter);
   chapterRef.current = chapter;
   const clockOnRef = useRef(clockOn);
   clockOnRef.current = clockOn;
   const clock = useRef<Animation | null>(null);
+  // Whether a mouse entering the player counts as hovering: not after an
+  // explicit Play or Replay until the pointer has left once (swapping the
+  // button's icon under a resting pointer also reads as an entry).
+  const hoverArmed = useRef(true);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const last = timing.length - 1;
 
   const rtl = () =>
     !!rootRef.current && getComputedStyle(rootRef.current).direction === "rtl";
 
-  /** Shows chapter `i` and plays its beats; a manual choice stops auto-play. */
-  const show = (i: number, manual: boolean) => {
+  /**
+   * Shows chapter `i` and plays its beats; a manual choice stops auto-play.
+   * `announce`: say the step's name in the live region, for changes where
+   * focus does not land on the chapter's own button (Previous, Next, a
+   * swipe, a card); never during auto-play.
+   */
+  const show = (i: number, manual: boolean, announce = false) => {
     const next = Math.max(0, Math.min(last, i));
     setChapter(next);
     setRun(!reducedNow());
     setRunKey((k) => k + 1);
     setHold(false);
-    if (manual) {
-      setMode("paused");
-      // Announced only after manual navigation, never during auto-play.
+    if (manual) setMode("paused");
+    if (announce)
       setSaid((prior) =>
         prior === titles[next] ? titles[next] + "\u00a0" : titles[next],
       );
-    }
   };
   const advance = () => {
     const c = chapterRef.current;
@@ -255,9 +289,13 @@ export function JourneyPlayer({
       setInView(true);
       return;
     }
+    // Several entries can arrive in one callback (a fast scroll, a busy
+    // main thread); the latest one is the current state.
     const observer = new IntersectionObserver(
-      ([entry]) =>
-        setInView(entry.isIntersecting && entry.intersectionRatio >= 0.49),
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        setInView(entry.isIntersecting && entry.intersectionRatio >= 0.49);
+      },
       { threshold: [0, 0.5, 1] },
     );
     observer.observe(el);
@@ -274,9 +312,11 @@ export function JourneyPlayer({
       setMode("playing");
   }, [mode, ready, inView, pageVisible]);
 
-  // Phones: the step cards are a scroll-snap carousel. A chapter change
+  // The step cards are a scroll-snap carousel (on phones always; wider, once
+  // this island is ready: four or two cards in view). A chapter change
   // scrolls it to the chapter's card (never the page); a scroll the visitor
-  // started selects the card it settles on.
+  // started selects the card it settles on. Only while it scrolls is it a
+  // keyboard stop (its arrows scroll it); otherwise it is plain content.
   const scroller = () =>
     rootRef.current?.querySelector<HTMLElement>(".mk-walk-steps") ?? null;
   const carousel = (el: HTMLElement | null): el is HTMLElement =>
@@ -288,7 +328,14 @@ export function JourneyPlayer({
     const pad = parseFloat(getComputedStyle(sc).scrollPaddingInlineStart) || 0;
     return rtl() ? r.right - (s.right - pad) : r.left - (s.left + pad);
   };
+  // Not on mount (the first card is already in place): reading the
+  // layout there would force it in the middle of hydration.
+  const cardsMounted = useRef(false);
   useEffect(() => {
+    if (!cardsMounted.current) {
+      cardsMounted.current = true;
+      return;
+    }
     const sc = scroller();
     if (!carousel(sc)) return;
     const card = sc.querySelector<HTMLElement>(`[data-step="${chapter + 1}"]`);
@@ -320,7 +367,7 @@ export function JourneyPlayer({
           best = Number(card.dataset.step) - 1;
         }
       }
-      if (best >= 0 && best !== chapterRef.current) show(best, true);
+      if (best >= 0 && best !== chapterRef.current) show(best, true, true);
     };
     // Without scrollend, a pause in scrolling counts as its end.
     const scrollEnd = "onscrollend" in window;
@@ -343,6 +390,18 @@ export function JourneyPlayer({
       sc.removeEventListener("scrollend", settled);
     };
   }, []);
+  // Measured in a ResizeObserver callback (it runs after layout, so the
+  // read never forces one; it also runs once when observing starts).
+  useEffect(() => {
+    const sc = scroller();
+    if (!sc || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+      if (sc.scrollWidth > sc.clientWidth + 1) sc.tabIndex = 0;
+      else sc.removeAttribute("tabindex");
+    });
+    observer.observe(sc);
+    return () => observer.disconnect();
+  }, [ready]);
 
   const stop = () => {
     if (mode === "playing" || mode === "idle") {
@@ -354,13 +413,15 @@ export function JourneyPlayer({
     if (mode === "playing") {
       setMode("paused");
       setHold(true);
-    } else if (mode === "ended") {
-      show(0, false);
-      setMode("playing");
-    } else {
-      setHold(false);
-      setMode("playing");
+      return;
     }
+    // An explicit Play or Replay wins over the mouse resting on the player;
+    // the hover pause comes back once the pointer has left and re-entered.
+    hoverArmed.current = false;
+    setHover(false);
+    if (mode === "ended") show(0, false);
+    else setHold(false);
+    setMode("playing");
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const back = rtl() ? "ArrowRight" : "ArrowLeft",
@@ -391,14 +452,16 @@ export function JourneyPlayer({
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const card = (e.target as Element).closest?.<HTMLElement>("[data-step]");
     if (card && rootRef.current?.contains(card))
-      show(Number(card.dataset.step) - 1, true);
+      show(Number(card.dataset.step) - 1, true, true);
   };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     // Touching the step cards holds the one being read.
     if ((e.target as Element).closest?.(".mk-walk-steps")) stop();
   };
   const hovering = (on: boolean) => (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === "mouse") setHover(on);
+    if (e.pointerType !== "mouse") return;
+    if (!on) hoverArmed.current = true;
+    setHover(on && hoverArmed.current);
   };
   const onSwipeEnd = (e: PointerEvent<HTMLDivElement>) => {
     const s = swipe.current;
@@ -407,7 +470,7 @@ export function JourneyPlayer({
     const dx = e.clientX - s.x,
       dy = e.clientY - s.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy))
-      show(chapter + (dx < 0 !== rtl() ? 1 : -1), true);
+      show(chapter + (dx < 0 !== rtl() ? 1 : -1), true, true);
   };
 
   const t = timing[chapter];
@@ -455,10 +518,17 @@ export function JourneyPlayer({
           swipe.current = null;
         }}
       >
-        {stage}
+        {stageNode}
       </div>
       {variant === "compact" && (
-        <p className="mk-walk-caption">{titles[chapter]}</p>
+        <div className="mk-walk-cap">
+          <p className="mk-walk-caption">{titles[chapter]}</p>
+          {subs?.[chapter] && (
+            <p className="mk-walk-then">
+              {subLabel} <span>{subs[chapter]}</span>
+            </p>
+          )}
+        </div>
       )}
       <div className="mk-walk-bar">
         <button
@@ -477,13 +547,15 @@ export function JourneyPlayer({
             }
           />
         </button>
+        {/* At either end the arrow stays focusable (aria-disabled, not
+            disabled), so keyboard focus is never dropped to the page. */}
         {variant === "full" && (
           <button
             type="button"
             className="mk-walk-btn"
             aria-label="Previous step"
-            disabled={chapter === 0}
-            onClick={() => show(chapter - 1, true)}
+            aria-disabled={chapter === 0 ? true : undefined}
+            onClick={() => chapter > 0 && show(chapter - 1, true, true)}
           >
             <Icon name="back" />
           </button>
@@ -521,14 +593,14 @@ export function JourneyPlayer({
             type="button"
             className="mk-walk-btn"
             aria-label="Next step"
-            disabled={chapter === last}
-            onClick={() => show(chapter + 1, true)}
+            aria-disabled={chapter === last ? true : undefined}
+            onClick={() => chapter < last && show(chapter + 1, true, true)}
           >
             <Icon name="next" />
           </button>
         )}
       </div>
-      {captions}
+      {captionsNode}
       {foot}
       <p className="sr-only" aria-live="polite">
         {said}

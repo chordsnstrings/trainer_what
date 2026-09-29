@@ -494,7 +494,9 @@ test("one set of motion tokens; the journey player shares the sitewide press and
   const rules = cssRules(await readFile(web("app/marketing.css"), "utf8"));
   // The player's control buttons press like every other button, and hold
   // still under reduced motion.
-  const press = rules.find((r) => r.selectors.includes(".mk .mk-walk-btn:active:not(:disabled)"));
+  // (Previous and Next at either end are aria-disabled, not disabled, and
+  // do not press.)
+  const press = rules.find((r) => r.selectors.includes('.mk .mk-walk-btn:active:not([aria-disabled="true"])'));
   assert.ok(press && press.selectors.includes(":is(.mk, .mk-header) .button:active:not(:disabled)"), "the journey buttons share the press");
   assert.ok(
     rules.some(

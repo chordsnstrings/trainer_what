@@ -17,6 +17,17 @@
   /* The demo coach's colour inside the phone (white text 9.6:1). */
   --walk-coach: #244c46;
   --walk-stage: var(--mk-band);
+  /* The mocks' text scales with their frames, computed from the viewport
+     rather than with container queries (those cost the first paint about
+     50 ms with the CPU throttled 4x, measured): the container's content
+     width, the stage's content width (2% padding each side and a 1px
+     border) and each frame's share of it (the grid columns below).
+     scripts/marketing-motion-check.mjs checks the result against the
+     frames' real widths at every tested width. */
+  --walk-wc: min(100vi - 2 * var(--mk-gutter), var(--mk-max));
+  --walk-s: calc(var(--walk-wc) * 0.96 - 2px);
+  --walk-cw: 0.58;
+  --walk-pw: 0.19;
   min-inline-size: 0;
 }
 .mk-walk-full {
@@ -43,7 +54,6 @@
   border: 1px solid var(--mk-line);
   border-radius: 8px;
   overflow: clip;
-  container-type: inline-size;
   touch-action: pan-y;
   user-select: none;
   color: var(--ink);
@@ -57,10 +67,17 @@
   grid-template-areas: "coach wire phone";
   aspect-ratio: 16 / 10;
 }
+/* The honesty label: the journey's own (the hero relay hides its label on
+   phones; this one stays at every width, like the sample data it labels). */
 .w-tag {
   grid-area: tag;
   justify-self: start;
   margin: 0 0 0.4em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .w-chip {
   display: none;
@@ -68,7 +85,6 @@
 .w-frame {
   position: relative;
   min-inline-size: 0;
-  container-type: inline-size;
 }
 .w-coach {
   grid-area: coach;
@@ -88,12 +104,14 @@
   border: 1px solid var(--mk-line);
   border-radius: 8px;
   box-shadow: var(--mk-shadow);
-  font-size: max(11px, 2.4cqi);
+  /* 2.4% of the laptop frame's width, never below 11px. */
+  font-size: max(11px, calc(var(--walk-s) * var(--walk-cw) * 0.024));
 }
 .w-phone .w-dev {
   border: 2px solid var(--ink);
   border-radius: 18px;
-  font-size: max(11px, 5.4cqi);
+  /* 5.4% of the phone frame's width. */
+  font-size: max(11px, calc(var(--walk-s) * var(--walk-pw) * 0.054));
 }
 /* The arrival ring. */
 .w-frame::after {
@@ -290,9 +308,30 @@
 .mk-walk:not([data-back]) .w-ret {
   opacity: 0;
 }
+/* Chapter 8: the payout crosses back as a solid, lime-backed line (the
+   dashed return means "handed to you" in chapters 6 and 7). */
+.mk-walk[data-chapter="8"] .w-ret::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-inline: 7px 0;
+  inset-block-start: 5px;
+  block-size: 2px;
+  background: var(--ink);
+}
+.mk-walk[data-chapter="8"] .w-ret .w-trail {
+  inset-block-start: 2px;
+  block-size: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--lime);
+}
+.mk-walk[data-chapter="8"] .w-ret .w-trail::after {
+  inset-block-start: -1px;
+}
 
 /* Mock parts. Every size is in em of the frame's text, which scales with
-   the frame (cqi) and never goes below 11px. */
+   the frame (see .mk-walk) and never goes below 11px. */
 .w-pane,
 .w-f,
 .w-card {
@@ -347,8 +386,16 @@
 .w-link {
   position: relative;
   overflow: hidden;
-  overflow-wrap: anywhere;
   font-weight: 600;
+}
+.w-addr,
+.w-link {
+  overflow-wrap: anywhere;
+}
+/* An address bar never wraps: a long address trims, as in a browser. */
+.w-url {
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .w-cover {
   position: absolute;
@@ -728,14 +775,19 @@
 }
 .w-sheet {
   position: absolute;
-  inset-inline: 0.2em;
-  inset-block-start: 9.4em;
+  inset-inline: 0;
+  inset-block-start: 11.2em;
   box-shadow: var(--mk-shadow);
 }
 .w-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35em;
+}
+/* The intake sheet keeps its card padding (the list reset above removes
+   it from plain lists only). */
+.w-card.w-chips {
+  padding: 0.55em 0.6em;
 }
 .w-sets {
   display: flex;
@@ -875,11 +927,12 @@
     var(--w-show, none) var(--mk-dur-slow) var(--mk-ease-out) var(--d) both,
     var(--w-hide, none) var(--mk-dur-base) var(--mk-ease-in) var(--e) forwards;
 }
-/* Paused means nothing moves: the beats hold where they are and continue
-   from there. */
-.mk-walk[data-hold] *,
-.mk-walk[data-hold] *::before,
-.mk-walk[data-hold] *::after {
+/* Paused means nothing on the stage moves: the beats, the wire and the
+   frames hold where they are and continue from there. Only the stage: the
+   controls (the Play/Pause icon's fade) never pause. */
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], [data-b] i, .w-trail, .w-dot, .w-frame, .w-fill),
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], .w-frame)::before,
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], .w-frame)::after {
   animation-play-state: paused !important;
 }
 /* The shared wire and the frames restart with each chapter. */
@@ -1071,8 +1124,11 @@
   color: var(--ink);
   cursor: pointer;
 }
-.mk-walk-btn:disabled {
+/* Previous at the first step and Next at the last stay focusable
+   (aria-disabled) and look inactive. */
+.mk-walk-btn[aria-disabled="true"] {
   color: var(--muted);
+  background: var(--mk-band);
   cursor: default;
 }
 .mk-walk-play svg {
@@ -1101,8 +1157,11 @@
   border-radius: 3px;
   background: var(--mk-line);
 }
+/* The current step: a lime track ringed in ink, the ink fill growing over
+   it (lime only behind ink). */
 .mk-walk-seg[aria-current] > span {
-  background: color-mix(in srgb, var(--ink) 30%, var(--mk-line));
+  background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
 .mk-walk-seg i {
   display: block;
@@ -1147,22 +1206,78 @@
   border-color: var(--ink);
 }
 .mk-walk-steps .mk-walk-sub {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  display: grid;
+  gap: 4px;
   margin-block-start: 10px;
   padding-block-start: 10px;
   border-block-start: 1px solid var(--mk-line);
   font-size: 14px;
   color: var(--ink);
 }
-.mk-walk-sub svg {
+/* "Your subscriber": the visible label before each subscriber line. */
+.mk-walk-sub-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.mk-walk-sub-label svg {
   flex: none;
-  margin-block-start: 3px;
 }
 @media (min-width: 1150px) {
   .mk-walk-steps .mk-steps {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+/* Wider screens: once the island runs, the cards are a carousel too (two
+   in view, four from 1150px), so the active card is always on screen; the
+   chapter change scrolls it into view (journey-player.tsx). Without
+   JavaScript they stay a grid with every card in view. */
+@media (min-width: 761px) {
+  .mk-walk[data-ready] .mk-walk-steps {
+    overflow-x: auto;
+    scroll-snap-type: inline mandatory;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  .mk-walk[data-ready] .mk-walk-steps .mk-steps {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: calc((100% - 12px) / 2);
+    gap: 12px;
+  }
+  .mk-walk[data-ready] .mk-walk-steps li {
+    scroll-snap-align: start;
+  }
+}
+/* From 1024px: a larger subscriber phone (its text about the coach
+   window's size), its foot cropped by the stage like a device rising from
+   the edge. */
+@media (min-width: 1024px) {
+  .mk-walk-full {
+    --walk-cw: 0.56;
+    --walk-pw: 0.26;
+  }
+  .mk-walk-full .mk-walk-stage {
+    grid-template-columns: minmax(0, 56fr) minmax(0, 18fr) minmax(0, 26fr);
+  }
+  .mk-walk-full .w-phone {
+    align-self: start;
+    aspect-ratio: 9 / 16;
+  }
+}
+@media (min-width: 1150px) {
+  .mk-walk[data-ready] .mk-walk-steps .mk-steps {
+    grid-auto-columns: calc((100% - 3 * 12px) / 4);
+  }
+  /* A shorter stage: the header, the stage, the controls and a full row of
+     cards fit a 900px screen. */
+  .mk-walk-full .mk-walk-stage {
+    aspect-ratio: 5 / 2;
   }
 }
 
@@ -1179,18 +1294,40 @@
 .mk-walk-compact .mk-walk-view {
   grid-area: view;
 }
+@media (min-width: 1024px) {
+  .mk-walk-compact {
+    --walk-s: calc((var(--walk-wc) - 56px) * 7 / 12 * 0.96 - 2px);
+  }
+}
 .mk-walk-label {
   grid-area: label;
   margin: 0;
 }
-.mk-walk-caption {
+.mk-walk-cap {
   grid-area: cap;
+  display: grid;
+  gap: 10px;
+}
+.mk-walk-caption {
   min-block-size: 2.3em;
   margin: 0;
   font-size: clamp(24px, 2.6vw, 34px);
   line-height: 1.15;
   letter-spacing: -0.03em;
   font-weight: 540;
+}
+/* What the step means for the subscriber: the same registry line as on
+   /how-it-works. Its space is reserved (the longest line), so changing
+   chapters never moves the controls. */
+.mk-walk-then {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-block-size: calc(22px + 2lh);
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
 }
 .mk-walk-compact .mk-walk-bar {
   grid-area: bar;
@@ -1201,7 +1338,7 @@
 }
 
 @media (hover: hover) {
-  .mk-walk-btn:hover:not(:disabled) {
+  .mk-walk-btn:hover:not([aria-disabled="true"]) {
     background: var(--mk-band);
   }
   .mk-walk-seg:hover > span {
@@ -1214,6 +1351,10 @@
 }
 
 @media (max-width: 1023px) {
+  .mk-walk-full {
+    --walk-cw: 0.6;
+    --walk-pw: 0.22;
+  }
   .mk-walk-full .mk-walk-stage {
     grid-template-columns: minmax(0, 60fr) minmax(0, 18fr) minmax(0, 22fr);
     aspect-ratio: 16 / 9;
@@ -1229,9 +1370,16 @@
    arrival the frames swap: the side shown first leaves, the other enters;
    base styles show the chapter's last side. */
 @media (max-width: 760px) {
+  /* One frame at a time across the stage (8px padding): the laptop is the
+     whole width, the phone 76% of it. */
+  .mk-walk.mk-walk {
+    --walk-s: calc(var(--walk-wc) - 18px);
+    --walk-cw: 1;
+    --walk-pw: 0.76;
+  }
   .mk-walk .mk-walk-stage {
-    grid-template-columns: 40px minmax(0, 1fr) 40px;
-    grid-template-rows: auto 36px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto 32px minmax(0, 1fr);
     grid-template-areas: "tag tag tag" "cc wire pc" "frame frame frame";
     align-items: start;
     row-gap: 8px;
@@ -1239,7 +1387,7 @@
     padding: 8px;
   }
   .mk-walk-compact .mk-walk-stage {
-    grid-template-rows: 36px minmax(0, 1fr);
+    grid-template-rows: 32px minmax(0, 1fr);
     grid-template-areas: "cc wire pc" "frame frame frame";
   }
   .mk-walk-stage::after {
@@ -1247,30 +1395,41 @@
     position: absolute;
     inset-inline: 0;
     inset-block-end: 0;
-    block-size: 36px;
+    block-size: 24px;
     background: linear-gradient(transparent, var(--walk-stage));
     pointer-events: none;
   }
+  /* The strip: "You" (laptop) and "Your subscriber" (phone), borderless
+     so neither reads as a button; the side on screen sits on lime. */
+  .mk-walk .w-tag {
+    margin: 0 0 2px;
+  }
   .w-chip {
     position: relative;
-    display: grid;
-    place-items: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     grid-area: cc;
-    block-size: 36px;
-    border: 1px solid var(--mk-line);
-    border-radius: 8px;
-    background: var(--ty-white);
+    min-inline-size: 40px;
+    block-size: 32px;
+    padding-inline: 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+    color: var(--ink);
   }
   .w-pc {
     grid-area: pc;
   }
-  .w-chip svg {
+  .w-chip > :not(.w-fill) {
     position: relative;
   }
   .w-fill {
     position: absolute;
     inset: 0;
-    border-radius: 7px;
+    border-radius: inherit;
     background: var(--lime);
   }
   .w-wire {
@@ -1287,7 +1446,31 @@
   }
   .w-phone {
     justify-self: center;
-    inline-size: 60%;
+    inline-size: 76%;
+  }
+  /* The full player's coach window: taller, with text of at least 12.5px. */
+  .mk-walk-full .w-coach {
+    align-self: start;
+    aspect-ratio: 4 / 3;
+  }
+  .mk-walk-full .w-coach .w-dev {
+    font-size: max(12.5px, calc(var(--walk-s) * 0.036));
+  }
+  /* Chapter 6, the densest phone: its pain report stays above the fade. */
+  .w-set {
+    min-block-size: 1.5em;
+  }
+  .w-sets > .w-pane {
+    gap: 0.25em;
+  }
+  .w-phone .w-card {
+    padding: 0.6em;
+  }
+  .mk-walk-compact .mk-walk-stage {
+    aspect-ratio: 4 / 3;
+  }
+  .mk-walk-then {
+    min-block-size: calc(22px + 3lh);
   }
   .w-fill {
     --w-out: mk-walk-hide;
@@ -1322,7 +1505,7 @@
       var(--w-out) var(--mk-dur-base) var(--mk-ease-in) var(--w-sw2) forwards;
   }
   .mk-walk-bar {
-    gap: 0;
+    gap: 6px;
   }
   /* The steps become a scroll-snap carousel (pure CSS, with or without
      JavaScript); the next card peeks in. */
@@ -1335,14 +1518,29 @@
     overscroll-behavior-inline: contain;
     scrollbar-width: none;
   }
+  /* The list is as wide as its cards (each 86% of the scroller's content
+     box, which is the container's content width), so the scroller's end
+     padding follows the last card: it stops a gutter from the edge, like
+     the first. */
   .mk-walk-steps .mk-steps {
+    inline-size: max-content;
     grid-template-columns: none;
     grid-auto-flow: column;
-    grid-auto-columns: 86%;
+    grid-auto-columns: calc(var(--walk-wc) * 0.86);
     gap: 12px;
   }
   .mk-walk-steps li {
     scroll-snap-align: start;
+  }
+}
+/* The narrowest phones: slimmer arrows, so each step's segment keeps a
+   24px target. */
+@media (max-width: 380px) {
+  .mk-walk-bar {
+    gap: 4px;
+  }
+  .mk-walk-full .mk-walk-btn {
+    inline-size: 40px;
   }
 }
 

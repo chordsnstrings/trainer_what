@@ -180,10 +180,10 @@ test("the steps stay real HTML and the HowTo JSON-LD is unchanged", () => {
     html,
     /<button type="button" class="mk-walk-btn mk-walk-play" aria-label="Play">/,
   );
-  assert.match(
-    html,
-    /<div class="mk-walk-steps" role="region" tabindex="0" aria-labelledby="steps-h">/,
-  );
+  // The steps' scroller is plain content (the section is the one region);
+  // the island makes it a keyboard stop only while it scrolls.
+  assert.match(html, /<div class="mk-walk-steps"><ol class="mk-steps">/);
+  assert.equal([...html.matchAll(/role="region"/g)].length, 0);
   assert.match(html, /<p class="sr-only" aria-live="polite"><\/p>/);
 });
 
@@ -201,8 +201,21 @@ test("each subscriber line is registry text, looked up, never copied", () => {
     "A note when their trainer is reviewing a change.",
     "Subscribers pay you monthly or upfront, by card, in AED.",
   ]);
-  for (const line of lines)
-    assert.ok(html.includes("Your subscriber: " + line), line);
+  // Each follows a visible "Your subscriber" label (its colon for screen
+  // readers only), in its step's card.
+  const raw = render("/how-it-works");
+  const subs = [...raw.matchAll(/<p class="mk-walk-sub">([\s\S]*?)<\/p>/g)].map(
+    (m) => m[1],
+  );
+  assert.equal(subs.length, 8);
+  subs.forEach((sub, i) => {
+    assert.match(
+      sub,
+      /^<span class="mk-walk-sub-label"><svg[^>]*>[\s\S]*?<\/svg>Your subscriber<span class="sr-only">:<\/span><\/span> <span>/,
+    );
+    assert.equal(decode(sub), "Your subscriber : " + lines[i]);
+  });
+  for (const line of lines) assert.ok(html.includes(line), line);
   // "Your subscriber" is the existing column header on the same page.
   assert.ok(
     how.sections
@@ -246,7 +259,7 @@ test("the launch gate: no player until a coach can launch, and then the base ste
   assert.match(render("/"), /class="mk-walk mk-walk-compact"/);
 });
 
-test("the home band adds no heading, no sentence and no words in its stage", () => {
+test("the home band adds no heading, no new sentence and no words in its stage", () => {
   const html = render("/");
   const band = element(
     html,
@@ -262,13 +275,20 @@ test("the home band adds no heading, no sentence and no words in its stage", () 
   );
   assert.doesNotMatch(band, /<h[1-6][\s>]/);
   assert.equal(decode(element(band, /<div class="mk-walk-stage"/)), "");
+  // The label, the active step's title, what it means for the subscriber
+  // (the registry line /how-it-works shows, after the "Who does what"
+  // column header) and the link.
   assert.equal(
     decode(band),
-    "Eight steps, start to finish Claim your address See how it works",
+    "Eight steps, start to finish Claim your address Your subscriber : " +
+      registryLine(SUBSCRIBER_LINES[0]) +
+      " See how it works",
+  );
+  assert.match(
+    band,
+    /<p class="mk-walk-then"><span class="mk-walk-sub-label">[\s\S]*?Your subscriber<span class="sr-only">:<\/span><\/span> <span>Your brand: name, colours, logo and an installable home-screen icon\.<\/span><\/p>/,
   );
   assert.match(band, /href="\/how-it-works#steps"/);
-  // Visible words the band adds (the label, one title, the link).
-  assert.ok(decode(band).split(" ").length <= 13);
 });
 
 // Words the mocks may use that are not elsewhere on the marketing site.

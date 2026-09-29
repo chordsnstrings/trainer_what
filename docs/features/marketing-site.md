@@ -959,17 +959,19 @@ track.
 - /how-it-works: the "Eight steps, start to finish" section keeps its h2 and
   `ol.mk-steps`, with the registry titles and bodies unchanged and the
   HowTo JSON-LD untouched. Each step adds one subscriber line, looked up
-  from the registry (never copied; a test resolves every lookup) behind a
-  visually hidden "Your subscriber:" (the column header of "Who does what"
-  on the same page). The steps show 4 columns from 1150 px, 2 below, and a
-  scroll-snap carousel on phones; the active step gets an ink edge and a
-  Pace bar, and a click on a card selects its chapter.
+  from the registry (never copied; a test resolves every lookup) after a
+  visible "Your subscriber" label (the column header of "Who does what"
+  on the same page; visually hidden until the second review). The steps
+  are a scroll-snap carousel at every width once the island runs (four in
+  view from 1150 px, two from 761 px, one and a peek on phones; the grid
+  without JavaScript); the active step gets an ink edge and a Pace bar,
+  and a click on a card selects its chapter.
 - Home: a paper band directly after the hero, with no heading (the six H2s
   and brand-check limits stay): the existing heading as a small label, the
-  active step's title, the controls and "See how it works" to
+  active step's title, its subscriber line (after "Your subscriber"; added
+  in the second review), the controls and "See how it works" to
   `/how-it-works#steps`. Its stage shows the same scenes with every word
-  replaced by a bar (no words in the stage). It adds at most 13 visible
-  words (label, one title, link).
+  replaced by a bar (no words in the stage).
 - The launch gate: the second half of the workflow (publish, join, pay,
   daily coaching, payouts) exists only once a coach can launch, so both
   placements render only while registration is open and the model,
@@ -979,13 +981,13 @@ track.
   the player stays hidden and appears by itself once those approvals are
   recorded (storyboard decision D10, needing the owner).
 - Honesty: sample data only ("Illustration with sample data" on the full
-  stage); no metrics, counts, revenue or amounts (prices and statement
+  stage, at every width since the second review); no metrics, counts, revenue or amounts (prices and statement
   values are placeholder bars; the statement has three rows and no total);
   no AI usage, cost, fee or model names anywhere in the mocks; only
   features available now (chapter 4's nutrition tier and voice add-on rows
   follow their `/features` availability). Chapter 1's phone has no Join
-  (nothing is published yet); chapter 5's follower joins, pays and answers
-  the intake.
+  and no address bar (nothing is published yet); chapter 5's follower
+  opens the address, joins, pays and answers the intake.
 - New visible words: "Evaluate" (the Scenario lab button), "LS" (the demo
   coach's initials) and the slug `layla-strength` inside the address built
   from the platform's `coachAddressTemplate`; control names "Replay" and
@@ -1016,11 +1018,13 @@ track.
   `animation-play-state` through `data-hold` instead.
 - Auto-play starts only when at least half of the stage is on screen and
   the tab is visible. It holds (and resumes by itself) when the stage
-  leaves the screen, the tab is hidden or a mouse rests on the player; it
-  stops until Play when keyboard focus enters the player, on Pause, a
+  leaves the screen or the tab is hidden; a mouse resting on the player
+  stops only the chapter clock (the beats finish; see the second review);
+  it stops until Play when keyboard focus enters the player, on Pause, a
   swipe, a chapter button, Previous or Next, or a touch on the step cards.
 - Phones (up to 760 px): a square stage showing one frame at a time under a
-  strip (laptop icon, wire, phone icon); at each crossing the frames swap
+  strip ("You" with a laptop, the wire, "Your subscriber" with a phone,
+  labelled since the second review); at each crossing the frames swap
   (the leaving one slides 12% towards the inline start and fades, the other
   enters). Mock text never goes below 11 px; the bar (Play, Previous, eight
   24 px-wide chapter targets, Next) fits one row at 360 px.
@@ -1032,7 +1036,8 @@ track.
   chapter buttons use a roving tabindex (arrows, mirrored in right to left,
   Home and End), carry `aria-current="step"` and are named "01 Claim your
   address" from the visible number and heading; a polite live region
-  announces the step only after manual navigation. The stage is
+  announces the step only after manual navigation that does not focus the
+  chapter's own button (Previous, Next, a swipe, a card). The stage is
   `aria-hidden`.
 - Right to left: everything uses logical properties; the coach sits at the
   inline start, the wires point from coach to phone, the platform mark is
@@ -1187,6 +1192,110 @@ Resolved so the two tracks behave as one:
   `/how-it-works`, `/demo`, `/features`, `/pricing` and the calculators and
   checks each H1 in the shared frame).
 
+## Second review of the combined motion work (29 September 2026, `ui/marketing-motion`)
+
+25 review findings on the journey player and the sitewide motion; the
+reference for the result is [marketing-motion.md](marketing-motion.md).
+No marketing text changed (`git diff c856d9d` on `marketing-content.ts`,
+`marketing.ts` and `brand.ts` is empty).
+
+Layout and legibility:
+
+- The step cards are a carousel at every width once the island runs (four
+  in view from 1150 px, two from 761 px), so chapters 5 to 8 no longer
+  play with their explanation off screen; the chapter change scrolls it
+  (never the page). From 1150 px the full stage is 5/2 (508 px at 1366)
+  instead of 21/9, so header, stage, controls and a full row of cards fit
+  900 px. Without JavaScript wider screens keep the grid.
+- Phones: the subscriber phone is 76% of the stage (text about 13 to 14 px
+  instead of the 11 px floor) and the coach window is 4/3 with text of at
+  least 12.5 px. The square stage stays: the suggested 6/5 cut chapter 6's
+  "Report pain / Workout paused" row off at 360 and 390 px (checked in
+  screenshots), so the strip is 32 px, the fade 24 px and chapter 6's set
+  rows and card padding tighter instead. The home band's stage is 4/3 on
+  phones.
+- "Illustration with sample data" is the journey's own label (`.w-tag`, no
+  longer the relay's class, which phones hide) and shows at every width.
+- The subscriber side is named on screen: a visible "Your subscriber" label
+  before each card's subscriber line (the colon stays for screen readers),
+  and on phones the strip names both sides, "You" (laptop) and "Your
+  subscriber" (phone), borderless, the side on screen on lime. Both are the
+  "Who does what" column headers. The home band shows the active step's
+  subscriber line under its title, in reserved space.
+- Controls: 6 px between buttons on phones (40 px arrows and 4 px at 380 px
+  and below, so each chapter segment keeps a 24 px target at 360 px); the
+  current segment is a lime track ringed in ink. The last phone card ends a
+  gutter from the edge (the list is as wide as its cards; the suggested
+  last-card margin shrank the card inside its grid track instead).
+- Scenes: chapter 6's card and its pain row and chapter 3's Evaluate row
+  have entry beats (each frame builds top to bottom); chapter 5's intake
+  sheet keeps its padding and lines up with the card above; the address
+  bar no longer wraps (it trims) and moved from chapter 1 (nothing is
+  published yet) to chapter 5, where the follower opens the link; chapter
+  8's payout crosses back solid and lime-backed. From 1024 px the phone
+  column is wider (56/18/26) and the phone 9/16, its foot cropped by the
+  stage.
+- No blue tap flash on the header menu or any disclosure.
+
+Behaviour:
+
+- The Play/Pause icon no longer disappears when the player is held: the
+  hold pauses only the stage's animated parts, so the icon's fade runs.
+- A mouse over the player stops only the chapter clock; the beats finish.
+  An explicit Play or Replay wins until the pointer leaves and comes back
+  (the button's icon swap under a resting pointer also reads as an entry,
+  so the hover pause is re-armed only by leaving).
+- Previous and Next stay focusable at either end (`aria-disabled`).
+- The in-view observer uses the latest entry of a batch.
+- The steps' scroller is no longer a second region with the section's
+  name, and it is a tab stop only while it scrolls.
+- The live region speaks only when focus does not land on the chapter's
+  own button (Previous, Next, a swipe, a card), so arrow keys read the step
+  once.
+
+Weight:
+
+- The stage and the steps each sit in a memoised `<Activity
+  mode="visible">` inside the island: still server-rendered in place, but
+  hydrated after the controls at low priority in interruptible pieces. A
+  `Suspense` boundary was tried first and rejected (the server streamed
+  both into hidden `<div>`s revealed by a script: hidden without
+  JavaScript and painted late).
+- The player's mount effects no longer read layout (the tab-stop check runs
+  in a ResizeObserver callback; the carousel scroll skips the mount), and
+  the hold rule no longer has a universal selector. A trace of
+  `/how-it-works` at 1366 (CPU 4x) went from 93 to 159 ms of long tasks
+  after the main script to 52 to 80 ms (base: 0 to 55 ms).
+- Declined: loading `marketing-journey.css` only where the player renders.
+  With the stylesheet's journey rules removed from the chunk (the same
+  request intercepted in both arms, eleven cold loads each, CPU 4x), first
+  paint on pages without the player did not change (390
+  `/earnings-calculator` 388 against 396 ms, 1366 `/pricing` 488 against
+  484 ms), so the regressions the review saw there were not the
+  stylesheet. Every component's CSS is imported in `app/layout.tsx` and
+  all pages share one catch-all route, and a stylesheet imported from a
+  component would break the node tests that render the site.
+- The frames' text no longer uses container queries: the sizes come from
+  the viewport and the known grid shares (`--walk-s`, `--walk-cw`,
+  `--walk-pw` on `.mk-walk`), and the journey check compares them with the
+  frames' real widths at every tested width. With the stage replaced by
+  nothing but its box (`content-visibility: hidden`), first paint on
+  `/how-it-works` at 1366 matched base (400 against 372 ms, nineteen loads
+  each); removing the container queries saved 30 to 70 ms of the roughly
+  90 to 150 ms in two such comparisons. The rest is drawing chapter 1's two
+  frames. See "Checks" in marketing-motion.md for the committed
+  comparison.
+
+Checks: `npm run test:marketing-motion`'s sitewide half now runs with the
+launch gate open (the same platform stub as the journey check), so `/` and
+`/how-it-works` are compared with the player; the journey check adds the
+sample-data label at every width, the Play icon's opacity while paused,
+focused and hovered, Play under a resting mouse, hover early in a chapter
+(the beats finish, the clock holds), focus kept on Next at the last step,
+the live region's quiet on arrow keys, the active card in view, one region
+for the steps, no layout shift on the home band, and the mocks' text size
+against the frames' real widths (181 checks).
+
 ## Not done / next
 
 - Journey: the owner decides D10 (keep the player hidden until a coach can
@@ -1197,13 +1306,14 @@ Resolved so the two tracks behave as one:
   section C) are not built. The sitewide microanimations (part B) are
   combined on `ui/marketing-motion` (tokens de-duplicated; see "Combined"
   above).
-- Combined weight: the journey stylesheet loads on every page, also while
-  the launch gate hides the player, and delays first paint by 12 to 48 ms
-  at 4x throttling over `mk/motion` alone on four of five probed pages; `npm run
-  test:marketing-motion` exits 1 on two desktop LCP comparisons (see
-  above). A decision for the owner or the next pass: accept it, trim the
-  journey stylesheet, or load it only where the player renders (the brief
-  placed the import in `app/layout.tsx`).
+- Journey weight (second review): with the launch gate open, the player's
+  first paint still costs `/how-it-works` roughly 50 to 120 ms at 4x CPU
+  throttling (the visible stage itself; see "Second review" above and
+  marketing-motion.md), so `npm run test:marketing-motion`'s sitewide half
+  exits 1 on the player pages. It needs the owner to accept that cost or
+  a lighter stage (fewer visible elements in chapter 1's two frames). The
+  same run also failed on pages without the player (see marketing-motion.md
+  for the numbers and the load on the machine).
 - Stage record: this package ran in parallel with others, so it does not edit
   `CLAUDE_HANDOFF.md`, `docs/COMPLETION_STAGES.md` or
   `docs/PROJECT_MEMORY.md`; the coordinating session records it there.

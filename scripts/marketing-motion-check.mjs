@@ -5,16 +5,23 @@
 // `npm run test:marketing-motion` runs it and then the sitewide check.
 //
 // Checks: the launch gate (no player while a coach cannot launch); the
-// player is visible with no horizontal overflow; auto-play starts only when
-// at least half of the stage is on screen and holds while it is not; Pause,
+// player is visible with no horizontal overflow; the "Illustration with
+// sample data" label shows at every width; auto-play starts only when at
+// least half of the stage is on screen and holds while it is not; Pause,
 // Play, Previous, Next and the chapter buttons work from the keyboard, with
-// the step's name and the live announcement; phones show one frame at a
-// time, swap at the crossing, keep mock text at 11px or more and fit the
-// controls in one row; reduced motion shows static complete chapters, never
-// auto-plays and moves nothing even after Play; without JavaScript every
-// step shows and no dead controls do; no layout shift while chapters change
-// (and through one full, sped-up pass that ends on Replay); stage text
-// passes WCAG AA contrast in every chapter; right to left mirrors. With the
+// the step's name, the live announcement (Previous and Next only; a chapter
+// button announces itself) and focus kept on Previous or Next at either
+// end; the Play/Pause icon stays visible when paused, focused or hovered; a
+// mouse over the player stops the chapter clock only (the chapter's beats
+// finish) and an explicit Play wins over it; the active step card is on
+// screen (the cards are a carousel at every width once the island runs);
+// phones show one frame at a time, swap at the crossing, keep mock text at
+// 11px or more and fit the controls in one row; reduced motion shows static
+// complete chapters, never auto-plays and moves nothing even after Play;
+// without JavaScript every step shows and no dead controls do; no layout
+// shift while chapters change (and through one full, sped-up pass that ends
+// on Replay; on the home band too); stage text passes WCAG AA contrast in
+// every chapter; right to left mirrors. With the
 // sitewide microanimations (components/marketing/motion.tsx): the section
 // reveal runs on the page but never marks the player, and the hero relay's
 // ring never pulses on the journey's copy of the mark (no double motion).
@@ -110,6 +117,57 @@ const away = (page) =>
       behavior: "instant",
     }),
   );
+/** The Play/Pause/Replay icon: its computed opacity and the button's name. */
+const icon = (page) =>
+  page.evaluate(() => {
+    const b = document.querySelector(".mk-walk-play");
+    const svg = b.querySelector("svg");
+    return {
+      label: b.getAttribute("aria-label"),
+      opacity: getComputedStyle(svg).opacity,
+      animation: svg
+        .getAnimations()
+        .map((a) => a.playState)
+        .join(),
+    };
+  });
+/**
+ * The mocks' text size against their frames: the CSS computes it from the
+ * viewport (no container queries), so it must match the share of each
+ * frame's real width it stands for (laptop 2.4%, or 3.6% on full phones;
+ * phone 5.4%), with the 11px (12.5px) floor, within 4%.
+ */
+const frameText = (page) =>
+  page.evaluate(() => {
+    const walk = document.querySelector(".mk-walk");
+    const phoneWidth = innerWidth <= 760;
+    const full = walk.classList.contains("mk-walk-full");
+    return [
+      [
+        ".w-coach",
+        phoneWidth && full ? 0.036 : 0.024,
+        phoneWidth && full ? 12.5 : 11,
+      ],
+      [".w-phone", 0.054, 11],
+    ].map(([sel, k, floor]) => {
+      const frame = walk.querySelector(sel);
+      const dev = frame.querySelector(".w-dev");
+      const want = Math.max(floor, frame.getBoundingClientRect().width * k);
+      const got = parseFloat(getComputedStyle(dev).fontSize);
+      return {
+        sel,
+        want: Number(want.toFixed(2)),
+        got: Number(got.toFixed(2)),
+        ok: Math.abs(got - want) <= want * 0.04,
+      };
+    });
+  });
+/** The live region's text. */
+const said = (page) =>
+  page.evaluate(
+    () =>
+      document.querySelector(".mk-walk [aria-live]")?.textContent.trim() ?? "",
+  );
 /** Share of the stage inside the viewport. */
 const ratio = (page) =>
   page.evaluate(() => {
@@ -192,6 +250,7 @@ const boxes = (page) =>
       ".mk-walk-bar",
       ".mk-walk-steps",
       ".mk-walk-caption",
+      ".mk-walk-then",
       ".w-coach",
       ".w-phone",
       ".w-wire",
@@ -351,6 +410,40 @@ for (const vp of VIEWPORTS) {
       !!stage && stage.width > 200 && stage.height > 150,
       JSON.stringify(stage),
     );
+    // The honesty label shows at every width (the sample data does).
+    const label = await page.evaluate(() => {
+      const el = document.querySelector(".mk-walk .w-tag");
+      const r = el?.getBoundingClientRect();
+      return {
+        text: el?.textContent,
+        visible: !!el?.checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+        }),
+        width: Math.round(r?.width ?? 0),
+        height: Math.round(r?.height ?? 0),
+        regions: document.querySelectorAll("#steps [role=region]").length,
+      };
+    });
+    check(
+      `${tag} sample-data label visible`,
+      label.text === "Illustration with sample data" &&
+        label.visible &&
+        label.width > 0 &&
+        label.height > 0,
+      JSON.stringify(label),
+    );
+    const text = await frameText(page);
+    check(
+      `${tag} mock text follows the frames`,
+      text.every((t) => t.ok),
+      JSON.stringify(text),
+    );
+    check(
+      `${tag} one region for the steps`,
+      label.regions === 0,
+      `${label.regions} inner region(s)`,
+    );
     if (vp.phone)
       check(
         `${tag} square stage`,
@@ -434,6 +527,13 @@ for (const vp of VIEWPORTS) {
       (await state(page)) === "paused",
       `state ${await state(page)}`,
     );
+    await page.waitForTimeout(400);
+    const focusedIcon = await icon(page);
+    check(
+      `${tag} Play icon visible while focused`,
+      focusedIcon.opacity === "1",
+      JSON.stringify(focusedIcon),
+    );
     check(
       `${tag} button reads Play`,
       (await play.getAttribute("aria-label")) === "Play",
@@ -466,11 +566,18 @@ for (const vp of VIEWPORTS) {
         running === 0,
       `state ${await state(page)}, clock ${JSON.stringify(paused1)}/${JSON.stringify(paused2)}, ${running} running`,
     );
+    const pausedIcon = await icon(page);
+    check(
+      `${tag} Play icon visible while paused`,
+      pausedIcon.opacity === "1" && pausedIcon.label === "Play",
+      JSON.stringify(pausedIcon),
+    );
     // Chapters: Tab reaches the current chapter; arrows, Home and End move
     // and select; the name is the step; the change is announced.
     const c0 = await chapter(page);
     await page.keyboard.press("Tab");
-    if (c0 > 1) await page.keyboard.press("Tab"); // Previous step
+    // Previous step: focusable at the first step too (aria-disabled).
+    await page.keyboard.press("Tab");
     const focused = await page.evaluate(() => {
       const el = document.activeElement;
       return {
@@ -489,6 +596,7 @@ for (const vp of VIEWPORTS) {
       (await chapter(page)) === 1,
       `chapter ${await chapter(page)}`,
     );
+    const saidBefore = await said(page);
     await page.keyboard.press("ArrowRight");
     const two = await page.evaluate(() => ({
       chapter: document.querySelector(".mk-walk").dataset.chapter,
@@ -497,12 +605,14 @@ for (const vp of VIEWPORTS) {
       said: document.querySelector(".mk-walk [aria-live]")?.textContent.trim(),
       run: document.querySelector(".mk-walk").hasAttribute("data-run"),
     }));
+    // The focused chapter button names the step; the live region stays
+    // quiet, so the step is read once.
     check(
       `${tag} ArrowRight selects the next step`,
       two.chapter === "2" &&
         two.focus === "1" &&
         two.current === "1" &&
-        two.said === TITLES[1] &&
+        two.said === saidBefore &&
         two.run,
       JSON.stringify(two),
     );
@@ -557,11 +667,26 @@ for (const vp of VIEWPORTS) {
       (await chapter(page)) === 7,
       `chapter ${await chapter(page)}`,
     );
-    // Previous and Next.
+    // Previous and Next: announced, and at the last step Next keeps focus
+    // (aria-disabled, not disabled) and does nothing more.
     await page.locator(".mk-walk [aria-label='Next step']").focus();
     await page.keyboard.press("Enter");
+    const atEnd = await page.evaluate(() => ({
+      focus: document.activeElement?.getAttribute("aria-label"),
+      disabled: document.activeElement?.getAttribute("aria-disabled"),
+      said: document.querySelector(".mk-walk [aria-live]")?.textContent.trim(),
+    }));
     check(
       `${tag} Next step`,
+      (await chapter(page)) === 8 &&
+        atEnd.said === TITLES[7] &&
+        atEnd.focus === "Next step" &&
+        atEnd.disabled === "true",
+      `chapter ${await chapter(page)}, ${JSON.stringify(atEnd)}`,
+    );
+    await page.keyboard.press("Enter");
+    check(
+      `${tag} Next at the last step stays put`,
       (await chapter(page)) === 8,
       `chapter ${await chapter(page)}`,
     );
@@ -570,8 +695,40 @@ for (const vp of VIEWPORTS) {
     await page.keyboard.press("Enter");
     check(
       `${tag} Previous step`,
-      (await chapter(page)) === 6,
-      `chapter ${await chapter(page)}`,
+      (await chapter(page)) === 6 && (await said(page)) === TITLES[5],
+      `chapter ${await chapter(page)}, said ${await said(page)}`,
+    );
+    // The active step card is on screen: in the carousel's view, and the
+    // carousel is a keyboard stop only while it scrolls.
+    const card = await page.evaluate(() => {
+      const sc = document.querySelector(".mk-walk-steps");
+      const li = sc.querySelector("[data-step='6']").getBoundingClientRect();
+      const box = sc.getBoundingClientRect();
+      const scrolls = sc.scrollWidth > sc.clientWidth + 1;
+      return {
+        inView:
+          li.left >= box.left - 1 &&
+          li.right <= box.right + 1 &&
+          li.left >= -1 &&
+          li.right <= innerWidth + 1,
+        scrolls,
+        tab: sc.getAttribute("tabindex"),
+      };
+    });
+    await page.waitForTimeout(700); // the smooth scroll settles
+    const card2 = await page.evaluate(() => {
+      const sc = document.querySelector(".mk-walk-steps");
+      const li = sc.querySelector("[data-step='6']").getBoundingClientRect();
+      const box = sc.getBoundingClientRect();
+      return (
+        li.left >= Math.max(box.left, 0) - 1 &&
+        li.right <= Math.min(box.right, innerWidth) + 1
+      );
+    });
+    check(
+      `${tag} the active step card is in view`,
+      card2 && card.scrolls && card.tab === "0",
+      JSON.stringify({ ...card, settled: card2 }),
     );
     // Every chapter by keyboard, letting each play: nothing moves or resizes.
     await page.locator(".mk-walk [aria-current]").focus();
@@ -661,6 +818,41 @@ for (const vp of VIEWPORTS) {
       caption === TITLES[(await chapter(page)) - 1],
       caption,
     );
+    // What the step means for the subscriber, under the title; changing
+    // chapters moves nothing.
+    await watchShifts(page);
+    const homeBefore = await boxes(page);
+    await page.locator(".mk-walk [aria-current]").focus();
+    await page.keyboard.press("Home");
+    const lines = new Set();
+    for (let i = 0; i < 8; i++) {
+      if (i) await page.keyboard.press("ArrowRight");
+      await page.waitForTimeout(120);
+      lines.add(
+        await page.evaluate(
+          () => document.querySelector(".mk-walk-then")?.textContent ?? "",
+        ),
+      );
+    }
+    const homeAfter = await boxes(page);
+    const homeShift = await shifts(page);
+    check(
+      `${tag} home: each step's subscriber line`,
+      lines.size === 8 &&
+        [...lines].every((l) => l.startsWith("Your subscriber: ")),
+      JSON.stringify([...lines].slice(0, 3)),
+    );
+    check(
+      `${tag} home: no layout shift while chapters change`,
+      homeShift.total < 0.001 && homeBefore.join("|") === homeAfter.join("|"),
+      `CLS ${homeShift.total.toFixed(4)}; ${homeBefore.join(" | ")} -> ${homeAfter.join(" | ")}`,
+    );
+    const homeText = await frameText(page);
+    check(
+      `${tag} home: mock text follows the frames`,
+      homeText.every((t) => t.ok),
+      JSON.stringify(homeText),
+    );
     check(
       `${tag} home: no horizontal overflow`,
       (await overflow(page)) <= 0,
@@ -734,6 +926,98 @@ for (const vp of VIEWPORTS) {
   );
   await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
   await page.close();
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
+// 3b. The mouse (1366): an explicit Play wins over the pointer resting on the
+// player; a pointer that comes back stops only the chapter clock, so the
+// chapter's beats finish (nothing freezes half-drawn); the Play/Pause icon
+// stays visible throughout.
+{
+  const ctx = await context(VIEWPORTS[2]);
+  const { page, errors } = await open(ctx, "/how-it-works");
+  await page.waitForSelector(".mk-walk[data-ready]");
+  await center(page);
+  await waitFor(
+    page,
+    () => document.querySelector(".mk-walk")?.dataset.state === "playing",
+  );
+  const held = () =>
+    page.evaluate(() =>
+      document.querySelector(".mk-walk").hasAttribute("data-hold"),
+    );
+  // Choose chapter 3 with the mouse (the player pauses), then Play with the
+  // mouse; the pointer stays over the player.
+  await page.locator('.mk-walk [data-seg="2"]').click();
+  check(
+    "1366 mouse: a chapter button pauses",
+    (await state(page)) === "paused" && (await chapter(page)) === 3,
+    `state ${await state(page)}, chapter ${await chapter(page)}`,
+  );
+  await page.locator(".mk-walk-play").click();
+  await page.waitForTimeout(150);
+  const p1 = await clock(page);
+  await page.waitForTimeout(700);
+  const p2 = await clock(page);
+  const playIcon = await icon(page);
+  check(
+    "1366 mouse: Play wins over the pointer on the player",
+    (await state(page)) === "playing" &&
+      !(await held()) &&
+      p2?.play === "running" &&
+      p2.time > p1.time &&
+      playIcon.opacity === "1" &&
+      playIcon.label === "Pause",
+    `state ${await state(page)}, hold ${await held()}, clock ${JSON.stringify(p1)} then ${JSON.stringify(p2)}, icon ${JSON.stringify(playIcon)}`,
+  );
+  // Away and back, early in a fresh chapter: the clock stops, the beats go on.
+  await page.locator('.mk-walk [data-seg="1"]').click();
+  await page.locator(".mk-walk-play").click();
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(150);
+  const stageBox = await page.locator(".mk-walk-stage").boundingBox();
+  await page.mouse.move(
+    stageBox.x + stageBox.width / 2,
+    stageBox.y + stageBox.height / 2,
+    { steps: 2 },
+  );
+  // Chapter 2's last beat ends 4.48 s after the chapter starts.
+  await page.waitForTimeout(4700);
+  const h1 = await clock(page);
+  await page.waitForTimeout(500);
+  const h2 = await clock(page);
+  const beats = await page.evaluate(() =>
+    document
+      .querySelector(".mk-walk-view")
+      .getAnimations({ subtree: true })
+      .map((a) => a.playState),
+  );
+  const hoverIcon = await icon(page);
+  check(
+    "1366 mouse: hover stops the clock, not the beats",
+    (await chapter(page)) === 2 &&
+      (await state(page)) === "playing" &&
+      !(await held()) &&
+      h1?.time === h2?.time &&
+      h2?.play !== "running" &&
+      beats.length > 0 &&
+      beats.every((b) => b === "finished") &&
+      hoverIcon.opacity === "1",
+    `chapter ${await chapter(page)}, state ${await state(page)}, hold ${await held()}, clock ${JSON.stringify(h1)}/${JSON.stringify(h2)}, beats ${[...new Set(beats)]} (${beats.length}), icon ${JSON.stringify(hoverIcon)}`,
+  );
+  // The pointer leaves: the clock runs on.
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(300);
+  const l1 = await clock(page);
+  await page.waitForTimeout(500);
+  const l2 = await clock(page);
+  check(
+    "1366 mouse: the clock resumes when the pointer leaves",
+    l2?.play === "running" && l2.time > l1.time,
+    `clock ${JSON.stringify(l1)} then ${JSON.stringify(l2)}`,
+  );
+  check("1366 mouse: no page errors", errors.length === 0, errors.join(" | "));
   await ctx.close();
 }
 

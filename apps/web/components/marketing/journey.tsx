@@ -205,8 +205,9 @@ type Scene = {
 };
 const SCENES: Scene[] = [
   // 1. Claim your address: the reserved address and the Design Studio;
-  // the subscriber sees the coach's branded page (no Join yet: nothing is
-  // published at this step).
+  // the subscriber side previews the brand (the coach's colours, name and a
+  // placeholder page). No address bar and no Join yet: nothing is published
+  // at this step (the address first opens in chapter 5).
   {
     tab: ["Design Studio"],
     coach: (c) => (
@@ -260,11 +261,8 @@ const SCENES: Scene[] = [
     ),
     phone: (c) => (
       <div className="w-pane">
-        <span className="w-url" dir="ltr" {...b("rise", 3000)}>
-          <T c={c}>{c.address}</T>
-        </span>
-        <AppHead c={c} beat={b("rise", 3300)} nameBeat={b("rise", 3380)} />
-        <div className="w-card w-skel" {...b("card", 3700)}>
+        <AppHead c={c} beat={b("rise", 3000)} nameBeat={b("rise", 3080)} />
+        <div className="w-card w-skel" {...b("card", 3350)}>
           <Ph w={9} />
           <Ph w={12} />
           <Ph w={7} />
@@ -358,7 +356,7 @@ const SCENES: Scene[] = [
             </Badge>
           </li>
         </ul>
-        <span className="w-row">
+        <span className="w-row" {...b("rise", 540)}>
           <span className="w-btn w-pri" {...b("tap", 900)}>
             <T c={c}>Evaluate</T>
           </span>
@@ -484,8 +482,8 @@ const SCENES: Scene[] = [
     ),
   },
   // 5. Publish and share: the preview, the launch checks, Live, then the
-  // link in the bio and Stories. A follower opens it, joins, pays and
-  // answers the intake.
+  // link in the bio and Stories. A follower opens it (the address bar shows
+  // it), joins, pays and answers the intake.
   {
     tab: ["Subscriber preview", "Publish"],
     coach: (c) => (
@@ -546,6 +544,9 @@ const SCENES: Scene[] = [
           </span>
         </div>
         <div className="w-layer" {...b("rise", 3400)}>
+          <span className="w-url" dir="ltr">
+            <T c={c}>{c.address}</T>
+          </span>
           <AppHead c={c} />
           <div className="w-card">
             <strong>
@@ -616,8 +617,8 @@ const SCENES: Scene[] = [
             <T c={c}>Week 3 · Day 2 · Lower body A</T>
           </span>
         </div>
-        <div className="w-card">
-          <strong {...b("rise", 2250)}>
+        <div className="w-card" {...b("card", 2320)}>
+          <strong>
             <T c={c}>Back squat · set 3 of 4</T>
           </strong>
           <span className="w-sets">
@@ -626,16 +627,16 @@ const SCENES: Scene[] = [
                 <span
                   key={i}
                   className="w-row w-set"
-                  {...b("rise", 2330 + i * 80)}
+                  {...b("rise", 2400 + i * 80)}
                 >
                   {i < 2 ? (
                     <>
                       <Ph w={4} />
-                      <Tick at={2600 + i * 120} />
+                      <Tick at={2650 + i * 120} />
                     </>
                   ) : (
                     // The set in progress.
-                    <span className="w-hl w-grow" {...b("glow", 2600)}>
+                    <span className="w-hl w-grow" {...b("glow", 2650)}>
                       <Ph w={5} />
                     </span>
                   )}
@@ -650,12 +651,12 @@ const SCENES: Scene[] = [
                 cy="12"
                 r="10"
                 pathLength={1}
-                {...b("draw", 2600)}
+                {...b("draw", 2650)}
               />
             </svg>
           </span>
         </div>
-        <span className="w-row">
+        <span className="w-row" {...b("rise", 2760)}>
           <span className="w-btn" {...b("tap", 3500)}>
             <T c={c}>Report pain</T>
           </span>
@@ -780,12 +781,13 @@ function Stage({ c, platform }: { c: Ctx; platform: PublicPlatform }) {
     ));
   return (
     <div className="mk-walk-stage" aria-hidden="true">
-      {c.l && (
-        <p className="mk-relay-tag w-tag">Illustration with sample data</p>
-      )}
+      {c.l && <p className="w-tag">Illustration with sample data</p>}
+      {/* Phones show one side at a time; the strip names both (the "Who
+          does what" column headers) and marks the one on screen. */}
       <span className="w-chip w-cc">
         <i className="w-fill w-c" />
         <Laptop size={16} />
+        {c.l && <span className="w-who-l">You</span>}
       </span>
       <div className="w-frame w-coach w-c">
         <div className="w-dev">
@@ -831,6 +833,7 @@ function Stage({ c, platform }: { c: Ctx; platform: PublicPlatform }) {
       <span className="w-chip w-pc">
         <i className="w-fill w-p" />
         <Smartphone size={16} />
+        {c.l && <span className="w-who-l">Your subscriber</span>}
       </span>
       <div className="w-frame w-phone w-p">
         <div className="w-dev">
@@ -860,6 +863,20 @@ function context(platform: PublicPlatform, labels: boolean): Ctx {
     nutrition: offering("/features/nutrition"),
     voice: offering("/features/voice-coach"),
   };
+}
+
+/**
+ * "Your subscriber" (the "Who does what" column header) before a chapter's
+ * subscriber line: visible, so every step states what it means for the
+ * subscriber.
+ */
+function SubscriberLabel() {
+  return (
+    <span className="mk-walk-sub-label">
+      <Smartphone size={14} aria-hidden="true" />
+      Your subscriber<span className="sr-only">:</span>
+    </span>
+  );
 }
 
 /**
@@ -893,12 +910,7 @@ export function Journey({
         timing={JOURNEY_TIMING}
         stage={<Stage c={context(platform, true)} platform={platform} />}
         captions={
-          <div
-            className="mk-walk-steps"
-            role="region"
-            tabIndex={0}
-            aria-labelledby={id + "-h"}
-          >
+          <div className="mk-walk-steps">
             <ol className="mk-steps">
               {steps.map((s, i) => (
                 <li key={s.title} data-step={i + 1}>
@@ -914,11 +926,8 @@ export function Journey({
                     <p>{t(s.body)}</p>
                     {SUBSCRIBER_LINES[i] && (
                       <p className="mk-walk-sub">
-                        <Smartphone size={14} aria-hidden="true" />
-                        <span>
-                          <span className="sr-only">Your subscriber: </span>
-                          {t(registryLine(SUBSCRIBER_LINES[i]))}
-                        </span>
+                        <SubscriberLabel />{" "}
+                        <span>{t(registryLine(SUBSCRIBER_LINES[i]))}</span>
                       </p>
                     )}
                   </div>
@@ -933,9 +942,11 @@ export function Journey({
 }
 
 /**
- * The home band: the same stage without words, the active step's title,
- * the controls and the link to the full walkthrough. No heading (the home
- * page keeps its six H2s); the existing section heading is its label.
+ * The home band: the same stage without words, the active step's title and
+ * what it means for the subscriber (the same registry line /how-it-works
+ * shows), the controls and the link to the full walkthrough. No heading
+ * (the home page keeps its six H2s); the existing section heading is its
+ * label.
  */
 export function JourneyBand({
   platform,
@@ -964,6 +975,8 @@ export function JourneyBand({
             </p>
           }
           stage={<Stage c={context(platform, false)} platform={platform} />}
+          subs={SUBSCRIBER_LINES.map((ref) => t(registryLine(ref)))}
+          subLabel={<SubscriberLabel />}
           foot={
             <p className="mk-home-more mk-walk-more">
               <Link className="text-link mk-link" href="/how-it-works#steps">
