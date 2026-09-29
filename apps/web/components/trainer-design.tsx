@@ -26,6 +26,7 @@ import {
 import {
   brandSchema,
   brandCssVariables,
+  brandDarkCssVariables,
   brandPresets,
   brandImageSchema,
   resolveBrandDesign,
@@ -33,6 +34,7 @@ import {
   type BrandSection,
 } from "@trainer/contracts";
 import { directionOf, type Language } from "../document-language";
+import type { ColorSchemeChoice } from "../color-scheme";
 
 import { PhotoUploader, MediaLibrary } from "./coach-site";
 
@@ -102,21 +104,36 @@ export function TrainerTheme({
   children,
   className = "",
   language,
+  colorScheme,
 }: {
   theme: unknown;
   children: ReactNode;
   className?: string;
   /** A coach website's language: sets its direction (Arabic is right to left). */
   language?: Language;
+  /**
+   * Subscriber surfaces only (the member app, the coach website and the
+   * coach's sign-in and joining pages): follow the device ("system") or
+   * the member's Light or Dark choice with the brand's dark palette
+   * (app/appearance.css). Without it the surface is always light, as the
+   * Design Studio preview in the trainer workspace is.
+   */
+  colorScheme?: ColorSchemeChoice;
 }) {
   const design = resolveBrandDesign(theme);
   return (
     <div
       className={`trainer-theme ${className}`}
       {...(language ? { lang: language, dir: directionOf(language) } : {})}
-      style={brandCssVariables(theme) as CSSProperties}
+      style={
+        {
+          ...brandCssVariables(theme),
+          ...(colorScheme ? brandDarkCssVariables(theme) : {}),
+        } as CSSProperties
+      }
       data-brand-buttons={design.buttonStyle}
       data-brand-density={design.density}
+      {...(colorScheme ? { "data-color-scheme": colorScheme } : {})}
     >
       {children}
     </div>

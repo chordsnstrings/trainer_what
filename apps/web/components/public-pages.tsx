@@ -30,6 +30,8 @@ import {
   legalPlan,
   useLegalStatus,
 } from "./legal-acceptance";
+import { useSubscriberThemeColor } from "./appearance";
+import type { ColorSchemeChoice } from "../color-scheme";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -62,6 +64,7 @@ function PlainShell({
   children: ReactNode;
   className?: string;
   theme?: unknown;
+  colorScheme?: ColorSchemeChoice;
 }) {
   return <div className={className}>{children}</div>;
 }
@@ -96,12 +99,15 @@ export function Public({
   path,
   platform,
   coachSlug,
+  colorScheme,
   onAuthenticated,
 }: {
   path: string;
   platform: PublicPlatform;
   /** The trainer whose own domain or subdomain serves this page, if any. */
   coachSlug: string | null;
+  /** Coach-branded pages follow the member's appearance choice. */
+  colorScheme: ColorSchemeChoice;
   onAuthenticated: () => Promise<void>;
 }) {
   const [store, setStore] = useState<{ trainer: Trainer } | null>(null),
@@ -140,10 +146,15 @@ export function Public({
   const coach = !!siteSlug || join;
   const Shell = coach ? TrainerTheme : PlainShell;
   const coachName = trainer?.name ?? null;
+  // The platform's own pages stay light (docs/features/brand.md); a coach's
+  // sign-in and joining pages follow the member's choice, browser colour
+  // included.
+  useSubscriberThemeColor(store?.trainer?.theme, colorScheme, coach);
   return (
     <Shell
       className={coach ? "public" : "public platform-ui"}
       theme={store?.trainer?.theme}
+      colorScheme={coach ? colorScheme : undefined}
     >
       <PublicHeader
         path={path}

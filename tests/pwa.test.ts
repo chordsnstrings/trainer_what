@@ -335,13 +335,21 @@ test("leaving a session clears cached pages after the sign-out, never before", a
 });
 
 test("the launch script only colours the member app and only with a hex colour", () => {
-  const run = (path: string, stored: string | null) => {
+  const run = (
+    path: string,
+    stored: string | null,
+    { cookie = "", dark = false }: { cookie?: string; dark?: boolean } = {},
+  ) => {
     const attributes: Record<string, string> = {};
     const style: Record<string, string> = {};
     vm.runInNewContext(LAUNCH_COLOUR_SCRIPT, {
       location: { pathname: path },
       localStorage: { getItem: () => stored },
+      matchMedia: (query: string) => ({
+        matches: dark && query === "(prefers-color-scheme: dark)",
+      }),
       document: {
+        cookie,
         documentElement: {
           setAttribute: (k: string, v: string) => (attributes[k] = v),
           style: { setProperty: (k: string, v: string) => (style[k] = v) },
@@ -355,6 +363,23 @@ test("the launch script only colours the member app and only with a hex colour",
   assert.deepEqual(run("/login", "#fbf5ef").style, {});
   assert.deepEqual(run("/app", "red;background:url(x)").style, {});
   assert.deepEqual(run("/approach", "#fbf5ef").style, {});
+  // The remembered colour is the coach's light surface: a member in dark
+  // appearance keeps the dark palette's first paint (dark-mode.md).
+  const scheme = (value: string) => `a=1; trainer_member_scheme=${value}; b=2`;
+  assert.deepEqual(run("/app", "#fbf5ef", { cookie: scheme("dark") }).attributes, {});
+  assert.deepEqual(run("/app", "#fbf5ef", { dark: true }).style, {});
+  assert.deepEqual(
+    run("/app", "#fbf5ef", { cookie: scheme("system"), dark: true }).style,
+    {},
+  );
+  assert.deepEqual(
+    run("/app", "#fbf5ef", { cookie: scheme("light"), dark: true }).style,
+    { "--member-launch": "#fbf5ef" },
+  );
+  assert.deepEqual(
+    run("/app", "#fbf5ef", { cookie: scheme("system") }).attributes,
+    { "data-launch": "member" },
+  );
 });
 
 // ------------------------------------------------------------------

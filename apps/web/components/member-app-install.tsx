@@ -123,9 +123,13 @@ export function MemberAppManifest({
             type: "image/png",
             sizes: "192x192",
           }),
-          swapMeta("theme-color", install.themeColor),
           swapMeta("apple-mobile-web-app-title", install.shortName),
         );
+        // A member's browser colour follows their appearance choice
+        // (MemberAppearance in components/appearance.tsx); the trainer
+        // workspace keeps the trainer's colour in both schemes.
+        if (role !== "subscriber")
+          undo.push(swapMeta("theme-color", install.themeColor));
         if (role === "subscriber") {
           const original = document.title,
             title = `${install.name} · Coaching`;

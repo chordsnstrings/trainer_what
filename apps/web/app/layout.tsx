@@ -34,6 +34,7 @@ import "./web-address.css";
 import "./phone-first.css";
 import "./subscriber-public.css";
 import "./pwa.css";
+import "./appearance.css";
 import "./marketing.css";
 import "./analytics-consent.css";
 

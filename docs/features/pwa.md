@@ -83,9 +83,12 @@ or Chrome" with a **Copy link** button (`inAppBrowser` in
 surface colour (`member-app:launch`, a brand colour, not personal data) and
 a tiny script at the top of `<head>` (`LAUNCH_COLOUR_SCRIPT`,
 `app/layout.tsx`) paints `/app` pages in it before anything else, matching
-the launch screen. It is removed with the personal caches. The member app
-itself is always light (the coach's brand), so there is no dark first paint
-to flash from light.
+the launch screen. It is removed with the personal caches. The remembered
+colour is the coach's light surface, so the script skips it when the
+member's mirrored appearance (`trainer_member_scheme`,
+docs/features/dark-mode.md) is Dark, or System on a dark device: that first
+paint keeps the dark palette instead of light text on a light surface. The
+offline screen follows the same appearance (`member-neutral` wrapper).
 
 ## Install experience (`components/pwa-ui.tsx`)
 

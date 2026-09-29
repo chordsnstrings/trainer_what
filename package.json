@@ -22,6 +22,7 @@
     "test:brand": "node scripts/run-brand-check.mjs",
     "test:phone": "node scripts/run-phone-check.mjs",
     "test:pwa": "node scripts/run-pwa-check.mjs",
+    "test:dark": "node scripts/run-dark-check.mjs",
     "screenshots": "node scripts/capture-app-views.mjs",
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",

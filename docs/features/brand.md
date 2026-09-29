@@ -95,9 +95,19 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   `theme-color` and `color-scheme: light` (`generateViewport` in
   `app/[[...path]]/page.tsx`, `isPublicPlatformRoute`). Coach
   websites keep their own icons, manifest and colour; a signed-in member
-  app (`components/member-app-install.tsx`) sets every `theme-color` meta
-  to the trainer's colour and drops the media queries, so dark mode shows
-  the trainer's colour too, and restores both on sign-out.
+  app sets the trainer's colour for light and the trainer's dark top bar
+  colour for dark (one colour for both when the member chose Light or
+  Dark), and restores the originals on sign-out
+  (`components/appearance.tsx`, docs/features/dark-mode.md; before
+  `ui/dark` it set one trainer colour for both schemes). The trainer
+  workspace keeps the trainer's colour in both
+  (`components/member-app-install.tsx`).
+- **Subscriber dark mode** (`ui/dark`, docs/features/dark-mode.md): the
+  member app, the coach website and a coach's own sign-in and joining pages
+  now follow the device, or the member's Light or Dark choice, with a dark
+  palette derived from the trainer's Design Studio colours. The platform's
+  public pages above stay light, and `.trainer-theme` surfaces without a
+  choice (the Design Studio preview) stay light.
 - **Trainers' own addresses** (custom domain or subdomain): sign-in,
   recovery, joining and legal pages there (`/login`, `/forgot-password`,
   `/join/*`, `/terms`, …) render through the workspace's public screens.
@@ -244,7 +254,9 @@ onto it, so every existing rule follows the brand:
   every visible focusable element's ring colour (`--focus`) at 3:1 against
   the surface behind it (trainer themes draw their own double ring), and
   that the coach website and the member app have every `theme-color` meta
-  set to the trainer's colour. It does not visit a trainer's own address
+  set to the trainer's colour (since `ui/dark`: the trainer's primary for
+  light and a dark colour for dark, and every text at AA on a dark
+  device). It does not visit a trainer's own address
   (that needs host mapping); the rendered-header test covers it.
 
 Results of this package's run are recorded under "Checks run" below.

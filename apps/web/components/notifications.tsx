@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
+import { PREFERENCES_SAVED_EVENT } from "./appearance";
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -23,6 +24,22 @@ export function NotificationPreferences() {
     void api("/notifications/preferences")
       .then(setValue)
       .catch((e) => setError(e.message));
+    // Display preferences saves the appearance on its own: take its newer
+    // version and value, keeping any unsaved change made here.
+    const saved = (event: Event) => {
+      const next = (event as CustomEvent).detail;
+      setValue((v: any) =>
+        v
+          ? {
+              ...v,
+              version: next.version,
+              data: { ...v.data, theme: next.data?.theme },
+            }
+          : v,
+      );
+    };
+    window.addEventListener(PREFERENCES_SAVED_EVENT, saved);
+    return () => window.removeEventListener(PREFERENCES_SAVED_EVENT, saved);
   }, []);
   return (
     <section className="card">

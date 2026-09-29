@@ -1,0 +1,271 @@
+/* Dark appearance for subscriber surfaces (docs/features/dark-mode.md).
+
+   Which surfaces: an element with data-color-scheme, which only subscriber
+   surfaces carry: the member app (.trainer-theme.member-shell), the coach
+   website (.trainer-theme.coach-website), a coach's sign-in and joining
+   pages (.trainer-theme.public) and the member app's first-load,
+   unavailable and suspended screens (.member-neutral). "system" follows
+   the device; "light" and "dark" are the member's choice in Profile and
+   settings > Display preferences. The marketing site, the directory and
+   the platform's own sign-in pages stay light (.public.platform-ui), the
+   trainer workspace keeps its own dark mode (.workspace.platform-ui,
+   globals.css) and the Design Studio preview stays light (no attribute).
+
+   How: TrainerTheme sets the coach's light tokens inline
+   (brandCssVariables) and, on these surfaces, the dark palette beside them
+   as --dark-* (brandDarkCssVariables: every text pair at least 4.5:1, ink
+   7:1, field edges 3:1). While the surface is dark the blocks below point
+   the ordinary tokens at the --dark-* values; !important is needed only to
+   outrank the inline light values. The two blocks are identical
+   (tests/appearance.test.ts keeps them so): one for an explicit Dark
+   choice, one for System on a dark device. Mobile first; logical
+   properties only. No motion is added here. */
+
+/* The neutral dark palette (the platform's dark tokens) for member screens
+   shown before the coach's brand is known and for the analytics bar.
+   TrainerTheme replaces these inline with the coach's dark palette. */
+:root {
+  --dark-paper: #171917;
+  --dark-white: #202320;
+  --dark-ink: #f3f4f0;
+  --dark-muted: #a9aea6;
+  --dark-line: #3a3f39;
+  --dark-field-border: #8a8f87;
+  --dark-primary: #f3f4f0;
+  --dark-on-primary: #171917;
+  --dark-link: #f3f4f0;
+  --dark-accent: #d5f24a;
+  --dark-on-accent: #171917;
+  --dark-tint: #272b27;
+  --dark-on-tint: #f3f4f0;
+  --dark-logo-plate: #ffffff;
+}
+
+/* dark-block:start */
+:is(.trainer-theme, .member-neutral)[data-color-scheme="dark"],
+:root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="dark"])
+  .acquisition-consent {
+  --paper: var(--dark-paper) !important;
+  --canvas: var(--dark-paper) !important;
+  --white: var(--dark-white) !important;
+  --ink: var(--dark-ink) !important;
+  --muted: var(--dark-muted) !important;
+  --line: var(--dark-line) !important;
+  --field-border: var(--dark-field-border) !important;
+  --green: var(--dark-primary) !important;
+  --green-hover: var(--dark-primary) !important;
+  --on-green: var(--dark-on-primary) !important;
+  --mint: var(--dark-tint) !important;
+  --sand: var(--dark-tint) !important;
+  --blue: var(--dark-tint) !important;
+  --lime: var(--dark-accent) !important;
+  --on-lime: var(--dark-on-accent) !important;
+  --client-bubble: var(--dark-tint) !important;
+  --brand-primary: var(--dark-primary) !important;
+  --brand-on-primary: var(--dark-on-primary) !important;
+  --brand-accent: var(--dark-accent) !important;
+  --brand-on-accent: var(--dark-on-accent) !important;
+  --brand-link: var(--dark-link) !important;
+  --brand-tint: var(--dark-tint) !important;
+  --brand-on-tint: var(--dark-on-tint) !important;
+  --focus: var(--dark-ink) !important;
+  --success: #7fcb9f !important;
+  --warning: #e0b25c !important;
+  --error: #f08a80 !important;
+  --success-bg: color-mix(in srgb, var(--success) 12%, var(--white)) !important;
+  --success-line: color-mix(
+    in srgb,
+    var(--success) 35%,
+    var(--white)
+  ) !important;
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, var(--white)) !important;
+  --warning-line: color-mix(
+    in srgb,
+    var(--warning) 35%,
+    var(--white)
+  ) !important;
+  --error-bg: color-mix(in srgb, var(--error) 12%, var(--white)) !important;
+  --error-line: color-mix(in srgb, var(--error) 35%, var(--white)) !important;
+  --on-status: var(--dark-paper) !important;
+  /* Meal logging's own names (meal-capture.css). */
+  --panel: var(--dark-white) !important;
+  --accent: var(--dark-link) !important;
+  --accent-soft: var(--dark-tint) !important;
+  /* Shadows stay shadows: black, never a light glow. */
+  --shadow-ink: #000000 !important;
+  /* Behind a coach logo: the surface it was designed on. */
+  --logo-plate: var(--dark-logo-plate) !important;
+  color-scheme: dark;
+  color: var(--ink);
+}
+/* dark-block:end */
+@media (prefers-color-scheme: dark) {
+  /* system-block:start */
+  :is(.trainer-theme, .member-neutral)[data-color-scheme="system"],
+  :root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="system"])
+    .acquisition-consent {
+    --paper: var(--dark-paper) !important;
+    --canvas: var(--dark-paper) !important;
+    --white: var(--dark-white) !important;
+    --ink: var(--dark-ink) !important;
+    --muted: var(--dark-muted) !important;
+    --line: var(--dark-line) !important;
+    --field-border: var(--dark-field-border) !important;
+    --green: var(--dark-primary) !important;
+    --green-hover: var(--dark-primary) !important;
+    --on-green: var(--dark-on-primary) !important;
+    --mint: var(--dark-tint) !important;
+    --sand: var(--dark-tint) !important;
+    --blue: var(--dark-tint) !important;
+    --lime: var(--dark-accent) !important;
+    --on-lime: var(--dark-on-accent) !important;
+    --client-bubble: var(--dark-tint) !important;
+    --brand-primary: var(--dark-primary) !important;
+    --brand-on-primary: var(--dark-on-primary) !important;
+    --brand-accent: var(--dark-accent) !important;
+    --brand-on-accent: var(--dark-on-accent) !important;
+    --brand-link: var(--dark-link) !important;
+    --brand-tint: var(--dark-tint) !important;
+    --brand-on-tint: var(--dark-on-tint) !important;
+    --focus: var(--dark-ink) !important;
+    --success: #7fcb9f !important;
+    --warning: #e0b25c !important;
+    --error: #f08a80 !important;
+    --success-bg: color-mix(
+      in srgb,
+      var(--success) 12%,
+      var(--white)
+    ) !important;
+    --success-line: color-mix(
+      in srgb,
+      var(--success) 35%,
+      var(--white)
+    ) !important;
+    --warning-bg: color-mix(
+      in srgb,
+      var(--warning) 12%,
+      var(--white)
+    ) !important;
+    --warning-line: color-mix(
+      in srgb,
+      var(--warning) 35%,
+      var(--white)
+    ) !important;
+    --error-bg: color-mix(in srgb, var(--error) 12%, var(--white)) !important;
+    --error-line: color-mix(in srgb, var(--error) 35%, var(--white)) !important;
+    --on-status: var(--dark-paper) !important;
+    /* Meal logging's own names (meal-capture.css). */
+    --panel: var(--dark-white) !important;
+    --accent: var(--dark-link) !important;
+    --accent-soft: var(--dark-tint) !important;
+    /* Shadows stay shadows: black, never a light glow. */
+    --shadow-ink: #000000 !important;
+    /* Behind a coach logo: the surface it was designed on. */
+    --logo-plate: var(--dark-logo-plate) !important;
+    color-scheme: dark;
+    color: var(--ink);
+  }
+  /* system-block:end */
+  /* The document behind a dark surface (overscroll, below short pages)
+     and its scrollbars. */
+  :root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="system"]) {
+    background: var(--dark-paper);
+    color-scheme: dark;
+  }
+}
+:root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="dark"]) {
+  background: var(--dark-paper);
+  color-scheme: dark;
+}
+/* An explicit Light choice keeps native controls light on a dark device. */
+:is(.trainer-theme, .member-neutral)[data-color-scheme="light"] {
+  color-scheme: light;
+}
+
+/* The member app's neutral screens (first load, unavailable, suspended). */
+.member-neutral {
+  color: var(--ink);
+  background: var(--paper);
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+}
+
+/* A coach logo with a transparent background keeps the surface it was
+   designed on; in light that is the card, as before. */
+.trainer-theme .coach-identity-image {
+  background: var(--logo-plate, var(--white));
+}
+
+/* Profile and settings > Display preferences (member shell only): one
+   column, each choice a 56 px row with its radio, icon, name and one line.
+   Scoped under .member-shell to outrank the shell's general check box,
+   radio and fieldset rules (phone-first.css). */
+.member-shell fieldset.appearance-choice {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.member-shell .appearance-choice legend {
+  padding: 0;
+  margin-block-end: 8px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.member-shell .appearance-choice label.appearance-option {
+  display: grid;
+  grid-template-columns: 22px 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-block-size: 56px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+  background: var(--white);
+  color: var(--ink);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.member-shell .appearance-choice label.appearance-option > input[type="radio"] {
+  position: static;
+  inline-size: 22px;
+  block-size: 22px;
+  margin: 0;
+  accent-color: var(--brand-link, var(--ink));
+}
+.member-shell .appearance-choice label.appearance-option:has(> input:checked) {
+  border-color: var(--brand-link, var(--ink));
+  background: var(--brand-tint, var(--mint));
+  color: var(--brand-on-tint, var(--ink));
+}
+.member-shell
+  .appearance-choice
+  label.appearance-option:has(> input:focus-visible) {
+  outline: 3px solid var(--focus, var(--ink));
+  outline-offset: 2px;
+}
+.appearance-option-icon {
+  display: inline-flex;
+  color: inherit;
+}
+.appearance-option-text {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.appearance-option-text strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.appearance-option-text small {
+  font-size: 14px;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+.display-preferences .notice {
+  margin-block: 12px 0;
+}

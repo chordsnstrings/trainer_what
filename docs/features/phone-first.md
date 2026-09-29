@@ -418,8 +418,11 @@ bar and sheets keep the shared microanimations.
 - The Today screen's content (contradictory plan states, repeated
   navigation cards and stats, length) is the Today/content track; the tab
   bar now covers the navigation those cards duplicate.
-- Dark mode and translated Arabic copy for member screens, coach website
-  and joining pages, public legal pages, meal logging and barcode review
-  copy, notification and support labels, membership and checkout states,
-  and the offline and workspace-unavailable screens are listed for their
-  own tracks.
+- Translated Arabic copy for member screens, coach website and joining
+  pages, public legal pages, meal logging and barcode review copy,
+  notification and support labels, membership and checkout states, and the
+  offline and workspace-unavailable screens are listed for their own
+  tracks.
+- Dark mode is `docs/features/dark-mode.md` (branch `ui/dark`): the shell
+  and every control above follow the member's Light, Dark or System choice
+  through the same tokens; new subscriber CSS must use tokens only.

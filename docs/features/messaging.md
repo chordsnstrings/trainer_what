@@ -203,7 +203,9 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
 - No new platform flags or provider settings. Email delivery still requires
   the configured email provider; without it, jobs wait as before.
 - Preferences (JSON, no schema change): `inquiries` (default true), `language`
-  (`en` | `ar`, default `en`).
+  (`en` | `ar`, default `en`), `theme` (`system` | `light` | `dark`, default
+  `system`; the member app's appearance, saved alone through
+  `PUT /api/v1/preferences/appearance`, docs/features/dark-mode.md).
 - Notification input gains `topic: "inquiry"`; `data.topic` is stored and
   re-checked at delivery.
 - Events: `safety.escalated` now carries `policyVersion` and `reviewDueAt`;

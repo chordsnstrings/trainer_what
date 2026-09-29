@@ -5,6 +5,7 @@
  * may appear. Pure functions are tested in tests/pwa.test.ts; the browser
  * helpers guard every API they use, so they are safe during server render.
  */
+import { MEMBER_SCHEME_COOKIE } from "../color-scheme";
 
 /** The build's release (next.config.ts), which versions the service worker. */
 export const APP_RELEASE = process.env.NEXT_PUBLIC_APP_RELEASE || "dev";
@@ -91,8 +92,13 @@ export function rememberLaunchColour(colour: string) {
     localStorage.setItem(LAUNCH_COLOUR_KEY, colour);
   } catch {}
 }
-/** Runs before the first paint (app/layout.tsx); keep it tiny and safe. */
-export const LAUNCH_COLOUR_SCRIPT = `try{if(/^\\/app(\\/|$)/.test(location.pathname)){var c=localStorage.getItem(${JSON.stringify(LAUNCH_COLOUR_KEY)});if(c&&/^#[0-9a-f]{6}$/i.test(c)){var r=document.documentElement;r.style.setProperty("--member-launch",c);r.setAttribute("data-launch","member")}}}catch(e){}`;
+/**
+ * Runs before the first paint (app/layout.tsx); keep it tiny and safe. The
+ * remembered colour is the coach's light surface, so a member whose mirrored
+ * appearance is Dark, or System on a dark device (the MEMBER_SCHEME_COOKIE,
+ * docs/features/dark-mode.md), keeps the dark palette's first paint instead.
+ */
+export const LAUNCH_COLOUR_SCRIPT = `try{if(/^\\/app(\\/|$)/.test(location.pathname)){var s=/(?:^|;\\s*)${MEMBER_SCHEME_COOKIE}=(light|dark|system)(?:;|$)/.exec(document.cookie||""),m=s?s[1]:"system";if(!(m==="dark"||(m==="system"&&typeof matchMedia==="function"&&matchMedia("(prefers-color-scheme: dark)").matches))){var c=localStorage.getItem(${JSON.stringify(LAUNCH_COLOUR_KEY)});if(c&&/^#[0-9a-f]{6}$/i.test(c)){var r=document.documentElement;r.style.setProperty("--member-launch",c);r.setAttribute("data-launch","member")}}}}catch(e){}`;
 
 // ------------------------------------------------------------------
 // Install detection
