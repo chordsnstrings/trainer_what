@@ -31,6 +31,10 @@ import {
   type WebAddressState,
 } from "../apps/web/components/web-address.tsx";
 
+/** JSON without ISO timestamps, whose seconds could match a price pattern such as /55\./. */
+const withoutTimestamps = (text: string) =>
+  text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<time>");
+
 const ROOT = new URL("..", import.meta.url).pathname;
 /** Every registrar the platform can buy through. */
 const REGISTRAR_NAME = /namecheap|101domain|one-?oh-?one/i;
@@ -281,7 +285,7 @@ test("search and order status answers carry no registrar name or cost field", as
       "renewsYearly",
     ]);
   assert.doesNotMatch(JSON.stringify(answer), REGISTRAR_NAME);
-  assert.doesNotMatch(JSON.stringify(answer), /11\.48|18\.68/, "never the registrar's cost");
+  assert.doesNotMatch(withoutTimestamps(JSON.stringify(answer)), /11\.48|18\.68/, "never the registrar's cost");
 
   // A stored order holds the registrar, its USD cost, the price rule and a
   // premium name's prices for operators; the trainer's order status shows
@@ -328,7 +332,7 @@ test("search and order status answers carry no registrar name or cost field", as
   assert.equal(view.renewalPriceMinor, 6999);
   assert.equal(view.currency, "USD");
   assert.equal(view.serveMode, "forward");
-  assert.doesNotMatch(JSON.stringify(view), /55\.|60\.|premium|stepCents/);
+  assert.doesNotMatch(withoutTimestamps(JSON.stringify(view)), /55\.|60\.|premium|stepCents/);
   assert.doesNotMatch(JSON.stringify(view), REGISTRAR_NAME);
   assert.doesNotMatch(JSON.stringify(view), DNS_HOST);
   assert.deepEqual(
