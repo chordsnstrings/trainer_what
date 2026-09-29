@@ -519,6 +519,171 @@ test("'not done' before the session starts does nothing; while paused it is note
   ]);
 });
 
+const parsesAs = (cases: Array<[string, string]>) => {
+  for (const [text, want] of cases) {
+    const got = parseVoiceCommand(text);
+    assert.equal(
+      want.includes(":") ? kind(got) : got.type,
+      want,
+      `${text}: ${JSON.stringify(got)}`,
+    );
+  }
+};
+
+test("a negated or hedged completion never logs a set: 'I never made it', 'I almost did it', 'ما تم' (review 2)", () => {
+  parsesAs([
+    // Before: each of these logged the set at the full target ("did it",
+    // "made it" and "nailed it" are completion words; the negation was missed).
+    ["I never made it", "not_done"],
+    ["I almost made it", "not_done"],
+    ["I nearly made it", "not_done"],
+    ["I never did it", "not_done"],
+    ["I almost did it", "not_done"],
+    ["I never nailed it", "not_done"],
+    ["didn't nail it", "not_done"],
+    ["not quite made it", "not_done"],
+    ["it wasn't done", "not_done"],
+    ["wasn't finished", "not_done"],
+    ["I didn't get it done", "not_done"],
+    ["لم يتم", "not_done"],
+    ["ما انجزتها", "not_done"],
+    // Still going: acknowledged, never logged.
+    ["I haven't made it", "ack"],
+    ["nowhere near done", "ack"],
+    ["nearly done", "ack"],
+    ["ما تم", "ack"],
+    ["ما تمت", "ack"],
+    ["ما انجزت", "ack"],
+    ["مو خلاص", "ack"],
+    // A completion is still one.
+    ["did it", "done"],
+    ["made it", "done"],
+    ["nailed it", "done"],
+    ["barely made it", "done"],
+    ["not bad, done", "done"],
+    ["not too heavy, done", "done"],
+    ["لا، خلصت", "done"],
+    ["لا خلصت", "done"],
+    ["ما شاء الله خلصت", "done"],
+    ["ما في ألم خلصت", "done"],
+  ]);
+  // In a set (3 x 8 at 60 kg): nothing is logged and the set stays open.
+  for (const text of ["I never made it", "I almost made it", "I never did it", "it wasn't done", "ما تم", "مو خلاص"]) {
+    const { run, say } = runner();
+    const effects = say(text);
+    assert.deepEqual(logs(effects), [], text);
+    assert.equal(run.state.phase, "set", text);
+    assert.equal(run.state.set, 1, text);
+    assert.deepEqual(run.state.logged, [], text);
+  }
+});
+
+test("'I'm not ready', 'مو مستعد', 'ما نكمل' pause the session and never start the next set (review 2)", () => {
+  parsesAs([
+    // Before: each of these resumed (the rest ended and the next set began).
+    ["مو مستعد", "pause"],
+    ["لست مستعدة", "pause"],
+    ["مب جاهزه", "pause"],
+    ["ما ني مستعد", "pause"],
+    ["ما نكمل", "pause"],
+    ["ما ابي نكمل", "pause"],
+    ["هيا لا", "pause"],
+    ["I'm not ready", "pause"],
+    ["not ready yet", "pause"],
+    ["I can't continue", "pause"],
+    ["I can't go on", "pause"],
+    ["don't start yet", "pause"],
+    ["I don't want to continue", "pause"],
+    ["ready? no", "pause"],
+    // Before: a silent acknowledgement, or a skip.
+    ["ما اكمل", "pause"],
+    ["don't skip", "pause"],
+    ["I'm not ready for the next exercise", "pause"],
+    ["لا تبدا", "pause"],
+    ["لن أكمل", "pause"],
+    ["لا تتخطى", "pause"],
+    // Carrying on is still carrying on.
+    ["ready", "resume"],
+    ["جاهز", "resume"],
+    ["مستعدة", "resume"],
+    ["يلا نكمل", "resume"],
+    ["no pain let's go", "resume"],
+    ["not too heavy let's go", "resume"],
+    ["ما شاء الله يلا", "resume"],
+    ["ما عليه يلا", "resume"],
+    ["skip it", "skip"],
+    // The present-tense load complaint is unchanged.
+    ["ما اقدر اكمل", "too_heavy"],
+  ]);
+  // In the rest after set 1: paused, the clock stops, and nothing starts
+  // until the member says to carry on.
+  for (const text of ["مو مستعد", "ما نكمل", "لست مستعدة", "I'm not ready", "I can't continue"]) {
+    const { run, say, send } = runner();
+    say("Done. 8 reps.");
+    assert.equal(run.state.phase, "rest", text);
+    const effects = say(text);
+    assert.equal(run.state.phase, "paused", text);
+    assert.equal(run.state.resume, "rest", text);
+    assert.equal(run.state.set, 1, text);
+    assert.ok(
+      effects.some((e) => e.type === "say" && e.items.some((i) => "clip" in i && i.clip === "paused")),
+      text,
+    );
+    assert.deepEqual(send({ type: "tick", seconds: 60 }), [], text);
+    assert.equal(run.state.phase, "paused", text);
+    say("يلا");
+    assert.equal(run.state.phase, "rest", text);
+    assert.equal(run.state.set, 1, text);
+  }
+  // Setting up the first exercise, and in a set.
+  const script = buildSessionScript({ title: "Lower body", exercises: plan, style: bilingual, language: "en" }).script;
+  const ctx = { script, rules: script.rules };
+  let s = initialRunnerState(script);
+  for (const event of [{ type: "start" }, { type: "prompt_done" }, { type: "command", command: { type: "done" } }] as RunnerEvent[])
+    [s] = stepRunner(ctx, s, event);
+  assert.equal(s.phase, "setup");
+  [s] = stepRunner(ctx, s, { type: "command", command: parseVoiceCommand("don't start yet") });
+  assert.equal(s.phase, "paused");
+  assert.equal(s.resume, "setup");
+  const { run, say } = runner();
+  say("don't skip");
+  assert.equal(run.state.phase, "paused");
+  assert.deepEqual(run.state.skipped, []);
+});
+
+test("Gulf 'ما سويت آخر وحدة' points back like 'I didn't do the last one'; Arabic 'one' is not a rep count (review 2)", () => {
+  for (const text of ["ما سويت آخر وحدة", "ما سويت آخر واحدة", "آخر واحدة ما سويتها", "ما قدرت اكمل آخر مجموعة"])
+    assert.deepEqual(parseVoiceCommand(text), { type: "not_done", previous: true }, text);
+  // Reps of this set, not the set before.
+  for (const text of ["ما سويت آخر ثنتين", "لم أستطع إكمال آخر تكرارين", "التكرارات الأخيرة ما سويتها"])
+    assert.deepEqual(parseVoiceCommand(text), { type: "not_done" }, text);
+  parsesAs([
+    // Before: a set of 1 rep (the Arabic of "the last one was too heavy").
+    ["آخر واحدة كانت ثقيلة", "too_heavy"],
+    ["هذي واحدة صعبة", "too_heavy"],
+    ["واحدة ثانية", "unknown"],
+    // Before: 2 and 5 reps. A number after "last" or "first" points at reps.
+    ["the last two were hard", "unknown"],
+    ["the first 5 were easy", "too_easy"],
+    // Still a count.
+    ["واحدة", "reps:1"],
+    ["سويت واحد", "reps:1"],
+    ["سويت واحدة بس", "reps:1"],
+  ]);
+  // In set 2, after set 1 was logged at 8 reps: the Gulf reply names set 1,
+  // which was logged, so the member is told to correct it on the workout log.
+  const { run, say, send } = runner();
+  say("Done. 8 reps.");
+  send({ type: "tick", seconds: 30 });
+  assert.equal(run.state.phase, "set");
+  assert.equal(run.state.set, 2);
+  for (const text of ["ما سويت آخر وحدة", "I didn't do the last one", "لم أكمل المجموعة الأخيرة"])
+    assert.deepEqual(outcomes(say(text)), [{ type: "not_done", exercise: 0, set: 1, logged: true }], text);
+  // "The last two (reps)" in set 2 is set 2, which is not logged.
+  assert.deepEqual(outcomes(say("ما سويت آخر ثنتين")), [{ type: "not_done", exercise: 0, set: 2, logged: false }]);
+  assert.deepEqual(logs(run.effects).map((e: any) => [e.set, e.reps]), [[1, 8]]);
+});
+
 test("each line is synthesised in its own language", () => {
   assert.equal(speechLanguage("Set 2 of 3. 8 reps at 60 kilograms."), "en");
   assert.equal(speechLanguage("أحسنتِ، استمري"), "ar");
@@ -779,9 +944,35 @@ test("Brain wording answers the model trial refused are read leniently and still
     encouragement: ["You're doing great; keep going."],
     cooldown: ["Well done today; great effort."],
   });
-  // Haiku, T1 and T3: none of the kinds; still refused.
-  assert.equal(readVoiceSuggestions(JSON.parse(TRIAL.haikuT1)), null);
+  // Haiku, T1: the kinds under "suggestions" with other names (review 2:
+  // refused before). Every line still goes through the wording checks.
+  const haikuT1 = readVoiceSuggestions(JSON.parse(TRIAL.haikuT1));
+  assert.deepEqual(haikuT1, {
+    intro: ["Welcome back. Let's work together today."],
+    warmup: ["Feel your joints moving freely.", "Get the blood flowing."],
+    encouragement: ["Nice rep. That's the strength we're building."],
+    cooldown: ["Great session. Breathe and recover."],
+    finish: ["You did the work today. See you next time."],
+  });
+  assert.deepEqual(checkedSuggestions(haikuT1!, bilingual).rejected, []);
+  // Haiku, T3: one line with no kind ("wording"); still refused, because no
+  // kind can be read from it without guessing.
   assert.equal(readVoiceSuggestions(JSON.parse(TRIAL.haikuT3)), null);
+  // Other names and the nested form, with the same limits.
+  assert.deepEqual(
+    readVoiceSuggestions({
+      "Warm-up": ["a", "b"],
+      warm_up: ["c", "d", "e"],
+      cool_down: "f",
+      sign_off: ["g"],
+      Encouragements: ["h"],
+    }),
+    { warmup: ["a", "b", "c", "d"], encouragement: ["h"], cooldown: ["f"], finish: ["g"] },
+  );
+  // The top level wins; "suggestions" is read only when it has no kind.
+  assert.deepEqual(readVoiceSuggestions({ intro: ["top"], suggestions: { finish: ["nested"] } }), { intro: ["top"] });
+  assert.equal(readVoiceSuggestions({ suggestions: ["Welcome back."] }), null);
+  assert.equal(readVoiceSuggestions({ suggestions: { reason: "x" } }), null);
   // Nothing unsafe gets through the lenient reader.
   const risky = readVoiceSuggestions({
     intro: "Do 5 extra reps",
@@ -803,6 +994,9 @@ test("Brain wording answers the model trial refused are read leniently and still
     { intro: 3 },
     { other: ["x"] },
     Object.create({ intro: ["inherited"] }),
+    { suggestions: Object.create({ intro: ["inherited"] }) },
+    { data: { suggestions: { intro: ["too deep"] } } },
+    JSON.parse('{"constructor": ["x"], "__proto__": {"intro": ["y"]}, "hasOwnProperty": "z"}'),
   ])
     assert.equal(readVoiceSuggestions(bad), null, JSON.stringify(bad));
 });

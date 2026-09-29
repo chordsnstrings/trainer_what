@@ -327,33 +327,64 @@ export const voiceSuggestionsSchema = z
   })
   .strict();
 export type VoiceSuggestions = z.infer<typeof voiceSuggestionsSchema>;
+// Other names a model gives the same kinds, compared without case, spaces,
+// dashes or underscores ("warmUp", "cool_down", "signOff").
+const SUGGESTION_ALIASES = new Map<string, SuggestionField>([
+  ["intro", "intro"],
+  ["opening", "intro"],
+  ["opener", "intro"],
+  ["welcome", "intro"],
+  ["greeting", "intro"],
+  ["warmup", "warmup"],
+  ["encouragement", "encouragement"],
+  ["encouragements", "encouragement"],
+  ["cooldown", "cooldown"],
+  ["finish", "finish"],
+  ["signoff", "finish"],
+  ["closing", "finish"],
+  ["farewell", "finish"],
+  ["outro", "finish"],
+]);
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
 /**
  * The model's suggestions, read leniently. In the model trial (29 September
  * 2026) the answers for a bilingual trainer from two providers were refused
- * whole because one kind had five lines where four are kept, and a third
- * provider answered one line per kind as a plain string. Here each known kind
- * may be a list or one line; lines past the kind's limit, non-text items and
- * unknown keys are dropped. Nothing read here is spoken: every line still goes
- * through `checkedSuggestions` and the trainer's review. Null when the answer
- * holds none of the kinds (the caller reports the answer as not usable).
+ * whole because one kind had five lines where four are kept, a third provider
+ * answered one line per kind as a plain string, and once put the kinds under
+ * "suggestions" with other names ("opening", "warmUp", "coolDown",
+ * "signOff"). Here each kind may be a list or one line, under its own name or
+ * a known other name, at the top or under "suggestions"; lines past the
+ * kind's limit, non-text items and unknown keys are dropped. Nothing read here
+ * is spoken: every line still goes through `checkedSuggestions` and the
+ * trainer's review. Null when the answer holds none of the kinds (the caller
+ * reports the answer as not usable).
  */
 export function readVoiceSuggestions(content: unknown): VoiceSuggestions | null {
-  if (!content || typeof content !== "object" || Array.isArray(content)) return null;
-  const read: VoiceSuggestions = {};
-  let found = false;
-  for (const field of SUGGESTION_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(content, field)) continue;
-    const value = (content as Record<string, unknown>)[field];
-    const list = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
-    const lines = list
-      .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
-      .filter((line) => line.length <= 400)
-      .slice(0, SUGGESTION_LIMITS[field]);
-    if (!lines.length) continue;
-    read[field] = lines;
-    found = true;
-  }
-  return found ? read : null;
+  if (!isPlainObject(content)) return null;
+  const read = (source: Record<string, unknown>) => {
+    const lists: Partial<Record<SuggestionField, string[]>> = {};
+    for (const key of Object.keys(source)) {
+      const field = SUGGESTION_ALIASES.get(key.toLowerCase().replace(/[\s_-]/g, ""));
+      if (!field) continue;
+      const value = source[key];
+      const list: unknown[] = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+      lists[field] = [
+        ...(lists[field] ?? []),
+        ...list.filter(
+          (line): line is string => typeof line === "string" && line.trim().length > 0 && line.length <= 400,
+        ),
+      ];
+    }
+    const result: VoiceSuggestions = {};
+    for (const field of SUGGESTION_FIELDS) {
+      const lines = (lists[field] ?? []).slice(0, SUGGESTION_LIMITS[field]);
+      if (lines.length) result[field] = lines;
+    }
+    return Object.keys(result).length ? result : null;
+  };
+  const nested = Object.prototype.hasOwnProperty.call(content, "suggestions") ? content.suggestions : null;
+  return read(content) ?? (isPlainObject(nested) ? read(nested) : null);
 }
 /** The suggestions that pass every wording check and are not already in the style. */
 export function checkedSuggestions(raw: VoiceSuggestions, style: VoiceStyle) {

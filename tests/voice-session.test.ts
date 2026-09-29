@@ -626,6 +626,11 @@ test("Brain wording suggestions are checked and kept for the trainer's review; n
     const system = modelPrompts.at(-1).messages[0].content;
     assert.match(system, /voice-session-suggestions-v2/);
     assert.match(system, /At most 4 lines for intro, 4 for warmup, 8 for encouragement, 4 for cooldown and 4 for finish/);
+    // The contract names exactly the five keys, each a list of strings.
+    assert.ok(
+      system.includes('exactly these five keys, each a list of strings, and nothing else (no other keys, no nesting): {"intro": [], "warmup": [], "encouragement": [], "cooldown": [], "finish": []}'),
+      system,
+    );
     modelReply = {
       intro: ["Welcome back, let's move gently together.", "أهلاً بك، لنبدأ بهدوء."],
       warmup: ["Breathe in, and slowly out.", "Let your body wake up gently.", "Settle into an easy rhythm.", "خذي نفساً عميقاً، ثم أخرجيه ببطء.", "دعي جسمك يستيقظ بهدوء."],
@@ -637,8 +642,19 @@ test("Brain wording suggestions are checked and kept for the trainer's review; n
     assert.deepEqual(lenient.suggestions.encouragement, ["You're doing beautifully."]);
     assert.ok(lenient.suggestions.intro.includes("أهلاً بك، لنبدأ بهدوء."));
     assert.equal(JSON.stringify(lenient).includes("stronger each session"), false, "unknown keys are dropped");
-    // An answer with none of the kinds is still refused.
-    modelReply = { suggestions: { opening: "Welcome back." }, requiresReview: true };
+    // Model trial, Haiku T1 shape: the kinds under "suggestions" with other
+    // names are read (review 2), and still checked line by line.
+    modelReply = {
+      suggestions: { opening: "Glad you came back today.", coolDown: ["Do 5 more reps"], signOff: "See you next time." },
+      requiresReview: true,
+    };
+    const nested = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.ok(nested.suggestions.intro.includes("Glad you came back today."));
+    assert.ok(nested.suggestions.finish.includes("See you next time."));
+    assert.equal(nested.suggestions.cooldown.includes("Do 5 more reps"), false, "a line that fails the checks is not kept");
+    assert.ok(nested.rejected.some((r: any) => r.field === "cooldown"));
+    // An answer with none of the kinds (Haiku T3 shape) is still refused.
+    modelReply = { wording: "You are doing great.", script: "Voice cue for workout", emotion: "encouraging" };
     const refusedAnswer = await request("/voice-sessions/style/suggestions", "POST", undefined, coach);
     assert.equal(refusedAnswer.statusCode, 502);
     assert.equal(refusedAnswer.json().code, "MODEL_UNCONFIRMED");
