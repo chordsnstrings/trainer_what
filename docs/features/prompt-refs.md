@@ -1,15 +1,20 @@
 # Short identifier references in model requests (work package `core/fix-refs`, task F0)
 
 Status: helper implemented on branch `core/fix-refs` (`packages/providers/src/prompt-refs.ts`,
-re-exported from `@trainer/providers`). It is **not yet wired into any model call** on that branch:
-the call-site tracks do that. No model, provider or live server was used.
-
-Wired on branch `core/fix-chat` (task F1, `docs/features/coaching-chat.md`):
+re-exported from `@trainer/providers`) and wired into the model calls below on the track branches
+`core/fix-chat`, `core/fix-plans` and `core/fix-nutrition`. All four branches are merged into
+`integrate/round2` (stage 2026-09-29b in `docs/COMPLETION_STAGES.md`; not deployed).
+`compileTrainerRules` is **not** wired yet: it still sends and reads full UUIDs.
 
 | Call | Kinds (prefix: identifiers) | `idKeys` | Prompt version |
 | --- | --- | --- | --- |
-| `selectCoachAction` | `K`: actions, `R`: rules, `X`: teaching cases; `ID` for identifiers inside facts | `actionId`, `evidenceIds` (an issue in the free-text `reason` does not reject the reply: its references are decoded, and a reference-shaped word such as "x8" or "K2" is left as written) | `coach-action-selector-v3` |
-| `modelDecision` | `EV`: evidence items; `ID` for identifiers inside evidence data | `evidenceIds` (a reference or UUID in the member-facing `message` is invalid output) | `coach-decision-v1` |
+| `selectCoachAction` (F1) | `K`: actions, `R`: rules, `X`: teaching cases; `ID` for identifiers inside facts | `actionId`, `evidenceIds` (an issue in the free-text `reason` does not reject the reply: its references are decoded, and a reference-shaped word such as "x8" or "K2" is left as written) | `coach-action-selector-v3` |
+| `modelDecision` (F1) | `EV`: evidence items; `ID` for identifiers inside evidence data | `evidenceIds` (a reference or UUID in the member-facing `message` is invalid output) | `coach-decision-v1` |
+| `generateTrainingPlan`, `proposePlanAdaptation` (F3) | `R` rules, `X` cases, `P` reviewed examples, `T` templates, `ID` the twin snapshot and anything else | `evidenceIds` (a reference or UUID in member-facing wording is invalid output) | `brain-plan-v3`, `brain-plan-adapt-v2` (validator `brain-plan-validator-v3`) |
+| `nutritionModel` tasks (F4) | `M` recipes, `G` ingredient facts, `X` teaching cases, `S` sources, `Q` held-out scenarios, `ID` anything else | per task (`nutritionIdKeys`): week `recipeId`, `caseIds`; recipe draft `foodId`; policy `sourceIds`; evaluation `scenarioId`, `caseIds`, `caseId`, `recipeId`, `foodId` | `nutrition-cases-v3` |
+
+Details per call: `docs/features/coaching-chat.md`, `docs/features/brain-plans.md` and
+`docs/features/nutrition-model.md`.
 
 ## Why
 
@@ -104,9 +109,9 @@ Other members: `refs.payload` (send this), `resolve(token)`, `resolveAll(tokens)
    | --- | --- |
    | `selectCoachAction` | `actionId`, `evidenceIds` |
    | `modelDecision` | `evidenceIds` |
-   | `generateTrainingPlan`, `proposePlanAdaptation` | `evidenceIds` (wired in `core/fix-plans`: `R` rules, `X` cases, `P` reviewed examples, `T` templates, `ID` the twin snapshot; see `docs/features/brain-plans.md`) |
-   | `compileTrainerRules` | `sourceIds` |
-   | `nutritionModel` tasks | wired on branch `core/fix-nutrition` (`nutritionIdKeys`, prompt version `nutrition-cases-v3`, see `docs/features/nutrition-model.md`): week `recipeId`, `caseIds`; recipe draft `foodId`; policy `sourceIds`; evaluation `scenarioId`, `caseIds`, `caseId`, `recipeId`, `foodId`. Kinds: `M` recipes, `G` ingredient facts, `X` teaching cases, `S` sources, `Q` held-out scenarios, `ID` anything else |
+   | `generateTrainingPlan`, `proposePlanAdaptation` | `evidenceIds` |
+   | `compileTrainerRules` (not wired yet) | `sourceIds` |
+   | `nutritionModel` tasks | `nutritionIdKeys`: week `recipeId`, `caseIds`; recipe draft `foodId`; policy `sourceIds`; evaluation `scenarioId`, `caseIds`, `caseId`, `recipeId`, `foodId` |
 
 6. **Keep references away from subscribers.** Text a subscriber sees (for example
    `modelDecision`'s `message`) should be decoded with `inText: false` or not at all; each call

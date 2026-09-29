@@ -64,9 +64,20 @@ async function guardrails(ctx: E2EContext, layla: TrainerSeed, omar: TrainerSeed
         kind: "coach_decision",
         content: { type: "message", message: "Do 200 burpees daily", reason: "Invented", evidenceIds: [randomUUID()], requiresHumanReview: false },
       });
-      const response = await omarFollower.client.request("POST", "/api/v1/coaching/ask", { message: "What conditioning should I add this week?" });
-      assert.equal(response.status, 503, response.text);
+      const question = "What conditioning should I add this week?";
+      const response = await omarFollower.client.request("POST", "/api/v1/coaching/ask", { message: question });
+      // Since coach-decision-v1 (stage 2026-09-29b) invalid model output is a
+      // trainer review item and the subscriber gets the holding reply, never an
+      // error and never the model's text.
+      assert.equal(response.status, 200, response.text);
+      assert.deepEqual(response.body, { pendingReview: true, message: "Your trainer will review this coaching request." });
       assert.doesNotMatch(response.text, /burpees/);
+      const records = (await omar.client.get("/api/v1/bootstrap")).records;
+      const review = records.find((x: any) => x.kind === "exception" && x.data?.cause === "model_output_invalid" && x.data?.description === question);
+      assert.ok(review, "the trainer gets a review item for the withheld draft");
+      assert.equal(review.data.category, "human_review");
+      assert.equal(review.status, "open");
+      assert.ok(!records.some((x: any) => x.kind === "decision" && JSON.stringify(x.data ?? {}).includes("burpees")), "the withheld draft is not stored");
     });
   const nutritionFollower = ctx.followers.find((f) => f.trainer === layla && f.paid && f.tier === "workout_nutrition");
   if (nutritionFollower)
