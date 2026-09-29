@@ -392,6 +392,16 @@ Checks for this section are recorded in `docs/COMPLETION_STAGES.md` stage 2026-0
 PGlite and the restricted PostgreSQL role, a full harness run with the rule responder, and the
 adversarial replays showing each blocked case).
 
+## Short identifier references (helper ready, not wired)
+
+Plan generation and adaptation still send full UUIDs and expect them back in `evidenceIds`. In the
+model trial this failed correct plans: malformed copies in the T2S06 and T3S03 plans and the
+T1S07 adaptation, and a well-formed copy one character off in the T2S02 plan. The helper in
+`packages/providers/src/prompt-refs.ts` sends references such as `R1` instead and maps the reply
+back, reporting anything it did not issue; see `docs/features/prompt-refs.md`. Wiring it into
+`generateTrainingPlan` and `proposePlanAdaptation` (new prompt versions, `idKeys:
+["evidenceIds"]`, reject on any issue) is a separate track.
+
 ## Checks actually run
 
 After the review fixes (this revision):
