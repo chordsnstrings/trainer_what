@@ -116,7 +116,11 @@ and 65 px at 1440 (one row).
     bottom sheet. In the member app the bar sits on
     `--member-bottom-inset`, No thanks ends it on /app, /app/program,
     /app/chat and /app/profile, and Profile > Privacy turns analytics on
-    and off.
+    and off. "Sits on" is measured against what is on screen: the top of a
+    visible fixed tab bar or sticky action bar (the coach website's Join
+    bar included), else the screen edge; the end of the page is where its
+    last footer or main's content ends, without the bottom padding they
+    reserve for those bars.
   Both run in `npm run test:browser` and on their own with
   `node scripts/run-consent-check.mjs` (`RTL_WEB_MODE=start` uses the
   production build).

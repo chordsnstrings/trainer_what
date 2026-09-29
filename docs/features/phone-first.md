@@ -141,6 +141,20 @@ sits on the same value itself (`analytics-consent.css`,
 docs/features/analytics-consent.md): flush above the tab bar and any action
 bar, hidden while the keyboard is open.
 
+Stacking of the fixed pieces on a phone, bottom up (the integrated tracks):
+
+| Piece | Sits at | Layer |
+| ----- | ------- | ----- |
+| Bottom tab bar (`.member-tabbar`) | the screen edge, safe area included | `z-index: 40` |
+| Sticky action bar (`StickyActionBar`) | `--member-tabbar-height` (or the keyboard) | `z-index: 35` |
+| Analytics consent bar (`.consent-bar`, until answered) | `--member-bottom-inset`; publishes `--consent-bar-block-size` | `z-index: 45` |
+| "New version ready" toast (`.app-update-toast`, pwa.css) | `--member-bottom-inset` + `--consent-bar-block-size` + 12 px | `z-index: 50` |
+| Bottom sheets (`BottomSheet`, the install steps, the consent sheet) | native modal `<dialog>` | top layer, above all of these |
+
+The install card on Today, the install row in More and Profile, and the
+notifications prompt are in the page flow, and the "Offline" pill is in the
+top bar, so none of them needs an inset.
+
 ## Shared controls (`components/phone-ui.tsx`)
 
 | Piece | Use it for | Contract |

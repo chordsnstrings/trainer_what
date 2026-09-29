@@ -95,8 +95,14 @@ async function consentLayout(page) {
       .filter((el) => visible(el) && floats(el))
       .map((el) => (el.getAttribute("aria-label") || el.textContent || el.className).trim().slice(0, 60));
     const bar = document.querySelector(".consent-bar");
-    const inset =
-      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--member-bottom-inset")) || 0;
+    // The bottom chrome the bar must sit on: the member app's tab bar and any
+    // fixed sticky action bar (the coach website's Join bar too), else the
+    // screen edge. --member-bottom-inset itself is a calc() expression, which
+    // getPropertyValue returns unresolved, so measure what is on screen.
+    const chrome = [...document.querySelectorAll(".member-tabbar, .sticky-action-bar")]
+      .filter((el) => visible(el) && getComputedStyle(el).position === "fixed")
+      .map((el) => el.getBoundingClientRect().top);
+    const inset = innerHeight - Math.min(innerHeight, ...chrome);
     return {
       viewport: { width: innerWidth, height: innerHeight },
       overflow: document.documentElement.scrollWidth - innerWidth,
@@ -116,7 +122,12 @@ async function consentLayout(page) {
     };
   });
 }
-/** The end of the page (its last footer, else main) after a full scroll. */
+/**
+ * The end of the page's content (its last footer, else main) after a full
+ * scroll. Bottom padding is left out: the member app's main and the
+ * subscriber footer pad themselves by --member-bottom-inset to clear the tab
+ * bar and sticky action bars, and that reserved space is not content.
+ */
 async function pageEnd(page) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(250);
@@ -124,7 +135,16 @@ async function pageEnd(page) {
     const ends = [...document.querySelectorAll("footer, main")].filter(
       (el) => el.getBoundingClientRect().height > 0,
     );
-    return Math.max(...ends.map((el) => el.getBoundingClientRect().bottom));
+    return Math.max(
+      ...ends.map((el) => {
+        const style = getComputedStyle(el);
+        return (
+          el.getBoundingClientRect().bottom -
+          (parseFloat(style.paddingBlockEnd) || 0) -
+          (parseFloat(style.borderBlockEndWidth) || 0)
+        );
+      }),
+    );
   });
 }
 /** The first prompt, before an answer: slim, reachable and covering nothing. */
