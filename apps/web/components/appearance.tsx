@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "../lib/i18n/react";
 /**
  * Light, dark or the device's setting for subscriber surfaces
  * (docs/features/dark-mode.md). The choice lives with the member's other
@@ -169,26 +170,26 @@ export const PREFERENCES_SAVED_EVENT = "member-preferences-saved";
 
 const OPTIONS: Array<{
   value: ColorSchemeChoice;
-  label: string;
-  detail: string;
+  label: "matchDevice" | "light" | "dark";
+  detail: "matchDeviceDetail" | "lightDetail" | "darkDetail";
   icon: ReactNode;
 }> = [
   {
     value: "system",
-    label: "Match this device",
-    detail: "Light or dark, following your phone or computer setting.",
+    label: "matchDevice",
+    detail: "matchDeviceDetail",
     icon: <Monitor size={20} aria-hidden="true" />,
   },
   {
     value: "light",
-    label: "Light",
-    detail: "Dark text on a light background.",
+    label: "light",
+    detail: "lightDetail",
     icon: <Sun size={20} aria-hidden="true" />,
   },
   {
     value: "dark",
-    label: "Dark",
-    detail: "Light text on a dark background. Easier on the eyes at night.",
+    label: "dark",
+    detail: "darkDetail",
     icon: <Moon size={20} aria-hidden="true" />,
   },
 ];
@@ -199,6 +200,7 @@ const OPTIONS: Array<{
  */
 export function DisplayPreferences() {
   const choice = useColorScheme();
+  const t = useT("prefs");
   const [busy, setBusy] = useState(false),
     [status, setStatus] = useState<{
       text: string;
@@ -222,26 +224,20 @@ export function DisplayPreferences() {
       window.dispatchEvent(
         new CustomEvent(PREFERENCES_SAVED_EVENT, { detail: saved }),
       );
-      setStatus({ text: "Display preference saved.", tone: "success" });
+      setStatus({ text: t("displaySaved"), tone: "success" });
     } catch {
       rememberColorScheme(previous);
-      setStatus({
-        text: "Your display preference could not be saved. Check your connection and try again.",
-        tone: "error",
-      });
+      setStatus({ text: t("displayFailed"), tone: "error" });
     } finally {
       setBusy(false);
     }
   }
   return (
     <section className="card display-preferences" id="display">
-      <h2>Display preferences</h2>
-      <p className="muted">
-        Choose how the app looks. Your coach’s website and sign-in pages on this
-        device follow the same choice.
-      </p>
+      <h2>{t("display")}</h2>
+      <p className="muted">{t("displayText")}</p>
       <fieldset className="appearance-choice" aria-busy={busy}>
-        <legend>Appearance</legend>
+        <legend>{t("appearance")}</legend>
         {OPTIONS.map((option) => (
           <label className="appearance-option" key={option.value}>
             <input
@@ -253,8 +249,8 @@ export function DisplayPreferences() {
             />
             <span className="appearance-option-icon">{option.icon}</span>
             <span className="appearance-option-text">
-              <strong>{option.label}</strong>
-              <small>{option.detail}</small>
+              <strong>{t(option.label)}</strong>
+              <small>{t(option.detail)}</small>
             </span>
           </label>
         ))}

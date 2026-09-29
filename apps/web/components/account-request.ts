@@ -1,4 +1,6 @@
 // JSON request helper shared by the account self-service components.
+import { translator, type Locale } from "../lib/i18n/core";
+import authMessages from "../lib/i18n/messages/auth";
 export type AccountError = Error & { status?: number; code?: string };
 export async function accountRequest<T = any>(
   path: string,
@@ -25,8 +27,17 @@ export async function accountRequest<T = any>(
   return data as T;
 }
 /** Human wording for sign-in outcomes returned as ?signin_error=CODE. */
-export function signInErrorMessage(code: string | null | undefined) {
+export function signInErrorMessage(
+  code: string | null | undefined,
+  locale: Locale = "en",
+) {
   if (!code) return "";
+  if (locale !== "en") {
+    const t = translator(authMessages, locale);
+    return Object.hasOwn(authMessages.en, code) && /^[A-Z_]+$/.test(code)
+      ? t(code as "OIDC_CANCELLED")
+      : t("signInFailed");
+  }
   const messages: Record<string, string> = {
     OIDC_CANCELLED: "Sign-in was cancelled.",
     OIDC_EXPIRED: "That sign-in expired or was already used. Start again.",

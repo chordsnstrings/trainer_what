@@ -1,4 +1,6 @@
+"use client";
 import type { ReactNode } from "react";
+import { useT } from "../lib/i18n/react";
 
 /**
  * The phone-first frame of the sign-in, recovery, email-link and joining
@@ -33,11 +35,12 @@ export function AuthPage({
 }
 
 /** "Return to sign in", apart from the form's own button. */
-export function ReturnToSignIn({ label = "Return to sign in" }: { label?: string }) {
+export function ReturnToSignIn({ label }: { label?: string }) {
+  const t = useT("auth");
   return (
     <p className="auth-return">
       <a className="text-link" href="/login">
-        {label}
+        {label ?? t("returnToSignIn")}
       </a>
     </p>
   );

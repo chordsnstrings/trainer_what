@@ -1,4 +1,6 @@
 "use client";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDate } from "../lib/format";
 import { useEffect, useState } from "react";
 
 async function request(path: string, body?: unknown) {
@@ -19,36 +21,50 @@ function Notice({ text }: { text: string }) {
     </p>
   ) : null;
 }
+const REQUEST_STATES = [
+  "requested",
+  "pending",
+  "in_review",
+  "approved",
+  "completed",
+  "rejected",
+  "cancelled",
+] as const;
 export function PersonalPrivacyStatus() {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState("");
+  const t = useT("prefs"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const state = (status: string) =>
+    (REQUEST_STATES as readonly string[]).includes(status)
+      ? t(`request_${status as (typeof REQUEST_STATES)[number]}`)
+      : status.replaceAll("_", " ");
   useEffect(() => {
     void request("/privacy/status")
       .then(setData)
-      .catch((e) => setMessage(e.message));
-  }, []);
+      .catch((e) => setMessage(toError(e)));
+  }, [toError]);
   return (
     <section className="card">
-      <h2>Your privacy requests</h2>
+      <h2>{t("privacyRequests")}</h2>
       <Notice text={message} />
-      <p>
-        Local account erasure and provider or backup cleanup are tracked
-        separately. Retained financial and consent records follow the applicable
-        retention policy.
-      </p>
+      <p>{t("privacyRequestsText")}</p>
       {data && !data.requests.length && (
-        <p className="muted">No deletion request has been submitted.</p>
+        <p className="muted">{t("noDeletion")}</p>
       )}
       {data?.requests.map((r: any) => (
         <p key={r.id}>
-          {r.status.replaceAll("_", " ")} ·{" "}
-          {new Date(r.created_at).toLocaleDateString()}
+          {state(r.status)} · {formatDate(r.created_at, { locale })}
         </p>
       ))}
       {data?.followups.map((f: any) => (
         <p key={f.id}>
-          {f.subject}: {f.status} · review by{" "}
-          {new Date(f.due_at).toLocaleDateString()}
+          {t("reviewBy", {
+            subject: f.subject,
+            status: state(f.status),
+            date: formatDate(f.due_at, { locale }),
+          })}
         </p>
       ))}
     </section>

@@ -2,6 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isStandalone, registerServiceWorker } from "./pwa";
+import { translator, type Locale, type PlainKey } from "../lib/i18n/core";
+import pushMessages from "../lib/i18n/messages/push";
+import { parseLanguage } from "../document-language";
+import { useLocale, useT } from "../lib/i18n/react";
+import { formatDateTime } from "../lib/format";
+
+/** A push message key (lib/i18n/messages/push.ts). */
+export type PushMessage = PlainKey<typeof pushMessages.en>;
+/** The page's language, for text built outside a component. */
+function deviceLocale(): Locale {
+  return (
+    (typeof document !== "undefined" &&
+      parseLanguage(document.documentElement.lang)) ||
+    "en"
+  );
+}
 
 type PushDevice = {
   id: string;
@@ -24,7 +40,12 @@ type BrowserState = {
   readFailed: boolean;
 };
 
-class PushRequestError extends Error {}
+/** Carries a message key; the screen shows it in the member's language. */
+class PushRequestError extends Error {
+  constructor(readonly key: PushMessage) {
+    super(key);
+  }
+}
 
 async function pushApi<T>(
   path = "",
@@ -43,12 +64,12 @@ async function pushApi<T>(
     // Do not surface raw provider errors: they may contain a private endpoint.
     throw new PushRequestError(
       response.status === 401 || response.status === 403
-        ? "Your sign-in needs refreshing. Sign in again, then retry."
+        ? "errSignIn"
         : response.status === 409 || response.status === 429
-          ? "Push setup changed or the device limit was reached. Refresh, remove an unused device if needed, then retry."
+          ? "errLimit"
           : response.status === 503
-            ? "Push notifications are temporarily unavailable. Try again later."
-            : "The push settings request failed. Refresh and try again.",
+            ? "errUnavailable"
+            : "errFailed",
     );
   }
   return response.json();
@@ -127,7 +148,7 @@ async function readyRegistration() {
       () =>
         reject(
           new PushRequestError(
-            "The app is still preparing notifications. Check your connection and try again.",
+            "errPreparing",
           ),
         ),
       15000,
@@ -141,7 +162,7 @@ async function readyRegistration() {
         window.clearTimeout(timeout);
         reject(
           new PushRequestError(
-            "The app could not prepare notifications. Refresh and retry.",
+            "errPrepare",
           ),
         );
       },
@@ -149,10 +170,10 @@ async function readyRegistration() {
   });
 }
 
-function actionError(error: unknown, fallback: string) {
-  if (error instanceof PushRequestError) return error.message;
+function actionError(error: unknown, fallback: PushMessage): PushMessage {
+  if (error instanceof PushRequestError) return error.key;
   if (error instanceof DOMException && error.name === "NotAllowedError") {
-    return "Notifications were not allowed. Check this site's notification permission in your browser settings, then retry.";
+    return "errNotAllowed";
   }
   return fallback;
 }
@@ -195,7 +216,7 @@ export async function pushReadiness(): Promise<PushReadiness> {
  */
 export async function turnOnPush(
   publicKey: string,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: PushMessage }> {
   try {
     const permission =
       Notification.permission === "default"
@@ -206,8 +227,8 @@ export async function turnOnPush(
         ok: false,
         message:
           permission === "denied"
-            ? "Notifications are blocked for this app. You can allow them later in your phone's settings."
-            : "Notifications are still off. You can turn them on any time in Profile and settings.",
+            ? "blockedApp"
+            : "stillOff",
       };
     const registration = await readyRegistration();
     let subscription = await registration.pushManager.getSubscription();
@@ -227,15 +248,17 @@ export async function turnOnPush(
       endpoint: subscription.endpoint,
       expirationTime: subscription.expirationTime,
       publicKey,
-      label: isStandalone() ? "Installed app" : "This browser",
+      label: translator(pushMessages, deviceLocale())(
+        isStandalone() ? "installedApp" : "thisBrowser",
+      ),
     });
-    return { ok: true, message: "Notifications are on for this phone." };
+    return { ok: true, message: "onForPhone" };
   } catch (e) {
     return {
       ok: false,
       message: actionError(
         e,
-        "Notifications could not be turned on. Try again from Profile and settings.",
+        "couldNotTurnOn",
       ),
     };
   }
@@ -249,12 +272,17 @@ export function PushNotifications() {
     subscription: null,
     readFailed: false,
   });
-  const [label, setLabel] = useState("This browser");
+  const t = useT("push"),
+    common = useT("common"),
+    locale = useLocale();
+  const [label, setLabel] = useState(() =>
+    translator(pushMessages, deviceLocale())("thisBrowser"),
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [needsRetry, setNeedsRetry] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [error, setError] = useState<PushMessage | "">("");
+  const [notice, setNotice] = useState<PushMessage | "">("");
   const busyRef = useRef(false);
   const loadVersion = useRef(0);
 
@@ -277,7 +305,7 @@ export function PushNotifications() {
       setError(
         actionError(
           e,
-          "Could not load push settings. Check your connection and retry.",
+          "couldNotLoad",
         ),
       );
     } finally {
@@ -297,7 +325,7 @@ export function PushNotifications() {
       if (event.data?.type !== "trainer-push-subscription-changed") return;
       setNeedsRetry(true);
       setNotice(
-        "Your browser's push connection expired. Reconnect to receive updates again.",
+        "expired",
       );
       void refresh();
     };
@@ -342,8 +370,8 @@ export function PushNotifications() {
       if (permission !== "granted") {
         setNotice(
           permission === "denied"
-            ? "Notifications are blocked. Allow them in this site's browser settings, then return and refresh."
-            : "Notifications were not enabled. You can try again when you are ready.",
+            ? "blockedSite"
+            : "notEnabled",
         );
         return;
       }
@@ -359,7 +387,7 @@ export function PushNotifications() {
         subscription = await registration.pushManager.getSubscription();
         if (subscription)
           throw new PushRequestError(
-            "The old push connection could not be cleared. Retry or remove this site's notification permission in your browser settings.",
+            "oldNotCleared",
           );
       }
       if (!subscription) {
@@ -368,7 +396,7 @@ export function PushNotifications() {
           applicationServerKey: publicKeyBytes(settings.publicKey),
         });
       }
-      const deviceLabel = label.trim() || "This browser";
+      const deviceLabel = label.trim() || t("thisBrowser");
       // Payloadless push needs the endpoint and VAPID public key only, never subscription encryption keys.
       const saved = await pushApi<{ id: string; expiresAt: string }>(
         "",
@@ -403,13 +431,13 @@ export function PushNotifications() {
           },
       );
       setNeedsRetry(false);
-      setNotice("Push notifications are enabled for this browser.");
+      setNotice("enabledBrowser");
     } catch (e) {
       setBrowser(await readBrowserState());
       setError(
         actionError(
           e,
-          "Could not confirm this browser's push connection. Check your connection, then retry enabling it.",
+          "couldNotConfirm",
         ),
       );
     } finally {
@@ -467,22 +495,22 @@ export function PushNotifications() {
         setError(
           actionError(
             serverError,
-            "Could not remove the saved device. Check your connection, then retry its Remove button.",
+            "couldNotRemove",
           ),
         );
         if (device?.current && !browserError)
           setNotice(
-            "This browser's push subscription is cleared. Its saved device still needs to be removed.",
+            "subscriptionCleared",
           );
       } else if (browserError) {
         setError(
-          "Push is disconnected from your account, but the browser subscription could not be cleared. Retry clearing it or use this site's notification settings.",
+          "partlyDisconnected",
         );
       } else {
         setNotice(
           device && !device.current
-            ? "Device removed. It will no longer receive updates."
-            : "Push notifications are disabled for this browser.",
+            ? "deviceRemoved"
+            : "disabledBrowser",
         );
       }
     } finally {
@@ -516,77 +544,50 @@ export function PushNotifications() {
 
   return (
     <section className="card" aria-busy={loading || busy}>
-      <h2>Browser push notifications</h2>
-      <p className="muted">
-        Get a generic update alert while the app is closed. Open your inbox to
-        see the details.
-      </p>
-      {loading && <p role="status">Checking push notifications…</p>}
+      <h2>{t("title")}</h2>
+      <p className="muted">{t("intro")}</p>
+      {loading && <p role="status">{t("checking")}</p>}
       {error && (
         <p className="notice error" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
       {notice && (
         <p className="notice" role="status">
-          {notice}
+          {t(notice)}
         </p>
       )}
       {settings && !settings.configured && (
-        <p className="notice">
-          Push notifications have not been configured for this app. You can
-          still remove saved devices below.
-        </p>
+        <p className="notice">{t("notConfigured")}</p>
       )}
       {browser.support === "insecure" && (
-        <p className="notice">
-          Open this app over HTTPS to enable browser push notifications.
-        </p>
+        <p className="notice">{t("insecure")}</p>
       )}
       {browser.support === "install" && (
-        <p className="notice">
-          On iPhone or iPad, open the Share menu and choose Add to Home Screen.
-          Open the installed app, sign in, then enable notifications here.
-        </p>
+        <p className="notice">{t("iosInstall")}</p>
       )}
       {browser.support === "unsupported" && (
-        <p className="notice">
-          This browser does not support push notifications. Your in-app inbox
-          remains available.
-        </p>
+        <p className="notice">{t("unsupported")}</p>
       )}
       {browser.permission === "denied" && (
-        <p className="notice">
-          Notifications are blocked in your browser. Allow this site in your
-          browser's notification settings, then refresh below.
-        </p>
+        <p className="notice">{t("deniedBrowser")}</p>
       )}
-      {browser.readFailed && (
-        <p className="notice">
-          The browser connection could not be checked. Refresh to retry; saved
-          devices can still be removed.
-        </p>
-      )}
+      {browser.readFailed && <p className="notice">{t("readFailed")}</p>}
       {!loading && connected && (
-        <p role="status">Enabled for this browser and sign-in session.</p>
+        <p role="status">{t("enabledSession")}</p>
       )}
       {!loading && canEnable && !connected && (
         <>
-          {reconnect && (
-            <p className="muted">
-              Reconnect this browser after a session, browser subscription, or
-              push configuration change.
-            </p>
-          )}
+          {reconnect && <p className="muted">{t("reconnectHint")}</p>}
           <label className="field">
-            <span>Device label</span>
+            <span>{t("deviceLabel")}</span>
             <input
               value={label}
               maxLength={60}
               autoComplete="off"
               disabled={busy}
               onChange={(event) => setLabel(event.target.value)}
-              placeholder="For example, Personal phone"
+              placeholder={t("deviceLabelExample")}
             />
           </label>
           <p>
@@ -597,10 +598,10 @@ export function PushNotifications() {
               onClick={() => void enable()}
             >
               {busy
-                ? "Updating…"
+                ? t("updating")
                 : reconnect
-                  ? "Reconnect this browser"
-                  : "Enable push on this browser"}
+                  ? t("reconnect")
+                  : t("enable")}
             </button>
           </p>
         </>
@@ -613,17 +614,20 @@ export function PushNotifications() {
             disabled={busy || loading}
             onClick={() => void remove()}
           >
-            Clear this browser subscription
+            {t("clearSubscription")}
           </button>
         </p>
       )}
       {settings && (
         <>
           <h3>
-            Saved devices ({settings.devices.length}/{settings.maxDevices})
+            {t("savedDevices", {
+              count: settings.devices.length,
+              max: settings.maxDevices,
+            })}
           </h3>
           {!settings.devices.length && (
-            <p className="muted">No devices are connected to your account.</p>
+            <p className="muted">{t("noDevices")}</p>
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {settings.devices.map((device) => (
@@ -638,33 +642,35 @@ export function PushNotifications() {
                 }}
               >
                 <div style={{ flex: "1 1 200px", overflowWrap: "anywhere" }}>
-                  <strong>{device.label}</strong>
-                  {device.current && " · This sign-in session"}
+                  <strong>
+                    <bdi>{device.label}</bdi>
+                  </strong>
+                  {device.current && t("thisSession")}
                   <br />
                   <small className="muted">
-                    Connection ends{" "}
-                    {new Date(device.expiresAt).toLocaleString()}
+                    {t("connectionEnds", {
+                      date: formatDateTime(device.expiresAt, { locale }),
+                    })}
                   </small>
                 </div>
                 <button
                   type="button"
                   className="button secondary"
                   disabled={busy || loading}
-                  aria-label={`Remove ${device.label}${device.current ? " from this browser" : ""}`}
+                  aria-label={t(
+                    device.current ? "removeDeviceHere" : "removeDevice",
+                    { name: device.label },
+                  )}
                   onClick={() => void remove(device)}
                 >
-                  Remove
+                  {common("remove")}
                 </button>
               </li>
             ))}
           </ul>
         </>
       )}
-      <p className="muted">
-        Push stops when you sign out, revoke this session, or the session
-        expires. Enable it again after signing in. Removing another device
-        disconnects it from this account.
-      </p>
+      <p className="muted">{t("stopsWhen")}</p>
       <button
         type="button"
         className="button secondary"
@@ -674,7 +680,7 @@ export function PushNotifications() {
           void refresh();
         }}
       >
-        Refresh push status
+        {t("refresh")}
       </button>
     </section>
   );

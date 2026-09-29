@@ -6,6 +6,7 @@ import {
   type AccountError,
 } from "./account-request";
 import { AuthPage, ReturnToSignIn } from "./auth-page";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 
 type Provider = { id: string; name: string; enabled: boolean };
 
@@ -35,6 +36,9 @@ export function SocialSignIn({
     [neutral, setNeutral] = useState(false),
     [ticked, setTicked] = useState(false),
     [busy, setBusy] = useState("");
+  const t = useT("auth"),
+    locale = useLocale(),
+    toError = useErrorText();
   useEffect(() => {
     accountRequest<{ providers: Provider[] }>("/auth/oidc/providers")
       .then((r) => setProviders(r.providers.filter((p) => p.enabled)))
@@ -42,7 +46,7 @@ export function SocialSignIn({
     const params = new URLSearchParams(window.location.search);
     const error = params.get("signin_error");
     if (error) {
-      setMessage(signInErrorMessage(error));
+      setMessage(signInErrorMessage(error, locale));
       setNeutral(error === "MEMBERSHIP_ENDED" || error === "NO_MEMBERSHIP");
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -64,7 +68,7 @@ export function SocialSignIn({
       {providers.length > 0 && (
         <>
           <p className="acct-or">
-            <span>or</span>
+            <span>{t("or")}</span>
           </p>
           {ownBox && (
             <label className="check-field">
@@ -73,8 +77,7 @@ export function SocialSignIn({
                 checked={ticked}
                 onChange={(e) => setTicked(e.target.checked)}
               />
-              I accept the published terms and understand the digital coaching
-              disclosure.
+              {t("acceptPublished")}
             </label>
           )}
           {providers.map((p) => (
@@ -100,12 +103,14 @@ export function SocialSignIn({
                   window.location.assign(r.authorizationUrl);
                 } catch (e) {
                   setNeutral(false);
-                  setMessage((e as AccountError).message);
+                  setMessage(toError(e as AccountError));
                   setBusy("");
                 }
               }}
             >
-              {busy === p.id ? `Opening ${p.name}…` : `Continue with ${p.name}`}
+              {busy === p.id
+                ? t("opening", { provider: p.name })
+                : t("continueWith", { provider: p.name })}
             </button>
           ))}
         </>
@@ -120,24 +125,26 @@ export function SocialSignInVerify() {
     [message, setMessage] = useState(""),
     [expired, setExpired] = useState(false),
     [busy, setBusy] = useState(false);
+  const t = useT("auth"),
+    toError = useErrorText();
   useEffect(() => {
     accountRequest("/auth/oidc/pending")
       .then(setPending)
       .catch(() => setExpired(true));
   }, []);
   return (
-    <AuthPage eyebrow="YOUR ACCOUNT" title="One more step.">
-        <h2>Authenticator code</h2>
+    <AuthPage eyebrow={t("yourAccount")} title={t("oneMoreStep")}>
+        <h2>{t("authenticatorCode")}</h2>
         {expired ? (
           <p className="notice error" role="alert">
-            This sign-in expired. Start again from the sign-in page.
+            {t("signInExpired")}
           </p>
         ) : (
           <>
             <p className="muted">
               {pending
-                ? `${pending.name} confirmed your identity. Enter the six-digit code from your authenticator app to finish signing in.`
-                : "Checking your sign-in…"}
+                ? t("providerConfirmed", { provider: pending.name })
+                : t("checkingSignIn")}
             </p>
             {message && (
               <p className="notice error" role="alert">
@@ -159,13 +166,13 @@ export function SocialSignInVerify() {
                   } catch (error) {
                     const err = error as AccountError;
                     if (err.code === "OIDC_EXPIRED") setExpired(true);
-                    setMessage(err.message);
+                    setMessage(toError(err));
                     setBusy(false);
                   }
                 }}
               >
                 <label className="field">
-                  <span>Authenticator code</span>
+                  <span>{t("authenticatorCode")}</span>
                   <input
                     name="code"
                     inputMode="numeric"
@@ -176,7 +183,7 @@ export function SocialSignInVerify() {
                   />
                 </label>
                 <button className="button" disabled={busy}>
-                  Finish signing in
+                  {t("finishSignIn")}
                 </button>
               </form>
             )}

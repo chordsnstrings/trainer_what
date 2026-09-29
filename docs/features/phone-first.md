@@ -396,7 +396,10 @@ bar and sheets keep the shared microanimations.
   sign-in, recovery, email link and the three legal pages) at both sizes
   and fails on sideways overflow, a tap target under 44 px, a field under
   16 px, a covered sticky action or the trainer-marketing footer. Results
-  go to `test-results/phone-check.json`.
+  go to `test-results/phone-check.json`. `PHONE_CHECK_LANG=ar` runs the
+  same visits in Arabic (the `?lang=` cookie signed out, the member's saved
+  language signed in), also failing any screen not rendered `ar`/`rtl`;
+  results go to `test-results/phone-check-ar.json`.
 - `tests/public-pages.test.ts`: the legal status and its gate, enrol with a
   name for new accounts only, forms never asking to accept an unpublished
   document, the short join flow, no trainer-marketing footer or story for
@@ -432,11 +435,10 @@ bar and sheets keep the shared microanimations.
 - The Today screen's content (contradictory plan states, repeated
   navigation cards and stats, length) is the Today/content track; the tab
   bar now covers the navigation those cards duplicate.
-- Translated Arabic copy for member screens, coach website and joining
-  pages, public legal pages, meal logging and barcode review copy,
-  notification and support labels, membership and checkout states, and the
-  offline and workspace-unavailable screens are listed for their own
-  tracks.
+- Arabic copy for these surfaces is docs/features/arabic.md (Track A on
+  `ui/integrate`): the shell, More, controls, member screens, public,
+  joining, sign-in and legal pages use the catalogs; the phone rules are
+  re-checked in Arabic with `PHONE_CHECK_LANG=ar`.
 - Dark mode is `docs/features/dark-mode.md` (branch `ui/dark`): the shell
   and every control above follow the member's Light, Dark or System choice
   through the same tokens; new subscriber CSS must use tokens only.

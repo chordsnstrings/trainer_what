@@ -2,11 +2,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   accountRequest,
-  formatDate,
+  formatDate as formatDateEn,
   signInErrorMessage,
   type AccountError,
 } from "./account-request";
 import { LeaveTrainer } from "./membership-exit";
+import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDateTime } from "../lib/format";
 
 type ReturnPath =
   "/app/profile" | "/trainer/settings" | "/admin/account-security";
@@ -68,11 +70,12 @@ function ProofFields({
   account: Account;
   prefix: string;
 }) {
+  const t = useT("account");
   return (
     <>
       {account.profile.hasPassword ? (
         <label className="field">
-          <span>Current password</span>
+          <span>{t("currentPassword")}</span>
           <input
             name="password"
             type="password"
@@ -83,16 +86,12 @@ function ProofFields({
         </label>
       ) : (
         !account.recentSignIn && (
-          <p className="notice">
-            Your account has no password. Sign out and sign in again with Apple
-            or Google, then repeat this change within ten minutes. Switching
-            coaching spaces does not count as signing in.
-          </p>
+          <p className="notice">{t("noPasswordProof")}</p>
         )
       )}
       {account.profile.mfaEnabled && (
         <label className="field">
-          <span>Authenticator code</span>
+          <span>{t("authenticatorCode")}</span>
           <input
             name="code"
             inputMode="numeric"
@@ -119,6 +118,11 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       provider: string;
       action: "link" | "unlink";
     } | null>(null);
+  const t = useT("account"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const formatDate = (value: string | null | undefined) =>
+    locale === "en" ? formatDateEn(value) : formatDateTime(value, { locale });
   const say = (section: string, value: string, tone: Tone = "success") =>
     setMessages((m) => ({
       ...m,
@@ -129,9 +133,9 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       setAccount(await accountRequest<Account>("/account"));
       setLoadError("");
     } catch (e) {
-      setLoadError((e as Error).message);
+      setLoadError(toError(e));
     }
-  }, []);
+  }, [toError]);
   useEffect(() => {
     void load();
     const params = new URLSearchParams(window.location.search);
@@ -140,9 +144,9 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
     if (linked)
       say(
         "methods",
-        `${linked === "apple" ? "Apple" : "Google"} sign-in is now linked to your account.`,
+        t("linkedNow", { provider: linked === "apple" ? "Apple" : "Google" }),
       );
-    if (error) say("methods", signInErrorMessage(error), "error");
+    if (error) say("methods", signInErrorMessage(error, locale), "error");
     if (linked || error)
       window.history.replaceState(null, "", window.location.pathname);
     const refresh = () => void load();
@@ -163,7 +167,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       await load();
       return result;
     } catch (e) {
-      say(section, (e as AccountError).message, "error");
+      say(section, toError(e as AccountError), "error");
       return null;
     } finally {
       setBusy("");
@@ -172,7 +176,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
   if (loadError)
     return (
       <section className="card">
-        <h2>Account settings</h2>
+        <h2>{t("accountSettings")}</h2>
         <p className="notice error" role="alert">
           {loadError}
         </p>
@@ -181,8 +185,8 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
   if (!account)
     return (
       <section className="card" aria-busy="true">
-        <h2>Account settings</h2>
-        <p className="muted">Loading your account…</p>
+        <h2>{t("accountSettings")}</h2>
+        <p className="muted">{t("loadingAccount")}</p>
       </section>
     );
   const methods = account.providers.filter((p) => p.enabled || p.linked);
@@ -190,10 +194,8 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
   return (
     <div className="acct-stack">
       <section className="card" aria-labelledby="acct-profile">
-        <h2 id="acct-profile">Your name</h2>
-        <p className="muted">
-          Shown to your coach, team and in messages across every workspace.
-        </p>
+        <h2 id="acct-profile">{t("yourName")}</h2>
+        <p className="muted">{t("nameShown")}</p>
         <Status message={messages.profile ?? null} />
         <form
           onSubmit={(e: FormEvent<HTMLFormElement>) => {
@@ -205,12 +207,12 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                 accountRequest("/account/profile", "PATCH", {
                   name: text(f, "name"),
                 }),
-              () => "Name saved.",
+              () => t("nameSaved"),
             );
           }}
         >
           <label className="field">
-            <span>Display name</span>
+            <span>{t("displayName")}</span>
             <input
               name="name"
               defaultValue={account.profile.name}
@@ -221,13 +223,13 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
             />
           </label>
           <button className="button" disabled={busy === "profile"}>
-            Save name
+            {t("saveName")}
           </button>
         </form>
       </section>
 
       <section className="card" aria-labelledby="acct-email">
-        <h2 id="acct-email">Sign-in email</h2>
+        <h2 id="acct-email">{t("signInEmail")}</h2>
         <p className="acct-row">
           <span className="acct-break" dir="ltr">
             {account.profile.email}
@@ -235,17 +237,22 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
           <span
             className={`badge ${account.profile.emailVerified ? "green" : "amber"}`}
           >
-            {account.profile.emailVerified ? "Verified" : "Not verified"}
+            {account.profile.emailVerified ? t("verified") : t("notVerified")}
           </span>
         </p>
         <Status message={messages.email ?? null} />
         {account.pendingEmailChange && (
           <div className="notice acct-row">
             <span className="acct-break">
-              Waiting for confirmation at{" "}
-              <strong>{account.pendingEmailChange.newEmail}</strong> until{" "}
-              {formatDate(account.pendingEmailChange.expiresAt)}. Your email
-              changes only after that link is opened.
+              <Rich
+                t={t}
+                k="waitingConfirmation"
+                params={{
+                  email: account.pendingEmailChange.newEmail,
+                  date: formatDate(account.pendingEmailChange.expiresAt),
+                }}
+                tags={{ b: (text) => <strong dir="ltr">{text}</strong> }}
+              />
             </span>
             <button
               type="button"
@@ -255,11 +262,11 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                 void run(
                   "email",
                   () => accountRequest("/account/email/cancel", "POST", {}),
-                  () => "The pending email change was cancelled.",
+                  () => t("changeCancelled"),
                 )
               }
             >
-              Cancel change
+              {t("cancelChange")}
             </button>
           </div>
         )}
@@ -277,36 +284,30 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                     password: optional(f, "password"),
                     code: optional(f, "code"),
                   }),
-                (r) => r.message,
+                (r) => (locale === "en" ? r.message : t("confirmationSent")),
               ).then((r) => r && form.reset());
             }}
           >
             <label className="field">
-              <span>New email address</span>
+              <span>{t("newEmail")}</span>
               <input name="email" type="email" autoComplete="email" required />
             </label>
             <ProofFields account={account} prefix="email" />
             <button className="button" disabled={busy === "email"}>
-              Send confirmation link
+              {t("sendConfirmation")}
             </button>
           </form>
         ) : (
-          <p className="notice">
-            Email delivery is not configured on this platform yet, so a new
-            address cannot be confirmed. Your email stays as it is; contact
-            support if you need it changed.
-          </p>
+          <p className="notice">{t("emailNotConfigured")}</p>
         )}
       </section>
 
       <section className="card" aria-labelledby="acct-password">
         <h2 id="acct-password">
-          {account.profile.hasPassword ? "Change password" : "Set a password"}
+          {account.profile.hasPassword ? t("changePassword") : t("setPassword")}
         </h2>
         <p className="muted">
-          {account.profile.hasPassword
-            ? "Changing your password signs out every device, including this one."
-            : "Your account signs in with Apple or Google. A password adds another way in."}
+          {account.profile.hasPassword ? t("changeSignsOut") : t("addsWayIn")}
         </p>
         <Status message={messages.password ?? null} />
         <form
@@ -315,7 +316,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
             const form = e.currentTarget,
               f = new FormData(form);
             if (text(f, "next") !== text(f, "confirm")) {
-              say("password", "The new passwords do not match.", "error");
+              say("password", t("noMatch"), "error");
               return;
             }
             void run(
@@ -333,8 +334,10 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                     }),
               (r) =>
                 account.profile.hasPassword
-                  ? "Password changed. Sign in again with your new password."
-                  : r.message,
+                  ? t("passwordChanged")
+                  : locale === "en"
+                    ? r.message
+                    : t("passwordSet"),
             ).then((r) => {
               form.reset();
               if (r && account.profile.hasPassword)
@@ -344,7 +347,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
         >
           <ProofFields account={account} prefix="password" />
           <label className="field">
-            <span>New password</span>
+            <span>{t("newPassword")}</span>
             <input
               name="next"
               type="password"
@@ -353,10 +356,10 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
               autoComplete="new-password"
               required
             />
-            <small className="muted">At least 12 characters.</small>
+            <small className="muted">{t("atLeast12")}</small>
           </label>
           <label className="field">
-            <span>Repeat new password</span>
+            <span>{t("repeatPassword")}</span>
             <input
               name="confirm"
               type="password"
@@ -367,18 +370,17 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
             />
           </label>
           <button className="button" disabled={busy === "password"}>
-            {account.profile.hasPassword ? "Change password" : "Save password"}
+            {account.profile.hasPassword
+              ? t("changePassword")
+              : t("savePassword")}
           </button>
         </form>
       </section>
 
       {methods.length > 0 && (
         <section className="card" aria-labelledby="acct-methods">
-          <h2 id="acct-methods">Apple and Google sign-in</h2>
-          <p className="muted">
-            Linking adds a way to sign in. Your authenticator is still required
-            when it is enabled.
-          </p>
+          <h2 id="acct-methods">{t("appleGoogle")}</h2>
+          <p className="muted">{t("linkingAdds")}</p>
           <Status message={messages.methods ?? null} />
           <ul className="acct-list">
             {methods.map((provider) => {
@@ -394,8 +396,15 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                       <br />
                       <small className="muted">
                         {identity
-                          ? `Linked${identity.email ? ` as ${identity.email}` : ""} on ${formatDate(identity.linkedAt)}`
-                          : "Not linked"}
+                          ? identity.email
+                            ? t("linkedAs", {
+                                email: identity.email,
+                                date: formatDate(identity.linkedAt),
+                              })
+                            : t("linkedOn", {
+                                date: formatDate(identity.linkedAt),
+                              })
+                          : t("notLinked")}
                       </small>
                     </span>
                     <button
@@ -414,7 +423,9 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                         )
                       }
                     >
-                      {identity ? "Remove" : `Link ${provider.name}`}
+                      {identity
+                        ? t("remove")
+                        : t("link", { provider: provider.name })}
                     </button>
                   </div>
                   {open && (
@@ -439,7 +450,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                               window.location.assign(r.authorizationUrl);
                               return r;
                             },
-                            () => `Opening ${provider.name}…`,
+                            () => t("opening", { provider: provider.name }),
                           );
                         else
                           void run(
@@ -450,7 +461,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                                 "POST",
                                 proof,
                               ),
-                            () => `${provider.name} sign-in was removed.`,
+                            () => t("removed", { provider: provider.name }),
                           ).then((r) => r && setPendingMethod(null));
                       }}
                     >
@@ -460,8 +471,8 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                       />
                       <button className="button" disabled={busy === "methods"}>
                         {pendingMethod?.action === "link"
-                          ? `Continue to ${provider.name}`
-                          : `Remove ${provider.name} sign-in`}
+                          ? t("continueTo", { provider: provider.name })
+                          : t("removeSignIn", { provider: provider.name })}
                       </button>
                     </form>
                   )}
@@ -475,7 +486,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
       {account.notices.length > 0 && (
         <section className="card" aria-labelledby="acct-notices">
           <div className="acct-row">
-            <h2 id="acct-notices">Account notices</h2>
+            <h2 id="acct-notices">{t("notices")}</h2>
             {unread > 0 && (
               <button
                 type="button"
@@ -489,7 +500,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
                   )
                 }
               >
-                Mark all as read
+                {t("markAllRead")}
               </button>
             )}
           </div>
@@ -497,9 +508,13 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
           <ul className="acct-list">
             {account.notices.map((n) => (
               <li key={n.id} className={n.readAt ? "" : "acct-unread"}>
-                <strong>{n.title}</strong>
-                {!n.readAt && <span className="badge amber">New</span>}
-                <p className="acct-break">{n.body}</p>
+                <strong dir="auto">{n.title}</strong>
+                {!n.readAt && (
+                  <span className="badge amber">{t("newBadge")}</span>
+                )}
+                <p className="acct-break" dir="auto">
+                  {n.body}
+                </p>
                 <small className="muted">{formatDate(n.createdAt)}</small>
               </li>
             ))}

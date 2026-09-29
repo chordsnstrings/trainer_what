@@ -1,7 +1,9 @@
+"use client";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { MarketingHeader, claimCta } from "./marketing/frame";
 import { CoachIdentity } from "./trainer-design";
+import { useT } from "../lib/i18n/react";
 
 /** The coach whose sign-in, recovery or joining page this is. */
 export type PublicCoach = {
@@ -33,6 +35,7 @@ export function PublicHeader({
   platform: { name: string; initials: string; registrationOpen: boolean };
   coach: PublicCoach | null;
 }) {
+  const t = useT("auth");
   if (!coach)
     return (
       <MarketingHeader
@@ -58,17 +61,17 @@ export function PublicHeader({
         <Link
           href={home}
           className="wordmark"
-          aria-label={trainer ? undefined : "Coaching website"}
+          aria-label={trainer ? undefined : t("coachingWebsite")}
         >
           {identity}
         </Link>
       ) : (
         <span className="wordmark">{identity}</span>
       )}
-      <nav aria-label="Account">
+      <nav aria-label={t("account")}>
         {path !== "/login" && (
           <Link className="subscriber-header-link" href="/login">
-            Sign in
+            {t("signIn")}
           </Link>
         )}
         {!joining && coach.slug && (
@@ -76,7 +79,7 @@ export function PublicHeader({
             className="button"
             href={`/join-coach/${trainer?.slug ?? coach.slug}`}
           >
-            Join coaching <ArrowUpRight size={16} aria-hidden="true" />
+            {t("joinCoaching")} <ArrowUpRight size={16} aria-hidden="true" />
           </Link>
         )}
       </nav>

@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
+import { Rich, useLocale, useT } from "../lib/i18n/react";
+import { translator, type Locale } from "../lib/i18n/core";
+import consentMessages from "../lib/i18n/messages/consent";
 
 type Permission = {
   granted: boolean;
@@ -49,8 +52,11 @@ async function call(path: string, method = "GET", body?: unknown) {
       : {}),
   });
   if (!response.ok)
-    throw new Error(
-      "Your analytics preference could not be saved. Please try again.",
+    throw Object.assign(
+      new Error(
+        "Your analytics preference could not be saved. Please try again.",
+      ),
+      { status: response.status, code: "ANALYTICS_SAVE" },
     );
   return response.json();
 }
@@ -284,12 +290,16 @@ export function ConsentBar({
   busy = false,
   error = "",
   onChoose,
+  locale = "en",
 }: {
   audience: keyof typeof CONSENT_BAR_TEXT;
   busy?: boolean;
   error?: string;
   onChoose: (answer: AnalyticsAnswer) => void;
+  /** The marketing site (trainers) is always English. */
+  locale?: Locale;
 }) {
+  const t = translator(consentMessages, audience === "trainers" ? "en" : locale);
   const bar = useRef<HTMLElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -320,14 +330,14 @@ export function ConsentBar({
       <aside
         ref={bar}
         className="acquisition-consent consent-bar"
-        aria-label="Optional analytics"
+        aria-label={t("optionalAnalytics")}
       >
         <div className="consent-bar-inner">
           <div className="consent-bar-copy">
             <p className="consent-bar-text">
-              {CONSENT_BAR_TEXT[audience]}{" "}
+              {audience === "trainers" ? CONSENT_BAR_TEXT[audience] : t("barText")}{" "}
               <a className="consent-link" href="/privacy">
-                Privacy policy
+                {t("privacyPolicy")}
               </a>
             </p>
             {error && (
@@ -343,7 +353,7 @@ export function ConsentBar({
               disabled={busy}
               onClick={() => onChoose("allow")}
             >
-              Allow analytics
+              {t("allow")}
             </button>
             <button
               type="button"
@@ -351,13 +361,13 @@ export function ConsentBar({
               disabled={busy}
               onClick={() => onChoose("decline")}
             >
-              No thanks
+              {t("noThanks")}
             </button>
           </div>
           <button
             type="button"
             className="consent-close"
-            aria-label="Close"
+            aria-label={t("close")}
             disabled={busy}
             onClick={() => onChoose("dismiss")}
           >
@@ -381,13 +391,16 @@ export function ConsentSheet({
   error = "",
   onChoose,
   onClose,
+  locale = "en",
 }: {
   permission: Permission;
   busy?: boolean;
   error?: string;
   onChoose: (answer: AnalyticsAnswer) => Promise<boolean>;
   onClose: () => void;
+  locale?: Locale;
 }) {
+  const t = translator(consentMessages, locale);
   const sheet = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = sheet.current;
@@ -419,38 +432,39 @@ export function ConsentSheet({
     >
       <div className="consent-sheet-body">
         <div className="consent-sheet-head">
-          <h2 id="consent-sheet-title">Optional site analytics</h2>
+          <h2 id="consent-sheet-title">{t("sheetTitle")}</h2>
           <button
             type="button"
             className="consent-close"
-            aria-label="Close"
+            aria-label={t("close")}
             onClick={close}
           >
             <X aria-hidden="true" size={22} />
           </button>
         </div>
+        <p>{t("sheetWhat")}</p>
         <p>
-          If you allow them, we record which link or campaign brought you here,
-          when you sign up or buy, and which wording you saw when we try two
-          versions of a page. Health and coaching information is never included.
-        </p>
-        <p>
-          Everything works without analytics. Turning them off deletes what was
-          recorded for this browser.{" "}
-          <a className="consent-link" href="/privacy">
-            Read our privacy policy
-          </a>
-          .
+          <Rich
+            t={t}
+            k="sheetOff"
+            tags={{
+              link: (text) => (
+                <a className="consent-link" href="/privacy">
+                  {text}
+                </a>
+              ),
+            }}
+          />
         </p>
         <p className="consent-state">
-          {permission.granted
-            ? "Analytics are on for this browser."
-            : "Analytics are off for this browser."}
+          {permission.granted ? t("on") : t("off")}
         </p>
         {permission.granted && (
           <p className="muted">
-            First source: {permission.firstTouch?.source || "direct"}. Last
-            tagged source: {permission.lastTouch?.source || "direct"}.
+            {t("sources", {
+              first: permission.firstTouch?.source || t("direct"),
+              last: permission.lastTouch?.source || t("direct"),
+            })}
           </p>
         )}
         {error && (
@@ -466,7 +480,7 @@ export function ConsentSheet({
               disabled={busy}
               onClick={() => void answer("allow")}
             >
-              Allow optional analytics
+              {t("allowOptional")}
             </button>
           )}
           <button
@@ -475,9 +489,7 @@ export function ConsentSheet({
             disabled={busy}
             onClick={() => void answer("decline")}
           >
-            {permission.granted
-              ? "Withdraw analytics consent"
-              : "Continue without analytics"}
+            {permission.granted ? t("withdraw") : t("continueWithout")}
           </button>
         </div>
       </div>
@@ -491,24 +503,23 @@ export function ConsentSheet({
  */
 export function AnalyticsSetting() {
   const { permission, busy, error, choose } = useAnalyticsConsent();
+  const t = useT("consent");
   const on = !!permission?.granted;
   return (
     <div className="analytics-setting">
-      <h3>Optional site analytics</h3>
+      <h3>{t("sheetTitle")}</h3>
       <p className="muted">
-        When this is on, we note which link brought you here and your sign-up
-        and purchase steps. Your health and coaching information is never
-        included.{" "}
+        {t("settingText")}{" "}
         <a className="consent-link" href="/privacy">
-          Privacy policy
+          {t("privacyPolicy")}
         </a>
       </p>
       <p className="analytics-setting-state" role="status">
         {!permission
-          ? "Checking your choice…"
+          ? t("checking")
           : on
-            ? "On for this browser."
-            : "Off for this browser."}
+            ? t("settingOn")
+            : t("settingOff")}
       </p>
       {error && (
         <p role="alert" className="notice error">
@@ -521,7 +532,7 @@ export function AnalyticsSetting() {
         disabled={!permission || busy}
         onClick={() => void choose(on ? "decline" : "allow")}
       >
-        {on ? "Turn off analytics" : "Turn on analytics"}
+        {on ? t("turnOff") : t("turnOn")}
       </button>
     </div>
   );
@@ -546,6 +557,9 @@ export function AcquisitionConsent({
 }) {
   const path = usePathname() || "/";
   const marketing = marketingPaths.includes(path);
+  // The marketing site stays English; subscriber pages follow <html lang>.
+  const pageLocale = useLocale();
+  const locale = marketing ? "en" : pageLocale;
   const { permission, choice, busy, error, choose } = useAnalyticsConsent();
   const [scrolled, setScrolled] = useState(false),
     [sheetOpen, setSheetOpen] = useState(false);
@@ -599,6 +613,7 @@ export function AcquisitionConsent({
           busy={busy}
           error={error}
           onChoose={(answer) => void choose(answer)}
+          locale={locale}
         />
       )}
       {sheetOpen && (
@@ -607,6 +622,7 @@ export function AcquisitionConsent({
           busy={busy}
           error={error}
           onChoose={choose}
+          locale={locale}
           onClose={() => {
             setSheetOpen(false);
             // Closing the sheet before any answer is an answer too.

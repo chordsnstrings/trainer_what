@@ -5,6 +5,9 @@
  * may appear. Pure functions are tested in tests/pwa.test.ts; the browser
  * helpers guard every API they use, so they are safe during server render.
  */
+import { translator, type Locale } from "../lib/i18n/core";
+import pwaMessages from "../lib/i18n/messages/pwa";
+import { formatDateTime } from "../lib/format";
 import { MEMBER_SCHEME_COOKIE } from "../color-scheme";
 
 /** The build's release (next.config.ts), which versions the service worker. */
@@ -299,35 +302,44 @@ export function showUpdateToast(input: { waiting: boolean; path: string }) {
 
 /** "Saved on this phone — will sync", the label of every queued entry. */
 export const QUEUED_LABEL = "Saved on this phone — will sync";
-export function queuedSummary(count: number, kind: "set" | "meal") {
-  const noun =
-    kind === "set"
-      ? count === 1
-        ? "set log"
-        : "set logs"
-      : count === 1
-        ? "meal"
-        : "meals";
-  return `${count} ${noun} saved on this phone — will sync`;
+/** The queued-entry label in the member's language. */
+export function queuedLabel(locale: Locale = "en") {
+  return translator(pwaMessages, locale)("queuedLabel");
+}
+export function queuedSummary(
+  count: number,
+  kind: "set" | "meal",
+  locale: Locale = "en",
+) {
+  return translator(pwaMessages, locale)(
+    kind === "set" ? "queuedSets" : "queuedMeals",
+    { count },
+  );
 }
 
 /** When the member's data last reached this phone, in plain words. */
-export function lastSyncedText(savedAt: number | null, now = Date.now()) {
+export function lastSyncedText(
+  savedAt: number | null,
+  now = Date.now(),
+  locale: Locale = "en",
+) {
   if (!savedAt || !Number.isFinite(savedAt)) return null;
+  const t = translator(pwaMessages, locale);
   const minutes = Math.max(0, Math.round((now - savedAt) / 60000));
-  if (minutes < 1) return "Last updated just now.";
-  if (minutes < 60)
-    return `Last updated ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago.`;
+  if (minutes < 1) return t("updatedJustNow");
+  if (minutes < 60) return t("updatedMinutes", { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24)
-    return `Last updated ${hours} ${hours === 1 ? "hour" : "hours"} ago.`;
-  const date = new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(savedAt));
-  return `Last updated ${date}.`;
+  if (hours < 24) return t("updatedHours", { count: hours });
+  const date =
+    locale === "en"
+      ? new Intl.DateTimeFormat("en-GB", {
+          day: "numeric",
+          month: "short",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(savedAt))
+      : formatDateTime(savedAt, { locale, year: false });
+  return t("updatedOn", { date });
 }
 /** The member state kept for offline use (workspace.tsx) and when it was saved. */
 export const OFFLINE_STATE_KEY = "trainer:offline";

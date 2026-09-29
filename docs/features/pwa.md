@@ -41,7 +41,10 @@ connection and updates safely.
   chat, Book a session (only when the coach has had a booking slot in the last
   30 days or has one coming). Each has a 96 px icon: the feature's symbol
   (Lucide dumbbell, utensils, message-circle, calendar-check; ISC licence) on
-  the coach's primary colour, inside the maskable safe zone. The coach's team
+  the coach's primary colour, inside the maskable safe zone. A member whose
+  saved language is Arabic gets Arabic shortcut names and descriptions and
+  an Arabic app description (`APP_SHORTCUTS_AR`, `memberAppDescription`;
+  the coach's name stays as written, isolated). The coach's team
   (owner, staff, finance) opens `/trainer` and gets no shortcuts: the trainer
   workspace only gains installability.
 - **Icons** (`apps/api/src/app-icons.ts`, `renderAppIcon`): exact sizes,
@@ -158,11 +161,15 @@ offline screen follows the same appearance (`member-neutral` wrapper).
   server answered with an error. The workspace shows it when there is no
   connection and no saved member state; the service worker shows the same
   screen at `/app/offline` (under `/app`, so a coach's own domain passes it
-  through).
+  through). Both are translated (docs/features/arabic.md); the precached
+  offline page switches to the member's saved language, else the device's
+  `?lang=` choice, from the language cookies once it loads.
 - **Offline indicator:** a small "Offline" pill in the member top bar (with a
   screen-reader sentence), instead of the notice block the member app used
   to show. The trainer workspace keeps its notice.
-- **Queued entries** read "Saved on this phone — will sync" (a set's label,
+- **Queued entries** read "Saved on this phone — will sync" (Arabic
+  "محفوظ على هذا الهاتف، وستتم مزامنته", from the `pwa` catalog; a set's
+  label,
   "2 set logs saved on this phone — will sync", "1 meal saved on this phone —
   will sync", the voice session's count) and clear when the queue syncs.
   Workout set logging already used the device queue (`offline-queue.ts`,

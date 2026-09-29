@@ -603,3 +603,46 @@ test("the root layout renders <html lang dir> from the resolved document languag
   assert.match(page, /publicWebsite as website/);
   assert.doesNotMatch(page, /const website = cache\(/);
 });
+
+test("the Arabic member shell: translated tabs in the same order, mirrored by direction only", async () => {
+  const { MemberShell } = await import("../apps/web/components/member-shell.tsx");
+  const { LocaleProvider } = await import("../apps/web/lib/i18n/react.tsx");
+  const { default: navMessages } = await import("../apps/web/lib/i18n/messages/nav.ts");
+  const shell = (locale: "en" | "ar") =>
+    renderToStaticMarkup(
+      createElement(LocaleProvider, {
+        locale,
+        children: createElement(MemberShell, {
+          path: "/app",
+          tenant: { id: "t1", name: "مدربة أمل", theme: {} },
+          user: { name: "Sam", tenantId: "t1", userId: "u1" },
+          nav: { programLabel: "My program", nutrition: true, locale },
+          messages: [],
+          onSignOut: () => {},
+          children: createElement("h1", null, "—"),
+        } as any),
+      }),
+    );
+  const tabs = (html: string) =>
+    [
+      ...html
+        .slice(html.indexOf('class="member-tabbar"'))
+        .matchAll(/<a class="member-tab[^"]*"[^>]*href="([^"]+)"/g),
+    ].map((m) => m[1]);
+  const arabic = shell("ar"),
+    english = shell("en");
+  // The document direction mirrors the bar; the markup order never changes.
+  assert.deepEqual(tabs(arabic), tabs(english));
+  assert.ok(tabs(arabic).length >= 4);
+  for (const key of ["today", "chatTab", "more"] as const)
+    assert.ok(arabic.includes(navMessages.ar[key]), `tab ${key} in Arabic`);
+  assert.ok(!arabic.includes(">Today<"));
+  // The coach's own name keeps its own direction inside the chrome.
+  assert.match(arabic, /مدربة أمل/);
+  // Mirroring comes from logical properties, not a separate RTL stylesheet.
+  const css = await readFile(
+    new URL("../apps/web/app/phone-first.css", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(css, /\[dir="rtl"\]\s*\.member-tabbar/);
+});

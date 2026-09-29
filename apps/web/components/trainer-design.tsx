@@ -37,6 +37,7 @@ import { directionOf, type Language } from "../document-language";
 import type { ColorSchemeChoice } from "../color-scheme";
 
 import { PhotoUploader, MediaLibrary } from "./coach-site";
+import { useT } from "../lib/i18n/react";
 
 type Tenant = {
   id?: string;
@@ -177,11 +178,12 @@ export function CoachIdentity({
   compact?: boolean;
 }) {
   const design = resolveBrandDesign(theme);
+  const t = useT("today");
   return (
     <div className={`coach-identity ${compact ? "is-compact" : ""}`}>
       <BrandImage
         src={design.logoUrl || design.photoUrl}
-        alt={`${name} logo`}
+        alt={t("logoAlt", { name })}
         className="coach-identity-image"
         fallback={
           <span className="coach-identity-monogram" aria-hidden="true">
@@ -195,7 +197,7 @@ export function CoachIdentity({
       />
       <span>
         <strong>{name}</strong>
-        <small>{design.tagline || "Your personal coaching space"}</small>
+        <small>{design.tagline || t("identityTagline")}</small>
       </span>
     </div>
   );
@@ -209,23 +211,22 @@ export function CoachWelcome({
   theme: unknown;
 }) {
   const design = resolveBrandDesign(theme);
+  const t = useT("today");
   return (
     <section className={`coach-welcome ${design.coverUrl ? "has-cover" : ""}`}>
       {design.coverUrl && (
         <BrandImage
           src={design.coverUrl}
-          alt="Your coach’s cover"
+          alt={t("coverAlt")}
           className="coach-cover"
           fallback={null}
         />
       )}
       <div className="coach-welcome-body">
-        <p className="eyebrow">A NOTE FROM {name}</p>
-        <h2>{design.tagline || "Progress, with your kind of coaching."}</h2>
-        <p>
-          {design.welcome ||
-            "Welcome to your coaching space. Make room for one positive step today. Your program and your coach are right here."}
-        </p>
+        <p className="eyebrow">{t("noteFrom", { name })}</p>
+        {/* The coach's own words stay theirs; only the defaults translate. */}
+        <h2 dir="auto">{design.tagline || t("defaultTagline")}</h2>
+        <p dir="auto">{design.welcome || t("defaultWelcome")}</p>
         {design.photoUrl && (
           <BrandImage
             src={design.photoUrl}
@@ -254,8 +255,9 @@ export function CoachCover({ theme }: { theme: unknown }) {
 
 export function ClientHomeSections({ theme }: { theme: unknown }) {
   const design = resolveBrandDesign(theme);
+  const t = useT("today");
   return (
-    <div className="coach-home-sections" aria-label="Your coaching home">
+    <div className="coach-home-sections" aria-label={t("homeLabel")}>
       {design.sectionOrder.map((key, index) => {
         const item = sections[key],
           Icon = item.icon;
@@ -267,9 +269,13 @@ export function ClientHomeSections({ theme }: { theme: unknown }) {
           >
             <Icon size={22} />
             <div>
-              <small>{index === 0 ? "YOUR FOCUS" : "YOUR COACHING"}</small>
-              <h3>{key === "program" ? design.programLabel : item.title}</h3>
-              <p>{item.note}</p>
+              <small>{index === 0 ? t("yourFocus") : t("yourCoaching")}</small>
+              <h3 dir="auto">
+                {key === "program" && design.programLabel !== "My program"
+                  ? design.programLabel
+                  : t(`section_${key}`)}
+              </h3>
+              <p>{t(`section_${key}_note`)}</p>
             </div>
             <ArrowRight size={18} />
           </Link>

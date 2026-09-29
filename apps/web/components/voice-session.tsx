@@ -5,12 +5,15 @@
 // for spoken replies and performs the effects: set logs go through the same
 // device queue as the workout page, pain opens the existing safety hold.
 import { queuedSummary } from "./pwa";
+import { formatDate } from "../lib/format";
+import type { Translator } from "../lib/i18n/core";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import type voiceMessages from "../lib/i18n/messages/voice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ECHO_GRACE_MS,
   heardReply,
   initialRunnerState,
-  runnerStatus,
   stepRunner,
   type RunnerEffect,
   type RunnerEvent,
@@ -51,8 +54,58 @@ async function api<T = any>(
     }) as ApiError;
   return data as T;
 }
-const message = (e: unknown) =>
-  e instanceof Error ? e.message : "Please try again.";
+type VoiceT = Translator<(typeof voiceMessages)["en"]>;
+
+/** The runner's status line (runnerStatus in the domain), in the page language. */
+function statusLine(
+  ctx: { script: SessionScript },
+  s: RunnerState,
+  t: VoiceT,
+) {
+  const ex = ctx.script.exercises[s.exercise];
+  const target = s.targets[s.exercise]?.[s.set - 1];
+  switch (s.phase) {
+    case "ready":
+      return t("status_ready");
+    case "intro":
+    case "warmup":
+      return t("status_warmup");
+    case "setup":
+      return t("status_setup", { name: ex.name });
+    case "set": {
+      const params = {
+        name: ex.name,
+        set: s.set,
+        sets: ex.sets,
+        reps: t("reps", { count: target.reps }),
+      };
+      return target.loadKg > 0
+        ? t("status_setLoad", {
+            ...params,
+            load: t("load", { load: target.loadKg }),
+          })
+        : t("status_set", params);
+    }
+    case "rest":
+      return t("status_rest", { count: s.restRemaining });
+    case "cooldown":
+      return t("status_cooldown");
+    case "finished":
+      return t("status_finished");
+    case "paused":
+      return t("status_paused");
+    case "stopped":
+      return s.stopReason === "pain"
+        ? t("status_pain")
+        : s.stopReason === "member"
+          ? t("status_member")
+          : t("status_review");
+  }
+  return "";
+}
+/** A gate or unavailability reason, by its code (the server's words otherwise). */
+const reasonText = (t: VoiceT, r: { code: string; message: string }) =>
+  t.dynamic(`reason_${r.code}`, r.message);
 
 type Gate = {
   mode: "voice" | "text";
@@ -171,6 +224,12 @@ export function VoiceSessionRunner({
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
     [loaded, setLoaded] = useState(false);
+  const t = useT("voice"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const errorRef = useRef(toError);
+  errorRef.current = toError;
+  const message = (e: unknown) => errorRef.current(e);
   const ahead = !workoutId && !!plannedSessionId;
   const refresh = useCallback(async () => {
     const r = await api<Loaded>(
@@ -187,7 +246,7 @@ export function VoiceSessionRunner({
   }, [ahead, workoutId, plannedSessionId]);
   useEffect(() => {
     void refresh().catch((e) => {
-      setNotice(message(e));
+      setNotice(errorRef.current(e));
       setLoaded(true);
     });
   }, [refresh]);
@@ -236,7 +295,7 @@ export function VoiceSessionRunner({
   if (!loaded)
     return (
       <div className="stack voice-session">
-        <p role="status">Loading your session…</p>
+        <p role="status">{t("loading")}</p>
       </div>
     );
   const startedWorkout =
@@ -245,14 +304,22 @@ export function VoiceSessionRunner({
   return (
     <div className="stack voice-session">
       <div className="page-heading">
-        <p className="eyebrow">VOICE-LED SESSION</p>
-        <h1>{session?.script.title ?? planned?.title ?? "Your workout, guided"}</h1>
+        <p className="eyebrow">{t("eyebrow")}</p>
+        <h1>
+          {session?.script.title ?? planned?.title ?? t("fallbackTitle")}
+        </h1>
         <p className="muted">
           {ahead
-            ? `Get your trainer's voice ready before ${planned?.date ? planned.date : "the day"}. `
+            ? planned?.date
+              ? t("aheadOn", {
+                  date: formatDate(planned.date, {
+                    locale,
+                    fallback: planned.date,
+                  }),
+                })
+              : t("aheadDay")
             : ""}
-          Your trainer's session plan, one step at a time. Say or tap “pain”
-          at any moment and the session stops and your trainer is told.
+          {t("intro")}
         </p>
       </div>
       {notice && (
@@ -262,36 +329,28 @@ export function VoiceSessionRunner({
       )}
       {startedWorkout && (
         <p className="notice">
-          This session has started.{" "}
+          {t("started")}{" "}
           <a className="text-link" href={`/app/voice-session/${startedWorkout}`}>
-            Open the voice-led session
+            {t("openRunner")}
           </a>
         </p>
       )}
       {ahead && !plannedOpen && !startedWorkout && (
-        <p className="notice">This planned session is no longer open.</p>
+        <p className="notice">{t("notOpen")}</p>
       )}
       {!session && gate && plannedOpen && !startedWorkout && (
         <section className="card" aria-labelledby="voice-prepare">
-          <h2 id="voice-prepare">Prepare this session</h2>
-          {stale && (
-            <p className="notice">
-              Your trainer changed this workout. Prepare the session again so it
-              follows the current plan.
-            </p>
-          )}
+          <h2 id="voice-prepare">{t("prepareTitle")}</h2>
+          {stale && <p className="notice">{t("staleText")}</p>}
           {gate.held ? (
             <p className="notice error" role="alert">
-              Training is paused for your trainer's review.
+              {t("held")}
             </p>
           ) : (
             <>
               {gate.mode === "voice" || voiceBlockedOnlyByConsent ? (
                 <>
-                  <p>
-                    Your trainer's approved voice will guide you through every
-                    exercise, set and rest. Audio is prepared ahead of time.
-                  </p>
+                  <p>{t("voiceText")}</p>
                   {voiceBlockedOnlyByConsent && (
                     <label className="voice-check">
                       <input
@@ -299,7 +358,7 @@ export function VoiceSessionRunner({
                         checked={consent}
                         onChange={(e) => setConsent(e.target.checked)}
                       />{" "}
-                      I want this session read in my trainer's approved voice.
+                      {t("consentVoice")}
                     </label>
                   )}
                   <div className="button-row">
@@ -308,14 +367,14 @@ export function VoiceSessionRunner({
                       disabled={busy || (voiceBlockedOnlyByConsent && !consent)}
                       onClick={() => void prepare(voiceBlockedOnlyByConsent)}
                     >
-                      Prepare voice-led session
+                      {t("prepareVoice")}
                     </button>
                     <button
                       className="button secondary"
                       disabled={busy}
                       onClick={() => void prepare(false)}
                     >
-                      Use text guidance
+                      {t("useText")}
                     </button>
                   </div>
                 </>
@@ -323,7 +382,7 @@ export function VoiceSessionRunner({
                 <>
                   <ul className="voice-reasons">
                     {gate.reasons.map((r) => (
-                      <li key={r.code}>{r.message}</li>
+                      <li key={r.code}>{reasonText(t, r)}</li>
                     ))}
                   </ul>
                   <button
@@ -331,7 +390,7 @@ export function VoiceSessionRunner({
                     disabled={busy}
                     onClick={() => void prepare(false)}
                   >
-                    {ahead ? "Prepare text-guided session" : "Start text-guided session"}
+                    {ahead ? t("prepareText") : t("startText")}
                   </button>
                 </>
               )}
@@ -343,27 +402,27 @@ export function VoiceSessionRunner({
         <section className="card voice-status-card" aria-labelledby="voice-ahead">
           <div className="card-heading">
             <h2 id="voice-ahead">
-              {session.mode === "voice" ? "Your trainer's voice" : "Text-guided session"}
+              {session.mode === "voice" ? t("trainerVoice") : t("textSession")}
             </h2>
             <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
-              {audioBadge(session)}
+              {audioBadge(session, t)}
             </span>
           </div>
           {session.unavailableReason && (
-            <p className="muted">{session.unavailableReason.message}</p>
+            <p className="muted">{reasonText(t, session.unavailableReason)}</p>
           )}
           <p className="muted">
             {session.audioStatus === "generating"
-              ? "Your trainer's voice is being prepared. You can leave this page; it carries on in the background."
-              : "Ready. Start the workout when you are, and the session will be waiting."}
+              ? t("preparingAhead")
+              : t("readyAhead")}
           </p>
           {session.mode === "text" && gate.mode === "voice" && (
             <button className="button secondary" disabled={busy} onClick={() => void prepare(false)}>
-              Switch to your trainer's voice
+              {t("switchVoice")}
             </button>
           )}
           <button className="button" disabled={busy || gate.held} onClick={() => void startWorkout()}>
-            Start this workout with the voice-led session
+            {t("startWithVoice")}
           </button>
         </section>
       )}
@@ -381,24 +440,27 @@ export function VoiceSessionRunner({
       )}
       {workoutId ? (
         <a className="text-link" href={`/app/workouts/${workoutId}`}>
-          Open the workout log
+          {t("openLog")}
         </a>
       ) : (
         <a className="text-link" href="/app/program">
-          Back to your training calendar
+          {t("backCalendar")}
         </a>
       )}
     </div>
   );
 }
-const audioBadge = (session: SessionView) =>
+const audioBadge = (session: SessionView, t: VoiceT) =>
   session.audioStatus === "generating"
-    ? `Preparing ${session.audio.ready}/${session.audio.total}`
+    ? t("badgePreparing", {
+        // One run "3/10" (an isolate with no strong letter reads left to right).
+        progress: `${session.audio.ready}/${session.audio.total}`,
+      })
     : session.mode === "voice"
       ? session.audioStatus === "capped"
-        ? "Voice paused"
-        : "Voice ready"
-      : "Text";
+        ? t("badgePaused")
+        : t("badgeReady")
+      : t("badgeText");
 
 /** Holds whether the trainer's voice is audible now, for the echo guard. */
 type Playback = {
@@ -433,6 +495,13 @@ function Runner({
     [session.id, session.scriptFingerprint],
   );
   const ctx = useMemo(() => ({ script, rules: script.rules }), [script]);
+  const t = useT("voice"),
+    toError = useErrorText();
+  // Callbacks and listening effects read the current wording through a ref,
+  // so a language change never restarts the microphone or the runner.
+  const words = useRef({ t, toError });
+  words.current = { t, toError };
+  const message = (e: unknown) => words.current.toError(e);
   const [state, setState] = useState<RunnerState>(() => initialRunnerState(script));
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -510,7 +579,12 @@ function Runner({
           if (!page.clips.length) break;
         }
       } catch (e) {
-        if (!cancelled) setNotice("Trainer voice could not be loaded: " + message(e) + " The session continues with text.");
+        if (!cancelled)
+          setNotice(
+            words.current.t("loadFailed", {
+              reason: words.current.toError(e),
+            }),
+          );
       }
     })();
     return () => {
@@ -557,11 +631,14 @@ function Runner({
     const result = await drainWorkoutQueue(localStorage, tenantId, userId, (p, b, h) => api(p, "POST", b, h));
     refreshQueue();
     if (result.stopped?.reason === "session")
-      setNotice("Your sign-in ended. Set logs stay on this device and sync after you sign in.");
+      setNotice(words.current.t("signedOut"));
     else if (result.stopped)
-      setNotice("Saved on this device. " + result.stopped.failure.message);
-    else if (result.rejected.length)
-      setNotice("A set log was not accepted. Review it on the workout log.");
+      setNotice(
+        words.current.t("savedHere", {
+          reason: words.current.toError(result.stopped.failure),
+        }),
+      );
+    else if (result.rejected.length) setNotice(words.current.t("notAccepted"));
   }, [tenantId, userId, refreshQueue]);
   useEffect(() => {
     refreshQueue();
@@ -645,23 +722,22 @@ function Runner({
       player.current?.pause();
       setPlaying(false);
       sayQueue.current = [];
-      setAlert(
-        "Stop exercising. Your trainer is being told. If your symptoms are severe or urgent, get local medical help now.",
-      );
+      const { t: say, toError: explain } = words.current;
+      setAlert(say("stopNow"));
       for (let attempt = 0; attempt < 3; attempt++)
         try {
           await api(`/workouts/${workoutId}/pain`, "POST", { description });
-          setAlert("Session stopped and your trainer has been told. If your symptoms are severe or urgent, get local medical help now.");
+          setAlert(say("stopped"));
           return;
         } catch (e) {
           const error = e as ApiError;
           if (error.status && error.status < 500) {
-            setAlert(error.message + " Message your trainer about how you feel.");
+            setAlert(say("painRefused", { reason: explain(error) }));
             return;
           }
           await new Promise((r) => setTimeout(r, 2000));
         }
-      setAlert("You appear to be offline. Stop exercising and contact your trainer; get local medical help if symptoms are severe.");
+      setAlert(say("painOffline"));
     },
     [workoutId, setPlaying],
   );
@@ -863,7 +939,7 @@ function Runner({
       if (["not-allowed", "service-not-allowed", "language-not-supported"].includes(e?.error)) {
         active = false;
         setListening("off");
-        setNotice("Spoken replies stopped: the microphone or on-device recognition is unavailable. Use the buttons.");
+        setNotice(words.current.t("micUnavailable"));
       }
     };
     // Recognition is off while the trainer's voice plays (its echo would be
@@ -912,7 +988,7 @@ function Runner({
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       } catch {
         setListening("off");
-        setNotice("Microphone permission is needed for spoken replies. Use the buttons.");
+        setNotice(words.current.t("micPermission"));
         return;
       }
       if (stopped) {
@@ -995,7 +1071,7 @@ function Runner({
   const startListening = async (mode: Listening) => {
     if (mode === "server" && !gate.transcriptionConsent) {
       if (!transcriptionConsent) {
-        setNotice("Agree to transcription first.");
+        setNotice(t("agreeFirst"));
         return;
       }
       try {
@@ -1013,7 +1089,7 @@ function Runner({
       await api("/voice-sessions/consent", "POST", { playback: false });
       if (listening === "server") setListening("off");
       await onRefresh();
-      setNotice("Your trainer's voice is off and its stored audio for you was removed. The session continues with text.");
+      setNotice(t("voiceOff"));
     } catch (e) {
       setNotice(message(e));
     }
@@ -1033,27 +1109,27 @@ function Runner({
       <section className="card voice-status-card" aria-labelledby="voice-mode">
         <div className="card-heading">
           <h2 id="voice-mode">
-            {voiceMode ? "Your trainer's voice" : "Text-guided session"}
+            {voiceMode ? t("trainerVoice") : t("textSession")}
           </h2>
-          <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session)}</span>
+          <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session, t)}</span>
         </div>
-        {session.unavailableReason && <p className="muted">{session.unavailableReason.message}</p>}
+        {session.unavailableReason && (
+          <p className="muted">{reasonText(t, session.unavailableReason)}</p>
+        )}
         {session.audioStatus === "generating" && (
-          <p className="muted">
-            Your trainer's voice is being prepared. You can start now; lines that are not ready yet are shown as text.
-          </p>
+          <p className="muted">{t("generating")}</p>
         )}
         {session.audioStatus === "capped" && (
-          <p className="muted">Your trainer's voice is paused for now. The rest of this session is shown as text.</p>
+          <p className="muted">{t("capped")}</p>
         )}
         {session.mode === "text" && gate.mode === "voice" && runnable && (
           <button className="button secondary" onClick={() => void onPrepare(false)}>
-            Switch to your trainer's voice
+            {t("switchVoice")}
           </button>
         )}
         {session.mode === "text" && runnable && gate.reasons.length === 1 && gate.reasons[0].code === "PLAYBACK_CONSENT" && (
           <button className="button secondary" onClick={() => void onPrepare(true)}>
-            Use my trainer's approved voice
+            {t("useApproved")}
           </button>
         )}
         {voiceMode && (
@@ -1063,10 +1139,10 @@ function Runner({
               aria-pressed={muted}
               onClick={() => setMuted(!muted)}
             >
-              {muted ? "Unmute voice" : "Mute voice"}
+              {muted ? t("unmute") : t("mute")}
             </button>
             <button className="text-button" onClick={() => void withdrawVoice()}>
-              Stop using my trainer's voice
+              {t("stopVoice")}
             </button>
           </div>
         )}
@@ -1085,17 +1161,18 @@ function Runner({
 
       <section className="card voice-runner" aria-labelledby="voice-now">
         <h2 id="voice-now" className="voice-now">
-          {runnerStatus(ctx, state)}
+          {statusLine(ctx, state, t)}
         </h2>
         {ex && ["setup", "set", "rest"].includes(state.phase) && target && (
           <p className="voice-target">
-            {ex.name} · set {state.set} of {ex.sets} · {target.reps} reps
-            {target.loadKg > 0 ? ` · ${target.loadKg} kg` : ""}
-            {target.loadKg < ex.loadKg ? " (lighter)" : ""}
+            <bdi>{ex.name}</bdi> · {t("setOf", { set: state.set, sets: ex.sets })} ·{" "}
+            {t("reps", { count: target.reps })}
+            {target.loadKg > 0 ? ` · ${t("load", { load: target.loadKg })}` : ""}
+            {target.loadKg < ex.loadKg ? ` ${t("lighter")}` : ""}
           </p>
         )}
         {clock !== null && (
-          <p className="voice-clock" aria-hidden="true">
+          <p className="voice-clock" aria-hidden="true" dir="ltr">
             {Math.floor(clock / 60)}:{String(clock % 60).padStart(2, "0")}
           </p>
         )}
@@ -1105,13 +1182,9 @@ function Runner({
         <audio ref={player} preload="none" hidden />
         {changed ? (
           <div className="stack">
-            <p className="notice">
-              Your trainer changed this workout, so this session stopped. Sets
-              you logged are saved. Prepare the session again to follow the
-              current plan.
-            </p>
+            <p className="notice">{t("changed")}</p>
             <button className="button" onClick={() => void onPrepare(false)}>
-              Prepare again
+              {t("prepareAgain")}
             </button>
           </div>
         ) : state.phase === "ready" ? (
@@ -1123,47 +1196,45 @@ function Runner({
                 dispatch({ type: "start" });
               }}
             >
-              Start session
+              {t("startSession")}
             </button>
           ) : session.status === "revoked" || session.stale ? (
             <div className="stack">
-              <p className="notice">This session no longer matches your workout.</p>
+              <p className="notice">{t("noMatch")}</p>
               <button className="button" onClick={() => void onPrepare(false)}>
-                Prepare again
+                {t("prepareAgain")}
               </button>
             </div>
           ) : (
-            <p className="notice">
-              This voice session has ended. Continue on the workout log.
-            </p>
+            <p className="notice">{t("ended")}</p>
           )
         ) : running ? (
           <>
-            <div className="voice-commands" role="group" aria-label="Session replies">
+            <div className="voice-commands" role="group" aria-label={t("replies")}>
               <button className="button" onClick={() => command({ type: "done" })}>
-                Done
+                {t("done")}
               </button>
               <button className="button secondary" onClick={() => command({ type: "too_heavy" })}>
-                Too heavy
+                {t("tooHeavy")}
               </button>
               <button className="button secondary" onClick={() => command({ type: "too_easy" })}>
-                Too easy
+                {t("tooEasy")}
               </button>
               {script.rules.allowSkip && (
                 <button className="button secondary" onClick={() => command({ type: "skip" })}>
-                  Skip
+                  {t("skip")}
                 </button>
               )}
               <button className="button secondary" onClick={() => command({ type: "repeat" })}>
-                Repeat
+                {t("repeat")}
               </button>
               {state.phase === "paused" ? (
                 <button className="button secondary" onClick={() => command({ type: "resume" })}>
-                  Resume
+                  {t("resume")}
                 </button>
               ) : (
                 <button className="button secondary" onClick={() => command({ type: "pause" })}>
-                  Pause
+                  {t("pause")}
                 </button>
               )}
             </div>
@@ -1179,7 +1250,7 @@ function Runner({
                 }}
               >
                 <label>
-                  <span>Reps done</span>
+                  <span>{t("repsDone")}</span>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -1190,58 +1261,54 @@ function Runner({
                   />
                 </label>
                 <button className="button secondary" type="submit">
-                  Log reps
+                  {t("logReps")}
                 </button>
               </form>
             )}
             <button
               className="button voice-pain"
-              onClick={() => command({ type: "pain", transcript: "Pain button pressed during the voice session" })}
+              onClick={() => command({ type: "pain", transcript: t("painNote") })}
             >
-              Pain — stop now
+              {t("pain")}
             </button>
             <button
               className="text-button"
               onClick={() => dispatch({ type: "end" })}
             >
-              End session without finishing
+              {t("endEarly")}
             </button>
           </>
         ) : state.phase === "finished" ? (
           <p className="notice">
             {finishState === "done"
-              ? "Workout finished and saved."
+              ? t("finished")
               : finishState === "waiting"
-                ? "Session complete. Your workout will be finished once your set logs sync."
-                : "Session complete."}
+                ? t("waiting")
+                : t("complete")}
             {finishState === "waiting" && (
               <button className="text-button" onClick={() => void finish()}>
-                Try again
+                {t("tryAgain")}
               </button>
             )}
           </p>
         ) : null}
         {(queued > 0 || rejected > 0) && (
           <p className="muted" role="status">
-            {queued > 0 && `${queuedSummary(queued, "set")}. `}
-            {rejected > 0 && `${rejected} set logs need attention on the workout log.`}
+            {queued > 0 && `${queuedSummary(queued, "set", t.locale)}. `}
+            {rejected > 0 && t("needAttention", { count: rejected })}
           </p>
         )}
       </section>
 
       {running && (
         <section className="card" aria-labelledby="voice-replies">
-          <h2 id="voice-replies">Spoken replies</h2>
-          <p className="muted">
-            Say “done”, a number of reps, “too heavy”, “pause” or “pain”.
-            While your trainer's voice is speaking, replies are not heard: tap
-            a button instead. The buttons always work.
-          </p>
+          <h2 id="voice-replies">{t("spokenReplies")}</h2>
+          <p className="muted">{t("spokenHelp")}</p>
           {listening === "off" ? (
             <div className="stack">
               {deviceSpeech && (
                 <button className="button secondary" onClick={() => void startListening("device")}>
-                  Listen on this device
+                  {t("listenDevice")}
                 </button>
               )}
               {gate.speechToText && voiceMode && (
@@ -1253,12 +1320,15 @@ function Runner({
                         checked={transcriptionConsent}
                         onChange={(e) => setTranscriptionConsent(e.target.checked)}
                       />{" "}
-                      Send short clips of my replies to{" "}
-                      {gate.speechProvider?.name ?? "the speech service"} for
-                      transcription. This app does not keep the clips;{" "}
+                      {t("sendClips", {
+                        provider: gate.speechProvider?.name ?? t("theService"),
+                      })}
                       {gate.speechProvider?.zeroRetention
-                        ? "the provider is asked not to keep them either."
-                        : `${gate.speechProvider?.name ?? "the provider"} handles them under its own data retention terms.`}
+                        ? t("zeroRetention")
+                        : t("ownTerms", {
+                            provider:
+                              gate.speechProvider?.name ?? t("theProvider"),
+                          })}
                     </label>
                   )}
                   <button
@@ -1266,22 +1336,24 @@ function Runner({
                     disabled={!gate.transcriptionConsent && !transcriptionConsent}
                     onClick={() => void startListening("server")}
                   >
-                    Listen with the speech service
+                    {t("listenService")}
                   </button>
                 </>
               )}
               {!deviceSpeech && !(gate.speechToText && voiceMode) && (
-                <p className="muted">Spoken replies are not available on this device. Use the buttons.</p>
+                <p className="muted">{t("noSpeech")}</p>
               )}
             </div>
           ) : (
             <div className="stack">
               <p role="status">
-                Listening{listening === "device" ? " on this device" : " with the speech service"}.
-                {heard && ` Heard: “${heard}”.`}
+                {listening === "device"
+                  ? t("listeningDevice")
+                  : t("listeningService")}
+                {heard && ` ${t("heard", { text: `“${heard}”` })}`}
               </p>
               <button className="button secondary" onClick={() => setListening("off")}>
-                Stop listening
+                {t("stopListening")}
               </button>
               {listening === "server" && (
                 <button
@@ -1293,7 +1365,7 @@ function Runner({
                       .catch((e) => setNotice(message(e)));
                   }}
                 >
-                  Withdraw transcription permission
+                  {t("withdraw")}
                 </button>
               )}
             </div>

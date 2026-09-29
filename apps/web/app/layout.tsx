@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { AcquisitionConsent } from "../components/acquisition";
 import { LAUNCH_COLOUR_SCRIPT } from "../components/pwa";
 import { documentLanguage } from "../components/public-website";
+import { LocaleProvider } from "../lib/i18n/react";
 import { publicPlatform } from "../components/marketing/platform";
 import {
   BRAND_COLORS,
@@ -146,8 +147,11 @@ export default async function Layout({
         <script dangerouslySetInnerHTML={{ __html: LAUNCH_COLOUR_SCRIPT }} />
       </head>
       <body>
-        {children}
-        <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
+        {/* Subscriber text follows <html lang> (lib/i18n/react.tsx). */}
+        <LocaleProvider locale={lang}>
+          {children}
+          <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
+        </LocaleProvider>
       </body>
     </html>
   );

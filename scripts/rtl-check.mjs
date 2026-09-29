@@ -255,6 +255,21 @@ function measure(page) {
       memberFrame,
       memberTabs,
       memberCurrentTab,
+      // The member chrome in the page language (docs/features/arabic.md):
+      // tab labels, the top bar title and the page's main heading.
+      memberChrome: (() => {
+        if (!document.querySelector(".member-frame")) return null;
+        const text = (selector) =>
+          [...document.querySelectorAll(selector)]
+            .filter((el) => el.getClientRects().length)
+            .map((el) => el.textContent.trim())
+            .filter(Boolean);
+        return {
+          tabs: text(".member-tabbar .member-tab-label, .member-sidenav nav a"),
+          title: text(".member-topbar-title"),
+          heading: text(".member-content h1").slice(0, 1),
+        };
+      })(),
       memberBackMirrored: mirrored(".member-back .lucide-chevron-left"),
       chevronMirrored: mirrored(".topbar .lucide-chevron-right"),
       arrowMirrored: mirrored(".lucide-arrow-right, .lucide-arrow-up-right"),
@@ -349,6 +364,19 @@ async function assertRtl(page, label, extra = {}) {
     }
     if (m.memberBackMirrored === false)
       fail(label, "the back button's chevron did not mirror");
+    // Every navigation label, the top bar title and the page heading are
+    // Arabic (the coach's own name may sit beside them).
+    if (m.memberChrome) {
+      const arabic = /[\u0600-\u06FF]/;
+      const english = m.memberChrome.tabs.filter(
+        (s) => !arabic.test(s) || /[A-Za-z]{3,}/.test(s),
+      );
+      if (english.length)
+        fail(label, `navigation not in Arabic: ${english.join(", ")}`);
+      for (const text of [...m.memberChrome.title, ...m.memberChrome.heading])
+        if (!arabic.test(text))
+          fail(label, `heading not in Arabic: ${text.slice(0, 60)}`);
+    }
   } else if (extra.workspace) {
     if (!m.sidebar) fail(label, "no workspace navigation");
     else if (m.width >= 651) {
@@ -417,7 +445,8 @@ async function signIn(page, email) {
 /** Saves the member's language in the real settings screen. */
 async function chooseLanguage(page, settingsPath, value) {
   await visit(page, settingsPath);
-  const select = page.getByLabel("Message language");
+  // The settings screen is in the member's current language.
+  const select = page.getByLabel(/Message language|لغة الرسائل/);
   await select.waitFor();
   await select.selectOption(value);
   const [response] = await Promise.all([
@@ -426,7 +455,9 @@ async function chooseLanguage(page, settingsPath, value) {
         r.url().endsWith("/api/v1/notifications/preferences") &&
         r.request().method() === "PUT",
     ),
-    page.getByRole("button", { name: "Save preferences" }).click(),
+    page
+      .getByRole("button", { name: /Save preferences|حفظ التفضيلات/ })
+      .click(),
   ]);
   if (!response.ok())
     throw new Error(`Saving the language failed: ${response.status()}`);

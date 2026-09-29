@@ -46,6 +46,13 @@ import {
   type InstallRoute,
 } from "./pwa";
 import { pushReadiness, turnOnPush, type PushReadiness } from "./push-notifications";
+import { Rich, useLocale, useT } from "../lib/i18n/react";
+import {
+  LANGUAGE_COOKIE,
+  MEMBER_LANGUAGE_COOKIE,
+  languageFromCookieHeader,
+} from "../document-language";
+import { applyDocumentLanguage } from "./document-direction";
 
 function read(key: string) {
   try {
@@ -77,26 +84,25 @@ export function OfflineScreen({
   onRetry: () => void;
   savedAt: number | null;
 }) {
-  const synced = lastSyncedText(savedAt);
+  const locale = useLocale(),
+    t = useT("pwa"),
+    common = useT("common");
+  const synced = lastSyncedText(savedAt, Date.now(), locale);
   return (
     <main className="loading-screen offline-screen">
       <section className="card offline-card" aria-labelledby="offline-title">
         <CloudOff size={28} aria-hidden="true" />
-        <h1 id="offline-title">You&apos;re offline</h1>
+        <h1 id="offline-title">{t("offlineTitle")}</h1>
         <p className="muted">
-          {synced ?? "This phone has not saved your coaching yet."} Connect to
-          Wi-Fi or mobile data, then try again.
+          {synced ?? t("notSavedYet")} {t("connectThenRetry")}
         </p>
-        <h2>What still works</h2>
+        <h2>{t("whatStillWorks")}</h2>
         <ul>
-          <li>
-            A workout you opened on this phone: the sets you log are saved here
-            and sync when you are back online.
-          </li>
-          <li>Meals you log are saved here and sync later too.</li>
+          <li>{t("worksWorkout")}</li>
+          <li>{t("worksMeals")}</li>
         </ul>
         <button className="button" type="button" onClick={onRetry}>
-          Try again <RefreshCw size={15} aria-hidden="true" />
+          {common("tryAgain")} <RefreshCw size={15} aria-hidden="true" />
         </button>
       </section>
     </main>
@@ -107,6 +113,12 @@ export function OfflinePage() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   useEffect(() => {
     setSavedAt(offlineSavedAt(read(OFFLINE_STATE_KEY)));
+    // Precached for everyone, so rendered in English: switch to the
+    // member's language from this device's cookies (member app order).
+    const language =
+      languageFromCookieHeader(document.cookie, MEMBER_LANGUAGE_COOKIE) ??
+      languageFromCookieHeader(document.cookie, LANGUAGE_COOKIE);
+    if (language) applyDocumentLanguage(language);
   }, []);
   return (
     <OfflineScreen
@@ -204,14 +216,13 @@ export function AppUpdateToast({
 }) {
   const [later, setLater] = useState(false),
     [blocked, setBlocked] = useState(false);
+  const t = useT("pwa");
   if (later || !showUpdateToast({ waiting, path })) return null;
   return (
     <div className="app-update-toast" role="status" data-fixed-ui>
       <p>
-        <strong>New version ready</strong>
-        {blocked && (
-          <span>Save or clear what you typed first, then reload.</span>
-        )}
+        <strong>{t("newVersion")}</strong>
+        {blocked && <span>{t("saveFirst")}</span>}
       </p>
       <button
         type="button"
@@ -221,12 +232,12 @@ export function AppUpdateToast({
           onReload();
         }}
       >
-        Reload
+        {t("reload")}
       </button>
       <button
         type="button"
         className="icon-button app-update-later"
-        aria-label="Later"
+        aria-label={t("later")}
         onClick={() => setLater(true)}
       >
         <X size={18} aria-hidden="true" />
@@ -283,13 +294,14 @@ function Step({
   picture: ReactNode;
   children: ReactNode;
 }) {
+  const t = useT("pwa");
   return (
     <li className="install-step">
       <span className="install-step-picture" aria-hidden="true">
         {picture}
       </span>
       <span className="install-step-text">
-        <span className="install-step-number">Step {n}</span>
+        <span className="install-step-number">{t("step", { n })}</span>
         <span>{children}</span>
       </span>
     </li>
@@ -317,6 +329,9 @@ export function InstallSheet({
   installed?: boolean;
 }) {
   const [copied, setCopied] = useState<"" | "yes" | "no">("");
+  const t = useT("pwa"),
+    common = useT("common");
+  const b = { b: (text: ReactNode) => <strong>{text}</strong> };
   useEffect(() => {
     if (!open) setCopied("");
   }, [open]);
@@ -329,24 +344,22 @@ export function InstallSheet({
       onClick={async () => setCopied((await copyLink()) ? "yes" : "no")}
     >
       <Copy size={16} aria-hidden="true" />
-      {copied === "yes" ? "Link copied" : "Copy link"}
+      {copied === "yes" ? t("linkCopied") : t("copyLink")}
     </button>
   );
-  let title = `Add ${coachName} to your home screen`,
+  const coach = { coach: coachName };
+  let title = t("addToHomeTitle", coach),
     body: ReactNode,
     footer: ReactNode = (
       <button type="button" className="button" onClick={onClose}>
-        Done
+        {common("done")}
       </button>
     );
   if (installed || route === "installed") {
-    title = `${coachName} is on your home screen`;
+    title = t("onHomeTitle", coach);
     body = (
       <>
-        <p>
-          Open it from your home screen: it starts on Today and works on a weak
-          connection.
-        </p>
+        <p>{t("openFromHome")}</p>
         <PushPrompt coachName={coachName} />
       </>
     );
@@ -355,43 +368,44 @@ export function InstallSheet({
       <>
         <ol className="install-steps">
           <Step n={1} picture={<Share size={22} />}>
-            Tap <strong>Share</strong> in Safari&apos;s toolbar.
+            <Rich t={t} k="iosShare" tags={b} />
           </Step>
           <Step n={2} picture={<SquarePlus size={22} />}>
-            Scroll down and choose <strong>Add to Home Screen</strong>.
+            <Rich t={t} k="iosAdd" tags={b} />
           </Step>
           <Step
             n={3}
-            picture={<span className="install-step-add">Add</span>}
+            picture={<span className="install-step-add">{t("iosAddWord")}</span>}
           >
-            Tap <strong>Add</strong>. {coachName} appears on your home screen.
+            <Rich t={t} k="iosConfirm" tags={b} params={coach} />
           </Step>
         </ol>
-        <p className="muted">
-          Notifications work once you open {coachName} from your home screen
-          (iOS 16.4 or later).
-        </p>
+        <p className="muted">{t("iosNotifications", coach)}</p>
       </>
     );
   } else if (route === "ios-other" || route === "in-app") {
-    title = `Open this page in ${route === "ios-other" ? "Safari" : "your browser"}`;
+    title = route === "ios-other" ? t("openInSafari") : t("openInBrowser");
     body = (
       <>
         <p>
           {route === "in-app"
-            ? `${app ?? "This app"}'s built-in browser cannot add ${coachName} to your home screen. Copy the link, then paste it into Safari on iPhone or Chrome on Android.`
-            : `On iPhone, Safari adds ${coachName} to your home screen. Copy the link and paste it into Safari.`}
+            ? t("inAppCannot", { app: app ?? t("thisApp"), coach: coachName })
+            : t("iosOtherBrowser", coach)}
         </p>
         {route === "in-app" && (
           <p className="muted">
-            Or tap <Ellipsis size={16} aria-label="the menu" /> and choose Open
-            in browser.
+            <Rich
+              t={t}
+              k="inAppMenu"
+              tags={{
+                menu: () => <Ellipsis size={16} aria-label={t("theMenu")} />,
+              }}
+            />
           </p>
         )}
         {copied === "no" && (
           <p className="notice" role="status">
-            The link could not be copied. Open {location.origin}/app in your
-            browser.
+            {t("copyFailed", { link: `${location.origin}/app` })}
           </p>
         )}
       </>
@@ -401,11 +415,10 @@ export function InstallSheet({
     body = (
       <ol className="install-steps">
         <Step n={1} picture={<Ellipsis size={22} />}>
-          Open your browser&apos;s menu.
+          {t("menuOpen")}
         </Step>
         <Step n={2} picture={<Smartphone size={22} />}>
-          Choose <strong>Install app</strong> or{" "}
-          <strong>Add to Home screen</strong>.
+          <Rich t={t} k="menuInstall" tags={b} />
         </Step>
       </ol>
     );
@@ -444,6 +457,7 @@ export function InstallAppRow({
   variant?: "more" | "card";
 }) {
   const { route, sheet, setSheet, start } = useInstallAction();
+  const t = useT("pwa");
   if (!route || route === "installed") return null;
   const sheetView = (
     <InstallSheet
@@ -457,18 +471,15 @@ export function InstallAppRow({
   if (variant === "card")
     return (
       <section className="card install-app-card" aria-labelledby="install-h">
-        <h2 id="install-h">Install the app</h2>
-        <p className="muted">
-          Open {coachName} from your home screen in one tap. It starts on Today
-          and works on a weak connection.
-        </p>
+        <h2 id="install-h">{t("installApp")}</h2>
+        <p className="muted">{t("installCardText", { coach: coachName })}</p>
         <button
           type="button"
           className="button secondary"
           onClick={() => void start()}
         >
           <Smartphone size={16} aria-hidden="true" />
-          Install the app
+          {t("installApp")}
         </button>
         {sheetView}
       </section>
@@ -486,8 +497,8 @@ export function InstallAppRow({
               <Smartphone size={20} aria-hidden="true" />
             </span>
             <span className="more-text">
-              <strong>Install the app</strong>
-              <small>Open {coachName} from your home screen</small>
+              <strong>{t("installApp")}</strong>
+              <small>{t("installRowDetail", { coach: coachName })}</small>
             </span>
             <ChevronRight
               className="more-chevron"
@@ -567,6 +578,8 @@ export function InstallCard({
   loggedSession: boolean;
 }) {
   const { route, sheet, setSheet, start } = useInstallAction();
+  const t = useT("pwa"),
+    common = useT("common");
   const visits = useVisits(tenantId, userId),
     consent = useConsentAnswered();
   const keys = installKeys(tenantId, userId);
@@ -596,11 +609,10 @@ export function InstallCard({
             <Smartphone size={22} />
           </span>
           <div className="install-card-text">
-            <h2 id="install-card-title">Add {coachName} to your home screen</h2>
-            <p className="muted">
-              Open today&apos;s training in one tap. It works on a weak
-              connection too.
-            </p>
+            <h2 id="install-card-title">
+              {t("addToHomeTitle", { coach: coachName })}
+            </h2>
+            <p className="muted">{t("installTodayText")}</p>
           </div>
           <div className="install-card-actions">
             <button
@@ -608,14 +620,14 @@ export function InstallCard({
               className="text-button"
               onClick={dismiss}
             >
-              Not now
+              {common("notNow")}
             </button>
             <button
               type="button"
               className="button"
               onClick={() => void start()}
             >
-              Install the app
+              {t("installApp")}
             </button>
           </div>
         </section>
@@ -657,6 +669,9 @@ export function PushPrompt({
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [hidden, setHidden] = useState(false);
+  const t = useT("pwa"),
+    common = useT("common"),
+    push = useT("push");
   useEffect(() => {
     if (askedKey && read(askedKey)) {
       setHidden(true);
@@ -671,7 +686,7 @@ export function PushPrompt({
   if (hidden || !ready || ready.kind === "unavailable" || ready.kind === "enabled")
     return message ? (
       <p className="notice" role="status">
-        {message}
+        {push(message as never)}
       </p>
     ) : null;
   const notNow = () => {
@@ -682,26 +697,20 @@ export function PushPrompt({
     <section className="push-prompt" aria-labelledby="push-prompt-title">
       <Bell size={20} aria-hidden="true" />
       <div>
-        <h3 id="push-prompt-title">Know when {coachName} replies</h3>
+        <h3 id="push-prompt-title">{t("pushTitle", { coach: coachName })}</h3>
         {ready.kind === "ios-install" ? (
-          <p className="muted">
-            On iPhone, notifications work in the app on your home screen (iOS
-            16.4 or later). Add it first, then turn them on in Profile and
-            settings.
-          </p>
+          <p className="muted">{t("pushIos")}</p>
         ) : (
-          <p className="muted">
-            A short notice on this phone. The message itself stays in the app.
-          </p>
+          <p className="muted">{t("pushShort")}</p>
         )}
         {message && (
           <p className="notice" role="status">
-            {message}
+            {push(message as never)}
           </p>
         )}
         <div className="push-prompt-actions">
           <button type="button" className="text-button" onClick={notNow}>
-            Not now
+            {common("notNow")}
           </button>
           {ready.kind === "ready" && (
             <button
@@ -717,7 +726,7 @@ export function PushPrompt({
                 if (result.ok) setReady({ kind: "enabled" });
               }}
             >
-              Turn on notifications
+              {t("turnOnNotifications")}
             </button>
           )}
         </div>

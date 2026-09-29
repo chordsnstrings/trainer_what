@@ -1,4 +1,6 @@
 "use client";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDate, formatDateTime } from "../lib/format";
 import { useEffect, useState } from "react";
 import { PasskeySettings } from "./passkeys";
 import { AuthPage, ReturnToSignIn } from "./auth-page";
@@ -17,9 +19,12 @@ export function AccountExtras() {
     [codes, setCodes] = useState<string[]>([]),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("account"),
+    locale = useLocale(),
+    toError = useErrorText();
   const load = () => request("account").then(setData);
   useEffect(() => {
-    const refresh = () => void load().catch((e) => setMessage(e.message));
+    const refresh = () => void load().catch((e) => setMessage(toError(e)));
     refresh();
     window.addEventListener("account-security-updated", refresh);
     return () =>
@@ -27,20 +32,18 @@ export function AccountExtras() {
   }, []);
   return (
     <section className="card">
-      <h2>Access and recovery</h2>
+      <h2>{t("accessRecovery")}</h2>
       {message && (
         <p className="notice" role="status">
           {message}
         </p>
       )}
       <PasskeySettings />
-      <h3>Authenticator recovery codes</h3>
-      <p className="muted">
-        Save these privately before you lose your authenticator. Recovery
-        requires your password and one code, invalidates every code and signs
-        out all sessions. Set up a new authenticator immediately afterward.
+      <h3>{t("recoveryCodes")}</h3>
+      <p className="muted">{t("recoveryText")}</p>
+      <p>
+        {t("codesAvailable", { count: data?.recoveryCodesRemaining ?? 0 })}
       </p>
-      <p>{data?.recoveryCodesRemaining ?? 0} recovery codes available.</p>
       {data?.mfaEnabled && (
         <form
           onSubmit={async (e) => {
@@ -54,16 +57,16 @@ export function AccountExtras() {
               });
               setCodes(r.codes);
               await load();
-              setMessage(r.message);
+              setMessage(locale === "en" ? r.message : t("codesReplaced"));
             } catch (e) {
-              setMessage((e as Error).message);
+              setMessage(toError(e));
             } finally {
               setBusy(false);
             }
           }}
         >
           <label className="field">
-            <span>Current password (verify Account security first)</span>
+            <span>{t("passwordVerifyFirst")}</span>
             <input
               type="password"
               name="password"
@@ -72,36 +75,40 @@ export function AccountExtras() {
             />
           </label>
           <button className="button secondary" disabled={busy}>
-            Replace recovery codes
+            {t("replaceCodes")}
           </button>
         </form>
       )}
       {codes.length > 0 && (
         <div className="notice">
           <label className="field">
-            <span>Shown once — copy to your password manager</span>
+            <span>{t("shownOnceCopy")}</span>
             <textarea
               readOnly
               rows={10}
               value={codes.join("\n")}
-              aria-label="Your new recovery codes"
+              aria-label={t("newCodesLabel")}
             />
           </label>
           <button className="button secondary" onClick={() => setCodes([])}>
-            I saved my codes
+            {t("savedCodes")}
           </button>
         </div>
       )}
-      <h3>Signed-in sessions</h3>
+      <h3>{t("sessions")}</h3>
       {data?.sessions.map((s: any) => (
         <div className="card" key={s.id}>
           <strong>
-            {s.workspace}
-            {s.current ? " · this session" : ""}
+            <bdi>{s.workspace}</bdi>
+            {s.current ? t("thisSession") : ""}
           </strong>
           <p>
-            Last active {new Date(s.last_seen_at).toLocaleString()} · expires{" "}
-            {new Date(s.expires_at).toLocaleDateString()}.
+            {locale === "en"
+              ? `Last active ${new Date(s.last_seen_at).toLocaleString()} · expires ${new Date(s.expires_at).toLocaleDateString()}.`
+              : t("lastActive", {
+                  when: formatDateTime(s.last_seen_at, { locale }),
+                  date: formatDate(s.expires_at, { locale }),
+                })}
           </p>
           <button
             className="button secondary"
@@ -115,15 +122,15 @@ export function AccountExtras() {
                   return;
                 }
                 await load();
-                setMessage("Session signed out.");
+                setMessage(t("sessionSignedOut"));
               } catch (e) {
-                setMessage((e as Error).message);
+                setMessage(toError(e));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            Sign out{!s.current ? " session" : ""}
+            {s.current ? t("signOut") : t("signOutSession")}
           </button>
         </div>
       ))}
@@ -136,21 +143,23 @@ export function MagicAccess({ path }: { path: string }) {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [complete, setComplete] = useState(false);
+  const t = useT("auth"),
+    toError = useErrorText();
   return (
     <AuthPage
       title={
         recover
-          ? "Recover your authenticator"
+          ? t("recoverTitle")
           : token
-            ? "Confirm your sign-in"
-            : "Email me a sign-in link"
+            ? t("confirmSignInTitle")
+            : t("emailLinkTitle")
       }
       intro={
         recover
-          ? "Use a saved recovery code and your password. You will be signed out on your other devices and your old recovery codes stop working."
+          ? t("recoverIntro")
           : token
-            ? "Confirm below to use this link. If you use an authenticator app, enter its current code."
-            : "We’ll email you a link that signs you in once. It works for 15 minutes. If you use an authenticator app, you’ll still need its code."
+            ? t("confirmIntro")
+            : t("emailLinkIntro")
       }
     >
         {message && (
@@ -194,10 +203,11 @@ export function MagicAccess({ path }: { path: string }) {
                   );
                   return;
                 }
-                setMessage(r.message);
+                // The server's sentence in English; the same fact otherwise.
+                setMessage(t.locale === "en" ? r.message : t("emailLinkSent"));
                 setComplete(true);
               } catch (e) {
-                setMessage((e as Error).message);
+                setMessage(toError(e));
               } finally {
                 setBusy(false);
               }
@@ -205,7 +215,7 @@ export function MagicAccess({ path }: { path: string }) {
           >
             {!token && (
               <label className="field">
-                <span>Email address</span>
+                <span>{t("emailAddress")}</span>
                 <input
                   name="email"
                   type="email"
@@ -218,7 +228,7 @@ export function MagicAccess({ path }: { path: string }) {
             )}
             {token && (
               <label className="field">
-                <span>Authenticator code (only if you use one)</span>
+                <span>{t("codeIfUsed")}</span>
                 <input
                   name="code"
                   inputMode="numeric"
@@ -232,7 +242,7 @@ export function MagicAccess({ path }: { path: string }) {
             {recover && (
               <>
                 <label className="field">
-                  <span>Current password</span>
+                  <span>{t("currentPassword")}</span>
                   <input
                     name="password"
                     type="password"
@@ -242,7 +252,7 @@ export function MagicAccess({ path }: { path: string }) {
                   />
                 </label>
                 <label className="field">
-                  <span>Saved recovery code</span>
+                  <span>{t("recoveryCode")}</span>
                   <input
                     name="recoveryCode"
                     autoComplete="one-time-code"
@@ -258,10 +268,10 @@ export function MagicAccess({ path }: { path: string }) {
             )}
             <button className="button" disabled={busy}>
               {recover
-                ? "Recover authenticator"
+                ? t("recoverButton")
                 : token
-                  ? "Confirm sign-in"
-                  : "Send sign-in link"}
+                  ? t("confirmButton")
+                  : t("sendLink")}
             </button>
           </form>
         )}

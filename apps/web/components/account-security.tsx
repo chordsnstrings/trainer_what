@@ -1,4 +1,5 @@
 "use client";
+import { useErrorText, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
 import { AuthPage, ReturnToSignIn } from "./auth-page";
 async function request(path: string, body?: unknown) {
@@ -17,9 +18,11 @@ export function AccountSecurity() {
     [codes, setCodes] = useState<string[]>([]),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("account"),
+    toError = useErrorText();
   const load = () => request("security").then(setStatus);
   useEffect(() => {
-    void load().catch((e) => setNotice(e.message));
+    void load().catch((e) => setNotice(toError(e)));
   }, []);
   async function submit(path: string, body: unknown) {
     setBusy(true);
@@ -30,22 +33,24 @@ export function AccountSecurity() {
       if (data.secret) setSecret(data.secret);
       else {
         setSecret("");
-        setNotice(data.message ?? "Account security updated.");
+        setNotice(
+          t.locale === "en"
+            ? (data.message ?? t("securityUpdated"))
+            : t("securityUpdated"),
+        );
       }
       await load();
       window.dispatchEvent(new Event("account-security-updated"));
     } catch (e) {
-      setNotice((e as Error).message);
+      setNotice(toError(e));
     } finally {
       setBusy(false);
     }
   }
   return (
     <section className="card">
-      <h2>Account security</h2>
-      <p className="muted">
-        Protect your account and verify sensitive financial actions.
-      </p>
+      <h2>{t("security")}</h2>
+      <p className="muted">{t("securityText")}</p>
       {notice && (
         <p className="notice" role="status">
           {notice}
@@ -53,41 +58,39 @@ export function AccountSecurity() {
       )}
       {codes.length > 0 && (
         <div className="notice">
-          <strong>Recovery codes — shown once</strong>
+          <strong>{t("codesShownOnce")}</strong>
           <textarea
             readOnly
             rows={codes.length}
             value={codes.join("\n")}
-            aria-label="Authenticator recovery codes"
+            aria-label={t("codesLabel")}
             style={{ width: "100%", fontFamily: "monospace" }}
           />
         </div>
       )}
-      <p>Email: {status?.emailVerified ? "verified" : "verification needed"}</p>
+      <p>{status?.emailVerified ? t("emailVerified") : t("emailNeeded")}</p>
       {status && !status.emailVerified && (
         <button
           className="button secondary"
           disabled={busy}
           onClick={() => void submit("request-verification", {})}
         >
-          Send verification email
+          {t("sendVerification")}
         </button>
       )}
-      <h3>Authenticator</h3>
+      <h3>{t("authenticator")}</h3>
       <p>
         {status?.mfaEnabled
-          ? "Enabled. A fresh code and password confirm sensitive actions for ten minutes."
+          ? t("mfaEnabled")
           : status?.mfaConfigured
-            ? "Add this account to your authenticator app."
-            : "Authenticator setup is waiting for the security service configuration."}
+            ? t("mfaAdd")
+            : t("mfaWaiting")}
       </p>
       {status?.mfaConfigured &&
         status.hasPassword === false &&
         !status.mfaEnabled && (
           <p className="muted" role="note">
-            Your account signs in with Apple or Google and has no password yet.
-            Set a password in Account settings first; it confirms authenticator
-            setup and sensitive actions.
+            {t("mfaNoPassword")}
           </p>
         )}
       {status?.mfaConfigured &&
@@ -112,7 +115,7 @@ export function AccountSecurity() {
           >
             {!secret && (
               <label className="field">
-                <span>Current password</span>
+                <span>{t("currentPassword")}</span>
                 <input
                   name="password"
                   type="password"
@@ -123,16 +126,15 @@ export function AccountSecurity() {
             )}
             {secret && (
               <p className="notice">
-                Manual setup key:{" "}
+                {t("setupKey")}{" "}
                 <code style={{ overflowWrap: "anywhere" }}>{secret}</code>
                 <br />
-                Use time-based codes, 6 digits, 30 seconds. Save this key in
-                your password manager before confirming.
+                {t("setupKeyHelp")}
               </p>
             )}
             {(secret || status.mfaEnabled) && (
               <label className="field">
-                <span>Authenticator code</span>
+                <span>{t("authenticatorCode")}</span>
                 <input
                   name="code"
                   inputMode="numeric"
@@ -144,10 +146,10 @@ export function AccountSecurity() {
             )}
             <button className="button" disabled={busy}>
               {secret
-                ? "Confirm authenticator"
+                ? t("confirmAuthenticator")
                 : status.mfaEnabled
-                  ? "Verify sensitive actions"
-                  : "Set up authenticator"}
+                  ? t("verifySensitive")
+                  : t("setUpAuthenticator")}
             </button>
           </form>
         )}
@@ -157,10 +159,10 @@ export function AccountSecurity() {
         disabled={busy}
         onClick={() => void submit("sessions/revoke", {})}
       >
-        Sign out other sessions
+        {t("signOutOthers")}
       </button>
       <p className="muted">
-        <a href="/forgot-password">Reset your password</a>
+        <a href="/forgot-password">{t("resetPassword")}</a>
       </p>
     </section>
   );
@@ -171,21 +173,23 @@ export function AccountRecovery({ path }: { path: string }) {
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [complete, setComplete] = useState(false);
+  const t = useT("auth"),
+    toError = useErrorText();
   return (
     <AuthPage
       title={
         verify
-          ? "Verify your email"
+          ? t("verifyTitle")
           : reset
-            ? "Choose a new password"
-            : "Reset your password"
+            ? t("newPasswordTitle")
+            : t("resetTitle")
       }
       intro={
         verify
-          ? "Confirm that this email address is yours."
+          ? t("verifyIntro")
           : reset
-            ? "Use at least 12 characters. You will sign in with it next time."
-            : "Enter the email address you sign in with. If it has an account, we’ll email you a link to choose a new password."
+            ? t("newPasswordIntro")
+            : t("resetIntro")
       }
     >
         {message && (
@@ -215,15 +219,16 @@ export function AccountRecovery({ path }: { path: string }) {
                         }
                       : { email: f.get("email") },
                 );
-                setMessage(
-                  r.message ??
-                    (verify
-                      ? "Email verified. You can return to your workspace."
-                      : "Password changed. Sign in with your new password."),
-                );
+                // The server's sentence in English; the same fact otherwise.
+                const own = verify
+                  ? t("verified")
+                  : reset
+                    ? t("passwordChanged")
+                    : t("resetSent");
+                setMessage(t.locale === "en" ? (r.message ?? own) : own);
                 setComplete(true);
               } catch (e) {
-                setMessage((e as Error).message);
+                setMessage(toError(e));
               } finally {
                 setBusy(false);
               }
@@ -231,7 +236,7 @@ export function AccountRecovery({ path }: { path: string }) {
           >
             {!verify && (
               <label className="field">
-                <span>{reset ? "New password" : "Email address"}</span>
+                <span>{reset ? t("newPassword") : t("emailAddress")}</span>
                 <input
                   name={reset ? "password" : "email"}
                   type={reset ? "password" : "email"}
@@ -245,10 +250,10 @@ export function AccountRecovery({ path }: { path: string }) {
             )}
             <button className="button" disabled={busy}>
               {verify
-                ? "Verify email"
+                ? t("verifyButton")
                 : reset
-                  ? "Save password"
-                  : "Send reset link"}
+                  ? t("savePassword")
+                  : t("sendResetLink")}
             </button>
           </form>
         )}

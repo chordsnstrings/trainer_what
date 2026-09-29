@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDate, formatDateRange, formatNumber } from "../lib/format";
+import type { Locale } from "../lib/i18n/core";
 
 /** The subscriber's day-by-day programme view and its timeline (docs/features/programme.md). */
 async function api(path: string, method = "GET", body?: unknown) {
@@ -30,21 +33,12 @@ const zoneQuery = () => {
   const zone = deviceTimeZone();
   return zone ? `?timezone=${encodeURIComponent(zone)}` : "";
 };
-const calendarDay = (date: string) =>
-  new Date(date + "T12:00:00Z").toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-const instantDay = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
+/** "Tue 29 Sep" (Arabic "الثلاثاء، 29 سبتمبر") for a programme day. */
+const calendarDay = (date: string, locale: Locale = "en") =>
+  formatDate(date, { weekday: true, year: false, locale });
+/** "29 Sep 2026" for an instant (renewal, end of access). */
+const instantDay = (value?: string | null, locale: Locale = "en") =>
+  value ? formatDate(value, { locale }) : "—";
 const round = (n: number | null | undefined) =>
   typeof n === "number" ? Math.round(n) : null;
 
@@ -52,6 +46,9 @@ function EndOfProgramme({ data }: { data: any }) {
   const end = data.endOfProgramme;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const t = useT("today"),
+    locale = useLocale(),
+    toError = useErrorText();
   if (!end || end.state === "none") return null;
   const renew = async () => {
     setBusy(true);
@@ -62,7 +59,7 @@ function EndOfProgramme({ data }: { data: any }) {
       });
       if (r?.url) window.location.assign(r.url);
     } catch (e: any) {
-      setError(e.message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
@@ -71,11 +68,11 @@ function EndOfProgramme({ data }: { data: any }) {
     end.canRenew &&
     (end.renewProductId ? (
       <button className="button" disabled={busy} onClick={() => void renew()}>
-        {busy ? "Opening checkout…" : "Start the next programme"}
+        {busy ? t("openingCheckout") : t("startNext")}
       </button>
     ) : (
       <Link className="button secondary" href="/app/membership#offers">
-        Choose your next plan
+        {t("chooseNext")}
       </Link>
     ));
   return (
@@ -88,27 +85,32 @@ function EndOfProgramme({ data }: { data: any }) {
     >
       {end.state === "next_block" && (
         <p>
-          This block ends on {calendarDay(data.programme.blockEndDate)}. Your
-          next block starts {calendarDay(end.at)} and your coach plans it from
-          how this one went.
+          {t("blockEnds", {
+            end: calendarDay(data.programme.blockEndDate, locale),
+            start: calendarDay(end.at, locale),
+          })}
         </p>
       )}
       {end.state === "renews" && (
-        <p>Your membership renews {end.at ? instantDay(end.at) : "monthly"}.</p>
+        <p>
+          {end.at
+            ? t("renewsOn", { date: instantDay(end.at, locale) })
+            : t("renewsMonthly")}
+        </p>
       )}
       {end.state === "ends" && (
         <p>
-          Your access ends on {instantDay(end.at)}.
+          {t("accessEnds", { date: instantDay(end.at, locale) })}
           {data.programme?.billing === "upfront"
-            ? " Your programme was paid in full; nothing renews automatically."
-            : " Renewal is off."}
+            ? t("paidInFull")
+            : t("renewalOff")}
         </p>
       )}
       {end.state === "ended" && (
         <p>
           {data.programme?.billing === "upfront"
-            ? "You completed this programme. Your access has ended."
-            : "Your membership has ended."}
+            ? t("completedProgramme")
+            : t("membershipEnded")}
         </p>
       )}
       {renewControl}
@@ -122,24 +124,25 @@ function EndOfProgramme({ data }: { data: any }) {
 }
 
 function Nutrition({ n }: { n: any }) {
+  const tr = useT("today");
   if (!n) return null;
   if (n.state === "permission")
     return (
       <div className="programme-tile">
-        <p className="small-label">Nutrition today</p>
-        <p>Allow nutrition coaching to see today&apos;s targets.</p>
+        <p className="small-label">{tr("nutritionToday")}</p>
+        <p>{tr("allowNutrition")}</p>
         <Link className="text-link" href="/app/nutrition">
-          Open nutrition
+          {tr("openNutrition")}
         </Link>
       </div>
     );
   if (n.state === "setup")
     return (
       <div className="programme-tile">
-        <p className="small-label">Nutrition today</p>
-        <p>Add your food preferences so your coach can set your targets.</p>
+        <p className="small-label">{tr("nutritionToday")}</p>
+        <p>{tr("addPreferences")}</p>
         <Link className="text-link" href="/app/nutrition">
-          Set up nutrition
+          {tr("setUpNutrition")}
         </Link>
       </div>
     );
@@ -147,24 +150,22 @@ function Nutrition({ n }: { n: any }) {
   const kcal = round(n.consumed?.kcal) ?? 0;
   const goal = t?.kcal ?? round(n.planned?.kcal);
   const macros = [
-    ["Protein", "protein"],
-    ["Carbohydrate", "carbohydrate"],
-    ["Fat", "fat"],
+    [tr("protein"), "protein"],
+    [tr("carbohydrate"), "carbohydrate"],
+    [tr("fat"), "fat"],
   ] as const;
   return (
     <div className="programme-tile programme-nutrition">
-      <p className="small-label">Nutrition today</p>
+      <p className="small-label">{tr("nutritionToday")}</p>
       <h3>
-        <span dir="ltr">
-          {kcal}
-          {goal ? ` / ${goal}` : ""} kcal
-        </span>
+        {/* "1200 / 2000" is one left-to-right run inside the sentence. */}
+        {tr("kcalValue", { value: goal ? `${kcal} / ${goal}` : kcal })}
       </h3>
       {goal ? (
         <div
           className="programme-meter"
           role="progressbar"
-          aria-label="Calories logged against today's target"
+          aria-label={tr("caloriesLabel")}
           aria-valuemin={0}
           aria-valuemax={goal}
           aria-valuenow={Math.min(kcal, goal)}
@@ -174,7 +175,7 @@ function Nutrition({ n }: { n: any }) {
           />
         </div>
       ) : (
-        <p className="muted">Your coach has not set today&apos;s target yet.</p>
+        <p className="muted">{tr("noTarget")}</p>
       )}
       {macros.map(([label, key]) =>
         t?.[key] != null ? (
@@ -187,11 +188,11 @@ function Nutrition({ n }: { n: any }) {
         ) : null,
       )}
       <p className="muted">
-        {n.meals} {n.meals === 1 ? "meal" : "meals"} logged
-        {t?.reviewDue ? " · target review due with your coach" : ""}
+        {tr("mealsLogged", { count: n.meals ?? 0 })}
+        {t?.reviewDue ? tr("reviewDue") : ""}
       </p>
       <Link className="text-link" href="/app/nutrition/log">
-        Log a meal
+        {tr("logMeal")}
       </Link>
     </div>
   );
@@ -201,6 +202,8 @@ function Nutrition({ n }: { n: any }) {
 export function ProgrammeToday() {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
+  const t = useT("today"),
+    locale = useLocale();
   const load = useCallback(
     () =>
       api("/programme/today" + zoneQuery()).then(
@@ -218,30 +221,27 @@ export function ProgrammeToday() {
   if (error)
     return (
       <section className="card programme-today" aria-live="polite">
-        <p className="muted">Today&apos;s programme could not be loaded.</p>
+        <p className="muted">{t("loadFailed")}</p>
         <button className="button secondary" onClick={() => void load()}>
-          Try again
+          {t("tryAgain")}
         </button>
       </section>
     );
   if (!data)
     return (
       <section className="card programme-today" aria-busy="true">
-        <p className="muted">Loading today&apos;s programme…</p>
+        <p className="muted">{t("loading")}</p>
       </section>
     );
   const p = data.programme;
   if (!p)
     return (
       <section className="card programme-today">
-        <p className="eyebrow">YOUR PROGRAMME</p>
-        <h2>Start your coaching programme</h2>
-        <p className="muted">
-          Choose a membership and your coach&apos;s plan appears here day by
-          day.
-        </p>
+        <p className="eyebrow">{t("yourProgramme")}</p>
+        <h2>{t("startProgramme")}</h2>
+        <p className="muted">{t("startProgrammeText")}</p>
         <Link className="button" href="/app/membership">
-          See membership options
+          {t("membershipOptions")}
         </Link>
       </section>
     );
@@ -255,26 +255,26 @@ export function ProgrammeToday() {
       <div className="programme-day">
         <p className="eyebrow" id="programme-today-title">
           {p.state === "not_started"
-            ? "YOUR PROGRAMME STARTS SOON"
+            ? t("startsSoon")
             : p.state === "complete"
-              ? "PROGRAMME COMPLETE"
+              ? t("complete")
               : p.billing === "upfront"
-                ? "YOUR PROGRAMME"
-                : `BLOCK ${p.block}`}
+                ? t("yourProgramme")
+                : t("block", { n: p.block })}
         </p>
         <strong>
           {p.state === "not_started"
-            ? `Starts ${calendarDay(p.startDate)}`
-            : `Day ${p.day} of ${p.of}`}
+            ? t("starts", { date: calendarDay(p.startDate, locale) })
+            : t("dayOf", { day: p.day, of: p.of })}
         </strong>
         {p.rolling && p.state !== "not_started" && (
-          <span className="badge">Rolling {p.of}-day blocks</span>
+          <span className="badge">{t("rollingBlocks", { count: p.of })}</span>
         )}
       </div>
       <div
         className="programme-meter"
         role="progressbar"
-        aria-label="Progress through the programme"
+        aria-label={t("progressLabel")}
         aria-valuemin={0}
         aria-valuemax={p.of}
         aria-valuenow={p.day}
@@ -286,74 +286,80 @@ export function ProgrammeToday() {
       {data.planState === "ended" ? null : (
         <div className="programme-columns">
           <div className="programme-tile">
-            <p className="small-label">Today · {calendarDay(data.today)}</p>
+            <p className="small-label">
+              {t("todayOn", { date: calendarDay(data.today, locale) })}
+            </p>
             {data.planState === "awaiting_coach" && !s ? (
               <>
-                <h3>Your coach is preparing your plan</h3>
-                <p className="muted">
-                  Your sessions appear here day by day as soon as it is ready.
-                </p>
+                <h3>{t("preparing")}</h3>
+                <p className="muted">{t("preparingText")}</p>
               </>
             ) : s ? (
               <>
-                <h3>{s.label ?? "Training session"}</h3>
+                <h3 dir="auto">{s.label ?? t("trainingSession")}</h3>
                 <p className="muted">
                   {s.status === "completed"
-                    ? "Done. Nice work."
+                    ? t("done")
                     : s.status === "canceled"
-                      ? "Your coach canceled today's session."
-                      : `${s.exercises} ${s.exercises === 1 ? "exercise" : "exercises"}${s.week ? ` · week ${s.week}` : ""}`}
+                      ? t("canceled")
+                      : t("exercises", { count: s.exercises }) +
+                        (s.week ? t("week", { n: s.week }) : "")}
                 </p>
                 {!["completed", "canceled"].includes(s.status) && (
                   <Link className="button" href="/app/program">
                     {s.status === "started"
-                      ? "Continue session"
-                      : "Start session"}
+                      ? t("continueSession")
+                      : t("startSession")}
                   </Link>
                 )}
               </>
             ) : (
               <>
-                <h3>Rest day</h3>
-                <p className="muted">
-                  Recovery is part of the plan. Move gently and sleep well.
-                </p>
+                <h3>{t("restDay")}</h3>
+                <p className="muted">{t("restText")}</p>
               </>
             )}
           </div>
           <div className="programme-tile">
-            <p className="small-label">What&apos;s next</p>
+            <p className="small-label">{t("whatsNext")}</p>
             {data.next ? (
               <>
-                <h3>{data.next.label ?? "Training session"}</h3>
+                <h3 dir="auto">{data.next.label ?? t("trainingSession")}</h3>
                 <p className="muted">
                   {data.next.inDays === 1
-                    ? "Tomorrow"
-                    : `${calendarDay(data.next.date)} · in ${data.next.inDays} days`}
+                    ? t("tomorrow")
+                    : t("inDays", {
+                        date: calendarDay(data.next.date, locale),
+                        count: data.next.inDays,
+                      })}
                 </p>
               </>
             ) : (
-              <p className="muted">
-                Your coach has not scheduled the next session yet.
-              </p>
+              <p className="muted">{t("notScheduled")}</p>
             )}
             <div className="programme-stats">
               <div>
-                <span className="small-label">Streak</span>
-                <strong>{progress.streak}</strong>
+                <span className="small-label">{t("streak")}</span>
+                <strong>{formatNumber(progress.streak, locale)}</strong>
               </div>
               <div>
-                <span className="small-label">Adherence</span>
+                <span className="small-label">{t("adherence")}</span>
                 <strong>
-                  {progress.percent === null ? "—" : `${progress.percent}%`}
+                  {progress.percent === null
+                    ? "—"
+                    : formatNumber(progress.percent / 100, locale, {
+                        style: "percent",
+                      })}
                 </strong>
               </div>
               <div>
                 <span className="small-label">
-                  Last {progress.windowDays} days
+                  {t("lastDays", { count: progress.windowDays })}
                 </span>
                 <strong>
-                  {progress.completed}/{progress.scheduled}
+                  <bdi dir="ltr">
+                    {progress.completed}/{progress.scheduled}
+                  </bdi>
                 </strong>
               </div>
             </div>
@@ -364,26 +370,28 @@ export function ProgrammeToday() {
       <EndOfProgramme data={data} />
       <p>
         <Link className="text-link" href="/app/timeline">
-          See the whole {p.billing === "upfront" ? "programme" : "block"}
+          {p.billing === "upfront" ? t("wholeProgramme") : t("wholeBlock")}
         </Link>
       </p>
     </section>
   );
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  done: "Done",
-  missed: "Missed",
-  today: "Today",
-  upcoming: "Planned",
-  rest: "Rest",
-  unplanned: "Not planned yet",
-  canceled: "Canceled",
-};
+const STATUS_KEYS = [
+  "done",
+  "missed",
+  "today",
+  "upcoming",
+  "rest",
+  "unplanned",
+  "canceled",
+] as const;
 /** Every day of the current programme (upfront) or block (monthly), with its session and status. */
 export function ProgrammeTimeline() {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
+  const t = useT("today"),
+    locale = useLocale();
   useEffect(() => {
     api("/programme/timeline" + zoneQuery()).then(setData, (e) =>
       setError(e.message),
@@ -393,26 +401,24 @@ export function ProgrammeTimeline() {
     return (
       <section className="card">
         <p className="muted" role="alert">
-          The programme timeline could not be loaded.
+          {t("timelineFailed")}
         </p>
       </section>
     );
   if (!data)
     return (
       <section className="card" aria-busy="true">
-        <p className="muted">Loading your programme…</p>
+        <p className="muted">{t("loadingProgramme")}</p>
       </section>
     );
   const p = data.programme;
   if (!p)
     return (
       <section className="card">
-        <h2>No programme yet</h2>
-        <p className="muted">
-          Your timeline appears once your membership starts.
-        </p>
+        <h2>{t("noProgramme")}</h2>
+        <p className="muted">{t("noProgrammeText")}</p>
         <Link className="button" href="/app/membership">
-          See membership options
+          {t("membershipOptions")}
         </Link>
       </section>
     );
@@ -421,23 +427,27 @@ export function ProgrammeTimeline() {
   return (
     <section className="card" aria-labelledby="programme-timeline-title">
       <p className="eyebrow">
-        {p.billing === "upfront" ? "PROGRAMME" : `BLOCK ${p.block}`} ·{" "}
-        {calendarDay(p.blockStartDate)} – {calendarDay(p.blockEndDate)}
+        {p.billing === "upfront" ? t("programme") : t("block", { n: p.block })}{" "}
+        ·{" "}
+        {locale === "en" ? (
+          <>
+            {calendarDay(p.blockStartDate)} – {calendarDay(p.blockEndDate)}
+          </>
+        ) : (
+          formatDateRange(p.blockStartDate, p.blockEndDate, { locale })
+        )}
       </p>
       <h2 id="programme-timeline-title">
         {p.state === "not_started"
-          ? "Starting soon"
-          : `Day ${p.day} of ${p.of}`}
+          ? t("startingSoon")
+          : t("dayOf", { day: p.day, of: p.of })}
       </h2>
       <p className="muted">
-        {done} of {sessions} sessions done
-        {p.rolling ? ` · rolling ${p.of}-day blocks` : ""}
+        {t("sessionsDone", { done, count: sessions })}
+        {p.rolling ? t("rollingNote", { count: p.of }) : ""}
       </p>
       {data.planState === "awaiting_coach" && (
-        <p role="status">
-          Your coach is preparing your plan. Sessions appear here as soon as it
-          is ready.
-        </p>
+        <p role="status">{t("preparingTimeline")}</p>
       )}
       <ol className="programme-timeline">
         {data.days.map((d: any) => (
@@ -446,14 +456,14 @@ export function ProgrammeTimeline() {
             className={d.status}
             aria-current={d.status === "today" ? "date" : undefined}
           >
-            <span className="small-label">Day {d.day}</span>
-            <span>{calendarDay(d.date)}</span>
-            <strong>
+            <span className="small-label">{t("dayN", { n: d.day })}</span>
+            <span>{calendarDay(d.date, locale)}</span>
+            <strong dir="auto">
               {d.kind === "session"
-                ? (d.label ?? "Session")
+                ? (d.label ?? t("session"))
                 : d.kind === "unplanned"
                   ? "—"
-                  : "Rest"}
+                  : t("rest")}
             </strong>
             <span
               className={
@@ -465,14 +475,16 @@ export function ProgrammeTimeline() {
                     : "")
               }
             >
-              {STATUS_LABEL[d.status] ?? d.status}
+              {(STATUS_KEYS as readonly string[]).includes(d.status)
+                ? t(`status_${d.status as (typeof STATUS_KEYS)[number]}`)
+                : d.status}
             </span>
           </li>
         ))}
       </ol>
       <p>
         <Link className="text-link" href="/app">
-          Back to today
+          {t("backToToday")}
         </Link>
       </p>
     </section>

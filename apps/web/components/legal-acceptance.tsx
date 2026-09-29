@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useT } from "../lib/i18n/react";
 
 /**
  * What sign-up and joining forms ask a person to accept. The API decides it
@@ -97,24 +98,37 @@ export function LegalAcceptance({
   /** Form field name, when the form reads the box through FormData. */
   name?: string;
 }) {
+  const t = useT("join");
   if (!plan.open) return null;
+  const nameOf = (key: LegalKey) =>
+    t(
+      key === "terms"
+        ? "termsOfService"
+        : key === "privacy"
+          ? "privacyPolicy"
+          : "aiDisclosure",
+    );
   const links: ReactNode[] = plan.ask.map((key, i) => (
     <span key={key}>
-      {i > 0 && (i === plan.ask.length - 1 ? " and " : ", ")}
+      {i > 0 && (i === plan.ask.length - 1 ? t("and") : t("listComma"))}
       <Link href={LEGAL_PATHS[key]} target="_blank" rel="noopener">
-        {LEGAL_NAMES[key]}
+        {nameOf(key)}
       </Link>
     </span>
   ));
+  const names = plan.pending.map(nameOf);
   const pendingNote = plan.pending.length > 0 && (
     <p className="legal-pending-note muted">
-      The platform’s{" "}
-      {listWords(plan.pending.map((key) => LEGAL_NAMES[key]))}{" "}
-      {plan.pending.length === 1 ? "is" : "are"} not published yet, so you are
-      not asked to accept {plan.pending.length === 1 ? "it" : "them"}.
+      {t(plan.pending.length === 1 ? "pendingOne" : "pendingMany", {
+        names:
+          names.length < 2
+            ? (names[0] ?? "")
+            : names.slice(0, -1).join(t("listComma")) + t("and") + names.at(-1),
+      })}
     </p>
   );
   if (!plan.ask.length) return pendingNote || null;
+  const [before, after] = t.template("accept").split("{links}");
   return (
     <>
       <label className="check-field legal-acceptance">
@@ -125,7 +139,11 @@ export function LegalAcceptance({
           onChange={(e) => onChange(e.target.checked)}
           required
         />
-        <span>I accept the {links}.</span>
+        <span>
+          {before}
+          {links}
+          {after}
+        </span>
       </label>
       {pendingNote}
     </>
@@ -134,10 +152,11 @@ export function LegalAcceptance({
 
 /** Shown instead of a joining form's acceptance while joining is closed. */
 export function JoiningClosedNote({ until }: { until?: string }) {
+  const t = useT("join");
   return (
     <p className="notice" role="status">
-      Joining opens once the platform publishes its approved terms.
-      {until ? ` Your invitation stays valid until ${until}.` : " Please try again later."}
+      {t("closedNote")}
+      {until ? t("closedUntil", { date: until }) : t("closedLater")}
     </p>
   );
 }

@@ -1,4 +1,8 @@
+"use client";
 import Link from "next/link";
+import { useT } from "../lib/i18n/react";
+import { translator, type Locale } from "../lib/i18n/core";
+import authMessages from "../lib/i18n/messages/auth";
 
 /**
  * The footer of every page a subscriber sees outside the member app: the
@@ -16,6 +20,7 @@ export function SubscriberFooter({
   directory = true,
   signIn = true,
   analytics = true,
+  locale,
 }: {
   /** The platform's name, or the coach's on a coach page. */
   name: string;
@@ -27,28 +32,32 @@ export function SubscriberFooter({
   signIn?: boolean;
   /** The analytics preferences entry (not in a trainer's private preview). */
   analytics?: boolean;
+  /** A coach website's own language (else the document's). */
+  locale?: Locale;
 }) {
+  const page = useT("auth");
+  const t = locale ? translator(authMessages, locale) : page;
   return (
     <footer className="subscriber-footer">
-      <nav aria-label={coach ? `${name} links` : "Help and legal"}>
-        {directory && <Link href="/coaches">Find a coach</Link>}
-        {signIn && <Link href="/login">Member sign in</Link>}
-        <Link href="/terms">Terms</Link>
-        <Link href="/privacy">Privacy</Link>
-        <Link href="/ai-disclosure">Digital coaching</Link>
+      <nav aria-label={coach ? t("coachLinks", { name }) : t("helpAndLegal")}>
+        {directory && <Link href="/coaches">{t("findCoach")}</Link>}
+        {signIn && <Link href="/login">{t("memberSignIn")}</Link>}
+        <Link href="/terms">{t("terms")}</Link>
+        <Link href="/privacy">{t("privacy")}</Link>
+        <Link href="/ai-disclosure">{t("digitalCoaching")}</Link>
         {analytics && (
           <button
             type="button"
             className="subscriber-footer-link"
             data-analytics-preferences=""
           >
-            Analytics preferences
+            {t("analyticsPreferences")}
           </button>
         )}
       </nav>
       <p>
-        © {new Date().getFullYear()} {name}
-        {coach ? "" : ". Coaching is not medical advice."}
+        © {new Date().getFullYear()} <bdi>{name}</bdi>
+        {coach ? "" : t("notMedicalAdvice")}
       </p>
     </footer>
   );

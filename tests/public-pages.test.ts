@@ -304,7 +304,8 @@ test("the subscriber footer has help and legal links and the analytics entry, no
     directory: false,
     analytics: false,
   });
-  assert.match(coach, /© \d{4} Alex Morgan</);
+  // The coach's name is isolated so it keeps its order in right to left.
+  assert.match(coach, /© \d{4} <bdi>Alex Morgan<\/bdi></);
   assert.doesNotMatch(coach, /coaches|data-analytics-preferences|trainsyou/);
 });
 
@@ -446,7 +447,10 @@ test("leaving asks in an in-app bottom sheet, not the browser's checkbox tooltip
   assert.match(leave, /<BottomSheet/);
   assert.doesNotMatch(leave, /type="checkbox"/);
   assert.match(leave, /window\.location\.assign\("\/login\?left=1"\)/);
-  assert.match(leave, /Stay with \{name\}/);
+  // "Stay with {name}" comes from the catalog (lib/i18n/messages/prefs.ts).
+  assert.match(leave, /t\("stay", \{ name \}\)/);
+  const prefs = await source("apps/web/lib/i18n/messages/prefs.ts");
+  assert.match(prefs, /stay: "Stay with \{name\}"/);
 });
 
 test("the subscriber stylesheets are mobile first", async () => {

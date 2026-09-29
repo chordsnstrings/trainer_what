@@ -32,6 +32,7 @@ import {
 } from "./legal-acceptance";
 import { useSubscriberThemeColor } from "./appearance";
 import type { ColorSchemeChoice } from "../color-scheme";
+import { Rich, useErrorText, useT } from "../lib/i18n/react";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -239,34 +240,33 @@ function MembershipEnded({
   message: string;
   coach: { slug: string; name: string | null } | null;
 }) {
+  const t = useT("auth");
   return (
     <section className="auth-state" role="status" aria-labelledby="ended-title">
       <h2 id="ended-title">
-        {code === "MEMBERSHIP_ENDED"
-          ? "Your coaching membership has ended"
-          : "You have no active coaching membership"}
+        {code === "MEMBERSHIP_ENDED" ? t("endedTitle") : t("noMembershipTitle")}
       </h2>
       <p>
         {code === "MEMBERSHIP_ENDED"
-          ? message
-          : "Your account is open, but it is not linked to a coach right now."}
+          ? // The coach's own words when English; plain text otherwise.
+            t.locale === "en"
+            ? message
+            : t("endedText")
+          : t("noMembershipText")}
       </p>
-      <p className="auth-state-next">What you can do next:</p>
+      <p className="auth-state-next">{t("whatNext")}</p>
       <div className="auth-state-actions">
         {coach ? (
           <Link className="button" href={`/join-coach/${coach.slug}`}>
-            Rejoin {coach.name ?? "this coach"}
+            {t("rejoin", { name: coach.name ?? t("thisCoach") })}
           </Link>
         ) : (
           <Link className="button" href="/coaches">
-            Find a coach
+            {t("findCoach")}
           </Link>
         )}
       </div>
-      <p className="muted">
-        Have an invitation from a coach? Open the link in their email to join
-        with this account.
-      </p>
+      <p className="muted">{t("invitationHint")}</p>
     </section>
   );
 }
@@ -279,29 +279,29 @@ function LeftCoachNotice({
   left: LeftCoach | "unknown";
   host: boolean;
 }) {
-  const name = left === "unknown" ? "your coach" : left.coach;
+  const t = useT("auth");
+  const name = left === "unknown" ? t("yourCoach") : left.coach;
   return (
     <section
       className="auth-state is-success"
       role="status"
       aria-labelledby="left-title"
     >
-      <h2 id="left-title">You left {name}</h2>
+      <h2 id="left-title">{t("youLeft", { name })}</h2>
       <p>
         {left !== "unknown" && left.renewalCancelled
-          ? "Your membership renewal is cancelled, so no further payments are taken. "
+          ? t("renewalCancelled")
           : ""}
-        Your account is still open: you can join another coach with the same
-        email address at any time.
+        {t("accountStillOpen")}
       </p>
       <div className="auth-state-actions">
         {host ? (
           <a className="button secondary" href="/">
-            Back to the website
+            {t("backToWebsite")}
           </a>
         ) : (
           <Link className="button secondary" href="/coaches">
-            Find a coach
+            {t("findCoach")}
           </Link>
         )}
       </div>
@@ -331,6 +331,8 @@ function SignInPage({
     [needCode, setNeedCode] = useState(false),
     [busy, setBusy] = useState(false),
     [left, setLeft] = useState<LeftCoach | "unknown" | null>(null);
+  const t = useT("auth"),
+    toError = useErrorText();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("left") !== "1") return;
@@ -343,13 +345,13 @@ function SignInPage({
   }, []);
   return (
     <AuthPage
-      title="Sign in"
+      title={t("signInTitle")}
       intro={
         left
-          ? "Sign in any time with the same email address."
+          ? t("signInAgainAnyTime")
           : coach?.name
-            ? `Welcome back. Sign in to your coaching with ${coach.name}.`
-            : "Welcome back. Sign in with the email address you use for coaching."
+            ? t("welcomeBackCoach", { coach: coach.name })
+            : t("welcomeBack")
       }
     >
       {left && <LeftCoachNotice left={left} host={!!coach} />}
@@ -385,13 +387,13 @@ function SignInPage({
               failure.code === "NO_MEMBERSHIP"
             )
               setEnded({ code: failure.code, message: failure.message });
-            else setError(failure.message);
+            else setError(toError(failure));
           } finally {
             setBusy(false);
           }
         }}
       >
-        <Field label="Email address">
+        <Field label={t("emailAddress")}>
           <input
             name="email"
             type="email"
@@ -403,7 +405,7 @@ function SignInPage({
             required
           />
         </Field>
-        <Field label="Password">
+        <Field label={t("password")}>
           <input
             name="password"
             type="password"
@@ -414,16 +416,15 @@ function SignInPage({
         </Field>
         <p className="auth-inline-link">
           <Link className="text-link" href="/forgot-password">
-            Forgot your password?
+            {t("forgotPassword")}
           </Link>
         </p>
         {needCode && (
           <>
             <p className="notice" role="status">
-              Your account uses an authenticator app. Enter its current 6-digit
-              code to finish signing in.
+              {t("mfaNeeded")}
             </p>
-            <Field label="Authenticator code">
+            <Field label={t("authenticatorCode")}>
               <input
                 name="code"
                 inputMode="numeric"
@@ -438,41 +439,47 @@ function SignInPage({
           </>
         )}
         <button className="button auth-primary" type="submit" disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? t("signingIn") : t("signIn")}
           <ArrowRight size={16} aria-hidden="true" />
         </button>
       </form>
       <SocialSignIn intent="sign_in" />
-      <div className="auth-alternatives" aria-label="Other ways to sign in" role="group">
+      <div
+        className="auth-alternatives"
+        aria-label={t("otherWays")}
+        role="group"
+      >
         <PasskeyLoginButton />
         <Link className="button secondary" href="/magic-link">
-          Email me a sign-in link
+          {t("emailLink")}
         </Link>
         <Link className="text-link" href="/recover-authenticator">
-          Lost your authenticator app? Use a recovery code
+          {t("lostAuthenticator")}
         </Link>
       </div>
       <div className="auth-new">
         {coach ? (
           <p>
-            New here?{" "}
+            {t("newHere")}{" "}
             <Link className="text-link" href={`/join-coach/${coach.slug}`}>
-              Join {coach.name ?? "coaching"}
+              {coach.name
+                ? t("joinName", { name: coach.name })
+                : t("joinCoachingLink")}
             </Link>
           </p>
         ) : (
           <>
             <p>
-              Looking for a coach?{" "}
+              {t("lookingForCoach")}{" "}
               <Link className="text-link" href="/coaches">
-                Find a coach
+                {t("findCoach")}
               </Link>
             </p>
             {platform.registrationOpen && (
               <p>
-                Are you a coach?{" "}
+                {t("areYouCoach")}{" "}
                 <Link className="text-link" href="/signup">
-                  Create your coaching space
+                  {t("createCoachingSpace")}
                 </Link>
               </p>
             )}
@@ -498,18 +505,19 @@ function JoinCoachPage({
   onAuthenticated: () => Promise<void>;
 }) {
   const legal = useLegalStatus();
-  const coachName = name ?? "your coach";
+  const t = useT("join");
+  const coachName = name ?? t("yourCoach");
   return (
     <AuthPage
       wide
-      title={name ? `Join ${name}` : "Join your coach"}
-      intro={`Create your account to start coaching with ${coachName}. You choose your plan in the app after joining.`}
+      title={name ? t("joinTitle", { name }) : t("joinYourCoach")}
+      intro={t("joinIntro", { coach: coachName })}
     >
       <AccountJoinForm
         legal={legal}
         formId="join-coach-form"
         coachName={coachName}
-        newNote="Use an email address you can open: it signs you in and receives your coaching updates."
+        newNote={t("newNote")}
         submit={(f) =>
           api("/auth/enroll", "POST", {
             ...(f.mode === "new" ? { name: f.name } : {}),
@@ -526,9 +534,9 @@ function JoinCoachPage({
         )}
       />
       <p className="auth-new">
-        Already coaching with {coachName}?{" "}
+        {t("alreadyCoaching", { coach: coachName })}{" "}
         <Link className="text-link" href="/login">
-          Sign in
+          {t("signIn")}
         </Link>
       </p>
     </AuthPage>

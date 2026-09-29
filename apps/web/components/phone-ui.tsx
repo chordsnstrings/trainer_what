@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { Minus, Paperclip, Plus, X } from "lucide-react";
+import { useT } from "../lib/i18n/react";
 import {
   EASE,
   MOTION,
@@ -195,7 +196,7 @@ export function BottomSheet({
   description,
   children,
   footer,
-  closeLabel = "Close",
+  closeLabel,
 }: {
   open: boolean;
   onClose: () => void;
@@ -206,6 +207,7 @@ export function BottomSheet({
   footer?: ReactNode;
   closeLabel?: string;
 }) {
+  const common = useT("common");
   const dialog = useRef<HTMLDialogElement>(null),
     opener = useRef<HTMLElement | null>(null),
     close = useRef(onClose),
@@ -284,7 +286,7 @@ export function BottomSheet({
           <button
             type="button"
             className="icon-button bottom-sheet-close"
-            aria-label={closeLabel}
+            aria-label={closeLabel ?? common("close")}
             onClick={() => close.current()}
           >
             <X size={20} aria-hidden="true" />
@@ -314,7 +316,7 @@ export function BottomSheet({
 export function FileInput({
   label,
   hint,
-  buttonLabel = "Choose a file",
+  buttonLabel,
   accept,
   multiple = false,
   capture,
@@ -322,7 +324,7 @@ export function FileInput({
   disabledReason,
   name,
   onFiles,
-  emptyText = "No file chosen yet.",
+  emptyText,
   clearAfterChoose = true,
 }: {
   label: string;
@@ -340,6 +342,7 @@ export function FileInput({
   /** Clears the native selection so choosing the same file again works. */
   clearAfterChoose?: boolean;
 }) {
+  const common = useT("common");
   const inputId = useId(),
     labelId = useId(),
     hintId = useId(),
@@ -389,7 +392,7 @@ export function FileInput({
         />
         <span className="button secondary file-input-button" aria-hidden="true">
           <Paperclip size={18} aria-hidden="true" />
-          <span>{buttonLabel}</span>
+          <span>{buttonLabel ?? common("chooseFile")}</span>
         </span>
       </span>
       <p
@@ -398,7 +401,7 @@ export function FileInput({
         aria-live="polite"
         ref={status}
       >
-        {chosen.length ? chosen.join(", ") : emptyText}
+        {chosen.length ? chosen.join(", ") : (emptyText ?? common("noFileYet"))}
       </p>
       {disabled && disabledReason && (
         <p className="control-reason">{disabledReason}</p>
@@ -474,6 +477,7 @@ export function NumberStepper({
   enterKeyHint?: "next" | "done" | "go" | "send";
   onValueChange?: (value: number | null) => void;
 }) {
+  const common = useT("common");
   const [text, setText] = useState(
     defaultValue == null ? "" : String(defaultValue),
   );
@@ -505,7 +509,7 @@ export function NumberStepper({
         <button
           type="button"
           className="stepper-button"
-          aria-label={`Less ${inputLabel ?? label}`}
+          aria-label={common("less", { label: inputLabel ?? label })}
           disabled={disabled || (value != null && value <= min)}
           onClick={() => press(-1)}
         >
@@ -543,7 +547,7 @@ export function NumberStepper({
         <button
           type="button"
           className="stepper-button"
-          aria-label={`More ${inputLabel ?? label}`}
+          aria-label={common("more", { label: inputLabel ?? label })}
           disabled={disabled || (max != null && value != null && value >= max)}
           onClick={() => press(1)}
         >
@@ -597,6 +601,7 @@ export function ResponsiveTable({
   /** Shown instead of the table when there are no rows. */
   empty?: ReactNode;
 }) {
+  const common = useT("common");
   const scroller = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ start: false, end: false });
   const measure = useCallback(() => {
@@ -685,7 +690,7 @@ export function ResponsiveTable({
       </div>
       {edges.end && (
         <p className="responsive-table-cue" aria-hidden="true">
-          Scroll for more
+          {common("scrollForMore")}
         </p>
       )}
     </div>

@@ -1,4 +1,6 @@
 "use client";
+import { useLocale, useT } from "../lib/i18n/react";
+import { formatDateTime } from "../lib/format";
 import { useState } from "react";
 export function Support({
   records,
@@ -10,7 +12,15 @@ export function Support({
   busy: boolean;
 }) {
   const [selected, setSelected] = useState("");
+  const t = useT("support"),
+    locale = useLocale();
   const thread = records.find((r) => r.id === selected);
+  const status = (value: string) =>
+    ["open", "waiting", "answered", "pending", "resolved", "closed"].includes(
+      value,
+    )
+      ? t(`status_${value}` as "status_open")
+      : value.replaceAll("_", " ");
   async function post(path: string, body: unknown) {
     const r = await fetch("/api/v1/support" + path, {
       method: "POST",
@@ -25,70 +35,68 @@ export function Support({
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">WE’RE HERE TO HELP</p>
-          <h1>A clear path to support.</h1>
-          <p className="muted">
-            Keep account, billing and coaching questions in one conversation.
-          </p>
+          <p className="eyebrow">{t("eyebrow")}</p>
+          <h1>{t("title")}</h1>
+          <p className="muted">{t("intro")}</p>
         </div>
       </div>
       <section className="card">
-        <h2>Start a conversation</h2>
+        <h2>{t("start")}</h2>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
             void action(
               () => post("", Object.fromEntries(f)),
-              "Support request saved",
+              t("saved"),
             );
           }}
         >
           <label className="field">
-            <span>Subject</span>
+            <span>{t("subject")}</span>
             <input name="subject" minLength={3} required />
           </label>
           <label className="field">
-            <span>Category</span>
+            <span>{t("category")}</span>
             <select name="category">
-              {["account", "billing", "coaching", "technical", "privacy"].map(
-                (c) => (
-                  <option key={c}>{c}</option>
-                ),
-              )}
+              {(
+                ["account", "billing", "coaching", "technical", "privacy"] as const
+              ).map((c) => (
+                <option key={c} value={c}>
+                  {t(`category_${c}`)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="field">
-            <span>How can we help?</span>
+            <span>{t("help")}</span>
             <textarea name="message" minLength={5} maxLength={4000} required />
           </label>
           <button className="button" disabled={busy}>
-            Send request
+            {t("send")}
           </button>
         </form>
       </section>
       <section className="card">
-        <h2>Your conversations</h2>
+        <h2>{t("yours")}</h2>
         {records.map((r) => (
           <button
             className="list-row text-button"
             key={r.id}
             onClick={() => setSelected(r.id)}
           >
-            {r.data.subject} · {r.status}
+            <bdi>{r.data.subject}</bdi> · {status(r.status)}
           </button>
         ))}
-        {!records.length && (
-          <p className="muted">Your support conversations will appear here.</p>
-        )}
+        {!records.length && <p className="muted">{t("empty")}</p>}
       </section>
       {thread && (
         <section className="card">
-          <h2>{thread.data.subject}</h2>
+          <h2 dir="auto">{thread.data.subject}</h2>
           {thread.data.messages.map((m: any, i: number) => (
             <div className="notice" key={i}>
-              <p>{m.text}</p>
-              <small>{new Date(m.at).toLocaleString()}</small>
+              <p dir="auto">{m.text}</p>
+              <small>{formatDateTime(m.at, { locale })}</small>
             </div>
           ))}
           <form
@@ -101,20 +109,20 @@ export function Support({
                     message: f.get("message"),
                     resolve: f.get("resolve") === "on",
                   }),
-                "Reply saved",
+                t("replySaved"),
               );
             }}
           >
             <label className="field">
-              <span>Reply</span>
+              <span>{t("reply")}</span>
               <textarea name="message" maxLength={4000} required />
             </label>
             <label className="check-field">
               <input name="resolve" type="checkbox" />
-              Resolve this conversation
+              {t("resolve")}
             </label>
             <button className="button" disabled={busy}>
-              Send reply
+              {t("sendReply")}
             </button>
           </form>
         </section>

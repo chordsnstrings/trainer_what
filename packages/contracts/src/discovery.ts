@@ -436,6 +436,36 @@ export const APP_SHORTCUTS = {
   },
 } as const;
 export type AppShortcut = keyof typeof APP_SHORTCUTS;
+/**
+ * The same shortcuts for a member whose saved language is Arabic (the
+ * manifest's `lang`), in the words the member app uses
+ * (apps/web/lib/i18n/messages/nav.ts).
+ */
+export const APP_SHORTCUTS_AR: Record<
+  AppShortcut,
+  { name: string; short_name: string; description: string }
+> = {
+  workout: {
+    name: "تمرين اليوم",
+    short_name: "التمرين",
+    description: "فتح جلسة اليوم",
+  },
+  meal: {
+    name: "تسجيل وجبة",
+    short_name: "تسجيل وجبة",
+    description: "صورة أو رمز شريطي أو ملاحظة",
+  },
+  chat: {
+    name: "محادثة المدرب",
+    short_name: "المحادثة",
+    description: "مراسلة مدربك",
+  },
+  booking: {
+    name: "حجز جلسة",
+    short_name: "حجز",
+    description: "حجز موعد مع مدربك",
+  },
+};
 
 /**
  * Member install icon files and their pixel sizes. Shortcut icons draw the
@@ -483,7 +513,16 @@ export type MemberManifestInput = {
   icon: (file: AppIconFile) => string;
 };
 /** A short plain description that names the coach. */
-export function memberAppDescription(name: string, nutrition: boolean) {
+export function memberAppDescription(
+  name: string,
+  nutrition: boolean,
+  language: "en" | "ar" = "en",
+) {
+  // U+2068/U+2069 keep a Latin coach name in place inside the Arabic line.
+  if (language === "ar")
+    return nutrition
+      ? `تدريبك ووجباتك ورسائلك مع \u2068${name}\u2069.`
+      : `تدريبك ورسائلك مع \u2068${name}\u2069.`;
   return nutrition
     ? `Your training, meals and messages with ${name}.`
     : `Your training and messages with ${name}.`;
@@ -516,7 +555,7 @@ export function memberAppManifest(input: MemberManifestInput) {
     name: input.name,
     short_name: shortAppName(input.name),
     description: subscriber
-      ? memberAppDescription(input.name, input.features.nutrition)
+      ? memberAppDescription(input.name, input.features.nutrition, lang)
       : `The coaching workspace of ${input.name}.`,
     start_url: `${subscriber ? "/app" : "/trainer"}?source=${PWA_SOURCE}`,
     scope: "/",
@@ -535,7 +574,8 @@ export function memberAppManifest(input: MemberManifestInput) {
     ...(shortcuts.length
       ? {
           shortcuts: shortcuts.map((id) => {
-            const { path, ...shortcut } = APP_SHORTCUTS[id];
+            const { path, ...english } = APP_SHORTCUTS[id];
+            const shortcut = lang === "ar" ? APP_SHORTCUTS_AR[id] : english;
             return {
               ...shortcut,
               url: `${path}?source=${PWA_SHORTCUT_SOURCE}`,
@@ -579,7 +619,10 @@ export function coachSiteManifest(input: {
     id: `/coach/${input.slug}`,
     name: input.name,
     short_name: shortAppName(input.name),
-    description: `Personal coaching with ${input.name}.`,
+    description:
+      lang === "ar"
+        ? `تدريب شخصي مع \u2068${input.name}\u2069.`
+        : `Personal coaching with ${input.name}.`,
     start_url: `/app?source=${PWA_SOURCE}`,
     scope: "/",
     display: "standalone",

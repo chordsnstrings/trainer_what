@@ -70,6 +70,28 @@ export const PUBLIC_ROUTES = [
   "/ai-disclosure",
 ];
 const owner = process.env.PHONE_CHECK_OWNER ?? "coach@example.test";
+// PHONE_CHECK_LANG=ar runs every screen in Arabic (docs/features/arabic.md):
+// the member's saved language for the member app, the ?lang= choice for the
+// signed-out pages. Arabic labels are longer, so targets and overflow are
+// re-measured, and each screen must render right to left.
+const language = process.env.PHONE_CHECK_LANG === "ar" ? "ar" : "en";
+/** Saves the member's language through the real preferences API. */
+async function saveLanguage(ctx, value) {
+  const current = await (
+    await ctx.request.get(base + "/api/v1/notifications/preferences")
+  ).json();
+  const { options, ...body } = current;
+  const saved = await ctx.request.put(
+    base + "/api/v1/notifications/preferences",
+    {
+      headers: { origin: base },
+      data: { ...body, data: { ...body.data, language: value } },
+      failOnStatusCode: false,
+    },
+  );
+  if (!saved.ok())
+    throw new Error(`saving the language answered ${saved.status()}`);
+}
 const MIN_TARGET = 44;
 const MIN_TAB = 56;
 
@@ -184,6 +206,8 @@ function inspect({ minTarget, minTab, publicPage = false }) {
     stickyPrimary: sticky ? describe(sticky) : null,
     stickyReach: sticky ? reaches(sticky) : null,
     loading: !!document.querySelector(".loading-screen"),
+    lang: document.documentElement.lang,
+    dir: document.documentElement.dir,
     smallFields,
     // Subscribers never get the trainer-marketing footer.
     trainerFooter: !!document.querySelector(".mk-footer"),
@@ -206,6 +230,11 @@ async function publicCheck(phone) {
   ctx.setDefaultNavigationTimeout(180_000);
   ctx.setDefaultTimeout(60_000);
   const routes = [...PUBLIC_ROUTES];
+  // Arabic: the visitor's explicit choice, carried by the language cookie.
+  if (language === "ar")
+    await ctx.addCookies([
+      { name: "trainer_lang", value: "ar", url: base, sameSite: "Lax" },
+    ]);
   try {
     // An invitation link from the synthetic owner, in its own context.
     const staff = await browser.newContext();
@@ -235,7 +264,7 @@ async function publicCheck(phone) {
         await page.goto(base + route, { waitUntil: "load" });
         await settle(page);
         if (!answered)
-          for (const name of [/without analytics/i, /^No thanks$/i]) {
+          for (const name of [/without analytics|دون تحليلات/i, /^(No thanks|لا، شكرًا)$/i]) {
             const choice = page.getByRole("button", { name });
             if (await choice.count().catch(() => 0)) {
               await choice
@@ -251,6 +280,8 @@ async function publicCheck(phone) {
           publicPage: true,
         });
         measured.push({ label, ...m });
+        if (language === "ar" && (m.lang !== "ar" || m.dir !== "rtl"))
+          fail(label, `rendered lang=${m.lang} dir=${m.dir}, expected Arabic`);
         if (m.overflow > 1)
           fail(label, `horizontal overflow of ${m.overflow}px`);
         if (m.small.length)
@@ -444,6 +475,8 @@ try {
     });
     if (signIn.status() !== 200)
       throw new Error(`member sign-in answered ${signIn.status()}`);
+    // The member's own saved language decides the workspace's.
+    if (language === "ar") await saveLanguage(ctx, "ar");
     const page = await ctx.newPage();
     page.on("pageerror", (e) => pageErrors.push(`${page.url()}: ${e.message}`));
     // A workout in progress, for the workout and guided screens.
@@ -467,7 +500,7 @@ try {
     // Answer the analytics question once, as a member would.
     await page.goto(base + "/app", { waitUntil: "load" });
     await settle(page);
-    for (const name of [/without analytics/i, /^No thanks$/i]) {
+    for (const name of [/without analytics|دون تحليلات/i, /^(No thanks|لا، شكرًا)$/i]) {
       const choice = page.getByRole("button", { name });
       if (await choice.count().catch(() => 0))
         await choice
@@ -492,6 +525,8 @@ try {
           minTab: MIN_TAB,
         });
         measured.push({ label, ...m });
+        if (language === "ar" && (m.lang !== "ar" || m.dir !== "rtl"))
+          fail(label, `rendered lang=${m.lang} dir=${m.dir}, expected Arabic`);
         if (m.loading) fail(label, "still loading");
         if (m.path !== route) fail(label, `landed on ${m.path}`);
         if (m.overflow > 1)
@@ -532,12 +567,12 @@ try {
   await browser.close();
   await mkdir("test-results", { recursive: true });
   await writeFile(
-    "test-results/phone-check.json",
+    `test-results/phone-check${language === "ar" ? "-ar" : ""}.json`,
     JSON.stringify({ failures, pageErrors, measured }, null, 2),
   );
 }
 console.log(
-  `Phone check: ${measured.length} screen measurements, ${failures.length} failure(s), ${pageErrors.length} page error(s).`,
+  `Phone check${language === "ar" ? " (Arabic)" : ""}: ${measured.length} screen measurements, ${failures.length} failure(s), ${pageErrors.length} page error(s).`,
 );
 for (const f of failures) console.log("FAIL " + f);
 for (const e of pageErrors) console.log("PAGE ERROR " + e);

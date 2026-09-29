@@ -47,6 +47,7 @@ import { useKeyboardInset } from "./phone-ui";
 import { playArrival } from "./motion";
 import { setAppBadge } from "./pwa";
 import { InstallAppRow } from "./pwa-ui";
+import { useLocale, useT } from "../lib/i18n/react";
 import {
   activeDestination,
   activeTab,
@@ -214,6 +215,11 @@ export function MemberShell({
 }: MemberShellProps) {
   useKeyboardInset();
   useExternalLinksOutsideApp();
+  const locale = useLocale(),
+    t = useT("shell"),
+    common = useT("common"),
+    navText = useT("nav");
+  nav = { ...nav, locale };
   // A new page settles in (a short fade and rise, block by block); the frame
   // around it stays still. Skipped with reduced motion (motion.ts).
   const main = useRef<HTMLElement>(null);
@@ -242,10 +248,7 @@ export function MemberShell({
     shownBefore.unread = unread;
     shownBefore.back = !!back;
   });
-  const unreadLabel =
-    unread > 0
-      ? `, ${unread} unread ${unread === 1 ? "message" : "messages"}`
-      : "";
+  const unreadLabel = unread > 0 ? t("unread", { count: unread }) : "";
   // A higher count pops the badge (keyed by the count, so it pops again).
   const badge = (id: string) =>
     id === "chat" && unread > 0 ? (
@@ -260,13 +263,13 @@ export function MemberShell({
   return (
     <>
       <a className="skip-link" href="#member-main">
-        Skip to content
+        {t("skipToContent")}
       </a>
       <aside className="member-sidenav">
         <Link href="/app" className="member-sidenav-coach">
           <CoachIdentity name={tenant.name} theme={tenant.theme} compact />
         </Link>
-        <nav aria-label="Main navigation">
+        <nav aria-label={t("mainNavigation")}>
           {sideNavigation(nav).map((group, index) => (
             <div className="member-sidenav-group" key={group.title ?? index}>
               {group.title && (
@@ -307,13 +310,15 @@ export function MemberShell({
             {initialOf(user.name)}
           </span>
           <span>
-            <strong>{user.name}</strong>
-            <Link href="/app/profile">Profile and settings</Link>
+            <strong>
+              <bdi>{user.name}</bdi>
+            </strong>
+            <Link href="/app/profile">{navText("settings")}</Link>
           </span>
         </div>
         <button type="button" className="member-signout" onClick={onSignOut}>
           <LogOut size={16} aria-hidden="true" />
-          Sign out
+          {common("signOut")}
         </button>
       </aside>
       <div className="member-frame">
@@ -327,7 +332,7 @@ export function MemberShell({
               className={
                 "member-back" + (changed.back ? " is-arriving" : "")
               }
-              aria-label="Back"
+              aria-label={common("back")}
             >
               <ChevronLeft size={24} aria-hidden="true" />
             </Link>
@@ -345,17 +350,14 @@ export function MemberShell({
           {offline && (
             <span className="member-offline" role="status">
               <CloudOff size={16} aria-hidden="true" />
-              Offline
-              <span className="sr-only">
-                . Workouts and meals you log are saved on this phone and sync
-                when you are back online.
-              </span>
+              {t("offline")}
+              <span className="sr-only">{t("offlineDetail")}</span>
             </span>
           )}
           <Link
             href="/app/profile"
             className="member-topbar-me"
-            aria-label={`Profile and settings, signed in as ${user.name}`}
+            aria-label={t("profileSignedInAs", { name: user.name })}
           >
             <span className="avatar small" aria-hidden="true">
               {initialOf(user.name)}
@@ -372,14 +374,14 @@ export function MemberShell({
           {footerNote}
         </main>
         <footer className="member-footer">
-          <span>{tenant.name}</span>
+          <bdi>{tenant.name}</bdi>
           {supportEmail && (
-            <a href={`mailto:${supportEmail}`}>Contact support</a>
+            <a href={`mailto:${supportEmail}`}>{common("contactSupport")}</a>
           )}
-          <Link href="/privacy">Privacy policy</Link>
+          <Link href="/privacy">{common("privacyPolicy")}</Link>
         </footer>
       </div>
-      <nav className="member-tabbar" aria-label="Main navigation">
+      <nav className="member-tabbar" aria-label={t("mainNavigation")}>
         {tabs.map((item) => {
           const Icon = MEMBER_ICONS[item.icon];
           const active = item.id === tab;
@@ -424,10 +426,13 @@ export function MoreScreen({
   userId: string;
   onSignOut: () => void;
 }) {
+  const locale = useLocale(),
+    navText = useT("nav"),
+    common = useT("common");
   return (
     <div className="more-screen">
-      <h1 className="more-title">More</h1>
-      {moreGroups(nav).map((group) => (
+      <h1 className="more-title">{navText("more")}</h1>
+      {moreGroups({ ...nav, locale }).map((group) => (
         <section className="more-group" key={group.title}>
           <h2>{group.title}</h2>
           <ul className="more-list">
@@ -467,7 +472,7 @@ export function MoreScreen({
                 <LogOut size={20} aria-hidden="true" />
               </span>
               <span className="more-text">
-                <strong>Sign out</strong>
+                <strong>{common("signOut")}</strong>
               </span>
             </button>
           </li>

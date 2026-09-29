@@ -6,6 +6,9 @@
  * (tests/member-shell.test.ts); components/member-shell.tsx renders them.
  */
 
+import { translator, type Locale } from "../lib/i18n/core";
+import navMessages from "../lib/i18n/messages/nav";
+
 export type MemberIcon =
   | "today"
   | "program"
@@ -40,6 +43,8 @@ export type MemberNavOptions = {
   programLabel: string;
   /** False when nutrition is off for this member: Progress takes its tab. */
   nutrition: boolean;
+  /** The member's language (default English): labels, details and titles. */
+  locale?: Locale;
 };
 
 export const MEMBER_HOME = "/app";
@@ -162,18 +167,44 @@ const D = {
   more: { id: "more", label: "More", href: MEMBER_MORE, icon: "more" },
 } satisfies Record<string, MemberDestination>;
 
+type NavKey = keyof typeof navMessages.en;
+const nav = (options: { locale?: Locale }) =>
+  translator(navMessages, options.locale ?? "en");
+/** A destination with its label and detail in the member's language. */
+function tr(
+  d: MemberDestination,
+  options: { locale?: Locale },
+): MemberDestination {
+  const t = nav(options);
+  const detailKey = (d.id + "Detail") as NavKey;
+  return {
+    ...d,
+    label: t(d.id as NavKey),
+    ...(d.detail && detailKey in navMessages.en
+      ? { detail: t(detailKey) }
+      : {}),
+  };
+}
+
 function program(options: MemberNavOptions): MemberDestination {
-  return { ...D.program, label: options.programLabel || D.program.label };
+  // The coach's own name for the plan is theirs and never translated; the
+  // default "My program" is the product's words and is.
+  const custom =
+    options.programLabel && options.programLabel !== D.program.label
+      ? options.programLabel
+      : null;
+  const d = tr(D.program, options);
+  return custom ? { ...d, label: custom } : d;
 }
 
 /** The five phone tabs: Today, the programme, Coach chat, Nutrition or Progress, More. */
 export function memberTabs(options: MemberNavOptions): MemberDestination[] {
   return [
-    { ...D.today },
+    tr(D.today, options),
     program(options),
-    { ...D.chat, label: "Chat" },
-    options.nutrition ? { ...D.nutrition } : { ...D.progress },
-    { ...D.more },
+    { ...tr(D.chat, options), label: nav(options)("chatTab") },
+    tr(options.nutrition ? D.nutrition : D.progress, options),
+    tr(D.more, options),
   ];
 }
 
@@ -181,9 +212,10 @@ export function memberTabs(options: MemberNavOptions): MemberDestination[] {
 export function moreGroups(
   options: MemberNavOptions,
 ): Array<{ title: string; items: MemberDestination[] }> {
+  const t = nav(options);
   return [
     {
-      title: "Training and coaching",
+      title: t("groupTraining"),
       items: [
         options.nutrition ? D.progress : D.nutrition,
         D.timeline,
@@ -192,15 +224,17 @@ export function moreGroups(
         D.context,
         D.intake,
         D.galleries,
-      ],
+      ].map((d) => tr(d, options)),
     },
     {
-      title: "Updates and help",
-      items: [D.notifications, D.connections, D.support],
+      title: t("groupUpdates"),
+      items: [D.notifications, D.connections, D.support].map((d) =>
+        tr(d, options),
+      ),
     },
     {
-      title: "Your account",
-      items: [D.membership, D.settings, D.privacy],
+      title: t("groupAccount"),
+      items: [D.membership, D.settings, D.privacy].map((d) => tr(d, options)),
     },
   ];
 }
@@ -209,32 +243,35 @@ export function moreGroups(
 export function sideNavigation(
   options: MemberNavOptions,
 ): Array<{ title?: string; items: MemberDestination[] }> {
+  const t = nav(options);
+  const all = (items: MemberDestination[]) =>
+    items.map((d) => (d.id === "program" ? d : tr(d, options)));
   return [
     {
-      items: [
+      items: all([
         D.today,
         program(options),
         D.timeline,
         D.chat,
         ...(options.nutrition ? [D.nutrition, D.meal] : []),
         D.progress,
-      ],
+      ]),
     },
     {
-      title: "Coaching",
-      items: [
+      title: t("groupCoaching"),
+      items: all([
         ...(options.nutrition ? [] : [D.nutrition]),
         D.bookings,
         D.context,
         D.intake,
         D.galleries,
-      ],
+      ]),
     },
     {
-      title: "Updates and help",
-      items: [D.notifications, D.connections, D.support],
+      title: t("groupUpdates"),
+      items: all([D.notifications, D.connections, D.support]),
     },
-    { title: "Your account", items: [D.membership, D.settings] },
+    { title: t("groupAccount"), items: all([D.membership, D.settings]) },
   ];
 }
 
@@ -302,25 +339,25 @@ export function memberBackTarget(
   return MEMBER_MORE;
 }
 
-const TITLES: Array<[RegExp, string]> = [
-  [/^\/app\/timeline$/, "Timeline"],
-  [/^\/app\/workouts\//, "Workout"],
-  [/^\/app\/guided\//, "Guided session"],
-  [/^\/app\/voice-session\//, "Voice-led session"],
-  [/^\/app\/chat$/, "Coach chat"],
-  [/^\/app\/nutrition\/log$/, "Log a meal"],
-  [/^\/app\/nutrition(\/|$)/, "Nutrition"],
-  [/^\/app\/notifications$/, "Notifications"],
-  [/^\/app\/bookings$/, "Bookings"],
-  [/^\/app\/support$/, "Support"],
-  [/^\/app\/progress$/, "Progress"],
-  [/^\/app\/twin$/, "Coaching context"],
-  [/^\/app\/intake$/, "Coaching profile"],
-  [/^\/app\/membership$/, "Membership"],
-  [/^\/app\/wearables$/, "Connections"],
-  [/^\/app\/galleries$/, "Coach galleries"],
-  [/^\/app\/profile$/, "Profile and settings"],
-  [/^\/app\/more$/, "More"],
+const TITLES: Array<[RegExp, NavKey]> = [
+  [/^\/app\/timeline$/, "timeline"],
+  [/^\/app\/workouts\//, "titleWorkout"],
+  [/^\/app\/guided\//, "titleGuided"],
+  [/^\/app\/voice-session\//, "titleVoice"],
+  [/^\/app\/chat$/, "chat"],
+  [/^\/app\/nutrition\/log$/, "meal"],
+  [/^\/app\/nutrition(\/|$)/, "nutrition"],
+  [/^\/app\/notifications$/, "notifications"],
+  [/^\/app\/bookings$/, "bookings"],
+  [/^\/app\/support$/, "support"],
+  [/^\/app\/progress$/, "progress"],
+  [/^\/app\/twin$/, "context"],
+  [/^\/app\/intake$/, "intake"],
+  [/^\/app\/membership$/, "membership"],
+  [/^\/app\/wearables$/, "connections"],
+  [/^\/app\/galleries$/, "galleries"],
+  [/^\/app\/profile$/, "settings"],
+  [/^\/app\/more$/, "more"],
 ];
 
 /**
@@ -336,7 +373,8 @@ export function memberPageTitle(
   if (p === "/app/program") return program(options).label;
   if (p.startsWith("/app/workouts/") && options.workoutTitle)
     return options.workoutTitle;
-  return TITLES.find(([pattern]) => pattern.test(p))?.[1] ?? "Your coaching";
+  const t = nav(options);
+  return t(TITLES.find(([pattern]) => pattern.test(p))?.[1] ?? "titleFallback");
 }
 
 type ChatMessage = { created_at: string; data?: { author?: string } };

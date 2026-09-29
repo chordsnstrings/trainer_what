@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { governanceApi, when } from "./governance-shared";
 import { SuspendedMemberBilling } from "./suspended-member-billing";
+import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { translator, type Locale } from "../lib/i18n/core";
+import publicMessages from "../lib/i18n/messages/public";
+import { formatDateTime } from "../lib/format";
 
 /**
  * The title and first lines of the suspension screen. The workspace name is
@@ -9,18 +13,20 @@ import { SuspendedMemberBilling } from "./suspended-member-billing";
  * workspace being paused, never "<name> is suspended" (as if the person
  * were).
  */
-export function suspensionCopy(status: {
-  role?: string;
-  workspace?: { name?: string };
-  message?: string;
-}) {
+export function suspensionCopy(
+  status: {
+    role?: string;
+    workspace?: { name?: string };
+    message?: string;
+  },
+  locale: Locale = "en",
+) {
   const name = status.workspace?.name?.trim() ?? "";
+  const t = translator(publicMessages, locale);
   if (status.role === "subscriber")
     return {
-      title: name
-        ? `Coaching with ${name} is paused`
-        : "Your coaching is paused",
-      body: `The platform team has paused ${name ? `${name}’s` : "this"} coaching workspace for now. Workouts, plans, chat and bookings there are on hold until it reopens. Your account and any other coaches are not affected.`,
+      title: name ? t("pausedTitle", { name }) : t("pausedTitlePlain"),
+      body: name ? t("pausedBody", { name }) : t("pausedBodyPlain"),
     };
   return {
     title: name
@@ -42,6 +48,9 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
     [notices, setNotices] = useState<any[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("public"),
+    locale = useLocale(),
+    toError = useErrorText();
   const load = useCallback(async () => {
     const next = await governanceApi("/workspace/status");
     if (next.state === "active") {
@@ -57,19 +66,22 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
     setNotices(Array.isArray(inbox) ? inbox.slice(0, 10) : []);
   }, []);
   useEffect(() => {
-    load().catch((e) => setError(e.message));
-  }, [load]);
+    load().catch((e) => setError(toError(e)));
+  }, [load, toError]);
   const member = status?.role === "subscriber";
-  const copy = status ? suspensionCopy(status) : null;
+  const copy = status ? suspensionCopy(status, member ? locale : "en") : null;
+  // Members read dates in their language; the trainer view is unchanged.
+  const at = (value: string) =>
+    member ? formatDateTime(value, { locale, zone: "Asia/Dubai" }) : when(value);
   const support: string | null = status?.supportEmail ?? null;
   return (
     <main className="suspended-page governance-suspended" id="main">
       <section className="card" aria-labelledby="suspended-title">
         <p className="eyebrow">
-          {member ? "COACHING PAUSED" : "WORKSPACE UNAVAILABLE"}
+          {member ? t("coachingPaused") : "WORKSPACE UNAVAILABLE"}
         </p>
         <h1 id="suspended-title">
-          {copy?.title ?? "This workspace is unavailable"}
+          {copy?.title ?? (member ? t("unavailable") : "This workspace is unavailable")}
         </h1>
         {error && (
           <p className="notice error" role="alert">
@@ -82,27 +94,41 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
             {status.notice && (
               <p className="notice">
                 <span>
-                  <strong>Message from the platform team:</strong> {status.notice}
+                  <strong>
+                    {member ? t("platformMessage") : "Message from the platform team:"}
+                  </strong>{" "}
+                  <span dir="auto">{status.notice}</span>
                 </span>
               </p>
             )}
             {status.suspendedAt && (
-              <p className="muted">Paused on {when(status.suspendedAt)}.</p>
+              <p className="muted">
+                {member
+                  ? t("pausedOn", { date: at(status.suspendedAt) })
+                  : `Paused on ${when(status.suspendedAt)}.`}
+              </p>
             )}
             <p className="suspended-support">
               {support ? (
-                <>
-                  Questions? Email platform support at{" "}
-                  <a className="text-link ltr-data" href={`mailto:${support}`}>
-                    {support}
-                  </a>
-                  .
-                </>
+                <Rich
+                  t={t}
+                  k="questionsEmail"
+                  tags={{
+                    email: () => (
+                      <a
+                        className="text-link ltr-data"
+                        href={`mailto:${support}`}
+                      >
+                        {support}
+                      </a>
+                    ),
+                  }}
+                />
               ) : (
                 <>
-                  Questions?{" "}
+                  {t("questions")}{" "}
                   <a className="text-link" href="/about#company">
-                    How to contact the platform
+                    {t("howToContact")}
                   </a>
                 </>
               )}
@@ -114,9 +140,9 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
             className="button"
             type="button"
             disabled={busy}
-            onClick={() => load().catch((e) => setError(e.message))}
+            onClick={() => load().catch((e) => setError(toError(e)))}
           >
-            Check again
+            {t("checkAgain")}
           </button>
           <button
             className="button secondary"
@@ -128,12 +154,12 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
               setBusy(false);
             }}
           >
-            Sign out
+            {t("signOut")}
           </button>
         </div>
         {workspaces.length > 0 && (
           <div>
-            <h2>{member ? "Your other coaches" : "Your other workspaces"}</h2>
+            <h2>{member ? t("otherCoaches") : "Your other workspaces"}</h2>
             <ul className="suspended-list">
               {workspaces.map((w) => (
                 <li key={w.tenantId}>
@@ -151,15 +177,15 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
                           w.role === "subscriber" ? "/app" : "/trainer",
                         );
                       } catch (e) {
-                        setError((e as Error).message);
+                        setError(toError(e));
                         setBusy(false);
                       }
                     }}
                   >
-                    Open {w.name}
+                    {t("open", { name: w.name })}
                   </button>
                   {w.state === "suspended" && (
-                    <span className="control-reason">Also paused for now.</span>
+                    <span className="control-reason">{t("alsoPaused")}</span>
                   )}
                 </li>
               ))}
@@ -169,12 +195,15 @@ export function WorkspaceSuspended({ onSignOut }: { onSignOut: () => Promise<voi
         {member && <SuspendedMemberBilling coach={status?.workspace?.name} />}
         {notices.length > 0 && (
           <div>
-            <h2>Recent notifications</h2>
+            <h2>{member ? t("recentNotifications") : "Recent notifications"}</h2>
             <ul className="governance-history">
               {notices.map((n) => (
                 <li key={n.id}>
-                  <strong>{n.title}</strong> <span className="muted">{when(n.created_at)}</span>
-                  <p className="governance-notice-body">{n.body}</p>
+                  <strong dir="auto">{n.title}</strong>{" "}
+                  <span className="muted">{at(n.created_at)}</span>
+                  <p className="governance-notice-body" dir="auto">
+                    {n.body}
+                  </p>
                 </li>
               ))}
             </ul>

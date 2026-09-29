@@ -1,4 +1,7 @@
 "use client";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDateTime, formatMoney, zoneName as localZoneName } from "../lib/format";
+import type { Locale } from "../lib/i18n/core";
 import { useEffect, useState } from "react";
 import { StripeFeeNote } from "./programme-offers";
 async function request(path: string, body?: unknown) {
@@ -23,12 +26,14 @@ export function zoneName(zone: string) {
     return zone;
   }
 }
-const date = (value: string, zone: string) =>
-  new Date(value).toLocaleString("en-GB", {
-    timeZone: zone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+const date = (value: string, zone: string, locale: Locale = "en") =>
+  locale === "en"
+    ? new Date(value).toLocaleString("en-GB", {
+        timeZone: zone,
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : formatDateTime(value, { zone, locale });
 const localInput = (value: string) => {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -41,9 +46,41 @@ export function Bookings({ role }: { role: string }) {
     [busy, setBusy] = useState(false),
     [checkout, setCheckout] = useState("");
   const sub = role === "subscriber";
+  const t = useT("bookings"),
+    pageLocale = useLocale(),
+    toError = useErrorText();
+  // Members read their bookings in their language; the coach view is unchanged.
+  const locale: Locale = sub ? pageLocale : "en";
+  const statusText = (value: string) =>
+    sub &&
+    [
+      "confirmed",
+      "payment_pending",
+      "canceled",
+      "attended",
+      "no_show",
+      "expired",
+      "refunded",
+    ].includes(value)
+      ? t(`status_${value}` as "status_confirmed")
+      : value.replaceAll("_", " ");
+  const paymentText = (value: string) =>
+    sub &&
+    [
+      "not_required",
+      "pending",
+      "paid",
+      "succeeded",
+      "refunded",
+      "failed",
+      "canceled",
+      "expired",
+    ].includes(value)
+      ? t(`pay_${value}` as "pay_paid")
+      : value.replaceAll("_", " ");
   const load = () => request("").then(setData);
   useEffect(() => {
-    void load().catch((e) => setNotice(e.message));
+    void load().catch((e) => setNotice(toError(e)));
   }, []);
   async function act(path: string, body: unknown) {
     setBusy(true);
@@ -53,14 +90,12 @@ export function Bookings({ role }: { role: string }) {
       const url = result.checkoutUrl ?? result.url;
       if (url) setCheckout(url);
       setNotice(
-        result.status === "payment_pending"
-          ? "Your place is held while payment is completed."
-          : "Your session details are saved.",
+        result.status === "payment_pending" ? t("held") : t("saved"),
       );
       await load();
       return result;
     } catch (e) {
-      setNotice((e as Error).message);
+      setNotice(toError(e));
     } finally {
       setBusy(false);
     }
@@ -70,14 +105,13 @@ export function Bookings({ role }: { role: string }) {
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">TIME WITH YOUR COACH</p>
-          <h1>{sub ? "Make time for progress." : "Your coaching calendar."}</h1>
+          <p className="eyebrow">{t("eyebrow")}</p>
+          <h1>{sub ? t("title") : "Your coaching calendar."}</h1>
           <p className="muted">
-            Times are shown in {zoneName(zone)}. Each session keeps the
-            cancellation and missed-session rules shown when it was offered.
+            {t("timesShown", { zone: localZoneName(zone, locale) })}
           </p>
           <a className="button secondary" href="/api/v1/bookings/calendar.ics">
-            Download calendar
+            {t("downloadCalendar")}
           </a>
         </div>
       </div>
@@ -89,7 +123,7 @@ export function Bookings({ role }: { role: string }) {
       {checkout && (
         <p>
           <a className="button" href={checkout}>
-            Continue to secure payment
+            {t("continuePayment")}
           </a>
         </p>
       )}
@@ -248,7 +282,7 @@ export function Bookings({ role }: { role: string }) {
         </details>
       )}
       <section className="card">
-        <h2>Upcoming sessions</h2>
+        <h2>{t("upcoming")}</h2>
         {data?.slots
           .filter((s: any) => new Date(s.starts_at).getTime() > Date.now())
           .map((s: any) => {
@@ -260,30 +294,37 @@ export function Bookings({ role }: { role: string }) {
             return (
               <div className="list-row" key={s.id}>
                 <div>
-                  <strong>{s.title}</strong>
+                  <strong dir="auto">{s.title}</strong>
                   <p>
-                    {date(s.starts_at, zone)} ·{" "}
+                    {date(s.starts_at, zone, locale)} ·{" "}
                     {s.status === "open"
-                      ? `${Math.max(0, s.capacity - s.booked)} places left`
-                      : "Canceled"}
+                      ? t("placesLeft", {
+                          count: Math.max(0, s.capacity - s.booked),
+                        })
+                      : t("canceled")}
                   </p>
-                  <p>{s.location}</p>
+                  <p dir="auto">{s.location}</p>
                   <p className="muted">
                     {Number(s.price_minor) > 0
-                      ? `AED ${(Number(s.price_minor) / 100).toFixed(2)} per session`
-                      : "Included"}{" "}
-                    · Cancel {s.cancellation_hours} hours before · No-show:{" "}
+                      ? locale === "en"
+                        ? `AED ${(Number(s.price_minor) / 100).toFixed(2)} per session`
+                        : t("perSession", {
+                            price: formatMoney(s.price_minor, locale),
+                          })
+                      : t("included")}
+                    {t("cancelBefore", { count: Number(s.cancellation_hours) })}
                     {s.no_show_policy === "forfeit"
-                      ? "session forfeited"
-                      : "coach review"}
-                    {s.series_id ? " · recurring series" : ""}
+                      ? t("noShowForfeit")
+                      : t("noShowReview")}
+                    {s.series_id ? t("recurring") : ""}
                   </p>
                   {mine?.status === "payment_pending" && (
                     <p>
-                      Payment pending · hold until{" "}
-                      {mine.hold_expires_at
-                        ? date(mine.hold_expires_at, zone)
-                        : "reconciliation"}
+                      {t("paymentPending", {
+                        when: mine.hold_expires_at
+                          ? date(mine.hold_expires_at, zone, locale)
+                          : t("reconciliation"),
+                      })}
                     </p>
                   )}
                 </div>
@@ -296,10 +337,10 @@ export function Bookings({ role }: { role: string }) {
                         onClick={() => void act(`/slots/${s.id}/reserve`, {})}
                       >
                         {mine
-                          ? "Resume payment"
+                          ? t("resumePayment")
                           : Number(s.price_minor) > 0
-                            ? "Reserve and pay"
-                            : "Reserve a place"}
+                            ? t("reservePay")
+                            : t("reserve")}
                       </button>
                     )}
                     {mine && (
@@ -313,7 +354,7 @@ export function Bookings({ role }: { role: string }) {
                           })
                         }
                       >
-                        Cancel reservation
+                        {t("cancelReservation")}
                       </button>
                     )}
                   </div>
@@ -330,22 +371,27 @@ export function Bookings({ role }: { role: string }) {
         {data &&
           !data.slots.some(
             (s: any) => new Date(s.starts_at).getTime() > Date.now(),
-          ) && <p className="muted">No upcoming sessions.</p>}
+          ) && <p className="muted">{t("noUpcoming")}</p>}
       </section>
       <section className="card">
-        <h2>{sub ? "Your reservations" : "Reservations and attendance"}</h2>
+        <h2>{sub ? t("yourReservations") : "Reservations and attendance"}</h2>
         {data?.bookings.map((b: any) => {
           const slot = data.slots.find((s: any) => s.id === b.slot_id);
           return (
             <div className="list-row" key={b.id}>
               <div>
-                <strong>{sub ? (slot?.title ?? "Session") : b.name}</strong>
+                <strong dir="auto">
+                  {sub ? (slot?.title ?? t("session")) : b.name}
+                </strong>
                 <p>
-                  {slot?.title} · {slot && date(slot.starts_at, zone)} ·{" "}
-                  {b.status.replaceAll("_", " ")}
+                  <bdi>{slot?.title}</bdi> ·{" "}
+                  {slot && date(slot.starts_at, zone, locale)} ·{" "}
+                  {statusText(b.status)}
                 </p>
                 <p className="muted">
-                  Payment: {b.payment_status.replaceAll("_", " ")}
+                  {sub
+                    ? t("payment", { status: paymentText(b.payment_status) })
+                    : `Payment: ${b.payment_status.replaceAll("_", " ")}`}
                   {b.cancel_reason ? " · " + b.cancel_reason : ""}
                 </p>
               </div>
@@ -386,7 +432,7 @@ export function Bookings({ role }: { role: string }) {
           );
         })}
         {data && !data.bookings.length && (
-          <p className="muted">No reservations yet.</p>
+          <p className="muted">{t("noReservations")}</p>
         )}
       </section>
     </>

@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { aed, governanceApi, when } from "./governance-shared";
 import { BottomSheet } from "./phone-ui";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDateTime, formatMoney } from "../lib/format";
 
 type Billing = {
   membership: {
@@ -45,14 +47,29 @@ export function SuspendedMemberBilling({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [confirmDeletion, setConfirmDeletion] = useState(false);
+  const t = useT("public"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const money = (minor: number | null | undefined) =>
+    minor === null || minor === undefined
+      ? "—"
+      : locale === "en"
+        ? aed(minor)
+        : formatMoney(minor, locale);
+  const at = (value: string | null | undefined) =>
+    !value
+      ? "—"
+      : locale === "en"
+        ? when(value)
+        : formatDateTime(value, { locale, zone: "Asia/Dubai" });
   const refresh = useCallback(
     () =>
       governanceApi("/membership/billing").then((next) => setData(next)),
     [],
   );
   useEffect(() => {
-    if (!initial) refresh().catch((e) => setError(e.message));
-  }, [initial, refresh]);
+    if (!initial) refresh().catch((e) => setError(toError(e)));
+  }, [initial, refresh, toError]);
   async function act(path: string, body: unknown, done: string) {
     setBusy(true);
     setMessage("");
@@ -62,7 +79,7 @@ export function SuspendedMemberBilling({
       setMessage(done);
       await refresh().catch(() => {});
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
@@ -75,13 +92,13 @@ export function SuspendedMemberBilling({
     !membership.cancel_at_period_end &&
     !ended;
   const eligible = data?.charges.filter((c) => c.eligible) ?? [];
-  const withCoach = coach ? ` with ${coach}` : "";
+
   return (
     <section
       className="governance-member-billing"
       aria-labelledby="suspended-billing-title"
     >
-      <h2 id="suspended-billing-title">Membership and payments</h2>
+      <h2 id="suspended-billing-title">{t("membershipPayments")}</h2>
       {message && (
         <p className="notice" role="status">
           {message}
@@ -92,35 +109,34 @@ export function SuspendedMemberBilling({
           {error}
         </p>
       )}
-      {!data && !error && <p role="status">Loading your membership…</p>}
+      {!data && !error && <p role="status">{t("loadingMembership")}</p>}
       {data && (
         <>
           {membership && !ended ? (
             <>
               <p>
-                <strong>{aed(membership.price_minor)} a month</strong>
+                <strong>
+                  {t("perMonth", { price: money(membership.price_minor) })}
+                </strong>
                 {membership.period_end && (
                   <>
                     {" "}
                     ·{" "}
-                    {membership.cancel_at_period_end
-                      ? "renewal stopped; ends"
-                      : "renews"}{" "}
-                    {when(membership.period_end)}
+                    {t(
+                      membership.cancel_at_period_end
+                        ? "renewalStoppedEnds"
+                        : "renews",
+                      { date: at(membership.period_end) },
+                    )}
                   </>
                 )}
               </p>
               <p className="muted">
-                {renewing
-                  ? "Your membership is not cancelled automatically while coaching is paused, so it keeps renewing. You can stop the renewal or ask for a refund here."
-                  : "Your membership will not renew. You can still ask for a refund of an eligible payment here."}
+                {renewing ? t("keepsRenewing") : t("willNotRenew")}
               </p>
             </>
           ) : (
-            <p>
-              You have no paid membership{withCoach}, so nothing is charged
-              while coaching is paused.
-            </p>
+            <p>{coach ? t("noPaidWith", { coach }) : t("noPaid")}</p>
           )}
           {(renewing || data.transitions.length > 0) && (
             <div className="button-row">
@@ -130,14 +146,10 @@ export function SuspendedMemberBilling({
                   type="button"
                   disabled={busy}
                   onClick={() =>
-                    void act(
-                      "/membership/cancel",
-                      {},
-                      "Renewal stopped. You will not be charged again for this membership.",
-                    )
+                    void act("/membership/cancel", {}, t("renewalStopped"))
                   }
                 >
-                  Cancel membership renewal
+                  {t("cancelRenewal")}
                 </button>
               )}
               {data.transitions.length > 0 && (
@@ -149,11 +161,11 @@ export function SuspendedMemberBilling({
                     void act(
                       "/membership/renewal/reconcile",
                       {},
-                      "Renewal status checked.",
+                      t("renewalChecked"),
                     )
                   }
                 >
-                  Check renewal status
+                  {t("checkRenewal")}
                 </button>
               )}
             </div>
@@ -167,38 +179,38 @@ export function SuspendedMemberBilling({
                 void act(
                   "/refund-requests",
                   { chargeId: f.get("chargeId"), reason: f.get("reason") },
-                  "Refund request sent for review.",
+                  t("refundSent"),
                 );
               }}
             >
-              <h3>Request a refund</h3>
+              <h3>{t("requestRefund")}</h3>
               <label className="field">
-                <span>Payment</span>
+                <span>{t("payment")}</span>
                 <select required name="chargeId">
                   {eligible.map((c) => (
                     <option key={c.id} value={c.chargeId}>
-                      {when(c.chargedAt)} — {aed(c.remainingMinor)}
+                      {at(c.chargedAt)} — {money(c.remainingMinor)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span>Reason</span>
+                <span>{t("reason")}</span>
                 <textarea name="reason" minLength={5} maxLength={2000} required />
               </label>
               <button className="button secondary" disabled={busy}>
-                Send refund request
+                {t("sendRefund")}
               </button>
             </form>
           )}
           {data.requests.length > 0 && (
             <>
-              <h3>Your refund requests</h3>
+              <h3>{t("yourRefunds")}</h3>
               <ul className="governance-history">
                 {data.requests.map((r) => (
                   <li key={r.id}>
-                    {aed(r.data?.amountMinor)} · {refundStatus(r.status)}{" "}
-                    <span className="muted">{when(r.created_at)}</span>
+                    {money(r.data?.amountMinor)} · {refundStatus(r.status, t)}{" "}
+                    <span className="muted">{at(r.created_at)}</span>
                   </li>
                 ))}
               </ul>
@@ -206,10 +218,10 @@ export function SuspendedMemberBilling({
           )}
         </>
       )}
-      <h3>Your account</h3>
+      <h3>{t("yourAccount")}</h3>
       <p>
         <a className="button secondary" href="/api/v1/privacy/export" download>
-          Download my data
+          {t("downloadData")}
         </a>
       </p>
       <p>
@@ -220,20 +232,14 @@ export function SuspendedMemberBilling({
           aria-haspopup="dialog"
           onClick={() => setConfirmDeletion(true)}
         >
-          Request account deletion
+          {t("requestDeletion")}
         </button>
       </p>
       <BottomSheet
         open={confirmDeletion}
         onClose={() => setConfirmDeletion(false)}
-        title="Delete your account?"
-        description={
-          <p>
-            The platform team deletes your account and coaching data after
-            reviewing the request. Required financial records are kept as the
-            retention policy says. Download your data first if you want a copy.
-          </p>
-        }
+        title={t("deleteTitle")}
+        description={<p>{t("deleteText")}</p>}
         footer={
           <>
             <button
@@ -242,7 +248,7 @@ export function SuspendedMemberBilling({
               disabled={busy}
               onClick={() => setConfirmDeletion(false)}
             >
-              Keep my account
+              {t("keepAccount")}
             </button>
             <button
               className="button"
@@ -253,34 +259,36 @@ export function SuspendedMemberBilling({
                 void act(
                   "/privacy/delete-request",
                   {},
-                  "Deletion request recorded for review.",
+                  t("deletionRecorded"),
                 );
               }}
             >
-              Confirm deletion request
+              {t("confirmDeletion")}
             </button>
           </>
         }
       >
-        <p className="muted">You can keep using any other coaches until then.</p>
+        <p className="muted">{t("otherCoachesMeanwhile")}</p>
       </BottomSheet>
     </section>
   );
 }
 
 /** Refund request states in plain words. */
-function refundStatus(status: string) {
-  return (
-    (
-      {
-        requested: "waiting for review",
-        submitting: "being processed",
-        submitted: "being processed",
-        unknown: "being checked",
-        declined: "declined",
-        succeeded: "refunded",
-        failed: "could not be refunded",
-      } as Record<string, string>
-    )[status] ?? status.replaceAll("_", " ")
-  );
+function refundStatus(
+  status: string,
+  t: ReturnType<typeof useT<"public">>,
+) {
+  const key = (
+    {
+      requested: "refund_requested",
+      submitting: "refund_processing",
+      submitted: "refund_processing",
+      unknown: "refund_unknown",
+      declined: "refund_declined",
+      succeeded: "refund_succeeded",
+      failed: "refund_failed",
+    } as const
+  )[status as "requested"];
+  return key ? t(key) : status.replaceAll("_", " ");
 }

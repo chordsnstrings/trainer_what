@@ -266,11 +266,14 @@ test("the answer changes only from public footer links and Profile > Privacy", a
   assert.match(publicPages, /<SubscriberFooter\s/);
   assert.doesNotMatch(publicPages, /analytics=\{false\}/);
   const workspace = await web("components/workspace.tsx");
-  // The member app's settings: the privacy card holds the analytics switch.
+  // The member app's settings: the privacy card holds the analytics switch
+  // (its member title comes from the profile catalog, docs/features/arabic.md).
   assert.match(
     workspace,
-    /<Card id="privacy">\s*<h2>\{sub \? "Privacy and your data" : "Your data"\}<\/h2>[\s\S]*?<AnalyticsSetting \/>\s*<\/Card>/,
+    /<Card id="privacy">\s*<h2>\{sub \? t\("privacyTitle"\) : "Your data"\}<\/h2>[\s\S]*?<AnalyticsSetting \/>\s*<\/Card>/,
   );
+  const profile = await web("lib/i18n/messages/profile.ts");
+  assert.match(profile, /privacyTitle: "Privacy and your data"/);
   // The member app's own footers offer no analytics control: the workspace
   // footer and the member shell's laptop footer (components/member-shell.tsx).
   const memberFooter =

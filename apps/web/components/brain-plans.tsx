@@ -1,4 +1,6 @@
 "use client";
+import { useLocale, useT } from "../lib/i18n/react";
+import { formatDate, formatDateRange, formatSetsReps } from "../lib/format";
 import { Field } from "./field";
 import { useEffect, useState } from "react";
 
@@ -54,6 +56,8 @@ function ExerciseRows({
   onChange?: (next: ExerciseRow[]) => void;
   legend: string;
 }) {
+  const tr = useT("training"),
+    locale = useLocale();
   const patch = (i: number, key: keyof ExerciseRow, value: unknown) =>
     onChange?.(exercises.map((e, j) => (j === i ? { ...e, [key]: value } : e)));
   if (!onChange)
@@ -61,10 +65,14 @@ function ExerciseRows({
       <ul className="plan-exercises">
         {exercises.map((e) => (
           <li key={e.name}>
-            <strong>{e.name}</strong>{" "}
+            <strong dir="auto">{e.name}</strong>{" "}
             <span className="muted">
-              {e.sets} × {e.reps} · {e.loadKg} kg · RIR {e.rir} · rest{" "}
-              {e.restSeconds}s
+              {tr("exerciseRow", {
+                setsReps: formatSetsReps(e.sets, e.reps, locale),
+                load: e.loadKg,
+                rir: e.rir,
+                rest: e.restSeconds,
+              })}
             </span>
           </li>
         ))}
@@ -1066,15 +1074,17 @@ export function BrainPlans({ role }: { role: string }) {
   );
 }
 
-const MEMBER_STATE: Record<string, string> = {
-  preparing: "Your trainer's Brain is preparing your plan from your profile.",
-  in_review: "Your trainer is reviewing your plan before it reaches you.",
-  delivered: "Your plan is ready.",
-  with_trainer: "Your trainer is preparing your plan personally.",
-};
+const MEMBER_STATE = [
+  "preparing",
+  "in_review",
+  "delivered",
+  "with_trainer",
+] as const;
 /** The subscriber's generated plan and its state. */
 export function MemberPlan() {
   const [data, setData] = useState<any>();
+  const tr = useT("training"),
+    locale = useLocale();
   useEffect(() => {
     void api("/brain/plans/mine")
       .then(setData)
@@ -1084,32 +1094,47 @@ export function MemberPlan() {
   const p = data.program;
   return (
     <section className="card member-plan">
-      <h2>{p ? p.title : "Your plan"}</h2>
+      <h2 dir="auto">{p ? p.title : tr("yourPlan")}</h2>
       {data.status && (
-        <p role="status">{MEMBER_STATE[data.status.state] ?? MEMBER_STATE.preparing}</p>
+        <p role="status">
+          {tr(
+            `plan_${(MEMBER_STATE as readonly string[]).includes(data.status.state) ? (data.status.state as (typeof MEMBER_STATE)[number]) : "preparing"}`,
+          )}
+        </p>
       )}
       {p && (
         <>
-          {p.summary && <p className="muted">{p.summary}</p>}
+          {p.summary && (
+            <p className="muted" dir="auto">
+              {p.summary}
+            </p>
+          )}
           <p className="muted">
-            {p.startDate} to {p.endDate} · {p.programmeDays} days
+            {tr("planDates", {
+              range: formatDateRange(p.startDate, p.endDate, { locale }),
+              count: p.programmeDays,
+            })}
           </p>
           <ol className="plan-weeks">
             {p.weeks.map((w: any) => (
               <li key={w.week}>
-                Week {w.week}: {w.focus}
-                {w.deload ? " (lighter recovery week)" : ""}
+                {tr("planWeek", { week: w.week, focus: w.focus })}
+                {w.deload ? tr("lighterWeek") : ""}
               </li>
             ))}
           </ol>
-          <h3>Coming up</h3>
+          <h3>{tr("comingUp")}</h3>
           {!data.upcoming.length && (
-            <p className="muted">No sessions left in this block.</p>
+            <p className="muted">{tr("noSessionsLeft")}</p>
           )}
           {data.upcoming.map((s: any) => (
             <div key={s.id} className="plan-session">
               <h4>
-                {s.date} · {s.label} · week {s.week}
+                {tr("sessionHeading", {
+                  date: formatDate(s.date, { weekday: true, locale }),
+                  label: s.label,
+                  week: s.week,
+                })}
               </h4>
               <ExerciseRows
                 legend={s.label}
@@ -1129,13 +1154,6 @@ export function MemberPlan() {
 
 /** Shown with the intake form: what happens after the subscriber saves it. */
 export function PlanIntakeNotice() {
-  return (
-    <p className="muted plan-intake-notice">
-      When you save this, your trainer&rsquo;s Brain prepares your training
-      plan from it: your goal, experience, training days and equipment. Your
-      trainer reviews it whenever the Brain is not sure. Anything you list as a
-      limitation, and any pain you report later, always goes to your trainer
-      personally.
-    </p>
-  );
+  const t = useT("profile");
+  return <p className="muted plan-intake-notice">{t("intakeNotice")}</p>;
 }

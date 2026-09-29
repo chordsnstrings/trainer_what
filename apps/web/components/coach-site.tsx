@@ -15,6 +15,11 @@ import { PageLanguage } from "./document-direction";
 import { parseLanguage, type Language } from "../document-language";
 import type { ColorSchemeChoice } from "../color-scheme";
 import { useColorScheme } from "./appearance";
+import { translator, type Locale } from "../lib/i18n/core";
+import siteMessages from "../lib/i18n/messages/site";
+import commonMessages from "../lib/i18n/messages/common";
+import { errorText } from "../lib/i18n/errors";
+import { useLocale } from "../lib/i18n/react";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -234,9 +239,14 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     [photos, setPhotos] = useState<any[]>([]),
     [library, setLibrary] = useState(false),
     [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loaded, setLoaded] = useState(false);
+  // The member's view follows their language; the coach's studio is unchanged.
+  const pageLocale = useLocale();
+  const t = translator(siteMessages, client ? pageLocale : "en");
   async function load(offset = 0) {
     const d = await api(`/tenant/galleries?offset=${offset}`);
+    setLoaded(true);
     setGalleries((v) => (offset ? [...v, ...d.galleries] : d.galleries));
     setNext(d.nextOffset);
     return d.galleries;
@@ -278,11 +288,11 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     <div className="site-workspace">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">YOUR COACHING IN PICTURES</p>
-          <h1>{client ? "Coach galleries." : "Photos & galleries."}</h1>
+          <p className="eyebrow">{t("galleriesEyebrow")}</p>
+          <h1>{client ? t("clientGalleries") : "Photos & galleries."}</h1>
           <p className="muted">
             {client
-              ? "A closer look at your coach’s practice."
+              ? t("clientGalleriesIntro")
               : "Create as many galleries as you need. Choose what appears on your website and in the client app."}
           </p>
         </div>
@@ -312,11 +322,16 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
           <button disabled={busy}>Create gallery</button>
         </form>
       )}
+      {client && loaded && !galleries.length && (
+        <p className="muted" role="status">
+          {t("clientNoGalleries")}
+        </p>
+      )}
       <div className="gallery-list">
         {galleries.map((g) => (
           <section className="card" key={g.id}>
-            <h2>{g.title}</h2>
-            <p>{g.description}</p>
+            <h2 dir="auto">{g.title}</h2>
+            <p dir="auto">{g.description}</p>
             {!client && (
               <p className="muted">
                 Visibility: {g.audience} · {g.photos.length} photos
@@ -326,7 +341,9 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
               {g.photos.map((p: any) => (
                 <figure key={p.media_id}>
                   <img src={p.url} alt={p.alt} loading="lazy" />
-                  {p.caption && <figcaption>{p.caption}</figcaption>}
+                  {p.caption && (
+                    <figcaption dir="auto">{p.caption}</figcaption>
+                  )}
                 </figure>
               ))}
             </div>
@@ -343,7 +360,7 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
           className="secondary"
           onClick={() => void load(next).catch((e) => setMessage(e.message))}
         >
-          More galleries
+          {client ? t("moreGalleries") : "More galleries"}
         </button>
       )}
       {!client && selected && (
@@ -940,17 +957,22 @@ export function CoachWebsite({
           }
         })
         .catch((e) => {
-          if (current) setMessage(e.message);
+          if (current) setMessage(errorText(e, language ?? "en"));
         });
     return () => {
       current = false;
     };
-  }, [initialData, preview]);
+  }, [initialData, preview, language]);
   useEffect(() => setSent(false), [path]);
   if (!data)
     return (
       <main className="coach-website">
-        <Notice message={message || "Loading your website…"} />
+        <Notice
+          message={
+            message ||
+            translator(siteMessages, language ?? "en")("loadingWebsite")
+          }
+        />
       </main>
     );
   const { tenant, site } = data,
@@ -977,26 +999,38 @@ export function CoachWebsite({
   const contact = `${base}/contact`;
   const known = ["", "about", "memberships", "galleries", "contact"];
   const missing = !!section && !custom && !known.includes(section);
+  // Public pages use the server-resolved language (the visitor's choice, else
+  // the website's); the private preview shows the draft's own language.
+  const pageLanguage: Locale =
+    (preview ? null : language) ?? parseLanguage(site.language) ?? "en";
+  // The website's chrome in that language; the coach's words stay theirs.
+  const t = translator(siteMessages, pageLanguage);
+  const b = (text: string) => {
+    const match = /^<b>(.*?)<\/b>\s*(.*)$/.exec(text);
+    return match ? (
+      <>
+        <strong>{match[1]}</strong> {match[2]}
+      </>
+    ) : (
+      text
+    );
+  };
   // One main action per page: joining once plans are listed (from the
   // memberships page straight to the join form), otherwise a message.
   const primary = !hasPlans
-    ? { label: `Contact ${name}`, href: contact }
+    ? { label: t("contactName", { name }), href: contact }
     : section === "memberships"
-      ? { label: `Join ${name}`, href: join }
-      : { label: site.cta || "Start coaching", href: `${base}/memberships` };
+      ? { label: t("joinName", { name }), href: join }
+      : { label: site.cta || t("startCoaching"), href: `${base}/memberships` };
   const secondary =
     hasPlans && section !== "contact"
-      ? { label: "Contact", href: contact }
+      ? { label: t("contact"), href: contact }
       : null;
-  // Public pages use the server-resolved language (the visitor's choice, else
-  // the website's); the private preview shows the draft's own language.
-  const pageLanguage =
-    (preview ? null : language) ?? parseLanguage(site.language) ?? "en";
   const links: Array<[string, string, string]> = [
-    ["", base, "Home"],
-    ["about", `${base}/about`, "About"],
-    ["memberships", `${base}/memberships`, "Memberships"],
-    ["galleries", `${base}/galleries`, "Galleries"],
+    ["", base, t("home")],
+    ["about", `${base}/about`, t("about")],
+    ["memberships", `${base}/memberships`, t("memberships")],
+    ["galleries", `${base}/galleries`, t("galleries")],
     ...(site.pages ?? [])
       .filter((p: any) => p.visible)
       .map((p: any): [string, string, string] => [
@@ -1004,7 +1038,7 @@ export function CoachWebsite({
         `${base}/${p.slug}`,
         p.title,
       ]),
-    ["contact", contact, "Contact"],
+    ["contact", contact, t("contact")],
   ];
   const inlineActions = (
     <div className={`site-actions${preview ? " is-preview" : ""}`}>
@@ -1030,7 +1064,7 @@ export function CoachWebsite({
         <Link href={base} className="site-identity">
           <CoachIdentity name={name} theme={tenant.theme} compact />
         </Link>
-        <nav aria-label="Coach website" className="site-nav">
+        <nav aria-label={t("websiteNav")} className="site-nav">
           {links.map(([key, href, label]) => (
             <Link
               key={key || "home"}
@@ -1050,8 +1084,8 @@ export function CoachWebsite({
       </header>
       {preview && (
         <p className="notice site-preview-note">
-          Private preview of your saved draft.{" "}
-          <Link href="/trainer/website">Return to website editor</Link>
+          {t("previewNote")}{" "}
+          <Link href="/trainer/website">{t("returnToEditor")}</Link>
         </p>
       )}
       <main id="main">
@@ -1060,12 +1094,12 @@ export function CoachWebsite({
             <section className="site-hero">
               <SiteCover src={design.coverUrl} />
               <p className="eyebrow">
-                {tenant.theme?.category || "PERSONAL COACHING"}
+                {tenant.theme?.category || t("personalCoaching")}
               </p>
               <h1 dir="auto">
                 {site.headline ||
                   tenant.theme?.headline ||
-                  `Train with ${name}.`}
+                  t("trainWith", { name })}
               </h1>
               {intro && paragraph(intro, "site-lead")}
               {inlineActions}
@@ -1073,7 +1107,7 @@ export function CoachWebsite({
             <section className="site-meet" aria-labelledby="site-meet-title">
               <SitePortrait src={design.photoUrl} name={name} />
               <div className="site-meet-text">
-                <h2 id="site-meet-title">Meet your coach</h2>
+                <h2 id="site-meet-title">{t("meetYourCoach")}</h2>
                 {about
                   ? paragraph(
                       about.length > 420 ? about.slice(0, 400).trimEnd() + "…" : about,
@@ -1081,7 +1115,7 @@ export function CoachWebsite({
                     )
                   : design.tagline && <p dir="auto">{design.tagline}</p>}
                 <Link className="site-more" href={`${base}/about`}>
-                  More about {name}{" "}
+                  {t("moreAbout", { name })}{" "}
                   <span className="bidi-mirror" aria-hidden="true">
                     →
                   </span>
@@ -1089,27 +1123,15 @@ export function CoachWebsite({
               </div>
             </section>
             <section className="site-steps" aria-labelledby="site-steps-title">
-              <h2 id="site-steps-title">How to start</h2>
+              <h2 id="site-steps-title">{t("howToStart")}</h2>
               <ol>
                 {hasPlans ? (
-                  <li>
-                    <strong>Choose a plan.</strong> See what each membership
-                    includes and costs.
-                  </li>
+                  <li>{b(t("stepChoose"))}</li>
                 ) : (
-                  <li>
-                    <strong>Send a message.</strong> Ask {name} about coaching,
-                    prices and times; the reply comes by email.
-                  </li>
+                  <li>{b(t("stepMessage", { name }))}</li>
                 )}
-                <li>
-                  <strong>Create your account.</strong> It takes a minute on
-                  your phone.
-                </li>
-                <li>
-                  <strong>Train with {name}.</strong> Your plan, coach chat and
-                  progress are in one app.
-                </li>
+                <li>{b(t("stepAccount"))}</li>
+                <li>{b(t("stepTrain", { name }))}</li>
               </ol>
             </section>
           </>
@@ -1122,7 +1144,7 @@ export function CoachWebsite({
               className="is-large"
             />
             <div>
-              <h1>Meet {name}.</h1>
+              <h1>{t("meet", { name })}</h1>
               {design.tagline && (
                 <p className="site-tagline" dir="auto">
                   {design.tagline}
@@ -1131,10 +1153,7 @@ export function CoachWebsite({
               {about ? (
                 paragraph(about)
               ) : (
-                <p className="muted">
-                  {name} hasn’t written more about their coaching here yet.
-                  Send a question and {name} will reply by email.
-                </p>
+                <p className="muted">{t("noAbout", { name })}</p>
               )}
               {inlineActions}
             </div>
@@ -1142,37 +1161,38 @@ export function CoachWebsite({
         )}
         {section === "memberships" && (
           <section className="site-memberships">
-            <h1>Find your coaching plan.</h1>
+            <h1>{t("findPlan")}</h1>
             {hasPlans ? (
               <>
                 <p className="muted site-subtitle">
-                  Join {name} first; you choose your plan in the app.
+                  {t("joinFirst", { name })}
                 </p>
                 <ul className="site-plans">
                   {products.map((p: any) => {
-                    const terms = offerTermsText(p.data);
+                    const terms = offerTermsText(p.data, pageLanguage);
                     return (
                       <li key={p.id}>
                         <article className="card site-plan">
                           <p className="eyebrow">
                             {p.data.tier === "workout_nutrition"
-                              ? "WORKOUT + NUTRITION"
-                              : "WORKOUT"}
+                              ? t("tierNutrition")
+                              : t("tierWorkout")}
                           </p>
                           <h2 dir="auto">{p.data.name}</h2>
                           {p.data.description && (
                             <p dir="auto">{p.data.description}</p>
                           )}
                           <p className="site-price">
-                            <span dir="ltr">{terms.price}</span>
+                            <span
+                              dir={pageLanguage === "en" ? "ltr" : undefined}
+                            >
+                              {terms.price}
+                            </span>
                           </p>
                           <p className="muted">{terms.length}</p>
                           {terms.voice && <p className="muted">{terms.voice}</p>}
                           {p.data.trialDays > 0 && (
-                            <p>
-                              {p.data.trialDays}-day trial for eligible new
-                              members.
-                            </p>
+                            <p>{t("trial", { count: p.data.trialDays })}</p>
                           )}
                         </article>
                       </li>
@@ -1180,21 +1200,15 @@ export function CoachWebsite({
                   })}
                 </ul>
                 {preview ? (
-                  <p className="muted">
-                    Membership signup is available on the published website.
-                  </p>
+                  <p className="muted">{t("signupOnPublished")}</p>
                 ) : (
                   inlineActions
                 )}
               </>
             ) : (
               <div className="site-empty" role="status">
-                <h2>Plans are not listed yet</h2>
-                <p>
-                  {name} hasn’t published membership plans on this website yet.
-                  Send a message to ask about coaching, prices and times; {name}{" "}
-                  replies by email.
-                </p>
+                <h2>{t("plansNotListed")}</h2>
+                <p>{t("plansNotListedText", { name })}</p>
                 {inlineActions}
               </div>
             )}
@@ -1202,7 +1216,7 @@ export function CoachWebsite({
         )}
         {section === "galleries" && (
           <section className="site-galleries">
-            <h1>Life around the training.</h1>
+            <h1>{t("galleriesTitle")}</h1>
             {data.galleries.map((g: any) => (
               <article key={g.id} className="site-gallery">
                 <h2 dir="auto">{g.title}</h2>
@@ -1233,11 +1247,8 @@ export function CoachWebsite({
                   <span />
                   <span />
                 </div>
-                <h2>No photos yet</h2>
-                <p>
-                  {name} hasn’t shared any galleries yet. Their training
-                  photos will appear here.
-                </p>
+                <h2>{t("noPhotos")}</h2>
+                <p>{t("noPhotosText", { name })}</p>
               </div>
             )}
             {next !== null && (
@@ -1259,28 +1270,33 @@ export function CoachWebsite({
                     });
                     setNext(d.nextOffset);
                   } catch (e) {
-                    setMessage((e as Error).message);
+                    setMessage(errorText(e, pageLanguage));
                   } finally {
                     setBusy(false);
                   }
                 }}
               >
-                {busy ? "Loading…" : "More galleries"}
+                {busy
+                  ? translator(commonMessages, pageLanguage)("loading")
+                  : t("moreGalleries")}
               </button>
             )}
           </section>
         )}
         {section === "contact" && (
           <section className="site-contact">
-            <h1>Let’s talk about your goals.</h1>
+            <h1>{t("contactTitle")}</h1>
             <p className="muted site-subtitle">
-              Send {name} a message and you’ll get a reply by email.
+              {t("contactSubtitle", { name })}
             </p>
             {(site.contactEmail ||
               site.whatsapp ||
               site.instagram ||
               site.youtube) && (
-              <ul className="site-contact-links" aria-label={`Other ways to reach ${name}`}>
+              <ul
+                className="site-contact-links"
+                aria-label={t("otherWays", { name })}
+              >
                 {site.contactEmail && (
                   <li>
                     <a href={`mailto:${site.contactEmail}`}>
@@ -1297,7 +1313,7 @@ export function CoachWebsite({
                       rel="noopener noreferrer"
                     >
                       <MessageCircle size={18} aria-hidden="true" />
-                      Chat on WhatsApp
+                      {t("whatsApp")}
                     </a>
                   </li>
                 )}
@@ -1321,17 +1337,14 @@ export function CoachWebsite({
             )}
             {sent ? (
               <div className="card site-sent" role="status">
-                <h2>Message sent</h2>
-                <p>
-                  {name} has your message and will reply to the email address
-                  you gave.
-                </p>
+                <h2>{t("messageSent")}</h2>
+                <p>{t("messageSentText", { name })}</p>
                 <button
                   type="button"
                   className="button secondary"
                   onClick={() => setSent(false)}
                 >
-                  Send another message
+                  {t("sendAnother")}
                 </button>
               </div>
             ) : (
@@ -1341,7 +1354,7 @@ export function CoachWebsite({
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (preview) {
-                    setMessage("Publish your website to receive real inquiries.");
+                    setMessage(t("publishFirst"));
                     return;
                   }
                   const form = e.currentTarget;
@@ -1359,13 +1372,13 @@ export function CoachWebsite({
                     form.reset();
                     setSent(true);
                   } catch (e) {
-                    setMessage((e as Error).message);
+                    setMessage(errorText(e, pageLanguage));
                   } finally {
                     setBusy(false);
                   }
                 }}
               >
-                <Field label="Your name">
+                <Field label={t("yourName")}>
                   <input
                     name="name"
                     autoComplete="name"
@@ -1375,7 +1388,7 @@ export function CoachWebsite({
                     maxLength={100}
                   />
                 </Field>
-                <Field label="Email">
+                <Field label={t("email")}>
                   <input
                     name="email"
                     type="email"
@@ -1387,7 +1400,7 @@ export function CoachWebsite({
                     required
                   />
                 </Field>
-                <Field label="How can we help?">
+                <Field label={t("howHelp")}>
                   <textarea
                     name="message"
                     minLength={10}
@@ -1398,8 +1411,7 @@ export function CoachWebsite({
                   />
                 </Field>
                 <small className="field-hint" id="contact-message-hint">
-                  At least 10 characters. Leave out health details; share them
-                  with your coach after you join.
+                  {t("messageHint")}
                 </small>
                 <input
                   name="website"
@@ -1410,7 +1422,7 @@ export function CoachWebsite({
                 />
                 <label className="check-field site-consent">
                   <input name="consent" type="checkbox" required />
-                  <span>I agree to be contacted about my inquiry.</span>
+                  <span>{t("consent")}</span>
                 </label>
                 {message && (
                   <p className="notice error" role="alert">
@@ -1420,10 +1432,10 @@ export function CoachWebsite({
                 <div className={`site-actions${preview ? " is-preview" : ""}`}>
                   <button className="button" type="submit" disabled={busy}>
                     {busy
-                      ? "Sending…"
+                      ? t("sending")
                       : preview
-                        ? "Preview inquiry"
-                        : "Send message"}
+                        ? t("previewInquiry")
+                        : t("sendMessage")}
                   </button>
                 </div>
               </form>
@@ -1438,9 +1450,9 @@ export function CoachWebsite({
         )}
         {missing && (
           <section className="site-page">
-            <h1>Page not found.</h1>
+            <h1>{t("notFound")}</h1>
             <Link className="button secondary" href={base}>
-              Return home
+              {t("returnHome")}
             </Link>
           </section>
         )}
@@ -1452,9 +1464,10 @@ export function CoachWebsite({
         directory={false}
         signIn={!preview}
         analytics={!preview}
+        locale={pageLanguage}
       />
       {!preview && !missing && !(section === "contact" && sent) && (
-        <StickyActionBar label={`${name} actions`}>
+        <StickyActionBar label={t("actions", { name })}>
           {section === "contact" ? (
             <button
               className="button"
@@ -1462,7 +1475,7 @@ export function CoachWebsite({
               form="coach-contact-form"
               disabled={busy}
             >
-              {busy ? "Sending…" : "Send message"}
+              {busy ? t("sending") : t("sendMessage")}
             </button>
           ) : (
             <>

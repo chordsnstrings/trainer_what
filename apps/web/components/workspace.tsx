@@ -72,6 +72,15 @@ import { MemberShell, MoreScreen } from "./member-shell";
 import { BottomSheet, NumberStepper, StickyActionBar } from "./phone-ui";
 import { prefersReducedMotion } from "./motion";
 import { MemberLanguage } from "./document-direction";
+import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
+import {
+  formatCountdown,
+  formatDate,
+  formatMoney,
+  formatRange,
+  formatSetsReps,
+  humanize,
+} from "../lib/format";
 import {
   DisplayPreferences,
   MemberAppearance,
@@ -126,6 +135,7 @@ import {
   cacheNames,
   clearPersonalCaches,
   installKeys,
+  queuedLabel,
   queuedSummary,
 } from "./pwa";
 import {
@@ -579,6 +589,11 @@ export default function Workspace({
   // Subscriber surfaces follow the member's Light, Dark or System choice
   // (components/appearance.tsx); the trainer workspace keeps the device's.
   const scheme = useColorScheme(colorScheme);
+  // Subscriber text follows the document language (lib/i18n/react.tsx).
+  const locale = useLocale(),
+    shellT = useT("shell"),
+    common = useT("common"),
+    toError = useErrorText();
   // The member app's first-load, unavailable and suspended screens come
   // before the coach's brand is known: they follow the choice with the
   // neutral dark palette (app/appearance.css).
@@ -722,11 +737,8 @@ export default function Workspace({
         return;
       }
       if (!publicPath) {
-        setBootstrapError(
-          (e as any).status === 429
-            ? "Too many requests. Wait a moment, then retry."
-            : "Your workspace could not be refreshed. Please try again.",
-        );
+        // A key; shown in the member's language below.
+        setBootstrapError((e as any).status === 429 ? "429" : "failed");
       }
     } finally {
       setLoading(false);
@@ -752,17 +764,23 @@ export default function Workspace({
       window.removeEventListener("offline", update);
     };
   }, []);
-  const action = async (fn: () => Promise<any>, message = "Saved") => {
+  const bootstrapText =
+    bootstrapError === "429"
+      ? common("tooManyRequests")
+      : bootstrapError
+        ? shellT("refreshFailed")
+        : "";
+  const action = async (fn: () => Promise<any>, message?: string) => {
     setBusy(true);
     setError("");
     setSuccess("");
     try {
       const result = await fn();
-      setSuccess(message);
+      setSuccess(message ?? common("saved"));
       await load();
       return result;
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
       return null;
     } finally {
       setBusy(false);
@@ -825,10 +843,10 @@ export default function Workspace({
         >
           <AlertCircle size={29} aria-hidden="true" />
           <h1 style={{ fontSize: 27, marginTop: 20 }}>
-            Your workspace is temporarily unavailable.
+            {shellT("unavailableTitle")}
           </h1>
           <p className="muted" role="alert">
-            {bootstrapError}
+            {bootstrapText}
           </p>
           <button
             className="button"
@@ -838,7 +856,7 @@ export default function Workspace({
               void load();
             }}
           >
-            Retry <RefreshCw size={15} />
+            {common("retry")} <RefreshCw size={15} />
           </button>
         </section>
       </main>
@@ -851,7 +869,7 @@ export default function Workspace({
         {/* Neutral: a member app may carry its trainer's brand, which is
             not known until the workspace has loaded. */}
         <div className="loading-indicator" aria-hidden="true" />
-        <p>Opening your workspace…</p>
+        <p>{shellT("loadingWorkspace")}</p>
       </main>
     );
   const subscriber = state.user.role === "subscriber";
@@ -893,7 +911,7 @@ export default function Workspace({
             appendRelated(appendPage(current, key, page), page.related),
           );
       } catch (e) {
-        setError((e as Error).message);
+        setError(toError(e));
       } finally {
         setMoreLoading("");
       }
@@ -929,9 +947,7 @@ export default function Workspace({
       online: navigator.onLine,
       post: (p, b, h) => api(p, "POST", b, h),
       confirm: (unsynced) =>
-        window.confirm(
-          `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
-        ),
+        window.confirm(shellT("signOutUnsynced", { count: unsynced })),
       leave: () => api("/auth/logout", "POST", {}),
       afterLeave: clearPersonalCaches,
     });
@@ -943,6 +959,7 @@ export default function Workspace({
   const memberNav = {
     programLabel: resolveBrandDesign(state.tenant.theme).programLabel,
     nutrition: !!(state as any).memberApp?.nutrition,
+    locale,
   };
   const notices = (
     <>
@@ -963,7 +980,10 @@ export default function Workspace({
             <div className="notice error" role="alert">
               <AlertCircle size={17} />
               {error}
-              <button onClick={() => setError("")} aria-label="Dismiss error">
+              <button
+                onClick={() => setError("")}
+                aria-label={common("dismissError")}
+              >
                 <X size={15} />
               </button>
             </div>
@@ -972,14 +992,14 @@ export default function Workspace({
             <div className="notice error" role="alert">
               <AlertCircle size={17} />
               <span>
-                {bootstrapError} Your last loaded workspace is still shown.
+                {bootstrapText} {shellT("lastLoadedShown")}
               </span>
               <button
                 type="button"
                 disabled={loading}
                 onClick={() => void load()}
               >
-                Retry <RefreshCw size={14} />
+                {common("retry")} <RefreshCw size={14} />
               </button>
             </div>
           )}
@@ -1185,7 +1205,7 @@ export default function Workspace({
                 more={more}
                 collection="records"
                 kind="support"
-                label="Load older support conversations"
+                label={shellT("loadOlderSupport")}
               />
             </>
           ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
@@ -1317,10 +1337,7 @@ export default function Workspace({
           onSignOut={() => void signOut()}
           footerNote={
             state.environment === "development" ? (
-              <p className="member-dev-note">
-                Development environment: payments are switched off and demo
-                records are made up.
-              </p>
+              <p className="member-dev-note">{shellT("devNote")}</p>
             ) : null
           }
         >
@@ -1519,6 +1536,10 @@ const openExceptionCount = (state: State, records: ViewProps["records"]) =>
 
 function Overview({ state, records }: ViewProps) {
   const sub = state.user.role === "subscriber";
+  // Members read their Today in their language; the trainer view is unchanged.
+  const t = useT("today"),
+    workoutT = useT("workout"),
+    locale = useLocale();
   const rules = records("rule").filter((x) => x.status === "confirmed"),
     exceptions = urgentFirst(
       records("exception").filter((x) => x.status === "open"),
@@ -1549,15 +1570,28 @@ function Overview({ state, records }: ViewProps) {
   return (
     <>
       <Heading
-        eyebrow={new Intl.DateTimeFormat("en-AE", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        }).format(new Date())}
-        title={`Good to see you, ${state.user.name.split(" ")[0]}.`}
+        eyebrow={
+          sub
+            ? formatDate(new Date(), {
+                weekday: "long",
+                year: false,
+                longMonth: true,
+                locale,
+              })
+            : new Intl.DateTimeFormat("en-AE", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              }).format(new Date())
+        }
+        title={
+          sub
+            ? t("greeting", { name: state.user.name.split(" ")[0] })
+            : `Good to see you, ${state.user.name.split(" ")[0]}.`
+        }
         detail={
           sub
-            ? "One workout. A little progress. Your next step is here."
+            ? t("subtitle")
             : "A clear view of your people, your coaching and your business."
         }
         action={
@@ -1565,7 +1599,7 @@ function Overview({ state, records }: ViewProps) {
             className="button secondary"
             href={sub ? "/app/program" : "/trainer/brand"}
           >
-            {sub ? "View my program" : "Edit storefront"}
+            {sub ? t("viewProgram") : "Edit storefront"}
             <ArrowUpRight size={16} />
           </Link>
         }
@@ -1603,24 +1637,24 @@ function Overview({ state, records }: ViewProps) {
         {(sub
           ? [
               [
-                "Completed workouts",
+                t("statCompleted"),
                 total(
                   state,
                   "completedWorkouts",
                   workouts.filter((w) => w.status === "completed").length,
                 ),
-                "Every session counts",
+                t("statCompletedNote"),
               ],
               [
-                "Sets recorded",
+                t("statSets"),
                 total(state, "sets", state.sets.length),
-                "Your actual training log",
+                t("statSetsNote"),
               ],
-              ["My programs", programCount, "Created by your trainer"],
+              [t("statPrograms"), programCount, t("statProgramsNote")],
               [
-                "Coach messages",
+                t("statMessages"),
                 kindTotal(state, "message", records("message").length),
-                "Personal and digital coaching",
+                t("statMessagesNote"),
               ],
             ]
           : [
@@ -1661,12 +1695,10 @@ function Overview({ state, records }: ViewProps) {
           <div className="card-heading">
             <div>
               <p className="eyebrow">
-                {sub ? "YOUR NEXT SESSION" : "THE COACHING ENGINE"}
+                {sub ? t("nextSession") : "THE COACHING ENGINE"}
               </p>
               <h2>
-                {sub
-                  ? "Ready when you are."
-                  : "Make your experience teachable."}
+                {sub ? t("ready") : "Make your experience teachable."}
               </h2>
             </div>
             <span className="round-icon">
@@ -1675,64 +1707,62 @@ function Overview({ state, records }: ViewProps) {
           </div>
           <p className="muted lead">
             {sub
-              ? "Your program holds the details. Focus on a clear, controlled session and record what actually happens."
+              ? t("readyText")
               : "The best part of your coaching isn’t a template. It’s knowing what to change, when to change it, and why."}
           </p>
           <div className="brain-flow">
             <div>
               <span>01</span>
-              <strong>{sub ? "Prepare" : "Teach"}</strong>
+              <strong>{sub ? t("prepare") : "Teach"}</strong>
               <small>
-                {sub ? "Check your program" : "Share your decisions"}
+                {sub ? t("prepareNote") : "Share your decisions"}
               </small>
             </div>
             <ArrowRight size={18} />
             <div>
               <span>02</span>
-              <strong>{sub ? "Train" : "Refine"}</strong>
-              <small>{sub ? "Log each set" : "Review the rules"}</small>
+              <strong>{sub ? t("train") : "Refine"}</strong>
+              <small>{sub ? t("trainNote") : "Review the rules"}</small>
             </div>
             <ArrowRight size={18} />
             <div>
               <span>03</span>
-              <strong>{sub ? "Reflect" : "Release"}</strong>
-              <small>{sub ? "See your progress" : "Stay in control"}</small>
+              <strong>{sub ? t("reflect") : "Release"}</strong>
+              <small>{sub ? t("reflectNote") : "Stay in control"}</small>
             </div>
           </div>
           <Link
             className="button"
             href={sub ? "/app/program" : "/trainer/brain"}
           >
-            {sub ? "Open my program" : "Continue building my Brain"}
+            {sub ? t("openProgram") : "Continue building my Brain"}
             <ArrowRight size={16} />
           </Link>
         </Card>
         <Card>
           <div className="card-heading">
-            <h2>{sub ? "Your coaching space" : "Your launch checklist"}</h2>
+            <h2>{sub ? t("coachingSpace") : "Your launch checklist"}</h2>
             <Badge>
               {sub
-                ? "PERSONAL"
+                ? t("personal")
                 : `${steps.filter((s) => s[1]).length} / ${steps.length}`}
             </Badge>
           </div>
           {sub ? (
             <>
-              <p className="muted">
-                Your coach’s method, with space for your real life.
-              </p>
+              <p className="muted">{t("spaceText")}</p>
               <Link className="checklist-row" href="/app/intake">
                 <span className="step-circle">
                   <FileText size={17} />
                 </span>
-                <span>Complete your coaching profile</span>
+                <span>{t("completeProfile")}</span>
                 <ChevronRight size={16} />
               </Link>
               <Link className="checklist-row" href="/app/chat">
                 <span className="step-circle">
                   <MessageCircle size={17} />
                 </span>
-                <span>Talk to your trainer</span>
+                <span>{t("talkToTrainer")}</span>
                 <ChevronRight size={16} />
               </Link>
             </>
@@ -1751,27 +1781,26 @@ function Overview({ state, records }: ViewProps) {
       </div>
       <Card>
         <div className="card-heading">
-          <h2>{sub ? "Recent sessions" : "The attention list"}</h2>
+          <h2>{sub ? t("recentSessions") : "The attention list"}</h2>
           <Link
             href={sub ? "/app/progress" : "/trainer/exceptions"}
             className="text-link"
           >
-            View all <ArrowUpRight size={14} />
+            {sub ? t("viewAll") : "View all"} <ArrowUpRight size={14} />
           </Link>
         </div>
         {sub ? (
           workouts.length ? (
             workouts.slice(0, 4).map((w) => (
               <div className="list-row" key={w.id}>
-                <span>{w.data.program?.title ?? "Workout"}</span>
-                <Badge>{w.status.replaceAll("_", " ")}</Badge>
+                <span dir="auto">
+                  {w.data.program?.title ?? t("workoutFallback")}
+                </span>
+                <Badge>{workoutStatusText(w.status, workoutT)}</Badge>
               </div>
             ))
           ) : (
-            <Empty
-              title="Your first session is ahead"
-              detail="Once your trainer assigns a program, you can start logging here."
-            />
+            <Empty title={t("firstSession")} detail={t("firstSessionDetail")} />
           )
         ) : exceptions.length ? (
           exceptions.slice(0, 4).map((e) => (
@@ -2878,18 +2907,15 @@ function revealNextSet() {
     });
 }
 /** Plain words for a workout's status (the badge on the workout screen). */
-function workoutStatusText(status: string) {
-  return (
-    (
-      {
-        active: "In progress",
-        completed: "Completed",
-        safety_hold: "Paused for your coach",
-        paused: "Paused",
-        abandoned: "Ended early",
-      } as Record<string, string>
-    )[status] ?? status.replaceAll("_", " ")
-  );
+function workoutStatusText(
+  status: string,
+  t: ReturnType<typeof useT<"workout">>,
+) {
+  return ["active", "completed", "safety_hold", "paused", "abandoned"].includes(
+    status,
+  )
+    ? t(`status_${status}` as "status_active")
+    : status.replaceAll("_", " ");
 }
 function Workout({ state, records, action, busy, path }: ViewProps) {
   const workoutId = path.split("/").pop() ?? "";
@@ -2904,6 +2930,9 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     loggedSets = found.sets.length
       ? [...state.sets, ...found.sets]
       : state.sets;
+  const t = useT("workout"),
+    locale = useLocale(),
+    toError = useErrorText();
   const [queued, setQueued] = useState(0),
     [notice, setNotice] = useState(""),
     [rejected, setRejected] = useState<RejectedEntry<WorkoutQueueItem>[]>([]);
@@ -2949,17 +2978,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       (p, b, h) => api(p, "POST", b, h),
     );
     refreshQueue();
-    if (result.stopped?.reason === "session")
-      setNotice(
-        "Your session ended. Sign in again; set logs saved on this device sync after you sign in.",
-      );
+    if (result.stopped?.reason === "session") setNotice(t("sessionEnded"));
     else if (result.stopped)
-      setNotice("Saved on this device. " + result.stopped.failure.message);
-    else if (result.rejected.length)
       setNotice(
-        "A set log could not be saved. Review it below; later sets kept syncing.",
+        t("savedOnDevice", { reason: toError(result.stopped.failure) }),
       );
-  }, [tenantId, userId, refreshQueue]);
+    else if (result.rejected.length) setNotice(t("rejectedOne"));
+  }, [tenantId, userId, refreshQueue, t, toError]);
   useEffect(() => {
     refreshQueue();
     const online = () => void sync();
@@ -2988,15 +3013,9 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           pages.add(path),
           ...[...new Set(assets)].map((url) => shell.add(url)),
         ]);
-        if (active)
-          setNotice(
-            "Workout saved for this device. Set logs can sync after a connection loss.",
-          );
+        if (active) setNotice(t("savedForDevice"));
       } catch {
-        if (active)
-          setNotice(
-            "Keep this workout open. Offline reload is not ready; reconnect to save it for this device.",
-          );
+        if (active) setNotice(t("keepOpen"));
       }
     })();
     return () => {
@@ -3005,10 +3024,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   }, [workout?.id, path]);
   if (!workout)
     return (
-      <Empty
-        title="Workout unavailable"
-        detail="Choose a program to start your session."
-      />
+      <Empty title={t("unavailable")} detail={t("unavailableDetail")} />
     );
   const active = workout.status === "active";
   const pendingItems = readList<WorkoutQueueItem>(localStorage, key);
@@ -3063,45 +3079,40 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   const finish = () =>
     void action(
       () => api(`/workouts/${workout.id}/finish`, "POST", {}),
-      "Workout completed",
+      t("completed"),
     );
   const restText =
-    restLeft > 0
-      ? `Rest ${Math.floor(restLeft / 60)}:${String(restLeft % 60).padStart(2, "0")}`
-      : "";
+    restLeft > 0 ? t("rest", { time: formatCountdown(restLeft, locale) }) : "";
   return (
     <>
       <TrainingHoldNotice records={state.records} />
       <Heading
-        eyebrow="ONE SET AT A TIME"
+        eyebrow={t("eyebrow")}
         title={workout.data.program.title}
-        detail="Log what you actually do. Change the weight and reps for any set."
-        action={<Badge>{workoutStatusText(workout.status)}</Badge>}
+        detail={t("detail")}
+        action={<Badge>{workoutStatusText(workout.status, t)}</Badge>}
       />
       {active && (
         <div className="workout-modes">
           <Link className="button secondary" href={`/app/guided/${workout.id}`}>
             <Play size={16} aria-hidden="true" />
-            Guided session
+            {t("guided")}
           </Link>
           <Link
             className="button secondary"
             href={`/app/voice-session/${workout.id}`}
           >
             <MessageCircle size={16} aria-hidden="true" />
-            Voice-led session
+            {t("voiceLed")}
           </Link>
-          <p className="muted">
-            Guided shows each exercise with cues and rest timers. Voice-led
-            talks you through every set, hands-free.
-          </p>
+          <p className="muted">{t("modesHelp")}</p>
         </div>
       )}
       {queued > 0 && (
         <div className="notice">
-          {queuedSummary(queued, "set")}.{" "}
+          {queuedSummary(queued, "set", locale)}.{" "}
           <button className="text-button" onClick={() => void sync()}>
-            Sync now
+            {t("syncNow")}
           </button>
         </div>
       )}
@@ -3112,19 +3123,18 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       )}
       {rejected.length > 0 && (
         <div className="notice error" role="alert">
-          <strong>
-            {rejected.length} set{" "}
-            {rejected.length === 1 ? "log needs" : "logs need"} your attention.
-          </strong>{" "}
-          The workspace did not accept{" "}
-          {rejected.length === 1 ? "this entry" : "these entries"}. Try again,
-          or discard one to log that set again with corrected values.
+          <strong>{t("needAttention", { count: rejected.length })}</strong>{" "}
+          {t("notAccepted", { count: rejected.length })}
           <ul>
             {rejected.map((entry) => (
               <li key={entry.item.body.eventKey}>
-                {entry.item.body.exercise} · set {entry.item.body.set} ·{" "}
-                {entry.item.body.reps} reps · {entry.item.body.loadKg} kg —{" "}
-                {entry.failure.message}{" "}
+                {t("rejectedLine", {
+                  exercise: entry.item.body.exercise,
+                  set: entry.item.body.set,
+                  reps: entry.item.body.reps,
+                  load: entry.item.body.loadKg,
+                  reason: toError(entry.failure),
+                })}{" "}
                 <button
                   className="text-button"
                   type="button"
@@ -3139,18 +3149,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     void sync();
                   }}
                 >
-                  Try again
+                  {t("tryAgain")}
                 </button>{" "}
                 <button
                   className="text-button"
                   type="button"
                   onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Discard this set log from this device? It has not been saved.",
-                      )
-                    )
-                      return;
+                    if (!window.confirm(t("discardConfirm"))) return;
                     discardRejected<WorkoutQueueItem>(
                       localStorage,
                       keys,
@@ -3160,7 +3165,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     refreshQueue();
                   }}
                 >
-                  Discard
+                  {t("discard")}
                 </button>
               </li>
             ))}
@@ -3172,19 +3177,27 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           <div className="card-heading">
             <div className="exercise-title">
               <span className="step-circle">{i + 1}</span>
-              <h2>{ex.name}</h2>
+              <h2 dir="auto">{ex.name}</h2>
             </div>
             <span className="muted exercise-prescription">
-              <bdi dir="ltr">
-                {ex.sets} × {ex.reps}
-              </bdi>{" "}
-              reps · {ex.restSeconds} s rest
+              {t("prescription", {
+                setsReps: formatSetsReps(ex.sets, ex.reps, locale),
+                rest: ex.restSeconds,
+              })}
             </span>
           </div>
-          {ex.cue && <p className="muted">{ex.cue}</p>}
+          {ex.cue && (
+            <p className="muted" dir="auto">
+              {ex.cue}
+            </p>
+          )}
           <p className="rir-help">
-            <strong>Reps left (RIR)</strong> means reps in reserve: how many
-            more good reps you could still have done. Aim for {ex.rir ?? 2}.
+            <Rich
+              t={t}
+              k="rirHelp"
+              params={{ rir: ex.rir ?? 2 }}
+              tags={{ b: (text) => <strong>{text}</strong> }}
+            />
           </p>
           {sets.map((row) => (
             <form
@@ -3214,9 +3227,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 const { notes: _notes, ...setLog } = body,
                   checked = setSchema.safeParse(setLog);
                 if (!checked.success) {
-                  setNotice(
-                    "Check this set before logging it: the weight, reps and reps left must be numbers in range.",
-                  );
+                  setNotice(t("checkSet"));
                   return;
                 }
                 const pending = readList<WorkoutQueueItem>(localStorage, key);
@@ -3251,79 +3262,110 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   key,
                 ).some((p) => p.logicalKey === row.logicalKey);
                 setNotice(
-                  stillPending
-                    ? `Set ${row.set} of ${ex.name}: ${QUEUED_LABEL.toLowerCase()} when you are back online.`
-                    : `Set ${row.set} of ${ex.name} logged.`,
+                  t(stillPending ? "setQueued" : "setLogged", {
+                    set: row.set,
+                    exercise: ex.name,
+                  }),
                 );
               }}
             >
               <div className="set-row-head">
-                <strong>Set {row.set}</strong>
+                <strong>{t("setN", { n: row.set })}</strong>
                 {row.done && (
                   <span className="set-logged">
                     <Check size={16} aria-hidden="true" />
-                    {row.pending ? QUEUED_LABEL : "Logged"}
+                    {row.pending
+                      ? locale === "en"
+                        ? QUEUED_LABEL
+                        : queuedLabel(locale)
+                      : t("logged")}
                     {row.values && (
                       <>
                         {": "}
-                        <bdi dir="ltr">
-                          {row.values.loadKg} kg × {row.values.reps}
-                        </bdi>{" "}
-                        reps · {row.values.rir ?? 2} left
+                        {locale === "en" ? (
+                          <>
+                            <bdi dir="ltr">
+                              {row.values.loadKg} kg × {row.values.reps}
+                            </bdi>{" "}
+                            reps · {row.values.rir ?? 2} left
+                          </>
+                        ) : (
+                          t("loggedValues", {
+                            weightReps: formatRange(
+                              `${row.values.loadKg} kg`,
+                              row.values.reps,
+                              locale,
+                              " × ",
+                            ),
+                            rir: row.values.rir ?? 2,
+                          })
+                        )}
                       </>
                     )}
                   </span>
                 )}
                 {row.needsAttention && (
-                  <span className="set-attention">Needs your attention</span>
+                  <span className="set-attention">{t("needsAttention")}</span>
                 )}
               </div>
               {active && !row.done && !row.needsAttention && (
                 <>
                   <NumberStepper
-                    label="Weight (kg)"
+                    label={t("weightKg")}
                     name="load"
                     decimal
                     step={0.5}
                     min={0}
                     max={500}
                     defaultValue={ex.loadKg}
-                    inputLabel={`${ex.name} set ${row.set} weight in kilograms`}
+                    inputLabel={t("weightLabel", {
+                      exercise: ex.name,
+                      set: row.set,
+                    })}
                   />
                   <NumberStepper
-                    label="Reps"
+                    label={t("reps")}
                     name="reps"
                     min={0}
                     max={200}
                     defaultValue={ex.reps}
-                    inputLabel={`${ex.name} set ${row.set} reps`}
+                    inputLabel={t("repsLabel", {
+                      exercise: ex.name,
+                      set: row.set,
+                    })}
                   />
                   <NumberStepper
-                    label="Reps left (RIR)"
+                    label={t("repsLeft")}
                     name="rir"
                     min={0}
                     max={10}
                     defaultValue={ex.rir ?? 2}
                     enterKeyHint="done"
-                    inputLabel={`${ex.name} set ${row.set} reps left in reserve`}
+                    inputLabel={t("rirLabel", {
+                      exercise: ex.name,
+                      set: row.set,
+                    })}
                   />
                   <button
                     type="submit"
                     className="button secondary set-log"
                     disabled={busy}
                   >
-                    Log set {row.set}
+                    {t("logSet", { n: row.set })}
                   </button>
                   <details className="set-note">
-                    <summary>Add a note to set {row.set}</summary>
+                    <summary>{t("addNote", { n: row.set })}</summary>
                     <label className="field">
-                      <span>Note</span>
+                      <span>{t("note")}</span>
                       <textarea
                         name="notes"
                         maxLength={1000}
                         rows={2}
                         enterKeyHint="done"
-                        aria-label={`${ex.name} set ${row.set} note`}
+                        aria-label={t("noteLabel", {
+                          exercise: ex.name,
+                          set: row.set,
+                        })}
                       />
                     </label>
                   </details>
@@ -3336,12 +3378,12 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       {active && next && (
         <div className="workout-finish">
           <Button secondary disabled={busy || finishBlocked} onClick={finish}>
-            Finish workout now
+            {t("finishNow")}
           </Button>
           <p className="control-reason">
             {finishBlocked
-              ? "Finishing waits until every set log on this device has synced."
-              : `${remaining} ${remaining === 1 ? "set is" : "sets are"} not logged yet. Finish now if you are done for today.`}
+              ? t("finishWaits")
+              : t("notLoggedYet", { count: remaining })}
           </p>
         </div>
       )}
@@ -3349,24 +3391,26 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         workout={workout}
         userId={state.user.userId}
         onChange={async () => {
-          await action(async () => ({}), "Session updated");
+          await action(async () => ({}), t("sessionUpdated"));
         }}
       />
       {active && (
         <StickyActionBar
-          label="Workout actions"
+          label={t("actions")}
           note={
             restText ? (
               <span role="timer" aria-live="off">
                 {restText}
-                {next ? ` · next: ${next.ex.name}, set ${next.set}` : ""}
+                {next
+                  ? t("nextAfterRest", { exercise: next.ex.name, set: next.set })
+                  : ""}
               </span>
             ) : next ? (
-              `Next: ${next.ex.name}, set ${next.set}`
+              t("next", { exercise: next.ex.name, set: next.set })
             ) : finishBlocked ? (
-              "Waiting for set logs on this device to sync."
+              t("waitingSync")
             ) : (
-              "Every set is logged. Finish when you are ready."
+              t("allLogged")
             )
           }
         >
@@ -3377,7 +3421,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             onClick={() => setPainOpen(true)}
           >
             <AlertCircle size={18} aria-hidden="true" />
-            Report pain
+            {t("reportPain")}
           </button>
           {next ? (
             <button
@@ -3386,7 +3430,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               className="button"
               disabled={busy}
             >
-              Log set {next.set}
+              {t("logSet", { n: next.set })}
             </button>
           ) : (
             <button
@@ -3395,7 +3439,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               disabled={busy || finishBlocked}
               onClick={finish}
             >
-              Finish workout <CheckCircle size={18} aria-hidden="true" />
+              {t("finish")} <CheckCircle size={18} aria-hidden="true" />
             </button>
           )}
         </StickyActionBar>
@@ -3403,8 +3447,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       <BottomSheet
         open={painOpen}
         onClose={() => setPainOpen(false)}
-        title="Report pain or a problem"
-        description="Your workout stops and your coach is told straight away. In an emergency, call your local emergency number."
+        title={t("painTitle")}
+        description={t("painDescription")}
         footer={
           <>
             <button
@@ -3412,7 +3456,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               className="button secondary"
               onClick={() => setPainOpen(false)}
             >
-              Cancel
+              {t("cancel")}
             </button>
             <button
               type="submit"
@@ -3420,7 +3464,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               className="button"
               disabled={busy || !painText.trim()}
             >
-              Stop workout and notify coach
+              {t("stopNotify")}
             </button>
           </>
         }
@@ -3435,12 +3479,12 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             setPainText("");
             void action(
               () => api(`/workouts/${workout.id}/pain`, "POST", { description }),
-              "Workout paused. Your coach has been told.",
+              t("paused"),
             );
           }}
         >
           <label className="field">
-            <span>What happened?</span>
+            <span>{t("whatHappened")}</span>
             <textarea
               data-autofocus
               value={painText}
@@ -3449,7 +3493,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               maxLength={2000}
               required
               enterKeyHint="send"
-              placeholder="For example: sharp pain in my left knee during the second set"
+              placeholder={t("painExample")}
             />
           </label>
         </form>
@@ -3725,14 +3769,16 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
         ? subscription
         : null;
   const [offer, setOffer] = useState(path.includes("products"));
+  const mt = useT("membership"),
+    locale = useLocale();
   return (
     <>
       <Heading
-        eyebrow="CLEAR NUMBERS. NO GUESSWORK."
-        title={sub ? "Your membership." : "Your coaching, accounted for."}
+        eyebrow={sub ? mt("eyebrow") : "CLEAR NUMBERS. NO GUESSWORK."}
+        title={sub ? mt("title") : "Your coaching, accounted for."}
         detail={
           sub
-            ? "See your access, renewal and refund options in one place."
+            ? mt("detail")
             : "Track the ledger from subscriber payments through to your monthly payout."
         }
         action={
@@ -3749,7 +3795,7 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
         <>
           <MemberAccessCard />
           {!membership && (
-            <Field label="Discount code (optional)">
+            <Field label={mt("discountCode")}>
               <input
                 value={promotionCode}
                 maxLength={40}
@@ -3759,9 +3805,7 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           )}
           <Card>
             <h2>
-              {membership
-                ? "Your current plan"
-                : "Choose your coaching membership"}
+              {membership ? mt("currentPlan") : mt("choosePlan")}
             </h2>
             {membership?.data?.billing === "upfront" ? (
               <UpfrontMembership
@@ -3771,17 +3815,22 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
             ) : membership ? (
               <>
                 <div className="membership-price">
-                  {money(membership.price_minor)}
-                  <span>/ month</span>
+                  {formatMoney(membership.price_minor, locale)}
+                  <span> {mt("perMonth")}</span>
                 </div>
-                <Badge>{membership.status}</Badge>
+                <Badge>
+                  {mt.dynamic(
+                    `status_${membership.status}`,
+                    humanize(membership.status),
+                  )}
+                </Badge>
                 <p>
                   {membership.data?.modules?.includes("nutrition")
-                    ? "Workout + nutrition"
-                    : "Workout only"}
+                    ? mt("workoutNutrition")
+                    : mt("workoutOnly")}
                 </p>
                 {membership.data?.premiumVoice === true && (
-                  <p>Premium guided voice included</p>
+                  <p>{mt("voiceIncluded")}</p>
                 )}
                 {records("product")
                   .filter(
@@ -3804,23 +3853,28 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                               api("/membership/change-plan", "POST", {
                                 productId: p.id,
                               }),
-                            "Opening price and billing confirmation",
+                            mt("openingChange"),
                           ).then((r) => {
                             if (r?.url) window.location.assign(r.url);
                           })
                         }
                       >
-                        Review change to {p.data.name}
+                        {mt("reviewChange", { name: p.data.name })}
                       </Button>
                     </p>
                   ))}
                 <p className="muted">
-                  {membership.cancel_at_period_end
-                    ? "Access continues until"
-                    : "Current period ends"}{" "}
-                  {membership.period_end
-                    ? new Date(membership.period_end).toLocaleDateString()
-                    : "—"}
+                  {mt(
+                    membership.cancel_at_period_end
+                      ? "accessContinues"
+                      : "periodEnds",
+                    {
+                      date: formatDate(membership.period_end, {
+                        locale,
+                        fallback: "—",
+                      }),
+                    },
+                  )}
                 </p>
                 <Button
                   secondary
@@ -3834,14 +3888,14 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                           {},
                         ),
                       membership.cancel_at_period_end
-                        ? "Renewal reactivated"
-                        : "Renewal stopped; your paid access remains",
+                        ? mt("renewalReactivated")
+                        : mt("renewalStopped"),
                     )
                   }
                 >
                   {membership.cancel_at_period_end
-                    ? "Reactivate renewal"
-                    : "Cancel renewal"}
+                    ? mt("reactivate")
+                    : mt("cancelRenewal")}
                 </Button>
               </>
             ) : (
@@ -3863,15 +3917,15 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                               productId: p.id,
                               promotionCode,
                             }),
-                          "Opening checkout",
+                          mt("openingCheckout"),
                         ).then((r) => {
                           if (r?.url) window.location.assign(r.url);
                         })
                       }
                     >
                       {p.data.billing === "upfront"
-                        ? "Buy this programme"
-                        : "Join this plan"}
+                        ? mt("buyProgramme")
+                        : mt("joinPlan")}
                     </Button>
                   </div>
                 ))
@@ -3879,11 +3933,8 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           </Card>
           <VoiceAddOnCard />
           <Card>
-            <h2>Checkout status</h2>
-            <p className="muted">
-              If checkout was interrupted or your payment is still being
-              confirmed, check the original purchase before trying again.
-            </p>
+            <h2>{mt("checkoutStatus")}</h2>
+            <p className="muted">{mt("checkoutText")}</p>
             <Button
               secondary
               disabled={busy}
@@ -3891,34 +3942,27 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                 setCheckout({ status: "checking" });
                 void action(
                   () => api("/payments/checkout/reconcile", "POST", {}),
-                  "Checkout status checked",
+                  mt("checkoutChecked"),
                 ).then((result) =>
                   setCheckout(result ?? { status: "unresolved" }),
                 );
               }}
             >
               {checkout?.status === "checking"
-                ? "Checking checkout…"
-                : "Check checkout status"}
+                ? mt("checkingCheckout")
+                : mt("checkCheckout")}
             </Button>
             {checkout && (
               <p role="status">
-                {checkout.status === "checking"
-                  ? "Checking your original purchase."
-                  : checkout.status === "open"
-                    ? "Your original checkout is still open. Continue that purchase using the link below."
-                    : checkout.status === "complete"
-                      ? "Checkout is complete. Your membership status has been refreshed above."
-                      : checkout.status === "expired"
-                        ? "The payment provider confirmed that checkout expired. You can choose a plan above."
-                        : checkout.status === "resolved"
-                          ? "There is no pending checkout to reconcile."
-                          : "The payment outcome is not confirmed. Your original purchase remains held while it is checked."}
+                {mt.dynamic(
+                  `checkout_${checkout.status}`,
+                  mt("checkout_unresolved"),
+                )}
               </p>
             )}
             {checkout?.status === "open" && checkout.url && (
               <a className="button secondary" href={checkout.url}>
-                Continue original checkout
+                {mt("continueCheckout")}
               </a>
             )}
           </Card>
@@ -4543,21 +4587,24 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
     // A member's coaching intake has its own page, so "Complete your
     // coaching profile" opens the questions, not account security.
     intakePage = sub && path === "/app/intake";
+  const t = useT("profile");
   return (
     <>
       <Heading
-        eyebrow="YOUR SPACE, YOUR CHOICES"
+        eyebrow={sub ? t("eyebrow") : "YOUR SPACE, YOUR CHOICES"}
         title={
           intakePage
-            ? "Your coaching profile."
+            ? t("intakeTitle")
             : sub
-              ? "Profile and settings."
+              ? t("profileTitle")
               : "Your workspace settings."
         }
         detail={
           intakePage
-            ? "Tell your coach about your goals, experience and limits. You can change these answers at any time."
-            : "Keep your information useful, your permissions clear and your data under your control."
+            ? t("intakeDetail")
+            : sub
+              ? t("profileDetail")
+              : "Keep your information useful, your permissions clear and your data under your control."
         }
       />
       {!intakePage && (
@@ -4578,19 +4625,16 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
       )}
       {sub && !intakePage && (
         <Card>
-          <h2>Coaching profile</h2>
-          <p className="muted">
-            Your goals, experience, equipment and limits help your coach plan
-            your training.
-          </p>
+          <h2>{t("coachingProfile")}</h2>
+          <p className="muted">{t("coachingProfileText")}</p>
           <Link className="button secondary" href="/app/intake">
-            Review my coaching profile
+            {t("reviewProfile")}
           </Link>
         </Card>
       )}
       {intakePage && (
         <Card>
-          <h2>Help your coach understand you</h2>
+          <h2>{t("helpCoach")}</h2>
           <PlanIntakeNotice />
           <form
             id="intake-form"
@@ -4608,12 +4652,12 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                     limitations: f.get("limitations"),
                     consent: true,
                   }),
-                "Coaching profile saved",
+                t("profileSaved"),
               );
             }}
           >
             <div className="form-grid">
-              <Field label="Age (18+)">
+              <Field label={t("age")}>
                 <input
                   type="number"
                   name="age"
@@ -4624,22 +4668,24 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                   required
                 />
               </Field>
-              <Field label="Experience">
+              <Field label={t("experience")}>
                 <select
                   name="experience"
                   defaultValue={intake.experience ?? "beginner"}
                 >
-                  {["beginner", "intermediate", "advanced"].map((x) => (
-                    <option key={x} value={x}>
-                      {x[0].toUpperCase() + x.slice(1)}
-                    </option>
-                  ))}
+                  {(["beginner", "intermediate", "advanced"] as const).map(
+                    (x) => (
+                      <option key={x} value={x}>
+                        {t(x)}
+                      </option>
+                    ),
+                  )}
                 </select>
               </Field>
-              <Field label="Main goal">
+              <Field label={t("goal")}>
                 <input name="goal" defaultValue={intake.goal} required />
               </Field>
-              <Field label="Days available each week">
+              <Field label={t("days")}>
                 <input
                   name="days"
                   type="number"
@@ -4650,10 +4696,10 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                   required
                 />
               </Field>
-              <Field label="Equipment available">
+              <Field label={t("equipment")}>
                 <input name="equipment" defaultValue={intake.equipment} />
               </Field>
-              <Field label="Limitations your trainer should know">
+              <Field label={t("limitations")}>
                 <textarea
                   name="limitations"
                   defaultValue={intake.limitations}
@@ -4661,19 +4707,18 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
               </Field>
             </div>
             <label className="check-field">
-              <input type="checkbox" required />I agree to the coaching use of
-              this information and understand that digital coaching does not
-              replace medical care.
+              <input type="checkbox" required />
+              {t("intakeConsent")}
             </label>
             {/* The page's one main action, in thumb reach. */}
-            <StickyActionBar label="Coaching profile actions">
+            <StickyActionBar label={t("profileActions")}>
               <button
                 type="submit"
                 form="intake-form"
                 className="button"
                 disabled={busy}
               >
-                Save coaching profile
+                {t("saveProfile")}
               </button>
             </StickyActionBar>
           </form>
@@ -4687,16 +4732,12 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
         {/* Profile > Privacy (/app/profile#privacy), linked from More. */}
         <Card id="privacy">
-          <h2>{sub ? "Privacy and your data" : "Your data"}</h2>
-          <p className="muted">
-            Download your coaching records, manage consent, or request account
-            deletion. Required financial records follow the applicable retention
-            policy.
-          </p>
+          <h2>{sub ? t("privacyTitle") : "Your data"}</h2>
+          <p className="muted">{t("privacyText")}</p>
           <div className="button-row">
             <a className="button secondary" href="/api/v1/privacy/export">
               <Download size={16} />
-              Export my data
+              {t("exportData")}
             </a>
             <Button
               secondary
@@ -4704,11 +4745,11 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
               onClick={() =>
                 void action(
                   () => api("/privacy/delete-request", "POST", {}),
-                  "Deletion request recorded for review",
+                  t("deletionRecorded"),
                 )
               }
             >
-              Request deletion
+              {t("requestDeletion")}
             </Button>
           </div>
           <div className="divider" />
@@ -4722,11 +4763,11 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                     type: "coaching",
                     granted: false,
                   }),
-                "New model use of your intake has been disabled",
+                t("consentWithdrawn"),
               )
             }
           >
-            Withdraw coaching-data consent
+            {t("withdrawConsent")}
           </Button>
           <div className="divider" />
           <AnalyticsSetting />

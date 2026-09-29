@@ -1,4 +1,5 @@
 "use client";
+import { useErrorText, useT } from "../lib/i18n/react";
 import { FileInput } from "./phone-ui";
 import { useRef, useState } from "react";
 
@@ -23,13 +24,21 @@ async function request(path: string, method: string, body?: unknown) {
   });
   const result = await response.json();
   if (!response.ok && !(method === "DELETE" && response.status === 404))
-    throw new Error(result.message ?? "The attachment could not be saved");
+    throw Object.assign(
+      new Error(result.message ?? "The attachment could not be saved"),
+      { status: response.status, code: result.code },
+    );
   return result;
 }
 function fileData(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("This file could not be read"));
+    reader.onerror = () =>
+      reject(
+        Object.assign(new Error("This file could not be read"), {
+          code: "ATTACHMENT_DATA",
+        }),
+      );
     reader.onload = () => resolve(String(reader.result).split(",")[1]);
     reader.readAsDataURL(file);
   });
@@ -47,6 +56,8 @@ export function ChatAttachmentList({
 }) {
   const [removing, setRemoving] = useState(""),
     [error, setError] = useState("");
+  const t = useT("training"),
+    toError = useErrorText();
   async function remove(file: ChatAttachment) {
     setRemoving(file.id);
     setError("");
@@ -54,7 +65,7 @@ export function ChatAttachmentList({
       await request("/" + file.id, "DELETE");
       onRemove(file.id);
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
     } finally {
       setRemoving("");
     }
@@ -83,13 +94,18 @@ export function ChatAttachmentList({
                 }}
               />
             ) : (
-              <>Download {file.fileName}</>
+              <>{t("download", { name: file.fileName })}</>
             )}
           </a>
           <figcaption className="muted" style={{ overflowWrap: "anywhere" }}>
-            {file.mime === "image/jpeg" && file.fileName + " · "}
-            {Math.max(1, Math.round(file.bytes / 1024))} KB
-            {file.pages ? ` · ${file.pages} pages` : ""}
+            {file.mime === "image/jpeg" && (
+              <>
+                <bdi>{file.fileName}</bdi>
+                {" · "}
+              </>
+            )}
+            {t("sizeKb", { kb: Math.max(1, Math.round(file.bytes / 1024)) })}
+            {file.pages ? t("pages", { count: file.pages }) : ""}
           </figcaption>
           {(user.role === "owner" ||
             user.userId === file.uploadedBy ||
@@ -100,7 +116,7 @@ export function ChatAttachmentList({
               disabled={disabled || !!removing}
               onClick={() => void remove(file)}
             >
-              {removing === file.id ? "Removing…" : "Remove file"}
+              {removing === file.id ? t("removing") : t("removeFile")}
             </button>
           )}
         </figure>
@@ -127,10 +143,12 @@ export function ChatAttachmentPicker({
     [error, setError] = useState(""),
     [uploading, setUploading] = useState(false),
     retries = useRef(new Map<string, string>());
+  const t = useT("training"),
+    toError = useErrorText();
   async function upload(chosen: File[]) {
     setError("");
     if (chosen.length + files.length > 5) {
-      setError("Attach up to five files to one message");
+      setError(t("upToFive"));
       return;
     }
     setUploading(true);
@@ -139,7 +157,7 @@ export function ChatAttachmentPicker({
     try {
       for (const file of chosen) {
         if (!file.size || file.size > 5 * 1024 * 1024)
-          throw new Error("Each photo or PDF must be under 5 MB");
+          throw Object.assign(new Error(t("under5mb")), { local: true });
         const mime =
           file.type ||
           (
@@ -159,7 +177,7 @@ export function ChatAttachmentPicker({
             "application/pdf",
           ].includes(mime ?? "")
         )
-          throw new Error("Choose a JPEG, PNG, WebP or PDF file");
+          throw Object.assign(new Error(t("fileTypes")), { local: true });
         const intent = `${subjectId}:${file.name}:${file.size}:${file.lastModified}`;
         if (!retries.current.has(intent))
           retries.current.set(intent, crypto.randomUUID());
@@ -175,7 +193,10 @@ export function ChatAttachmentPicker({
         onChange(current);
       }
     } catch (e) {
-      setError((e as Error).message);
+      // Checks made here are already in the member's language.
+      setError(
+        (e as { local?: boolean }).local ? (e as Error).message : toError(e),
+      );
     } finally {
       setUploading(false);
       onBusy(false);
@@ -186,36 +207,33 @@ export function ChatAttachmentPicker({
       disabled={disabled || uploading || !subjectId}
       style={{ marginBlock: 16 }}
     >
-      <legend>Photos and PDFs</legend>
-      <p className="muted">
-        Up to five files, 5 MB each. PDFs allow up to 20 pages and are shared as
-        viewing copies. Unsent files expire after 24 hours.
-      </p>
+      <legend>{t("photosPdfs")}</legend>
+      <p className="muted">{t("attachHelp")}</p>
       <label className="checkbox">
         <input
           type="checkbox"
           checked={rights}
           onChange={(event) => setRights(event.target.checked)}
         />{" "}
-        I have permission to share these files in this conversation.
+        {t("permission")}
       </label>
       <FileInput
-        label="Photos or PDFs"
-        buttonLabel="Attach photos or PDFs"
+        label={t("photosOrPdfs")}
+        buttonLabel={t("attach")}
         accept="image/jpeg,image/png,image/webp,application/pdf"
         multiple
         disabled={!rights || files.length >= 5}
         disabledReason={
           files.length >= 5
-            ? "You have attached the most files one message can carry."
+            ? t("mostFiles")
             : !rights
-              ? "Tick the permission box above to attach files."
+              ? t("tickPermission")
               : undefined
         }
-        emptyText={files.length ? "" : "No files attached yet."}
+        emptyText={files.length ? "" : t("noFiles")}
         onFiles={(selected) => void upload(selected)}
       />
-      {uploading && <p role="status">Preparing your attachments…</p>}
+      {uploading && <p role="status">{t("preparing")}</p>}
       {error && <p role="alert">{error}</p>}
       <ChatAttachmentList
         files={files}

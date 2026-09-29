@@ -289,8 +289,16 @@ export default async function Page({
     if (!data) notFound();
     // Links to /coaches (the marketing header, trainers' settings) stay
     // useful while the Super admin has the directory closed.
-    if (data === "closed") return <CoachDirectoryClosed />;
-    return <CoachDirectory data={data} platformName={data.platformName} />;
+    // Subscriber chrome follows the document language (?lang= or the device).
+    const { lang } = await documentLanguage();
+    if (data === "closed") return <CoachDirectoryClosed locale={lang} />;
+    return (
+      <CoachDirectory
+        data={data}
+        platformName={data.platformName}
+        locale={lang}
+      />
+    );
   }
   if (path[0] === "coach" && path[1]) {
     const data = await website(path[1]);

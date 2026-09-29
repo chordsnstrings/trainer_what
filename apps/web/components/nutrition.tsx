@@ -1,5 +1,12 @@
 "use client";
-import { QUEUED_LABEL, queuedSummary } from "./pwa";
+import { queuedLabel, queuedSummary } from "./pwa";
+import {
+  formatDate,
+  formatDateRange,
+  formatDuration,
+  humanize,
+} from "../lib/format";
+import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { ScrollTabs, tabPanelProps } from "./phone-ui";
 import { Field } from "./field";
 import {
@@ -54,9 +61,10 @@ async function api(
     });
   return data;
 }
+// Commas, Arabic commas included, separate the items.
 const list = (v: FormDataEntryValue | null) =>
   String(v ?? "")
-    .split(",")
+    .split(/[,،]/)
     .map((s) => s.trim())
     .filter(Boolean);
 const num = (f: FormData, key: string) => Number(f.get(key));
@@ -81,15 +89,18 @@ function useNutrition(path: string) {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const t = useT("nutrition"),
+    toError = useErrorText();
   const load = useCallback(async () => {
     const d = await api(path);
     setData(d);
     return d;
   }, [path]);
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    void load().catch((e) => setError(toError(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
-  async function action(fn: () => Promise<any>, success = "Saved") {
+  async function action(fn: () => Promise<any>, success = t("saved")) {
     setBusy(true);
     setError("");
     setMessage("");
@@ -99,7 +110,7 @@ function useNutrition(path: string) {
       setMessage(result?.status === "exception" ? result.message : success);
       return result;
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
       return null;
     } finally {
       setBusy(false);
@@ -115,6 +126,7 @@ function useNutrition(path: string) {
     setMessage,
     action,
     load,
+    toError,
   };
 }
 const sections = [
@@ -1666,6 +1678,7 @@ export function ProfileForm({
   mode?: "client" | "preview" | "scenario";
   onSubmit: (b: any) => Promise<any>;
 }) {
+  const t = useT("nutrition");
   return (
     <form
       onSubmit={(e) => {
@@ -1692,7 +1705,7 @@ export function ProfileForm({
       }}
     >
       <div className="nutrition-form-grid">
-        <Field label="Age">
+        <Field label={t("age")}>
           <input
             name="age"
             type="number"
@@ -1702,7 +1715,7 @@ export function ProfileForm({
             required
           />
         </Field>
-        <Field label="Goal (as agreed with your coach)">
+        <Field label={t("goal")}>
           <input
             name="goal"
             defaultValue={initial?.goal}
@@ -1715,45 +1728,45 @@ export function ProfileForm({
             ))}
           </datalist>
         </Field>
-        <Field label="Diet preference">
+        <Field label={t("diet")}>
           <input
             name="diet"
             defaultValue={initial?.diet}
             required
-            placeholder="balanced, vegetarian…"
+            placeholder={t("dietPlaceholder")}
           />
         </Field>
-        <Field label="Allergy information">
+        <Field label={t("allergy")}>
           <select
             name="allergyStatus"
             defaultValue={initial?.allergyStatus ?? "unknown"}
           >
-            <option value="unknown">Not supplied yet</option>
-            <option value="none_reported">No allergies reported</option>
-            <option value="reported">Allergies reported below</option>
-            <option value="declined">Prefer not to supply</option>
+            <option value="unknown">{t("allergy_unknown")}</option>
+            <option value="none_reported">{t("allergy_none")}</option>
+            <option value="reported">{t("allergy_reported")}</option>
+            <option value="declined">{t("allergy_declined")}</option>
           </select>
         </Field>
-        <Field label="Reported allergens (comma separated)">
+        <Field label={t("allergensField")}>
           <input
             name="allergens"
             defaultValue={initial?.allergens?.join(", ")}
           />
         </Field>
-        <Field label="Other excluded foods">
+        <Field label={t("exclusions")}>
           <input
             name="exclusions"
             defaultValue={initial?.exclusions?.join(", ")}
           />
         </Field>
-        <Field label="Available equipment">
+        <Field label={t("equipment")}>
           <input
             name="equipment"
             defaultValue={initial?.equipment?.join(", ")}
-            placeholder="hob, oven, air fryer…"
+            placeholder={t("equipmentPlaceholder")}
           />
         </Field>
-        <Field label="Maximum preparation time (minutes)">
+        <Field label={t("maxMinutes")}>
           <input
             name="minutes"
             type="number"
@@ -1763,23 +1776,21 @@ export function ProfileForm({
             required
           />
         </Field>
-        <Field label="Food budget">
+        <Field label={t("budget")}>
           <select name="budget" defaultValue={initial?.budget ?? "moderate"}>
-            <option value="low">Low</option>
-            <option value="moderate">Moderate</option>
-            <option value="flexible">Flexible</option>
+            <option value="low">{t("budget_low")}</option>
+            <option value="moderate">{t("budget_moderate")}</option>
+            <option value="flexible">{t("budget_flexible")}</option>
           </select>
         </Field>
-        <Field label="Nutrition scope">
+        <Field label={t("scope")}>
           <select name="scope" defaultValue={initial?.scopeStatus ?? "unknown"}>
-            <option value="unknown">Needs clarification</option>
-            <option value="general_wellness">General wellness coaching</option>
-            <option value="specialist_needed">
-              I need specialist dietary guidance
-            </option>
+            <option value="unknown">{t("scope_unknown")}</option>
+            <option value="general_wellness">{t("scope_general")}</option>
+            <option value="specialist_needed">{t("scope_specialist")}</option>
           </select>
         </Field>
-        <Field label="Timezone">
+        <Field label={t("timezone")}>
           <input
             name="timezone"
             defaultValue={initial?.timezone ?? "Asia/Dubai"}
@@ -1787,28 +1798,25 @@ export function ProfileForm({
           />
         </Field>
       </div>
-      <Field label="Practical preferences or questions">
+      <Field label={t("notes")}>
         <textarea name="notes" defaultValue={initial?.notes} />
       </Field>
       {mode === "client" && (
         <>
           <label className="check">
-            <input type="checkbox" required /> Allow this coach and platform to
-            process this nutrition profile for my coaching.
+            <input type="checkbox" required /> {t("processingConsent")}
           </label>
           <label className="check">
-            <input type="checkbox" name="ai" /> Allow my nutrition information
-            to be sent to the configured AI service for nutrition coaching. I
-            can revoke this separately.
+            <input type="checkbox" name="ai" /> {t("aiConsent")}
           </label>
         </>
       )}
       <button className="button">
         {mode === "preview"
-          ? "Prepare sample week"
+          ? t("prepareSample")
           : mode === "scenario"
-            ? "Save this held-out case"
-            : "Save nutrition profile"}
+            ? t("saveHeldOut")
+            : t("saveProfile")}
       </button>
     </form>
   );
@@ -1996,61 +2004,74 @@ export function WeekView({
   const view = plan.data.view;
   const [date, setDate] = useState(view.days[0]?.date);
   const day = view.days.find((d: any) => d.date === date) ?? view.days[0];
+  const t = useT("nutrition"),
+    locale = useLocale();
+  const unknown = t("unknownValue");
   return (
-    <Card title="Your week of meals">
+    <Card title={t("weekTitle")}>
       <div className="nutrition-week-heading">
-        <p>
-          {view.weekStart} — {view.weekEnd}
-        </p>
-        <span className="badge">Approx. {view.targetKcal} kcal / day</span>
+        <p>{formatDateRange(view.weekStart, view.weekEnd, { locale })}</p>
+        <span className="badge">
+          {t("approxDay", { kcal: view.targetKcal })}
+        </span>
       </div>
       <p>{view.explanation}</p>
-      <nav className="nutrition-days" aria-label="Meal plan days">
+      <nav className="nutrition-days" aria-label={t("daysLabel")}>
         {view.days.map((d: any) => (
           <button
             key={d.date}
             className={date === d.date ? "selected" : ""}
             onClick={() => setDate(d.date)}
           >
-            <span>
-              {new Date(d.date + "T12:00:00Z").toLocaleDateString("en", {
-                weekday: "short",
-              })}
-            </span>
-            {d.date.slice(5)}
+            <span>{weekdayShort(d.date, locale)}</span>
+            {formatDate(d.date, { locale, year: false })}
           </button>
         ))}
       </nav>
       {day && (
         <>
           <div className="nutrition-day-total">
-            <strong>{day.date}</strong>
+            <strong>{formatDate(day.date, { locale, weekday: true })}</strong>
             <span>
-              Approx. {day.totals.kcal} kcal · protein{" "}
-              {day.totals.protein ?? "unknown"} g · carbohydrate{" "}
-              {day.totals.carbohydrate ?? "unknown"} g · fat{" "}
-              {day.totals.fat ?? "unknown"} g
+              {t("dayTotals", {
+                kcal: day.totals.kcal,
+                protein: day.totals.protein ?? unknown,
+                carbohydrate: day.totals.carbohydrate ?? unknown,
+                fat: day.totals.fat ?? unknown,
+              })}
             </span>
           </div>
           <div className="nutrition-meals">
             {day.meals.map((m: any) => (
               <article className="nutrition-meal" key={m.slot}>
-                <p className="eyebrow">{m.slot}</p>
+                <p className="eyebrow">
+                  {t.dynamic(`slot_${String(m.slot).toLowerCase()}`, m.slot)}
+                </p>
                 <h3>{m.name}</h3>
                 <p>
-                  {m.servings} serving(s) · approx. {m.nutrients.kcal} kcal
+                  {t("servingsLine", {
+                    count: Number(m.servings),
+                    kcal: m.nutrients.kcal,
+                  })}
                 </p>
                 <p className="muted">
-                  {m.cookingName} · {m.minutes} min ·{" "}
-                  {m.equipment.join(", ") || "No cooking equipment"}
+                  {m.cookingName} · {formatDuration(m.minutes, locale)} ·{" "}
+                  {m.equipment.join(locale === "ar" ? "، " : ", ") ||
+                    t("noEquipment")}
                 </p>
                 <details>
-                  <summary>Ingredients & cooking instructions</summary>
+                  <summary>{t("ingredientsTitle")}</summary>
                   <ul>
                     {m.ingredients.map((i: any) => (
                       <li key={i.food.id}>
-                        {i.grams} g {i.food.name} (
-                        {i.food.preparation.replaceAll("_", " ")})
+                        {t("ingredientLine", {
+                          grams: i.grams,
+                          food: i.food.name,
+                          preparation: t.dynamic(
+                            `prep_${i.food.preparation}`,
+                            humanize(i.food.preparation).toLowerCase(),
+                          ),
+                        })}
                       </li>
                     ))}
                   </ul>
@@ -2061,14 +2082,10 @@ export function WeekView({
                   </ol>
                   {m.storageNote && <p>{m.storageNote}</p>}
                   {m.batchKey && (
-                    <p>
-                      Shared preparation batch: {m.batchKey}. The grocery list
-                      includes each allocated portion once.
-                    </p>
+                    <p>{t("batch", { batch: m.batchKey })}</p>
                   )}
                   <p className="muted">
-                    Recipe source: {m.source}. Ingredient estimates are saved
-                    with this plan.
+                    {t("recipeSource", { source: m.source })}
                   </p>
                 </details>
                 <div className="nutrition-actions">
@@ -2077,7 +2094,7 @@ export function WeekView({
                       className="button secondary"
                       onClick={() => onLog(day, m)}
                     >
-                      Log this meal
+                      {t("logMeal")}
                     </button>
                   )}
                   {onSwap && (
@@ -2085,7 +2102,7 @@ export function WeekView({
                       className="button secondary"
                       onClick={() => onSwap(day, m)}
                     >
-                      Change meal or cooking option
+                      {t("changeMeal")}
                     </button>
                   )}
                 </div>
@@ -2094,11 +2111,15 @@ export function WeekView({
           </div>
         </>
       )}
-      <p className="muted">
-        Calories are estimates. Ingredient amounts state whether the food is
-        weighed raw, cooked or ready to eat.
-      </p>
+      <p className="muted">{t("estimates")}</p>
     </Card>
+  );
+}
+/** "Mon" / "الاثنين" for a calendar date. */
+function weekdayShort(date: string, locale: "en" | "ar") {
+  return new Date(date + "T12:00:00Z").toLocaleDateString(
+    locale === "ar" ? "ar-AE" : "en",
+    { weekday: locale === "ar" ? "long" : "short", timeZone: "UTC" },
   );
 }
 
@@ -2122,6 +2143,9 @@ export function NutritionSubscriber({
     [queued, setQueued] = useState<any[]>([]),
     [rejected, setRejected] = useState<RejectedEntry<NutritionQueueItem>[]>([]),
     [cache, setCache] = useState(false);
+  const t = useT("nutrition"),
+    locale = useLocale();
+  const toError = r.toError;
   const key = "trainer:nutrition:" + tenantId + ":" + userId,
     keys = offlineQueueKeys("nutrition", tenantId, userId),
     queueKey = keys.pending;
@@ -2144,9 +2168,7 @@ export function NutritionSubscriber({
     return removed;
   };
   const removedText = (removed: number) =>
-    removed
-      ? ` ${removed} unsynced meal ${removed === 1 ? "entry was" : "entries were"} removed from this device.`
-      : "";
+    removed ? t("removedEntries", { count: removed }) : "";
   useEffect(() => {
     setOffline(!navigator.onLine);
     const update = () => setOffline(!navigator.onLine);
@@ -2169,7 +2191,7 @@ export function NutritionSubscriber({
     if (!r.data.processingConsent) {
       const removed = clearDevice();
       if (removed)
-        r.setError("Nutrition permission is off." + removedText(removed));
+        r.setError(t("permissionOff") + removedText(removed));
     } else if (cache && !coachView && !offline && navigator.onLine) {
       const data = {
         ...r.data,
@@ -2210,29 +2232,20 @@ export function NutritionSubscriber({
     const stop = result.stopped?.reason;
     if (stop === "blocked") {
       const removed = clearDevice();
-      r.setError(
-        "Nutrition syncing stopped because access or permission changed. Local nutrition data was cleared." +
-          removedText(removed),
-      );
-    } else if (stop === "session")
-      r.setError(
-        "Your session ended. Sign in again to sync; unsynced meal entries stay on this device.",
-      );
-    else if (stop) r.setError(result.stopped!.failure.message);
-    else if (result.rejected.length)
-      r.setError(
-        "A meal entry could not be saved. Review it below; later entries kept syncing.",
-      );
+      r.setError(t("syncBlocked") + removedText(removed));
+    } else if (stop === "session") r.setError(t("sessionEnded"));
+    else if (stop) r.setError(toError(result.stopped!.failure));
+    else if (result.rejected.length) r.setError(t("entryRejected"));
     // A failed reload must not hide what the replay did to the queue.
     if (stop !== "session")
       await r.load().catch((e) => {
-        if (!stop) r.setError((e as Error).message);
+        if (!stop) r.setError(toError(e));
       });
     return result;
   }
   useEffect(() => {
     if (!offline && navigator.onLine)
-      void sync().catch((e) => r.setError((e as Error).message));
+      void sync().catch((e) => r.setError(toError(e)));
   }, [offline, queueKey]);
   async function queue(body: any) {
     const entries = readList<NutritionQueueItem>(localStorage, queueKey);
@@ -2240,9 +2253,7 @@ export function NutritionSubscriber({
       body.correctsId &&
       entries.some((e) => e.correctsId === body.correctsId)
     ) {
-      r.setError(
-        "A correction for this entry is already waiting to sync. Sync it before correcting the entry again.",
-      );
+      r.setError(t("correctionWaiting"));
       return;
     }
     localStorage.setItem(queueKey, JSON.stringify([...entries, body]));
@@ -2250,7 +2261,7 @@ export function NutritionSubscriber({
     r.setMessage("");
     const result = navigator.onLine
       ? await sync().catch((e) => {
-          r.setError((e as Error).message);
+          r.setError(toError(e));
           return null;
         })
       : null;
@@ -2264,19 +2275,17 @@ export function NutritionSubscriber({
       result,
     );
     if (outcome === "pending")
-      r.setMessage(
-        `${QUEUED_LABEL} when you are back online.`,
-      );
-    else if (outcome === "accepted") r.setMessage("Meal recorded");
+      r.setMessage(t("queuedOnline", { queued: queuedLabel(locale) }));
+    else if (outcome === "accepted") r.setMessage(t("mealRecorded"));
   }
   async function syncNow() {
     r.setMessage("");
     const result = await sync().catch((e) => {
-      r.setError((e as Error).message);
+      r.setError(toError(e));
       return null;
     });
     if (result && !result.stopped && !result.rejected.length)
-      r.setMessage("Diary synced");
+      r.setMessage(t("diarySynced"));
   }
   function retryEntry(entry: RejectedEntry<NutritionQueueItem>, zone: string) {
     // A diary date is checked in the profile time zone; a retry after a zone
@@ -2292,15 +2301,10 @@ export function NutritionSubscriber({
           : item,
     );
     refreshQueue();
-    void sync().catch((e) => r.setError((e as Error).message));
+    void sync().catch((e) => r.setError(toError(e)));
   }
   function discardEntry(entry: RejectedEntry<NutritionQueueItem>) {
-    if (
-      !window.confirm(
-        "Discard this meal entry from this device? It has not been saved.",
-      )
-    )
-      return;
+    if (!window.confirm(t("discardConfirm"))) return;
     discardRejected<NutritionQueueItem>(
       localStorage,
       keys,
@@ -2310,7 +2314,7 @@ export function NutritionSubscriber({
     refreshQueue();
   }
   const d = r.data;
-  if (!d) return <Notice>{r.error || "Loading your nutrition…"}</Notice>;
+  if (!d) return <Notice>{r.error || t("loading")}</Notice>;
   const plan =
       d.records.find(
         (x: any) => x.kind === "nutrition_plan" && x.id === selectedPlan,
@@ -2347,26 +2351,26 @@ export function NutritionSubscriber({
     <div className="nutrition">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">EAT WELL, WITH YOUR COACH</p>
-          <h1>Nutrition</h1>
-          <p>Your meals, preparation and shopping, connected.</p>
+          <p className="eyebrow">{t("eyebrow")}</p>
+          <h1>{t("title")}</h1>
+          <p>{t("intro")}</p>
         </div>
         <span className="badge">
-          {d.entitled ? "Workout + nutrition" : "Nutrition membership required"}
+          {d.entitled ? t("badgeEntitled") : t("badgeRequired")}
         </span>
       </div>
       {/* One row that scrolls sideways on phones instead of wrapping. */}
       <ScrollTabs
-        label="Your nutrition"
+        label={t("tabsLabel")}
         idPrefix="nutrition"
         selected={tab}
         onSelect={setTab}
         tabs={[
-          { id: "today", label: "Meal plan" },
-          { id: "groceries", label: "Weekly groceries" },
-          { id: "profile", label: "Food preferences" },
-          { id: "diary", label: "Meal diary" },
-          { id: "checkin", label: "Check in" },
+          { id: "today", label: t("tab_today") },
+          { id: "groceries", label: t("tab_groceries") },
+          { id: "profile", label: t("tab_profile") },
+          { id: "diary", label: t("tab_diary") },
+          { id: "checkin", label: t("tab_checkin") },
         ]}
       />
       {r.error && (
@@ -2376,37 +2380,32 @@ export function NutritionSubscriber({
       )}
       {r.message && <Notice>{r.message}</Notice>}
       {offline && (
-        <Notice>
-          Offline. Saved plans are a reference copy. Meal entries stay on this
-          device until access and permission can be checked again.
-        </Notice>
+        <Notice>{t("offline")}</Notice>
       )}
       {queued.length > 0 && (
         <Notice>
-          {queuedSummary(queued.length, "meal")}.{" "}
+          {queuedSummary(queued.length, "meal", locale)}.{" "}
           {!offline && (
             <button className="button secondary" onClick={() => void syncNow()}>
-              Sync now
+              {t("syncNow")}
             </button>
           )}
         </Notice>
       )}
       {rejected.length > 0 && !coachView && (
         <div className="notice error" role="alert">
-          <strong>
-            {rejected.length} meal{" "}
-            {rejected.length === 1 ? "entry needs" : "entries need"} your
-            attention.
-          </strong>{" "}
-          Your diary did not accept{" "}
-          {rejected.length === 1 ? "this entry" : "these entries"}. Try again,
-          or discard it and record the meal again.
+          <strong>{t("needAttention", { count: rejected.length })}</strong>{" "}
+          {t("notAccepted", { count: rejected.length })}
           <ul>
             {rejected.map((entry) => (
               <li key={entry.item.eventKey}>
-                {entry.item.date} · {entry.item.name}
-                {entry.item.correctsId ? " (correction)" : ""} —{" "}
-                {entry.failure.message}{" "}
+                {formatDate(entry.item.date, {
+                  locale,
+                  fallback: entry.item.date,
+                })}{" "}
+                · <bdi>{entry.item.name}</bdi>
+                {entry.item.correctsId ? t("correction") : ""} —{" "}
+                {toError(entry.failure)}{" "}
                 <button
                   type="button"
                   className="button secondary"
@@ -2415,14 +2414,14 @@ export function NutritionSubscriber({
                     retryEntry(entry, profile?.timezone ?? entry.item.timezone)
                   }
                 >
-                  Try again
+                  {t("tryAgain")}
                 </button>{" "}
                 <button
                   type="button"
                   className="button secondary"
                   onClick={() => discardEntry(entry)}
                 >
-                  Discard
+                  {t("discard")}
                 </button>
               </li>
             ))}
@@ -2431,10 +2430,9 @@ export function NutritionSubscriber({
       )}
       {!d.entitled && (
         <Notice>
-          Choose your coach's workout + nutrition membership for new nutrition
-          plans. Your previous records remain available.{" "}
+          {t("notEntitled")}{" "}
           <Link href="/app/membership">
-            Membership options{" "}
+            {t("membershipOptions")}{" "}
             <span className="bidi-mirror" aria-hidden="true">
               →
             </span>
@@ -2459,7 +2457,7 @@ export function NutritionSubscriber({
       >
         {d.records.filter((x: any) => x.kind === "nutrition_plan").length >
           1 && (
-          <Field label="Meal week">
+          <Field label={t("mealWeek")}>
             <select
               value={plan?.id ?? ""}
               onChange={(e) => setSelectedPlan(e.target.value)}
@@ -2468,8 +2466,11 @@ export function NutritionSubscriber({
                 .filter((x: any) => x.kind === "nutrition_plan")
                 .map((x: any) => (
                   <option key={x.id} value={x.id}>
-                    {x.data.view.weekStart} — {x.data.view.weekEnd} ·{" "}
-                    {x.status.replaceAll("_", " ")}
+                    {formatDateRange(x.data.view.weekStart, x.data.view.weekEnd, {
+                      locale,
+                    })}{" "}
+                    ·{" "}
+                    {t.dynamic(`planStatus_${x.status}`, humanize(x.status))}
                   </option>
                 ))}
             </select>
@@ -2478,17 +2479,23 @@ export function NutritionSubscriber({
         {tab === "today" && (
           <>
             {!coachView && (
-              <Card title={plan ? "Plan your next week" : "Your first week"}>
+              <Card title={plan ? t("planNext") : t("firstWeek")}>
                 {!d.profile ? (
                   <p>
-                    Start with{" "}
-                    <button
-                      className="nutrition-text-button"
-                      onClick={() => setTab("profile")}
-                    >
-                      your food preferences and permissions
-                    </button>
-                    .
+                    <Rich
+                      t={t}
+                      k="startWith"
+                      tags={{
+                        link: (text) => (
+                          <button
+                            className="nutrition-text-button"
+                            onClick={() => setTab("profile")}
+                          >
+                            {text}
+                          </button>
+                        ),
+                      }}
+                    />
                   </p>
                 ) : (
                   <form
@@ -2502,11 +2509,11 @@ export function NutritionSubscriber({
                             requestKey: crypto.randomUUID(),
                             weekStart: f.get("weekStart"),
                           }),
-                        "Your meal week is ready",
+                        t("weekReady"),
                       );
                     }}
                   >
-                    <Field label="Week starts">
+                    <Field label={t("weekStarts")}>
                       <input
                         type="date"
                         name="weekStart"
@@ -2519,22 +2526,12 @@ export function NutritionSubscriber({
                       className="button"
                       disabled={!permitted || !d.modelConsent || !d.ready}
                     >
-                      Prepare my week
+                      {t("prepareWeek")}
                     </button>
                   </form>
                 )}
-                {!d.ready && (
-                  <p>
-                    Your coach's nutrition setup is not ready for new automatic
-                    plans yet.
-                  </p>
-                )}
-                {d.profile && !d.modelConsent && (
-                  <p>
-                    Enable AI nutrition permission in Food preferences to
-                    request an automatic plan.
-                  </p>
-                )}
+                {!d.ready && <p>{t("notReady")}</p>}
+                {d.profile && !d.modelConsent && <p>{t("enableAi")}</p>}
                 <label className="check">
                   <input
                     type="checkbox"
@@ -2544,8 +2541,7 @@ export function NutritionSubscriber({
                       if (!e.target.checked) localStorage.removeItem(key);
                     }}
                   />{" "}
-                  Keep a private copy of the latest plan on this device for up
-                  to 12 hours.
+                  {t("keepCopy")}
                 </label>
               </Card>
             )}
@@ -2554,12 +2550,12 @@ export function NutritionSubscriber({
                 <Notice>
                   {plan.data.synthetic ||
                   plan.data.origin === "synthetic_fixture"
-                    ? "Demonstration plan with synthetic food and coach data. It has not been qualified for personal use."
+                    ? t("synthetic")
                     : plan.status === "delivered"
-                      ? "This plan follows your coach's qualified nutrition rules."
+                      ? t("qualified")
                       : catalogRecheck
-                        ? "Being rechecked — your coach withdrew a food or recipe in this week. Do not follow it or shop from it until a new week is prepared."
-                        : "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it."}
+                        ? t("recheck")
+                        : t("historical")}
                 </Notice>
                 <WeekView
                   key={plan.id}
@@ -2597,16 +2593,12 @@ export function NutritionSubscriber({
                 />
               </>
             ) : (
-              <Card title="Your meals will appear here">
-                <p>
-                  Complete your profile and prepare a week. You will receive
-                  recipes, portions, cooking instructions and a grocery list
-                  together.
-                </p>
+              <Card title={t("mealsAppear")}>
+                <p>{t("mealsAppearText")}</p>
               </Card>
             )}
             {swap && options && (
-              <Card title="Choose a permitted alternative">
+              <Card title={t("chooseAlternative")}>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -2617,7 +2609,7 @@ export function NutritionSubscriber({
                             ...swap,
                             expectedVersion: plan.version,
                           }),
-                        "Meal and grocery quantities updated",
+                        t("swapped"),
                       )
                       .then((x) => {
                         if (x?.plan) {
@@ -2628,7 +2620,7 @@ export function NutritionSubscriber({
                       });
                   }}
                 >
-                  <Field label="Recipe">
+                  <Field label={t("recipe")}>
                     <select
                       value={swap.recipeId}
                       onChange={(e) => {
@@ -2649,7 +2641,7 @@ export function NutritionSubscriber({
                       ))}
                     </select>
                   </Field>
-                  <Field label="Cooking option">
+                  <Field label={t("cookingOption")}>
                     <select
                       value={swap.variantKey}
                       onChange={(e) =>
@@ -2660,12 +2652,12 @@ export function NutritionSubscriber({
                         .find((x: any) => x.id === swap.recipeId)
                         ?.variants.map((v: any) => (
                           <option value={v.key} key={v.key}>
-                            {v.name} · {v.minutes} min
+                            {v.name} · {formatDuration(v.minutes, locale)}
                           </option>
                         ))}
                     </select>
                   </Field>
-                  <Field label="Servings">
+                  <Field label={t("servings")}>
                     <input
                       type="number"
                       step={0.25}
@@ -2677,17 +2669,14 @@ export function NutritionSubscriber({
                       }
                     />
                   </Field>
-                  <p>
-                    Diet, ingredient restrictions, calories and portions are
-                    rechecked before the change is delivered.
-                  </p>
-                  <button className="button">Apply change</button>
+                  <p>{t("recheckedNote")}</p>
+                  <button className="button">{t("applyChange")}</button>
                   <button
                     type="button"
                     className="button secondary"
                     onClick={() => setSwap(null)}
                   >
-                    Cancel
+                    {t("cancel")}
                   </button>
                 </form>
               </Card>
@@ -2695,20 +2684,22 @@ export function NutritionSubscriber({
           </>
         )}
         {tab === "groceries" && (
-          <Card title="One list for the week">
+          <Card title={t("oneList")}>
             {plan ? (
               <>
                 {plan.status !== "delivered" && (
                   <Notice>
-                    {catalogRecheck
-                      ? "This week is being rechecked because your coach withdrew a food or recipe in it. Do not shop from this list until a new week is prepared."
-                      : "This list belongs to a week that is no longer current. Prepare a new week before shopping."}
+                    {catalogRecheck ? t("listRecheck") : t("listOld")}
                   </Notice>
                 )}
                 <p>
-                  {plan.data.view.weekStart} — {plan.data.view.weekEnd}.
-                  Quantities are the ingredients used by the planned portions;
-                  shop pack sizes separately.
+                  {t("listIntro", {
+                    range: formatDateRange(
+                      plan.data.view.weekStart,
+                      plan.data.view.weekEnd,
+                      { locale },
+                    ),
+                  })}
                 </p>
                 <GroceryList
                   plan={plan}
@@ -2727,7 +2718,7 @@ export function NutritionSubscriber({
                           planId: plan.id,
                           foodIds,
                         }),
-                      "Pantry checklist saved",
+                      t("pantrySaved"),
                     )
                   }
                 />
@@ -2736,28 +2727,29 @@ export function NutritionSubscriber({
                     className="button secondary"
                     href={"/api/v1/nutrition/groceries/" + plan.id}
                   >
-                    Download grocery list
+                    {t("downloadList")}
                   </a>
                 )}
                 {plan.data.groceryChanges && (
-                  <p className="muted">
-                    This list includes your latest meal changes. Previously
-                    purchased ingredients may remain in your pantry.
-                  </p>
+                  <p className="muted">{t("groceryChanges")}</p>
                 )}
               </>
             ) : (
-              <p>Prepare a meal week to generate its grocery list.</p>
+              <p>{t("noList")}</p>
             )}
           </Card>
         )}
         {tab === "profile" && (
-          <Card title="Your food preferences and permissions">
+          <Card title={t("preferencesTitle")}>
             {coachView ? (
               <p>
                 {profile
-                  ? `${profile.goal} · ${profile.diet} · ${profile.maxMinutes} minutes to prepare a meal`
-                  : "No profile supplied."}
+                  ? t("profileSummary", {
+                      goal: profile.goal,
+                      diet: profile.diet,
+                      time: formatDuration(profile.maxMinutes, locale),
+                    })
+                  : t("noProfile")}
               </p>
             ) : (
               <>
@@ -2775,7 +2767,7 @@ export function NutritionSubscriber({
                             ...b,
                             version: d.profile?.version ?? 0,
                           }),
-                        "Preferences saved. Prepare a new week using the updated information.",
+                        t("prefsSaved"),
                       )
                     }
                   />
@@ -2791,11 +2783,11 @@ export function NutritionSubscriber({
                             type: "nutrition_model",
                             granted: false,
                           }),
-                        "AI nutrition permission revoked",
+                        t("aiRevoked"),
                       )
                     }
                   >
-                    Revoke AI nutrition permission
+                    {t("revokeAi")}
                   </button>
                   <button
                     className="button secondary"
@@ -2807,11 +2799,11 @@ export function NutritionSubscriber({
                             type: "nutrition",
                             granted: false,
                           }),
-                        "Nutrition processing permission revoked",
+                        t("processingRevoked"),
                       )
                     }
                   >
-                    Revoke nutrition processing
+                    {t("revokeProcessing")}
                   </button>
                 </div>
               </>
@@ -2828,11 +2820,12 @@ export function NutritionSubscriber({
             {!coachView && (
               <NutritionSavedMeals today={d.today} onChange={r.load} />
             )}
-            <Card title="What you recorded">
+            <Card title={t("recorded")}>
               <p>
-                {d.twin.loggedMeals ?? 0} meals across {d.twin.loggedDays ?? 0}{" "}
-                days in the last 28 days. Missing entries do not mean missed
-                meals.
+                {t("recordedSummary", {
+                  meals: t("meals", { count: d.twin.loggedMeals ?? 0 }),
+                  days: t("days", { count: d.twin.loggedDays ?? 0 }),
+                })}
               </p>
               {d.records
                 .filter(
@@ -2848,8 +2841,9 @@ export function NutritionSubscriber({
                 .map((x: any) => (
                   <details key={x.id}>
                     <summary>
-                      {x.data.date} · {x.data.name} · {x.data.kcal ?? "Unknown"}{" "}
-                      kcal
+                      {formatDate(x.data.date, { locale, fallback: x.data.date })}{" "}
+                      · <bdi>{x.data.name}</bdi> ·{" "}
+                      {t("kcal", { kcal: x.data.kcal ?? t("unknown") })}
                     </summary>
                     <p>{x.data.notes}</p>
                     {!coachView && (
@@ -2863,11 +2857,11 @@ export function NutritionSubscriber({
                                 api("/nutrition/favorites", "POST", {
                                   logId: x.id,
                                 }),
-                              "Meal saved to favorites; refresh the favorites list to see it",
+                              t("favSaved"),
                             )
                           }
                         >
-                          Save to favorites
+                          {t("saveFav")}
                         </button>
                         <NutritionCopyMeal
                           sourceId={x.id}
@@ -2888,7 +2882,7 @@ export function NutritionSubscriber({
                 ))}
             </Card>
             {!coachView && (
-              <Card title="Add a meal">
+              <Card title={t("addMeal")}>
                 <fieldset
                   className="nutrition-fieldset"
                   disabled={!d.entitled || !d.processingConsent}
@@ -2904,7 +2898,7 @@ export function NutritionSubscriber({
           </>
         )}
         {tab === "checkin" && (
-          <Card title="How is the plan working for you?">
+          <Card title={t("checkinTitle")}>
             {!coachView && (
               <form
                 onSubmit={(e) => {
@@ -2921,12 +2915,12 @@ export function NutritionSubscriber({
                           f.get("weight") === "" ? null : num(f, "weight"),
                         notes: f.get("notes"),
                       }),
-                    "Check-in saved. Changes follow your coach's explicit rules and review limits.",
+                    t("checkinSaved"),
                   );
                 }}
               >
                 <div className="nutrition-form-grid">
-                  <Field label="Hunger: 1 (low) to 5 (high)">
+                  <Field label={t("hunger")}>
                     <input
                       name="hunger"
                       type="number"
@@ -2936,7 +2930,7 @@ export function NutritionSubscriber({
                       required
                     />
                   </Field>
-                  <Field label="Difficulty following the plan: 1 (easy) to 5 (hard)">
+                  <Field label={t("difficulty")}>
                     <input
                       name="difficulty"
                       type="number"
@@ -2946,7 +2940,7 @@ export function NutritionSubscriber({
                       required
                     />
                   </Field>
-                  <Field label="Weight in kg (optional)">
+                  <Field label={t("weightOptional")}>
                     <input
                       name="weight"
                       type="number"
@@ -2956,11 +2950,11 @@ export function NutritionSubscriber({
                     />
                   </Field>
                 </div>
-                <Field label="What helped or got in the way?">
+                <Field label={t("helped")}>
                   <textarea name="notes" />
                 </Field>
                 <button className="button" disabled={!permitted}>
-                  Save check-in
+                  {t("saveCheckin")}
                 </button>
               </form>
             )}
@@ -2968,8 +2962,14 @@ export function NutritionSubscriber({
               .filter((x: any) => x.kind === "nutrition_checkin")
               .map((x: any) => (
                 <p key={x.id}>
-                  {x.data.date} · hunger {x.data.hunger}/5 · difficulty{" "}
-                  {x.data.difficulty}/5
+                  {t("checkinLine", {
+                    date: formatDate(x.data.date, {
+                      locale,
+                      fallback: x.data.date,
+                    }),
+                    hunger: `${x.data.hunger}/5`,
+                    difficulty: `${x.data.difficulty}/5`,
+                  })}
                 </p>
               ))}
           </Card>
@@ -2992,6 +2992,8 @@ function GroceryList({
   const [selected, setSelected] = useState<string[]>(
     pantry?.data.foodIds ?? [],
   );
+  const t = useT("nutrition"),
+    locale = useLocale();
   useEffect(
     () => setSelected(pantry?.data.foodIds ?? []),
     [plan.id, pantry?.id],
@@ -3017,26 +3019,29 @@ function GroceryList({
             <span>
               <strong>{g.food.name}</strong>
               <small>
-                {g.food.preparation.replaceAll("_", " ")} ·{" "}
+                {t.dynamic(
+                  `prep_${g.food.preparation}`,
+                  humanize(g.food.preparation).toLowerCase(),
+                )}{" "}
+                ·{" "}
                 {g.food.allergens.length
-                  ? "Allergens: " + g.food.allergens.join(", ")
-                  : "Check the product label"}
+                  ? t("allergens", {
+                      list: g.food.allergens.join(locale === "ar" ? "، " : ", "),
+                    })
+                  : t("checkLabel")}
               </small>
             </span>
-            <b>{g.grams} g</b>
+            <b>{t("grams", { grams: g.grams })}</b>
           </label>
         ))}
       </div>
-      <p>
-        Check ingredients already in your pantry or purchased. This does not
-        change your meal quantities.
-      </p>
+      <p>{t("pantryHelp")}</p>
       <button
         className="button secondary"
         disabled={disabled}
         onClick={() => void onSave(selected)}
       >
-        Save shopping progress
+        {t("saveShopping")}
       </button>
     </>
   );
@@ -3054,6 +3059,7 @@ function DiaryForm({
 }) {
   const [items, setItems] = useState<any[]>(initial?.items ?? []),
     [manualKcal, setManualKcal] = useState(String(initial?.kcal ?? ""));
+  const t = useT("nutrition");
   const sum = (key: string) =>
     items.length && items.every((i) => i[key] !== null)
       ? Math.round(items.reduce((n, i) => n + i[key], 0) * 100) / 100
@@ -3097,7 +3103,7 @@ function DiaryForm({
       }}
     >
       <div className="nutrition-form-grid">
-        <Field label="Date">
+        <Field label={t("date")}>
           <input
             type="date"
             name="date"
@@ -3106,10 +3112,10 @@ function DiaryForm({
             required
           />
         </Field>
-        <Field label="Meal">
+        <Field label={t("meal")}>
           <input name="name" defaultValue={initial?.name} required />
         </Field>
-        <Field label="Approximate kcal (optional)">
+        <Field label={t("kcalOptional")}>
           <input
             name="kcal"
             type="number"
@@ -3121,7 +3127,7 @@ function DiaryForm({
           />
         </Field>
       </div>
-      <Field label="Portion description">
+      <Field label={t("portionDescription")}>
         <input
           name="portionLabel"
           maxLength={200}
@@ -3130,12 +3136,14 @@ function DiaryForm({
       </Field>
       {!items.length && (
         <div className="nutrition-form-grid">
-          {[
-            ["protein", "Protein"],
-            ["carbohydrate", "Carbohydrate"],
-            ["fat", "Fat"],
-          ].map(([key, label]) => (
-            <Field key={key} label={label + " grams (optional)"}>
+          {(
+            [
+              ["protein", t("proteinOptional")],
+              ["carbohydrate", t("carbohydrateOptional")],
+              ["fat", t("fatOptional")],
+            ] as const
+          ).map(([key, label]) => (
+            <Field key={key} label={label}>
               <input
                 name={key}
                 type="number"
@@ -3155,24 +3163,25 @@ function DiaryForm({
       {items.map((item, index) => (
         <details key={index}>
           <summary>
-            {item.name} · {item.amount ?? "Unknown"} {item.unit ?? ""}
+            <bdi>{item.name}</bdi> · {item.amount ?? t("unknown")}{" "}
+            {item.unit ? t.dynamic(`unitShort_${item.unit}`, item.unit) : ""}
           </summary>
           <div className="nutrition-form-grid">
-            <Field label="Food name">
+            <Field label={t("foodName")}>
               <input
                 value={item.name}
                 onChange={(e) => edit(index, { name: e.target.value })}
                 required
               />
             </Field>
-            <Field label="Portion">
+            <Field label={t("portion")}>
               <input
                 value={item.portion}
                 onChange={(e) => edit(index, { portion: e.target.value })}
                 required
               />
             </Field>
-            <Field label="Amount">
+            <Field label={t("amount")}>
               <input
                 type="number"
                 min={0.01}
@@ -3190,7 +3199,7 @@ function DiaryForm({
                 }
               />
             </Field>
-            <Field label="Unit">
+            <Field label={t("unit")}>
               <select
                 value={item.unit ?? ""}
                 onChange={(e) =>
@@ -3204,14 +3213,14 @@ function DiaryForm({
                   )
                 }
               >
-                <option value="">Unknown</option>
-                <option value="g">Grams</option>
-                <option value="ml">Millilitres</option>
-                <option value="portion">Portion</option>
+                <option value="">{t("unit_unknown")}</option>
+                <option value="g">{t("unit_g")}</option>
+                <option value="ml">{t("unit_ml")}</option>
+                <option value="portion">{t("unit_portion")}</option>
               </select>
             </Field>
-            {["kcal", "protein", "carbohydrate", "fat"].map((key) => (
-              <Field key={key} label={key}>
+            {(["kcal", "protein", "carbohydrate", "fat"] as const).map((key) => (
+              <Field key={key} label={t(`nutrient_${key}`)}>
                 <input
                   type="number"
                   min={0}
@@ -3232,28 +3241,23 @@ function DiaryForm({
             className="button secondary"
             onClick={() => setItems((old) => old.filter((_, i) => i !== index))}
           >
-            Remove food from this entry
+            {t("removeFood")}
           </button>
         </details>
       ))}
       {items.length > 0 && (
-        <p>
-          Corrected meal total: {sum("kcal") ?? "Unknown"} kcal. Quantities
-          rescale nutrients only within the same unit; changing units requires
-          checked values.
-        </p>
+        <p>{t("correctedTotal", { kcal: sum("kcal") ?? t("unknown") })}</p>
       )}
-      <Field label="Notes">
+      <Field label={t("diaryNotes")}>
         <textarea name="notes" defaultValue={initial?.notes} />
       </Field>
       {initial && (
         <label className="check">
-          <input name="deleted" type="checkbox" /> Remove this entry from my
-          totals, retaining its correction history
+          <input name="deleted" type="checkbox" /> {t("removeEntry")}
         </label>
       )}
       <button className="button secondary">
-        {initial ? "Save correction" : "Record meal"}
+        {initial ? t("saveCorrection") : t("recordMeal")}
       </button>
     </form>
   );
@@ -3426,25 +3430,34 @@ function NutritionVersions() {
 }
 
 function ClientTargetSummary({ target }: { target: any }) {
-  const t = target.data.target;
+  const goal = target.data.target;
+  const t = useT("nutrition"),
+    locale = useLocale();
   return (
-    <Card title="Your coach's individual targets">
+    <Card title={t("targetsTitle")}>
       <p>
-        {t.kcal} kcal · review by {t.reviewOn}
+        {t("targetLine", {
+          kcal: goal.kcal,
+          date: formatDate(goal.reviewOn, { locale, fallback: goal.reviewOn }),
+        })}
       </p>
       <p>
         {[
-          t.protein !== null ? `${t.protein} g protein` : null,
-          t.carbohydrate !== null ? `${t.carbohydrate} g carbohydrate` : null,
-          t.fat !== null ? `${t.fat} g fat` : null,
-          t.hydrationMl !== null ? `${t.hydrationMl} ml fluids` : null,
+          goal.protein !== null ? t("proteinG", { value: goal.protein }) : null,
+          goal.carbohydrate !== null
+            ? t("carbohydrateG", { value: goal.carbohydrate })
+            : null,
+          goal.fat !== null ? t("fatG", { value: goal.fat }) : null,
+          goal.hydrationMl !== null
+            ? t("fluidsMl", { value: goal.hydrationMl })
+            : null,
         ]
           .filter(Boolean)
           .join(" · ")}
       </p>
-      <p>{t.reason}</p>
+      <p>{goal.reason}</p>
       <ul>
-        {t.habits.map((h: string) => (
+        {goal.habits.map((h: string) => (
           <li key={h}>{h}</li>
         ))}
       </ul>
@@ -4004,31 +4017,35 @@ function NutritionConsumed({
   const r = useNutrition(
     "/nutrition/tracker" + (coachView ? "?userId=" + userId : ""),
   );
+  const t = useT("nutrition"),
+    locale = useLocale();
+  const day = (value: string) => formatDate(value, { locale, fallback: value });
   useEffect(() => {
-    void r.load().catch((e) => r.setError(e.message));
+    void r.load().catch((e) => r.setError(r.toError(e)));
   }, [refreshKey]);
   return (
-    <Card title="Recorded nutrition and trends">
+    <Card title={t("trendsTitle")}>
       {r.error && <Notice>{r.error}</Notice>}
       {r.data && (
         <>
           <p>{r.data.coverage}</p>
           <p>
-            {r.data.loggedMeals} recorded meals across {r.data.loggedDays} days.{" "}
-            {r.data.partialInput
-              ? "This report reached its input limit; older entries may be omitted."
-              : ""}
+            {t("trendsLine", {
+              meals: t("recordedMeals", { count: r.data.loggedMeals ?? 0 }),
+              days: t("days", { count: r.data.loggedDays ?? 0 }),
+            })}{" "}
+            {r.data.partialInput ? t("partial") : ""}
           </p>
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Recorded kcal</th>
-                  <th>Planned kcal</th>
-                  <th>Protein g</th>
-                  <th>Carbohydrate g</th>
-                  <th>Fat g</th>
+                  <th>{t("th_date")}</th>
+                  <th>{t("th_recorded")}</th>
+                  <th>{t("th_planned")}</th>
+                  <th>{t("th_protein")}</th>
+                  <th>{t("th_carbohydrate")}</th>
+                  <th>{t("th_fat")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -4037,19 +4054,19 @@ function NutritionConsumed({
                   .reverse()
                   .map((d: any) => (
                     <tr key={d.date}>
-                      <td>{d.date}</td>
+                      <td>{day(d.date)}</td>
                       <td>
                         {d.meals
                           ? (d.totals.kcal ??
-                            `${d.knownTotals.kcal} known + unknown`)
-                          : "No entry"}
+                            t("knownPlus", { value: d.knownTotals.kcal }))
+                          : t("noEntry")}
                       </td>
                       <td>{d.planned?.kcal ?? "—"}</td>
                       {["protein", "carbohydrate", "fat"].map((k) => (
                         <td key={k}>
                           {d.meals
                             ? (d.totals[k] ??
-                              `${d.knownTotals[k]} known + unknown`)
+                              t("knownPlus", { value: d.knownTotals[k] }))
                             : "—"}
                         </td>
                       ))}
@@ -4059,21 +4076,34 @@ function NutritionConsumed({
             </table>
           </div>
           <details>
-            <summary>All 28 days and weight entries</summary>
+            <summary>{t("allDays")}</summary>
             {r.data.days.map((d: any) => (
               <p key={d.date}>
-                {d.date}: {d.meals} meals ·{" "}
-                {d.totals.kcal ?? "Incomplete or unknown"} kcal
+                {t("dayLine", {
+                  date: day(d.date),
+                  meals: t("meals", { count: d.meals ?? 0 }),
+                  kcal:
+                    d.totals.kcal === null || d.totals.kcal === undefined
+                      ? t("incomplete")
+                      : t("kcal", { kcal: d.totals.kcal }),
+                })}
               </p>
             ))}
             <p>
-              Recorded weight change:{" "}
-              {r.data.weightChangeKg ?? "Not enough recorded measurements"}
-              {r.data.weightChangeKg !== null ? " kg" : ""}
+              {t("weightChange", {
+                value:
+                  r.data.weightChangeKg === null ||
+                  r.data.weightChangeKg === undefined
+                    ? t("notEnough")
+                    : t("kg", { value: r.data.weightChangeKg }),
+              })}
             </p>
             {r.data.weights.map((w: any) => (
               <p key={w.sourceId}>
-                {w.date}: {w.kg} kg
+                {t("weightLine", {
+                  date: day(w.date),
+                  kg: t("kg", { value: w.kg }),
+                })}
               </p>
             ))}
           </details>
@@ -4096,6 +4126,9 @@ function NutritionCopyMeal({
   const [date, setDate] = useState(today),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const t = useT("nutrition"),
+    locale = useLocale(),
+    toError = useErrorText();
   return (
     <form
       className="nutrition-inline"
@@ -4109,14 +4142,18 @@ function NutritionCopyMeal({
           { date, eventKey: crypto.randomUUID() },
         )
           .then(async () => {
-            setMessage("Meal recorded for " + date);
+            setMessage(
+              t("recordedFor", {
+                date: formatDate(date, { locale, fallback: date }),
+              }),
+            );
             await onChange();
           })
-          .catch((e) => setMessage(e.message))
+          .catch((e) => setMessage(toError(e)))
           .finally(() => setBusy(false));
       }}
     >
-      <Field label="Date eaten">
+      <Field label={t("dateEaten")}>
         <input
           type="date"
           value={date}
@@ -4126,7 +4163,7 @@ function NutritionCopyMeal({
         />
       </Field>
       <button className="button secondary" disabled={busy}>
-        Confirm and record again
+        {t("recordAgain")}
       </button>
       {message && <Notice>{message}</Notice>}
     </form>
@@ -4140,22 +4177,22 @@ function NutritionSavedMeals({
   onChange: () => Promise<any>;
 }) {
   const r = useNutrition("/nutrition/favorites");
+  const t = useT("nutrition");
   return (
-    <Card title="Saved meals">
+    <Card title={t("savedMeals")}>
       <button
         className="button secondary"
-        onClick={() => void r.action(r.load, "Saved meals refreshed")}
+        onClick={() => void r.action(r.load, t("savedRefreshed"))}
       >
-        Refresh saved meals
+        {t("refreshSaved")}
       </button>
       {r.error && <Notice>{r.error}</Notice>}
-      {r.data?.length === 0 && (
-        <p>Save a recorded meal below to use it again.</p>
-      )}
+      {r.data?.length === 0 && <p>{t("saveHint")}</p>}
       {r.data?.map((f: any) => (
         <details key={f.id}>
           <summary>
-            {f.data.snapshot.name} · {f.data.snapshot.kcal ?? "Unknown"} kcal
+            <bdi>{f.data.snapshot.name}</bdi> ·{" "}
+            {t("kcal", { kcal: f.data.snapshot.kcal ?? t("unknown") })}
           </summary>
           <NutritionCopyMeal
             sourceId={f.id}
@@ -4168,11 +4205,11 @@ function NutritionSavedMeals({
             onClick={() =>
               void r.action(
                 () => api("/nutrition/favorites/" + f.id, "DELETE"),
-                "Saved meal removed",
+                t("favRemoved"),
               )
             }
           >
-            Remove favorite
+            {t("removeFav")}
           </button>
         </details>
       ))}
@@ -4268,23 +4305,42 @@ function NutritionShopping({
   readOnly: boolean;
 }) {
   const r = useNutrition("/nutrition/shopping/" + plan.id);
+  const t = useT("nutrition"),
+    locale = useLocale();
+  const grams = (value: number) => t("grams", { grams: value });
   return (
-    <Card title="Purchase quantities and available portions">
+    <Card title={t("purchaseTitle")}>
       {r.error && <Notice>{r.error}</Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       {r.data?.items.map((g: any) => (
         <details key={g.food.id}>
           <summary>
-            {g.food.name}: {g.remainingGrams} g still needed in the recipe's{" "}
-            {g.food.preparation.replaceAll("_", " ")} state
+            {t("stillNeeded", {
+              food: g.food.name,
+              grams: grams(g.remainingGrams),
+              state: t.dynamic(
+                `prep_${g.food.preparation}`,
+                humanize(g.food.preparation).toLowerCase(),
+              ),
+            })}
           </summary>
           <p>
-            {g.availableGrams} g available.{" "}
+            {t("availableGrams", { grams: grams(g.availableGrams) })}{" "}
             {g.purchaseGrams === null
-              ? "No purchase conversion has been provided by your coach."
-              : `${g.purchaseGrams} g purchased weight${g.packs === null ? "" : ` → ${g.packs} packs (${g.purchasedGrams} g)`}. ${g.purchaseLabel}`}
+              ? t("noConversion")
+              : `${
+                  g.packs === null
+                    ? t("purchased", { grams: grams(g.purchaseGrams) })
+                    : t("purchasedPacks", {
+                        grams: grams(g.purchaseGrams),
+                        packs: t("packs", { count: g.packs }),
+                        total: grams(g.purchasedGrams),
+                      })
+                } ${g.purchaseLabel ?? ""}`}
           </p>
-          {g.conversionSource && <p>Conversion source: {g.conversionSource}</p>}
+          {g.conversionSource && (
+            <p>{t("conversionSource", { source: g.conversionSource })}</p>
+          )}
           {!readOnly && (
             <form
               onSubmit={(e) => {
@@ -4300,11 +4356,11 @@ function NutritionShopping({
                       notes: f.get("notes"),
                       confirmedStorage: true,
                     }),
-                  "Available portion recorded",
+                  t("portionRecorded"),
                 );
               }}
             >
-              <Field label="Grams already available in this preparation state">
+              <Field label={t("gramsAvailable")}>
                 <input
                   name="grams"
                   type="number"
@@ -4314,19 +4370,16 @@ function NutritionShopping({
                   required
                 />
               </Field>
-              <Field label="Use by, following actual storage instructions">
+              <Field label={t("useBy")}>
                 <input name="useBy" type="date" min={r.data.today} required />
               </Field>
-              <Field label="Portion or batch note">
+              <Field label={t("batchNote")}>
                 <input name="notes" maxLength={1000} />
               </Field>
               <label className="check">
-                <input type="checkbox" required />I checked preparation and
-                storage instructions for this food.
+                <input type="checkbox" required /> {t("checkedStorage")}
               </label>
-              <button className="button secondary">
-                Add available portion
-              </button>
+              <button className="button secondary">{t("addPortion")}</button>
             </form>
           )}
         </details>
@@ -4335,10 +4388,15 @@ function NutritionShopping({
         .filter((i: any) => i.status === "available")
         .map((i: any) => (
           <p key={i.id}>
-            {i.data.food.name}: {i.data.grams} g · use by {i.data.useBy}{" "}
-            {i.data.useBy < r.data.today
-              ? "(excluded from available quantities)"
-              : ""}
+            {t("inventoryLine", {
+              food: i.data.food.name,
+              grams: grams(i.data.grams),
+              date: formatDate(i.data.useBy, {
+                locale,
+                fallback: i.data.useBy,
+              }),
+            })}{" "}
+            {i.data.useBy < r.data.today ? t("excluded") : ""}
             {!readOnly && (
               <button
                 className="button secondary"
@@ -4350,19 +4408,16 @@ function NutritionShopping({
                         "POST",
                         {},
                       ),
-                    "Portion removed from available quantities",
+                    t("portionRemoved"),
                   )
                 }
               >
-                Mark used or discard
+                {t("markUsed")}
               </button>
             )}
           </p>
         ))}
-      <p>
-        Available portions reduce shopping quantities only. They do not change
-        prescribed meal portions or count as eaten.
-      </p>
+      <p>{t("portionsNote")}</p>
     </Card>
   );
 }

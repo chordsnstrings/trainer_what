@@ -7,6 +7,28 @@ import {
 } from "@trainer/contracts";
 import { MarketingHeader } from "./marketing/frame";
 import { SubscriberFooter } from "./subscriber-footer";
+import { translator, type Locale, type Translator } from "../lib/i18n/core";
+import publicMessages, { DIRECTORY_LABELS_AR } from "../lib/i18n/messages/public";
+import { formatList, formatRange } from "../lib/format";
+
+type T = Translator<typeof publicMessages.en>;
+/** A specialty or language name in the page's language. */
+function optionLabel(option: Option, locale: Locale) {
+  return locale === "ar"
+    ? (DIRECTORY_LABELS_AR[option.id] ?? option.label)
+    : option.label;
+}
+/** Bold lead-in before the rest of a line: "<b>Question?</b> Answer." */
+function lead(text: string) {
+  const match = /^<b>(.*?)<\/b>\s*(.*)$/.exec(text);
+  return match ? (
+    <>
+      <strong>{match[1]}</strong> {match[2]}
+    </>
+  ) : (
+    text
+  );
+}
 
 type Option = { id: string; label: string };
 export type DirectoryCoach = {
@@ -40,7 +62,15 @@ export function directoryHref(
   return "/coaches" + (search ? "?" + search : "");
 }
 
-function CoachCard({ coach }: { coach: DirectoryCoach }) {
+function CoachCard({
+  coach,
+  t,
+  locale,
+}: {
+  coach: DirectoryCoach;
+  t: T;
+  locale: Locale;
+}) {
   const headingId = `coach-${coach.slug}`;
   return (
     <li>
@@ -68,16 +98,24 @@ function CoachCard({ coach }: { coach: DirectoryCoach }) {
             {coach.name}
           </h2>
           {coach.headline && <p dir="auto">{coach.headline}</p>}
-          <ul className="directory-tags" aria-label="Specialties">
+          <ul className="directory-tags" aria-label={t("specialties")}>
             {coach.specialties.map((s) => (
-              <li key={s.id}>{s.label}</li>
+              <li key={s.id}>{optionLabel(s, locale)}</li>
             ))}
           </ul>
           <p className="muted directory-languages">
-            Coaches in {coach.languages.map((l) => l.label).join(", ")}
+            {t("coachesIn", {
+              languages:
+                locale === "en"
+                  ? coach.languages.map((l) => l.label).join(", ")
+                  : formatList(
+                      coach.languages.map((l) => optionLabel(l, locale)),
+                      locale,
+                    ),
+            })}
           </p>
           <a className="button secondary directory-visit" href={coach.url}>
-            Visit {coach.name}’s website
+            {t("visitWebsite", { name: coach.name })}
           </a>
         </div>
       </article>
@@ -92,22 +130,23 @@ function CoachCard({ coach }: { coach: DirectoryCoach }) {
 export function CoachDirectory({
   data,
   platformName,
+  locale = "en",
 }: {
   data: DirectoryData;
   platformName: string;
+  /** The document language (rendered on the server). */
+  locale?: Locale;
 }) {
+  const t = translator(publicMessages, locale);
   const { query } = data;
   const filtered = !!(query.q || query.specialty || query.language);
   const previous =
     query.offset > 0 ? Math.max(0, query.offset - DIRECTORY_PAGE_SIZE) : null;
   return (
     <DirectoryFrame platformName={platformName}>
-      <p className="eyebrow">FIND A COACH</p>
-      <h1>Coaches who chose to be found.</h1>
-      <p className="muted directory-intro">
-        Every coach here opted in. Each profile links to the coach’s own
-        website, where you can read about their approach and memberships.
-      </p>
+      <p className="eyebrow">{t("findCoachEyebrow")}</p>
+      <h1>{t("directoryTitle")}</h1>
+      <p className="muted directory-intro">{t("directoryIntro")}</p>
       <form
         className="directory-search"
         method="get"
@@ -115,7 +154,7 @@ export function CoachDirectory({
         role="search"
       >
         <label className="field">
-          <span>Name or focus</span>
+          <span>{t("nameOrFocus")}</span>
           <input
             name="q"
             type="search"
@@ -124,69 +163,82 @@ export function CoachDirectory({
             autoComplete="off"
             maxLength={80}
             defaultValue={query.q}
-            placeholder="Strength, yoga or a coach’s name"
+            placeholder={t("searchPlaceholder")}
           />
         </label>
         <label className="field">
-          <span>Specialty</span>
+          <span>{t("specialty")}</span>
           <select name="specialty" defaultValue={query.specialty}>
-            <option value="">Any specialty</option>
+            <option value="">{t("anySpecialty")}</option>
             {data.options.specialties.map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label}
+                {optionLabel(o, locale)}
               </option>
             ))}
           </select>
         </label>
         <label className="field">
-          <span>Language</span>
+          <span>{t("language")}</span>
           <select name="language" defaultValue={query.language}>
-            <option value="">Any language</option>
+            <option value="">{t("anyLanguage")}</option>
             {data.options.languages.map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label}
+                {optionLabel(o, locale)}
               </option>
             ))}
           </select>
         </label>
         <div className="directory-search-actions">
           <button className="button" type="submit">
-            Search coaches
+            {t("searchCoaches")}
           </button>
           {filtered && (
             <Link className="button secondary" href="/coaches">
-              Clear filters
+              {t("clearFilters")}
             </Link>
           )}
         </div>
       </form>
       {data.error ? (
         <p className="notice" role="alert">
-          {data.error}
+          {locale === "en" ? data.error : t("searchUnreadable")}
         </p>
       ) : data.coaches.length ? (
         <>
           <p className="muted directory-count" role="status">
-            Showing {query.offset + 1}–{query.offset + data.coaches.length}
-            {filtered ? " matching coaches" : " coaches"}
+            {t(filtered ? "showingMatching" : "showing", {
+              // "3–10" is one left-to-right range in either direction.
+              range: formatRange(
+                query.offset + 1,
+                query.offset + data.coaches.length,
+                locale,
+              ),
+            })}
           </p>
           <ul className="directory-grid">
             {data.coaches.map((coach) => (
-              <CoachCard key={coach.slug} coach={coach} />
+              <CoachCard
+                key={coach.slug}
+                coach={coach}
+                t={t}
+                locale={locale}
+              />
             ))}
           </ul>
         </>
       ) : (
-        <DirectoryEmpty filtered={filtered} />
+        <DirectoryEmpty filtered={filtered} t={t} />
       )}
       {(previous !== null || data.nextOffset !== null) && (
-        <nav className="directory-pages" aria-label="Directory pages">
+        <nav className="directory-pages" aria-label={t("directoryPages")}>
           {previous !== null && (
-            <Link href={directoryHref(query, previous)}>Previous coaches</Link>
+            <Link href={directoryHref(query, previous)}>
+              {t("previousCoaches")}
+            </Link>
           )}
           {data.nextOffset !== null && (
             <Link href={directoryHref(query, data.nextOffset)}>
-              More coaches
+              {t("moreCoaches")}
             </Link>
           )}
         </nav>
@@ -199,7 +251,7 @@ export function CoachDirectory({
  * No results, with somewhere to go next: clear the filters, open a coach's
  * link or invitation, or sign in for someone who already has a coach.
  */
-function DirectoryEmpty({ filtered }: { filtered: boolean }) {
+function DirectoryEmpty({ filtered, t }: { filtered: boolean; t: T }) {
   return (
     <section
       className="card directory-empty"
@@ -207,36 +259,24 @@ function DirectoryEmpty({ filtered }: { filtered: boolean }) {
       aria-labelledby="directory-empty-title"
     >
       <h2 id="directory-empty-title">
-        {filtered
-          ? "No coaches match this search."
-          : "No coaches are listed yet."}
+        {filtered ? t("noMatch") : t("noneListed")}
       </h2>
-      <p className="muted">
-        {filtered
-          ? "Try another specialty or language, or clear the filters to see every listed coach."
-          : "Coaches appear here once they choose to be listed. Many coaches share their own link instead."}
-      </p>
+      <p className="muted">{filtered ? t("noMatchHint") : t("noneListedHint")}</p>
       <ul className="directory-next">
-        <li>
-          <strong>Have a link or an invitation from a coach?</strong> Open it
-          to visit their website or join them.
-        </li>
-        <li>
-          <strong>Already coaching with someone?</strong> Sign in to open your
-          app.
-        </li>
+        <li>{lead(t("haveLink"))}</li>
+        <li>{lead(t("alreadyCoaching"))}</li>
       </ul>
       <div className="directory-empty-actions">
         {filtered ? (
           <Link className="button" href="/coaches">
-            Clear filters
+            {t("clearFilters")}
           </Link>
         ) : null}
         <Link
           className={filtered ? "button secondary" : "button"}
           href="/login"
         >
-          Sign in
+          {t("signIn")}
         </Link>
       </div>
     </section>
@@ -276,23 +316,21 @@ function DirectoryFrame({
  */
 export function CoachDirectoryClosed({
   platformName = DEFAULT_PLATFORM_NAME,
+  locale = "en",
 }: {
   platformName?: string;
+  locale?: Locale;
 }) {
+  const t = translator(publicMessages, locale);
   return (
     <DirectoryFrame platformName={platformName}>
-      <p className="eyebrow">FIND A COACH</p>
+      <p className="eyebrow">{t("findCoachEyebrow")}</p>
       <section className="card directory-empty" role="status">
-        <h1 className="directory-closed-title">
-          The coach directory is closed right now.
-        </h1>
-        <p className="muted">
-          Coaches’ own websites are still open. If you have a coach’s link or
-          invitation, use it to visit their website or join.
-        </p>
+        <h1 className="directory-closed-title">{t("directoryClosed")}</h1>
+        <p className="muted">{t("directoryClosedText")}</p>
         <div className="directory-empty-actions">
           <Link className="button secondary" href="/">
-            Return to the home page
+            {t("returnHome")}
           </Link>
         </div>
       </section>
