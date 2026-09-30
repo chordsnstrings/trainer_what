@@ -39,6 +39,60 @@ The controller takes a private local SQL dump before updating an existing deploy
 
 Controllers from the `feat/infra-ops` change onward (see [docs/features/infra-ops.md](features/infra-ops.md)) also take scheduled, encrypted `pg_dump -Fc` backups under `backups/scheduled/`, optionally copy them to S3-compatible storage (`BACKUP_S3_*` in `runtime.env`), verify a backup by restoring it into a scratch database (`hostops.py restore-check` or the Super admin "Verify the latest backup" action), report host metrics, execute a small allowlist of signed Super admin host actions (restart, rollback/restore, re-apply settings, pause/resume deploys, backup, verify, and a DNS-verified, automatically reverted platform address change with its old-address redirect) and serve coach custom domains through Caddy on-demand TLS gated by the API. After an operator rollback, `release-state.json` records a separate `serving` release so the newest controller keeps running and honours the deploy pause. None of this has been exercised on the live server yet.
 
+## Recover Superadmin access
+
+Use this when no one can sign in as a Superadmin, for example after a lost password. Email delivery is not configured, so the password-reset email cannot help. Root access on the server is the authority here. The first-admin bootstrap and `operator:role reset-mfa` rely on the same trust. The commands work only on the server. Nothing is exposed as a web route.
+
+1. Sign in to DigitalOcean. Open **Droplets**, choose the trainsyou droplet (`gymmembership-8fc22b34edcc`), then open **Access** and click **Launch Droplet Console**. The console opens as `root`.
+2. Run one of these commands. From a release that contains this change onwards, the script is part of the current release:
+
+   ```sh
+   S=$(python3 -c 'import json;print(json.load(open("/opt/gymmembership/release-state.json"))["current"])')
+   bash /opt/gymmembership/releases/$S/infra/digitalocean/admin-access.sh list
+   bash /opt/gymmembership/releases/$S/infra/digitalocean/admin-access.sh create you@example.com
+   bash /opt/gymmembership/releases/$S/infra/digitalocean/admin-access.sh reset-password you@example.com
+   ```
+
+   - `list` prints only the email addresses of Superadmin accounts.
+   - `create` adds a new verified Superadmin, even when one already exists. It also creates that account's platform administration workspace, with the account as owner. It refuses an email that already has an account. Set `ADMIN_ACCESS_NAME="Full Name"` before the command to choose the display name.
+   - `reset-password` gives an existing account a new password and signs it out everywhere.
+
+   The script asks for the password twice and does not show it on screen. It checks that both entries match and that the password is 16–128 characters long. The password goes to the api container on stdin only, never in arguments, the environment or logs. Each action writes an `admin_operations_audit` row with the reason `host recovery`, plus an audit event in the account's workspace.
+3. **If the current release does not have the script yet**, the script says so. In that case, paste the whole block below into the console. It creates a new Superadmin in the same way as `create`, using only code that is already in earlier releases. Keep the last line last: it asks for the email, and then the password twice.
+
+```sh
+JS=$(cat <<'EOF'
+import { randomUUID } from "node:crypto";
+import { createDatabase, event } from "@trainer/db";
+import { passwordHash } from "./apps/api/src/auth.ts";
+let p = "";
+for await (const c of process.stdin) p += c;
+const email = String(process.env.E).trim().toLowerCase();
+if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) === false) throw new Error("Invalid email");
+if (p.length < 16 || p.length > 128) throw new Error("Password must be 16-128 characters");
+const hash = await passwordHash(p), db = await createDatabase();
+try {
+  await db.system(async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext('platform-first-admin'))");
+    if ((await tx.query("SELECT 1 FROM users WHERE email=$1", [email])).length) throw new Error("This email already belongs to an account");
+    const u = randomUUID(), t = randomUUID(), o = { tenantId: t, userId: u, role: "owner" };
+    await tx.query("INSERT INTO users(id,email,name,password_hash,email_verified,platform_role) VALUES($1,$2,'Platform administrator',$3,true,'admin')", [u, email, hash]);
+    await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,'Platform administration')", [t, "platform-" + t.slice(0, 8)]);
+    await tx.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')", [t, u]);
+    await tx.tenant(o, (s) => event(s, o, "platform.admin_recovered", u, { reason: "host recovery" }));
+    await tx.query("INSERT INTO admin_operations_audit(id,actor_id,action,subject_id,data) VALUES($1,$2,$3,$4,$5)", [randomUUID(), u, "platform.admin_created_by_host", u, JSON.stringify({ reason: "host recovery", by: "host_operator" })]);
+  });
+  console.log("Superadmin " + email + " created. Sign in, then enroll an authenticator in Account security.");
+} finally {
+  await db.close();
+}
+EOF
+)
+R=/opt/gymmembership; S=$(python3 -c 'import json;print(json.load(open("/opt/gymmembership/release-state.json"))["current"])'); read -rp 'New Superadmin email: ' E; read -rsp 'New password (16-128 characters): ' P; echo; read -rsp 'Repeat the password: ' Q; echo; if [ "$P" = "$Q" ]; then printf %s "$P" | (cd "$R/releases/$S" && env -i PATH="$PATH" RELEASE_TAG="$S" docker compose --project-name gymmembership --env-file "$R/runtime.env" -f compose.yaml -f "$R/edge.json" exec -T -e E="$E" api node --import tsx --input-type=module -e "$JS"); else echo 'The passwords do not match; nothing changed.'; fi; unset P Q
+```
+
+4. Sign in at the site with the email and the new password. Authenticator enrollment is still required for all platform actions. Open **Account security**, scan the code with an authenticator app, then enter the 6-digit code. Store the recovery codes safely. After that, open **Superadmin settings**. If a reset account's authenticator is also lost, run `OPERATOR_EMAIL=you@example.com npm run operator:role -- reset-mfa` in the api container, or use `create` with a new email.
+
 ## Host safeguards
 
 - **Retention.** After a deployment is recorded, the controller keeps only the current and previous release trees and `trainer-brain:<sha>` images. It removes other release trees and leftover `.unpack-*` directories. Image removal is never forced, so an image still used by a container remains. Build cache older than seven days is pruned. The seven newest complete `backups/<time>.sql` dumps are kept, and dumps are pruned only at this point. A dump that fails part-way is deleted, so it cannot displace a complete one. A failed or retried deployment prunes nothing, dumps included, so the dump taken before its migration survives every retry. Retention problems are logged and retried after the next successful deployment.
