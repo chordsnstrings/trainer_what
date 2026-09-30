@@ -315,7 +315,7 @@ test("a red-flag set note from a lapsed member opens a hold without logging the 
 });
 
 test("member support threads are screened for red flags in English and Arabic", async () => {
-  const coach = await register("fix-support-coach");
+  const coach = await register("fix-carer-coach");
   const first = await join(coach, "fix-support-one@example.test");
   const second = await join(coach, "fix-support-two@example.test");
   const routine = await request(

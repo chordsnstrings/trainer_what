@@ -72,6 +72,8 @@ const ruleText = (r: { title: string; condition: string; directive: string }) =>
 
 /** Worker entry point: one correction becomes one suggestion record (or none). */
 export async function executeBrainLearningJob(db: Database, tenantId: string, job: any) {
+  // Elevation "worker": a queued background job for one workspace
+  // (packages/db/src/scope.ts ELEVATIONS.worker); no member request here.
   const a = elevated("worker", { tenantId, role: "owner" });
   const exceptionId = uuid.parse(job.data.exceptionId);
   const kind: "edit" | "rejection" = job.data.kind === "rejection" ? "rejection" : "edit";

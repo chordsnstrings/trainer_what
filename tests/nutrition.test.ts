@@ -396,7 +396,7 @@ test("case-based onboarding persists, branches dynamically, and rejects stale se
       .statusCode,
     409,
   );
-  assert.equal((await ok("/onboarding")).steps.length, 23);
+  assert.equal((await ok("/onboarding")).steps.length, 21);
   for (const { id: ignored, ...c } of fixtureCases())
     cases.push(await ok("/nutrition/cases", "POST", c));
   const d = await ok("/nutrition/coach");

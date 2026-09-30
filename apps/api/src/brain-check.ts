@@ -138,6 +138,8 @@ export async function runBrainCheck(
   trigger: string,
   requestedBy?: string,
 ) {
+  // Elevation "worker": the queued background re-check of one workspace
+  // (packages/db/src/scope.ts ELEVATIONS.worker); no member request here.
   const system = elevated("worker", { tenantId, role: "owner" });
   const ownerId = await db.tenant(system, (tx) => workspaceOwner(tx, requestedBy));
   if (!ownerId) return null;
