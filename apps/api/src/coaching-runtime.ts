@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { brainTrainingState } from "./brain-training-state.ts";
+import { BRAIN_LEVELS } from "../../../packages/domain/src/brain-teach.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -655,6 +657,37 @@ export async function coachingFeedbackRegression(
   };
 }
 
+/**
+ * "Sends automatically" needs the full check. A Brain launched on the
+ * practice quiz ("Waits for me") never sends automatically; a fully checked
+ * release sends up to its Brain level's number of routine actions
+ * (packages/domain/src/brain-teach.ts). Releases published before the levels
+ * existed carry no qualification and keep the existing checks only.
+ */
+async function assertAutomaticLevel(
+  tx: Tx,
+  material: Awaited<ReturnType<typeof runtimeMaterial>>,
+) {
+  const qualification = material.brain?.data.qualification;
+  if (qualification === "quiz")
+    throw fail(
+      409,
+      "Sends automatically needs the full check: write at least 20 of your own client questions, pass the full check and publish it. Until then every reply waits for you.",
+    );
+  if (qualification !== "full") return;
+  const { meter } = await brainTrainingState(tx);
+  const cap = BRAIN_LEVELS[meter.level].automaticActions;
+  if (meter.level < 2)
+    throw fail(
+      409,
+      "Pass the full check of your current rules before replies can send automatically.",
+    );
+  if (material.actions.length > cap)
+    throw fail(
+      409,
+      `At your Brain level (${meter.name}) up to ${cap} routine replies can send automatically; archive ${material.actions.length - cap} or keep training to unlock more.`,
+    );
+}
 export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
   app.get("/api/v1/brain/coaching-workspace", async (req) => {
     const a = owner(req);
@@ -1114,8 +1147,9 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         .parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockRuntime(tx, a);
-      const material = await runtimeMaterial(tx),
-        evaluation = await record(tx, b.evaluationId, "coaching_evaluation"),
+      const material = await runtimeMaterial(tx);
+      if (b.mode === "automatic") await assertAutomaticLevel(tx, material);
+      const evaluation = await record(tx, b.evaluationId, "coaching_evaluation"),
         [current] = await tx.query(
           "SELECT * FROM records WHERE kind='coaching_runtime_release' AND status='published'",
         );

@@ -20,7 +20,6 @@ import { coachingRuntimeReadiness } from "./coaching-runtime.ts";
 import { recordPublishAcquisition } from "./acquisition.ts";
 import {
   brainCaseCoverage,
-  SETUP_BRAIN_MINIMUM,
 } from "../../../packages/contracts/src/coach-setup.ts";
 import {
   NAME_PROBLEM_MESSAGES,
@@ -32,6 +31,7 @@ import {
   RESERVED_SLUGS,
   subdomainEligible,
 } from "../../../packages/domain/src/web-address.ts";
+import { OWN_CASES_FOR_SUPERVISED } from "../../../packages/domain/src/brain-teach.ts";
 
 const digest = (value: unknown) =>
   createHash("sha256")
@@ -175,7 +175,7 @@ export const baseRegistry = [
   [
     "scenarios",
     "Practice quiz",
-    `Answer at least ${SETUP_BRAIN_MINIMUM.quiz} practice quiz questions and write ${SETUP_BRAIN_MINIMUM.own} of your own cases, then check how your Brain responds.`,
+    "Take the practice quiz and write 3 to 5 of your own client questions. Sending automatically later needs 20 cases and the full check.",
     true,
   ],
   [
@@ -261,7 +261,7 @@ export async function onboardingState(
   account: SetupAccount = {},
 ) {
   const records = await tx.query(
-    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
+    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','brain_quiz_round','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
   );
   const of = (kind: string) => records.filter((r) => r.kind === kind);
   const saved = Object.fromEntries(
@@ -290,7 +290,7 @@ export async function onboardingState(
   const evaluatedIds = (brainEvaluation?.data.outcomes ?? [])
     .map((r: any) => r.scenarioId)
     .sort();
-  const brainCurrent =
+  const fullBrainCurrent =
     !!release &&
     confirmedRules.length > 0 &&
     digest(release.data.rules) === digest(confirmedRules) &&
@@ -305,6 +305,27 @@ export async function onboardingState(
           .sort(),
       ) &&
     !of("conflict").some((r) => r.status !== "resolved");
+  // "Waits for me" launch (brain-teach.ts): a completed practice quiz and
+  // at least 3 own cases instead of the full check. Automatic sending still
+  // needs the full check (coaching-runtime.ts).
+  const quizCompleted = of("brain_quiz_round").some(
+    (r) => r.status === "completed",
+  );
+  // Own cases exclude quiz answers stored as platform_quiz scenarios.
+  const quizReady = quizCompleted && coverage.own >= OWN_CASES_FOR_SUPERVISED;
+  const quizAnswered = of("brain_quiz_round").reduce(
+    (n, r) =>
+      n + ((r.data?.cases as any[]) ?? []).filter((c) => c?.answer).length,
+    0,
+  );
+  const brainCurrent =
+    fullBrainCurrent ||
+    (!!release &&
+      release.data.qualification === "quiz" &&
+      confirmedRules.length > 0 &&
+      digest(release.data.rules) === digest(confirmedRules) &&
+      quizReady &&
+      !of("conflict").some((r) => r.status !== "resolved"));
   let runtime: Awaited<ReturnType<typeof coachingRuntimeReadiness>> & {
     blocker?: string;
   };
@@ -487,7 +508,7 @@ export async function onboardingState(
     knowledge:
       confirmedRules.length > 0 &&
       !of("conflict").some((r) => r.status !== "resolved"),
-    scenarios: coverage.enough,
+    scenarios: coverage.enough || quizReady,
     readiness: brainCurrent && runtimeCurrent && modelReady,
     offer:
       products.some((r) => r.status === "published" && r.data.stripePriceId) &&
@@ -638,8 +659,10 @@ export async function onboardingState(
       label: "Brain taught",
       owner: "coach",
       ok: brainCurrent && runtimeCurrent,
-      reason: !coverage.enough
-        ? `Answer at least ${SETUP_BRAIN_MINIMUM.quiz} practice quiz questions (${Math.min(coverage.quiz, SETUP_BRAIN_MINIMUM.quiz)} so far) and write ${SETUP_BRAIN_MINIMUM.own} of your own cases (${Math.min(coverage.own, SETUP_BRAIN_MINIMUM.own)} so far).`
+      // Either route counts: a finished practice quiz round plus 3 own
+      // questions (brain-teach.ts), or the wizard's case minimum.
+      reason: !coverage.enough && !quizReady
+        ? `${quizCompleted ? "" : `Finish a practice quiz round (${quizAnswered} questions answered so far) and `}${quizCompleted ? "Write" : "write"} ${OWN_CASES_FOR_SUPERVISED} of your own client questions (${Math.min(coverage.own, OWN_CASES_FOR_SUPERVISED)} so far).`
         : (blockers.readiness ??
           "Approve your rules and check your Brain with your answers."),
     },
