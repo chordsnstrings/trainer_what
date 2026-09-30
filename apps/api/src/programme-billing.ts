@@ -17,6 +17,7 @@ import {
 } from "../../../packages/domain/src/programme.ts";
 import { assignCommissionRank, recordCharge } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
+import { checkoutAbsent } from "./stripe-outcomes.ts";
 
 /**
  * Offer billing and upfront programme payments (docs/features/programme.md).
@@ -597,7 +598,8 @@ export async function reconcileProgrammeCheckout(
   r: any,
   stripe: StripeLike,
 ) {
-  let remote: any;
+  let remote: any,
+    listed = false;
   if (r.data.providerId)
     remote = await stripe.checkout.sessions.retrieve(r.data.providerId);
   else {
@@ -605,6 +607,7 @@ export async function reconcileProgrammeCheckout(
       limit: 100,
       created: { gte: Math.floor(new Date(r.created_at).getTime() / 1000) - 60 },
     });
+    listed = !page.has_more;
     const matches = page.data.filter(
       (item: any) => item.client_reference_id === r.id,
     );
@@ -614,6 +617,22 @@ export async function reconcileProgrammeCheckout(
         "Multiple provider checkouts match one programme purchase; operator reconciliation is required",
       );
     remote = matches[0];
+  }
+  // Stripe never created this checkout and its expiry has passed: the
+  // purchase is expired (stripe-outcomes.ts), so it no longer holds a close.
+  if (!remote && listed && checkoutAbsent(r)) {
+    const scope = elevated("provider-callback", {
+      tenantId: r.tenant_id,
+      role: "finance",
+    });
+    await db.tenant(scope, async (tx) => {
+      await tx.query(
+        "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
+        [r.id, JSON.stringify({ providerStatus: "absent" })],
+      );
+      await event(tx, scope, "checkout.absent", r.id);
+    });
+    return { status: "expired" };
   }
   if (!remote)
     throw fail(

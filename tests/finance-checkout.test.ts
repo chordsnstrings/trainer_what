@@ -336,10 +336,15 @@ test("absence of provider evidence and foreign evidence never free an ambiguous 
     /Synthetic dispatch/,
   );
   const [r] = await intents(a);
+  // Expired, but not yet by the margin after which a session Stripe never
+  // listed is known never to have been created (CHECKOUT_ABSENT_AFTER_MS;
+  // tests/fix-stripe-payments.test.ts covers the expiry after it).
   await db.tenant(owner, (tx) =>
     tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [
       r.id,
-      JSON.stringify({ expiresAt: new Date(0).toISOString() }),
+      JSON.stringify({
+        expiresAt: new Date(Date.now() - 5 * 60000).toISOString(),
+      }),
     ]),
   );
   await assert.rejects(

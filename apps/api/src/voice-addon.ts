@@ -8,10 +8,16 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
-import { stripeClient } from "@trainer/providers";
+import { stripeClient, stripeRefused } from "@trainer/providers";
 import { assignCommissionRank, recordCharge } from "./finance.ts";
 import { subscriptionHasAccess } from "./finance-billing.ts";
-import { resolveInvoicePayment } from "./stripe-events.ts";
+import { checkoutAbsent, refusalOf } from "./stripe-outcomes.ts";
+import {
+  closeEndedSubscriptionInvoices,
+  eventAged,
+  projectBillingInvoice,
+  resolveInvoicePayment,
+} from "./stripe-events.ts";
 
 /**
  * Premium voice as an add-on to a membership (docs/features/programme.md).
@@ -48,6 +54,8 @@ export type VoiceAddOnState = {
   amountMinor?: number | null;
   /** Set when the add-on must end now (a full refund); the worker cancels it. */
   endRequested?: string;
+  /** A cancel_at end set without cancel_at_period_end (flexible billing mode). */
+  scheduledCancelAt?: number | null;
 };
 /** An add-on grants voice while its verified provider subscription is current. */
 export function voiceAddOnEntitled(v: any, now = Date.now()): boolean {
@@ -169,7 +177,14 @@ export async function processVoiceAddOnEvent(
     });
     return true;
   }
-  if (e.type === "invoice.paid" || e.type === "invoice.payment_failed") {
+  if (
+    [
+      "invoice.paid",
+      "invoice.payment_failed",
+      "invoice.voided",
+      "invoice.marked_uncollectible",
+    ].includes(e.type)
+  ) {
     const meta =
       object.parent?.subscription_details?.metadata ??
       object.subscription_details?.metadata;
@@ -292,18 +307,22 @@ export async function projectVoiceAddOn(
       [userId],
     ),
   );
+  // Events arrive in any order, and an invoice event may be newer than a
+  // subscription change delivered late: an event that is not newer than the
+  // last applied one is applied from the provider's current object.
+  let authoritative = false;
   if (
     row?.v?.providerId === object.id &&
-    Number(row.v.lastStripeEventAt ?? 0) === meta.eventTime &&
+    Number(row.v.lastStripeEventAt ?? 0) >= meta.eventTime &&
     meta.eventTime
   ) {
-    // Same-second events arrive in any order: apply the provider's current object.
     const stripe = meta.stripe ?? optionalStripe();
     if (stripe) {
       const remote: any = await stripe.subscriptions.retrieve(object.id);
       if (remote.id !== object.id)
         throw new Error("Conflicting provider object ownership");
       object = { ...remote, metadata: { ...object.metadata, ...remote.metadata } };
+      authoritative = true;
     }
   }
   const line = object.items?.data?.[0];
@@ -322,7 +341,12 @@ export async function projectVoiceAddOn(
         "A voice add-on without a membership requires reconciliation",
       );
     const v: VoiceAddOnState | undefined = s.data?.voiceAddOn ?? undefined;
-    if (v && v.providerId === object.id && meta.eventTime < v.lastStripeEventAt)
+    if (
+      v &&
+      v.providerId === object.id &&
+      meta.eventTime < v.lastStripeEventAt &&
+      !authoritative
+    )
       return;
     if (v && v.providerId !== object.id && !TERMINAL.has(v.status)) {
       // An older add-on's late event never replaces the current one.
@@ -341,7 +365,13 @@ export async function projectVoiceAddOn(
       providerId: object.id,
       status: String(object.status),
       periodEnd: period ? new Date(period * 1000).toISOString() : null,
-      cancelAtPeriodEnd: !!object.cancel_at_period_end,
+      // A cancel_at schedule (flexible billing mode) also ends the add-on.
+      cancelAtPeriodEnd:
+        !!object.cancel_at_period_end || Number(object.cancel_at) > 0,
+      scheduledCancelAt:
+        !object.cancel_at_period_end && Number(object.cancel_at) > 0
+          ? Number(object.cancel_at)
+          : null,
       priceId,
       productId: offer?.id ?? null,
       verified: !!offer,
@@ -363,6 +393,12 @@ export async function projectVoiceAddOn(
     await tx.query(
       "UPDATE subscriptions SET data=data||jsonb_build_object('voiceAddOn',$2::jsonb) WHERE id=$1",
       [s.id, JSON.stringify(next)],
+    );
+    await closeEndedSubscriptionInvoices(
+      tx,
+      object.id,
+      String(object.status),
+      meta.eventId,
     );
     await tx.query(
       "UPDATE records SET status=$3,data=data||$4::jsonb,updated_at=now() WHERE kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='voice_addon' AND (data->>'subscriptionId'=$2 OR id::text=$5) AND status<>'closed'",
@@ -411,6 +447,7 @@ async function processVoiceInvoice(
   const { tenantId, userId } = owner;
   const a = providerActor(tenantId);
   const eventTime = Number(e.created ?? 0);
+  let outOfBand = false;
   if (e.type === "invoice.paid" && !chargeId && object.amount_paid > 0) {
     const [posted] = await db.tenant(a, (tx) =>
       tx.query("SELECT data FROM journals WHERE source_key=$1", [
@@ -425,10 +462,15 @@ async function processVoiceInvoice(
       : await resolveInvoicePayment(object, deps.stripe ?? optionalStripe());
     chargeId = resolved.chargeId;
     paymentIntentId ??= resolved.paymentIntentId;
-    if (!chargeId && !posted)
-      throw new Error(
-        "Invoice payment identity unresolved; retain receipt for reconciliation",
-      );
+    if (!chargeId && !posted) {
+      if (!eventAged(e))
+        throw new Error(
+          "Invoice payment identity unresolved; retain receipt for reconciliation",
+        );
+      // Paid without an identifiable Stripe payment: access follows the
+      // invoice; the money is left to an operator (stripe-events.ts).
+      outOfBand = true;
+    }
   }
   await recordOwnership(db, tenantId, userId, [
     [subscriptionId, "voice_addon_subscription"],
@@ -459,7 +501,7 @@ async function processVoiceInvoice(
         return null;
       }
     };
-    const snapshot = {
+    await projectBillingInvoice(tx, a, userId, e, {
       invoiceId: object.id,
       subscriptionId,
       purpose: "voice_addon",
@@ -474,28 +516,11 @@ async function processVoiceInvoice(
       issuedAt: new Date((object.created ?? eventTime) * 1000).toISOString(),
       providerEventId: e.id,
       eventTime,
-    };
-    const [invoice] = await tx.query(
-      "SELECT * FROM records WHERE kind='billing_invoice' AND data->>'invoiceId'=$1",
-      [object.id],
-    );
-    if (!invoice)
-      await putRecord(tx, a, "billing_invoice", snapshot, {
-        ownerId: userId,
-        status: e.type === "invoice.paid" ? "paid" : "open",
-      });
-    else if (
-      eventTime >= Number(invoice.data.eventTime ?? 0) &&
-      invoice.status !== "paid"
-    )
-      await tx.query(
-        "UPDATE records SET status=$2,data=$3,version=version+1,updated_at=now() WHERE id=$1",
-        [
-          invoice.id,
-          e.type === "invoice.paid" ? "paid" : "open",
-          JSON.stringify(snapshot),
-        ],
-      );
+      ...(outOfBand ? { outOfBand: true } : {}),
+    });
+    // A voided or uncollectible invoice changes only its own record.
+    if (e.type === "invoice.voided" || e.type === "invoice.marked_uncollectible")
+      return;
     const v = s.data?.voiceAddOn;
     const current = v?.providerId === subscriptionId;
     if (e.type === "invoice.payment_failed") {
@@ -536,7 +561,27 @@ async function processVoiceInvoice(
           }),
         ],
       );
-    if (amount > 0) {
+    const [recorded] = outOfBand
+      ? await tx.query(
+          "SELECT id FROM records WHERE kind='reconciliation' AND data->>'invoiceId'=$1",
+          [object.id],
+        )
+      : [];
+    if (outOfBand && !recorded)
+      await putRecord(
+        tx,
+        a,
+        "reconciliation",
+        {
+          reason:
+            "A voice add-on invoice was marked paid without a Stripe payment the platform can identify; record the money outside Stripe or correct the invoice in Stripe",
+          invoiceId: object.id,
+          userId,
+          amountMinor: amount,
+        },
+        { ownerId: userId, status: "open" },
+      );
+    else if (!outOfBand && amount > 0) {
       const chargedAt = new Date(
         (object.created ?? e.created ?? Date.now() / 1000) * 1000,
       ).toISOString();
@@ -738,14 +783,22 @@ export async function addVoiceAddOn(
     return { url: context.existing.data.checkoutUrl, intentId: context.existing.id };
   if (context.resume) {
     const provider = stripe();
+    // An end scheduled with cancel_at (flexible billing mode) is cleared
+    // with that field; cancel_at_period_end=false alone would leave it.
     const remote: any = await provider.subscriptions.update(
       context.resume.providerId,
-      { cancel_at_period_end: false },
+      context.resume.scheduledCancelAt
+        ? { cancel_at: "" }
+        : { cancel_at_period_end: false },
       {
         idempotencyKey: `voice-addon-resume:${context.resume.providerId}:${context.resume.lastStripeEventAt}`,
       },
     );
-    if (remote.id !== context.resume.providerId || remote.cancel_at_period_end)
+    if (
+      remote.id !== context.resume.providerId ||
+      remote.cancel_at_period_end ||
+      Number(remote.cancel_at) > 0
+    )
       throw fail(
         "VOICE_UNRESOLVED",
         "The provider has not confirmed that voice continues; check again shortly.",
@@ -815,16 +868,22 @@ export async function addVoiceAddOn(
     );
     return { url: remote.url, intentId: intent.id };
   } catch (error) {
+    // A Stripe refusal created nothing: the purchase is closed and another
+    // may start. Anything else may have reached Stripe and stays uncertain.
+    const refused = stripeRefused(error);
     await db.tenant(a, (tx) =>
       tx.query(
-        "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
-        [intent.id],
+        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='creating'",
+        [
+          intent.id,
+          refused ? "closed" : "unknown",
+          JSON.stringify(refused ? { providerRefusal: refusalOf(error) } : {}),
+        ],
       ),
     );
     throw error;
   }
 }
-
 /** Resolves an uncertain add-on checkout from provider evidence only. */
 export async function reconcileVoiceCheckout(
   db: Database,
@@ -832,7 +891,8 @@ export async function reconcileVoiceCheckout(
   r: any,
   stripe: StripeLike,
 ) {
-  let remote: any;
+  let remote: any,
+    listed = false;
   if (r.data.providerId)
     remote = await stripe.checkout.sessions.retrieve(r.data.providerId);
   else {
@@ -851,6 +911,17 @@ export async function reconcileVoiceCheckout(
         "Multiple provider checkouts match one add-on purchase; operator reconciliation is required",
       );
     remote = matches[0];
+    listed = !result.has_more;
+  }
+  if (!remote && listed && checkoutAbsent(r)) {
+    await db.tenant(providerActor(r.tenant_id), async (tx) => {
+      await tx.query(
+        "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
+        [r.id, JSON.stringify({ providerStatus: "absent" })],
+      );
+      await event(tx, providerActor(r.tenant_id), "voice_addon.checkout_absent", r.id);
+    });
+    return { status: "expired" };
   }
   if (!remote)
     throw fail(
@@ -999,9 +1070,13 @@ export async function stopVoiceAddOnForExit(
 }
 
 /**
- * Add-ons that must end now: the member has no paid access (a canceled
- * membership, an upfront programme that ended or was refunded), is no longer
- * a member of the workspace, or the add-on charge was refunded in full. The
+ * Add-ons that must end now: the membership ended (a canceled, unpaid or
+ * expired provider membership, an upfront programme that ended or was
+ * refunded), the member is no longer a member of the workspace, or the
+ * add-on charge was refunded in full. A provider-billed membership that
+ * Stripe still bills (active, trialing or past due) is never treated as
+ * ended by the clock: its renewal is mirrored only after its period end,
+ * and Stripe may still recover a failed payment after the app's grace. The
  * test is in SQL, before the page limit, so healthy add-ons never crowd out
  * the ones to end; pages follow a user_id cursor.
  */
@@ -1011,7 +1086,8 @@ const ORPHANED_VOICE_ADDONS = `SELECT s.user_id,s.status,s.period_end,s.data FRO
   NOT EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=s.tenant_id AND m.user_id=s.user_id AND m.role='subscriber')
   OR s.data->'voiceAddOn' ? 'endRequested'
   OR NOT (
-   (s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now()))
+   (s.provider_id IS NOT NULL AND s.status IN ('active','trialing','past_due'))
+   OR (s.status IN ('active','trialing') AND (s.period_end IS NULL OR s.period_end>now()))
    OR (s.status='past_due' AND CASE WHEN s.data->>'graceUntil' ~ '^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+(Z|[+-]\\d{2}:?\\d{2})$' THEN (s.data->>'graceUntil')::timestamptz>now() ELSE false END)
   )
  ) ORDER BY s.user_id LIMIT $2`;

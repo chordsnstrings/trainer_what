@@ -69,8 +69,14 @@ export const programmeDaysSchema = z
   .int()
   .min(PROGRAMME_DAYS_MIN)
   .max(PROGRAMME_DAYS_MAX);
+/** Stripe's smallest charge in AED: AED 2.00 (docs.stripe.com/currencies). */
+export const STRIPE_MIN_CHARGE_AED_MINOR = 200;
 /** Trainer-set monthly price of the premium voice add-on a member may add to this offer. */
-export const voiceAddOnPriceSchema = z.number().int().min(100).max(100000);
+export const voiceAddOnPriceSchema = z
+  .number()
+  .int()
+  .min(STRIPE_MIN_CHARGE_AED_MINOR)
+  .max(100000);
 /**
  * A trainer's offer. `billing: "monthly"` renews every month (a programme
  * length then defines the block length); `billing: "upfront"` is one payment
@@ -82,7 +88,7 @@ export const productSchema = z
   .object({
     name: z.string().min(2).max(100),
     description: z.string().max(1500),
-    priceMinor: z.number().int().min(100).max(1000000),
+    priceMinor: z.number().int().min(STRIPE_MIN_CHARGE_AED_MINOR).max(1000000),
     tier: z.enum(["workout", "workout_nutrition"]).default("workout"),
     baseProductId: z.string().uuid().optional(),
     programmeDays: programmeDaysSchema.nullable().default(null),

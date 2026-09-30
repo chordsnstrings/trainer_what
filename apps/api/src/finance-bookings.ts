@@ -7,13 +7,23 @@ import {
   putRecord,
   event,
 } from "@trainer/db";
-import { requireCommerce, stripeClient } from "@trainer/providers";
+import {
+  requireCommerce,
+  stripeClient,
+  stripeRefused,
+} from "@trainer/providers";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
 import { journal } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
 import { bookingFeePolicy, feeInMinor } from "./finance-policy.ts";
 import { notifyUser } from "./notifications.ts";
+import {
+  checkoutAbsent,
+  instructionSettled,
+  refusalOf,
+} from "./stripe-outcomes.ts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 /**
@@ -28,14 +38,15 @@ export async function preparePaidBooking(
 ) {
   const amountMinor = Number(slot.price_minor ?? 0);
   if (!amountMinor) return null;
+  // Stripe's smallest AED charge is AED 2.00 (docs.stripe.com/currencies).
   if (
     !Number.isSafeInteger(amountMinor) ||
-    amountMinor < 100 ||
+    amountMinor < STRIPE_MIN_CHARGE_AED_MINOR ||
     amountMinor > 100000000
   )
     throw fail(
       "BOOKING_PRICE_INVALID",
-      "Paid sessions require a valid AED price",
+      "Paid sessions need a price of at least AED 2.00",
     );
   const [prior] = await tx.query(
     "SELECT * FROM records WHERE kind='booking_payment' AND data->>'bookingId'=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -188,12 +199,24 @@ export async function startBookingCheckout(
     });
     return { url: remote.url, checkoutUrl: remote.url, status: "open" };
   } catch (error) {
-    await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
-      tx.query(
-        "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='creating'",
-        [r.id],
-      ),
-    );
+    // A Stripe refusal created no checkout: the reservation's hold is
+    // released at once instead of waiting as an uncertain payment.
+    const refused = stripeRefused(error);
+    await db.tenant(actingAs(a, "owner", "coach-workflow"), async (tx) => {
+      const [closed] = await tx.query(
+        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='creating' RETURNING id",
+        [
+          r.id,
+          refused ? "canceled" : "unknown",
+          JSON.stringify(refused ? { providerRefusal: refusalOf(error) } : {}),
+        ],
+      );
+      if (refused && closed)
+        await tx.query(
+          "UPDATE bookings SET status='canceled',payment_status='canceled',hold_expires_at=NULL WHERE id=$1 AND status='payment_pending'",
+          [bookingId],
+        );
+    });
     throw error;
   }
 }
@@ -228,21 +251,34 @@ export async function refundCanceledBooking(
         return null;
       }
       if (p.status === "open") return { ...p, expire: true };
-      if (p.status !== "paid") return null;
+      // A refund that failed (or that Stripe refused) is sent again as a new
+      // instruction; nothing moved the first time.
+      if (!["paid", "refund_failed"].includes(p.status)) return null;
       if (!p.data.paymentIntentId)
         throw fail(
           "PAYMENT_REFERENCE_REQUIRED",
           "Reconcile the original payment reference before refunding",
         );
+      // Refunds already posted (a partial refund from the Stripe Dashboard)
+      // are not refunded twice.
+      const [prior] = await tx.query(
+        "SELECT coalesce(sum((data->>'refundAmountMinor')::bigint),0)::text AS refunded FROM journals WHERE source_key LIKE 'booking-refund%' AND data->>'bookingId'=$1",
+        [bookingId],
+      );
+      const remainingMinor = p.data.amountMinor - Number(prior.refunded);
+      if (remainingMinor <= 0) return null;
+      const attempt = Array.isArray(p.data.failedRefundIds)
+        ? p.data.failedRefundIds.length
+        : 0;
       await tx.query(
-        "UPDATE records SET status='refund_submitting',updated_at=now() WHERE id=$1",
-        [p.id],
+        "UPDATE records SET status='refund_submitting',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+        [p.id, JSON.stringify({ refundAttempt: attempt })],
       );
       await tx.query(
         "UPDATE bookings SET payment_status='refunding' WHERE id=$1",
         [bookingId],
       );
-      return { ...p, expire: false };
+      return { ...p, expire: false, remainingMinor, attempt };
     },
   );
   if (!intent) return { status: "held_or_complete" };
@@ -268,7 +304,7 @@ export async function refundCanceledBooking(
     const refund = await (stripe ?? stripeClient()).refunds.create(
       {
         payment_intent: intent.data.paymentIntentId,
-        amount: intent.data.amountMinor,
+        amount: intent.remainingMinor,
         metadata: {
           tenant_id: a.tenantId,
           user_id: intent.owner_user_id,
@@ -276,7 +312,12 @@ export async function refundCanceledBooking(
           payment_kind: "booking",
         },
       },
-      { idempotencyKey: "booking-refund:" + intent.id },
+      {
+        idempotencyKey:
+          "booking-refund:" +
+          intent.id +
+          (intent.attempt ? `:${intent.attempt}` : ""),
+      },
     );
     if (!refund.id) throw new Error("Refund reference missing");
     await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
@@ -287,10 +328,16 @@ export async function refundCanceledBooking(
     );
     return { status: "refunding" };
   } catch (error) {
+    // Stripe refused the refund: nothing moved, and it can be sent again.
+    const refused = stripeRefused(error);
     await db.tenant(actingAs(a, "owner", "coach-workflow"), (tx) =>
       tx.query(
-        "UPDATE records SET status='refund_unknown',updated_at=now() WHERE id=$1 AND status='refund_submitting'",
-        [intent.id],
+        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='refund_submitting'",
+        [
+          intent.id,
+          refused ? "refund_failed" : "refund_unknown",
+          JSON.stringify(refused ? { providerRefusal: refusalOf(error) } : {}),
+        ],
       ),
     );
     throw error;
@@ -559,23 +606,91 @@ export async function processBookingStripeEvent(
           : "booking-payment-compensation",
       });
     } else {
+      const failedIds: string[] = Array.isArray(r.data.failedRefundIds)
+        ? r.data.failedRefundIds
+        : [];
+      const own =
+        object.metadata?.booking_payment_id === r.id ||
+        r.data.refundId === object.id;
       if (
         object.currency !== "aed" ||
-        object.amount !== r.data.amountMinor ||
-        (pi && r.data.paymentIntentId !== pi) ||
-        (r.data.refundId && r.data.refundId !== object.id)
+        !Number.isSafeInteger(object.amount) ||
+        object.amount <= 0 ||
+        object.amount > r.data.amountMinor ||
+        (pi && r.data.paymentIntentId !== pi)
       )
         throw fail(
           "BOOKING_REFUND_MISMATCH",
           "Refund does not match the original payment instruction",
         );
-      if (r.status === "refunded") return;
+      const [posted] = await tx.query(
+        "SELECT * FROM journals WHERE source_key=$1",
+        ["booking-refund:" + object.id],
+      );
+      if (["failed", "canceled"].includes(object.status)) {
+        // A refund that failed moved no money, or returned it to the Stripe
+        // balance after it was posted (then the posting is compensated).
+        // The session payment is refundable again and no longer holds the
+        // month close; the trainer is told to send the refund again.
+        if (posted) {
+          const amount = Number(posted.data.refundAmountMinor),
+            fee = Number(posted.data.commissionReversalMinor ?? 0);
+          await journal(
+            tx,
+            a,
+            "booking-refund-reversal:" + object.id,
+            "Session refund returned; payment restored",
+            [
+              { account: "stripe_receivable", amount },
+              { account: "trainer_payable", amount: -(amount - fee) },
+              { account: "platform_commission", amount: -fee },
+            ],
+            {
+              bookingId: b.id,
+              userId: b.user_id,
+              refundAmountMinor: -amount,
+              commissionReversalMinor: -fee,
+              reversedRefundId: object.id,
+            },
+          );
+        }
+        if ((own || posted) && !failedIds.includes(object.id)) {
+          await tx.query(
+            "UPDATE records SET status='refund_failed',data=(data-'refundId')||$2::jsonb,updated_at=now() WHERE id=$1",
+            [
+              r.id,
+              JSON.stringify({
+                failedRefundIds: [...failedIds, object.id],
+                refundStatus: object.status,
+              }),
+            ],
+          );
+          await tx.query(
+            "UPDATE bookings SET payment_status='refund_failed' WHERE id=$1",
+            [b.id],
+          );
+          await event(tx, a, "booking.refund_failed", b.id, {
+            refundId: object.id,
+            status: object.status,
+          });
+        }
+        return;
+      }
+      // A late event of a refund that already failed changes nothing.
+      if (failedIds.includes(object.id)) return;
+      if (r.data.refundId && own && r.data.refundId !== object.id)
+        throw fail(
+          "BOOKING_REFUND_MISMATCH",
+          "Refund does not match the original payment instruction",
+        );
       if (
         ![
           "paid",
           "refund_submitting",
           "refund_pending",
           "refund_unknown",
+          "refund_failed",
+          "refunded",
         ].includes(r.status)
       )
         throw fail(
@@ -583,41 +698,86 @@ export async function processBookingStripeEvent(
           "Original payment needs reconciliation first",
         );
       if (object.status !== "succeeded") {
-        await tx.query(
-          "UPDATE records SET status='refund_unknown',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-          [
-            r.id,
-            JSON.stringify({
-              refundId: object.id,
-              refundStatus: object.status,
-            }),
-          ],
-        );
+        // Only the platform's own instruction is tracked while pending.
+        if (own && r.status !== "refunded")
+          await tx.query(
+            "UPDATE records SET status='refund_unknown',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+            [
+              r.id,
+              JSON.stringify({
+                refundId: object.id,
+                refundStatus: object.status,
+              }),
+            ],
+          );
         return;
       }
+      if (posted) return;
+      // Every refund of the payment (the platform's own, or one made in the
+      // Stripe Dashboard, in full or in part) is posted once, with the
+      // commission reversed in proportion and never beyond what was earned.
+      const [prior] = await tx.query(
+        "SELECT coalesce(sum((data->>'refundAmountMinor')::bigint),0)::text AS refunded,coalesce(sum((data->>'commissionReversalMinor')::bigint),0)::text AS reversed FROM journals WHERE source_key LIKE 'booking-refund%' AND data->>'bookingId'=$1",
+        [b.id],
+      );
+      const refunded = Number(prior.refunded) + object.amount;
+      if (refunded > r.data.amountMinor)
+        throw fail(
+          "BOOKING_REFUND_MISMATCH",
+          "Refunds exceed the original session payment",
+        );
+      const final = refunded === r.data.amountMinor;
+      const unreversed = Math.max(
+        0,
+        r.data.commissionMinor - Number(prior.reversed),
+      );
+      const fee = final
+        ? unreversed
+        : Math.min(
+            unreversed,
+            Math.round(
+              (r.data.commissionMinor * object.amount) / r.data.amountMinor,
+            ),
+          );
       await journal(
         tx,
         a,
         "booking-refund:" + object.id,
-        "Canceled coaching session refund",
+        final
+          ? "Canceled coaching session refund"
+          : "Coaching session partial refund",
         [
-          { account: "stripe_receivable", amount: -r.data.amountMinor },
+          { account: "stripe_receivable", amount: -object.amount },
           {
             account: "trainer_payable",
-            amount: r.data.amountMinor - r.data.commissionMinor,
+            amount: object.amount - fee,
           },
-          { account: "platform_commission", amount: r.data.commissionMinor },
+          { account: "platform_commission", amount: fee },
         ],
         {
           bookingId: b.id,
           userId: b.user_id,
-          refundAmountMinor: r.data.amountMinor,
-          commissionReversalMinor: r.data.commissionMinor,
+          refundAmountMinor: object.amount,
+          commissionReversalMinor: fee,
+          refundId: object.id,
         },
       );
+      if (!final) {
+        await tx.query(
+          "UPDATE records SET data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+          [r.id, JSON.stringify({ refundedMinor: refunded })],
+        );
+        await event(tx, a, "booking.partially_refunded", b.id, {
+          refundId: object.id,
+        });
+        return;
+      }
       await tx.query(
         "UPDATE records SET status='refunded',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [r.id, JSON.stringify({ refundId: object.id })],
+        [
+          r.id,
+          JSON.stringify({ refundId: object.id, refundedMinor: refunded }),
+        ],
       );
       await tx.query(
         "UPDATE bookings SET status='canceled',payment_status='refunded',hold_expires_at=NULL WHERE id=$1",
@@ -696,6 +856,25 @@ export async function reconcileBookingPayment(
         r.metadata?.tenant_id === a.tenantId &&
         r.metadata?.user_id === p.owner_user_id,
     );
+    // Stripe never created this checkout and it could no longer be paid:
+    // the hold is released (stripe-outcomes.ts).
+    if (!remote && !page.has_more && checkoutAbsent(p)) {
+      await db.tenant(actingAs(a, "owner", "coach-workflow"), async (tx) => {
+        await tx.query("SELECT id FROM booking_slots WHERE id=$1 FOR UPDATE", [
+          p.data.slotId,
+        ]);
+        const [expired] = await tx.query(
+          "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown') RETURNING id",
+          [p.id, JSON.stringify({ providerStatus: "absent" })],
+        );
+        if (expired)
+          await tx.query(
+            "UPDATE bookings SET status='canceled',payment_status='expired',hold_expires_at=NULL WHERE id=$1 AND status='payment_pending'",
+            [bookingId],
+          );
+      });
+      return { status: "expired" };
+    }
     if (!remote)
       throw fail(
         "BOOKING_PAYMENT_UNRESOLVED",
@@ -742,8 +921,39 @@ export async function reconcileBookingPayment(
       limit: 100,
     });
     const match = page.data.find(
-      (r) => r.metadata?.booking_payment_id === p.id,
+      (r) =>
+        r.metadata?.booking_payment_id === p.id &&
+        !(p.data.failedRefundIds ?? []).includes(r.id),
     );
+    // Long after an uncertain dispatch, no refund exists for it: nothing
+    // moved, so the payment is refundable again (stripe-outcomes.ts).
+    if (
+      !match &&
+      !page.has_more &&
+      p.status === "refund_unknown" &&
+      instructionSettled({ created_at: p.updated_at ?? p.created_at })
+    ) {
+      await db.tenant(actingAs(a, "owner", "coach-workflow"), async (tx) => {
+        await tx.query(
+          "UPDATE records SET status='refund_failed',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status='refund_unknown'",
+          [
+            p.id,
+            JSON.stringify({
+              providerRefusal: {
+                code: "NOT_CREATED",
+                message: "No provider refund exists for this instruction",
+                at: new Date().toISOString(),
+              },
+            }),
+          ],
+        );
+        await tx.query(
+          "UPDATE bookings SET payment_status='refund_failed' WHERE id=$1",
+          [bookingId],
+        );
+      });
+      return { status: "refund_failed" };
+    }
     if (!match)
       throw fail(
         "BOOKING_REFUND_UNRESOLVED",

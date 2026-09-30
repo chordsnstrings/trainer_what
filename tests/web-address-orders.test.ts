@@ -93,6 +93,21 @@ class FakeStripe {
   subs = new Map<string, any>();
   invoiceObjects = new Map<string, any>();
   sessionLivemode = false;
+  /**
+   * When each subscription's next yearly invoice is issued, as Stripe's
+   * billing modes decide it (docs.stripe.com/billing/subscriptions/
+   * billing-mode/compare): a trial end issues it then; resetting the billing
+   * cycle anchor now without proration issues it at once in classic mode and
+   * not at all in flexible mode, the default for Checkout subscriptions since
+   * API version 2025-09-30.clover.
+   */
+  renewalInvoices: Array<{ subscription: string; at: number }> = [];
+  /** The billing mode a subscription got from its Checkout session. */
+  billingMode(subscription: string) {
+    for (const session of this.sessions.values())
+      if (session.subscription === subscription) return session.billingMode;
+    return "flexible";
+  }
   failUpdates = 0;
   failCancels = 0;
   private replay = new Map<string, any>();
@@ -121,6 +136,8 @@ class FakeStripe {
             client_reference_id: params.client_reference_id,
             metadata: params.metadata,
             livemode: this.sessionLivemode,
+            billingMode:
+              params.subscription_data?.billing_mode?.type ?? "flexible",
             currency: params.line_items[0].price_data.currency,
             // The recurring price, one-time first-year lines, less a coupon.
             amount_total:
@@ -163,8 +180,10 @@ class FakeStripe {
     },
   };
   subscriptions = {
-    retrieve: async (id: string) =>
-      this.subs.get(id) ?? { id, status: "active", livemode: false },
+    retrieve: async (id: string) => ({
+      billing_mode: { type: this.billingMode(id) },
+      ...(this.subs.get(id) ?? { id, status: "active", livemode: false }),
+    }),
     update: async (id: string, params: any, options?: any) => {
       this.calls.push({
         method: "subscriptions.update",
@@ -175,6 +194,17 @@ class FakeStripe {
         this.failUpdates--;
         throw new Error("Stripe is unavailable");
       }
+      if (params.trial_end)
+        this.renewalInvoices.push({
+          subscription: id,
+          at: params.trial_end * 1000,
+        });
+      else if (
+        params.billing_cycle_anchor === "now" &&
+        params.proration_behavior === "none" &&
+        this.billingMode(id) === "classic"
+      )
+        this.renewalInvoices.push({ subscription: id, at: Date.now() });
       return { id, ...params };
     },
     cancel: async (id: string, params?: any, options?: any) => {
@@ -647,6 +677,10 @@ test("pay, buy, set DNS, verify, activate: the trainer's own domain goes live", 
     checkout.params.subscription_data.description,
     "Custom web address — yearly: layla.com",
   );
+  // Classic billing mode, so charging a late renewal now invoices it.
+  assert.deepEqual(checkout.params.subscription_data.billing_mode, {
+    type: "classic",
+  });
   // The trainer's answers carry no registrar name or cost.
   for (const path of ["/web-address", `/web-address/orders/${laylaOrder.id}`]) {
     const r = await request(path, { cookie: layla.cookie });
@@ -1777,6 +1811,33 @@ test("a failed billing alignment is retried within minutes; a passed charge date
   assert.ok(o.billing_aligned_at);
   assert.equal(o.evidence.renewalChargedEarly, true);
   assert.equal(o.status, "active");
+  // The renewal is invoiced now, not a year later (flexible billing mode
+  // would issue no invoice for this anchor reset).
+  const invoiced = () =>
+    stripe.renewalInvoices.filter(
+      (r) => r.subscription === "sub_nour" && r.at <= Date.now() + 10 * 60000,
+    ).length;
+  assert.equal(invoiced(), 1, "the late renewal is charged before expiry");
+  // A subscription created in flexible mode (before checkouts asked for
+  // classic) is charged through a trial that ends within minutes instead.
+  const session = [...stripe.sessions.values()].find(
+    (x) => x.subscription === "sub_nour",
+  );
+  session.billingMode = "flexible";
+  await db.tenant(worker(nour.tenantId), (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET billing_aligned_at=NULL,expires_at=now()+interval '21 days' WHERE id=$1",
+      [nourOrderId],
+    ),
+  );
+  o = await step(nour.tenantId, nourOrderId);
+  assert.ok(o.billing_aligned_at);
+  assert.equal(invoiced(), 2);
+  const flexible = stripe.calls.filter(
+    (c) => c.method === "subscriptions.update" && c.params.id === "sub_nour",
+  ).at(-1)!;
+  assert.equal(flexible.params.billing_cycle_anchor, undefined);
+  assert.equal(flexible.params.proration_behavior, "none");
 });
 
 test("renewal switch: an older Stripe event never undoes the trainer's choice; notices use the current address", async () => {

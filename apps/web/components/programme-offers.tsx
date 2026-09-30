@@ -281,7 +281,7 @@ export function OfferForm({
         <input
           name="price"
           type="number"
-          min={1}
+          min={2}
           step={0.01}
           required
           value={price}
@@ -293,7 +293,7 @@ export function OfferForm({
         <input
           name="voicePrice"
           type="number"
-          min={1}
+          min={2}
           max={1000}
           step={0.01}
           value={voicePrice}
@@ -366,7 +366,7 @@ export function OfferVoicePrice({
         <input
           name="voicePrice"
           type="number"
-          min={1}
+          min={2}
           max={1000}
           step={0.01}
           required

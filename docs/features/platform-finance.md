@@ -16,7 +16,14 @@ merged tree are recorded; not deployed. Statements below that the branch is unme
 when written. Seen at that merge and still open: the Stripe fee of a domain payment not read yet
 is estimated with this page's Stripe fee settings (2.9% + AED 1.00), not the domain margin's
 fuller USD estimate (+1% international card, +0.7% Stripe Billing, +1% conversion); and Stripe
-Billing's 0.7% fee is neither read nor estimated here, for memberships or domains.
+Billing's 0.7% fee is neither read nor estimated here, for memberships or domains (it is
+attributed to the invoice in Stripe's Fees report, not the charge's balance transaction, and
+an account on standalone fees shows fee 0 there; to be reconciled against the Reporting API
+once live charges exist, `payments-stripe.md` F9). Since 29 September 2026 (branch
+`fix/stripe-payments`) a month close is no longer held by a failed invoice issued after the
+month, nor by one Stripe stopped collecting (voided, uncollectible, or its subscription ended),
+nor by a refused or failed refund or checkout; lost disputes and refunds returned by the bank
+are posted as `payments-stripe.md` describes.
 
 ## Starting point (audit of 28 September)
 

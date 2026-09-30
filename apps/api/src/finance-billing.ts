@@ -8,11 +8,12 @@ import {
   event,
   putRecord,
 } from "@trainer/db";
-import { stripeClient } from "@trainer/providers";
+import { stripeClient, stripeRefused } from "@trainer/providers";
 import { refundEligible } from "@trainer/domain";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import { processStripeEvent } from "./stripe-events.ts";
+import { instructionSettled, refusalOf } from "./stripe-outcomes.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -29,10 +30,24 @@ const financeScope = (a: Actor): Actor =>
   a.elevation || a.role === "owner" || a.role === "finance"
     ? { ...a, role: "finance" }
     : a;
+/**
+ * A renewing provider-billed membership keeps access this long after its
+ * stored period end: Stripe renews at that moment, and the renewal reaches
+ * the app only with its webhook. A failed renewal payment is mirrored as
+ * past_due (then the grace rule applies) and a scheduled end as canceled.
+ */
+export const RENEWAL_WEBHOOK_TOLERANCE_MS = 24 * 3600000;
 export function subscriptionHasAccess(s: any, now = Date.now()): boolean {
   if (!s) return false;
   if (["active", "trialing"].includes(s.status))
-    return !s.period_end || new Date(s.period_end).getTime() > now;
+    return (
+      !s.period_end ||
+      new Date(s.period_end).getTime() +
+        (s.provider_id && !s.cancel_at_period_end
+          ? RENEWAL_WEBHOOK_TOLERANCE_MS
+          : 0) >
+        now
+    );
   return (
     s.status === "past_due" &&
     Number.isFinite(Date.parse(s.data?.graceUntil)) &&
@@ -45,7 +60,30 @@ export async function currentPaidSubscription(tx: Tx, userId: string) {
   ]);
   return subscriptionHasAccess(s) ? s : undefined;
 }
-/** A distinct business transition gets a distinct intent. Uncertain dispatch is never resubmitted. */
+/**
+ * The provider subscription no longer renews: cancel_at_period_end, or an
+ * end scheduled with cancel_at (flexible billing mode), or already ended.
+ */
+const endsAtStripe = (remote: any) =>
+  !!remote.cancel_at_period_end ||
+  Number(remote.cancel_at) > 0 ||
+  ["canceled", "incomplete_expired"].includes(remote.status);
+/** Whether the provider state shows a transition's requested outcome. */
+function transitionDone(data: any, remote: any) {
+  if (data.immediate) return remote.status === "canceled";
+  // A subscription that already ended no longer renews: a cancel request
+  // is satisfied by it (and a reactivation never can be).
+  if (["canceled", "incomplete_expired"].includes(remote.status))
+    return data.cancel === true;
+  return data.cancel ? endsAtStripe(remote) : !endsAtStripe(remote);
+}
+/**
+ * A distinct business transition gets a distinct intent. Uncertain dispatch
+ * is never resubmitted; a Stripe refusal (4xx) is final and frees the member
+ * to try again. `immediate` ends the subscription now instead of at period
+ * end: a membership with no paid time left (past due, incomplete, unpaid),
+ * whose open invoice Stripe would otherwise keep collecting.
+ */
 export async function changeRenewal(
   db: Database,
   a: Actor,
@@ -53,6 +91,7 @@ export async function changeRenewal(
   stripe = stripeClient(),
   /** Someone acting for the member (an owner ending the membership). */
   initiatedBy?: Actor,
+  options: { immediate?: boolean } = {},
 ) {
   const intent: any = await db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
@@ -60,9 +99,18 @@ export async function changeRenewal(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
       [a.userId],
     );
+    // An unpaid membership (Stripe's "mark as unpaid" setting) has no paid
+    // access left and is ended now; it is never switched back on.
+    const immediate =
+      cancel &&
+      !!s?.provider_id &&
+      (s.status === "unpaid" ||
+        (options.immediate === true &&
+          ["past_due", "incomplete"].includes(s.status)));
     if (
       !s?.provider_id ||
-      ["canceled", "unpaid", "incomplete_expired"].includes(s.status)
+      ["canceled", "incomplete_expired"].includes(s.status) ||
+      (s.status === "unpaid" && !immediate)
     )
       throw fail(
         404,
@@ -79,7 +127,7 @@ export async function changeRenewal(
         "RENEWAL_UNRESOLVED",
         "Reconcile the existing renewal instruction before making another change",
       );
-    if (s.cancel_at_period_end === cancel)
+    if (!immediate && s.cancel_at_period_end === cancel)
       return { done: true, periodEnd: s.period_end };
     if (
       !cancel &&
@@ -96,6 +144,12 @@ export async function changeRenewal(
         providerId: s.provider_id,
         cancel,
         periodEnd: s.period_end,
+        ...(immediate ? { immediate: true } : {}),
+        // Switching renewal back on clears an end Stripe scheduled with
+        // cancel_at (it would survive cancel_at_period_end=false).
+        ...(!cancel && s.data?.scheduledCancelAt
+          ? { clearCancelAt: true }
+          : {}),
         ...(initiatedBy
           ? {
               initiatedBy: {
@@ -112,41 +166,105 @@ export async function changeRenewal(
       initiatedBy ?? a,
       "subscription.renewal_requested",
       r.id,
-      initiatedBy ? { cancel, memberId: a.userId } : { cancel },
+      initiatedBy
+        ? { cancel, memberId: a.userId, ...(immediate ? { immediate } : {}) }
+        : { cancel, ...(immediate ? { immediate } : {}) },
     );
     return { ...r, done: false };
   });
   if (intent.done) return { ok: true, accessUntil: intent.periodEnd };
   try {
-    const remote = await stripe.subscriptions.update(
-      intent.data.providerId,
-      { cancel_at_period_end: cancel },
-      { idempotencyKey: `renewal:${intent.id}` },
-    );
+    const remote: any = intent.data.immediate
+      ? await stripe.subscriptions.cancel(intent.data.providerId, undefined, {
+          idempotencyKey: `renewal:${intent.id}`,
+        })
+      : await stripe.subscriptions.update(
+          intent.data.providerId,
+          intent.data.clearCancelAt
+            ? { cancel_at: "" }
+            : { cancel_at_period_end: cancel },
+          { idempotencyKey: `renewal:${intent.id}` },
+        );
     if (
       remote.id !== intent.data.providerId ||
-      remote.cancel_at_period_end !== cancel
+      !transitionDone(intent.data, remote)
     )
       throw new Error(
         "Renewal response did not confirm the requested transition",
       );
     await confirmRenewal(db, a, intent.id, remote);
+    if (intent.data.immediate || intent.data.clearCancelAt)
+      await mirrorProviderSubscription(db, a, remote, stripe);
   } catch (error) {
+    // A Stripe refusal changed nothing: the instruction fails and the
+    // member may try again. Anything else stays held for reconciliation.
+    const refused = stripeRefused(error);
     await db.tenant(financeScope(a), (tx) =>
       tx.query(
-        "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND kind='subscription_transition' AND status='submitting'",
-        [intent.id],
+        "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND kind='subscription_transition' AND status='submitting'",
+        [
+          intent.id,
+          refused ? "failed" : "unknown",
+          JSON.stringify(refused ? { providerRefusal: refusalOf(error) } : {}),
+        ],
       ),
     );
     throw error;
   }
-  return { ok: true, accessUntil: intent.data.periodEnd };
+  return {
+    ok: true,
+    accessUntil: intent.data.immediate ? null : intent.data.periodEnd,
+  };
+}
+/**
+ * A subscription ended now, or an end cleared from cancel_at, changes more
+ * than the member's renewal flag: the provider's returned subscription is
+ * mirrored through the provider projection (a service identity), as its
+ * webhook would, so an exit sees the ended membership at once. The webhook
+ * that follows is idempotent with it.
+ */
+async function mirrorProviderSubscription(
+  db: Database,
+  a: Actor,
+  remote: any,
+  stripe: ReturnType<typeof stripeClient>,
+) {
+  if (typeof remote?.status !== "string") return;
+  try {
+    await processStripeEvent(
+      db,
+      {
+        id: `renewal-confirmed:${remote.id}:${remote.status}:${Date.now()}`,
+        type:
+          remote.status === "canceled"
+            ? "customer.subscription.deleted"
+            : "customer.subscription.updated",
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            ...remote,
+            object: "subscription",
+            metadata: {
+              ...remote.metadata,
+              tenant_id: a.tenantId,
+              user_id: a.userId,
+            },
+          },
+        },
+      },
+      { stripe },
+    );
+  } catch {
+    console.warn("Provider subscription change is mirrored by its webhook");
+  }
 }
 async function confirmRenewal(
   db: Database,
   a: Actor,
   intentId: string,
   remote: any,
+  /** A reconciliation read long after dispatch: a missing effect is final. */
+  settle = false,
 ) {
   return db.tenant(financeScope(a), async (tx) => {
     await lock(tx, a);
@@ -155,15 +273,31 @@ async function confirmRenewal(
       [intentId, a.userId],
     );
     if (!r || !["submitting", "unknown"].includes(r.status)) return;
-    if (
-      r.data.providerId !== remote.id ||
-      remote.cancel_at_period_end !== r.data.cancel
-    )
+    if (r.data.providerId !== remote.id || !transitionDone(r.data, remote)) {
+      if (settle && r.data.providerId === remote.id) {
+        await tx.query(
+          "UPDATE records SET status='failed',data=data||$2::jsonb,updated_at=now() WHERE id=$1",
+          [
+            r.id,
+            JSON.stringify({
+              providerRefusal: {
+                code: "NOT_APPLIED",
+                message:
+                  "The provider subscription does not show this change long after it was sent",
+                at: new Date().toISOString(),
+              },
+            }),
+          ],
+        );
+        await event(tx, a, "subscription.renewal_not_applied", r.id);
+        return;
+      }
       throw fail(
         409,
         "RENEWAL_UNRESOLVED",
         "Provider state does not yet confirm the requested change; the instruction remains held",
       );
+    }
     await tx.query(
       "UPDATE subscriptions SET cancel_at_period_end=$2 WHERE id=$1 AND user_id=$3 AND provider_id=$4",
       [r.data.subscriptionId, r.data.cancel, a.userId, remote.id],
@@ -176,7 +310,9 @@ async function confirmRenewal(
       tx,
       a,
       r.data.cancel
-        ? "subscription.cancel_scheduled"
+        ? r.data.immediate
+          ? "subscription.ended_now"
+          : "subscription.cancel_scheduled"
         : "subscription.reactivated",
       r.id,
     );
@@ -195,7 +331,19 @@ export async function reconcileRenewal(
   );
   if (!r) return { status: "resolved" };
   const remote = await stripe.subscriptions.retrieve(r.data.providerId);
-  await confirmRenewal(db, a, r.id, remote);
+  await confirmRenewal(
+    db,
+    a,
+    r.id,
+    remote,
+    instructionSettled({ created_at: r.created_at }),
+  );
+  if (
+    (r.data.immediate || r.data.clearCancelAt) &&
+    r.data.providerId === remote.id &&
+    transitionDone(r.data, remote)
+  )
+    await mirrorProviderSubscription(db, a, remote, stripe);
   return { status: "resolved" };
 }
 export async function billingHistory(db: Database, a: Actor) {
@@ -242,7 +390,11 @@ export async function billingHistory(db: Database, a: Actor) {
           !!c.data.chargeId &&
           refundEligible(c.data.chargedAt ?? c.created_at) &&
           Number(c.refunded_minor) < c.data.grossMinor &&
-          !requests.some((r) => r.data.chargeId === c.data.chargeId),
+          // A failed or canceled refund moved no money: the charge may be
+          // requested again.
+          !requests.some(
+            (r) => r.data.chargeId === c.data.chargeId && r.status !== "failed",
+          ),
       })),
     };
   });
@@ -276,11 +428,14 @@ export async function requestRefund(
         "REFUND_WINDOW",
         "This charge is unavailable or outside the seven-day request window",
       );
+    // One refund request per charge. A failed (or canceled) refund moved
+    // no money: the same request starts a new attempt, a new instruction
+    // with its own idempotency key; the failed refund stays in its history.
     const [existing] = await tx.query(
-      "SELECT id FROM records WHERE kind='refund' AND data->>'chargeId'=$1",
+      "SELECT * FROM records WHERE kind='refund' AND data->>'chargeId'=$1 FOR UPDATE",
       [input.chargeId],
     );
-    if (existing)
+    if (existing && existing.status !== "failed")
       throw fail(
         409,
         "ALREADY_REQUESTED",
@@ -293,20 +448,48 @@ export async function requestRefund(
         "ALREADY_REFUNDED",
         "This charge has been fully refunded",
       );
-    const r = await putRecord(
-      tx,
-      a,
-      "refund",
-      {
-        chargeId: input.chargeId,
-        reason: input.reason,
-        journalId: charge.id,
-        amountMinor,
-        requestedAt: new Date().toISOString(),
-        override,
-      },
-      { ownerId: userId, status: "requested" },
-    );
+    const request = {
+      chargeId: input.chargeId,
+      reason: input.reason,
+      journalId: charge.id,
+      amountMinor,
+      requestedAt: new Date().toISOString(),
+      override,
+    };
+    const r = existing
+      ? (
+          await tx.query(
+            "UPDATE records SET status='requested',version=version+1,data=$2,updated_at=now() WHERE id=$1 RETURNING *",
+            [
+              existing.id,
+              JSON.stringify({
+                ...request,
+                attempt: Number(existing.data.attempt ?? 0) + 1,
+                failedRefundIds: [
+                  ...(existing.data.failedRefundIds ?? []),
+                  ...(existing.data.providerRefundId
+                    ? [existing.data.providerRefundId]
+                    : []),
+                ],
+                previousAttempts: [
+                  ...(existing.data.previousAttempts ?? []),
+                  {
+                    reason: existing.data.reason,
+                    amountMinor: existing.data.amountMinor,
+                    providerRefundId: existing.data.providerRefundId ?? null,
+                    providerStatus: existing.data.providerStatus ?? null,
+                    providerRefusal: existing.data.providerRefusal ?? null,
+                    requestedAt: existing.data.requestedAt,
+                  },
+                ].slice(-10),
+              }),
+            ],
+          )
+        )[0]
+      : await putRecord(tx, a, "refund", request, {
+          ownerId: userId,
+          status: "requested",
+        });
     await event(
       tx,
       a,
@@ -410,7 +593,10 @@ export async function decideRefund(
             user_id: r.owner_user_id,
           },
         },
-        { idempotencyKey: `refund:${r.id}` },
+        {
+          idempotencyKey:
+            `refund:${r.id}` + (r.data.attempt ? `:${r.data.attempt}` : ""),
+        },
       );
       if (!remote.id) throw new Error("Provider omitted refund identity");
       await db.tenant(financeScope(a), (tx) =>
@@ -420,10 +606,18 @@ export async function decideRefund(
         ),
       );
     } catch (e) {
+      // Stripe refused the refund (for example a charge that is disputed):
+      // nothing moved, so the request fails and the charge may be requested
+      // again. Anything else stays held for reconciliation.
+      const refused = stripeRefused(e);
       await db.tenant(financeScope(a), (tx) =>
         tx.query(
-          "UPDATE records SET status='unknown',updated_at=now() WHERE id=$1 AND status='submitting'",
-          [r.id],
+          "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='submitting'",
+          [
+            r.id,
+            refused ? "failed" : "unknown",
+            JSON.stringify(refused ? { providerRefusal: refusalOf(e) } : {}),
+          ],
         ),
       );
       throw e;
@@ -451,9 +645,38 @@ export async function reconcileRefund(
   });
   const remote = page.data.find(
     (item) =>
-      item.id === r.data.providerRefundId ||
-      item.metadata?.refund_request_id === r.id,
+      !(r.data.failedRefundIds ?? []).includes(item.id) &&
+      (item.id === r.data.providerRefundId ||
+        item.metadata?.refund_request_id === r.id),
   );
+  // Long after an uncertain dispatch, a complete refund list without this
+  // instruction proves Stripe never created it: it fails (nothing moved)
+  // and the charge may be requested again.
+  if (
+    !remote &&
+    !page.has_more &&
+    !r.data.providerRefundId &&
+    r.status !== "submitted" &&
+    instructionSettled({ created_at: r.data.submittedAt ?? r.created_at })
+  ) {
+    await db.tenant(financeScope(a), async (tx) => {
+      await tx.query(
+        "UPDATE records SET status='failed',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('submitting','unknown')",
+        [
+          r.id,
+          JSON.stringify({
+            providerRefusal: {
+              code: "NOT_CREATED",
+              message: "No provider refund exists for this instruction",
+              at: new Date().toISOString(),
+            },
+          }),
+        ],
+      );
+      await event(tx, a, "refund.not_created", r.id);
+    });
+    return { status: "failed" };
+  }
   if (!remote)
     throw fail(
       409,

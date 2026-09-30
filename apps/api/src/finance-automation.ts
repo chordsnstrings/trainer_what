@@ -179,7 +179,7 @@ async function replayReceipts(
 ) {
   const rows = await db.system((tx) =>
     tx.query(
-      "SELECT p.* FROM provider_events p WHERE p.provider='stripe' AND p.status IN ('received','failed') AND (p.payload->'data'->'object'->'metadata'->>'tenant_id'=$1 OR p.payload->'data'->'object'->'parent'->'subscription_details'->'metadata'->>'tenant_id'=$1 OR EXISTS(SELECT 1 FROM provider_objects o WHERE o.provider='stripe' AND o.tenant_id=$2 AND o.external_id IN (p.payload->'data'->'object'->>'id',p.payload->'data'->'object'->>'subscription',p.payload->'data'->'object'->>'charge'))) ORDER BY p.created_at LIMIT 50",
+      "SELECT p.* FROM provider_events p WHERE p.provider='stripe' AND p.status IN ('received','failed','parked') AND (p.payload->'data'->'object'->'metadata'->>'tenant_id'=$1 OR p.payload->'data'->'object'->'parent'->'subscription_details'->'metadata'->>'tenant_id'=$1 OR EXISTS(SELECT 1 FROM provider_objects o WHERE o.provider='stripe' AND o.tenant_id=$2 AND o.external_id IN (p.payload->'data'->'object'->>'id',p.payload->'data'->'object'->>'subscription',p.payload->'data'->'object'->>'charge'))) ORDER BY p.created_at LIMIT 50",
       [a.tenantId, a.tenantId],
     ),
   );
@@ -265,13 +265,29 @@ export async function syncStripeSubscription(
       ...(cursor ? { starting_after: cursor } : {}),
     });
     for (const invoice of invoices.data) {
-      if (invoice.currency !== "aed" || invoice.status !== "paid") continue;
+      // A voided or uncollectible invoice ends a failed payment the member
+      // never made (it no longer holds the month close).
+      const type =
+        invoice.status === "paid"
+          ? "invoice.paid"
+          : invoice.status === "void"
+            ? "invoice.voided"
+            : invoice.status === "uncollectible"
+              ? "invoice.marked_uncollectible"
+              : null;
+      if (invoice.currency !== "aed" || !type) continue;
       await processStripeEvent(
         db,
         {
-          id: `reconcile-invoice:${invoice.id}:paid`,
-          type: "invoice.paid",
-          created: invoice.status_transitions.paid_at ?? invoice.created,
+          id: `reconcile-invoice:${invoice.id}:${invoice.status}`,
+          type,
+          created:
+            (type === "invoice.paid"
+              ? invoice.status_transitions.paid_at
+              : type === "invoice.voided"
+                ? invoice.status_transitions.voided_at
+                : invoice.status_transitions.marked_uncollectible_at) ??
+            invoice.created,
           data: {
             object: {
               ...invoice,

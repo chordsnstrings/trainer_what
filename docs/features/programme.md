@@ -160,6 +160,12 @@ compensate.
   changed, and a re-enabled add-on found under the exit lock refuses it (`VOICE_ADDON_ACTIVE`).
   The preview reports `voiceAddOnRenewing`; the result and the `membership.left/removed` event
   carry `voiceAddOn: 'ends' | 'none'`. After the exit the worker cancels the add-on at once.
+- The worker's orphan sweep never ends an add-on by the clock while Stripe still bills the
+  membership (active, trialing or past due): the renewal is mirrored only after the period end,
+  and Smart Retries may recover a payment after the app's grace (29 September 2026,
+  `payments-stripe.md`). A lost chargeback of the whole add-on charge ends voice like a full
+  refund; a late add-on subscription event is applied from Stripe's current object; a
+  `cancel_at` end counts as not renewing, and resuming clears it.
 - `memberAccess(...).premiumVoice` = paid access and (an older offer that included voice, or an
   active verified add-on whose period has not ended); `voiceSource` is `included` | `add_on` |
   `null`. Complimentary access never has voice.

@@ -89,10 +89,13 @@ export class StripeMock {
   /** When false, the harness sends events explicitly instead of automatically (lost webhooks). */
   autoWebhooks = true;
   /**
-   * API version stamped on events. From 2022-11-15 Stripe no longer embeds a
-   * charge's refunds in charge.* events; an older endpoint version gets them.
+   * API version stamped on events: the live account default the production
+   * webhook endpoint (which has no version of its own) receives. From
+   * 2022-11-15 Stripe no longer embeds a charge's refunds in charge.* events,
+   * and from 2025-03-31.basil an invoice's `payments` are not in its events
+   * (they are read from /v1/invoice_payments).
    */
-  webhookApiVersion = "2025-09-30.clover";
+  webhookApiVersion = "2026-06-24.dahlia";
   /** Requests that are applied but answered with an error: the response is lost on the way back. */
   private lostResponses: Array<{ method: string; path: RegExp; remaining: number }> = [];
   /**
@@ -286,8 +289,45 @@ export class StripeMock {
         const sub = this.subscriptions.get(r.params.id);
         if (!sub) return stripeError(404, "No such subscription", "resource_missing");
         const f = r.form ?? {};
-        if (f.cancel_at_period_end !== undefined)
+        if (f.cancel_at_period_end !== undefined) {
           sub.cancel_at_period_end = f.cancel_at_period_end === "true";
+          sub.cancel_at = sub.cancel_at_period_end ? sub.items.data[0].current_period_end : null;
+        }
+        // cancel_at="" clears a scheduled end; a timestamp schedules one.
+        if (f.cancel_at !== undefined) sub.cancel_at = f.cancel_at === "" ? null : num(f.cancel_at);
+        // Resetting the billing cycle anchor now without item changes, as
+        // docs.stripe.com/billing/subscriptions/billing-mode/compare
+        // describes: classic mode invoices the full new period at once
+        // (proration none filters out the unused-time credit); flexible mode
+        // with proration none creates no invoice at all, and with
+        // always_invoice invoices only the time past the old period end.
+        if (f.billing_cycle_anchor === "now") {
+          const item = sub.items.data[0];
+          const price = this.prices.get(item.price.id) ?? item.price;
+          const oldEnd = item.current_period_end;
+          const start = now();
+          item.current_period_start = start;
+          item.current_period_end = start + periodSeconds(price);
+          sub.status = "active";
+          sub.trial_end = null;
+          const proration = f.proration_behavior ?? "create_prorations";
+          const amount =
+            sub.billing_mode?.type === "classic"
+              ? proration === "none"
+                ? item.price.unit_amount
+                : null
+              : proration === "always_invoice"
+                ? Math.round((item.price.unit_amount * Math.max(0, item.current_period_end - oldEnd)) / periodSeconds(price))
+                : null;
+          if (amount !== null) {
+            const { invoice } = this.issueInvoice(sub, amount, true);
+            this.later(async () => {
+              await this.sendEvent("customer.subscription.updated", sub);
+              await this.sendEvent("invoice.paid", invoice);
+            });
+            return ok(sub);
+          }
+        }
         // A trial until a date moves the billing date (proration_behavior=none):
         // the current period ends then and the next invoice is issued then.
         const trialEnd = num(f.trial_end);
@@ -347,7 +387,7 @@ export class StripeMock {
           rows = at >= 0 ? rows.slice(at + 1) : [];
         }
         const limit = num(f.limit) ?? 10;
-        return ok(list(rows.slice(0, limit), "/v1/invoices", rows.length > limit));
+        return ok(list(rows.slice(0, limit).map((x) => this.publicInvoice(x)), "/v1/invoices", rows.length > limit));
       }),
     );
     s.route(
@@ -608,6 +648,9 @@ export class StripeMock {
         trialDays,
         priceId,
         amount,
+        // Flexible is the default for subscriptions created through Checkout
+        // from API version 2025-09-30.clover on.
+        billingMode: f.subscription_data?.billing_mode?.type ?? "flexible",
       },
       line_items: f.line_items,
       payment_intent_data: f.payment_intent_data ?? null,
@@ -636,8 +679,14 @@ export class StripeMock {
     const { refunds: _refunds, ...rest } = charge;
     return rest;
   }
+  /** An invoice as the API and events show it: `payments` only when expanded. */
+  publicInvoice(invoice: Obj) {
+    const { payments: _payments, ...rest } = invoice;
+    return rest;
+  }
   /** Posts a signed event to the application webhook and records the outcome. */
   async sendEvent(type: string, object: Obj, options: { created?: number; apiVersion?: string } = {}) {
+    if (object?.object === "invoice") object = this.publicInvoice(object);
     const event = {
       id: randomId("evt"),
       object: "event",
@@ -870,6 +919,8 @@ export class StripeMock {
         status: trialDays ? "trialing" : "active",
         customer: customer.id,
         cancel_at_period_end: false,
+        cancel_at: null as number | null,
+        billing_mode: { type: x.subscription_data.billingMode },
         created: start,
         metadata: { ...x.subscription_data.metadata },
         trial_end: trialDays ? end : null,

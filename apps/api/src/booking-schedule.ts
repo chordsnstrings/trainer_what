@@ -328,7 +328,14 @@ export function registerBookingRoutes(
           durationMinutes: z.number().int().min(15).max(240).optional(),
           timezone: timezone.optional(),
           capacity: z.number().int().min(1).max(50),
-          priceMinor: z.number().int().min(0).max(10000000).default(0),
+          // Free (0) or at least Stripe's smallest AED charge, AED 2.00.
+          priceMinor: z
+            .number()
+            .int()
+            .min(0)
+            .max(10000000)
+            .refine((v) => v === 0 || v >= 200, "Use AED 0 or at least AED 2.00")
+            .default(0),
           recurrence: z
             .object({
               count: z.number().int().min(1).max(26),

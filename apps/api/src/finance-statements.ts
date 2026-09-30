@@ -222,7 +222,10 @@ export async function financialStatement(
       else revenue.membershipMinor += gross;
     } else if (
       entry.source_key.startsWith("stripe-refund:") ||
-      entry.source_key.startsWith("booking-refund:")
+      entry.source_key.startsWith("booking-refund:") ||
+      // A refund that failed after it was posted: negative amounts.
+      entry.source_key.startsWith("stripe-refund-reversal:") ||
+      entry.source_key.startsWith("booking-refund-reversal:")
     ) {
       totals.refundsMinor += Number(entry.data.refundAmountMinor ?? 0);
       totals.commissionMinor -= Number(entry.data.commissionReversalMinor ?? 0);
@@ -381,7 +384,9 @@ export function ledgerItem(sourceKey: string) {
     ["stripe-programme:", "Programme payment"],
     ["booking-charge:", "1:1 session payment"],
     ["stripe-refund:", "Refund"],
+    ["stripe-refund-reversal:", "Refund returned by the bank"],
     ["booking-refund:", "Session refund"],
+    ["booking-refund-reversal:", "Session refund returned by the bank"],
     ["dispute-reserve:", "Card dispute held"],
     ["dispute-resolution:", "Card dispute resolved"],
     ["allocated-cost:", "Other charge"],

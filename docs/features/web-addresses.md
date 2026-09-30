@@ -333,7 +333,12 @@ goes `expired` → `owned` and provisions again. See "DNS hosting, delegation an
   first grace notice) and flagged after three failures. If that date passes without
   alignment, the renewal is charged at once instead (`billing_cycle_anchor=now`,
   `proration_behavior=none`, key `web-address-charge:<order>:<expiry date>`), so it is paid
-  well before expiry; the following charges keep that shorter lead. Two weeks before expiry an
+  well before expiry; the following charges keep that shorter lead. That reset invoices the
+  full year only in classic billing mode, so Checkout creates these subscriptions with
+  `subscription_data.billing_mode.type=classic` (29 September 2026; flexible, the default since
+  API version 2025-09-30.clover, would invoice nothing and move the charge a year out). A
+  subscription already in flexible mode is charged through a trial ending five minutes later
+  instead (`payments-stripe.md`). Not yet confirmed with a Stripe test clock. Two weeks before expiry an
   enabled renewal that is neither paid nor failing is flagged for an operator.
 - **Lost payment events.** A completed Checkout whose events never arrived is applied from
   Stripe's own objects (the session, then the subscription's latest invoice) by the checkout

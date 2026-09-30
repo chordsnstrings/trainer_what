@@ -218,6 +218,8 @@ import {
   compileTrainerRules,
   requireCommerce,
   stripeClient,
+  stripeKeyLive,
+  STRIPE_WEBHOOK_API_VERSIONS,
   LeanGateway,
   providerSandboxStatus,
 } from "@trainer/providers";
@@ -2551,7 +2553,8 @@ export async function buildApp(
     config: { rateLimit: { max: 600, timeWindow: "1 minute" } },
   };
   app.post("/api/v1/webhooks/stripe", webhookRate, async (req, reply) => {
-    const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
+    const config = runtimeConfig();
+    const webhookSecret = config.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) throw new ProviderUnavailable("stripe");
     let stripeEvent: any, stripe: ReturnType<typeof stripeClient>;
     try {
@@ -2568,6 +2571,29 @@ export async function buildApp(
         "Webhook signature verification failed",
       );
     }
+    // The key and the webhook secret are separate settings: an event from
+    // the other mode (a sandbox endpoint's secret beside a live key, or the
+    // reverse) must never grant paid access, so it is refused unstored.
+    if (
+      typeof stripeEvent.livemode === "boolean" &&
+      stripeEvent.livemode !== stripeKeyLive(String(config.STRIPE_SECRET_KEY))
+    )
+      throw fail(
+        400,
+        "STRIPE_MODE_MISMATCH",
+        "The event's Stripe mode does not match the configured Stripe key",
+      );
+    // Payloads follow the endpoint's API version (the account default when
+    // the endpoint has none). Another version is still processed, as every
+    // projection fails closed on shapes it does not know, and operators are
+    // alerted (stripe.webhook_api_version in stripe-alerts.ts).
+    if (
+      stripeEvent.api_version &&
+      !STRIPE_WEBHOOK_API_VERSIONS.includes(stripeEvent.api_version)
+    )
+      console.warn(
+        `Stripe event ${stripeEvent.id} uses API version ${stripeEvent.api_version}`,
+      );
     const [receipt] = await db.system((tx) =>
       tx.query(
         "INSERT INTO provider_events(provider,external_id,payload) VALUES('stripe',$1,$2) ON CONFLICT DO NOTHING RETURNING external_id",
@@ -2584,7 +2610,21 @@ export async function buildApp(
       if (existing.status === "processed")
         return { received: true, duplicate: true };
     }
-    await processStripeEvent(db, stripeEvent, { stripe });
+    try {
+      await processStripeEvent(db, stripeEvent, { stripe });
+    } catch (error) {
+      // An event for an object this platform did not create is acknowledged
+      // and parked (its receipt stays for review and the daily replay), so
+      // Stripe does not retry it for three days (stripe-events.ts).
+      if ((error as { unmatched?: unknown })?.unmatched !== true) throw error;
+      await db.system((tx) =>
+        tx.query(
+          "UPDATE provider_events SET status='parked' WHERE provider='stripe' AND external_id=$1 AND status<>'processed'",
+          [stripeEvent.id],
+        ),
+      );
+      return reply.send({ received: true, parked: true });
+    }
     await db.system((tx) =>
       tx.query(
         "UPDATE provider_events SET status='processed' WHERE provider='stripe' AND external_id=$1",
