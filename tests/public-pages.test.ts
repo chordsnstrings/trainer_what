@@ -272,7 +272,7 @@ test("joining and sign-in pages are the subscriber's, not the trainer marketing 
   assert.match(join, /data-analytics-preferences/);
   const invite = render("/join/" + "t".repeat(43));
   assert.match(invite, /Checking your invitation/);
-  assert.doesNotMatch(invite, /mk-footer|Meet your next chapter|Teach your AI/);
+  assert.doesNotMatch(invite, /mk-footer|Meet your next chapter|Start coaching/);
   const signIn = render("/login");
   assert.match(signIn, /<h1>Sign in<\/h1>/);
   assert.match(signIn, /autocomplete="email"/i);
@@ -287,7 +287,7 @@ test("joining and sign-in pages are the subscriber's, not the trainer marketing 
   // On a coach's own address: that coach, never the platform sign-up.
   const host = render("/login", "alex-morgan");
   assert.match(host, /href="\/join-coach\/alex-morgan"/);
-  assert.doesNotMatch(host, /href="\/signup"|Teach your AI/);
+  assert.doesNotMatch(host, /href="\/signup"|Start coaching/);
   for (const path of ["/forgot-password", "/magic-link"]) {
     const page = render(path);
     assert.match(page, /<main class="auth-page" id="main">/, path);

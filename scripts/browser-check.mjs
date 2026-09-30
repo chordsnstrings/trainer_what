@@ -190,43 +190,49 @@ try {
       .first()
       .waitFor();
   }
-  await page.goto(base + "/trainer/onboarding/identity");
+  // The setup wizard (docs/features/setup-wizard.md): About you saves as
+  // the coach types and resumes after a reload.
+  await page.goto(base + "/setup/about");
   await page
-    .getByRole("heading", { name: "Business identity", exact: true })
+    .getByRole("heading", { level: 1, name: "About you", exact: true })
     .waitFor();
-  const savedIdentity = page.waitForResponse(
+  const savedAbout = page.waitForResponse(
     (r) =>
-      r.url().endsWith("/onboarding/identity") &&
+      r.url().endsWith("/api/v1/setup/about") &&
       r.request().method() === "PUT" &&
       r.request().postDataJSON().values.audience ===
         "Adults building a lasting training habit",
   );
-  for (const [label, value] of [
-    ["Business or trade name", "Morgan Coaching"],
-    ["Public coach name", "Alex Morgan"],
-    ["City", "Dubai"],
-    ["Coaching specialty", "Strength"],
-    ["Who you coach", "Adults building a lasting training habit"],
-  ])
-    await page.getByLabel(label, { exact: true }).fill(value);
-  await page.getByRole("button", { name: "Save now", exact: true }).click();
-  const savedResponse = await savedIdentity;
-  if (!savedResponse.ok()) throw new Error("Onboarding save failed");
+  await page
+    .getByLabel("Your name, as clients will see it", { exact: true })
+    .fill("Alex Morgan");
+  await page
+    .getByLabel("Your specialty", { exact: true })
+    .selectOption({ index: 1 });
+  await page
+    .getByLabel("Who you coach", { exact: true })
+    .fill("Adults building a lasting training habit");
+  const savedResponse = await savedAbout;
+  if (!savedResponse.ok()) throw new Error("Setup save failed");
   await page
     .getByText("Saved. You can continue on another device.", { exact: true })
     .waitFor();
   await page.reload();
+  await page.getByLabel("Who you coach", { exact: true }).waitFor();
   if (
-    (await page
-      .getByLabel("Business or trade name", { exact: true })
-      .inputValue()) !== "Morgan Coaching"
+    (await page.getByLabel("Who you coach", { exact: true }).inputValue()) !==
+    "Adults building a lasting training habit"
   )
-    throw new Error("Onboarding did not resume persisted identity");
-  // The optional last setup step hands the trainer their tagged coaching link.
+    throw new Error("Setup did not resume the saved answers");
   await page
     .getByRole("navigation", { name: "Setup steps" })
-    .getByRole("link", { name: /Share your link/ })
+    .getByRole("link", { name: /Your page/ })
     .click();
+  await page.waitForURL("**/setup/page");
+  await page.getByLabel("Address", { exact: true }).waitFor();
+  // The optional share step of the older checklist still hands the trainer
+  // their tagged coaching link.
+  await page.goto(base + "/trainer/onboarding/share");
   await page.waitForURL("**/trainer/onboarding/share");
   await page
     .getByRole("heading", { level: 1, name: "Share your link", exact: true })
@@ -253,14 +259,14 @@ try {
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("link", { name: "My Brain", exact: true }).click();
   await page.waitForURL("**/trainer/brain");
-  await page.goto(base + "/trainer/onboarding/identity");
+  await page.goto(base + "/setup/about");
   await page
-    .getByRole("heading", { name: "Business identity", exact: true })
+    .getByRole("heading", { level: 1, name: "About you", exact: true })
     .waitFor();
   if (
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   )
-    throw new Error("Mobile onboarding overflows viewport");
+    throw new Error("Mobile setup overflows viewport");
   await capture(page, {
     path: "test-results/onboarding-mobile.png",
     fullPage: true,

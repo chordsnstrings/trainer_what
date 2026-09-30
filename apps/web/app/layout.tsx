@@ -35,6 +35,7 @@ import "./programme.css";
 import "./brain-plans.css";
 import "./voice-session.css";
 import "./web-address.css";
+import "./setup-wizard.css";
 import "./phone-first.css";
 import "./subscriber-public.css";
 import "./pwa.css";

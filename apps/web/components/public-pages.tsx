@@ -13,6 +13,7 @@ import {
   useEffect,
   useState,
   useSyncExternalStore,
+  type FormEvent,
   type ReactNode,
 } from "react";
 import Link from "next/link";
@@ -560,7 +561,18 @@ function JoinCoachPage({
   );
 }
 
-/** Trainer sign-up (/signup): the trainer marketing funnel, unchanged in tone. */
+type SignupOptions = {
+  registrationOpen: boolean;
+  methods: { emailCode: boolean; password: boolean; google: boolean; apple: boolean };
+  earlyAccess: boolean;
+};
+/**
+ * Trainer sign-up (/signup), reached from "Start coaching": an email and a
+ * six-digit code (once the email service is set up) or a password, then the
+ * setup wizard (docs/features/setup-wizard.md). Open sign-up stays behind
+ * the registration and legal switch; while it is off, the early-access form
+ * is the way in.
+ */
 function TrainerSignUp({
   onAuthenticated,
 }: {
@@ -569,13 +581,55 @@ function TrainerSignUp({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [slugHint, setSlugHint] = useState(""),
-    [agreed, setAgreed] = useState(false);
+    [agreed, setAgreed] = useState(false),
+    [options, setOptions] = useState<SignupOptions | null>(null),
+    [mode, setMode] = useState<"code" | "password">("password"),
+    [codeSentTo, setCodeSentTo] = useState("");
   const plan = legalPlan(useLegalStatus());
   useEffect(() => {
     // A name typed in the address preview arrives as ?slug=.
     const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
     if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
+    let active = true;
+    api("/public/signup-options")
+      .then((o: SignupOptions) => {
+        if (!active) return;
+        setOptions(o);
+        setMode(o.methods.emailCode ? "code" : "password");
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, []);
+  const failed = (e: unknown) => {
+    const err = e as Error & { code?: string };
+    if (err.code === "EMAIL_CODES_OFF") {
+      setMode("password");
+      setCodeSentTo("");
+      setError("Email codes are not available right now. Choose a password instead.");
+    } else if (err.code === "LEGAL_PENDING")
+      setError("Sign-up opens soon. Join early access and we will tell you first.");
+    else setError(err.message);
+  };
+  const submit =
+    (fn: (f: FormData) => Promise<void>) =>
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      setBusy(true);
+      setError("");
+      try {
+        await fn(new FormData(e.currentTarget));
+      } catch (err) {
+        failed(err);
+      } finally {
+        setBusy(false);
+      }
+    };
+  const closed = options?.registrationOpen === false;
+  const legal = (
+    <LegalAcceptance plan={plan} checked={agreed} onChange={setAgreed} />
+  );
   return (
     <main className="auth-layout" id="main">
       <div className="auth-story">
@@ -590,75 +644,160 @@ function TrainerSignUp({
         </div>
       </div>
       <section className="card">
-        <h2>Create your coaching space</h2>
-        <p className="muted">Start with your identity. Your Brain comes next.</p>
+        <h2>Start coaching</h2>
+        <p className="muted">
+          About 15 minutes to your own page. Stop and come back any time.
+        </p>
         {error && (
           <div className="notice error" role="alert">
             {error}
           </div>
         )}
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!acceptanceGiven(plan, agreed)) return;
-            setBusy(true);
-            setError("");
-            const f = new FormData(e.currentTarget);
-            try {
+        {closed ? (
+          <div className="signup-closed">
+            <p>
+              Sign-up opens soon. Join early access and we will invite you as
+              soon as it does.
+            </p>
+            <Link className="button" href="/get-started#early-access">
+              Join early access <ArrowRight size={16} />
+            </Link>
+          </div>
+        ) : mode === "code" && !codeSentTo ? (
+          <form
+            onSubmit={submit(async (f) => {
+              const email = String(f.get("email") ?? "");
+              await api("/auth/signup/code", "POST", { email });
+              setCodeSentTo(email);
+            })}
+          >
+            <Field label="Email address">
+              <input name="email" type="email" autoComplete="email" required />
+            </Field>
+            <button className="button" type="submit" disabled={busy}>
+              {busy ? "Sending…" : "Email me a code"}
+              <ArrowRight size={16} />
+            </button>
+            {options?.methods.password && (
+              <button
+                type="button"
+                className="text-link"
+                onClick={() => setMode("password")}
+              >
+                Use a password instead
+              </button>
+            )}
+          </form>
+        ) : mode === "code" ? (
+          <form
+            onSubmit={submit(async (f) => {
+              if (!acceptanceGiven(plan, agreed)) return;
+              const password = String(f.get("password") ?? "");
+              await api("/auth/signup/verify", "POST", {
+                email: codeSentTo,
+                code: String(f.get("code") ?? "").replace(/\D/g, ""),
+                name: f.get("name"),
+                ...(password ? { password } : {}),
+                accepted: true,
+              });
+              await onAuthenticated();
+            })}
+          >
+            <p>
+              We sent a 6-digit code to <strong>{codeSentTo}</strong>. It works
+              for 15 minutes.
+            </p>
+            <Field label="6-digit code">
+              <input
+                name="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={6}
+                required
+              />
+            </Field>
+            <Field label="Your name">
+              <input name="name" autoComplete="name" required minLength={2} />
+            </Field>
+            <Field label="Password (optional)">
+              <input
+                name="password"
+                type="password"
+                minLength={12}
+                autoComplete="new-password"
+              />
+              <small>At least 12 characters. You can also add one later.</small>
+            </Field>
+            {legal}
+            <button
+              className="button"
+              type="submit"
+              disabled={busy || !acceptanceGiven(plan, agreed)}
+            >
+              {busy ? "Opening your setup…" : "Start my setup"}
+              <ArrowRight size={16} />
+            </button>
+            <button
+              type="button"
+              className="text-link"
+              onClick={() => setCodeSentTo("")}
+            >
+              Use another email or send a new code
+            </button>
+          </form>
+        ) : (
+          <form
+            onSubmit={submit(async (f) => {
+              if (!acceptanceGiven(plan, agreed)) return;
               await api("/auth/register", "POST", {
                 name: f.get("name"),
                 email: f.get("email"),
                 password: f.get("password"),
-                slug: f.get("slug"),
+                // The address is chosen in the setup; a name typed in the
+                // address preview is kept when it is free.
+                ...(slugHint ? { slug: slugHint } : {}),
                 accepted: true,
               });
               await onAuthenticated();
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Field label="Your name">
-            <input name="name" autoComplete="name" required minLength={2} />
-          </Field>
-          <Field label="Email address">
-            <input name="email" type="email" autoComplete="email" required />
-          </Field>
-          <Field label="Your coaching address">
-            <div className="input-affix">
-              <span>/coach/</span>
+            })}
+          >
+            <Field label="Your name">
+              <input name="name" autoComplete="name" required minLength={2} />
+            </Field>
+            <Field label="Email address">
+              <input name="email" type="email" autoComplete="email" required />
+            </Field>
+            <Field label="Password">
               <input
-                key={slugHint}
-                name="slug"
-                pattern="[a-z][a-z0-9-]{2,39}"
-                placeholder="your-name"
-                defaultValue={slugHint}
+                name="password"
+                type="password"
+                minLength={12}
+                autoComplete="new-password"
                 required
               />
-            </div>
-          </Field>
-          <Field label="Password">
-            <input
-              name="password"
-              type="password"
-              minLength={12}
-              autoComplete="new-password"
-              required
-            />
-            <small>At least 12 characters.</small>
-          </Field>
-          <LegalAcceptance plan={plan} checked={agreed} onChange={setAgreed} />
-          <button
-            className="button"
-            type="submit"
-            disabled={busy || !acceptanceGiven(plan, agreed)}
-          >
-            {busy ? "Opening your workspace…" : "Create my workspace"}
-            <ArrowRight size={16} />
-          </button>
-        </form>
+              <small>At least 12 characters.</small>
+            </Field>
+            {legal}
+            <button
+              className="button"
+              type="submit"
+              disabled={busy || !acceptanceGiven(plan, agreed)}
+            >
+              {busy ? "Opening your setup…" : "Start my setup"}
+              <ArrowRight size={16} />
+            </button>
+            {options?.methods.emailCode && (
+              <button
+                type="button"
+                className="text-link"
+                onClick={() => setMode("code")}
+              >
+                Email me a code instead
+              </button>
+            )}
+          </form>
+        )}
         <div className="divider" />
         <p className="muted">
           Already have a coaching space? <Link href="/login">Sign in</Link>

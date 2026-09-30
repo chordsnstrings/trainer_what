@@ -15,13 +15,14 @@ export type BrandProps = { appName: string; initials: string };
 export type Cta = { label: string; href: string };
 
 /**
- * The primary call to action: the brand's "Teach your AI" (sign up, then
- * the guided setup that teaches it), or early access while registration is
- * closed.
+ * The primary call to action: "Start coaching" (sign up, then the setup
+ * wizard, docs/features/setup-wizard.md), or early access while
+ * registration is closed.
  */
+export const START_COACHING = "Start coaching";
 export function claimCta(registrationOpen: boolean): Cta {
   return registrationOpen
-    ? { label: BRAND_COPY.primaryAction, href: "/signup" }
+    ? { label: START_COACHING, href: "/signup" }
     : { label: "Join early access", href: "/get-started#early-access" };
 }
 
