@@ -6,6 +6,14 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30r4-brain — Teach your Brain backend: rule cards, practice quiz, "Waits for me" launch, meter, Keep training (r4/brain-teach from origin/main `32ed5fe`, not pushed, not merged)
+
+What changed: `apps/api/src/brain-teach.ts` (approve all warning-free draft rules; practice quiz rounds of 8-10 questions with 3-5 platform-owned safety questions and model-written rule questions, prompt `brain-quiz-v1`; Yes/Change answers kept as teaching; `POST /brain/releases/supervised` launches in "Waits for me" with a completed quiz and 3 own cases; Keep training by chat, suggestions and compile of quiz changes and corrected replies), `apps/api/src/brain-training-state.ts`, `packages/domain/src/brain-teach.ts` (meter 0-100 and levels 0-3), `packages/providers/src/brain-quiz.ts`; `POST /brain/compile` body shared as `compileTeaching`; `POST /brain/releases` stores `qualification:"full"`; `coaching-activate` automatic refused for a quiz release and level-capped for a full one; onboarding `scenarios`/`readiness` accept the quiz path. No migration. Docs: `docs/features/brain-teach.md`.
+
+Checks run: both typechecks; `tests/brain-teach.test.ts` (5/5), `coaching-runtime`, `fix-coaching`, `brain-check-false-alarms`, `onboarding-completion`, `platform` under PGlite; `brain-teach`, `coaching-runtime`, `fix-coaching`, `onboarding-completion` under PostgreSQL with the restricted role (all pass). Live Seed 2.0 Pro: 56/56 quiz questions usable, route correct and free of medical advice (details in the feature doc). Not run: full suite, e2e, browser checks.
+
+Remaining: the wizard and "My Brain" screens (other builders); marketing checklist text in `packages/contracts/src/marketing-content.ts` still says 20 held-out scenarios; the code safety floor misses chest tightness and some medicine questions (reported only). Next action: integrate with the round 4 branches.
+
 ## Stage 2026-09-30c — host-only Superadmin recovery (claude/repository-overview-osejlw from main `5d3ad59`, pushed, no pull request, not deployed)
 
 Owner (30 September) approved a host-only Superadmin recovery command after losing admin access. Email delivery is not configured, the first-admin bootstrap refuses once a Superadmin exists, and `operator:role` needs an existing Superadmin's authenticator code. Root access on the server is the authority (the same trust as the bootstrap and `operator:role reset-mfa`).

@@ -18,6 +18,7 @@ import { canonicalCoaching } from "../../../packages/domain/src/coaching-complet
 import { coachingModelPin } from "../../../packages/providers/src/coaching.ts";
 import { coachingRuntimeReadiness } from "./coaching-runtime.ts";
 import { recordPublishAcquisition } from "./acquisition.ts";
+import { OWN_CASES_FOR_SUPERVISED } from "../../../packages/domain/src/brain-teach.ts";
 
 const digest = (value: unknown) =>
   createHash("sha256")
@@ -167,7 +168,7 @@ export const baseRegistry = [
   [
     "scenarios",
     "Scenario lab",
-    "Add at least 20 held-out scenarios and check how your Brain responds.",
+    "Take the practice quiz and write 3 to 5 of your own client questions. Sending automatically later needs 20 and the full check.",
     true,
   ],
   [
@@ -236,7 +237,7 @@ export async function onboardingState(
   legal: LegalSnapshot,
 ) {
   const records = await tx.query(
-    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
+    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','brain_quiz_round','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
   );
   const of = (kind: string) => records.filter((r) => r.kind === kind);
   const saved = Object.fromEntries(
@@ -263,7 +264,7 @@ export async function onboardingState(
   const evaluatedIds = (brainEvaluation?.data.outcomes ?? [])
     .map((r: any) => r.scenarioId)
     .sort();
-  const brainCurrent =
+  const fullBrainCurrent =
     !!release &&
     confirmedRules.length > 0 &&
     digest(release.data.rules) === digest(confirmedRules) &&
@@ -278,6 +279,22 @@ export async function onboardingState(
           .sort(),
       ) &&
     !of("conflict").some((r) => r.status !== "resolved");
+  // "Waits for me" launch (brain-teach.ts): a completed practice quiz and
+  // at least 3 own cases instead of the full check. Automatic sending still
+  // needs the full check (coaching-runtime.ts).
+  const quizCompleted = of("brain_quiz_round").some(
+    (r) => r.status === "completed",
+  );
+  const quizReady =
+    quizCompleted && baseScenarios.length >= OWN_CASES_FOR_SUPERVISED;
+  const brainCurrent =
+    fullBrainCurrent ||
+    (!!release &&
+      release.data.qualification === "quiz" &&
+      confirmedRules.length > 0 &&
+      digest(release.data.rules) === digest(confirmedRules) &&
+      quizReady &&
+      !of("conflict").some((r) => r.status !== "resolved"));
   let runtime: Awaited<ReturnType<typeof coachingRuntimeReadiness>> & {
     blocker?: string;
   };
@@ -517,7 +534,7 @@ export async function onboardingState(
     knowledge:
       confirmedRules.length > 0 &&
       !of("conflict").some((r) => r.status !== "resolved"),
-    scenarios: baseScenarios.length >= 20,
+    scenarios: baseScenarios.length >= 20 || quizReady,
     readiness: brainCurrent && runtimeCurrent && modelReady,
     offer:
       products.some((r) => r.status === "published" && r.data.stripePriceId) &&

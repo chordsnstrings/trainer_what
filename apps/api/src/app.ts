@@ -35,6 +35,7 @@ import { compiledRuleFlags } from "../../../packages/domain/src/text-screen.ts";
 import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
 import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
+import { registerBrainTeaching } from "./brain-teach.ts";
 import {
   registerCoachingFeedback,
   revokeCoachingFeedbackLearning,
@@ -1304,9 +1305,10 @@ export async function buildApp(
       return r;
     });
   });
-  app.post("/api/v1/brain/compile", async (req) => {
-    const a = owner(req),
-      b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
+  // Draft rules from teaching material; also used by Keep training
+  // (brain-teach.ts) for rules written in chat and quiz corrections.
+  const compileTeaching = async (a: Identity, sourceIds: string[]) => {
+    const b = { sourceIds };
     const material = await db.tenant(a, async (tx) => {
       await lockBrainReviewActor(tx, a);
       return tx.query(
@@ -1402,7 +1404,13 @@ export async function buildApp(
         coverage: generated.coverage,
       };
     });
+  };
+  app.post("/api/v1/brain/compile", async (req) => {
+    const a = owner(req),
+      b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
+    return compileTeaching(a, b.sourceIds);
   });
+  registerBrainTeaching(app, db, identity, { compile: compileTeaching });
   app.patch("/api/v1/brain/rules/:id", async (req) => {
     const a = owner(req),
       b = z
@@ -1717,6 +1725,9 @@ export async function buildApp(
           evaluationId: evaluation.id,
           notes: b.notes,
           mode: "supervised",
+          // A full check (at least 20 own cases) qualifies this release for
+          // "Sends automatically"; brain-teach.ts publishes "quiz" releases.
+          qualification: "full",
         },
         { status: "published" },
       );
