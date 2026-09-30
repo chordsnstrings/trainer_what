@@ -2,7 +2,7 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 30 September 2026, round 3 shipping)
+## Work in progress (updated with every owner update; last update 30 September 2026, specialties hidden)
 
 Owner rule (29 September): every update to the owner is also written here. Live: `main` `5c2aad5` (PR #6) at https://trainsyou.com. Deployment stays separately assigned; the owner said "stop the checks and ship it" for round 3.
 
@@ -16,6 +16,8 @@ Owner rule (29 September): every update to the owner is also written here. Live:
    - Music: members play their own Spotify; "own music" voice mode (iPhone: cues over music only with the screen on and silent mode off; tap to talk pauses the music; Android ducks); generated music later, after written commercial rights.
    - Defaults unless the owner says otherwise: trainers publish learned improvements with one click; tap to talk; generated music waits for rights. The owner confirms Anthropic data-retention terms before live member data is sent.
    - Token use: the owner asked twice to spend only what is necessary: no research or comparison runs unless asked, few agents, each runs only its own tests, one final run of e2e plus the screen checks for changed areas, accepted results recorded not investigated.
+
+3. **Specialties hidden (done, pushed, not deployed).** Stage 2026-09-30b: combat, endurance, yoga and pilates are hidden from the marketing site and from directory and early-access choices (`HIDDEN_SPECIALTIES` in `packages/contracts/src/marketing.ts`; remove a slug to switch it back on). Pushed to `claude/repository-overview-osejlw`; no pull request yet.
 
 Waiting on the owner: Stripe activation (charges and payouts), the AED payout bank account, test-mode keys and a restricted key; the Anthropic key entered in Super admin after the next build deploys; key rotation (later); the Arabic review and polish (later).
 

@@ -40,6 +40,12 @@ test("the directory is opt-in: a published coach appears only after the owner li
   assert.equal(initial.published, true);
   assert.equal(initial.preview.headline, "Strength for busy parents");
   assert.ok(initial.options.specialties.length >= 10);
+  // Hidden specialties (combat, endurance, yoga, pilates) are not offered.
+  for (const hidden of ["combat", "endurance", "yoga", "pilates"])
+    assert.ok(
+      !initial.options.specialties.some((s: any) => s.id === hidden),
+      hidden,
+    );
 
   const listed = await listing(h, c, {
     listed: true,
@@ -216,7 +222,7 @@ test("search filters by specialty, language and text, treats wildcards literally
         "INSERT INTO coach_directory_profiles(tenant_id,listed,specialties,languages,listed_at) VALUES($1,true,$2::text[],$3::text[],now())",
         [
           tenantId,
-          i % 2 ? ["yoga"] : ["strength"],
+          i % 2 ? ["mobility"] : ["strength"],
           i % 3 ? ["en"] : ["en", "ar"],
         ],
       ),
@@ -225,15 +231,17 @@ test("search filters by specialty, language and text, treats wildcards literally
   const first = await directory("?q=Pager");
   assert.equal(first.coaches.length, 24);
   assert.equal(first.nextOffset, 24);
+  assert.ok(first.options.specialties.some((s: any) => s.id === "strength"));
+  assert.ok(!first.options.specialties.some((s: any) => s.id === "yoga"));
   assert.equal(first.coaches[0].slug, "pager-01");
   const second = await directory("?q=Pager&offset=24");
   assert.deepEqual(slugs(second), ["pager-25", "pager-26"]);
   assert.equal(second.nextOffset, null);
-  const yoga = await directory("?q=pager&specialty=yoga");
-  assert.equal(yoga.coaches.length, 13);
+  const mobility = await directory("?q=pager&specialty=mobility");
+  assert.equal(mobility.coaches.length, 13);
   assert.ok(
-    yoga.coaches.every((c: any) =>
-      c.specialties.some((s: any) => s.id === "yoga"),
+    mobility.coaches.every((c: any) =>
+      c.specialties.some((s: any) => s.id === "mobility"),
     ),
   );
   const arabic = await directory("?q=Pager&language=ar&specialty=strength");
@@ -271,6 +279,8 @@ test("listings carry no member data, link to a connected domain, and are unavail
     specialties: ["pilates"],
     languages: ["en"],
   });
+  // A stored hidden specialty still validates but is never shown publicly.
+  assert.deepEqual((await directory("?q=Noura")).coaches[0].specialties, []);
   const body = (await call(h, "/public/directory?q=Noura")).body;
   assert.match(body, /Noura Private Coach/);
   assert.doesNotMatch(body, /Private Follower|member\.discovery\.test|@/);

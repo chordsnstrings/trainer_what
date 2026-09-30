@@ -6,6 +6,18 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30b — combat, endurance, yoga and pilates hidden from public (claude/repository-overview-osejlw from main `ec31929`, pushed, no pull request, not deployed)
+
+Owner (30 September): "let's not focus on combat and endurance coaches. Let's take them out ... We need a separate workflow for pilates and yoga as well. So let's hide it for now." Hidden, not deleted:
+
+- `HIDDEN_SPECIALTIES` (`packages/contracts/src/marketing.ts`) lists `combat`, `endurance`, `yoga`, `pilates`. `MARKETING_PAGES` filters those specialty pages out of `MARKETING_CONTENT`, so the registry, navigation, footer, `/for-trainers` hub listing, sitemap, llms.txt / llms-full.txt and JSON-LD drop them, and `/for-trainers/<slug>` is the normal 404. The page copy stays in `marketing-content.ts`; removing a slug from the list switches it back on.
+- `OFFERED_DIRECTORY_SPECIALTIES` (`packages/contracts/src/discovery.ts`) leaves the same ids out of the public directory filter, the coach's listing picker and the early-access form; public directory cards do not show them. `DIRECTORY_SPECIALTIES` and validation are unchanged, so stored listings still validate.
+- Copy: the `/for-trainers` description no longer lists the four; the directory search placeholder says "Strength, weight loss or a coach's name" (Arabic to match). Brain logic unchanged.
+
+Checks actually run: `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json` pass; `tests/marketing-site.test.ts` 25/25 (one new test for the hidden list; specialty count 8 to 4 public, safety-floor test still covers all 8 written pages); `marketing-journey`, `brand`, `marketing-api`, `marketing-follower-model`, `marketing-motion-sitewide`, `discovery-directory`, `discovery-install`, `discovery-seo` 74/74; `public-pages` 12/12. Not run: full suite, e2e, browser, brand screens.
+
+Remaining and next action: a pull request into `main` when the owner asks (merging deploys). Separate yoga and pilates workflow not designed yet.
+
 ## Stage 2026-09-30a — round 3: subscriber app, marketing motion, Stripe fixes, retest fixes, Brain tuning and owner decisions (integrate/round3, pushed for a pull request into main)
 
 On `integrate/round3` in the main working tree (from `origin/main` `5c2aad5`, live). Each decision with tests and feature docs; `docs/PROJECT_MEMORY.md` row "Owner decisions (30 Sep 2026)".

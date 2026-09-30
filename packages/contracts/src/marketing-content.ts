@@ -2472,7 +2472,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "For trainers",
     title: "AI coaching for every training specialty",
     description:
-      "How a Trainer Brain works for weight-loss, strength, muscle-gain, pre and postnatal, combat, yoga, pilates and endurance coaches, with example rules.",
+      "How a Trainer Brain works for weight-loss, strength, muscle-gain and pre and postnatal coaches, with example rules for each specialty.",
     h1: "Your specialty, taught to your own Trainer Brain",
     eyebrow: "FOR TRAINERS",
     intro:

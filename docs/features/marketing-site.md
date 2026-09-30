@@ -73,10 +73,16 @@ Derived from it, so nothing drifts:
   `/about`, `/methodology`, `/get-started` (the setup checklist and the
   claim-address preview, or early access), `/for-trainers`, `/uae`, `/guides`.
 - 11 feature pages under `/features/` with availability chips.
-- 8 specialty pages under `/for-trainers/` (slugs are `DIRECTORY_SPECIALTIES`
+- 8 specialty pages written under `/for-trainers/` (slugs are `DIRECTORY_SPECIALTIES`
   ids with hyphens), each with three rules labelled "Illustrative", handoff
   examples, a programme outline, a follower calculator starting from an
   editable example price, and a specialty FAQ.
+  Four are public (weight loss, strength, muscle gain, pre and postnatal).
+  Combat, endurance, yoga and pilates are hidden (owner, 30 September 2026):
+  `HIDDEN_SPECIALTIES` in `packages/contracts/src/marketing.ts` keeps them out
+  of the registry, so navigation, footer, hub listing, sitemap, llms.txt and
+  JSON-LD drop them and their addresses are a normal 404; removing a slug from
+  that list switches its page back on.
 - `/uae` with Dubai, Abu Dhabi and northern-emirates sections (cited local
   facts, published price table, a licensing note that makes no unverified
   claims) and a "Looking for a coach?" directory block. The former

@@ -19,7 +19,7 @@ import {
 import type { ReactNode } from "react";
 import {
   BRAND_COPY,
-  DIRECTORY_SPECIALTIES,
+  OFFERED_DIRECTORY_SPECIALTIES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
@@ -969,7 +969,7 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
       <EarlyAccessForm
         appName={platform.name}
         supportEmail={platform.supportEmail}
-        specialties={DIRECTORY_SPECIALTIES.map((s) => ({ id: s.id, label: s.label }))}
+        specialties={OFFERED_DIRECTORY_SPECIALTIES.map((s) => ({ id: s.id, label: s.label }))}
       />
     </section>
   );

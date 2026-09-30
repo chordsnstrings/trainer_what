@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { INDEXABLE_MARKETING_PAGES } from "./marketing.ts";
+import { INDEXABLE_MARKETING_PAGES, isHiddenSpecialty } from "./marketing.ts";
 import {
   BRAND_ASSETS,
   BRAND_COLORS,
@@ -209,6 +209,16 @@ export const DIRECTORY_SPECIALTIES = [
   { id: "active_ageing", label: "Active ageing" },
   { id: "nutrition_habits", label: "Nutrition habits" },
 ] as const;
+
+/**
+ * The specialties coaches and visitors may choose from: every directory
+ * specialty except the hidden ones (HIDDEN_SPECIALTIES in marketing.ts).
+ * Hidden ids stay in DIRECTORY_SPECIALTIES so stored listings and requests
+ * that already use them still validate; they are just not offered or shown.
+ */
+export const OFFERED_DIRECTORY_SPECIALTIES = DIRECTORY_SPECIALTIES.filter(
+  (s) => !isHiddenSpecialty(s.id),
+);
 
 export const DIRECTORY_LANGUAGES = [
   { id: "en", label: "English" },
