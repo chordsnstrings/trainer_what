@@ -132,6 +132,7 @@ import { clientTwinRoutes, currentClientTwin } from "./client-twin.ts";
 import { nutritionRoutes, requireNutritionReady } from "./nutrition.ts";
 import { NutritionBlocked } from "../../../packages/domain/src/nutrition.ts";
 import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
+import { setupAssistantRoutes } from "./setup-assistant.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
@@ -1093,6 +1094,7 @@ export async function buildApp(
     return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
+  setupAssistantRoutes(app, db, owner);
   app.post("/api/v1/tenant/publish", (req) =>
     publishStorefront(db, owner(req)),
   );
