@@ -22,8 +22,9 @@ import {
 import { requestMatchesTerm } from "../packages/domain/src/coaching-completion.ts";
 import {
   compileTrainerRules,
+  MODEL_CALL_BUDGETS,
+  modelCallBudget,
   modelCallTimeoutMs,
-  MODEL_CALL_TIMEOUT_MS,
   ModelOutputInvalid,
   ruleCompilePromptVersion,
   withRuntimeConfig,
@@ -190,14 +191,20 @@ test("any other new number is still an altered number (N2)", () => {
 
 test("rule compile and meal photo allow a slower model family more time (N7)", () => {
   for (const model of ["gpt-4.1", "claude-sonnet-4-5", "fixture-model", "seedance-1-0", undefined])
-    for (const task of ["rule_compile", "meal_photo"] as const)
-      assert.equal(modelCallTimeoutMs(task, model), MODEL_CALL_TIMEOUT_MS[task], `${model} ${task}`);
-  assert.equal(MODEL_CALL_TIMEOUT_MS.rule_compile, 30000);
-  assert.equal(MODEL_CALL_TIMEOUT_MS.meal_photo, 30000);
+    for (const task of ["rule_compilation", "meal_photo"] as const)
+      assert.equal(modelCallTimeoutMs(task, model), MODEL_CALL_BUDGETS[task].timeoutMs, `${model} ${task}`);
+  assert.equal(MODEL_CALL_BUDGETS.rule_compilation.timeoutMs, 30000);
+  assert.equal(MODEL_CALL_BUDGETS.meal_photo.timeoutMs, 30000);
   // Seed 2.0 Pro needed 46 to 56 s to compile and 37 s for a photo.
   for (const model of ["seed-2-0-pro-260328", "doubao-seed-1-6-250615", "Seed-2.0-Pro"]) {
-    assert.ok(modelCallTimeoutMs("rule_compile", model) >= 60000, model);
+    assert.ok(modelCallTimeoutMs("rule_compilation", model) >= 60000, model);
     assert.ok(modelCallTimeoutMs("meal_photo", model) >= 45000, model);
+    // The call itself gets that allowance through the one budget mechanism
+    // (classic request style, multiplier 1 by default).
+    assert.ok(modelCallBudget("rule_compilation", { MODEL_NAME: model }).timeoutMs >= 60000, model);
+    assert.ok(modelCallBudget("meal_photo", { MODEL_NAME: model }).timeoutMs >= 45000, model);
+    // Other call sites keep their own limits.
+    assert.equal(modelCallBudget("coach_selection", { MODEL_NAME: model }).timeoutMs, 30000, model);
   }
 });
 

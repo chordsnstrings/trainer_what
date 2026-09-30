@@ -64,7 +64,10 @@ Design:
    confidence gate, and applies them to next week's planned sessions or queues them for review.
    A pain report skips the model and queues the unchanged week for the trainer.
 7. **Qualification**: held-out plan scenarios (at least 6, two that must go to review); a
-   passing evaluation pins Brain release, rules, prompt/validator versions, model and bounds.
+   passing evaluation pins Brain release, rules, prompt/validator versions, model and bounds,
+   and (since branch `fix/openai-compat`) the AI model's request style and reasoning effort
+   whenever the request differs from the default classic one (`planModelPin().request`,
+   `docs/features/model-gateway.md`), so changing either needs a new qualification.
    Without it every plan goes to review (supervised mode).
 8. **UI**: `/trainer/brain/plans` (queue with draft, reasons and approve/edit/reject; settings;
    learning stats; library equipment tags; scenarios and qualification; generate for a member),
@@ -215,7 +218,15 @@ Behaviour:
   "preparing".
 - **Long programmes**: the model's output budget and timeout scale with sessions a week and weeks
   (`planGenerationBudget`: at least 6000 and at most 16000 tokens, 45 s to 240 s;
-  `modelCompletion` gained an optional `timeoutMs`).
+  `modelCompletion` gained an optional `timeoutMs`). Since branch `fix/openai-compat` the time is
+  multiplied for the model family (AI model settings; 1 for classic models, 2 by default for
+  GPT-5 and later and the o-series, at most 300 s) and plan adaptation's 60 s comes from
+  `MODEL_CALL_BUDGETS`; see `docs/features/model-gateway.md`. The worker's claim of a
+  `brain_plan` job now holds its lease for the longest such call plus 90 s
+  (`brainPlanLeaseSeconds()`: 257 s classic, 390 s reasoning at the defaults; it was a fixed two
+  minutes, shorter than a large classic plan's 166.5 s and every reasoning plan's limit), so no
+  second claim finds the generation still `generating` and hands a paid reply to the trainer as
+  interrupted.
 - **Audit**: each `plan_generation` stores type, trigger, job id, Brain release, contract digest,
   prompt version, model pin, usage, inputs (profile, segment, length, start date, timezone, twin
   snapshot id) and their digest, retrieval trace, draft, validation, confidence breakdown, safety

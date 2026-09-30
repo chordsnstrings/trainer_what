@@ -1218,7 +1218,7 @@ function Runner({
                   const reps = Number(repsDraft);
                   if (!Number.isInteger(reps) || reps < 0 || reps > 200) return;
                   setRepsDraft("");
-                  command({ type: "reps", reps });
+                  command({ type: "reps", reps, typed: true });
                 }}
               >
                 <label>
