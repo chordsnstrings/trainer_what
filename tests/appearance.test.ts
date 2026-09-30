@@ -339,7 +339,7 @@ test("Display preferences: a labelled group of three choices, the device's first
 });
 
 test("the profile page offers Display preferences to members only", async () => {
-  const workspace = await source("apps/web/components/workspace.tsx");
+  const workspace = await source("apps/web/components/workspace-settings.tsx");
   // Members' Profile and settings (MemberSettings) has it; the coach's
   // settings (TrainerSettingsView) does not.
   const member = workspace.slice(
@@ -349,7 +349,6 @@ test("the profile page offers Display preferences to members only", async () => 
   assert.match(member, /<DisplayPreferences \/>/);
   const trainer = workspace.slice(
     workspace.indexOf("function TrainerSettingsView("),
-    workspace.indexOf("function Analytics("),
   );
   assert.ok(trainer.length > 0);
   assert.doesNotMatch(trainer, /DisplayPreferences/);

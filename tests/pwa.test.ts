@@ -610,7 +610,15 @@ test("installed-app wiring in the root layout and the web app", async () => {
   // One registration address for everyone (the push card included).
   const push = await source("apps/web/components/push-notifications.tsx");
   assert.doesNotMatch(push, /register\("\/sw\.js"/);
-  const workspace = await source("apps/web/components/workspace.tsx");
+  // The trainer workspace shell and its modules (workspace-*.tsx).
+  const workspace = (
+    await Promise.all(
+      [
+        "", "-ui", "-home", "-brain", "-clients", "-training", "-messages",
+        "-finance", "-settings", "-admin",
+      ].map((part) => source(`apps/web/components/workspace${part}.tsx`)),
+    )
+  ).join("\n");
   assert.doesNotMatch(workspace, /register\("\/sw\.js"/);
   assert.doesNotMatch(workspace, /trainer-workout-shell-v1/);
   const css = (await source("apps/web/app/pwa.css")).replace(
