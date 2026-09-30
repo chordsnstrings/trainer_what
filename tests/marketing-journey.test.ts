@@ -232,31 +232,19 @@ test("each subscriber line is registry text, looked up, never copied", () => {
   );
 });
 
-test("the launch gate: no player until a coach can launch, and then the base steps", () => {
-  assert.equal(journeyAvailable(ready), true);
-  const closedStates: Array<[string, PublicPlatform]> = [
+test("the walkthrough shows whatever the platform flags say", () => {
+  const states: Array<[string, PublicPlatform]> = [
+    ["open", ready],
     ["registration closed", with_({}, false)],
     ["model off", with_({ model: false })],
     ["payments off", with_({ payments: false })],
     ["payouts off", with_({ payouts: false })],
   ];
-  const base = renderToStaticMarkup(
-    createElement(Section, {
-      section: how.sections.find((s) => s.id === "steps")!,
-      t,
-    }),
-  );
-  for (const [label, platform] of closedStates) {
-    assert.equal(journeyAvailable(platform), false, label);
-    const page = render("/how-it-works", platform);
-    const home = render("/", platform);
-    assert.doesNotMatch(page + home, /mk-walk|Your subscriber:/, label);
-    // /how-it-works renders its steps section exactly as before.
-    assert.ok(page.includes(`<div>${base}</div>`), label);
+  for (const [label, platform] of states) {
+    assert.equal(journeyAvailable(platform), true, label);
+    assert.match(render("/how-it-works", platform), /class="mk-walk mk-walk-full"/, label);
+    assert.match(render("/", platform), /class="mk-walk mk-walk-compact"/, label);
   }
-  // Open: both placements render.
-  assert.match(render("/how-it-works"), /class="mk-walk mk-walk-full"/);
-  assert.match(render("/"), /class="mk-walk mk-walk-compact"/);
 });
 
 test("the home band adds no heading, no new sentence and no words in its stage", () => {

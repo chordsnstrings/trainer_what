@@ -83,9 +83,9 @@ only client code, React only: the control bar, the chapter clock, the root's
 data attributes), `apps/web/app/marketing-journey.css` (every journey style;
 imported next to `marketing.css` in `app/layout.tsx`).
 
-Placements, only while a coach can launch (registration open and the model,
-payments and payouts providers available; otherwise the pages render exactly
-as before):
+Placements, always shown (owner, 30 September 2026; until then it was shown
+only while registration was open and the model, payments and payouts
+providers were available). Parts not live yet keep their availability chips:
 
 - `/how-it-works`: the "Eight steps, start to finish" section. Its h2, its
   `ol.mk-steps` with the registry's titles and bodies unchanged, and the HowTo
