@@ -32,7 +32,7 @@ export default defineMessages(
     directoryIntro:
       "Every coach here opted in. Each profile links to the coach’s own website, where you can read about their approach and memberships.",
     nameOrFocus: "Name or focus",
-    searchPlaceholder: "Strength, yoga or a coach’s name",
+    searchPlaceholder: "Strength, weight loss or a coach’s name",
     specialty: "Specialty",
     anySpecialty: "Any specialty",
     language: "Language",
@@ -146,7 +146,7 @@ export default defineMessages(
     directoryIntro:
       "كل مدرب هنا اختار الظهور. يرتبط كل ملف بموقع المدرب الخاص، حيث يمكنك التعرّف على أسلوبه واشتراكاته.",
     nameOrFocus: "الاسم أو المجال",
-    searchPlaceholder: "القوة أو اليوغا أو اسم مدرب",
+    searchPlaceholder: "القوة أو إنقاص الوزن أو اسم مدرب",
     specialty: "التخصص",
     anySpecialty: "أي تخصص",
     language: "اللغة",

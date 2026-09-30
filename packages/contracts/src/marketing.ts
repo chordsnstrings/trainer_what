@@ -161,7 +161,33 @@ export type MarketingSource = {
   usedFor: string;
 };
 
-export const MARKETING_PAGES: readonly MarketingPage[] = MARKETING_CONTENT;
+/**
+ * Specialties hidden from everything public for now (owner, 30 September
+ * 2026): combat and endurance coaching need physical presence, and yoga and
+ * pilates need their own workflow. Their specialty pages stay written in
+ * marketing-content.ts but are left out of the registry (so every nav,
+ * footer, sitemap, llms.txt, JSON-LD and hub listing drops them and their
+ * addresses are a normal 404), and the directory specialty ids stay valid
+ * but are not offered as choices. Remove an entry to switch it back on.
+ */
+export const HIDDEN_SPECIALTIES = ["combat", "endurance", "yoga", "pilates"] as const;
+export type HiddenSpecialty = (typeof HIDDEN_SPECIALTIES)[number];
+/** A specialty page slug or directory specialty id that is hidden. */
+export function isHiddenSpecialty(slugOrId: string): boolean {
+  return (HIDDEN_SPECIALTIES as readonly string[]).includes(
+    slugOrId.replaceAll("_", "-"),
+  );
+}
+function isHiddenPage(page: MarketingPage): boolean {
+  return (
+    page.kind === "specialty" &&
+    isHiddenSpecialty(page.path.split("/").pop() ?? "")
+  );
+}
+
+export const MARKETING_PAGES: readonly MarketingPage[] = MARKETING_CONTENT.filter(
+  (page) => !isHiddenPage(page),
+);
 const byPath = new Map(MARKETING_PAGES.map((page) => [page.path, page]));
 
 /** A trailing slash, query or fragment never changes the page. */

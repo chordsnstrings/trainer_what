@@ -10,6 +10,8 @@ import {
   DIRECTORY_PATH,
   DIRECTORY_SPECIALTIES,
   INDEXABLE_MARKETING_PAGES,
+  OFFERED_DIRECTORY_SPECIALTIES,
+  isHiddenSpecialty,
   SITEMAP_COACHES_PER_FILE,
   coachHostPagePath,
   directoryListingSchema,
@@ -215,7 +217,9 @@ export async function searchDirectory(
         name: row.name,
         headline: String(row.headline ?? "").slice(0, 200),
         photoUrl: directoryPhoto(design),
-        specialties: (row.specialties as string[]).map((id) => ({
+        specialties: (row.specialties as string[])
+          .filter((id) => !isHiddenSpecialty(id))
+          .map((id) => ({
           id,
           label: label(DIRECTORY_SPECIALTIES, id),
         })),
@@ -236,7 +240,7 @@ export async function searchDirectory(
       offset: q.offset,
     },
     options: {
-      specialties: DIRECTORY_SPECIALTIES,
+      specialties: OFFERED_DIRECTORY_SPECIALTIES,
       languages: DIRECTORY_LANGUAGES,
     },
     platformName: platformName(runtimeConfig().APP_NAME),
@@ -308,7 +312,7 @@ async function listingView(tx: Tx, a: Actor) {
       url: `/coach/${tenant.slug}`,
     },
     options: {
-      specialties: DIRECTORY_SPECIALTIES,
+      specialties: OFFERED_DIRECTORY_SPECIALTIES,
       languages: DIRECTORY_LANGUAGES,
     },
   };

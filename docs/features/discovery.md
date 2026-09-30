@@ -125,7 +125,12 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
   nutrition habits) and 17 languages (English, Arabic, Hindi, Urdu, Malayalam,
   Tamil, Filipino, Bengali, Persian, Turkish, French, German, Spanish, Italian,
   Portuguese, Russian, Chinese). The database checks shape and counts; the API
-  checks the vocabulary.
+  checks the vocabulary. Running and endurance, yoga, pilates and boxing and martial
+  arts are hidden for now (owner, 30 September 2026): their ids still
+  validate and stored listings keep them, but `OFFERED_DIRECTORY_SPECIALTIES`
+  (driven by `HIDDEN_SPECIALTIES` in `marketing.ts`) leaves them out of the
+  directory filter, the coach's listing picker and the early-access form, and
+  public directory cards do not show them.
 - **Branded app for the trainer's team.** Owners, staff and finance members
   get the branded manifest too, with `start_url` `/trainer`.
 - **Coach domain crawler files.** On a connected custom domain `robots.txt`

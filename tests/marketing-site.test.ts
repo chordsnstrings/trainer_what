@@ -11,6 +11,10 @@ import {
   CITED_ASSUMPTIONS,
   DIRECTORY_SPECIALTIES,
   FEATURE_MATRIX,
+  HIDDEN_SPECIALTIES,
+  OFFERED_DIRECTORY_SPECIALTIES,
+  directorySpecialtySchema,
+  isHiddenSpecialty,
   REPLACES,
   ENTITY_SENTENCE,
   INDEXABLE_MARKETING_PAGES,
@@ -38,6 +42,7 @@ import {
   robotsPolicy,
   type MarketingPage,
 } from "@trainer/contracts";
+import { MARKETING_CONTENT } from "../packages/contracts/src/marketing-content.ts";
 import { BANDS, projectedCommission, safetySignal } from "@trainer/domain";
 import { SAFETY_FLOOR } from "../packages/domain/src/safety-policy.ts";
 import {
@@ -162,7 +167,7 @@ test("registry: unique paths, titles, descriptions and headings; parents, relate
   }
 });
 
-test("the brief's page set exists: core pages, 11 features, 8 specialties, the UAE page and guides", () => {
+test("the brief's page set exists: core pages, 11 features, 4 public specialties, the UAE page and guides", () => {
   for (const path of [
     "/",
     "/how-it-works",
@@ -191,7 +196,7 @@ test("the brief's page set exists: core pages, 11 features, 8 specialties, the U
     assert.ok(isMarketingSitePath(target.split("#")[0]), target);
   assert.equal(MARKETING_PAGES.filter((p) => p.kind === "feature").length, 11);
   const specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty");
-  assert.equal(specialties.length, 8);
+  assert.equal(specialties.length, 4);
   // Specialty slugs are directory specialty ids with hyphens.
   const ids = new Set<string>(DIRECTORY_SPECIALTIES.map((s) => s.id));
   for (const page of specialties) {
@@ -206,7 +211,8 @@ test("the brief's page set exists: core pages, 11 features, 8 specialties, the U
 });
 
 test("specialty pages match the safety floor: enforced items are listed as enforced, trainer examples never repeat them", () => {
-  const specialties = MARKETING_PAGES.filter((p) => p.kind === "specialty");
+  // Hidden specialty pages stay written, so they are checked too.
+  const specialties = MARKETING_CONTENT.filter((p) => p.kind === "specialty");
   assert.equal(specialties.length, 8);
   for (const page of specialties) {
     const floor = page.sections.find((s) => s.id === "floor")?.bullets ?? [];
@@ -746,6 +752,48 @@ test("llms.txt follows llmstxt.org and llms-full.txt carries every page, FAQ and
   }
   for (const source of MARKETING_SOURCES) assert.ok(full.includes(source.url), source.id);
   assert.doesNotMatch(full, /\{APP_NAME\}/);
+});
+
+test("hidden specialties (combat, endurance, yoga, pilates) are in no public list and are not offered as choices", () => {
+  assert.deepEqual([...HIDDEN_SPECIALTIES].sort(), ["combat", "endurance", "pilates", "yoga"]);
+  const hiddenPaths = HIDDEN_SPECIALTIES.map((slug) => "/for-trainers/" + slug);
+  // The pages are still written, so switching one back on is one line.
+  for (const path of hiddenPaths)
+    assert.ok(MARKETING_CONTENT.some((p) => p.path === path), path);
+  // Registry, sitemap list, navigation, footer and hub listing.
+  for (const path of hiddenPaths) {
+    assert.equal(marketingPage(path), undefined, path);
+    assert.equal(isMarketingPath(path), false, path);
+    assert.equal(isUnknownMarketingChild(path), true, path + " is a normal 404");
+    assert.equal(isIndexablePlatformPath(path), false, path);
+    assert.ok(!MARKETING_PAGES.some((p) => p.path === path), path);
+    assert.ok(!PUBLIC_MARKETING_PATHS.includes(path), path);
+  }
+  const navHrefs = [
+    ...marketingNav().flatMap((g) => [...g.links.map((l) => l.href), g.href ?? ""]),
+    ...marketingFooter().flatMap((c) => c.links.map((l) => l.href)),
+  ];
+  const linked = MARKETING_PAGES.flatMap((p) => [p.parent ?? "", ...(p.related ?? []), p.cta?.href ?? ""]);
+  for (const path of hiddenPaths) {
+    assert.ok(!navHrefs.includes(path), path);
+    assert.ok(!linked.includes(path), path);
+  }
+  // llms.txt, llms-full.txt and every public page's text and JSON-LD.
+  const hiddenWords = /\b(combat|endurance|yoga|pilates|boxing|martial arts|marathon)\b/i;
+  assert.doesNotMatch(llmsTxt(ctx), hiddenWords);
+  assert.doesNotMatch(llmsFullTxt(ctx), hiddenWords);
+  for (const page of MARKETING_PAGES) {
+    for (const path of hiddenPaths) assert.ok(!allText(page).includes(path), page.path);
+    assert.doesNotMatch(JSON.stringify(marketingJsonLd(page, ctx)), /for-trainers\/(combat|endurance|yoga|pilates)/, page.path);
+  }
+  // Directory and early-access choices: hidden ids stay valid but are not offered.
+  for (const id of HIDDEN_SPECIALTIES) {
+    assert.ok(isHiddenSpecialty(id));
+    assert.ok(DIRECTORY_SPECIALTIES.some((s) => s.id === id), id);
+    assert.equal(directorySpecialtySchema.safeParse(id).success, true, id);
+    assert.ok(!OFFERED_DIRECTORY_SPECIALTIES.some((s) => s.id === id), id);
+  }
+  assert.equal(OFFERED_DIRECTORY_SPECIALTIES.length, DIRECTORY_SPECIALTIES.length - HIDDEN_SPECIALTIES.length);
 });
 
 test("follower calculator: the headline is the strong case; cautious and typical sit under How we estimate", () => {
