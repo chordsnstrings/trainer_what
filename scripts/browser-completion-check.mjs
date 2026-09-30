@@ -716,10 +716,15 @@ export async function checkCompletionFlows({
     .getByRole("region", { name: "Conversation" })
     .getByText(messageText, { exact: true })
     .waitFor();
+  // Chats list the conversations; the latest one opens its thread.
   await coach.goto(base + "/trainer/messages");
   await coach
-    .getByLabel("Client", { exact: true })
-    .selectOption({ label: "Sam Taylor" });
+    .locator(".chat-list")
+    .getByRole("link")
+    .filter({ hasText: "Sam Taylor" })
+    .first()
+    .click();
+  await coach.waitForURL("**/trainer/messages/*");
   const received = coach
     .getByRole("region", { name: "Conversation" })
     .locator("article")

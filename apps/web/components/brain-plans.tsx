@@ -625,10 +625,10 @@ function SettingsCard({
 }) {
   return (
     <section className="card">
-      <h2>Confidence and safety settings</h2>
+      <h2>How plans reach clients</h2>
       <p className="muted">
-        Plans at or above your threshold are delivered automatically once plan
-        qualification passes. Medical limitations, pain reports and red-flag
+        Once your Brain passes the practice quiz for plans, plans it is sure
+        about can be sent automatically. Medical limitations, pain reports and red-flag
         terms always come to you. A new exercise starts within one load jump of
         the subscriber&rsquo;s logged or library load, or at most at your start
         limit when there is neither.
@@ -669,15 +669,12 @@ function SettingsCard({
         <div className="form-grid">
           <Field label="Delivery">
             <select name="mode" defaultValue={settings.mode}>
-              <option value="automatic">Automatic when confident</option>
-              <option value="supervised">Every plan to me</option>
+              <option value="automatic">Sends automatically when it is sure</option>
+              <option value="supervised">Waits for me (every plan comes to me)</option>
             </select>
           </Field>
           {(
             [
-              ["threshold", "Confidence threshold (%)", 50, 99, Math.round(settings.threshold * 100)],
-              ["spotCheckRate", "Spot-check share while young (%)", 0, 100, Math.round(settings.spotCheckRate * 100)],
-              ["youngBrainReviews", "Young until this many reviews", 0, 500, settings.youngBrainReviews],
               ["defaultBlockDays", "Default block length (days)", 7, 365, settings.defaultBlockDays],
               ["maxWeeklyVolumeIncreasePct", "Max weekly volume increase (%)", 0, 50, settings.bounds.maxWeeklyVolumeIncreasePct],
               ["maxLoadJumpPct", "Max load jump (%)", 0, 30, settings.bounds.maxLoadJumpPct],
@@ -701,6 +698,35 @@ function SettingsCard({
             </Field>
           ))}
         </div>
+        {/* Advanced: the defaults suit most coaches (docs/features/trainer-workspace.md). */}
+        <details className="advanced-settings">
+          <summary>Advanced</summary>
+          <p className="muted">
+            How sure your Brain must be before a plan goes out on its own, and
+            how many plans you check while it is new. The defaults suit most
+            coaches.
+          </p>
+          <div className="form-grid">
+            {(
+              [
+                ["threshold", "How sure it must be to send alone (%)", 50, 99, Math.round(settings.threshold * 100)],
+                ["spotCheckRate", "Share of sent plans you check while it is new (%)", 0, 100, Math.round(settings.spotCheckRate * 100)],
+                ["youngBrainReviews", "Counts as new until you have reviewed this many plans", 0, 500, settings.youngBrainReviews],
+              ] as const
+            ).map(([name, text, min, max, value]) => (
+              <Field key={name} label={text}>
+                <input
+                  name={name}
+                  type="number"
+                  min={min}
+                  max={max}
+                  defaultValue={value}
+                  required
+                />
+              </Field>
+            ))}
+          </div>
+        </details>
         <button className="button" disabled={busy}>
           Save settings
         </button>
@@ -769,21 +795,21 @@ function QualificationCard({
   const [type, setType] = useState<"programme" | "adaptation">("programme");
   return (
     <section className="card">
-      <h2>Plan qualification</h2>
+      <h2>Practice quiz for plans</h2>
       <p>
         {qualification.qualified
-          ? "Qualified: confident plans are delivered automatically."
-          : "Supervised: every plan comes to you until plan generation passes your held-out scenarios for the current Brain, model, bounds and threshold."}
+          ? "Passed: plans your Brain is sure about are sent automatically."
+          : "Waits for me: every plan comes to you until your Brain passes the practice quiz for plans with your current rules and limits."}
       </p>
       <p className="muted">
         {qualification.adaptationQualified
-          ? "Weekly adjustments are qualified too: confident ones are applied automatically."
-          : "Weekly adjustments come to you until adaptation scenarios (one the Brain should apply, one for you) pass as well."}
+          ? "Weekly changes passed too: ones your Brain is sure about are applied automatically."
+          : "Weekly changes come to you until their quiz questions (one your Brain should apply, one for you) pass as well."}
       </p>
       {latest && (
         <p className="muted">
           Latest run {latest.status} ({latest.passed} of {latest.total})
-          {latest.current ? "" : " — for an earlier Brain, bounds, threshold or scenario set"}
+          {latest.current ? "" : " — re-checking your changes"}
         </p>
       )}
       {latest?.outcomes?.some((o: any) => !o.passed) && (

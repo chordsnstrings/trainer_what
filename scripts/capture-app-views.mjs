@@ -140,13 +140,15 @@ const publicRoutes = [
   ["/join-coach/alex-morgan", "Client registration"],
 ];
 const trainerRoutes = [
-  ["/trainer", "Trainer overview"],
-  ["/trainer/subscribers", "Subscribers"],
+  ["/trainer", "Inbox"],
+  ["/trainer/summary", "Trainer overview"],
+  ["/trainer/more", "More"],
+  ["/trainer/subscribers", "Clients"],
   ["/trainer/programs", "Programs"],
-  ["/trainer/messages", "Messages"],
+  ["/trainer/messages", "Chats"],
   ["/trainer/bookings", "Coaching calendar"],
   ["/trainer/support", "Trainer support"],
-  ["/trainer/exceptions", "Coaching exceptions"],
+  ["/trainer/exceptions", "Needs you"],
   ["/trainer/analytics", "Business analytics"],
   ["/trainer/finance", "Finance · ledger"],
   ["/trainer/products", "Subscription offers"],
@@ -331,7 +333,7 @@ try {
   if (sam) {
     trainerRoutes.push([
       `/trainer/subscribers/${sam.id}`,
-      "Subscriber coaching context",
+      "Client page",
     ]);
     trainerRoutes.push([
       `/trainer/nutrition/clients/${sam.id}`,

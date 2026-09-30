@@ -43,6 +43,7 @@ import {
   evaluateBrainReplies,
   HELD_OUT_SCENARIO_LIMIT,
 } from "./brain-replies-check.ts";
+import { registerTrainerInbox } from "./trainer-inbox.ts";
 import {
   registerCoachingFeedback,
   revokeCoachingFeedbackLearning,
@@ -653,6 +654,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
+  registerTrainerInbox(app, db);
   registerCoachingFeedback(app, db);
   registerLifecycleMessages(app, db);
   registerRetention(app, db);

@@ -2375,7 +2375,7 @@ test("review regression (Opus T2S03, Arabic): neutral wording for an Arabic plan
 
 test("review regression: a prescribed distance or load can be logged as prescribed (no step the browser refuses)", async () => {
   const source = await readFile(
-    new URL("../apps/web/components/workspace.tsx", import.meta.url),
+    new URL("../apps/web/components/workspace-training.tsx", import.meta.url),
     "utf8",
   );
   // The member workout screen logs each value with a NumberStepper

@@ -160,12 +160,16 @@ try {
     .fill(process.env.DEMO_PASSWORD ?? "TrainerDemo2026!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/trainer");
-  await page.getByRole("heading", { name: "Good to see you, Alex." }).waitFor();
+  // The trainer's home is the one inbox; the old dashboard is the summary.
+  await page.getByRole("heading", { name: "Inbox", exact: true }).waitFor();
   await capture(page, {
     path: "test-results/trainer-desktop.png",
     fullPage: true,
   });
   for (const [route, name] of [
+    ["/trainer/summary", "Good to see you, Alex."],
+    ["/trainer/messages", "Chats"],
+    ["/trainer/more", "More"],
     ["/trainer/brain"],
     ["/trainer/brain/plans", "Plans your Brain writes"],
     ["/trainer/subscribers"],
@@ -256,8 +260,11 @@ try {
     path: "test-results/trainer-mobile.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("link", { name: "My Brain", exact: true }).click();
+  // The phone's bottom bar replaces the drawer in the trainer workspace.
+  await page
+    .getByRole("navigation", { name: "Sections" })
+    .getByRole("link", { name: "My Brain", exact: true })
+    .click();
   await page.waitForURL("**/trainer/brain");
   await page.goto(base + "/setup/about");
   await page
@@ -419,7 +426,7 @@ try {
   )
     throw new Error("Client context did not persist");
   await page.goto(
-    base + `/trainer/subscribers/${savedContext.provenance.userId}`,
+    base + `/trainer/subscribers/${savedContext.provenance.userId}/notes`,
   );
   await page.getByLabel("Communication preferences", { exact: true }).waitFor();
   if (

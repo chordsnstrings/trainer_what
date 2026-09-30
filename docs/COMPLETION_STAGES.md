@@ -71,6 +71,13 @@ Owner decisions of 30 September (one wizard, each step by chat or short form; dr
 - **Not run.** Full suite, e2e, browser checks (not asked); a live speech-to-text call; a live website fetch outside the test fixture.
 - **Not done.** The wizard UI (another builder); the voice-note positive path is covered only by the existing transcription tests; a website that redirects is refused rather than followed.
 - **Next action.** Integration with the wizard UI branch; the wizard calls these endpoints.
+## Stage 2026-09-30r4-workspace — daily trainer workspace: four sections, one inbox, chats, client page, plain words (r4/workspace from origin/main `32ed5fe`, not pushed, not merged)
+
+What changed: `apps/web/components/workspace.tsx` split into `workspace-{ui,home,brain,clients,training,messages,finance,settings,admin}.tsx` with no behaviour change (first commit); then four sections (Inbox, Clients, My Brain, More with Business / My page / Account) with a phone bottom bar (`workspace-nav.tsx`, `app/trainer-workspace.css`); `/trainer` is the one inbox (`workspace-inbox.tsx`) over new read-only `GET /api/v1/trainer/inbox` and `GET /api/v1/trainer/chats` (`apps/api/src/trainer-inbox.ts`); `POST /exceptions/:id/resolve` takes `replyText` (Edit & send / Reply in one transaction) and needs a note only when closing without sending; chats list and thread at `/trainer/messages[/:id]`; client page tabs Message / Plan / Notes / Membership; plain words and an Advanced block for plan confidence settings; model id and provider names removed from coach screens; "Finish setup" links to `/setup`. No migration, no prompt change. Docs: `docs/features/trainer-workspace.md`.
+
+Checks run: both typechecks; under PGlite `trainer-inbox`, `trainer-workspace-web`, `coaching-completion`, `coaching-feedback`, `coaching-runtime`, `fix-chat` and the 19 source-reading web test files touched by the split (25 files, 262 tests, all pass); under PostgreSQL with the restricted role `trainer-inbox`, `coaching-completion`, `coaching-feedback`, `fix-chat`, `coaching-runtime` (all pass). Not run: full suite, e2e, build, browser/phone/RTL checks (selectors updated only). No live model runs (no prompt changed).
+
+Remaining: merge with the other round 4 branches (the split moves code other branches may edit in `workspace.tsx`); run `test:browser`, `test:rtl`, `test:phone` on the merged head. Next action: integrate.
 
 ## Stage 2026-09-30c — host-only Superadmin recovery (claude/repository-overview-osejlw from main `5d3ad59`, pushed, no pull request, not deployed)
 

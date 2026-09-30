@@ -33,6 +33,7 @@ import "./host-operations.css";
 import "./provider-sandbox.css";
 import "./programme.css";
 import "./brain-plans.css";
+import "./trainer-workspace.css";
 import "./voice-session.css";
 import "./web-address.css";
 import "./setup-wizard.css";
